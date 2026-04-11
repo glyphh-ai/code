@@ -15,9 +15,12 @@ contextBridge.exposeInMainWorld("yo", {
   windowMinimize: () => ipcRenderer.send("window-minimize"),
   windowMaximize: () => ipcRenderer.send("window-maximize"),
 
-  // Panel visibility
+  // Panel visibility + refresh
   panelsHide: () => ipcRenderer.send("panels-hide"),
   panelsShow: () => ipcRenderer.send("panels-show"),
+  panelsRefresh: (id?: string) => ipcRenderer.send("panels-refresh", id),
+  panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
+  panelsGetZoom: () => ipcRenderer.invoke("panels-get-zoom") as Promise<number>,
 
   // Library CRUD
   libraryList: () => ipcRenderer.invoke("library-list") as Promise<string[]>,
@@ -38,6 +41,8 @@ contextBridge.exposeInMainWorld("yo", {
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,
+  layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) =>
+    ipcRenderer.invoke("layouts-save-grid", grid) as Promise<boolean>,
   layoutsDelete: (name: string) => ipcRenderer.invoke("layouts-delete", name) as Promise<boolean>,
 
   // Autocomplete data
@@ -48,10 +53,12 @@ contextBridge.exposeInMainWorld("yo", {
     layouts: string[];
   }>,
 
-  // Split resize + swap
+  // Grid resize + swap
   splitDragStart: () => ipcRenderer.send("split-drag-start"),
   splitDragMove: (ratio: number) => ipcRenderer.send("split-drag-move", ratio),
   splitDragEnd: (ratio: number) => ipcRenderer.send("split-drag-end", ratio),
+  gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
+    ipcRenderer.send("grid-drag-end", type, index, fraction),
   splitSwap: (index: number, panelId: string) => ipcRenderer.send("split-swap", index, panelId),
 
   // Preferences
@@ -68,7 +75,14 @@ contextBridge.exposeInMainWorld("yo", {
   onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
-  onSplitState: (callback: (info: { panelIds: string[]; ratio: number } | null) => void) => {
+  onSplitState: (callback: (info: {
+    panelIds: string[];
+    cols: number;
+    rows: number;
+    colWidths: number[];
+    rowHeights: number[];
+    cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
+  } | null) => void) => {
     ipcRenderer.on("split-state", (_event, info) => callback(info));
   },
   onSplitDragPreview: (callback: (ratio: number) => void) => {

@@ -68,6 +68,36 @@ export function initHelp() {
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
   document.getElementById("layout-save-btn")!.addEventListener("click", saveLayout);
 
+  // Grid builder dimension controls
+  gridColsSelect.addEventListener("change", () => {
+    builderCols = parseInt(gridColsSelect.value, 10);
+    initBuilderCells();
+    renderGridPreview();
+  });
+  gridRowsSelect.addEventListener("change", () => {
+    builderRows = parseInt(gridRowsSelect.value, 10);
+    initBuilderCells();
+    renderGridPreview();
+  });
+  mergeRightBtn.addEventListener("click", () => {
+    if (builderSelected >= 0) {
+      doMergeRight(builderSelected);
+      renderGridPreview();
+    }
+  });
+  mergeDownBtn.addEventListener("click", () => {
+    if (builderSelected >= 0) {
+      doMergeDown(builderSelected);
+      renderGridPreview();
+    }
+  });
+  splitBtn.addEventListener("click", () => {
+    if (builderSelected >= 0) {
+      doSplit(builderSelected);
+      renderGridPreview();
+    }
+  });
+
   // Panels
   document.getElementById("panel-add-btn")!.addEventListener("click", addPanel);
 }
@@ -206,13 +236,179 @@ async function newSkillItem() {
   editSkillItem(name);
 }
 
-// ── Layouts ──────────────────────────────────────────────
+// ── Layouts (Grid Builder) ──────────────────────────────────
 
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
 const layoutEditName = document.getElementById("layout-edit-name")!;
-const panelPicker = document.getElementById("layout-panel-picker")!;
-let selectedPanels: string[] = [];
+const gridPreview = document.getElementById("grid-preview")!;
+const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
+const gridRowsSelect = document.getElementById("grid-rows") as HTMLSelectElement;
+const mergeRightBtn = document.getElementById("grid-merge-right") as HTMLButtonElement;
+const mergeDownBtn = document.getElementById("grid-merge-down") as HTMLButtonElement;
+const splitBtn = document.getElementById("grid-split-btn") as HTMLButtonElement;
+
+interface BuilderCell {
+  panelId: string;
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+}
+
+let builderCols = 2;
+let builderRows = 1;
+let builderCells: BuilderCell[] = [];
+let builderSelected = -1;
+
+function initBuilderCells() {
+  builderCells = [];
+  for (let r = 0; r < builderRows; r++) {
+    for (let c = 0; c < builderCols; c++) {
+      builderCells.push({ panelId: "", col: c, row: r, colSpan: 1, rowSpan: 1 });
+    }
+  }
+  builderSelected = -1;
+}
+
+function cellAt(col: number, row: number): number {
+  return builderCells.findIndex(
+    (c) => col >= c.col && col < c.col + c.colSpan && row >= c.row && row < c.row + c.rowSpan,
+  );
+}
+
+function canMergeRight(idx: number): boolean {
+  const cell = builderCells[idx];
+  if (cell.col + cell.colSpan >= builderCols) return false;
+  // All cells in the column to the right (within this cell's row range) must be one cell with matching span
+  const rightIdx = cellAt(cell.col + cell.colSpan, cell.row);
+  if (rightIdx < 0) return false;
+  const right = builderCells[rightIdx];
+  return right.col === cell.col + cell.colSpan &&
+    right.row === cell.row && right.rowSpan === cell.rowSpan;
+}
+
+function canMergeDown(idx: number): boolean {
+  const cell = builderCells[idx];
+  if (cell.row + cell.rowSpan >= builderRows) return false;
+  const belowIdx = cellAt(cell.col, cell.row + cell.rowSpan);
+  if (belowIdx < 0) return false;
+  const below = builderCells[belowIdx];
+  return below.row === cell.row + cell.rowSpan &&
+    below.col === cell.col && below.colSpan === cell.colSpan;
+}
+
+function doMergeRight(idx: number) {
+  const cell = builderCells[idx];
+  const rightIdx = cellAt(cell.col + cell.colSpan, cell.row);
+  if (rightIdx < 0) return;
+  cell.colSpan += builderCells[rightIdx].colSpan;
+  builderCells.splice(rightIdx, 1);
+  builderSelected = builderCells.indexOf(cell);
+}
+
+function doMergeDown(idx: number) {
+  const cell = builderCells[idx];
+  const belowIdx = cellAt(cell.col, cell.row + cell.rowSpan);
+  if (belowIdx < 0) return;
+  cell.rowSpan += builderCells[belowIdx].rowSpan;
+  builderCells.splice(belowIdx, 1);
+  builderSelected = builderCells.indexOf(cell);
+}
+
+function doSplit(idx: number) {
+  const cell = builderCells[idx];
+  if (cell.colSpan === 1 && cell.rowSpan === 1) return;
+  const newCells: BuilderCell[] = [];
+  for (let r = cell.row; r < cell.row + cell.rowSpan; r++) {
+    for (let c = cell.col; c < cell.col + cell.colSpan; c++) {
+      newCells.push({
+        panelId: r === cell.row && c === cell.col ? cell.panelId : "",
+        col: c, row: r, colSpan: 1, rowSpan: 1,
+      });
+    }
+  }
+  builderCells.splice(idx, 1, ...newCells);
+  builderSelected = -1;
+}
+
+function updateMergeButtons() {
+  if (builderSelected < 0) {
+    mergeRightBtn.disabled = true;
+    mergeDownBtn.disabled = true;
+    splitBtn.disabled = true;
+    return;
+  }
+  const cell = builderCells[builderSelected];
+  mergeRightBtn.disabled = !canMergeRight(builderSelected);
+  mergeDownBtn.disabled = !canMergeDown(builderSelected);
+  splitBtn.disabled = cell.colSpan === 1 && cell.rowSpan === 1;
+}
+
+function renderGridPreview() {
+  gridPreview.style.gridTemplateColumns = `repeat(${builderCols}, 1fr)`;
+  gridPreview.style.gridTemplateRows = `repeat(${builderRows}, 1fr)`;
+
+  gridPreview.innerHTML = builderCells
+    .map((cell, i) => {
+      const cls = ["grid-cell"];
+      if (cell.panelId) cls.push("assigned");
+      if (i === builderSelected) cls.push("selected");
+      return `<div class="${cls.join(" ")}" data-index="${i}"
+        style="grid-column: ${cell.col + 1} / span ${cell.colSpan}; grid-row: ${cell.row + 1} / span ${cell.rowSpan}">
+        ${cell.panelId || "\u2014"}
+      </div>`;
+    })
+    .join("");
+
+  gridPreview.querySelectorAll(".grid-cell").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = parseInt((el as HTMLElement).dataset.index!, 10);
+      showCellPicker(idx, el as HTMLElement);
+    });
+  });
+
+  updateMergeButtons();
+}
+
+async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
+  document.querySelectorAll(".cell-panel-picker").forEach((el) => el.remove());
+  // Capture position before re-render destroys the anchor element
+  const rect = anchor.getBoundingClientRect();
+  builderSelected = cellIndex;
+  renderGridPreview();
+
+  const panels = await window.yo.panelsList();
+  const picker = document.createElement("div");
+  picker.className = "cell-panel-picker";
+  picker.style.left = `${rect.left}px`;
+  picker.style.top = `${rect.bottom + 4}px`;
+
+  picker.innerHTML = [
+    `<div class="cell-panel-option empty" data-id="">Empty</div>`,
+    ...panels.map((p) => `<div class="cell-panel-option" data-id="${p.id}">${p.id}</div>`),
+  ].join("");
+
+  document.body.appendChild(picker);
+
+  picker.querySelectorAll(".cell-panel-option").forEach((opt) => {
+    opt.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      builderCells[cellIndex].panelId = (opt as HTMLElement).dataset.id!;
+      picker.remove();
+      renderGridPreview();
+    });
+  });
+
+  const closePicker = (ev: MouseEvent) => {
+    if (!(ev.target as HTMLElement).closest(".cell-panel-picker")) {
+      picker.remove();
+      document.removeEventListener("click", closePicker);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closePicker), 0);
+}
 
 async function loadLayouts() {
   layoutEditor.classList.add("hidden");
@@ -221,7 +417,9 @@ async function loadLayouts() {
     layoutsList.innerHTML = `<div class="empty-state">No layouts yet. Create one to arrange panels your way.</div>`;
     return;
   }
-  layoutsList.innerHTML = items.map((layout) => `
+  layoutsList.innerHTML = items
+    .map(
+      (layout) => `
     <div class="item-row" data-name="${layout.name}">
       <span class="item-name">${layout.name}</span>
       <span class="item-meta">${layout.splits.map((s) => s.panelId).join(" | ")}</span>
@@ -229,7 +427,9 @@ async function loadLayouts() {
         <button class="edit-btn">edit</button>
         <button class="danger delete-btn">delete</button>
       </div>
-    </div>`).join("");
+    </div>`,
+    )
+    .join("");
 
   layoutsList.querySelectorAll(".item-row").forEach((row) => {
     row.addEventListener("click", () => editLayout((row as HTMLElement).dataset.name!));
@@ -252,53 +452,56 @@ async function loadLayouts() {
 async function editLayout(name: string) {
   const layouts = await window.yo.layoutsList();
   const layout = layouts.find((l) => l.name === name);
-  selectedPanels = layout ? layout.splits.map((s) => s.panelId) : [];
+  if (layout) {
+    // Reconstruct builder state from layout cells
+    const panelIds = layout.splits.map((s) => s.panelId);
+    builderCols = panelIds.length;
+    builderRows = 1;
+    initBuilderCells();
+    builderCells.forEach((c, i) => {
+      if (i < panelIds.length) c.panelId = panelIds[i];
+    });
+  } else {
+    builderCols = 2;
+    builderRows = 1;
+    initBuilderCells();
+  }
+  gridColsSelect.value = String(builderCols);
+  gridRowsSelect.value = String(builderRows);
   layoutEditName.textContent = name;
   layoutEditor.classList.remove("hidden");
   layoutEditor.dataset.name = name;
-  renderPanelPicker();
+  renderGridPreview();
 }
 
 async function newLayout() {
   const input = document.getElementById("layout-new-name") as HTMLInputElement;
   const name = input.value.trim();
   if (!name) return;
-  selectedPanels = [];
+  builderCols = 2;
+  builderRows = 1;
+  initBuilderCells();
+  gridColsSelect.value = "2";
+  gridRowsSelect.value = "1";
   layoutEditName.textContent = name;
   layoutEditor.classList.remove("hidden");
   layoutEditor.dataset.name = name;
   input.value = "";
-  renderPanelPicker();
-}
-
-async function renderPanelPicker() {
-  const panels = await window.yo.panelsList();
-  panelPicker.innerHTML = panels.map((p) => {
-    const idx = selectedPanels.indexOf(p.id);
-    const isSelected = idx >= 0;
-    return `<div class="panel-pick${isSelected ? " selected" : ""}" data-id="${p.id}">
-      ${isSelected ? `<span class="pick-order">${idx + 1}</span>` : ""}${p.id}
-    </div>`;
-  }).join("");
-
-  panelPicker.querySelectorAll(".panel-pick").forEach((el) => {
-    el.addEventListener("click", () => {
-      const id = (el as HTMLElement).dataset.id!;
-      const idx = selectedPanels.indexOf(id);
-      if (idx >= 0) {
-        selectedPanels.splice(idx, 1);
-      } else {
-        selectedPanels.push(id);
-      }
-      renderPanelPicker();
-    });
-  });
+  renderGridPreview();
 }
 
 async function saveLayout() {
   const name = layoutEditor.dataset.name!;
-  if (selectedPanels.length < 2) return;
-  await window.yo.layoutsSave(name, selectedPanels);
+  const assignedCells = builderCells.filter((c) => c.panelId);
+  if (assignedCells.length < 1) return;
+  await window.yo.layoutsSaveGrid({
+    name,
+    cols: builderCols,
+    rows: builderRows,
+    colWidths: Array(builderCols).fill(1 / builderCols),
+    rowHeights: Array(builderRows).fill(1 / builderRows),
+    cells: assignedCells,
+  });
   layoutEditor.classList.add("hidden");
   loadLayouts();
 }

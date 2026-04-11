@@ -24,15 +24,20 @@ declare global {
       skillsRemove: (name: string) => Promise<boolean>;
       panelsHide: () => void;
       panelsShow: () => void;
+      panelsRefresh: (id?: string) => void;
+      panelsZoom: (factor: number) => void;
+      panelsGetZoom: () => Promise<number>;
       panelsList: () => Promise<Array<{ id: string; name: string; url: string }>>;
       panelsAdd: (id: string, url: string) => Promise<boolean>;
       layoutsList: () => Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
+      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;
       getCompletions: () => Promise<{ panels: string[]; library: string[]; skills: string[]; layouts: string[] }>;
       splitDragStart: () => void;
       splitDragMove: (ratio: number) => void;
       splitDragEnd: (ratio: number) => void;
+      gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
       splitSwap: (index: number, panelId: string) => void;
       checkLicense: () => Promise<{ status: string; daysRemaining?: number }>;
       activateLicense: (key: string) => Promise<boolean>;
@@ -41,7 +46,14 @@ declare global {
       onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
       setPreference: (key: string, value: unknown) => void;
       onShowWelcome: (callback: () => void) => void;
-      onSplitState: (callback: (info: { panelIds: string[]; ratio: number } | null) => void) => void;
+      onSplitState: (callback: (info: {
+        panelIds: string[];
+        cols: number;
+        rows: number;
+        colWidths: number[];
+        rowHeights: number[];
+        cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
+      } | null) => void) => void;
       onSplitDragPreview: (callback: (ratio: number) => void) => void;
     };
   }
@@ -50,7 +62,7 @@ declare global {
 const input = document.getElementById("command-input") as HTMLInputElement;
 const resultsDrawer = document.getElementById("results-drawer")!;
 const resultsContent = document.getElementById("results-content")!;
-const splitHandle = document.getElementById("split-handle")!;
+const gridHandles = document.getElementById("grid-handles")!;
 const splitChips = document.getElementById("split-chips")!;
 
 // ── Results drawer ──────────────────────────────────────────
@@ -113,6 +125,26 @@ document.addEventListener("keydown", (e) => {
       closeHelp();
     }
   }
+
+  // Cmd+R / Ctrl+R to refresh panels
+  if (e.key === "r" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    window.yo.panelsRefresh();
+  }
+
+  // Cmd+Plus / Cmd+Minus to zoom panels
+  if ((e.key === "=" || e.key === "+") && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    window.yo.panelsGetZoom().then((z) => window.yo.panelsZoom(z + 0.1));
+  }
+  if (e.key === "-" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    window.yo.panelsGetZoom().then((z) => window.yo.panelsZoom(z - 0.1));
+  }
+  if (e.key === "0" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    window.yo.panelsZoom(1.0);
+  }
 });
 
 // Click outside results drawer closes it
@@ -135,6 +167,7 @@ window.yo.onResult((result: string) => {
 document.getElementById("btn-close")!.addEventListener("click", () => window.yo.windowClose());
 document.getElementById("btn-minimize")!.addEventListener("click", () => window.yo.windowMinimize());
 document.getElementById("btn-maximize")!.addEventListener("click", () => window.yo.windowMaximize());
+document.getElementById("btn-refresh")!.addEventListener("click", () => window.yo.panelsRefresh());
 
 // yo help trigger from main process
 window.yo.onShowWelcome(() => openHelp());
@@ -143,22 +176,76 @@ window.yo.onShowWelcome(() => openHelp());
 initHelp();
 initAutocomplete();
 
-// ── Split drag handle ───────────────────────────────────────
+// ── Grid drag handles ───────────────────────────────────────
 
+type GridInfo = {
+  panelIds: string[];
+  cols: number;
+  rows: number;
+  colWidths: number[];
+  rowHeights: number[];
+  cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
+};
+
+const CONTENT_TOP = 48;
+let currentGrid: GridInfo | null = null;
 let isDragging = false;
-let splitPanelIds: string[] = [];
+let dragType: "col" | "row" = "col";
+let dragIndex = 0;
 let activeSwapIndex = -1;
 
 window.yo.onSplitState((info) => {
+  currentGrid = info;
+  renderGridHandles();
   if (info && info.panelIds.length >= 2) {
-    splitPanelIds = info.panelIds;
-    splitHandle.style.left = `${info.ratio * 100}%`;
-    splitHandle.classList.remove("hidden");
     renderSplitChips(info.panelIds);
   } else {
-    splitHandle.classList.add("hidden");
     splitChips.classList.add("hidden");
-    splitPanelIds = [];
+  }
+});
+
+function renderGridHandles() {
+  gridHandles.innerHTML = "";
+  if (!currentGrid || currentGrid.panelIds.length < 2) return;
+
+  const grid = currentGrid;
+
+  // Column border handles
+  let cumCol = 0;
+  for (let i = 0; i < grid.cols - 1; i++) {
+    cumCol += grid.colWidths[i];
+    const handle = document.createElement("div");
+    handle.className = "grid-col-handle";
+    handle.style.left = `${cumCol * 100}%`;
+    handle.dataset.type = "col";
+    handle.dataset.index = String(i);
+    gridHandles.appendChild(handle);
+    handle.addEventListener("mousedown", (e) => startDrag(e, "col", i));
+  }
+
+  // Row border handles
+  let cumRow = 0;
+  for (let i = 0; i < grid.rows - 1; i++) {
+    cumRow += grid.rowHeights[i];
+    const handle = document.createElement("div");
+    handle.className = "grid-row-handle";
+    handle.style.top = `${CONTENT_TOP + cumRow * (window.innerHeight - CONTENT_TOP)}px`;
+    handle.dataset.type = "row";
+    handle.dataset.index = String(i);
+    gridHandles.appendChild(handle);
+    handle.addEventListener("mousedown", (e) => startDrag(e, "row", i));
+  }
+}
+
+// Reposition row handles on window resize (col handles use % so they auto-adjust)
+window.addEventListener("resize", () => {
+  if (!currentGrid || currentGrid.rows <= 1) return;
+  let cumRow = 0;
+  const rowHandles = gridHandles.querySelectorAll(".grid-row-handle");
+  for (let i = 0; i < rowHandles.length; i++) {
+    cumRow += currentGrid.rowHeights[i];
+    (rowHandles[i] as HTMLElement).style.top =
+      `${CONTENT_TOP + cumRow * (window.innerHeight - CONTENT_TOP)}px`;
   }
 });
 
@@ -190,7 +277,7 @@ async function toggleSwapDropdown(index: number, anchor: HTMLElement) {
   window.yo.panelsHide();
 
   const completions = await window.yo.getCompletions();
-  const current = splitPanelIds[index];
+  const current = currentGrid?.panelIds[index] ?? "";
 
   const dd = document.createElement("div");
   dd.id = "swap-dropdown";
@@ -212,11 +299,9 @@ async function toggleSwapDropdown(index: number, anchor: HTMLElement) {
       window.yo.splitSwap(index, (item as HTMLElement).dataset.id!);
       dd.remove();
       activeSwapIndex = -1;
-      // panelsShow will be triggered by split-state update
     });
   });
 
-  // Close on outside click
   const closeHandler = (e: MouseEvent) => {
     if (!(e.target as HTMLElement).closest("#swap-dropdown") &&
         !(e.target as HTMLElement).closest(".split-chip")) {
@@ -229,52 +314,74 @@ async function toggleSwapDropdown(index: number, anchor: HTMLElement) {
   setTimeout(() => document.addEventListener("click", closeHandler), 0);
 }
 
-splitHandle.addEventListener("mousedown", (e) => {
-  if (splitPanelIds.length < 2) return;
+// ── Drag protocol ─────────────────────────────────────────
+
+function startDrag(e: MouseEvent, type: "col" | "row", index: number) {
   e.preventDefault();
   isDragging = true;
-  splitHandle.classList.add("dragging");
+  dragType = type;
+  dragIndex = index;
+
+  const handle = e.currentTarget as HTMLElement;
+  handle.classList.add("dragging");
+
   window.yo.splitDragStart();
 
-  // Show drag overlay to capture all mouse events
   const overlay = document.getElementById("drag-overlay")!;
   overlay.classList.remove("hidden");
-
-  // Show panel labels
-  const leftLabel = document.getElementById("drag-label-left")!;
-  const rightLabel = document.getElementById("drag-label-right")!;
-  leftLabel.textContent = splitPanelIds[0];
-  rightLabel.textContent = splitPanelIds[1];
-  leftLabel.classList.remove("hidden");
-  rightLabel.classList.remove("hidden");
-});
+  overlay.className = type === "col" ? "drag-col" : "drag-row";
+}
 
 document.addEventListener("mousemove", (e) => {
-  if (!isDragging) return;
-  const ratio = e.clientX / window.innerWidth;
-  const clamped = Math.max(0.15, Math.min(0.85, ratio));
-  splitHandle.style.left = `${clamped * 100}%`;
+  if (!isDragging || !currentGrid) return;
 
-  // Position labels
-  const leftLabel = document.getElementById("drag-label-left")!;
-  const rightLabel = document.getElementById("drag-label-right")!;
-  leftLabel.style.width = `${clamped * 100}%`;
-  rightLabel.style.left = `${clamped * 100}%`;
-  rightLabel.style.width = `${(1 - clamped) * 100}%`;
+  if (dragType === "col") {
+    const fraction = e.clientX / window.innerWidth;
+    const clamped = Math.max(0.05, Math.min(0.95, fraction));
+    // Update the handle position visually
+    const handles = gridHandles.querySelectorAll(".grid-col-handle");
+    if (handles[dragIndex]) {
+      (handles[dragIndex] as HTMLElement).style.left = `${clamped * 100}%`;
+    }
+  } else {
+    const contentHeight = window.innerHeight - CONTENT_TOP;
+    const fraction = (e.clientY - CONTENT_TOP) / contentHeight;
+    const clamped = Math.max(0.05, Math.min(0.95, fraction));
+    const handles = gridHandles.querySelectorAll(".grid-row-handle");
+    if (handles[dragIndex]) {
+      (handles[dragIndex] as HTMLElement).style.top =
+        `${CONTENT_TOP + clamped * contentHeight}px`;
+    }
+  }
 });
 
 document.addEventListener("mouseup", () => {
   if (!isDragging) return;
   isDragging = false;
-  splitHandle.classList.remove("dragging");
+
+  // Remove dragging class from all handles
+  gridHandles.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
 
   const overlay = document.getElementById("drag-overlay")!;
   overlay.classList.add("hidden");
-  document.getElementById("drag-label-left")!.classList.add("hidden");
-  document.getElementById("drag-label-right")!.classList.add("hidden");
+  overlay.className = "";
 
-  const ratio = parseFloat(splitHandle.style.left) / 100;
-  window.yo.splitDragEnd(ratio);
+  // Compute final fraction and send to main
+  if (dragType === "col") {
+    const handle = gridHandles.querySelectorAll(".grid-col-handle")[dragIndex] as HTMLElement;
+    if (handle) {
+      const fraction = parseFloat(handle.style.left) / 100;
+      window.yo.gridDragEnd("col", dragIndex, fraction);
+    }
+  } else {
+    const handle = gridHandles.querySelectorAll(".grid-row-handle")[dragIndex] as HTMLElement;
+    if (handle) {
+      const contentHeight = window.innerHeight - CONTENT_TOP;
+      const top = parseFloat(handle.style.top) - CONTENT_TOP;
+      const fraction = top / contentHeight;
+      window.yo.gridDragEnd("row", dragIndex, fraction);
+    }
+  }
 });
 
 // ── Boot gate ───────────────────────────────────────────────

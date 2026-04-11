@@ -1,8 +1,8 @@
 /**
- * LayoutManager — user-defined panel layouts with custom commands.
+ * LayoutManager — grid-based panel layout engine.
  *
- * Layouts are stored as JSON in ~/yo/.layouts
- * Each layout has a name (used as the command) and a list of panel splits.
+ * Supports N×M grids with column/row spans.
+ * Layouts stored as JSON in ~/yo/.layouts
  */
 
 import fs from "fs";
@@ -11,155 +11,212 @@ import os from "os";
 import { BrowserWindow } from "electron";
 import { PanelManager } from "./panel-manager";
 
-export interface LayoutSplit {
+// ── Grid model ──────────────────────────────────────────────
+
+export interface GridCell {
   panelId: string;
-  x: number;      // fraction 0-1
-  y: number;      // fraction 0-1
-  width: number;   // fraction 0-1
-  height: number;  // fraction 0-1
+  col: number;      // 0-based column
+  row: number;      // 0-based row
+  colSpan: number;
+  rowSpan: number;
 }
 
-export interface Layout {
+export interface GridLayout {
   name: string;
-  splits: LayoutSplit[];
+  version: 2;
+  cols: number;           // 1–4
+  rows: number;           // 1–4
+  colWidths: number[];    // fractions summing to ~1
+  rowHeights: number[];   // fractions summing to ~1
+  cells: GridCell[];
 }
+
+/** Full grid state sent to renderer for handles + chips */
+export interface GridSplitInfo {
+  panelIds: string[];
+  cols: number;
+  rows: number;
+  colWidths: number[];
+  rowHeights: number[];
+  cells: GridCell[];
+}
+
+// ── Legacy types (migration only) ───────────────────────────
+
+interface LegacySplit {
+  panelId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface LegacyLayout {
+  name: string;
+  splits: LegacySplit[];
+}
+
+// ── Constants ───────────────────────────────────────────────
 
 const LAYOUTS_FILE = path.join(os.homedir(), "yo", ".layouts");
+const CONTENT_TOP = 48;
+const SPLIT_GAP = 6;
 
-const CONTENT_TOP = 48; // command bar height
-const SPLIT_GAP = 6;    // px gap between split panels for drag handle
+// ── LayoutManager ───────────────────────────────────────────
 
 export class LayoutManager {
-  private layouts: Map<string, Layout> = new Map();
-  private activeSplits: LayoutSplit[] = [];
+  private layouts: Map<string, GridLayout> = new Map();
+  private activeGrid: GridLayout | null = null;
   private boundWindow: BrowserWindow | null = null;
 
   constructor(private panelManager: PanelManager) {
     this.load();
   }
 
-  /** Apply a split of two panels side by side */
-  splitTwo(leftId: string, rightId: string, win: BrowserWindow, ratio = 0.5): boolean {
-    const leftView = this.panelManager.getOrCreateView(leftId, win);
-    const rightView = this.panelManager.getOrCreateView(rightId, win);
-    if (!leftView || !rightView) return false;
+  // ── Split commands ──────────────────────────────────────
 
-    this.activeSplits = [
-      { panelId: leftId, x: 0, y: 0, width: ratio, height: 1 },
-      { panelId: rightId, x: ratio, y: 0, width: 1 - ratio, height: 1 },
-    ];
-    this.applyActiveSplits(win);
+  /** Two panels side by side */
+  splitTwo(leftId: string, rightId: string, win: BrowserWindow, ratio = 0.5): boolean {
+    if (!this.panelManager.getOrCreateView(leftId, win)) return false;
+    if (!this.panelManager.getOrCreateView(rightId, win)) return false;
+
+    this.activeGrid = {
+      name: "",
+      version: 2,
+      cols: 2,
+      rows: 1,
+      colWidths: [ratio, 1 - ratio],
+      rowHeights: [1],
+      cells: [
+        { panelId: leftId, col: 0, row: 0, colSpan: 1, rowSpan: 1 },
+        { panelId: rightId, col: 1, row: 0, colSpan: 1, rowSpan: 1 },
+      ],
+    };
+    this.applyGrid(win);
     this.bindResize(win);
     return true;
   }
 
-  /** Update the split ratio for a two-panel split (drag resize) */
-  updateSplitRatio(ratio: number, win: BrowserWindow): void {
-    if (this.activeSplits.length !== 2) return;
-    const clamped = Math.max(0.15, Math.min(0.85, ratio));
-    this.activeSplits[0].width = clamped;
-    this.activeSplits[0].x = 0;
-    this.activeSplits[1].width = 1 - clamped;
-    this.activeSplits[1].x = clamped;
-    this.applyActiveSplits(win);
+  /** N panels in a single row */
+  splitN(panelIds: string[], win: BrowserWindow): boolean {
+    for (const id of panelIds) {
+      if (!this.panelManager.getOrCreateView(id, win)) return false;
+    }
+    const n = panelIds.length;
+    this.activeGrid = {
+      name: "",
+      version: 2,
+      cols: n,
+      rows: 1,
+      colWidths: Array(n).fill(1 / n),
+      rowHeights: [1],
+      cells: panelIds.map((id, i) => ({
+        panelId: id, col: i, row: 0, colSpan: 1, rowSpan: 1,
+      })),
+    };
+    this.applyGrid(win);
+    this.bindResize(win);
+    return true;
   }
+
+  /** Multi-row grid from row arrays, e.g. [["claude","gpt"],["gemini","code"]] */
+  splitGrid(rows: string[][], win: BrowserWindow): boolean {
+    const numRows = rows.length;
+    const numCols = Math.max(...rows.map((r) => r.length));
+
+    const cells: GridCell[] = [];
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < rows[r].length; c++) {
+        if (!this.panelManager.getOrCreateView(rows[r][c], win)) return false;
+        // Last panel in a row spans remaining columns
+        const colSpan = c === rows[r].length - 1 ? numCols - c : 1;
+        cells.push({
+          panelId: rows[r][c], col: c, row: r, colSpan, rowSpan: 1,
+        });
+      }
+    }
+
+    this.activeGrid = {
+      name: "",
+      version: 2,
+      cols: numCols,
+      rows: numRows,
+      colWidths: Array(numCols).fill(1 / numCols),
+      rowHeights: Array(numRows).fill(1 / numRows),
+      cells,
+    };
+    this.applyGrid(win);
+    this.bindResize(win);
+    return true;
+  }
+
+  /** Apply a full GridLayout directly (from visual builder or IPC) */
+  applyGridLayout(grid: GridLayout, win: BrowserWindow): boolean {
+    for (const cell of grid.cells) {
+      if (!this.panelManager.getOrCreateView(cell.panelId, win)) return false;
+    }
+    this.activeGrid = JSON.parse(JSON.stringify(grid));
+    this.applyGrid(win);
+    this.bindResize(win);
+    return true;
+  }
+
+  // ── Resize ────────────────────────────────────────────────
+
+  /** Update column border position (fraction = cumulative x position of border) */
+  updateColWidth(index: number, fraction: number, win: BrowserWindow): void {
+    const grid = this.activeGrid;
+    if (!grid || index < 0 || index >= grid.cols - 1) return;
+
+    let leftEdge = 0;
+    for (let i = 0; i < index; i++) leftEdge += grid.colWidths[i];
+    const rightEdge = leftEdge + grid.colWidths[index] + grid.colWidths[index + 1];
+
+    const minW = 0.1;
+    const clamped = Math.max(leftEdge + minW, Math.min(rightEdge - minW, fraction));
+    grid.colWidths[index] = clamped - leftEdge;
+    grid.colWidths[index + 1] = rightEdge - clamped;
+
+    this.applyGrid(win);
+  }
+
+  /** Update row border position (fraction = cumulative y position of border) */
+  updateRowHeight(index: number, fraction: number, win: BrowserWindow): void {
+    const grid = this.activeGrid;
+    if (!grid || index < 0 || index >= grid.rows - 1) return;
+
+    let topEdge = 0;
+    for (let i = 0; i < index; i++) topEdge += grid.rowHeights[i];
+    const bottomEdge = topEdge + grid.rowHeights[index] + grid.rowHeights[index + 1];
+
+    const minH = 0.1;
+    const clamped = Math.max(topEdge + minH, Math.min(bottomEdge - minH, fraction));
+    grid.rowHeights[index] = clamped - topEdge;
+    grid.rowHeights[index + 1] = bottomEdge - clamped;
+
+    this.applyGrid(win);
+  }
+
+  /** Backward-compat: update ratio for a 2-column split */
+  updateSplitRatio(ratio: number, win: BrowserWindow): void {
+    this.updateColWidth(0, ratio, win);
+  }
+
+  // ── Layout CRUD ───────────────────────────────────────────
 
   /** Apply a named layout */
   apply(name: string, win: BrowserWindow): boolean {
     const layout = this.layouts.get(name);
     if (!layout) return false;
-
-    this.activeSplits = layout.splits;
-    this.applyActiveSplits(win);
+    this.activeGrid = JSON.parse(JSON.stringify(layout));
+    this.applyGrid(win);
     this.bindResize(win);
     return true;
   }
 
-  /** Clear split state (called when switching to a single panel) */
-  clearSplit() {
-    this.activeSplits = [];
-  }
-
-  /** Whether a split layout is active */
-  get hasSplit(): boolean {
-    return this.activeSplits.length > 0;
-  }
-
-  /** Restore the active split layout (after overlay) */
-  restoreSplit(win: BrowserWindow): void {
-    if (this.activeSplits.length > 0) {
-      this.applyActiveSplits(win);
-    }
-  }
-
-  /** Swap one panel in the active split */
-  swapPanel(index: number, newPanelId: string, win: BrowserWindow): void {
-    if (index < 0 || index >= this.activeSplits.length) return;
-    this.activeSplits[index].panelId = newPanelId;
-    this.applyActiveSplits(win);
-  }
-
-  /** Get active split info for renderer (drag handle positioning) */
-  getSplitInfo(): { panelIds: string[]; ratio: number } | null {
-    if (this.activeSplits.length < 2) return null;
-    return {
-      panelIds: this.activeSplits.map((s) => s.panelId),
-      ratio: this.activeSplits[0].width,
-    };
-  }
-
-  private applyActiveSplits(win: BrowserWindow) {
-    const [w, h] = win.getContentSize();
-    const contentHeight = h - CONTENT_TOP;
-
-    for (const bv of win.getBrowserViews()) {
-      win.removeBrowserView(bv);
-    }
-
-    const halfGap = this.activeSplits.length > 1 ? Math.floor(SPLIT_GAP / 2) : 0;
-
-    for (let i = 0; i < this.activeSplits.length; i++) {
-      const split = this.activeSplits[i];
-      const view = this.panelManager.getOrCreateView(split.panelId, win);
-      if (!view) continue;
-
-      win.addBrowserView(view);
-
-      // Inset panels to leave a gap for the drag handle
-      const rawX = Math.floor(split.x * w);
-      const rawW = Math.floor(split.width * w);
-      const x = i > 0 ? rawX + halfGap : rawX;
-      const width = i === 0 && this.activeSplits.length > 1
-        ? rawW - halfGap
-        : i > 0 && i < this.activeSplits.length - 1
-          ? rawW - SPLIT_GAP
-          : i > 0
-            ? rawW - halfGap
-            : rawW;
-
-      view.setBounds({
-        x,
-        y: CONTENT_TOP + Math.floor(split.y * contentHeight),
-        width: Math.max(width, 1),
-        height: Math.floor(split.height * contentHeight),
-      });
-      view.setAutoResize({ width: false, height: false });
-    }
-  }
-
-  private bindResize(win: BrowserWindow) {
-    if (this.boundWindow === win) return;
-    this.boundWindow = win;
-    win.on("resize", () => {
-      if (this.activeSplits.length > 0) {
-        this.applyActiveSplits(win);
-      }
-    });
-  }
-
-  /** Save a new layout */
-  saveLayout(name: string, splits: LayoutSplit[]): void {
-    this.layouts.set(name, { name, splits });
+  /** Save a grid layout */
+  saveLayout(grid: GridLayout): void {
+    this.layouts.set(grid.name, grid);
     this.persist();
   }
 
@@ -172,12 +229,12 @@ export class LayoutManager {
   }
 
   /** List all layouts */
-  listLayouts(): Layout[] {
+  listLayouts(): GridLayout[] {
     return Array.from(this.layouts.values());
   }
 
   /** Get a layout by name */
-  getLayout(name: string): Layout | undefined {
+  getLayout(name: string): GridLayout | undefined {
     return this.layouts.get(name);
   }
 
@@ -186,10 +243,126 @@ export class LayoutManager {
     return this.layouts.has(name);
   }
 
+  // ── State queries ─────────────────────────────────────────
+
+  clearSplit(): void {
+    this.activeGrid = null;
+  }
+
+  get hasSplit(): boolean {
+    return this.activeGrid !== null;
+  }
+
+  restoreSplit(win: BrowserWindow): void {
+    if (this.activeGrid) this.applyGrid(win);
+  }
+
+  /** Swap one cell's panel by cell index */
+  swapPanel(index: number, newPanelId: string, win: BrowserWindow): void {
+    if (!this.activeGrid || index < 0 || index >= this.activeGrid.cells.length) return;
+    this.activeGrid.cells[index].panelId = newPanelId;
+    this.applyGrid(win);
+  }
+
+  /** Legacy-compatible split info (panelIds + first col ratio for old renderer) */
+  getSplitInfo(): { panelIds: string[]; ratio: number } | null {
+    if (!this.activeGrid) return null;
+    return {
+      panelIds: this.activeGrid.cells.map((c) => c.panelId),
+      ratio: this.activeGrid.cols >= 2 ? this.activeGrid.colWidths[0] : 0.5,
+    };
+  }
+
+  /** Full grid info for the renderer (handles, chips, builder) */
+  getGridInfo(): GridSplitInfo | null {
+    if (!this.activeGrid) return null;
+    return {
+      panelIds: this.activeGrid.cells.map((c) => c.panelId),
+      cols: this.activeGrid.cols,
+      rows: this.activeGrid.rows,
+      colWidths: [...this.activeGrid.colWidths],
+      rowHeights: [...this.activeGrid.rowHeights],
+      cells: this.activeGrid.cells.map((c) => ({ ...c })),
+    };
+  }
+
+  // ── Grid rendering ────────────────────────────────────────
+
+  private applyGrid(win: BrowserWindow) {
+    const grid = this.activeGrid;
+    if (!grid) return;
+
+    const [w, h] = win.getContentSize();
+    const contentHeight = h - CONTENT_TOP;
+
+    for (const bv of win.getBrowserViews()) {
+      win.removeBrowserView(bv);
+    }
+
+    // Cumulative column positions (fractions)
+    const cumCol = [0];
+    for (const cw of grid.colWidths) cumCol.push(cumCol[cumCol.length - 1] + cw);
+
+    // Cumulative row positions (fractions)
+    const cumRow = [0];
+    for (const rh of grid.rowHeights) cumRow.push(cumRow[cumRow.length - 1] + rh);
+
+    const halfGap = Math.floor(SPLIT_GAP / 2);
+
+    for (const cell of grid.cells) {
+      const view = this.panelManager.getOrCreateView(cell.panelId, win);
+      if (!view) continue;
+      win.addBrowserView(view);
+
+      // Raw pixel bounds from grid fractions
+      let x = Math.floor(cumCol[cell.col] * w);
+      let cellW = Math.floor(cumCol[cell.col + cell.colSpan] * w) - x;
+      let y = Math.floor(cumRow[cell.row] * contentHeight);
+      let cellH = Math.floor(cumRow[cell.row + cell.rowSpan] * contentHeight) - y;
+
+      // Inset at internal borders for drag handles
+      if (cell.col > 0) { x += halfGap; cellW -= halfGap; }
+      if (cell.col + cell.colSpan < grid.cols) { cellW -= halfGap; }
+      if (cell.row > 0) { y += halfGap; cellH -= halfGap; }
+      if (cell.row + cell.rowSpan < grid.rows) { cellH -= halfGap; }
+
+      view.setBounds({
+        x,
+        y: CONTENT_TOP + y,
+        width: Math.max(cellW, 1),
+        height: Math.max(cellH, 1),
+      });
+      view.setAutoResize({ width: false, height: false });
+    }
+  }
+
+  private bindResize(win: BrowserWindow) {
+    if (this.boundWindow === win) return;
+    this.boundWindow = win;
+    win.on("resize", () => {
+      if (this.activeGrid) this.applyGrid(win);
+    });
+  }
+
+  // ── Persistence ───────────────────────────────────────────
+
   private load() {
     try {
-      const data = JSON.parse(fs.readFileSync(LAYOUTS_FILE, "utf-8")) as Layout[];
-      for (const l of data) this.layouts.set(l.name, l);
+      const raw = JSON.parse(fs.readFileSync(LAYOUTS_FILE, "utf-8")) as unknown[];
+      let needsMigration = false;
+      for (const item of raw) {
+        const obj = item as Record<string, unknown>;
+        if (obj.version === 2) {
+          const grid = obj as unknown as GridLayout;
+          this.layouts.set(grid.name, grid);
+        } else {
+          const legacy = obj as unknown as LegacyLayout;
+          const migrated = this.migrateLayout(legacy);
+          this.layouts.set(migrated.name, migrated);
+          needsMigration = true;
+        }
+      }
+      if (needsMigration) this.persist();
     } catch {
       // No layouts yet
     }
@@ -200,7 +373,26 @@ export class LayoutManager {
     fs.writeFileSync(
       LAYOUTS_FILE,
       JSON.stringify(Array.from(this.layouts.values()), null, 2),
-      "utf-8"
+      "utf-8",
     );
+  }
+
+  private migrateLayout(legacy: LegacyLayout): GridLayout {
+    const n = legacy.splits.length;
+    return {
+      name: legacy.name,
+      version: 2,
+      cols: n,
+      rows: 1,
+      colWidths: legacy.splits.map((s) => s.width),
+      rowHeights: [1],
+      cells: legacy.splits.map((s, i) => ({
+        panelId: s.panelId,
+        col: i,
+        row: 0,
+        colSpan: 1,
+        rowSpan: 1,
+      })),
+    };
   }
 }

@@ -39,6 +39,7 @@
       />
       <div id="autocomplete-dropdown" class="hidden"></div>
     </div>
+    <button id="btn-refresh" class="bar-btn" title="Refresh (⌘R)">↻</button>
     <div id="split-chips" class="hidden"></div>
   </div>
 
@@ -47,12 +48,9 @@
     <pre id="results-content"></pre>
   </div>
 
-  <!-- Split drag handle + overlay -->
-  <div id="split-handle" class="hidden"></div>
-  <div id="drag-overlay" class="hidden">
-    <div id="drag-label-left" class="drag-label hidden"></div>
-    <div id="drag-label-right" class="drag-label hidden"></div>
-  </div>
+  <!-- Grid drag handles + overlay -->
+  <div id="grid-handles"></div>
+  <div id="drag-overlay" class="hidden"></div>
 
   <!-- Help overlay (docs + settings combined) -->
   <div id="help-overlay" class="hidden">
@@ -91,7 +89,7 @@
             </div>
             <div class="cmd-row">
               <code>dip &lt;panel&gt;</code>
-              <span>Switch to an AI panel. Also: <em>dip back</em>, <em>dip list</em>, <em>dip split &lt;a&gt; &lt;b&gt;</em></span>
+              <span>Switch to an AI panel. Also: <em>dip back</em>, <em>dip list</em>, <em>dip split &lt;a&gt; &lt;b&gt;</em>, <em>dip refresh</em>, <em>dip zoom &lt;n&gt;</em></span>
             </div>
             <div class="cmd-row">
               <code>yo help</code>
@@ -150,6 +148,14 @@
               <span>Show / hide Yo from anywhere</span>
             </div>
             <div class="cmd-row">
+              <code>&#8984;R</code>
+              <span>Refresh the active panel</span>
+            </div>
+            <div class="cmd-row">
+              <code>&#8984;+ / &#8984;-</code>
+              <span>Zoom in / out. <em>&#8984;0</em> to reset</span>
+            </div>
+            <div class="cmd-row">
               <code>Esc</code>
               <span>Clear the command bar or close this page</span>
             </div>
@@ -206,7 +212,27 @@
               <span id="layout-edit-name"></span>
               <button id="layout-save-btn">Save</button>
             </div>
-            <div id="layout-panel-picker" class="panel-picker"></div>
+            <div class="grid-builder">
+              <div class="grid-dims">
+                <label>Cols <select id="grid-cols">
+                  <option value="1">1</option>
+                  <option value="2" selected>2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select></label>
+                <span class="dim-sep">&times;</span>
+                <label>Rows <select id="grid-rows">
+                  <option value="1" selected>1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select></label>
+                <button id="grid-merge-right" class="grid-action" disabled>&rarr; Merge</button>
+                <button id="grid-merge-down" class="grid-action" disabled>&darr; Merge</button>
+                <button id="grid-split-btn" class="grid-action" disabled>Split</button>
+              </div>
+              <div id="grid-preview"></div>
+            </div>
           </div>
         </div>
 

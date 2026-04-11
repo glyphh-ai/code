@@ -76,17 +76,27 @@ async function boot() {
   // Create window
   await createWindow();
 
-  // Helper: push split state to renderer (for drag handle + panel chips)
+  // Helper: push grid state to renderer (for drag handles + panel chips)
   function sendSplitState() {
-    const splitInfo = layoutManager.getSplitInfo();
-    mainWindow?.webContents.send("split-state", splitInfo);
+    const gridInfo = layoutManager.getGridInfo();
+    mainWindow?.webContents.send("split-state", gridInfo);
   }
 
+  // Restore zoom level
+  const savedZoom = getPreference<number>("zoom", 1.0);
+  if (savedZoom !== 1.0) panelManager.setZoom(savedZoom);
+
   // Restore last view (default to claude)
-  const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string }>("lastView", null!);
+  const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][] }>("lastView", null!);
   if (lastView && mainWindow) {
-    if (lastView.type === "split" && lastView.panels) {
-      layoutManager.splitTwo(lastView.panels[0], lastView.panels[1], mainWindow);
+    if (lastView.type === "grid" && lastView.rows) {
+      layoutManager.splitGrid(lastView.rows, mainWindow);
+    } else if (lastView.type === "split" && lastView.panels) {
+      if (lastView.panels.length === 2) {
+        layoutManager.splitTwo(lastView.panels[0], lastView.panels[1], mainWindow);
+      } else {
+        layoutManager.splitN(lastView.panels, mainWindow);
+      }
     } else if (lastView.type === "layout" && lastView.name) {
       layoutManager.apply(lastView.name, mainWindow);
     } else if (lastView.type === "panel" && lastView.id) {
@@ -151,6 +161,18 @@ async function boot() {
     else mainWindow?.maximize();
   });
 
+  // IPC: refresh panels
+  ipcMain.on("panels-refresh", (_e, id?: string) => {
+    panelManager.refresh(id);
+  });
+
+  // IPC: zoom
+  ipcMain.on("panels-zoom", (_e, factor: number) => {
+    panelManager.setZoom(factor);
+    setPreference("zoom", factor);
+  });
+  ipcMain.handle("panels-get-zoom", () => panelManager.getZoom());
+
   // IPC: panel visibility (for help overlay)
   ipcMain.on("panels-hide", () => {
     if (mainWindow) panelManager.hideActive(mainWindow);
@@ -197,19 +219,33 @@ async function boot() {
   ipcMain.handle("layouts-list", () =>
     layoutManager.listLayouts().map((l) => ({
       name: l.name,
-      splits: l.splits.map((s) => ({ panelId: s.panelId })),
+      splits: l.cells.map((c) => ({ panelId: c.panelId })),
     }))
   );
   ipcMain.handle("layouts-save", (_e, name: string, panelIds: string[]) => {
     const count = panelIds.length;
-    const splits = panelIds.map((id, i) => ({
-      panelId: id,
-      x: i / count,
-      y: 0,
-      width: 1 / count,
-      height: 1,
-    }));
-    layoutManager.saveLayout(name, splits);
+    layoutManager.saveLayout({
+      name,
+      version: 2,
+      cols: count,
+      rows: 1,
+      colWidths: Array(count).fill(1 / count),
+      rowHeights: [1],
+      cells: panelIds.map((id, i) => ({
+        panelId: id,
+        col: i,
+        row: 0,
+        colSpan: 1,
+        rowSpan: 1,
+      })),
+    });
+    return true;
+  });
+  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => {
+    layoutManager.saveLayout({
+      ...grid,
+      version: 2,
+    });
     return true;
   });
   ipcMain.handle("layouts-delete", (_e, name: string) => layoutManager.deleteLayout(name));
@@ -222,18 +258,25 @@ async function boot() {
     layouts: layoutManager.listLayouts().map((l) => l.name),
   }));
 
-  // IPC: split resize (drag divider)
+  // IPC: grid resize (drag dividers)
   ipcMain.on("split-drag-start", () => {
     if (mainWindow) panelManager.hideActive(mainWindow);
   });
   ipcMain.on("split-drag-move", (_e, ratio: number) => {
-    // Preview handled in renderer during drag
     mainWindow?.webContents.send("split-drag-preview", ratio);
   });
   ipcMain.on("split-drag-end", (_e, ratio: number) => {
     if (!mainWindow) return;
     layoutManager.updateSplitRatio(ratio, mainWindow);
-    setPreference("lastSplitRatio", ratio);
+    sendSplitState();
+  });
+  ipcMain.on("grid-drag-end", (_e, type: "col" | "row", index: number, fraction: number) => {
+    if (!mainWindow) return;
+    if (type === "col") {
+      layoutManager.updateColWidth(index, fraction, mainWindow);
+    } else {
+      layoutManager.updateRowHeight(index, fraction, mainWindow);
+    }
     sendSplitState();
   });
 

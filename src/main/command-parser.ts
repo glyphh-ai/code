@@ -98,23 +98,49 @@ export class CommandParser {
       const layouts = this.layouts.listLayouts();
       if (layouts.length === 0) return "No layouts saved. Create one: yo layout save <name> <panel1> <panel2> ...";
       return layouts
-        .map((l) => `  ${l.name} — ${l.splits.map((s) => s.panelId).join(" | ")}`)
+        .map((l) => `  ${l.name} — ${l.cells.map((c) => c.panelId).join(" | ")}`)
         .join("\n");
     }
 
     if (args[0] === "save" && args.length >= 4) {
       const name = args[1];
-      const panelIds = args.slice(2);
-      const count = panelIds.length;
-      // Auto-generate even splits
-      const splits = panelIds.map((id, i) => ({
-        panelId: id,
-        x: i / count,
-        y: 0,
-        width: 1 / count,
-        height: 1,
-      }));
-      this.layouts.saveLayout(name, splits);
+      const allArgs = args.slice(2);
+
+      // Parse rows: panels separated by "/" for multi-row grids
+      const rows: string[][] = [];
+      let current: string[] = [];
+      for (const a of allArgs) {
+        if (a === "/") {
+          if (current.length > 0) rows.push(current);
+          current = [];
+        } else {
+          current.push(a);
+        }
+      }
+      if (current.length > 0) rows.push(current);
+
+      const numRows = rows.length;
+      const numCols = Math.max(...rows.map((r) => r.length));
+
+      const cells = rows.flatMap((row, r) =>
+        row.map((id, c) => ({
+          panelId: id,
+          col: c,
+          row: r,
+          colSpan: c === row.length - 1 ? numCols - c : 1,
+          rowSpan: 1,
+        })),
+      );
+
+      this.layouts.saveLayout({
+        name,
+        version: 2,
+        cols: numCols,
+        rows: numRows,
+        colWidths: Array(numCols).fill(1 / numCols),
+        rowHeights: Array(numRows).fill(1 / numRows),
+        cells,
+      });
       return `Layout saved: ${name} → dip ${name}`;
     }
 
@@ -178,6 +204,22 @@ export class CommandParser {
         : "No previous panel";
     }
 
+    if (sub === "refresh") {
+      const target = args[1]?.toLowerCase();
+      return this.panels.refresh(target)
+        ? `Refreshed ${target || this.panels.activePanelId || "panel"}`
+        : "Nothing to refresh";
+    }
+
+    if (sub === "zoom") {
+      if (!args[1]) return `Zoom: ${Math.round(this.panels.getZoom() * 100)}%`;
+      const val = args[1] === "reset" ? 1.0 : parseFloat(args[1]);
+      if (isNaN(val)) return "Usage: dip zoom <0.5-2.0 | reset>";
+      this.panels.setZoom(val);
+      setPreference("zoom", val);
+      return `Zoom: ${Math.round(this.panels.getZoom() * 100)}%`;
+    }
+
     if (sub === "list") {
       const panels = this.panels
         .listPanels()
@@ -186,7 +228,7 @@ export class CommandParser {
       const layouts = this.layouts.listLayouts();
       if (layouts.length > 0) {
         const layoutList = layouts
-          .map((l) => `  ${l.name} — ${l.splits.map((s) => s.panelId).join(" | ")}`)
+          .map((l) => `  ${l.name} — ${l.cells.map((c) => c.panelId).join(" | ")}`)
           .join("\n");
         return `Panels:\n${panels}\n\nLayouts:\n${layoutList}`;
       }
@@ -200,13 +242,38 @@ export class CommandParser {
       return `Added: ${id} → ${url}`;
     }
 
-    // dip split <panel1> <panel2>
+    // dip split <panel1> <panel2> [<panel3> ...] [/ <row2panels> ...]
     if (sub === "split" && args.length >= 3) {
-      const left = args[1].toLowerCase();
-      const right = args[2].toLowerCase();
-      const ok = this.layouts.splitTwo(left, right, win);
-      if (ok) setPreference("lastView", { type: "split", panels: [left, right] });
-      return ok ? `Split: ${left} | ${right}` : `Unknown panel(s). Try: dip list`;
+      const splitArgs = args.slice(1).map((a) => a.toLowerCase());
+
+      // Check for "/" row separator → multi-row grid
+      if (splitArgs.includes("/")) {
+        const rows: string[][] = [];
+        let current: string[] = [];
+        for (const a of splitArgs) {
+          if (a === "/") {
+            if (current.length > 0) rows.push(current);
+            current = [];
+          } else {
+            current.push(a);
+          }
+        }
+        if (current.length > 0) rows.push(current);
+        const ok = this.layouts.splitGrid(rows, win);
+        if (ok) setPreference("lastView", { type: "grid", rows });
+        const label = rows.map((r) => r.join(" ")).join(" / ");
+        return ok ? `Grid: ${label}` : "Unknown panel(s). Try: dip list";
+      }
+
+      // N panels in a single row
+      if (splitArgs.length === 2) {
+        const ok = this.layouts.splitTwo(splitArgs[0], splitArgs[1], win);
+        if (ok) setPreference("lastView", { type: "split", panels: splitArgs });
+        return ok ? `Split: ${splitArgs.join(" | ")}` : "Unknown panel(s). Try: dip list";
+      }
+      const ok = this.layouts.splitN(splitArgs, win);
+      if (ok) setPreference("lastView", { type: "split", panels: splitArgs });
+      return ok ? `Split: ${splitArgs.join(" | ")}` : "Unknown panel(s). Try: dip list";
     }
 
     // Check for saved layout

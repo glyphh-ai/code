@@ -1,5 +1,5 @@
 {
-  "name": "yo-client",
+  "name": "yo",
   "version": "0.1.0",
   "description": "Yo. Sup. Dip. — Your AI workspace.",
   "main": "dist/main/main.js",

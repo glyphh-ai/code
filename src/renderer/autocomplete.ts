@@ -64,9 +64,11 @@ function completeYo(parts: string[], sub: string, argc: number): string[] {
     if (parts[2] === "delete" && argc === 4) {
       return filterPrefix(cache.layouts, parts[3]);
     }
-    // yo layout save <name> <panels...>
+    // yo layout save <name> <panels...> [/ <panels...>]
     if (parts[2] === "save" && argc >= 5) {
-      return filterPrefix(cache.panels, parts[argc - 1]);
+      const current = parts[argc - 1];
+      if (current === "/") return cache.panels;
+      return filterPrefix([...cache.panels, "/"], current);
     }
   }
 
@@ -86,13 +88,22 @@ function completeSup(parts: string[], sub: string, argc: number): string[] {
 function completeDip(parts: string[], sub: string, argc: number): string[] {
   if (argc === 2) {
     return filterPrefix(
-      ["back", "list", "add", "split", ...cache.panels, ...cache.layouts],
+      ["back", "list", "add", "split", "refresh", "zoom", ...cache.panels, ...cache.layouts],
       sub,
     );
   }
-  // dip split <panel> <panel>
-  if (sub === "split" && (argc === 3 || argc === 4)) {
-    return filterPrefix(cache.panels, parts[argc - 1]);
+  if (sub === "refresh" && argc === 3) {
+    return filterPrefix(cache.panels, parts[2]);
+  }
+  if (sub === "zoom" && argc === 3) {
+    return filterPrefix(["0.75", "0.9", "1", "1.1", "1.25", "reset"], parts[2]);
+  }
+  // dip split <panel> [<panel> ...] [/ <panel> ...]
+  if (sub === "split" && argc >= 3) {
+    const current = parts[argc - 1];
+    // After "/" suggest panel names for next row
+    if (current === "/") return cache.panels;
+    return filterPrefix([...cache.panels, "/"], current);
   }
   return [];
 }

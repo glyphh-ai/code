@@ -31,6 +31,7 @@ export class PanelManager {
   private activePanel: string | null = null;
   private previousPanel: string | null = null;
   private onCreated: PanelCreatedCallback | null = null;
+  private zoomFactor = 1.0;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
@@ -66,6 +67,9 @@ export class PanelManager {
     });
 
     view.webContents.loadURL(config.url);
+    view.webContents.on("did-finish-load", () => {
+      view.webContents.setZoomFactor(this.zoomFactor);
+    });
     this.panels.set(id, view);
     this.onCreated?.(id, view.webContents);
     return view;
@@ -126,6 +130,34 @@ export class PanelManager {
     if (this.activePanel) {
       this.switchTo(this.activePanel, parent);
     }
+  }
+
+  /** Set zoom for all panels */
+  setZoom(factor: number): void {
+    this.zoomFactor = Math.max(0.5, Math.min(2.0, factor));
+    for (const view of this.panels.values()) {
+      view.webContents.setZoomFactor(this.zoomFactor);
+    }
+  }
+
+  /** Get current zoom factor */
+  getZoom(): number {
+    return this.zoomFactor;
+  }
+
+  /** Reload a panel (or all visible panels if no id given) */
+  refresh(id?: string): boolean {
+    if (id) {
+      const view = this.panels.get(id);
+      if (!view) return false;
+      view.webContents.reload();
+      return true;
+    }
+    // Refresh active panel
+    if (this.activePanel) {
+      return this.refresh(this.activePanel);
+    }
+    return false;
   }
 
   /** List all registered panels */

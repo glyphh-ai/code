@@ -233,6 +233,21 @@ body {
 #command-input:focus { border-color: #4a9eff; }
 #command-input::placeholder { color: #555; }
 
+.bar-btn {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.bar-btn:hover { color: #fff; background: #222; }
+
 /* ── Split panel chips (in command bar) ──────────────────── */
 
 #split-chips {
@@ -367,18 +382,24 @@ body {
 
 /* ── Split drag handle ───────────────────────────────────── */
 
-#split-handle {
+#grid-handles {
   position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.grid-col-handle {
+  position: absolute;
   top: 48px;
   bottom: 0;
   width: 6px;
   cursor: col-resize;
-  z-index: 50;
   transform: translateX(-50%);
-  transition: background 0.15s;
+  pointer-events: auto;
 }
 
-#split-handle::after {
+.grid-col-handle::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -391,11 +412,42 @@ body {
   transition: all 0.15s;
 }
 
-#split-handle:hover::after,
-#split-handle.dragging::after {
+.grid-col-handle:hover::after,
+.grid-col-handle.dragging::after {
   background: #a855f7;
   height: 48px;
   width: 3px;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+
+.grid-row-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.grid-row-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 2px;
+  background: #333;
+  border-radius: 1px;
+  transition: all 0.15s;
+}
+
+.grid-row-handle:hover::after,
+.grid-row-handle.dragging::after {
+  background: #a855f7;
+  width: 48px;
+  height: 3px;
   box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
 }
 
@@ -403,33 +455,11 @@ body {
   position: fixed;
   inset: 48px 0 0 0;
   z-index: 45;
-  cursor: col-resize;
   background: rgba(10, 10, 10, 0.85);
 }
 
-.drag-label {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 600;
-  color: #444;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  pointer-events: none;
-}
-
-#drag-label-left {
-  left: 0;
-  border-right: 1px solid #222;
-}
-
-#drag-label-right {
-  border-left: 1px solid #222;
-}
+#drag-overlay.drag-col { cursor: col-resize; }
+#drag-overlay.drag-row { cursor: row-resize; }
 
 /* ── Help overlay (docs layout) ─────────────────────────── */
 
@@ -779,46 +809,133 @@ body {
 
 /* ── Layout panel picker ─────────────────────────────────── */
 
-.panel-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* ── Grid builder ──────────────────────────────────────────── */
+
+.grid-builder {
   padding: 12px;
 }
 
-.panel-pick {
-  padding: 8px 14px;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 6px;
+.grid-dims {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.grid-dims label {
+  font-size: 12px;
   color: #888;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.grid-dims select {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.dim-sep {
+  color: #555;
+  font-size: 14px;
+}
+
+.grid-action {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: #1a1a2e;
+  color: #a855f7;
+  border: 1px solid #333;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.grid-action:hover:not(:disabled) {
+  background: #1e1028;
+  border-color: #a855f7;
+}
+
+.grid-action:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+#grid-preview {
+  display: grid;
+  gap: 4px;
+  min-height: 120px;
+}
+
+.grid-cell {
+  background: #1a1a2e;
+  border: 2px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 13px;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  cursor: pointer;
+  color: #555;
+  min-height: 56px;
   transition: all 0.15s;
   user-select: none;
 }
 
-.panel-pick:hover { border-color: #555; color: #ccc; }
-
-.panel-pick.selected {
-  border-color: #a855f7;
-  color: #fff;
-  background: #1e1028;
+.grid-cell:hover {
+  border-color: #555;
 }
 
-.panel-pick .pick-order {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  line-height: 16px;
-  text-align: center;
-  background: #a855f7;
+.grid-cell.selected {
+  border-color: #a855f7;
+  box-shadow: 0 0 0 1px #a855f7;
+}
+
+.grid-cell.assigned {
   color: #fff;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 700;
-  margin-right: 6px;
+  background: #1e1028;
+  border-color: #4a2d73;
+}
+
+/* Cell panel picker dropdown */
+.cell-panel-picker {
+  position: fixed;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 200;
+  min-width: 140px;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.cell-panel-option {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #ccc;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+
+.cell-panel-option:hover {
+  background: #2a2a3e;
+  color: #fff;
+}
+
+.cell-panel-option.empty {
+  color: #666;
+  font-family: inherit;
+  font-style: italic;
 }
 
 /* ── Panel container ─────────────────────────────────────── */
