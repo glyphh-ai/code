@@ -7,17 +7,226 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="command-bar">
-    <input
-      id="command-input"
-      type="text"
-      placeholder="yo · sup · dip"
-      spellcheck="false"
-      autocomplete="off"
-    />
-    <div id="command-output"></div>
+  <!-- Onboarding gate -->
+  <div id="onboarding-overlay" class="hidden">
+    <canvas id="onboarding-canvas"></canvas>
+    <button id="onboarding-close">&times;</button>
+    <div id="onboarding-content">
+      <h1 class="onboarding-title">Yo<span class="onboarding-dot">.</span></h1>
+      <p id="onboarding-trial" class="onboarding-sub"></p>
+      <div class="onboarding-fields">
+        <input id="onboarding-license" type="text" placeholder="License key (YO-...)" spellcheck="false" autocomplete="off" />
+        <input id="onboarding-apikey" type="password" placeholder="Anthropic API key (sk-ant-...)" spellcheck="false" autocomplete="off" />
+        <button id="onboarding-activate">Activate</button>
+      </div>
+      <div id="onboarding-status"></div>
+    </div>
   </div>
+
+  <div id="command-bar">
+    <div id="window-controls">
+      <button id="btn-close" class="wc wc-close"></button>
+      <button id="btn-minimize" class="wc wc-minimize"></button>
+      <button id="btn-maximize" class="wc wc-maximize"></button>
+    </div>
+    <div id="input-wrapper">
+      <input
+        id="command-input"
+        type="text"
+        placeholder="yo · sup · dip"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <div id="autocomplete-dropdown" class="hidden"></div>
+    </div>
+    <div id="split-chips" class="hidden"></div>
+  </div>
+
+  <!-- Results drawer (below command bar) -->
+  <div id="results-drawer" class="hidden">
+    <pre id="results-content"></pre>
+  </div>
+
+  <!-- Split drag handle + overlay -->
+  <div id="split-handle" class="hidden"></div>
+  <div id="drag-overlay" class="hidden">
+    <div id="drag-label-left" class="drag-label hidden"></div>
+    <div id="drag-label-right" class="drag-label hidden"></div>
+  </div>
+
+  <!-- Help overlay (docs + settings combined) -->
+  <div id="help-overlay" class="hidden">
+    <div id="help-layout">
+      <nav id="help-nav">
+        <div class="help-brand">Yo<span class="dot">.</span></div>
+        <button class="help-nav-item active" data-section="guide">Guide</button>
+        <button class="help-nav-item" data-section="library">Library</button>
+        <button class="help-nav-item" data-section="skills">Skills</button>
+        <button class="help-nav-item" data-section="layouts">Layouts</button>
+        <button class="help-nav-item" data-section="panels">Panels</button>
+        <div class="help-nav-spacer"></div>
+        <div class="help-nav-footer">
+          <label class="dismiss-label">
+            <input type="checkbox" id="dismiss-check" />
+            <span>Hide on startup</span>
+          </label>
+          <button id="help-close" class="help-close-btn">Close</button>
+        </div>
+      </nav>
+      <main id="help-content">
+
+        <!-- Guide -->
+        <div class="help-section active" data-section="guide">
+          <h2>Three commands. That's the whole product.</h2>
+
+          <div class="help-group">
+            <h3>Commands</h3>
+            <div class="cmd-row">
+              <code>yo &lt;name&gt;</code>
+              <span>Save the current session. Captures what's happening in the active panel and stores it as markdown.</span>
+            </div>
+            <div class="cmd-row">
+              <code>sup &lt;name&gt;</code>
+              <span>Recall a saved context. Also: <em>sup list</em>, <em>sup search &lt;term&gt;</em>, <em>sup forget &lt;name&gt;</em></span>
+            </div>
+            <div class="cmd-row">
+              <code>dip &lt;panel&gt;</code>
+              <span>Switch to an AI panel. Also: <em>dip back</em>, <em>dip list</em>, <em>dip split &lt;a&gt; &lt;b&gt;</em></span>
+            </div>
+            <div class="cmd-row">
+              <code>yo help</code>
+              <span>Open this page</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>Panels</h3>
+            <div class="panels-grid">
+              <div class="panel-chip"><div class="chip-name">Claude</div><code>dip claude</code></div>
+              <div class="panel-chip"><div class="chip-name">ChatGPT</div><code>dip gpt</code></div>
+              <div class="panel-chip"><div class="chip-name">Gemini</div><code>dip gemini</code></div>
+              <div class="panel-chip"><div class="chip-name">Code</div><code>dip code</code></div>
+              <div class="panel-chip"><div class="chip-name">Cowork</div><code>dip cowork</code></div>
+              <div class="panel-chip"><div class="chip-name">Custom</div><code>dip add &lt;url&gt;</code></div>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>Splits &amp; Layouts</h3>
+            <div class="cmd-row">
+              <code>dip split &lt;a&gt; &lt;b&gt;</code>
+              <span>Side-by-side two panels</span>
+            </div>
+            <div class="cmd-row">
+              <code>yo layout save &lt;name&gt; &lt;panels...&gt;</code>
+              <span>Save a custom layout. e.g. <em>yo layout save research claude gemini gpt</em></span>
+            </div>
+            <div class="cmd-row">
+              <code>dip &lt;layout-name&gt;</code>
+              <span>Apply a saved layout</span>
+            </div>
+            <div class="cmd-row">
+              <code>yo layout list</code>
+              <span>Show all saved layouts</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>Skills</h3>
+            <div class="cmd-row">
+              <code>yo skill create &lt;name&gt; &lt;prompt&gt;</code>
+              <span>Create a skill (system prompt for processing sessions)</span>
+            </div>
+            <div class="cmd-row">
+              <code>yo skill list</code>
+              <span>List all skills</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>Shortcuts</h3>
+            <div class="cmd-row">
+              <code>&#8984;Y</code>
+              <span>Show / hide Yo from anywhere</span>
+            </div>
+            <div class="cmd-row">
+              <code>Esc</code>
+              <span>Clear the command bar or close this page</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Library -->
+        <div class="help-section" data-section="library">
+          <h2>Library</h2>
+          <p class="section-desc">Markdown files stored in <code>~/yo/library/</code></p>
+          <div class="tab-toolbar">
+            <input id="library-new-name" type="text" placeholder="new file name" spellcheck="false" />
+            <button id="library-new-btn">+ New</button>
+          </div>
+          <div id="library-list" class="item-list"></div>
+          <div id="library-editor" class="editor-area hidden">
+            <div class="editor-header">
+              <span id="library-edit-name"></span>
+              <button id="library-save-btn">Save</button>
+            </div>
+            <textarea id="library-edit-content" spellcheck="false"></textarea>
+          </div>
+        </div>
+
+        <!-- Skills -->
+        <div class="help-section" data-section="skills">
+          <h2>Skills</h2>
+          <p class="section-desc">System prompts for processing captured sessions. Stored in <code>~/yo/skills/</code></p>
+          <div class="tab-toolbar">
+            <input id="skills-new-name" type="text" placeholder="new skill name" spellcheck="false" />
+            <button id="skills-new-btn">+ New</button>
+          </div>
+          <div id="skills-list" class="item-list"></div>
+          <div id="skills-editor" class="editor-area hidden">
+            <div class="editor-header">
+              <span id="skills-edit-name"></span>
+              <button id="skills-save-btn">Save</button>
+            </div>
+            <textarea id="skills-edit-content" placeholder="Skill system prompt..." spellcheck="false"></textarea>
+          </div>
+        </div>
+
+        <!-- Layouts -->
+        <div class="help-section" data-section="layouts">
+          <h2>Layouts</h2>
+          <p class="section-desc">Custom panel arrangements. Use <code>dip &lt;name&gt;</code> to activate.</p>
+          <div class="tab-toolbar">
+            <input id="layout-new-name" type="text" placeholder="layout name" spellcheck="false" />
+            <button id="layout-new-btn">+ New Layout</button>
+          </div>
+          <div id="layouts-list" class="item-list"></div>
+          <div id="layout-editor" class="editor-area hidden">
+            <div class="editor-header">
+              <span id="layout-edit-name"></span>
+              <button id="layout-save-btn">Save</button>
+            </div>
+            <div id="layout-panel-picker" class="panel-picker"></div>
+          </div>
+        </div>
+
+        <!-- Panels -->
+        <div class="help-section" data-section="panels">
+          <h2>Panels</h2>
+          <p class="section-desc">Registered panels and custom URLs</p>
+          <div class="tab-toolbar">
+            <input id="panel-new-url" type="text" placeholder="https://..." spellcheck="false" />
+            <button id="panel-add-btn">+ Add Panel</button>
+          </div>
+          <div id="panels-list" class="item-list"></div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
   <div id="panel-container"></div>
-  <script src="renderer.js"></script>
+
+  <script type="module" src="renderer.js"></script>
 </body>
 </html>

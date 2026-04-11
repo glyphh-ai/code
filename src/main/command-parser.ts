@@ -8,13 +8,23 @@ import { BrowserWindow } from "electron";
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
+import { LayoutManager } from "./layout-manager";
+import { setPreference } from "./preferences";
 
 export class CommandParser {
+  private onShowWelcome: (() => void) | null = null;
+
   constructor(
     private panels: PanelManager,
     private library: Library,
     private skillEngine: SkillEngine,
+    private layouts: LayoutManager,
   ) {}
+
+  /** Register callback for yo help */
+  setWelcomeHandler(fn: () => void) {
+    this.onShowWelcome = fn;
+  }
 
   /** Parse and execute a command string */
   async execute(input: string, sessionBuffer: string): Promise<string> {
@@ -41,12 +51,22 @@ export class CommandParser {
 
   private async handleYo(args: string[], buffer: string): Promise<string> {
     if (args.length === 0) {
-      return "Usage: yo <name> or yo skill create <prompt>";
+      return "Usage: yo <name> | yo help | yo skill | yo layout";
+    }
+
+    if (args[0] === "help") {
+      this.onShowWelcome?.();
+      return "";
     }
 
     // yo skill create/list
     if (args[0] === "skill") {
       return this.handleYoSkill(args.slice(1));
+    }
+
+    // yo layout save/list/delete
+    if (args[0] === "layout") {
+      return this.handleYoLayout(args.slice(1));
     }
 
     // yo <name> — capture session, process with default skill, save
@@ -71,6 +91,40 @@ export class CommandParser {
     }
 
     return "Usage: yo skill create <name> <prompt> | yo skill list";
+  }
+
+  private handleYoLayout(args: string[]): string {
+    if (args.length === 0 || args[0] === "list") {
+      const layouts = this.layouts.listLayouts();
+      if (layouts.length === 0) return "No layouts saved. Create one: yo layout save <name> <panel1> <panel2> ...";
+      return layouts
+        .map((l) => `  ${l.name} — ${l.splits.map((s) => s.panelId).join(" | ")}`)
+        .join("\n");
+    }
+
+    if (args[0] === "save" && args.length >= 4) {
+      const name = args[1];
+      const panelIds = args.slice(2);
+      const count = panelIds.length;
+      // Auto-generate even splits
+      const splits = panelIds.map((id, i) => ({
+        panelId: id,
+        x: i / count,
+        y: 0,
+        width: 1 / count,
+        height: 1,
+      }));
+      this.layouts.saveLayout(name, splits);
+      return `Layout saved: ${name} → dip ${name}`;
+    }
+
+    if (args[0] === "delete" && args.length >= 2) {
+      return this.layouts.deleteLayout(args[1])
+        ? `Deleted layout: ${args[1]}`
+        : `Layout not found: ${args[1]}`;
+    }
+
+    return "Usage: yo layout save <name> <panel1> <panel2> ... | yo layout list | yo layout delete <name>";
   }
 
   // ── sup: recall context ─────────────────────────────────────
@@ -111,7 +165,7 @@ export class CommandParser {
 
   private handleDip(args: string[]): string {
     if (args.length === 0) {
-      return "Usage: dip <panel> | dip split | dip back | dip add <url>";
+      return "Usage: dip <panel> | dip split <a> <b> | dip back | dip add <url>";
     }
 
     const sub = args[0].toLowerCase();
@@ -125,10 +179,18 @@ export class CommandParser {
     }
 
     if (sub === "list") {
-      return this.panels
+      const panels = this.panels
         .listPanels()
         .map((p) => `  ${p.id} — ${p.url}`)
         .join("\n");
+      const layouts = this.layouts.listLayouts();
+      if (layouts.length > 0) {
+        const layoutList = layouts
+          .map((l) => `  ${l.name} — ${l.splits.map((s) => s.panelId).join(" | ")}`)
+          .join("\n");
+        return `Panels:\n${panels}\n\nLayouts:\n${layoutList}`;
+      }
+      return panels;
     }
 
     if (sub === "add" && args.length >= 2) {
@@ -138,8 +200,26 @@ export class CommandParser {
       return `Added: ${id} → ${url}`;
     }
 
-    // dip <panel-id>
+    // dip split <panel1> <panel2>
+    if (sub === "split" && args.length >= 3) {
+      const left = args[1].toLowerCase();
+      const right = args[2].toLowerCase();
+      const ok = this.layouts.splitTwo(left, right, win);
+      if (ok) setPreference("lastView", { type: "split", panels: [left, right] });
+      return ok ? `Split: ${left} | ${right}` : `Unknown panel(s). Try: dip list`;
+    }
+
+    // Check for saved layout
+    if (this.layouts.isLayout(sub)) {
+      const ok = this.layouts.apply(sub, win);
+      if (ok) setPreference("lastView", { type: "layout", name: sub });
+      return ok ? `Layout: ${sub}` : `Failed to apply layout: ${sub}`;
+    }
+
+    // dip <panel-id> — single panel, clear any split
+    this.layouts.clearSplit();
     const switched = this.panels.switchTo(sub, win);
+    if (switched) setPreference("lastView", { type: "panel", id: sub });
     return switched
       ? `Switched to ${sub}`
       : `Unknown panel: ${sub}. Try: dip list`;

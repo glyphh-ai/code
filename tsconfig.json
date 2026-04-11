@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "commonjs",
-    "lib": ["ES2022"],
+    "lib": ["ES2023"],
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
@@ -15,5 +15,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "src/renderer/renderer.ts", "src/renderer/help.ts", "src/renderer/onboarding.ts", "src/renderer/autocomplete.ts", "src/renderer/tsconfig.json"]
 }

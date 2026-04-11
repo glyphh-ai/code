@@ -6,13 +6,15 @@
  * dip commands route through here.
  */
 
-import { BrowserWindow, BrowserView } from "electron";
+import { BrowserWindow, BrowserView, WebContents } from "electron";
 
 export interface PanelConfig {
   id: string;
   name: string;
   url: string;
 }
+
+export type PanelCreatedCallback = (id: string, webContents: WebContents) => void;
 
 // Built-in panels
 const BUILTIN_PANELS: PanelConfig[] = [
@@ -28,8 +30,10 @@ export class PanelManager {
   private configs: Map<string, PanelConfig> = new Map();
   private activePanel: string | null = null;
   private previousPanel: string | null = null;
+  private onCreated: PanelCreatedCallback | null = null;
 
-  constructor() {
+  constructor(onPanelCreated?: PanelCreatedCallback) {
+    this.onCreated = onPanelCreated ?? null;
     for (const config of BUILTIN_PANELS) {
       this.configs.set(config.id, config);
     }
@@ -40,7 +44,11 @@ export class PanelManager {
     this.configs.set(id, { id, name: id, url });
   }
 
-  /** Get or create a panel's BrowserView */
+  /** Get or create a panel's BrowserView (public for layout manager) */
+  getOrCreateView(id: string, parent: BrowserWindow): BrowserView | null {
+    return this.getOrCreate(id, parent);
+  }
+
   private getOrCreate(id: string, parent: BrowserWindow): BrowserView | null {
     if (this.panels.has(id)) {
       return this.panels.get(id)!;
@@ -59,6 +67,7 @@ export class PanelManager {
 
     view.webContents.loadURL(config.url);
     this.panels.set(id, view);
+    this.onCreated?.(id, view.webContents);
     return view;
   }
 
@@ -103,6 +112,20 @@ export class PanelManager {
   /** Get active panel ID */
   get activePanelId(): string | null {
     return this.activePanel;
+  }
+
+  /** Hide ALL BrowserViews (for overlay support) */
+  hideActive(parent: BrowserWindow): void {
+    for (const bv of parent.getBrowserViews()) {
+      parent.removeBrowserView(bv);
+    }
+  }
+
+  /** Restore the active panel's BrowserView */
+  showActive(parent: BrowserWindow): void {
+    if (this.activePanel) {
+      this.switchTo(this.activePanel, parent);
+    }
   }
 
   /** List all registered panels */

@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "outDir": "../../dist/renderer",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  },
+  "include": ["renderer.ts", "help.ts", "onboarding.ts", "autocomplete.ts"]
+}

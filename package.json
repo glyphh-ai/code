@@ -4,8 +4,8 @@
   "description": "Yo. Sup. Dip. — Your AI workspace.",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "npm run build && electron .",
-    "build": "tsc",
+    "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
+    "build": "tsc && tsc -p src/renderer/tsconfig.json && cp src/renderer/index.html src/renderer/styles.css dist/renderer/",
     "start": "electron .",
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win"

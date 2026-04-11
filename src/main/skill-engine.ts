@@ -65,9 +65,32 @@ export class SkillEngine {
     this.saveSkill(skill);
   }
 
-  /** List all skills */
+  /** List all skills with their prompts */
   listSkills(): string[] {
     return Array.from(this.skills.keys());
+  }
+
+  /** Read a skill's prompt */
+  readSkill(name: string): string | null {
+    return this.skills.get(name)?.prompt ?? null;
+  }
+
+  /** Update a skill's prompt */
+  updateSkill(name: string, prompt: string): boolean {
+    if (!this.skills.has(name)) return false;
+    const skill: Skill = { name, prompt };
+    this.skills.set(name, skill);
+    this.saveSkill(skill);
+    return true;
+  }
+
+  /** Delete a skill */
+  deleteSkill(name: string): boolean {
+    if (!this.skills.has(name)) return false;
+    this.skills.delete(name);
+    const filePath = path.join(this.skillsDir, `${name}.md`);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return true;
   }
 
   private async callLLM(systemPrompt: string, content: string): Promise<string> {
