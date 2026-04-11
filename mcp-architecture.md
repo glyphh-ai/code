@@ -155,10 +155,10 @@ The local client polls every 5–10 seconds. On each poll:
 
 ## What Changes
 
-- [ ] **Wire up local MCP server** (`yo-client/src/main/mcp-server.ts`) — implement with `@modelcontextprotocol/sdk`, expose yo/sup/sup_list/sup_search over stdio
-- [ ] **Add cloud sync client** (`yo-client/src/main/cloud-sync.ts`) — poll /api/pending, write to library, ACK
-- [ ] **Add sync endpoints to yo-server** — `/api/pending`, `/api/ack`, transient storage with TTL
-- [ ] **Add sup_list and sup_search to yo-server MCP tools** — so AI can browse library contents
-- [ ] **Remove ProxyCapture** — dead code, delete `proxy-capture.ts` and all references
-- [ ] **Onboarding flow** — generate cloud auth token, store in yo-client preferences
+- [x] **Wire up local MCP server** (`yo-client/src/main/mcp-server.ts`) — HTTP on localhost:3939, yo/sup/sup_list/sup_search tools
+- [x] **Add cloud sync client** (`yo-client/src/main/cloud-sync.ts`) — poll /api/pending, write to library, ACK
+- [x] **Add sync endpoints to yo-server** — `/api/pending`, `/api/ack`, transient storage with TTL
+- [x] **Add sup_list and sup_search to yo-server MCP tools** — so AI can browse library contents
+- [x] **Remove ProxyCapture** — dead code, deleted `proxy-capture.ts` and all references
+- [x] **Onboarding flow** — cloud sync token field in onboarding, stored in preferences
 - [ ] **Register cloud MCP server** with Claude MCP registry so it's available in BrowserView sessions

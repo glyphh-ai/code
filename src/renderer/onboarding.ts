@@ -157,6 +157,7 @@ const overlay = document.getElementById("onboarding-overlay")!;
 const canvas = document.getElementById("onboarding-canvas") as HTMLCanvasElement;
 const licenseInput = document.getElementById("onboarding-license") as HTMLInputElement;
 const apiKeyInput = document.getElementById("onboarding-apikey") as HTMLInputElement;
+const cloudTokenInput = document.getElementById("onboarding-cloud-token") as HTMLInputElement;
 const activateBtn = document.getElementById("onboarding-activate") as HTMLButtonElement;
 const statusEl = document.getElementById("onboarding-status")!;
 const trialInfo = document.getElementById("onboarding-trial")!;
@@ -223,12 +224,18 @@ activateBtn.addEventListener("click", async () => {
     return;
   }
 
+  // Save cloud sync token if provided (optional)
+  const cloudToken = cloudTokenInput.value.trim();
+  if (cloudToken) {
+    window.yo.setPreference("cloudToken", cloudToken);
+  }
+
   setStatus("Activated!");
   setTimeout(() => hideOnboarding(), 600);
 });
 
 // Enter key submits
-[licenseInput, apiKeyInput].forEach((input) => {
+[licenseInput, apiKeyInput, cloudTokenInput].forEach((input) => {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") activateBtn.click();
   });

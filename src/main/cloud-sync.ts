@@ -1,0 +1,101 @@
+/**
+ * CloudSync — polls yo.yo.dev/api/pending, pulls new captures
+ * to ~/yo/library/, then ACKs so the cloud deletes them.
+ *
+ * Cloud is transient. Local is source of truth.
+ */
+
+import { Library } from "./library";
+import { getPreference } from "./preferences";
+
+interface PendingItem {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+}
+
+const POLL_INTERVAL_MS = 7_000; // ~7 seconds
+const DEFAULT_SERVER = "https://yo.yo.dev";
+
+export class CloudSync {
+  private library: Library;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private running = false;
+
+  constructor(library: Library) {
+    this.library = library;
+  }
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    // First poll immediately, then on interval
+    this.poll();
+    this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
+    console.log("[cloud-sync] started");
+  }
+
+  stop(): void {
+    this.running = false;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    console.log("[cloud-sync] stopped");
+  }
+
+  get isRunning(): boolean {
+    return this.running;
+  }
+
+  private get serverUrl(): string {
+    return getPreference<string>("cloudServer", DEFAULT_SERVER);
+  }
+
+  private get authToken(): string | null {
+    return getPreference<string>("cloudToken", null!);
+  }
+
+  private async poll(): Promise<void> {
+    const token = this.authToken;
+    if (!token) return; // No token configured — skip silently
+
+    try {
+      // 1. Fetch pending items
+      const res = await fetch(`${this.serverUrl}/api/pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.warn("[cloud-sync] auth failed — check cloud token");
+        }
+        return;
+      }
+
+      const items = (await res.json()) as PendingItem[];
+      if (items.length === 0) return;
+
+      // 2. Write each to local library
+      for (const item of items) {
+        this.library.write(item.name, item.content);
+      }
+
+      // 3. ACK all fetched IDs
+      const ids = items.map((i) => i.id);
+      await fetch(`${this.serverUrl}/api/ack`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids }),
+      });
+
+      console.log(`[cloud-sync] pulled ${items.length} item(s)`);
+    } catch (err) {
+      // Network error — silently retry next interval
+    }
+  }
+}

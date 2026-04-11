@@ -27,7 +27,7 @@ export class CommandParser {
   }
 
   /** Parse and execute a command string */
-  async execute(input: string, sessionBuffer: string): Promise<string> {
+  async execute(input: string): Promise<string> {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
@@ -37,7 +37,7 @@ export class CommandParser {
 
     switch (cmd) {
       case "yo":
-        return this.handleYo(args, sessionBuffer);
+        return this.handleYo(args);
       case "sup":
         return this.handleSup(args);
       case "dip":
@@ -49,9 +49,9 @@ export class CommandParser {
 
   // ── yo: save context ────────────────────────────────────────
 
-  private async handleYo(args: string[], buffer: string): Promise<string> {
+  private async handleYo(args: string[]): Promise<string> {
     if (args.length === 0) {
-      return "Usage: yo <name> | yo help | yo skill | yo layout";
+      return "Usage: yo <name> <content> | yo help | yo skill | yo layout";
     }
 
     if (args[0] === "help") {
@@ -69,9 +69,13 @@ export class CommandParser {
       return this.handleYoLayout(args.slice(1));
     }
 
-    // yo <name> — capture session, process with default skill, save
+    // yo <name> [content...] — save content to library
     const name = args[0];
-    const content = await this.skillEngine.process(buffer);
+    const inline = args.slice(1).join(" ");
+    if (!inline) {
+      return `Nothing to capture. Tip: yo ${name} <content>, or use yo from an AI chat via MCP.`;
+    }
+    const content = await this.skillEngine.process(inline);
     this.library.write(name, content);
     return `Saved: ${name}.md`;
   }

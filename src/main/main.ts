@@ -9,11 +9,11 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { CommandParser } from "./command-parser";
-import { ProxyCapture } from "./proxy-capture";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
+import { CloudSync } from "./cloud-sync";
 import { checkLicense, activateLicense, loadApiKey, saveApiKey, validateApiKey } from "./license";
 import { LayoutManager } from "./layout-manager";
 import { getPreference, setPreference } from "./preferences";
@@ -22,10 +22,10 @@ let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
 let layoutManager: LayoutManager;
 let commandParser: CommandParser;
-let proxyCapture: ProxyCapture;
 let library: Library;
 let skillEngine: SkillEngine;
 let mcpServer: MCPServer;
+let cloudSync: CloudSync;
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -59,10 +59,7 @@ async function boot() {
   // Core services
   library = new Library();
   skillEngine = new SkillEngine(library);
-  proxyCapture = new ProxyCapture();
-  panelManager = new PanelManager((id, webContents) => {
-    proxyCapture.attach(id, webContents);
-  });
+  panelManager = new PanelManager();
   layoutManager = new LayoutManager(panelManager);
   commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager);
   commandParser.setWelcomeHandler(() => {
@@ -72,6 +69,10 @@ async function boot() {
   // Local MCP server
   mcpServer = new MCPServer(library);
   await mcpServer.start();
+
+  // Cloud sync (pulls from yo.yo.dev → ~/yo/library/)
+  cloudSync = new CloudSync(library);
+  cloudSync.start();
 
   // Create window
   await createWindow();
@@ -148,7 +149,7 @@ async function boot() {
 
   // IPC: renderer sends commands
   ipcMain.on("command", async (_event, input: string) => {
-    const result = await commandParser.execute(input, proxyCapture.currentBuffer());
+    const result = await commandParser.execute(input);
     mainWindow?.webContents.send("command-result", result);
     sendSplitState();
   });
@@ -331,6 +332,7 @@ app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
   mcpServer?.stop();
+  cloudSync?.stop();
   if (process.platform !== "darwin") {
     app.quit();
   }
