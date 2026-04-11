@@ -1,0 +1,29 @@
+{
+  "name": "yo-client",
+  "version": "0.1.0",
+  "description": "Yo. Sup. Dip. — Your AI workspace.",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "build": "tsc",
+    "start": "electron .",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glyphh-ai/yo-client.git"
+  },
+  "author": "Glyphh AI",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.0",
+    "typescript": "^5.8.0",
+    "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  }
+}

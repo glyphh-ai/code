@@ -1,0 +1,23 @@
+appId: dev.yosup.client
+productName: Yo
+copyright: Copyright © 2026 Glyphh AI
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  icon: assets/icon.icns
+
+win:
+  target:
+    - nsis
+  icon: assets/icon.ico
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - package.json
