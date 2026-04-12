@@ -577,6 +577,25 @@ body {
   display: block;
 }
 
+/* Apps section needs full height for the split layout */
+.help-section[data-section="apps"].active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.help-section[data-section="apps"] #app-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.help-section[data-section="apps"] #app-detail.hidden {
+  display: none !important;
+}
+
 .help-section h2 {
   font-size: 20px;
   font-weight: 600;
@@ -937,6 +956,422 @@ body {
   font-family: inherit;
   font-style: italic;
 }
+
+/* ── Apps ────────────────────────────────────────────────── */
+
+#apps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-card {
+  background: #141414;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.app-card:hover {
+  border-color: #333;
+  background: #1a1a1a;
+}
+
+.app-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.app-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.app-card-status {
+  font-size: 11px;
+  color: #555;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+}
+
+.app-card-status.connected {
+  color: #28c840;
+  border-color: #1a3a1e;
+  background: #0d1f10;
+}
+
+.app-card-url {
+  font-size: 11px;
+  color: #555;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  margin-bottom: 8px;
+}
+
+.app-card-commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.app-cmd-chip {
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #a855f7;
+  background: #1e1028;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.app-cmd-none {
+  font-size: 11px;
+  color: #444;
+  font-style: italic;
+}
+
+.app-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.app-card-actions button {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.app-card-actions button:hover { color: #fff; background: #2a2a2a; }
+.app-card-actions button.danger:hover { color: #ff5f57; background: #2a1a1a; }
+
+/* App detail view */
+
+.app-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #1e1e1e;
+  margin-bottom: 0;
+}
+
+/* Split layout: controls left, live preview right */
+
+.app-builder-split {
+  display: flex;
+  gap: 0;
+  height: calc(100vh - 180px);
+  min-height: 400px;
+}
+
+.app-builder-controls {
+  width: 360px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 12px 16px 12px 0;
+  border-right: 1px solid #1e1e1e;
+}
+
+.app-builder-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1e1e1e;
+  flex-shrink: 0;
+}
+
+.preview-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+}
+
+.preview-action {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.preview-action:hover { color: #fff; background: #2a2a2a; }
+
+#app-preview {
+  flex: 1;
+  border: none;
+  background: #0a0a0a;
+}
+
+.app-detail-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.app-detail-url {
+  font-size: 12px;
+  color: #555;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  margin-left: 12px;
+}
+
+.app-detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.app-action-btn {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid #333;
+}
+
+.app-action-btn.connect {
+  background: linear-gradient(135deg, #a855f7, #7c3aed);
+  border: none;
+  color: #fff;
+}
+
+.app-action-btn.connect:hover { opacity: 0.85; }
+
+.app-action-btn.pick {
+  background: #1a1a2e;
+  color: #a855f7;
+  border-color: #4a2d73;
+}
+
+.app-action-btn.pick:hover {
+  background: #1e1028;
+  border-color: #a855f7;
+}
+
+.app-action-btn.close {
+  background: #1a1a1a;
+  color: #888;
+}
+
+.app-action-btn.close:hover { color: #fff; background: #252525; }
+
+/* Status messages */
+
+.app-status-msg {
+  font-size: 12px;
+  color: #888;
+  padding: 8px 0;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+
+.app-status-msg.connecting { color: #a855f7; }
+.app-status-msg.success { color: #28c840; }
+.app-status-msg.error { color: #ff5f57; }
+
+/* Command list */
+
+.commands-section {
+  margin-bottom: 20px;
+}
+
+.commands-section h4 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+.command-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1a1a1a;
+  border-radius: 4px;
+}
+
+.command-row:hover { background: #141414; }
+
+.command-key {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #a855f7;
+  min-width: 80px;
+}
+
+.command-row.unmapped .command-key { color: #444; }
+
+.command-desc {
+  font-size: 12px;
+  color: #888;
+  flex: 1;
+}
+
+.unmapped-label { color: #333; font-style: italic; }
+
+.command-selector {
+  font-size: 10px;
+  color: #555;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.command-actions button {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.command-actions button:hover { color: #fff; background: #2a2a2a; }
+.command-actions button.danger:hover { color: #ff5f57; background: #2a1a1a; }
+
+/* App meta */
+
+.app-meta {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #1e1e1e;
+}
+
+.app-meta-desc {
+  font-size: 12px;
+  color: #666;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.app-meta-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cap-chip {
+  font-size: 10px;
+  color: #888;
+  background: #1a1a1a;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+}
+
+/* Map command form (after pick) */
+
+#app-map-command {
+  margin-top: 16px;
+  border: 1px solid #4a2d73;
+  border-radius: 8px;
+  padding: 16px;
+  background: #140e1e;
+}
+
+.map-command-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #a855f7;
+  margin-bottom: 8px;
+}
+
+.map-command-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+#map-selector {
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #fff;
+  word-break: break-all;
+}
+
+#map-element-info {
+  font-size: 11px;
+  color: #666;
+}
+
+.map-command-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.map-command-form select,
+.map-command-form input {
+  height: 30px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  outline: none;
+}
+
+.map-command-form select { min-width: 140px; }
+.map-command-form input { flex: 1; min-width: 120px; }
+.map-command-form input:focus,
+.map-command-form select:focus { border-color: #a855f7; }
+
+#map-save-btn {
+  height: 30px;
+  padding: 0 14px;
+  background: #a855f7;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#map-save-btn:hover { opacity: 0.85; }
 
 /* ── Panel container ─────────────────────────────────────── */
 

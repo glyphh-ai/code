@@ -29,6 +29,15 @@ declare global {
       panelsGetZoom: () => Promise<number>;
       panelsList: () => Promise<Array<{ id: string; name: string; url: string }>>;
       panelsAdd: (id: string, url: string) => Promise<boolean>;
+
+      // Apps
+      appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
+      appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
+      appsRemove: (id: string) => Promise<boolean>;
+      appsConnect: (id: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string; commandCount?: number }>;
+      appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) => Promise<boolean>;
+      appsRemoveCommand: (id: string, commandKey: string) => Promise<boolean>;
+      appsTestCommand: (id: string, commandKey: string, webContentsId?: number) => Promise<string>;
       layoutsList: () => Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
       layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => Promise<boolean>;

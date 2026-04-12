@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { CommandParser } from "./command-parser";
@@ -16,6 +16,9 @@ import { MCPServer } from "./mcp-server";
 import { CloudSync } from "./cloud-sync";
 import { checkLicense, activateLicense, loadApiKey, saveApiKey, validateApiKey } from "./license";
 import { LayoutManager } from "./layout-manager";
+import { AppConnector, CommandMapping } from "./app-connector";
+import { ConnectorAgent } from "./connector-agent";
+import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 
 let mainWindow: BrowserWindow | null = null;
@@ -26,6 +29,8 @@ let library: Library;
 let skillEngine: SkillEngine;
 let mcpServer: MCPServer;
 let cloudSync: CloudSync;
+let appConnector: AppConnector;
+let connectorAgent: ConnectorAgent;
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -61,6 +66,8 @@ async function boot() {
   skillEngine = new SkillEngine(library);
   panelManager = new PanelManager();
   layoutManager = new LayoutManager(panelManager);
+  appConnector = new AppConnector();
+  connectorAgent = new ConnectorAgent();
   commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
@@ -290,6 +297,68 @@ async function boot() {
     const info = layoutManager.getSplitInfo();
     if (info) {
       setPreference("lastView", { type: "split", panels: info.panelIds });
+    }
+  });
+
+  // IPC: apps CRUD + connect + pick
+  ipcMain.handle("apps-list", () => appConnector.list());
+  ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
+    // Register as panel too
+    if (!panelManager.hasPanel(id)) {
+      panelManager.addPanel(id, url);
+    }
+    return appConnector.add(id, name, url);
+  });
+  ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-connect", async (_e, id: string, webContentsId?: number) => {
+    const appConfig = appConnector.get(id);
+    if (!appConfig) return { ok: false, error: "App not found" };
+
+    // Use embedded webview's webContents if provided, else fall back to panel
+    let wc = webContentsId ? webContents.fromId(webContentsId) : null;
+    if (!wc) {
+      if (!mainWindow) return { ok: false, error: "No window" };
+      if (!panelManager.hasPanel(id)) {
+        panelManager.addPanel(id, appConfig.url);
+      }
+      const view = panelManager.getOrCreateView(id, mainWindow);
+      if (!view) return { ok: false, error: "Could not create panel" };
+      wc = view.webContents;
+    }
+
+    if (wc.isLoading()) {
+      await new Promise<void>((resolve) => wc!.once("did-finish-load", () => resolve()));
+    }
+
+    try {
+      const result = await connectorAgent.analyze(wc, appConfig.name, appConfig.url);
+      appConnector.updateCommands(id, result.commands, result.meta);
+      return { ok: true, commandCount: Object.keys(result.commands).length };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+  });
+  ipcMain.handle("apps-set-command", (_e, id: string, commandKey: string, mapping: CommandMapping) => {
+    return appConnector.setCommand(id, commandKey, mapping);
+  });
+  ipcMain.handle("apps-remove-command", (_e, id: string, commandKey: string) => {
+    return appConnector.removeCommand(id, commandKey);
+  });
+  ipcMain.handle("apps-test-command", async (_e, id: string, commandKey: string, webContentsId?: number) => {
+    const appConfig = appConnector.get(id);
+    if (!appConfig) return "App not found";
+    const mapping = appConfig.commands[commandKey];
+    if (!mapping) return "Command not mapped";
+
+    // Use embedded webview if provided, else panel
+    let wc = webContentsId ? webContents.fromId(webContentsId) : panelManager.getWebContents(id);
+    if (!wc) return "App not loaded.";
+
+    try {
+      return await executeCommand(wc, mapping);
+    } catch (err: unknown) {
+      return err instanceof Error ? err.message : String(err);
     }
   });
 

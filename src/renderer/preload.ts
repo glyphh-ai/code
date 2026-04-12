@@ -67,6 +67,19 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("show-welcome", () => callback());
   },
 
+  // Apps CRUD
+  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
+  appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
+  appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
+  appsConnect: (id: string, webContentsId?: number) =>
+    ipcRenderer.invoke("apps-connect", id, webContentsId) as Promise<{ ok: boolean; error?: string; commandCount?: number }>,
+  appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) =>
+    ipcRenderer.invoke("apps-set-command", id, commandKey, mapping) as Promise<boolean>,
+  appsRemoveCommand: (id: string, commandKey: string) =>
+    ipcRenderer.invoke("apps-remove-command", id, commandKey) as Promise<boolean>,
+  appsTestCommand: (id: string, commandKey: string, webContentsId?: number) =>
+    ipcRenderer.invoke("apps-test-command", id, commandKey, webContentsId) as Promise<string>,
+
   // License + API key
   checkLicense: () => ipcRenderer.invoke("check-license"),
   activateLicense: (key: string) => ipcRenderer.invoke("activate-license", key) as Promise<boolean>,

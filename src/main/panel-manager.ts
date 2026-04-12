@@ -164,4 +164,14 @@ export class PanelManager {
   listPanels(): PanelConfig[] {
     return Array.from(this.configs.values());
   }
+
+  /** Get a panel's webContents by ID (null if not yet created) */
+  getWebContents(id: string): WebContents | null {
+    return this.panels.get(id)?.webContents ?? null;
+  }
+
+  /** Check if a panel config exists */
+  hasPanel(id: string): boolean {
+    return this.configs.has(id);
+  }
 }

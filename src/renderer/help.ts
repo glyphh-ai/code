@@ -44,7 +44,7 @@ function loadActiveSection() {
   if (sec === "library") loadLibrary();
   else if (sec === "skills") loadSkills();
   else if (sec === "layouts") loadLayouts();
-  else if (sec === "panels") loadPanels();
+  else if (sec === "apps") loadApps();
 }
 
 // ── Init ─────────────────────────────────────────────────
@@ -98,8 +98,27 @@ export function initHelp() {
     }
   });
 
-  // Panels
-  document.getElementById("panel-add-btn")!.addEventListener("click", addPanel);
+  // Apps
+  document.getElementById("app-add-btn")!.addEventListener("click", addApp);
+  document.getElementById("app-connect-btn")!.addEventListener("click", connectApp);
+  document.getElementById("app-pick-btn")!.addEventListener("click", pickElement);
+  document.getElementById("app-detail-close")!.addEventListener("click", closeAppDetail);
+  document.getElementById("map-save-btn")!.addEventListener("click", saveMapping);
+
+  document.getElementById("app-preview-refresh")!.addEventListener("click", () => {
+    appPreview.reload();
+  });
+
+  const mapCommandKey = document.getElementById("map-command-key") as HTMLSelectElement;
+  mapCommandKey.addEventListener("change", () => {
+    const custom = document.getElementById("map-custom-key") as HTMLInputElement;
+    if (mapCommandKey.value === "__custom__") {
+      custom.classList.remove("hidden");
+      custom.focus();
+    } else {
+      custom.classList.add("hidden");
+    }
+  });
 }
 
 // ── Library ──────────────────────────────────────────────
@@ -506,25 +525,382 @@ async function saveLayout() {
   loadLayouts();
 }
 
-// ── Panels ───────────────────────────────────────────────
+// ── Apps ─────────────────────────────────────────────────
 
-const panelsList = document.getElementById("panels-list")!;
+const appsList = document.getElementById("apps-list")!;
+const appDetail = document.getElementById("app-detail")!;
+const appDetailName = document.getElementById("app-detail-name")!;
+const appDetailUrl = document.getElementById("app-detail-url")!;
+const appConnectStatus = document.getElementById("app-connect-status")!;
+const appCommandsList = document.getElementById("app-commands-list")!;
+const appMapCommand = document.getElementById("app-map-command")!;
+const appPreview = document.getElementById("app-preview") as HTMLElement & {
+  src: string;
+  partition: string;
+  getWebContentsId: () => number;
+  executeJavaScript: (code: string) => Promise<unknown>;
+  reload: () => void;
+};
 
-async function loadPanels() {
-  const panels = await window.yo.panelsList();
-  panelsList.innerHTML = panels.map((p) => `
-    <div class="item-row">
-      <span class="item-name">${p.id}</span>
-      <span class="item-meta">${p.url}</span>
-    </div>`).join("");
+let currentAppId = "";
+
+interface AppData {
+  id: string;
+  name: string;
+  url: string;
+  connected: boolean;
+  commands: Record<string, { selector: string; action: string; description: string }>;
+  meta?: { description: string; capabilities: string[] };
 }
 
-async function addPanel() {
-  const input = document.getElementById("panel-new-url") as HTMLInputElement;
-  const url = input.value.trim();
+async function loadApps() {
+  appDetail.classList.add("hidden");
+  const apps: AppData[] = await window.yo.appsList();
+  if (apps.length === 0) {
+    appsList.innerHTML = `<div class="empty-state">No apps yet. Add a web app to connect it to yo/sup/dip.</div>`;
+    return;
+  }
+  appsList.innerHTML = apps.map((app) => `
+    <div class="app-card" data-id="${app.id}">
+      <div class="app-card-header">
+        <span class="app-card-name">${app.name}</span>
+        <span class="app-card-status ${app.connected ? "connected" : ""}">${app.connected ? "connected" : "not connected"}</span>
+      </div>
+      <div class="app-card-url">${app.url}</div>
+      <div class="app-card-commands">
+        ${Object.keys(app.commands).length > 0
+          ? Object.keys(app.commands).map((k) => `<span class="app-cmd-chip">${k}</span>`).join("")
+          : '<span class="app-cmd-none">no commands mapped</span>'}
+      </div>
+      <div class="app-card-actions">
+        <button class="app-card-edit">configure</button>
+        <button class="app-card-delete danger">delete</button>
+      </div>
+    </div>`).join("");
+
+  appsList.querySelectorAll(".app-card").forEach((card) => {
+    const id = (card as HTMLElement).dataset.id!;
+    card.querySelector(".app-card-edit")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openAppDetail(id);
+    });
+    card.querySelector(".app-card-delete")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await window.yo.appsRemove(id);
+      loadApps();
+    });
+    card.addEventListener("click", () => openAppDetail(id));
+  });
+}
+
+async function addApp() {
+  const nameInput = document.getElementById("app-new-name") as HTMLInputElement;
+  const urlInput = document.getElementById("app-new-url") as HTMLInputElement;
+  const url = urlInput.value.trim();
   if (!url) return;
-  const id = url.replace(/https?:\/\//, "").split(/[./]/)[0];
-  await window.yo.panelsAdd(id, url);
-  input.value = "";
-  loadPanels();
+  const name = nameInput.value.trim() || url.replace(/https?:\/\//, "").split(/[./]/)[0];
+  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+  await window.yo.appsAdd(id, name, url);
+  nameInput.value = "";
+  urlInput.value = "";
+  loadApps();
+  openAppDetail(id);
+}
+
+async function openAppDetail(id: string) {
+  currentAppId = id;
+  const apps: AppData[] = await window.yo.appsList();
+  const app = apps.find((a) => a.id === id);
+  if (!app) return;
+
+  appDetailName.textContent = app.name;
+  appDetailUrl.textContent = app.url;
+  appConnectStatus.textContent = "";
+  appMapCommand.classList.add("hidden");
+
+  // Load app in the embedded webview preview
+  appPreview.partition = `persist:panel-${id}`;
+  appPreview.src = app.url;
+
+  renderCommands(app);
+  appsList.classList.add("hidden");
+  appDetail.classList.remove("hidden");
+}
+
+function closeAppDetail() {
+  // Unload the preview
+  appPreview.src = "about:blank";
+  appDetail.classList.add("hidden");
+  appsList.classList.remove("hidden");
+  loadApps();
+}
+
+function getPreviewWebContentsId(): number | undefined {
+  try {
+    return appPreview.getWebContentsId();
+  } catch {
+    return undefined;
+  }
+}
+
+function renderCommands(app: AppData) {
+  const standardKeys = ["grab", "push", "submit", "clear", "read"];
+  const customKeys = Object.keys(app.commands).filter((k) => !standardKeys.includes(k));
+
+  let html = '<div class="commands-section"><h4>Standard Commands</h4>';
+  for (const key of standardKeys) {
+    const cmd = app.commands[key];
+    html += `
+      <div class="command-row ${cmd ? "mapped" : "unmapped"}">
+        <span class="command-key">${key}</span>
+        ${cmd
+          ? `<span class="command-desc">${cmd.description}</span>
+             <span class="command-selector">${cmd.selector.slice(0, 50)}</span>
+             <div class="command-actions">
+               <button class="test-cmd" data-key="${key}">test</button>
+               <button class="remove-cmd danger" data-key="${key}">remove</button>
+             </div>`
+          : `<span class="command-desc unmapped-label">not mapped</span>`
+        }
+      </div>`;
+  }
+  html += "</div>";
+
+  if (customKeys.length > 0) {
+    html += '<div class="commands-section"><h4>App Commands</h4>';
+    for (const key of customKeys) {
+      const cmd = app.commands[key];
+      html += `
+        <div class="command-row mapped">
+          <span class="command-key">${key}</span>
+          <span class="command-desc">${cmd.description}</span>
+          <span class="command-selector">${cmd.selector.slice(0, 50)}</span>
+          <div class="command-actions">
+            <button class="test-cmd" data-key="${key}">test</button>
+            <button class="remove-cmd danger" data-key="${key}">remove</button>
+          </div>
+        </div>`;
+    }
+    html += "</div>";
+  }
+
+  if (app.meta) {
+    html += `<div class="app-meta">
+      <span class="app-meta-desc">${app.meta.description}</span>
+      ${app.meta.capabilities.length > 0
+        ? `<div class="app-meta-caps">${app.meta.capabilities.map((c) => `<span class="cap-chip">${c}</span>`).join("")}</div>`
+        : ""}
+    </div>`;
+  }
+
+  appCommandsList.innerHTML = html;
+
+  // Test buttons — run against the embedded webview
+  appCommandsList.querySelectorAll(".test-cmd").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = (btn as HTMLElement).dataset.key!;
+      const result = await window.yo.appsTestCommand(currentAppId, key, getPreviewWebContentsId());
+      appConnectStatus.textContent = `Test ${key}: ${result.slice(0, 200)}`;
+      appConnectStatus.className = "app-status-msg";
+    });
+  });
+
+  // Remove buttons
+  appCommandsList.querySelectorAll(".remove-cmd").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = (btn as HTMLElement).dataset.key!;
+      await window.yo.appsRemoveCommand(currentAppId, key);
+      openAppDetail(currentAppId);
+    });
+  });
+}
+
+async function connectApp() {
+  if (!currentAppId) return;
+  appConnectStatus.textContent = "Analyzing page DOM...";
+  appConnectStatus.className = "app-status-msg connecting";
+
+  // Use the embedded webview for analysis
+  const result = await window.yo.appsConnect(currentAppId, getPreviewWebContentsId());
+  if (result.ok) {
+    appConnectStatus.textContent = `Connected! Mapped ${result.commandCount} commands.`;
+    appConnectStatus.className = "app-status-msg success";
+    // Refresh command list without reloading preview
+    const apps: AppData[] = await window.yo.appsList();
+    const app = apps.find((a) => a.id === currentAppId);
+    if (app) renderCommands(app);
+  } else {
+    appConnectStatus.textContent = `Failed: ${result.error}`;
+    appConnectStatus.className = "app-status-msg error";
+  }
+}
+
+// DOM Picker — runs directly on the embedded webview, no IPC round-trip
+async function pickElement() {
+  if (!currentAppId) return;
+  appConnectStatus.textContent = "Click an element in the preview...";
+  appConnectStatus.className = "app-status-msg connecting";
+
+  // Inject the picker script directly into the webview
+  const pickerScript = `
+    new Promise(function(resolve) {
+      var overlay = document.createElement('div');
+      overlay.id = '__yo_picker_overlay__';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;cursor:crosshair;';
+
+      var highlight = document.createElement('div');
+      highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;' +
+        'border:2px solid #a855f7;background:rgba(168,85,247,0.08);border-radius:3px;' +
+        'transition:all 0.05s ease;box-shadow:0 0 12px rgba(168,85,247,0.3);display:none;';
+      document.body.appendChild(highlight);
+
+      var label = document.createElement('div');
+      label.style.cssText = 'position:fixed;z-index:1000000;pointer-events:none;' +
+        'background:#1a1a1a;color:#e0e0e0;font:12px monospace;' +
+        'padding:4px 8px;border-radius:4px;border:1px solid #a855f7;' +
+        'box-shadow:0 4px 12px rgba(0,0,0,0.5);max-width:400px;overflow:hidden;' +
+        'text-overflow:ellipsis;white-space:nowrap;display:none;';
+      document.body.appendChild(label);
+
+      var lastTarget = null;
+
+      function getEl(e) {
+        overlay.style.pointerEvents = 'none';
+        var el = document.elementFromPoint(e.clientX, e.clientY);
+        overlay.style.pointerEvents = 'auto';
+        return el;
+      }
+
+      function buildSelector(el) {
+        if (!el || el === document.body || el === document.documentElement) return 'body';
+        if (el.id) return '#' + CSS.escape(el.id);
+        var tid = el.getAttribute('data-testid');
+        if (tid) return '[data-testid="' + tid + '"]';
+        var aria = el.getAttribute('aria-label');
+        if (aria) {
+          var s = el.tagName.toLowerCase() + '[aria-label="' + aria.replace(/"/g, '\\\\\\"') + '"]';
+          if (document.querySelectorAll(s).length === 1) return s;
+        }
+        var parts = [];
+        var cur = el;
+        while (cur && cur !== document.body && parts.length < 5) {
+          var tag = cur.tagName.toLowerCase();
+          if (cur.id) { parts.unshift('#' + CSS.escape(cur.id)); break; }
+          var cls = Array.from(cur.classList).slice(0, 3).map(function(c) { return '.' + CSS.escape(c); }).join('');
+          var seg = tag + cls;
+          if (cur.parentElement) {
+            var sibs = Array.from(cur.parentElement.children).filter(function(s) { return s.tagName === cur.tagName; });
+            if (sibs.length > 1) seg += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+          }
+          parts.unshift(seg);
+          cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+      }
+
+      overlay.addEventListener('mousemove', function(e) {
+        var el = getEl(e);
+        if (el === lastTarget) return;
+        lastTarget = el;
+        if (!el || el === overlay) { highlight.style.display = 'none'; label.style.display = 'none'; return; }
+        var r = el.getBoundingClientRect();
+        highlight.style.display = 'block';
+        highlight.style.left = r.left + 'px'; highlight.style.top = r.top + 'px';
+        highlight.style.width = r.width + 'px'; highlight.style.height = r.height + 'px';
+        var info = el.tagName.toLowerCase();
+        if (el.id) info += '#' + el.id;
+        else if (el.className && typeof el.className === 'string') info += '.' + el.className.split(' ')[0];
+        if (el.getAttribute('role')) info += ' [' + el.getAttribute('role') + ']';
+        label.textContent = info;
+        label.style.display = 'block';
+        label.style.left = r.left + 'px';
+        label.style.top = Math.max(0, r.top - 28) + 'px';
+      });
+
+      overlay.addEventListener('click', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        var el = getEl(e);
+        cleanup();
+        if (!el) { resolve(null); return; }
+        var tag = el.tagName.toLowerCase();
+        resolve({
+          selector: buildSelector(el), tag: tag,
+          text: (el.innerText || el.textContent || '').trim().slice(0, 100),
+          isEditable: el.getAttribute('contenteditable') === 'true' || tag === 'input' || tag === 'textarea',
+          isClickable: tag === 'button' || tag === 'a' || el.getAttribute('role') === 'button',
+        });
+      });
+
+      function onKey(e) { if (e.key === 'Escape') { cleanup(); resolve(null); } }
+      document.addEventListener('keydown', onKey);
+
+      function cleanup() { overlay.remove(); highlight.remove(); label.remove(); document.removeEventListener('keydown', onKey); }
+      document.body.appendChild(overlay);
+    })
+  `;
+
+  try {
+    const picked = await appPreview.executeJavaScript(pickerScript) as {
+      selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean;
+    } | null;
+
+    if (!picked) {
+      appConnectStatus.textContent = "Cancelled.";
+      appConnectStatus.className = "app-status-msg";
+      appMapCommand.classList.add("hidden");
+      return;
+    }
+
+    appConnectStatus.textContent = "";
+
+    // Show mapping form
+    document.getElementById("map-selector")!.textContent = picked.selector;
+    document.getElementById("map-element-info")!.textContent =
+      `<${picked.tag}> ${picked.text ? '"' + picked.text.slice(0, 60) + '"' : ""}` +
+      `${picked.isEditable ? " [editable]" : ""}${picked.isClickable ? " [clickable]" : ""}`;
+
+    const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
+    if (picked.isEditable) actionSelect.value = "setValue";
+    else if (picked.isClickable) actionSelect.value = "click";
+    else actionSelect.value = "extractText";
+
+    appMapCommand.classList.remove("hidden");
+    (document.getElementById("map-command-key") as HTMLSelectElement).value = "";
+    (document.getElementById("map-description") as HTMLInputElement).value = "";
+  } catch {
+    appConnectStatus.textContent = "Picker failed. Is the page loaded?";
+    appConnectStatus.className = "app-status-msg error";
+  }
+}
+
+async function saveMapping() {
+  const keySelect = document.getElementById("map-command-key") as HTMLSelectElement;
+  const customKeyInput = document.getElementById("map-custom-key") as HTMLInputElement;
+  const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
+  const descInput = document.getElementById("map-description") as HTMLInputElement;
+  const selector = document.getElementById("map-selector")!.textContent || "";
+
+  let commandKey = keySelect.value;
+  if (commandKey === "__custom__") {
+    commandKey = customKeyInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  }
+  if (!commandKey || !selector) return;
+
+  const description = descInput.value.trim() || commandKey;
+
+  await window.yo.appsSetCommand(currentAppId, commandKey, {
+    selector,
+    action: actionSelect.value,
+    description,
+  });
+
+  appMapCommand.classList.add("hidden");
+  appConnectStatus.textContent = `Mapped: ${commandKey}`;
+  appConnectStatus.className = "app-status-msg success";
+  // Refresh command list without reloading preview
+  const apps: AppData[] = await window.yo.appsList();
+  const app = apps.find((a) => a.id === currentAppId);
+  if (app) renderCommands(app);
 }

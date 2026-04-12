@@ -62,7 +62,7 @@
         <button class="help-nav-item" data-section="library">Library</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
-        <button class="help-nav-item" data-section="panels">Panels</button>
+        <button class="help-nav-item" data-section="apps">Apps</button>
         <div class="help-nav-spacer"></div>
         <div class="help-nav-footer">
           <label class="dismiss-label">
@@ -106,7 +106,7 @@
               <div class="panel-chip"><div class="chip-name">Gemini</div><code>dip gemini</code></div>
               <div class="panel-chip"><div class="chip-name">Code</div><code>dip code</code></div>
               <div class="panel-chip"><div class="chip-name">Cowork</div><code>dip cowork</code></div>
-              <div class="panel-chip"><div class="chip-name">Custom</div><code>dip add &lt;url&gt;</code></div>
+              <div class="panel-chip"><div class="chip-name">+ Apps</div><code>yo help → Apps</code></div>
             </div>
           </div>
 
@@ -237,15 +237,78 @@
           </div>
         </div>
 
-        <!-- Panels -->
-        <div class="help-section" data-section="panels">
-          <h2>Panels</h2>
-          <p class="section-desc">Registered panels and custom URLs</p>
+        <!-- Apps -->
+        <div class="help-section" data-section="apps">
+          <h2>Apps</h2>
+          <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to yo/sup/dip.</p>
           <div class="tab-toolbar">
-            <input id="panel-new-url" type="text" placeholder="https://..." spellcheck="false" />
-            <button id="panel-add-btn">+ Add Panel</button>
+            <input id="app-new-name" type="text" placeholder="app name" spellcheck="false" />
+            <input id="app-new-url" type="text" placeholder="https://..." spellcheck="false" />
+            <button id="app-add-btn">+ Add App</button>
           </div>
-          <div id="panels-list" class="item-list"></div>
+          <div id="apps-list"></div>
+
+          <!-- App detail / command editor + live preview -->
+          <div id="app-detail" class="hidden">
+            <div class="app-detail-header">
+              <div class="app-detail-info">
+                <span id="app-detail-name" class="app-detail-title"></span>
+                <span id="app-detail-url" class="app-detail-url"></span>
+              </div>
+              <div class="app-detail-actions">
+                <button id="app-connect-btn" class="app-action-btn connect">Connect</button>
+                <button id="app-pick-btn" class="app-action-btn pick">Pick Element</button>
+                <button id="app-detail-close" class="app-action-btn close">Back</button>
+              </div>
+            </div>
+
+            <div class="app-builder-split">
+              <!-- Left: commands + mapping -->
+              <div class="app-builder-controls">
+                <div id="app-connect-status"></div>
+                <div id="app-commands-list"></div>
+
+                <!-- Manual command mapping (after pick) -->
+                <div id="app-map-command" class="hidden">
+                  <div class="map-command-header">Map to Command</div>
+                  <div class="map-command-info">
+                    <span id="map-selector"></span>
+                    <span id="map-element-info"></span>
+                  </div>
+                  <div class="map-command-form">
+                    <select id="map-command-key">
+                      <option value="">Select command...</option>
+                      <option value="grab">grab</option>
+                      <option value="push">push</option>
+                      <option value="submit">submit</option>
+                      <option value="clear">clear</option>
+                      <option value="read">read</option>
+                      <option value="__custom__">+ custom command</option>
+                    </select>
+                    <input id="map-custom-key" type="text" placeholder="command name" class="hidden" spellcheck="false" />
+                    <select id="map-action">
+                      <option value="extractText">Extract Text</option>
+                      <option value="extractHTML">Extract HTML</option>
+                      <option value="setValue">Set Value</option>
+                      <option value="click">Click</option>
+                      <option value="custom">Custom Script</option>
+                    </select>
+                    <input id="map-description" type="text" placeholder="description" spellcheck="false" />
+                    <button id="map-save-btn">Save Mapping</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right: live app preview -->
+              <div class="app-builder-preview">
+                <div class="preview-toolbar">
+                  <span class="preview-label">Live Preview</span>
+                  <button id="app-preview-refresh" class="preview-action">Refresh</button>
+                </div>
+                <webview id="app-preview" allowpopups></webview>
+              </div>
+            </div>
+          </div>
         </div>
 
       </main>
