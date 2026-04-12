@@ -143,8 +143,8 @@ function ed(){
   if(S){try{var el=document.querySelector(S);
     if(el&&(el.contains(document.activeElement)||el===document.activeElement))return el;}catch(e){}}
   var a=document.activeElement;if(!a||a===document.body)a=null;
-  // Walk into shadow roots to find the real active element
-  if(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;
+  // Walk into shadow roots to find the real active element (nested shadows, e.g. Gemini)
+  while(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;
   if(a){
     if(a.tagName==='INPUT'||a.tagName==='TEXTAREA')return a;
     if(a.isContentEditable)return a;
