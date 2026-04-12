@@ -12,6 +12,7 @@
 import { AppConnector } from "./app-connector";
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
+import { ToolManager } from "./tool-manager";
 import { executeCommand } from "./dom-bridge";
 
 export interface ChatCallbacks {
@@ -129,6 +130,11 @@ const TOOLS = [
     description: "List all connected apps and their available commands.",
     input_schema: { type: "object" as const, properties: {} },
   },
+  {
+    name: "tools_list",
+    description: "List all available wassup tools (AI automation recipes).",
+    input_schema: { type: "object" as const, properties: {} },
+  },
 ];
 
 export class YoChat {
@@ -140,6 +146,7 @@ export class YoChat {
     private appConnector: AppConnector,
     private panelManager: PanelManager,
     private library: Library,
+    private toolManager: ToolManager,
   ) {
     this.apiKey = process.env.ANTHROPIC_API_KEY || null;
   }
@@ -176,7 +183,7 @@ export class YoChat {
    * Runs non-streaming and returns the final text result.
    */
   async executeInline(
-    command: "yo" | "sup",
+    command: "yo" | "sup" | "wassup",
     instruction: string,
     appId: string,
     appContent?: string,
@@ -189,7 +196,6 @@ export class YoChat {
 
     const context = this.buildContext();
     const userParts: string[] = [];
-
     if (command === "yo") {
       userParts.push(`The user typed "yo ${instruction}" inside the ${appId} app.`);
       userParts.push(`This means they want to CREATE/SAVE something.`);
@@ -197,6 +203,21 @@ export class YoChat {
         userParts.push(`\nHere is the content grabbed from the app:\n\n${appContent.slice(0, 8000)}`);
       }
       userParts.push(`\nExecute the user's instruction. Use tools to save to library, process with skills, etc. Be concise in your final response.`);
+    } else if (command === "wassup") {
+      userParts.push(`The user typed "wassup ${instruction}" inside the ${appId} app.`);
+      userParts.push(`This means they want to RUN A TOOL — an AI automation recipe that orchestrates across apps.`);
+      if (appContent) {
+        userParts.push(`\nHere is the content from the current app:\n\n${appContent.slice(0, 8000)}`);
+      }
+      // Check if instruction matches a known tool
+      const matchedTool = this.toolManager.search(instruction);
+      if (matchedTool) {
+        userParts.push(`\nMatched tool: "${matchedTool.name}" (${matchedTool.description})`);
+        userParts.push(`\nTool prompt:\n${matchedTool.prompt}`);
+        userParts.push(`\nExecute this tool's instructions. Use the available tools (grab, push, submit, dip, etc.) to carry out the recipe. Be concise in your final response.`);
+      } else {
+        userParts.push(`\nNo tool matched "${instruction}". The user wants you to improvise — carry out their instruction using the available tools. Be concise in your final response.`);
+      }
     } else {
       userParts.push(`The user typed "sup ${instruction}" inside the ${appId} app.`);
       userParts.push(`This means they want to READ/PULL content from the library.`);
@@ -332,6 +353,8 @@ export class YoChat {
           );
         case "apps_list":
           return this.toolAppsList();
+        case "tools_list":
+          return this.toolToolsList();
         default:
           return `Unknown tool: ${name}`;
       }
@@ -410,5 +433,13 @@ export class YoChat {
         return `${a.id} (${a.name}): ${a.url}\n  Commands: ${cmds}`;
       })
       .join("\n\n");
+  }
+
+  private toolToolsList(): string {
+    const tools = this.toolManager.list();
+    if (tools.length === 0) return "No tools configured.";
+    return tools
+      .map((t) => `${t.id} — ${t.name}: ${t.description}`)
+      .join("\n");
   }
 }

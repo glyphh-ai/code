@@ -5,15 +5,15 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("yo", {
-  command: (input: string) => ipcRenderer.send("command", input),
-  onResult: (callback: (result: string) => void) => {
-    ipcRenderer.on("command-result", (_event, result: string) => {
-      callback(result);
-    });
-  },
   windowClose: () => ipcRenderer.send("window-close"),
   windowMinimize: () => ipcRenderer.send("window-minimize"),
   windowMaximize: () => ipcRenderer.send("window-maximize"),
+
+  // Active context
+  onContextUpdate: (callback: (ctx: { name: string } | null) => void) => {
+    ipcRenderer.on("context-update", (_event, ctx) => callback(ctx));
+  },
+  contextClear: () => ipcRenderer.send("context-clear"),
 
   // Panel visibility + refresh
   panelsHide: () => ipcRenderer.send("panels-hide"),
@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld("yo", {
   skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean>,
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
 
+  // Tools CRUD
+  toolsList: () => ipcRenderer.invoke("tools-list") as Promise<Array<{ id: string; name: string; description: string; prompt: string }>>,
+  toolsRead: (id: string) => ipcRenderer.invoke("tools-read", id) as Promise<{ id: string; name: string; description: string; prompt: string } | null>,
+  toolsWrite: (id: string, name: string, description: string, prompt: string) => ipcRenderer.invoke("tools-write", id, name, description, prompt) as Promise<boolean>,
+  toolsRemove: (id: string) => ipcRenderer.invoke("tools-remove", id) as Promise<boolean>,
+
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,
@@ -41,21 +47,9 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("layouts-save-grid", grid) as Promise<boolean>,
   layoutsDelete: (name: string) => ipcRenderer.invoke("layouts-delete", name) as Promise<boolean>,
 
-  // Autocomplete data
-  getCompletions: () => ipcRenderer.invoke("get-completions") as Promise<{
-    apps: string[];
-    library: string[];
-    skills: string[];
-    layouts: string[];
-  }>,
-
-  // Grid resize + swap
-  splitDragStart: () => ipcRenderer.send("split-drag-start"),
-  splitDragMove: (ratio: number) => ipcRenderer.send("split-drag-move", ratio),
-  splitDragEnd: (ratio: number) => ipcRenderer.send("split-drag-end", ratio),
+  // Grid resize
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
     ipcRenderer.send("grid-drag-end", type, index, fraction),
-  splitSwap: (index: number, panelId: string) => ipcRenderer.send("split-swap", index, panelId),
 
   // Preferences
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
@@ -91,7 +85,7 @@ contextBridge.exposeInMainWorld("yo", {
   activateLicense: (key: string) => ipcRenderer.invoke("activate-license", key) as Promise<boolean>,
   validateApiKey: (key: string) => ipcRenderer.invoke("validate-api-key", key) as Promise<{ valid: boolean; error?: string }>,
   getApiKey: () => ipcRenderer.invoke("get-api-key") as Promise<string | null>,
-  onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean }) => void) => {
+  onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
   onSplitState: (callback: (info: {
@@ -103,24 +97,5 @@ contextBridge.exposeInMainWorld("yo", {
     cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
   } | null) => void) => {
     ipcRenderer.on("split-state", (_event, info) => callback(info));
-  },
-  onSplitDragPreview: (callback: (ratio: number) => void) => {
-    ipcRenderer.on("split-drag-preview", (_event, ratio) => callback(ratio));
-  },
-
-  // Chat
-  chatSend: (message: string) => ipcRenderer.invoke("chat-send", message),
-  chatClear: () => ipcRenderer.send("chat-clear"),
-  onChatDelta: (callback: (delta: string) => void) => {
-    ipcRenderer.on("chat-delta", (_event, delta) => callback(delta));
-  },
-  onChatToolUse: (callback: (data: { name: string; input: unknown }) => void) => {
-    ipcRenderer.on("chat-tool-use", (_event, data) => callback(data));
-  },
-  onChatDone: (callback: () => void) => {
-    ipcRenderer.on("chat-done", () => callback());
-  },
-  onShowChat: (callback: () => void) => {
-    ipcRenderer.on("show-chat", () => callback());
   },
 });

@@ -1,33 +1,42 @@
 /**
- * Renderer — command bar + help overlay logic.
+ * Renderer — titlebar + grid handles + boot gate.
+ *
+ * All user commands (yo/sup/dip/wassup) happen inside app panels
+ * via the interceptor. The renderer just manages the window chrome.
  */
 
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
-import { initAutocomplete, hideDropdown } from "./autocomplete.js";
-import { initChat, isChatVisible, hideChat } from "./chat.js";
 
 declare global {
   interface Window {
     yo: {
-      command: (input: string) => void;
-      onResult: (callback: (result: string) => void) => void;
       windowClose: () => void;
       windowMinimize: () => void;
       windowMaximize: () => void;
-      libraryList: () => Promise<string[]>;
-      libraryRead: (name: string) => Promise<string | null>;
-      libraryWrite: (name: string, content: string) => Promise<boolean>;
-      libraryRemove: (name: string) => Promise<boolean>;
-      skillsList: () => Promise<string[]>;
-      skillsRead: (name: string) => Promise<string | null>;
-      skillsWrite: (name: string, prompt: string) => Promise<boolean>;
-      skillsRemove: (name: string) => Promise<boolean>;
       panelsHide: () => void;
       panelsShow: () => void;
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
       panelsGetZoom: () => Promise<number>;
+      // Context
+      onContextUpdate: (callback: (ctx: { name: string } | null) => void) => void;
+      contextClear: () => void;
+      // Library
+      libraryList: () => Promise<string[]>;
+      libraryRead: (name: string) => Promise<string | null>;
+      libraryWrite: (name: string, content: string) => Promise<boolean>;
+      libraryRemove: (name: string) => Promise<boolean>;
+      // Skills
+      skillsList: () => Promise<string[]>;
+      skillsRead: (name: string) => Promise<string | null>;
+      skillsWrite: (name: string, prompt: string) => Promise<boolean>;
+      skillsRemove: (name: string) => Promise<boolean>;
+      // Tools
+      toolsList: () => Promise<Array<{ id: string; name: string; description: string; prompt: string }>>;
+      toolsRead: (id: string) => Promise<{ id: string; name: string; description: string; prompt: string } | null>;
+      toolsWrite: (id: string, name: string, description: string, prompt: string) => Promise<boolean>;
+      toolsRemove: (id: string) => Promise<boolean>;
       // Apps
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
@@ -37,16 +46,15 @@ declare global {
       appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) => Promise<boolean>;
       appsRemoveCommand: (id: string, commandKey: string) => Promise<boolean>;
       appsTestCommand: (id: string, commandKey: string, webContentsId?: number) => Promise<string>;
+      // Layouts
       layoutsList: () => Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
       layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;
-      getCompletions: () => Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>;
-      splitDragStart: () => void;
-      splitDragMove: (ratio: number) => void;
-      splitDragEnd: (ratio: number) => void;
+      // Grid resize
       gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
-      splitSwap: (index: number, panelId: string) => void;
+      // Preferences + boot
+      setPreference: (key: string, value: unknown) => void;
       onboardingComplete: () => Promise<void>;
       startPicker: (webContentsId: number) => void;
       onPickerResult: (callback: (result: unknown) => void) => void;
@@ -55,7 +63,6 @@ declare global {
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
       onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
-      setPreference: (key: string, value: unknown) => void;
       onShowWelcome: (callback: () => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
@@ -65,91 +72,46 @@ declare global {
         rowHeights: number[];
         cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
       } | null) => void) => void;
-      onSplitDragPreview: (callback: (ratio: number) => void) => void;
-
-      // Chat
-      chatSend: (message: string) => Promise<void>;
-      chatClear: () => void;
-      onChatDelta: (callback: (delta: string) => void) => void;
-      onChatToolUse: (callback: (data: { name: string; input: unknown }) => void) => void;
-      onChatDone: (callback: () => void) => void;
-      onShowChat: (callback: () => void) => void;
     };
   }
 }
 
-const input = document.getElementById("command-input") as HTMLInputElement;
-const resultsDrawer = document.getElementById("results-drawer")!;
-const resultsContent = document.getElementById("results-content")!;
 const gridHandles = document.getElementById("grid-handles")!;
-const splitChips = document.getElementById("split-chips")!;
 
-// ── Results drawer ──────────────────────────────────────────
+// ── Window controls ────────────────────────────────────────
 
-function showResult(result: string) {
-  if (!result) {
-    hideResults();
-    return;
-  }
+document.getElementById("btn-close")!.addEventListener("click", () => window.yo.windowClose());
+document.getElementById("btn-minimize")!.addEventListener("click", () => window.yo.windowMinimize());
+document.getElementById("btn-maximize")!.addEventListener("click", () => window.yo.windowMaximize());
 
-  const isMultiLine = result.includes("\n");
-  resultsContent.textContent = result;
+// ── Titlebar label → open help ─────────────────────────────
 
-  if (isMultiLine) {
-    resultsDrawer.classList.remove("hidden", "inline");
-    resultsDrawer.classList.add("expanded");
+document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
+
+// ── Context pill ───────────────────────────────────────────
+
+const contextPill = document.getElementById("context-pill")!;
+const contextName = document.getElementById("context-name")!;
+
+document.getElementById("context-clear")!.addEventListener("click", () => {
+  window.yo.contextClear();
+});
+
+window.yo.onContextUpdate((ctx) => {
+  if (ctx) {
+    contextName.textContent = ctx.name + ".md";
+    contextPill.classList.remove("hidden");
   } else {
-    resultsDrawer.classList.remove("hidden", "expanded");
-    resultsDrawer.classList.add("inline");
-    setTimeout(hideResults, 4000);
-  }
-}
-
-function hideResults() {
-  resultsDrawer.classList.add("hidden");
-  resultsDrawer.classList.remove("inline", "expanded");
-}
-
-// ── Command input ───────────────────────────────────────────
-
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    // Autocomplete dropdown handles its own Enter when item is selected
-    const value = input.value.trim();
-    if (value) {
-      hideResults();
-      hideDropdown();
-      window.yo.command(value);
-      input.value = "";
-    }
-  }
-
-  if (e.key === "Escape") {
-    if (resultsDrawer.classList.contains("expanded")) {
-      hideResults();
-    } else if (isHelpOpen()) {
-      closeHelp();
-    } else if (isChatVisible()) {
-      hideChat();
-      window.yo.panelsShow();
-    } else {
-      input.value = "";
-      input.blur();
-    }
+    contextPill.classList.add("hidden");
+    contextName.textContent = "";
   }
 });
 
-// Global Escape (for when input isn't focused)
+// ── Global keyboard shortcuts ──────────────────────────────
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (resultsDrawer.classList.contains("expanded")) {
-      hideResults();
-    } else if (isHelpOpen()) {
-      closeHelp();
-    } else if (isChatVisible()) {
-      hideChat();
-      window.yo.panelsShow();
-    }
+    if (isHelpOpen()) closeHelp();
   }
 
   // Cmd+R / Ctrl+R to refresh panels
@@ -173,37 +135,13 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Click outside results drawer closes it
-document.addEventListener("click", (e) => {
-  if (
-    resultsDrawer.classList.contains("expanded") &&
-    !(e.target as HTMLElement).closest("#results-drawer") &&
-    !(e.target as HTMLElement).closest("#command-bar")
-  ) {
-    hideResults();
-  }
-});
-
-// Show command results
-window.yo.onResult((result: string) => {
-  showResult(result);
-});
-
-// Window controls
-document.getElementById("btn-close")!.addEventListener("click", () => window.yo.windowClose());
-document.getElementById("btn-minimize")!.addEventListener("click", () => window.yo.windowMinimize());
-document.getElementById("btn-maximize")!.addEventListener("click", () => window.yo.windowMaximize());
-document.getElementById("btn-refresh")!.addEventListener("click", () => window.yo.panelsRefresh());
-
 // yo help trigger from main process
 window.yo.onShowWelcome(() => openHelp());
 
-// Initialize help overlay + autocomplete + chat
+// Initialize help overlay
 initHelp();
-initAutocomplete();
-initChat();
 
-// ── Grid drag handles ───────────────────────────────────────
+// ── Grid drag handles ───────────────────────────────────
 
 type GridInfo = {
   panelIds: string[];
@@ -214,21 +152,15 @@ type GridInfo = {
   cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
 };
 
-const CONTENT_TOP = 48;
+const CONTENT_TOP = 38;
 let currentGrid: GridInfo | null = null;
 let isDragging = false;
 let dragType: "col" | "row" = "col";
 let dragIndex = 0;
-let activeSwapIndex = -1;
 
 window.yo.onSplitState((info) => {
   currentGrid = info;
   renderGridHandles();
-  if (info && info.panelIds.length >= 2) {
-    renderSplitChips(info.panelIds);
-  } else {
-    splitChips.classList.add("hidden");
-  }
 });
 
 function renderGridHandles() {
@@ -264,7 +196,7 @@ function renderGridHandles() {
   }
 }
 
-// Reposition row handles on window resize (col handles use % so they auto-adjust)
+// Reposition row handles on window resize
 window.addEventListener("resize", () => {
   if (!currentGrid || currentGrid.rows <= 1) return;
   let cumRow = 0;
@@ -275,71 +207,6 @@ window.addEventListener("resize", () => {
       `${CONTENT_TOP + cumRow * (window.innerHeight - CONTENT_TOP)}px`;
   }
 });
-
-function renderSplitChips(panelIds: string[]) {
-  splitChips.innerHTML = panelIds
-    .map((id, i) => `<button class="split-chip" data-index="${i}">${id}</button>`)
-    .join(`<span class="split-chip-sep">|</span>`);
-  splitChips.classList.remove("hidden");
-
-  splitChips.querySelectorAll(".split-chip").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const idx = parseInt((btn as HTMLElement).dataset.index!, 10);
-      toggleSwapDropdown(idx, btn as HTMLElement);
-    });
-  });
-}
-
-async function toggleSwapDropdown(index: number, anchor: HTMLElement) {
-  const existing = document.getElementById("swap-dropdown");
-  if (existing) {
-    existing.remove();
-    activeSwapIndex = -1;
-    window.yo.panelsShow();
-    return;
-  }
-
-  activeSwapIndex = index;
-  window.yo.panelsHide();
-
-  const completions = await window.yo.getCompletions();
-  const current = currentGrid?.panelIds[index] ?? "";
-
-  const dd = document.createElement("div");
-  dd.id = "swap-dropdown";
-  dd.className = "swap-dropdown";
-
-  const rect = anchor.getBoundingClientRect();
-  dd.style.left = `${rect.left}px`;
-  dd.style.top = `${rect.bottom + 4}px`;
-
-  dd.innerHTML = completions.apps
-    .filter((p) => p !== current)
-    .map((p) => `<div class="swap-item" data-id="${p}">${p}</div>`)
-    .join("");
-
-  document.body.appendChild(dd);
-
-  dd.querySelectorAll(".swap-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      window.yo.splitSwap(index, (item as HTMLElement).dataset.id!);
-      dd.remove();
-      activeSwapIndex = -1;
-    });
-  });
-
-  const closeHandler = (e: MouseEvent) => {
-    if (!(e.target as HTMLElement).closest("#swap-dropdown") &&
-        !(e.target as HTMLElement).closest(".split-chip")) {
-      dd.remove();
-      activeSwapIndex = -1;
-      window.yo.panelsShow();
-      document.removeEventListener("click", closeHandler);
-    }
-  };
-  setTimeout(() => document.addEventListener("click", closeHandler), 0);
-}
 
 // ── Drag protocol ─────────────────────────────────────────
 
@@ -352,7 +219,7 @@ function startDrag(e: MouseEvent, type: "col" | "row", index: number) {
   const handle = e.currentTarget as HTMLElement;
   handle.classList.add("dragging");
 
-  window.yo.splitDragStart();
+  window.yo.panelsHide();
 
   const overlay = document.getElementById("drag-overlay")!;
   overlay.classList.remove("hidden");
@@ -365,7 +232,6 @@ document.addEventListener("mousemove", (e) => {
   if (dragType === "col") {
     const fraction = e.clientX / window.innerWidth;
     const clamped = Math.max(0.05, Math.min(0.95, fraction));
-    // Update the handle position visually
     const handles = gridHandles.querySelectorAll(".grid-col-handle");
     if (handles[dragIndex]) {
       (handles[dragIndex] as HTMLElement).style.left = `${clamped * 100}%`;
@@ -386,14 +252,12 @@ document.addEventListener("mouseup", () => {
   if (!isDragging) return;
   isDragging = false;
 
-  // Remove dragging class from all handles
   gridHandles.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
 
   const overlay = document.getElementById("drag-overlay")!;
   overlay.classList.add("hidden");
   overlay.className = "";
 
-  // Compute final fraction and send to main
   if (dragType === "col") {
     const handle = gridHandles.querySelectorAll(".grid-col-handle")[dragIndex] as HTMLElement;
     if (handle) {
@@ -420,6 +284,3 @@ window.yo.onBoot((data) => {
     openHelp();
   }
 });
-
-// Auto-focus command input
-input.focus();

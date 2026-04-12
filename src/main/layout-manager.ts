@@ -59,7 +59,7 @@ interface LegacyLayout {
 // ── Constants ───────────────────────────────────────────────
 
 const LAYOUTS_FILE = path.join(os.homedir(), "yo", ".layouts");
-const CONTENT_TOP = 48;
+const CONTENT_TOP = 38;
 const SPLIT_GAP = 6;
 
 // ── LayoutManager ───────────────────────────────────────────

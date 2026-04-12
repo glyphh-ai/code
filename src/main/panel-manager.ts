@@ -16,17 +16,25 @@ export interface PanelConfig {
 
 export type PanelCreatedCallback = (id: string, webContents: WebContents) => void;
 
+export type PanelReadyCallback = (id: string, webContents: WebContents) => void;
+
 export class PanelManager {
   private panels: Map<string, BrowserView> = new Map();
   private configs: Map<string, PanelConfig> = new Map();
   private activePanel: string | null = null;
   private previousPanel: string | null = null;
   private onCreated: PanelCreatedCallback | null = null;
+  private onReady: PanelReadyCallback | null = null;
   private zoomFactor = 1.0;
   private _animating = false;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
+  }
+
+  /** Register callback for when a panel becomes active (after switch or page load). */
+  setOnPanelReady(cb: PanelReadyCallback): void {
+    this.onReady = cb;
   }
 
   /** Whether a slide animation is in progress */
@@ -62,9 +70,28 @@ export class PanelManager {
     view.webContents.setUserAgent(
       view.webContents.getUserAgent().replace(/Electron\/\S+\s*/g, "").replace(/\s+/g, " ").trim()
     );
+
+    // Block native app protocol redirects (slack://, zoommtg://, etc.)
+    view.webContents.on("will-navigate", (e, url) => {
+      if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
+        e.preventDefault();
+      }
+    });
+    view.webContents.setWindowOpenHandler(({ url }) => {
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        return { action: "deny" };
+      }
+      // Open external links in the same view instead of a popup
+      view.webContents.loadURL(url);
+      return { action: "deny" };
+    });
+
     view.webContents.loadURL(config.url);
     view.webContents.on("did-finish-load", () => {
       view.webContents.setZoomFactor(this.zoomFactor);
+      if (this.activePanel === id) {
+        this.onReady?.(id, view.webContents);
+      }
     });
     this.panels.set(id, view);
     this.onCreated?.(id, view.webContents);
@@ -81,13 +108,14 @@ export class PanelManager {
     this.activePanel = id;
 
     const [w, h] = parent.getContentSize();
-    const finalBounds = { x: 0, y: 48, width: w, height: h - 48 };
+    const finalBounds = { x: 0, y: 38, width: w, height: h - 38 };
 
     // No animation if same panel, hidden, or already animating
     if (oldId === id || this._hidden || this._animating) {
       parent.setBrowserView(view);
       view.setBounds(finalBounds);
       view.setAutoResize({ width: true, height: true });
+      this.onReady?.(id, view.webContents);
       return true;
     }
 
@@ -105,7 +133,10 @@ export class PanelManager {
       [{ view, finalBounds }],
       offset,
       220,
-      () => { view.setAutoResize({ width: true, height: true }); },
+      () => {
+        view.setAutoResize({ width: true, height: true });
+        this.onReady?.(id, view.webContents);
+      },
     );
     return true;
   }

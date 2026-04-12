@@ -14,6 +14,7 @@ import { WebContents } from "electron";
 import { AppConnector } from "./app-connector";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
+import { ToolManager } from "./tool-manager";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
 
@@ -23,11 +24,14 @@ export class YoInterceptor {
   private active = new Map<number, () => void>();
   private commandHandler: ((input: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
+  private activeContext: { name: string; content: string } | null = null;
+  private onContextChange: ((ctx: { name: string } | null) => void) | null = null;
 
   constructor(
     private appConnector: AppConnector,
     private library: Library,
     private skillEngine: SkillEngine,
+    private toolManager: ToolManager,
   ) {}
 
   /** Set the YoChat instance for inline LLM execution. */
@@ -38,6 +42,28 @@ export class YoInterceptor {
   /** Set handler for dip commands (routed through command parser). */
   setCommandHandler(handler: (input: string) => Promise<string>): void {
     this.commandHandler = handler;
+  }
+
+  /** Set callback for context changes (notifies renderer for titlebar pill). */
+  setOnContextChange(cb: (ctx: { name: string } | null) => void): void {
+    this.onContextChange = cb;
+  }
+
+  /** Load a library file as active context. */
+  setContext(name: string, content: string): void {
+    this.activeContext = { name, content };
+    this.onContextChange?.({ name });
+  }
+
+  /** Clear the active context. */
+  clearContext(): void {
+    this.activeContext = null;
+    this.onContextChange?.(null);
+  }
+
+  /** Get the active context (for external use). */
+  getContext(): { name: string; content: string } | null {
+    return this.activeContext;
   }
 
   /** Start watching a panel's webContents for yo/sup commands. */
@@ -93,9 +119,24 @@ export class YoInterceptor {
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
 var S=${sel};
-var CMD_RE=/^(yo|sup|dip)(?:\\s+(.+))?$/i;
+var CMD_RE=/^(yo|sup|dip|wassup)(?:\\s+(.+))?$/i;
 var lastText='';
 var handled=false;
+
+// Remember the element the command was typed in so sup/wassup can inject back
+window.__yoLastEl=null;
+window.__yoInject=function(text){
+  var el=window.__yoLastEl;if(!el)return;
+  el.focus();
+  if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+    var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    var s=Object.getOwnPropertyDescriptor(p,'value');
+    if(s&&s.set)s.set.call(el,text);else el.value=text;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }else{
+    document.execCommand('insertText',false,text);
+  }
+};
 
 function ed(){
   // Try mapped push selector first
@@ -123,14 +164,16 @@ function tx(el){
   if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')return el.value||'';
   return el.innerText||el.textContent||'';
 }
-function fire(text){
+function fire(text,srcEl){
   if(handled)return;handled=true;
   var m=text.match(CMD_RE);if(!m)return;
   var cmd=m[1].toLowerCase();
   var arg=(m[2]||'').trim()||null;
+  window.__yoLastEl=srcEl||ed();
   if(cmd==='yo')console.log('${PREFIX}'+JSON.stringify({type:'yo',instruction:arg}));
   else if(cmd==='sup')console.log('${PREFIX}'+JSON.stringify({type:'sup',instruction:arg}));
   else if(cmd==='dip')console.log('${PREFIX}'+JSON.stringify({type:'dip',args:arg}));
+  else if(cmd==='wassup')console.log('${PREFIX}'+JSON.stringify({type:'wassup',instruction:arg}));
 }
 
 // Primary: capture-phase keydown (works for most apps)
@@ -141,6 +184,8 @@ document.addEventListener('keydown',function(e){
   if(!CMD_RE.test(t))return;
   handled=false;
   e.preventDefault();e.stopImmediatePropagation();
+  // Capture element ref before clearing
+  var srcEl=el;
   // Clear using select-all + delete (framework-friendly)
   if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
     var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
@@ -153,26 +198,27 @@ document.addEventListener('keydown',function(e){
     range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
     document.execCommand('delete',false);
   }
-  fire(t);
+  fire(t,srcEl);
 },true);
 
 // Fallback: track text on every input, detect submit via text disappearing.
 // Catches apps where keydown capture is blocked (Angular, etc.)
+var lastEl=null;
 document.addEventListener('input',function(){
   var el=ed();if(!el)return;
   var t=tx(el).trim();
-  if(CMD_RE.test(t)){lastText=t;handled=false;}
+  if(CMD_RE.test(t)){lastText=t;lastEl=el;handled=false;}
   else if(lastText&&t.length===0){
     // Text was a command and just got cleared = user submitted
-    var saved=lastText;lastText='';
-    fire(saved);
-  }else if(!CMD_RE.test(t)){lastText='';}
+    var saved=lastText;var sEl=lastEl;lastText='';lastEl=null;
+    fire(saved,sEl);
+  }else if(!CMD_RE.test(t)){lastText='';lastEl=null;}
 },true);
 
 // Safety net: keyup Enter checks tracked text
 document.addEventListener('keyup',function(e){
   if(e.key!=='Enter')return;
-  if(lastText&&!handled){var saved=lastText;lastText='';fire(saved);}
+  if(lastText&&!handled){var saved=lastText;var sEl=lastEl;lastText='';lastEl=null;fire(saved,sEl);}
 },true);
 })();`;
   }
@@ -182,16 +228,20 @@ document.addEventListener('keyup',function(e){
   private async dispatch(
     wc: WebContents,
     appId: string,
-    data: { type: string; instruction?: string | null; fileName?: string; args?: string | null },
+    data: { type: string; instruction?: string | null; fileName?: string; args?: string | null; toolId?: string },
   ): Promise<void> {
     if (data.type === "yo") {
       await this.handleYo(wc, appId, data.instruction ?? undefined);
     } else if (data.type === "sup") {
       await this.handleSup(wc, appId, data.instruction ?? undefined);
     } else if (data.type === "sup-select") {
-      await this.pushFile(wc, appId, data.fileName!);
+      this.loadContext(wc, data.fileName!);
     } else if (data.type === "dip") {
       await this.handleDip(wc, data.args ?? undefined);
+    } else if (data.type === "wassup") {
+      await this.handleWassup(wc, appId, data.instruction ?? undefined);
+    } else if (data.type === "wassup-select") {
+      await this.handleWassup(wc, appId, data.toolId ?? undefined);
     }
   }
 
@@ -213,8 +263,17 @@ document.addEventListener('keyup',function(e){
   //   "yo <natural lang>" → grab + LLM inline execution
 
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
+    // Route subcommands through command parser (yo help, yo skill, yo layout)
+    const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
+    if (sub === "help" || sub === "skill" || sub === "layout") {
+      if (this.commandHandler) {
+        const result = await this.commandHandler(`yo ${instruction}`);
+        if (result) this.notify(wc, result, "success");
+      }
+      return;
+    }
+
     const app = this.appConnector.get(appId);
-    if (!app) return;
 
     // Decide: fast path (no instruction or single known skill) vs LLM
     const isSingleWord = instruction && /^\S+$/.test(instruction);
@@ -263,7 +322,6 @@ document.addEventListener('keyup',function(e){
       return;
     }
     const app = this.appConnector.get(appId);
-    if (!app) return;
 
     this.notify(wc, "Thinking...", "loading");
 
@@ -284,7 +342,7 @@ document.addEventListener('keyup',function(e){
   //   "sup <natural lang>"      → LLM inline execution
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // No instruction → show full library
+    // No instruction → show full library as context picker
     if (!instruction) {
       const files = this.library.list();
       if (files.length === 0) {
@@ -308,7 +366,7 @@ document.addEventListener('keyup',function(e){
         return;
       }
       if (files.length === 1) {
-        await this.pushFile(wc, appId, files[0]);
+        this.loadContext(wc, files[0]);
         return;
       }
       const items = files.slice(0, 50).map((f) => ({
@@ -319,7 +377,7 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Multi-word → LLM inline
+    // Multi-word → LLM inline (finds the right file, then loads as context)
     await this.handleSupInline(wc, appId, instruction);
   }
 
@@ -340,7 +398,129 @@ document.addEventListener('keyup',function(e){
     }
   }
 
+  // ── wassup flow: run tools ──────────────────────────────
+  //
+  // Smart routing:
+  //   bare "wassup"              → show tool picker
+  //   "wassup <known-tool>"      → run tool recipe via LLM
+  //   "wassup <natural lang>"    → LLM improvises with available tools
+
+  private async handleWassup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
+    // No instruction → show tool picker
+    if (!instruction) {
+      const tools = this.toolManager.list();
+      if (tools.length === 0) {
+        this.notify(wc, "No tools yet. Create one in Yo. Sup. Dip. → Tools.", "error");
+        return;
+      }
+      this.showToolPicker(wc, tools);
+      return;
+    }
+
+    // Has instruction → search for matching tool or improvise
+    if (!this.yoChat) {
+      this.notify(wc, "Chat engine not available.", "error");
+      return;
+    }
+
+    this.notify(wc, "Running...", "loading");
+
+    try {
+      // Use active context if loaded, otherwise fall back to page scraping
+      let content: string | null = null;
+      if (this.activeContext) {
+        content = this.activeContext.content;
+      } else {
+        const app = this.appConnector.get(appId);
+        content = app ? await this.grabContent(wc, app) : null;
+      }
+      const result = await this.yoChat.executeInline("wassup", instruction, appId, content || undefined);
+      this.notify(wc, result, "success");
+    } catch (err) {
+      this.notify(wc, `wassup failed: ${err instanceof Error ? err.message : err}`, "error");
+    }
+  }
+
+  private async showToolPicker(
+    wc: WebContents,
+    tools: Array<{ id: string; name: string; description: string }>,
+  ): Promise<void> {
+    const data = JSON.stringify(tools);
+    try {
+      await wc.executeJavaScript(`
+(function(){
+var o=document.getElementById('__yo_note');if(o)o.remove();
+var m=document.getElementById('__yo_modal');if(m)m.remove();
+var tools=${data};
+var ov=document.createElement('div');ov.id='__yo_modal';
+ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
+var card=document.createElement('div');
+card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:70vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;display:flex;flex-direction:column;';
+var t=document.createElement('div');t.textContent='Run a tool';
+t.style.cssText='font-size:16px;font-weight:600;margin-bottom:12px;color:#a855f7;';
+card.appendChild(t);
+var si=document.createElement('input');si.type='text';si.placeholder='Search tools...';
+si.style.cssText='width:100%;box-sizing:border-box;background:#0d0d1a;border:1px solid #333;color:#e0e0e0;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
+si.onfocus=function(){si.style.borderColor='#a855f7';};
+si.onblur=function(){si.style.borderColor='#333';};
+card.appendChild(si);
+var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
+card.appendChild(list);
+function render(arr){
+  list.innerHTML='';
+  arr.forEach(function(tool){
+    var item=document.createElement('div');
+    item.style.cssText='padding:10px 12px;cursor:pointer;border-radius:6px;margin-bottom:2px;transition:background 0.1s;';
+    item.onmouseenter=function(){item.style.background='#252540';};
+    item.onmouseleave=function(){item.style.background='transparent';};
+    var n=document.createElement('div');n.textContent=tool.name;
+    n.style.cssText='font-size:14px;font-weight:500;';item.appendChild(n);
+    if(tool.description){var p=document.createElement('div');p.textContent=tool.description;
+    p.style.cssText='font-size:12px;color:#888;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    item.appendChild(p);}
+    item.onclick=function(){ov.remove();
+      console.log('${PREFIX}'+JSON.stringify({type:'wassup-select',toolId:tool.id}));};
+    list.appendChild(item);
+  });
+  if(arr.length===0){var em=document.createElement('div');em.textContent='No matches';
+  em.style.cssText='color:#666;text-align:center;padding:20px;font-size:14px;';list.appendChild(em);}
+}
+render(tools);
+si.oninput=function(){var q=si.value.toLowerCase();
+  render(tools.filter(function(t){return t.name.toLowerCase().includes(q)||t.id.toLowerCase().includes(q)||(t.description||'').toLowerCase().includes(q);}));};
+ov.onclick=function(e){if(e.target===ov)ov.remove();};
+ov.appendChild(card);
+document.body.appendChild(ov);
+requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';si.focus();});
+})();`);
+    } catch {}
+  }
+
+  // ── Context loading ─────────────────────────────────────
+
+  /** Load a library file as active context + notify the page. */
+  private loadContext(wc: WebContents, fileName: string): void {
+    const content = this.library.read(fileName);
+    if (!content) {
+      this.notify(wc, `"${fileName}" not found.`, "error");
+      return;
+    }
+    this.setContext(fileName, content);
+    this.notify(wc, `Context: ${fileName}.md`, "success");
+  }
+
   // ── Helpers ─────────────────────────────────────────────
+
+  /** Inject text into the element where the user typed the command. */
+  private async injectContent(wc: WebContents, text: string): Promise<boolean> {
+    try {
+      return await wc.executeJavaScript(
+        `(function(){ if(window.__yoInject){window.__yoInject(${JSON.stringify(text)});return true;} return false; })()`,
+      );
+    } catch {
+      return false;
+    }
+  }
 
   private async grabContent(
     wc: WebContents,
@@ -364,12 +544,19 @@ document.addEventListener('keyup',function(e){
       this.notify(wc, `"${fileName}" not found.`, "error");
       return;
     }
+    // Try direct injection into the element where the command was typed
+    const injected = await this.injectContent(wc, content);
+    if (injected) {
+      this.notify(wc, `Loaded: ${fileName}.md`, "success");
+      return;
+    }
+    // Fallback: try push command mapping
     const app = this.appConnector.get(appId);
     if (app?.commands.push) {
       await executeCommand(wc, app.commands.push, content);
       this.notify(wc, `Loaded: ${fileName}.md`, "success");
     } else {
-      // No push mapping — show content for manual copy
+      // Last resort — show content for manual copy
       this.showSupContent(wc, fileName, content);
     }
   }

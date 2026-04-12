@@ -22,6 +22,7 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
+import { ToolManager } from "./tool-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -76,12 +77,36 @@ async function boot() {
   appConnector = new AppConnector();
   connectorAgent = new ConnectorAgent();
 
-  // yo/sup interceptor — injected into connected app panels
-  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine);
+  // Tool manager (wassup recipes)
+  const toolManager = new ToolManager();
+
+  // yo/sup/dip/wassup interceptor — injected into ALL app panels
+  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, toolManager);
 
   panelManager = new PanelManager((id, wc) => {
+    // Always activate interceptor so yo/dip/wassup work on all panels
+    yoInterceptor.activate(wc, id);
+  });
+
+  // Focus the app's push input when a panel becomes active
+  panelManager.setOnPanelReady((id, wc) => {
     const app = appConnector.get(id);
-    if (app?.connected) yoInterceptor.activate(wc, id);
+    const pushSel = app?.commands.push?.selector;
+    if (!pushSel) return;
+    const sel = JSON.stringify(pushSel);
+    wc.executeJavaScript(`
+(function(){
+  try {
+    var el=document.querySelector(${sel});
+    if(!el)return;
+    el.focus();
+    if(el.isContentEditable||el.getAttribute('contenteditable')==='true'||el.getAttribute('role')==='textbox'){
+      var s=window.getSelection(),r=document.createRange();
+      r.selectNodeContents(el);r.collapse(false);
+      s.removeAllRanges();s.addRange(r);
+    }
+  } catch(e){}
+})();`).catch(() => {});
   });
 
   // Seed PanelManager configs from apps (apps are the source of truth)
@@ -90,19 +115,23 @@ async function boot() {
   }
 
   layoutManager = new LayoutManager(panelManager);
-  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector);
+  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector, toolManager);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
 
-  // Chat engine (dip yo)
-  const yoChat = new YoChat(appConnector, panelManager, library);
+  // LLM engine for inline yo/sup/wassup execution
+  const yoChat = new YoChat(appConnector, panelManager, library, toolManager);
   yoInterceptor.setYoChat(yoChat);
+
+  // Notify renderer when active context changes (for titlebar pill)
+  yoInterceptor.setOnContextChange((ctx) => {
+    mainWindow?.webContents.send("context-update", ctx);
+  });
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const execCommand = async (cmd: string) => {
     const result = await commandParser.execute(cmd);
-    mainWindow?.webContents.send("command-result", result);
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     return result;
@@ -205,27 +234,17 @@ async function boot() {
     ])
   );
 
-  // IPC: renderer sends commands
-  ipcMain.on("command", async (_event, input: string) => {
-    const trimmed = input.trim().toLowerCase();
-    // "dip yo" / "dip chat" → show the AI chat panel
-    if (trimmed === "dip yo" || trimmed === "dip chat") {
-      if (mainWindow) panelManager.hideActive(mainWindow);
-      mainWindow?.webContents.send("show-chat");
-      mainWindow?.webContents.send("command-result", "");
-      return;
-    }
-    const result = await commandParser.execute(input);
-    mainWindow?.webContents.send("command-result", result);
-    sendSplitState();
-  });
-
   // IPC: window controls
   ipcMain.on("window-close", () => mainWindow?.close());
   ipcMain.on("window-minimize", () => mainWindow?.minimize());
   ipcMain.on("window-maximize", () => {
     if (mainWindow?.isMaximized()) mainWindow.unmaximize();
     else mainWindow?.maximize();
+  });
+
+  // IPC: active context
+  ipcMain.on("context-clear", () => {
+    yoInterceptor.clearContext();
   });
 
   // IPC: refresh panels
@@ -275,6 +294,19 @@ async function boot() {
   });
   ipcMain.handle("skills-remove", (_e, name: string) => skillEngine.deleteSkill(name));
 
+  // IPC: tools CRUD
+  ipcMain.handle("tools-list", () => toolManager.list());
+  ipcMain.handle("tools-read", (_e, id: string) => toolManager.get(id));
+  ipcMain.handle("tools-write", (_e, id: string, name: string, description: string, prompt: string) => {
+    const existing = toolManager.get(id);
+    if (existing) {
+      return toolManager.update(id, { name, description, prompt });
+    }
+    toolManager.add(id, name, description, prompt);
+    return true;
+  });
+  ipcMain.handle("tools-remove", (_e, id: string) => toolManager.remove(id));
+
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>
     layoutManager.listLayouts().map((l) => ({
@@ -310,26 +342,7 @@ async function boot() {
   });
   ipcMain.handle("layouts-delete", (_e, name: string) => layoutManager.deleteLayout(name));
 
-  // IPC: autocomplete data
-  ipcMain.handle("get-completions", () => ({
-    apps: appConnector.list().map((a) => a.id),
-    library: library.list(),
-    skills: skillEngine.listSkills(),
-    layouts: layoutManager.listLayouts().map((l) => l.name),
-  }));
-
   // IPC: grid resize (drag dividers)
-  ipcMain.on("split-drag-start", () => {
-    if (mainWindow) panelManager.hideActive(mainWindow);
-  });
-  ipcMain.on("split-drag-move", (_e, ratio: number) => {
-    mainWindow?.webContents.send("split-drag-preview", ratio);
-  });
-  ipcMain.on("split-drag-end", (_e, ratio: number) => {
-    if (!mainWindow) return;
-    layoutManager.updateSplitRatio(ratio, mainWindow);
-    sendSplitState();
-  });
   ipcMain.on("grid-drag-end", (_e, type: "col" | "row", index: number, fraction: number) => {
     if (!mainWindow) return;
     if (type === "col") {
@@ -338,18 +351,6 @@ async function boot() {
       layoutManager.updateRowHeight(index, fraction, mainWindow);
     }
     sendSplitState();
-  });
-
-  // IPC: swap one side of a split
-  ipcMain.on("split-swap", (_e, index: number, newPanelId: string) => {
-    if (!mainWindow) return;
-    layoutManager.swapPanel(index, newPanelId, mainWindow);
-    sendSplitState();
-    // Persist updated split
-    const info = layoutManager.getSplitInfo();
-    if (info) {
-      setPreference("lastView", { type: "split", panels: info.panelIds });
-    }
   });
 
   // IPC: apps CRUD + connect + pick
@@ -623,16 +624,6 @@ async function boot() {
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
     setPreference(key, value);
   });
-
-  // IPC: chat
-  ipcMain.handle("chat-send", async (_e, message: string) => {
-    await yoChat.send(message, {
-      onText: (delta) => mainWindow?.webContents.send("chat-delta", delta),
-      onToolUse: (name, input) => mainWindow?.webContents.send("chat-tool-use", { name, input }),
-      onDone: () => mainWindow?.webContents.send("chat-done"),
-    });
-  });
-  ipcMain.on("chat-clear", () => yoChat.clear());
 
   // IPC: onboarding complete — restore panels after activation
   ipcMain.handle("onboarding-complete", () => {

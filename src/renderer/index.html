@@ -24,29 +24,17 @@
     </div>
   </div>
 
-  <div id="command-bar">
+  <div id="titlebar">
     <div id="window-controls">
       <button id="btn-close" class="wc wc-close"></button>
       <button id="btn-minimize" class="wc wc-minimize"></button>
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
-    <div id="input-wrapper">
-      <input
-        id="command-input"
-        type="text"
-        placeholder="yo · sup · dip"
-        spellcheck="false"
-        autocomplete="off"
-      />
-      <div id="autocomplete-dropdown" class="hidden"></div>
+    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span> Dip<span class="dot">.</span></div>
+    <div id="context-pill" class="hidden">
+      <span id="context-name"></span>
+      <button id="context-clear">&times;</button>
     </div>
-    <button id="btn-refresh" class="bar-btn" title="Refresh (⌘R)">↻</button>
-    <div id="split-chips" class="hidden"></div>
-  </div>
-
-  <!-- Results drawer (below command bar) -->
-  <div id="results-drawer" class="hidden">
-    <pre id="results-content"></pre>
   </div>
 
   <!-- Grid drag handles + overlay -->
@@ -63,7 +51,9 @@
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
+        <button class="help-nav-item" data-section="tools">Tools</button>
         <div class="help-nav-spacer"></div>
+        <label class="dismiss-label"><input type="checkbox" id="dismiss-check" /> Don't show on startup</label>
       </nav>
       <main id="help-content">
         <button id="help-close" class="help-close-x" aria-label="Close">&times;</button>
@@ -125,10 +115,6 @@
               <code>dip split claude gpt / gemini code</code>
               <span>Multi-row grid — <code>/</code> separates rows</span>
             </div>
-            <div class="cmd-row">
-              <code>dip yo</code>
-              <span>Open the AI chat — automate across apps, manage library, control panels</span>
-            </div>
           </div>
 
           <div class="help-group">
@@ -157,6 +143,23 @@
           </div>
 
           <div class="help-group">
+            <h3>wassup <span class="cmd-desc">— tools</span></h3>
+            <p class="cmd-intro">Run AI automation recipes across connected apps.</p>
+            <div class="cmd-row">
+              <code>wassup</code>
+              <span>Browse available tools</span>
+            </div>
+            <div class="cmd-row">
+              <code>wassup daily-standup</code>
+              <span>Run a tool by name</span>
+            </div>
+            <div class="cmd-row">
+              <code>wassup summarize all chats and save to library</code>
+              <span>Natural language — AI picks or improvises</span>
+            </div>
+          </div>
+
+          <div class="help-group">
             <h3>Shortcuts</h3>
             <div class="cmd-row">
               <code>&#8984;Y</code>
@@ -168,7 +171,7 @@
             </div>
             <div class="cmd-row">
               <code>Esc</code>
-              <span>Clear the command bar or close this page</span>
+              <span>Close this page</span>
             </div>
           </div>
         </div>
@@ -324,24 +327,30 @@
           </div>
         </div>
 
+        <!-- Tools -->
+        <div class="help-section" data-section="tools">
+          <h2>Tools</h2>
+          <p class="section-desc">AI automation recipes. Run with <code>wassup &lt;name&gt;</code> from the command bar or inside any app.</p>
+          <div class="tab-toolbar">
+            <input id="tools-new-name" type="text" placeholder="tool name" spellcheck="false" />
+            <button id="tools-new-btn" class="action-btn primary">+ New Tool</button>
+          </div>
+          <div id="tools-list" class="item-list"></div>
+          <div id="tools-editor" class="editor-area hidden">
+            <div class="editor-header">
+              <span id="tools-edit-name"></span>
+              <button id="tools-save-btn" class="action-btn primary">Save</button>
+            </div>
+            <input id="tools-edit-description" type="text" placeholder="Short description..." spellcheck="false" />
+            <textarea id="tools-edit-prompt" placeholder="AI instruction — what should this tool do when invoked with wassup?" spellcheck="false"></textarea>
+          </div>
+        </div>
+
       </main>
     </div>
   </div>
 
   <div id="panel-container"></div>
-
-  <!-- Chat panel (dip yo) -->
-  <div id="chat-panel" class="hidden">
-    <div id="chat-header">
-      <span class="chat-title">Yo<span class="dot">.</span></span>
-      <button id="chat-clear-btn" class="chat-header-btn">Clear</button>
-    </div>
-    <div id="chat-messages"></div>
-    <div id="chat-input-bar">
-      <textarea id="chat-input" placeholder="Ask yo anything..." rows="1" spellcheck="false"></textarea>
-      <button id="chat-send-btn">Send</button>
-    </div>
-  </div>
 
   <script type="module" src="renderer.js"></script>
 </body>
