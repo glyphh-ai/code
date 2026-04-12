@@ -109,6 +109,11 @@ async function boot() {
 })();`).catch(() => {});
   });
 
+  // Persist zoom when changed via keyboard shortcut in panels
+  panelManager.setOnZoomChange((factor) => {
+    setPreference("zoom", factor);
+  });
+
   // Seed PanelManager configs from apps (apps are the source of truth)
   for (const app of appConnector.list()) {
     panelManager.addPanel(app.id, app.url);
@@ -184,6 +189,7 @@ async function boot() {
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
   const bootLicense = checkLicense();
   const needsOnboarding = bootLicense.status === "expired" || !savedApiKey;
+  let panelsReady = false;
 
   // Restore zoom level
   const savedZoom = getPreference<number>("zoom", 1.0);
@@ -192,6 +198,7 @@ async function boot() {
   // Only restore panels if not gated by onboarding
   if (!needsOnboarding) {
     restorePanels();
+    panelsReady = true;
   }
 
   // Global hotkey: Cmd+Y / Ctrl+Y
@@ -264,7 +271,7 @@ async function boot() {
     if (mainWindow) panelManager.hideActive(mainWindow);
   });
   ipcMain.on("panels-show", () => {
-    if (!mainWindow) return;
+    if (!mainWindow || !panelsReady) return;
     if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
     } else {
@@ -628,6 +635,7 @@ async function boot() {
   // IPC: onboarding complete — restore panels after activation
   ipcMain.handle("onboarding-complete", () => {
     restorePanels();
+    panelsReady = true;
     sendSplitState();
   });
 

@@ -27,6 +27,7 @@ export class PanelManager {
   private onReady: PanelReadyCallback | null = null;
   private zoomFactor = 1.0;
   private _animating = false;
+  private onZoomChange: ((factor: number) => void) | null = null;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
@@ -35,6 +36,11 @@ export class PanelManager {
   /** Register callback for when a panel becomes active (after switch or page load). */
   setOnPanelReady(cb: PanelReadyCallback): void {
     this.onReady = cb;
+  }
+
+  /** Register callback for when zoom changes (to persist preference). */
+  setOnZoomChange(cb: (factor: number) => void): void {
+    this.onZoomChange = cb;
   }
 
   /** Whether a slide animation is in progress */
@@ -52,7 +58,17 @@ export class PanelManager {
 
   private getOrCreate(id: string, parent: BrowserWindow): BrowserView | null {
     if (this.panels.has(id)) {
-      return this.panels.get(id)!;
+      const existing = this.panels.get(id)!;
+      // If the view or its webContents was destroyed, drop it and recreate
+      try {
+        if (!existing.webContents || existing.webContents.isDestroyed()) {
+          this.panels.delete(id);
+        } else {
+          return existing;
+        }
+      } catch {
+        this.panels.delete(id);
+      }
     }
 
     const config = this.configs.get(id);
@@ -86,6 +102,25 @@ export class PanelManager {
       return { action: "deny" };
     });
 
+    // Intercept Cmd/Ctrl shortcuts so they work even when a panel has focus
+    view.webContents.on("before-input-event", (e, input) => {
+      if (!input.meta && !input.control) return;
+      if (input.type !== "keyDown") return;
+      if (input.key === "=" || input.key === "+") {
+        e.preventDefault();
+        this.setZoom(this.zoomFactor + 0.1);
+      } else if (input.key === "-") {
+        e.preventDefault();
+        this.setZoom(this.zoomFactor - 0.1);
+      } else if (input.key === "0") {
+        e.preventDefault();
+        this.setZoom(1.0);
+      } else if (input.key === "r") {
+        e.preventDefault();
+        this.refresh(this.activePanel ?? undefined);
+      }
+    });
+
     view.webContents.loadURL(config.url);
     view.webContents.on("did-finish-load", () => {
       view.webContents.setZoomFactor(this.zoomFactor);
@@ -100,6 +135,7 @@ export class PanelManager {
 
   /** Switch to a panel with slide animation (dip <id>) */
   switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left"): boolean {
+    if (parent.isDestroyed()) return false;
     const view = this.getOrCreate(id, parent);
     if (!view) return false;
 
@@ -226,7 +262,7 @@ export class PanelManager {
   hideActive(parent: BrowserWindow): void {
     this._hidden = true;
     for (const bv of parent.getBrowserViews()) {
-      parent.removeBrowserView(bv);
+      try { parent.removeBrowserView(bv); } catch { /* already destroyed */ }
     }
   }
 
@@ -244,6 +280,7 @@ export class PanelManager {
     for (const view of this.panels.values()) {
       view.webContents.setZoomFactor(this.zoomFactor);
     }
+    this.onZoomChange?.(this.zoomFactor);
   }
 
   /** Get current zoom factor */

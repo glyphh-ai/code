@@ -163,6 +163,7 @@ const statusEl = document.getElementById("onboarding-status")!;
 const trialInfo = document.getElementById("onboarding-trial")!;
 
 let stopAnimation: (() => void) | null = null;
+let inTrial = false;
 
 document.getElementById("onboarding-close")!.addEventListener("click", () => {
   window.yo.windowClose();
@@ -170,8 +171,10 @@ document.getElementById("onboarding-close")!.addEventListener("click", () => {
 
 export function showOnboarding(trialDays?: number) {
   overlay.classList.remove("hidden");
-  if (trialDays !== undefined && trialDays > 0) {
+  inTrial = trialDays !== undefined && trialDays > 0;
+  if (inTrial) {
     trialInfo.textContent = `${trialDays} day${trialDays === 1 ? "" : "s"} remaining in trial`;
+    licenseInput.placeholder = "License key (YO-...) — optional during trial";
   } else if (trialDays === 0) {
     trialInfo.textContent = "Trial expired — enter a license key";
     trialInfo.classList.add("expired");
@@ -193,7 +196,7 @@ activateBtn.addEventListener("click", async () => {
   const license = licenseInput.value.trim();
   const apiKey = apiKeyInput.value.trim();
 
-  if (!license) {
+  if (!license && !inTrial) {
     setStatus("License key is required", true);
     return;
   }
@@ -206,13 +209,15 @@ activateBtn.addEventListener("click", async () => {
   activateBtn.textContent = "Validating...";
   setStatus("");
 
-  // Validate license first
-  const licenseOk = await window.yo.activateLicense(license);
-  if (!licenseOk) {
-    setStatus("Invalid license key — must start with YO- and be 12+ chars", true);
-    activateBtn.disabled = false;
-    activateBtn.textContent = "Activate";
-    return;
+  // Validate license (skip if in trial and no license entered)
+  if (license) {
+    const licenseOk = await window.yo.activateLicense(license);
+    if (!licenseOk) {
+      setStatus("Invalid license key — must start with YO- and be 12+ chars", true);
+      activateBtn.disabled = false;
+      activateBtn.textContent = "Activate";
+      return;
+    }
   }
 
   // Test API key by making a real call

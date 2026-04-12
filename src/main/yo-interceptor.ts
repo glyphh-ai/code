@@ -342,8 +342,23 @@ document.addEventListener('keyup',function(e){
   //   "sup <natural lang>"      → LLM inline execution
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // No instruction → show full library as context picker
+    // No instruction → inject current context raw into textarea
     if (!instruction) {
+      if (!this.activeContext) {
+        this.notify(wc, "No context loaded. Use: sup yo", "error");
+        return;
+      }
+      const injected = await this.injectContent(wc, this.activeContext.content);
+      if (injected) {
+        this.notify(wc, `Injected: ${this.activeContext.name}.md`, "success");
+      } else {
+        this.notify(wc, "Could not inject content.", "error");
+      }
+      return;
+    }
+
+    // "sup yo" → open library picker to select new context
+    if (instruction.toLowerCase() === "yo") {
       const meta = this.library.listWithMeta();
       if (meta.length === 0) {
         this.notify(wc, "Library is empty.", "error");
@@ -358,7 +373,7 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Single word → direct library search (fast path)
+    // Single word → direct library search, load as context
     const isSingleWord = /^\S+$/.test(instruction);
     if (isSingleWord) {
       const files = this.library.search(instruction);
