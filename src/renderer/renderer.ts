@@ -5,6 +5,7 @@
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
 import { initAutocomplete } from "./autocomplete.js";
+import { initChat, isChatVisible, hideChat } from "./chat.js";
 
 declare global {
   interface Window {
@@ -64,6 +65,14 @@ declare global {
         cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
       } | null) => void) => void;
       onSplitDragPreview: (callback: (ratio: number) => void) => void;
+
+      // Chat
+      chatSend: (message: string) => Promise<void>;
+      chatClear: () => void;
+      onChatDelta: (callback: (delta: string) => void) => void;
+      onChatToolUse: (callback: (data: { name: string; input: unknown }) => void) => void;
+      onChatDone: (callback: () => void) => void;
+      onShowChat: (callback: () => void) => void;
     };
   }
 }
@@ -118,6 +127,9 @@ input.addEventListener("keydown", (e) => {
       hideResults();
     } else if (isHelpOpen()) {
       closeHelp();
+    } else if (isChatVisible()) {
+      hideChat();
+      window.yo.panelsShow();
     } else {
       input.value = "";
       input.blur();
@@ -132,6 +144,9 @@ document.addEventListener("keydown", (e) => {
       hideResults();
     } else if (isHelpOpen()) {
       closeHelp();
+    } else if (isChatVisible()) {
+      hideChat();
+      window.yo.panelsShow();
     }
   }
 
@@ -181,9 +196,10 @@ document.getElementById("btn-refresh")!.addEventListener("click", () => window.y
 // yo help trigger from main process
 window.yo.onShowWelcome(() => openHelp());
 
-// Initialize help overlay + autocomplete
+// Initialize help overlay + autocomplete + chat
 initHelp();
 initAutocomplete();
+initChat();
 
 // ── Grid drag handles ───────────────────────────────────────
 

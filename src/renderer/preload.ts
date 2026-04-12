@@ -101,4 +101,20 @@ contextBridge.exposeInMainWorld("yo", {
   onSplitDragPreview: (callback: (ratio: number) => void) => {
     ipcRenderer.on("split-drag-preview", (_event, ratio) => callback(ratio));
   },
+
+  // Chat
+  chatSend: (message: string) => ipcRenderer.invoke("chat-send", message),
+  chatClear: () => ipcRenderer.send("chat-clear"),
+  onChatDelta: (callback: (delta: string) => void) => {
+    ipcRenderer.on("chat-delta", (_event, delta) => callback(delta));
+  },
+  onChatToolUse: (callback: (data: { name: string; input: unknown }) => void) => {
+    ipcRenderer.on("chat-tool-use", (_event, data) => callback(data));
+  },
+  onChatDone: (callback: () => void) => {
+    ipcRenderer.on("chat-done", () => callback());
+  },
+  onShowChat: (callback: () => void) => {
+    ipcRenderer.on("show-chat", () => callback());
+  },
 });

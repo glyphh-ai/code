@@ -20,6 +20,8 @@ import { AppConnector, CommandMapping } from "./app-connector";
 import { ConnectorAgent } from "./connector-agent";
 import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
+import { YoInterceptor } from "./yo-interceptor";
+import { YoChat } from "./yo-chat";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -64,14 +66,36 @@ async function boot() {
   // Core services
   library = new Library();
   skillEngine = new SkillEngine(library);
-  panelManager = new PanelManager();
-  layoutManager = new LayoutManager(panelManager);
   appConnector = new AppConnector();
   connectorAgent = new ConnectorAgent();
+
+  // yo/sup interceptor — injected into connected app panels
+  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine);
+
+  panelManager = new PanelManager((id, wc) => {
+    const app = appConnector.get(id);
+    if (app?.connected) yoInterceptor.activate(wc, id);
+  });
+  layoutManager = new LayoutManager(panelManager);
   commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
+
+  // Chat engine (dip yo)
+  const yoChat = new YoChat(appConnector, panelManager, library);
+  yoInterceptor.setYoChat(yoChat);
+
+  // Wire command callbacks for interceptor + chat (both need dip routing)
+  const execCommand = async (cmd: string) => {
+    const result = await commandParser.execute(cmd);
+    mainWindow?.webContents.send("command-result", result);
+    const gridInfo = layoutManager.getGridInfo();
+    mainWindow?.webContents.send("split-state", gridInfo);
+    return result;
+  };
+  yoInterceptor.setCommandHandler(execCommand);
+  yoChat.setCommandCallback(execCommand);
 
   // Local MCP server
   mcpServer = new MCPServer(library);
@@ -156,6 +180,14 @@ async function boot() {
 
   // IPC: renderer sends commands
   ipcMain.on("command", async (_event, input: string) => {
+    const trimmed = input.trim().toLowerCase();
+    // "dip yo" / "dip chat" → show the AI chat panel
+    if (trimmed === "dip yo" || trimmed === "dip chat") {
+      if (mainWindow) panelManager.hideActive(mainWindow);
+      mainWindow?.webContents.send("show-chat");
+      mainWindow?.webContents.send("command-result", "");
+      return;
+    }
     const result = await commandParser.execute(input);
     mainWindow?.webContents.send("command-result", result);
     sendSplitState();
@@ -333,6 +365,11 @@ async function boot() {
     try {
       const result = await connectorAgent.analyze(wc, appConfig.name, appConfig.url);
       appConnector.updateCommands(id, result.commands, result.meta);
+
+      // Activate yo/sup interception on the panel's BrowserView
+      const panelWc = panelManager.getWebContents(id);
+      if (panelWc) yoInterceptor.activate(panelWc, id);
+
       return { ok: true, commandCount: Object.keys(result.commands).length };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -380,6 +417,16 @@ async function boot() {
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
     setPreference(key, value);
   });
+
+  // IPC: chat
+  ipcMain.handle("chat-send", async (_e, message: string) => {
+    await yoChat.send(message, {
+      onText: (delta) => mainWindow?.webContents.send("chat-delta", delta),
+      onToolUse: (name, input) => mainWindow?.webContents.send("chat-tool-use", { name, input }),
+      onDone: () => mainWindow?.webContents.send("chat-done"),
+    });
+  });
+  ipcMain.on("chat-clear", () => yoChat.clear());
 
   // Tell renderer to check license gate
   mainWindow?.webContents.on("did-finish-load", () => {

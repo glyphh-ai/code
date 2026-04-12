@@ -76,69 +76,56 @@
 
         <!-- Guide -->
         <div class="help-section active" data-section="guide">
-          <h2>Three commands. That's the whole product.</h2>
+          <h2>Three commands. Just talk.</h2>
 
           <div class="help-group">
-            <h3>Commands</h3>
+            <h3>yo <span class="cmd-desc">— creating</span></h3>
+            <p class="cmd-intro">Captures content from the active panel and saves it to your library.</p>
             <div class="cmd-row">
-              <code>yo &lt;name&gt;</code>
-              <span>Save the current session. Captures what's happening in the active panel and stores it as markdown.</span>
+              <code>yo</code>
+              <span>Save the current session as-is</span>
             </div>
             <div class="cmd-row">
-              <code>sup &lt;name&gt;</code>
-              <span>Recall a saved context. Also: <em>sup list</em>, <em>sup search &lt;term&gt;</em>, <em>sup forget &lt;name&gt;</em></span>
+              <code>yo save this but only the last few interactions</code>
+              <span>Natural language — AI grabs and processes what you asked for</span>
             </div>
             <div class="cmd-row">
-              <code>dip &lt;panel&gt;</code>
-              <span>Switch to an AI panel. Also: <em>dip back</em>, <em>dip list</em>, <em>dip split &lt;a&gt; &lt;b&gt;</em>, <em>dip refresh</em>, <em>dip zoom &lt;n&gt;</em></span>
-            </div>
-            <div class="cmd-row">
-              <code>yo help</code>
-              <span>Open this page</span>
+              <code>yo feature create a feature spec from this conversation</code>
+              <span>Use a skill name or describe what you want</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>Panels</h3>
-            <div class="panels-grid">
-              <div class="panel-chip"><div class="chip-name">Claude</div><code>dip claude</code></div>
-              <div class="panel-chip"><div class="chip-name">ChatGPT</div><code>dip gpt</code></div>
-              <div class="panel-chip"><div class="chip-name">Gemini</div><code>dip gemini</code></div>
-              <div class="panel-chip"><div class="chip-name">Code</div><code>dip code</code></div>
-              <div class="panel-chip"><div class="chip-name">Cowork</div><code>dip cowork</code></div>
-              <div class="panel-chip"><div class="chip-name">+ Apps</div><code>yo help → Apps</code></div>
+            <h3>sup <span class="cmd-desc">— reading</span></h3>
+            <p class="cmd-intro">Pulls content from your library back into the active app.</p>
+            <div class="cmd-row">
+              <code>sup</code>
+              <span>Browse all library files</span>
+            </div>
+            <div class="cmd-row">
+              <code>sup pull that feature from yesterday</code>
+              <span>Natural language — AI finds the right file and loads it</span>
+            </div>
+            <div class="cmd-row">
+              <code>sup roadmap</code>
+              <span>Quick search by name</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>Splits &amp; Layouts</h3>
+            <h3>dip <span class="cmd-desc">— navigating</span></h3>
+            <p class="cmd-intro">Switch between panels, layouts, and connected apps.</p>
             <div class="cmd-row">
-              <code>dip split &lt;a&gt; &lt;b&gt;</code>
-              <span>Side-by-side two panels</span>
+              <code>dip claude</code>
+              <span>Switch to a panel</span>
             </div>
             <div class="cmd-row">
-              <code>yo layout save &lt;name&gt; &lt;panels...&gt;</code>
-              <span>Save a custom layout. e.g. <em>yo layout save research claude gemini gpt</em></span>
+              <code>dip split claude gpt</code>
+              <span>Side-by-side panels</span>
             </div>
             <div class="cmd-row">
-              <code>dip &lt;layout-name&gt;</code>
-              <span>Apply a saved layout</span>
-            </div>
-            <div class="cmd-row">
-              <code>yo layout list</code>
-              <span>Show all saved layouts</span>
-            </div>
-          </div>
-
-          <div class="help-group">
-            <h3>Skills</h3>
-            <div class="cmd-row">
-              <code>yo skill create &lt;name&gt; &lt;prompt&gt;</code>
-              <span>Create a skill (system prompt for processing sessions)</span>
-            </div>
-            <div class="cmd-row">
-              <code>yo skill list</code>
-              <span>List all skills</span>
+              <code>dip yo</code>
+              <span>Open the AI chat — automate across apps, manage library, control panels</span>
             </div>
           </div>
 
@@ -151,10 +138,6 @@
             <div class="cmd-row">
               <code>&#8984;R</code>
               <span>Refresh the active panel</span>
-            </div>
-            <div class="cmd-row">
-              <code>&#8984;+ / &#8984;-</code>
-              <span>Zoom in / out. <em>&#8984;0</em> to reset</span>
             </div>
             <div class="cmd-row">
               <code>Esc</code>
@@ -316,6 +299,19 @@
   </div>
 
   <div id="panel-container"></div>
+
+  <!-- Chat panel (dip yo) -->
+  <div id="chat-panel" class="hidden">
+    <div id="chat-header">
+      <span class="chat-title">Yo<span class="dot">.</span></span>
+      <button id="chat-clear-btn" class="chat-header-btn">Clear</button>
+    </div>
+    <div id="chat-messages"></div>
+    <div id="chat-input-bar">
+      <textarea id="chat-input" placeholder="Ask yo anything..." rows="1" spellcheck="false"></textarea>
+      <button id="chat-send-btn">Send</button>
+    </div>
+  </div>
 
   <script type="module" src="renderer.js"></script>
 </body>
