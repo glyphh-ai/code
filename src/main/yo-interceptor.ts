@@ -421,7 +421,12 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Has instruction → search for matching tool or improvise
+    // Need context to run a tool
+    if (!this.activeContext) {
+      this.notify(wc, "No context loaded. Use sup to load context first.", "error");
+      return;
+    }
+
     if (!this.yoChat) {
       this.notify(wc, "Chat engine not available.", "error");
       return;
@@ -430,16 +435,15 @@ document.addEventListener('keyup',function(e){
     this.notify(wc, "Running...", "loading");
 
     try {
-      // Use active context if loaded, otherwise fall back to page scraping
-      let content: string | null = null;
-      if (this.activeContext) {
-        content = this.activeContext.content;
+      const result = await this.yoChat.executeInline("wassup", instruction, appId, this.activeContext.content);
+      // Inject result into the input where the command was typed
+      const injected = await this.injectContent(wc, result);
+      if (injected) {
+        this.notify(wc, "Done.", "success");
       } else {
-        const app = this.appConnector.get(appId);
-        content = app ? await this.grabContent(wc, app) : null;
+        // Fallback: show as notification if injection fails
+        this.notify(wc, result, "success");
       }
-      const result = await this.yoChat.executeInline("wassup", instruction, appId, content || undefined);
-      this.notify(wc, result, "success");
     } catch (err) {
       this.notify(wc, `wassup failed: ${err instanceof Error ? err.message : err}`, "error");
     }
