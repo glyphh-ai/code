@@ -28,13 +28,11 @@ declare global {
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
       panelsGetZoom: () => Promise<number>;
-      panelsList: () => Promise<Array<{ id: string; name: string; url: string }>>;
-      panelsAdd: (id: string, url: string) => Promise<boolean>;
-
       // Apps
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
       appsRemove: (id: string) => Promise<boolean>;
+      appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsConnect: (id: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string; commandCount?: number }>;
       appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) => Promise<boolean>;
       appsRemoveCommand: (id: string, commandKey: string) => Promise<boolean>;
@@ -43,12 +41,15 @@ declare global {
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
       layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;
-      getCompletions: () => Promise<{ panels: string[]; library: string[]; skills: string[]; layouts: string[] }>;
+      getCompletions: () => Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>;
       splitDragStart: () => void;
       splitDragMove: (ratio: number) => void;
       splitDragEnd: (ratio: number) => void;
       gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
       splitSwap: (index: number, panelId: string) => void;
+      onboardingComplete: () => Promise<void>;
+      startPicker: (webContentsId: number) => void;
+      onPickerResult: (callback: (result: unknown) => void) => void;
       checkLicense: () => Promise<{ status: string; daysRemaining?: number }>;
       activateLicense: (key: string) => Promise<boolean>;
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
@@ -312,7 +313,7 @@ async function toggleSwapDropdown(index: number, anchor: HTMLElement) {
   dd.style.left = `${rect.left}px`;
   dd.style.top = `${rect.bottom + 4}px`;
 
-  dd.innerHTML = completions.panels
+  dd.innerHTML = completions.apps
     .filter((p) => p !== current)
     .map((p) => `<div class="swap-item" data-id="${p}">${p}</div>`)
     .join("");

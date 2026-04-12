@@ -9,6 +9,7 @@ import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
+import { AppConnector } from "./app-connector";
 import { setPreference } from "./preferences";
 
 export class CommandParser {
@@ -19,6 +20,7 @@ export class CommandParser {
     private library: Library,
     private skillEngine: SkillEngine,
     private layouts: LayoutManager,
+    private appConnector: AppConnector,
   ) {}
 
   /** Register callback for yo help */
@@ -225,23 +227,24 @@ export class CommandParser {
     }
 
     if (sub === "list") {
-      const panels = this.panels
-        .listPanels()
-        .map((p) => `  ${p.id} — ${p.url}`)
+      const apps = this.appConnector
+        .list()
+        .map((a) => `  ${a.id} — ${a.url}`)
         .join("\n");
       const layouts = this.layouts.listLayouts();
       if (layouts.length > 0) {
         const layoutList = layouts
           .map((l) => `  ${l.name} — ${l.cells.map((c) => c.panelId).join(" | ")}`)
           .join("\n");
-        return `Panels:\n${panels}\n\nLayouts:\n${layoutList}`;
+        return `Apps:\n${apps}\n\nLayouts:\n${layoutList}`;
       }
-      return panels;
+      return apps;
     }
 
     if (sub === "add" && args.length >= 2) {
       const url = args[1];
       const id = url.replace(/https?:\/\//, "").split(/[./]/)[0];
+      this.appConnector.add(id, id, url);
       this.panels.addPanel(id, url);
       return `Added: ${id} → ${url}`;
     }

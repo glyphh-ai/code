@@ -152,13 +152,13 @@
           <p class="section-desc">Markdown files stored in <code>~/yo/library/</code></p>
           <div class="tab-toolbar">
             <input id="library-new-name" type="text" placeholder="new file name" spellcheck="false" />
-            <button id="library-new-btn">+ New</button>
+            <button id="library-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="library-list" class="item-list"></div>
           <div id="library-editor" class="editor-area hidden">
             <div class="editor-header">
               <span id="library-edit-name"></span>
-              <button id="library-save-btn">Save</button>
+              <button id="library-save-btn" class="action-btn primary">Save</button>
             </div>
             <textarea id="library-edit-content" spellcheck="false"></textarea>
           </div>
@@ -170,13 +170,13 @@
           <p class="section-desc">System prompts for processing captured sessions. Stored in <code>~/yo/skills/</code></p>
           <div class="tab-toolbar">
             <input id="skills-new-name" type="text" placeholder="new skill name" spellcheck="false" />
-            <button id="skills-new-btn">+ New</button>
+            <button id="skills-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="skills-list" class="item-list"></div>
           <div id="skills-editor" class="editor-area hidden">
             <div class="editor-header">
               <span id="skills-edit-name"></span>
-              <button id="skills-save-btn">Save</button>
+              <button id="skills-save-btn" class="action-btn primary">Save</button>
             </div>
             <textarea id="skills-edit-content" placeholder="Skill system prompt..." spellcheck="false"></textarea>
           </div>
@@ -188,13 +188,13 @@
           <p class="section-desc">Custom panel arrangements. Use <code>dip &lt;name&gt;</code> to activate.</p>
           <div class="tab-toolbar">
             <input id="layout-new-name" type="text" placeholder="layout name" spellcheck="false" />
-            <button id="layout-new-btn">+ New Layout</button>
+            <button id="layout-new-btn" class="action-btn primary">+ New Layout</button>
           </div>
           <div id="layouts-list" class="item-list"></div>
           <div id="layout-editor" class="editor-area hidden">
             <div class="editor-header">
               <span id="layout-edit-name"></span>
-              <button id="layout-save-btn">Save</button>
+              <button id="layout-save-btn" class="action-btn primary">Save</button>
             </div>
             <div class="grid-builder">
               <div class="grid-dims">
@@ -211,9 +211,9 @@
                   <option value="3">3</option>
                   <option value="4">4</option>
                 </select></label>
-                <button id="grid-merge-right" class="grid-action" disabled>&rarr; Merge</button>
-                <button id="grid-merge-down" class="grid-action" disabled>&darr; Merge</button>
-                <button id="grid-split-btn" class="grid-action" disabled>Split</button>
+                <button id="grid-merge-right" class="action-btn" disabled>&rarr; Merge</button>
+                <button id="grid-merge-down" class="action-btn" disabled>&darr; Merge</button>
+                <button id="grid-split-btn" class="action-btn" disabled>Split</button>
               </div>
               <div id="grid-preview"></div>
             </div>
@@ -225,9 +225,10 @@
           <h2>Apps</h2>
           <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to yo/sup/dip.</p>
           <div class="tab-toolbar">
+            <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
             <input id="app-new-name" type="text" placeholder="app name" spellcheck="false" />
             <input id="app-new-url" type="text" placeholder="https://..." spellcheck="false" />
-            <button id="app-add-btn">+ Add App</button>
+            <button id="app-add-btn" class="action-btn primary">+ Add App</button>
           </div>
           <div id="apps-list"></div>
 
@@ -235,13 +236,14 @@
           <div id="app-detail" class="hidden">
             <div class="app-detail-header">
               <div class="app-detail-info">
-                <span id="app-detail-name" class="app-detail-title"></span>
+                <input id="app-detail-name" class="app-detail-title-input" spellcheck="false" />
                 <span id="app-detail-url" class="app-detail-url"></span>
               </div>
-              <div class="app-detail-actions">
-                <button id="app-connect-btn" class="app-action-btn connect">Connect</button>
-                <button id="app-pick-btn" class="app-action-btn pick">Pick Element</button>
-                <button id="app-detail-close" class="app-action-btn close">Back</button>
+              <div class="action-btns app-detail-actions">
+                <button id="app-connect-btn" class="action-btn primary">Connect</button>
+                <button id="app-pick-btn" class="action-btn">Pick Element</button>
+                <button id="app-detail-delete" class="action-btn danger">Delete</button>
+                <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>
 
@@ -277,7 +279,8 @@
                       <option value="custom">Custom Script</option>
                     </select>
                     <input id="map-description" type="text" placeholder="description" spellcheck="false" />
-                    <button id="map-save-btn">Save Mapping</button>
+                    <button id="map-save-btn" class="action-btn primary">Save Mapping</button>
+                    <button id="map-cancel-btn" class="action-btn">Cancel</button>
                   </div>
                 </div>
               </div>

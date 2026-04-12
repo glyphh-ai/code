@@ -147,36 +147,78 @@ async function extractHTML(wc: WebContents, selector: string): Promise<string> {
 
 async function setValue(wc: WebContents, selector: string, value: string): Promise<string> {
   const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const valEscaped = value.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
-  return await wc.executeJavaScript(`
+
+  // Step 1: Focus the target element (with fallbacks if selector is stale)
+  const focused = await wc.executeJavaScript(`
     (function() {
       var el = document.querySelector('${escaped}');
-      if (!el) return 'Element not found: ${escaped}';
 
-      // contenteditable (Claude, ChatGPT, etc.)
-      if (el.getAttribute('contenteditable') === 'true') {
-        el.focus();
-        el.innerHTML = '';
-        document.execCommand('insertText', false, '${valEscaped}');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        return 'ok';
+      // If selector didn't match, try common input fallbacks
+      if (!el) {
+        var fallbacks = [
+          '[role="textbox"]',
+          '[contenteditable="true"]:not([aria-hidden="true"])',
+          'textarea:not([hidden]):not([aria-hidden="true"])',
+          'input[type="text"]:not([hidden])',
+          'input:not([type]):not([hidden])',
+        ];
+        for (var i = 0; i < fallbacks.length; i++) {
+          var candidates = document.querySelectorAll(fallbacks[i]);
+          for (var j = 0; j < candidates.length; j++) {
+            var c = candidates[j];
+            var r = c.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) { el = c; break; }
+          }
+          if (el) break;
+        }
       }
 
-      // input / textarea
-      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-        var nativeSetter = Object.getOwnPropertyDescriptor(
-          el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
-          'value'
-        ).set;
-        nativeSetter.call(el, '${valEscaped}');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return 'ok';
+      if (!el) return 'not-found';
+
+      // Walk up to find editable target if needed
+      var target = el;
+      if (el.getAttribute('contenteditable') !== 'true' &&
+          el.getAttribute('role') !== 'textbox' &&
+          el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') {
+        var cur = el;
+        while (cur && cur !== document.body) {
+          if (cur.getAttribute('contenteditable') === 'true' ||
+              cur.getAttribute('role') === 'textbox') {
+            target = cur;
+            break;
+          }
+          cur = cur.parentElement;
+        }
       }
 
-      return 'Unsupported element type';
+      // Focus and clear
+      target.focus();
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        var proto = target.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        var setter = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (setter && setter.set) setter.set.call(target, '');
+        else target.value = '';
+      } else {
+        // Select all content so insertText replaces it
+        var sel = window.getSelection();
+        var range = document.createRange();
+        range.selectNodeContents(target);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
+      return 'ok';
     })()
   `);
+
+  if (focused === "not-found") return `Element not found: ${escaped}`;
+
+  // Step 2: Use webContents.insertText for real keyboard-level input.
+  // This works with every framework (Angular, React, ProseMirror, etc.)
+  // because it's indistinguishable from the user typing.
+  await wc.insertText(value);
+
+  return "ok";
 }
 
 async function clickElement(wc: WebContents, selector: string): Promise<string> {

@@ -34,10 +34,6 @@ contextBridge.exposeInMainWorld("yo", {
   skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean>,
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
 
-  // Panels
-  panelsList: () => ipcRenderer.invoke("panels-list") as Promise<Array<{ id: string; name: string; url: string }>>,
-  panelsAdd: (id: string, url: string) => ipcRenderer.invoke("panels-add", id, url) as Promise<boolean>,
-
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,
@@ -47,7 +43,7 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Autocomplete data
   getCompletions: () => ipcRenderer.invoke("get-completions") as Promise<{
-    panels: string[];
+    apps: string[];
     library: string[];
     skills: string[];
     layouts: string[];
@@ -71,6 +67,7 @@ contextBridge.exposeInMainWorld("yo", {
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
+  appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
   appsConnect: (id: string, webContentsId?: number) =>
     ipcRenderer.invoke("apps-connect", id, webContentsId) as Promise<{ ok: boolean; error?: string; commandCount?: number }>,
   appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) =>
@@ -79,6 +76,15 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("apps-remove-command", id, commandKey) as Promise<boolean>,
   appsTestCommand: (id: string, commandKey: string, webContentsId?: number) =>
     ipcRenderer.invoke("apps-test-command", id, commandKey, webContentsId) as Promise<string>,
+
+  // Onboarding complete — triggers panel restore
+  onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),
+
+  // DOM picker — start picker on a webContents, result comes back via onPickerResult
+  startPicker: (webContentsId: number) => ipcRenderer.send("start-picker", webContentsId),
+  onPickerResult: (callback: (result: unknown) => void) => {
+    ipcRenderer.once("picker-result", (_event, result) => callback(result));
+  },
 
   // License + API key
   checkLicense: () => ipcRenderer.invoke("check-license"),

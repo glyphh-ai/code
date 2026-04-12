@@ -16,15 +16,6 @@ export interface PanelConfig {
 
 export type PanelCreatedCallback = (id: string, webContents: WebContents) => void;
 
-// Built-in panels
-const BUILTIN_PANELS: PanelConfig[] = [
-  { id: "claude", name: "Claude", url: "https://claude.ai" },
-  { id: "gemini", name: "Gemini", url: "https://gemini.google.com" },
-  { id: "gpt", name: "ChatGPT", url: "https://chatgpt.com" },
-  { id: "code", name: "Claude Code", url: "https://claude.ai/code" },
-  { id: "cowork", name: "Cowork", url: "https://claude.ai/cowork" },
-];
-
 export class PanelManager {
   private panels: Map<string, BrowserView> = new Map();
   private configs: Map<string, PanelConfig> = new Map();
@@ -35,9 +26,6 @@ export class PanelManager {
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
-    for (const config of BUILTIN_PANELS) {
-      this.configs.set(config.id, config);
-    }
   }
 
   /** Register a custom panel (dip add <url>) */
@@ -118,8 +106,15 @@ export class PanelManager {
     return this.activePanel;
   }
 
+  /** Whether panels are currently hidden for overlay */
+  get isHidden(): boolean {
+    return this._hidden;
+  }
+  private _hidden = false;
+
   /** Hide ALL BrowserViews (for overlay support) */
   hideActive(parent: BrowserWindow): void {
+    this._hidden = true;
     for (const bv of parent.getBrowserViews()) {
       parent.removeBrowserView(bv);
     }
@@ -127,6 +122,7 @@ export class PanelManager {
 
   /** Restore the active panel's BrowserView */
   showActive(parent: BrowserWindow): void {
+    this._hidden = false;
     if (this.activePanel) {
       this.switchTo(this.activePanel, parent);
     }
@@ -158,11 +154,6 @@ export class PanelManager {
       return this.refresh(this.activePanel);
     }
     return false;
-  }
-
-  /** List all registered panels */
-  listPanels(): PanelConfig[] {
-    return Array.from(this.configs.values());
   }
 
   /** Get a panel's webContents by ID (null if not yet created) */

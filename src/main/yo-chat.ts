@@ -283,7 +283,7 @@ export class YoChat {
   private buildContext(): string {
     const lines: string[] = ["## Current State"];
     lines.push(`Active panel: ${this.panelManager.activePanelId || "none"}`);
-    lines.push(`Panels: ${this.panelManager.listPanels().map((p) => p.id).join(", ")}`);
+    lines.push(`Apps: ${this.appConnector.list().map((a) => a.id).join(", ")}`);
 
     const apps = this.appConnector.list();
     if (apps.length > 0) {

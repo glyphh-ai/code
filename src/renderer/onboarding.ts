@@ -231,7 +231,10 @@ activateBtn.addEventListener("click", async () => {
   }
 
   setStatus("Activated!");
-  setTimeout(() => hideOnboarding(), 600);
+  setTimeout(() => {
+    hideOnboarding();
+    window.yo.onboardingComplete();
+  }, 600);
 });
 
 // Enter key submits

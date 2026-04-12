@@ -42,7 +42,16 @@ export const STANDARD_COMMANDS = [
   { key: "read", description: "Get current visible page content (lightweight)" },
 ] as const;
 
-// ── AppConnector ────────────────────────────────────────
+// Default apps — seeded on first launch
+const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
+  { id: "claude", name: "Claude", url: "https://claude.ai" },
+  { id: "gemini", name: "Gemini", url: "https://gemini.google.com" },
+  { id: "gpt", name: "ChatGPT", url: "https://chatgpt.com" },
+  { id: "code", name: "Claude Code", url: "https://claude.ai/code" },
+  { id: "cowork", name: "Cowork", url: "https://claude.ai/cowork" },
+];
+
+// ── AppConnector ─────────────────────────────────────��──
 
 export class AppConnector {
   private apps: Map<string, AppConfig> = new Map();
@@ -52,6 +61,16 @@ export class AppConnector {
     this.appsDir = path.join(os.homedir(), "yo", "apps");
     fs.mkdirSync(this.appsDir, { recursive: true });
     this.loadAll();
+    this.ensureDefaults();
+  }
+
+  /** Seed default apps if they don't already exist */
+  private ensureDefaults(): void {
+    for (const def of DEFAULT_APPS) {
+      if (!this.apps.has(def.id)) {
+        this.add(def.id, def.name, def.url);
+      }
+    }
   }
 
   /** Add a new app (unconnected) */
@@ -66,6 +85,15 @@ export class AppConnector {
     this.apps.set(id, app);
     this.save(app);
     return app;
+  }
+
+  /** Update an app's name */
+  updateName(id: string, name: string): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    app.name = name;
+    this.save(app);
+    return true;
   }
 
   /** Get an app config */

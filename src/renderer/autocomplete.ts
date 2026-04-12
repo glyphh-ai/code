@@ -6,13 +6,13 @@
  */
 
 interface CompletionData {
-  panels: string[];
+  apps: string[];
   library: string[];
   skills: string[];
   layouts: string[];
 }
 
-let cache: CompletionData = { panels: [], library: [], skills: [], layouts: [] };
+let cache: CompletionData = { apps: [], library: [], skills: [], layouts: [] };
 
 async function refreshCache() {
   cache = await window.yo.getCompletions();
@@ -67,8 +67,8 @@ function completeYo(parts: string[], sub: string, argc: number): string[] {
     // yo layout save <name> <panels...> [/ <panels...>]
     if (parts[2] === "save" && argc >= 5) {
       const current = parts[argc - 1];
-      if (current === "/") return cache.panels;
-      return filterPrefix([...cache.panels, "/"], current);
+      if (current === "/") return cache.apps;
+      return filterPrefix([...cache.apps, "/"], current);
     }
   }
 
@@ -88,12 +88,12 @@ function completeSup(parts: string[], sub: string, argc: number): string[] {
 function completeDip(parts: string[], sub: string, argc: number): string[] {
   if (argc === 2) {
     return filterPrefix(
-      ["back", "list", "add", "split", "refresh", "zoom", ...cache.panels, ...cache.layouts],
+      ["back", "list", "add", "split", "refresh", "zoom", ...cache.apps, ...cache.layouts],
       sub,
     );
   }
   if (sub === "refresh" && argc === 3) {
-    return filterPrefix(cache.panels, parts[2]);
+    return filterPrefix(cache.apps, parts[2]);
   }
   if (sub === "zoom" && argc === 3) {
     return filterPrefix(["0.75", "0.9", "1", "1.1", "1.25", "reset"], parts[2]);
@@ -102,8 +102,8 @@ function completeDip(parts: string[], sub: string, argc: number): string[] {
   if (sub === "split" && argc >= 3) {
     const current = parts[argc - 1];
     // After "/" suggest panel names for next row
-    if (current === "/") return cache.panels;
-    return filterPrefix([...cache.panels, "/"], current);
+    if (current === "/") return cache.apps;
+    return filterPrefix([...cache.apps, "/"], current);
   }
   return [];
 }

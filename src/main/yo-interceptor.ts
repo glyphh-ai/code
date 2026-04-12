@@ -93,36 +93,86 @@ export class YoInterceptor {
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
 var S=${sel};
+var CMD_RE=/^(yo|sup|dip)(?:\\s+(.+))?$/i;
+var lastText='';
+var handled=false;
+
 function ed(){
-  if(S){var el=document.querySelector(S);
-    if(el&&(el.contains(document.activeElement)||el===document.activeElement))return el;}
-  var a=document.activeElement;if(!a)return null;
-  if(a.tagName==='INPUT'||a.tagName==='TEXTAREA')return a;
-  if(a.getAttribute('contenteditable')==='true')return a;
-  var c=a.closest('[contenteditable="true"]');return c||null;
+  // Try mapped push selector first
+  if(S){try{var el=document.querySelector(S);
+    if(el&&(el.contains(document.activeElement)||el===document.activeElement))return el;}catch(e){}}
+  var a=document.activeElement;if(!a||a===document.body)a=null;
+  // Walk into shadow roots to find the real active element
+  if(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;
+  if(a){
+    if(a.tagName==='INPUT'||a.tagName==='TEXTAREA')return a;
+    if(a.isContentEditable)return a;
+    if(a.getAttribute&&a.getAttribute('role')==='textbox')return a;
+    // Walk up to find editable ancestor
+    var c=a.closest&&a.closest('[contenteditable]:not([contenteditable="false"]),[role="textbox"]');
+    if(c)return c;
+  }
+  // Fallback: find any visible editable on page
+  var fb=['[role="textbox"]','[contenteditable]:not([contenteditable="false"])'];
+  for(var i=0;i<fb.length;i++){try{var els=document.querySelectorAll(fb[i]);
+    for(var j=0;j<els.length;j++){var r=els[j].getBoundingClientRect();
+      if(r.width>0&&r.height>0)return els[j];}}catch(e){}}
+  return null;
 }
-function tx(el){return(el.tagName==='INPUT'||el.tagName==='TEXTAREA')?el.value||'':el.innerText||el.textContent||'';}
-function cl(el){
-  if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
-    var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
-    var s=Object.getOwnPropertyDescriptor(p,'value');
-    if(s&&s.set)s.set.call(el,'');else el.value='';
-  }else{el.innerHTML='';}
-  el.dispatchEvent(new Event('input',{bubbles:true}));
+function tx(el){
+  if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')return el.value||'';
+  return el.innerText||el.textContent||'';
 }
+function fire(text){
+  if(handled)return;handled=true;
+  var m=text.match(CMD_RE);if(!m)return;
+  var cmd=m[1].toLowerCase();
+  var arg=(m[2]||'').trim()||null;
+  if(cmd==='yo')console.log('${PREFIX}'+JSON.stringify({type:'yo',instruction:arg}));
+  else if(cmd==='sup')console.log('${PREFIX}'+JSON.stringify({type:'sup',instruction:arg}));
+  else if(cmd==='dip')console.log('${PREFIX}'+JSON.stringify({type:'dip',args:arg}));
+}
+
+// Primary: capture-phase keydown (works for most apps)
 document.addEventListener('keydown',function(e){
   if(e.key!=='Enter'||e.shiftKey)return;
   var el=ed();if(!el)return;
   var t=tx(el).trim();
-  var ym=t.match(/^yo(?:\\s+(.+))?$/i);
-  var sm=t.match(/^sup(?:\\s+(.+))?$/i);
-  if(ym){e.preventDefault();e.stopImmediatePropagation();cl(el);
-    console.log('${PREFIX}'+JSON.stringify({type:'yo',instruction:(ym[1]||'').trim()||null}));return false;}
-  if(sm){e.preventDefault();e.stopImmediatePropagation();cl(el);
-    console.log('${PREFIX}'+JSON.stringify({type:'sup',instruction:(sm[1]||'').trim()||null}));return false;}
-  var dm=t.match(/^dip(?:\\s+(.+))?$/i);
-  if(dm){e.preventDefault();e.stopImmediatePropagation();cl(el);
-    console.log('${PREFIX}'+JSON.stringify({type:'dip',args:(dm[1]||'').trim()||null}));return false;}
+  if(!CMD_RE.test(t))return;
+  handled=false;
+  e.preventDefault();e.stopImmediatePropagation();
+  // Clear using select-all + delete (framework-friendly)
+  if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+    var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    var s=Object.getOwnPropertyDescriptor(p,'value');
+    if(s&&s.set)s.set.call(el,'');else el.value='';
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }else{
+    el.focus();
+    var sel=window.getSelection();var range=document.createRange();
+    range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
+    document.execCommand('delete',false);
+  }
+  fire(t);
+},true);
+
+// Fallback: track text on every input, detect submit via text disappearing.
+// Catches apps where keydown capture is blocked (Angular, etc.)
+document.addEventListener('input',function(){
+  var el=ed();if(!el)return;
+  var t=tx(el).trim();
+  if(CMD_RE.test(t)){lastText=t;handled=false;}
+  else if(lastText&&t.length===0){
+    // Text was a command and just got cleared = user submitted
+    var saved=lastText;lastText='';
+    fire(saved);
+  }else if(!CMD_RE.test(t)){lastText='';}
+},true);
+
+// Safety net: keyup Enter checks tracked text
+document.addEventListener('keyup',function(e){
+  if(e.key!=='Enter')return;
+  if(lastText&&!handled){var saved=lastText;lastText='';fire(saved);}
 },true);
 })();`;
   }

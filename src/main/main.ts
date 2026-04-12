@@ -63,6 +63,13 @@ async function createWindow() {
 }
 
 async function boot() {
+  // Load saved API key into process.env BEFORE constructing services
+  // (they read process.env.ANTHROPIC_API_KEY in their constructors)
+  const savedApiKey = loadApiKey();
+  if (savedApiKey) {
+    process.env.ANTHROPIC_API_KEY = savedApiKey;
+  }
+
   // Core services
   library = new Library();
   skillEngine = new SkillEngine(library);
@@ -76,8 +83,14 @@ async function boot() {
     const app = appConnector.get(id);
     if (app?.connected) yoInterceptor.activate(wc, id);
   });
+
+  // Seed PanelManager configs from apps (apps are the source of truth)
+  for (const app of appConnector.list()) {
+    panelManager.addPanel(app.id, app.url);
+  }
+
   layoutManager = new LayoutManager(panelManager);
-  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager);
+  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
@@ -108,34 +121,46 @@ async function boot() {
   // Create window
   await createWindow();
 
+  // Restore panels from last view (or default to claude)
+  function restorePanels() {
+    const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][] }>("lastView", null!);
+    if (lastView && mainWindow) {
+      if (lastView.type === "grid" && lastView.rows) {
+        layoutManager.splitGrid(lastView.rows, mainWindow);
+      } else if (lastView.type === "split" && lastView.panels) {
+        if (lastView.panels.length === 2) {
+          layoutManager.splitTwo(lastView.panels[0], lastView.panels[1], mainWindow);
+        } else {
+          layoutManager.splitN(lastView.panels, mainWindow);
+        }
+      } else if (lastView.type === "layout" && lastView.name) {
+        layoutManager.apply(lastView.name, mainWindow);
+      } else if (lastView.type === "panel" && lastView.id) {
+        panelManager.switchTo(lastView.id, mainWindow);
+      }
+    } else if (mainWindow) {
+      panelManager.switchTo("claude", mainWindow);
+    }
+  }
+
   // Helper: push grid state to renderer (for drag handles + panel chips)
   function sendSplitState() {
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
   }
 
+  // Check if onboarding is needed BEFORE restoring panels
+  // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
+  const bootLicense = checkLicense();
+  const needsOnboarding = bootLicense.status === "expired" || !savedApiKey;
+
   // Restore zoom level
   const savedZoom = getPreference<number>("zoom", 1.0);
   if (savedZoom !== 1.0) panelManager.setZoom(savedZoom);
 
-  // Restore last view (default to claude)
-  const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][] }>("lastView", null!);
-  if (lastView && mainWindow) {
-    if (lastView.type === "grid" && lastView.rows) {
-      layoutManager.splitGrid(lastView.rows, mainWindow);
-    } else if (lastView.type === "split" && lastView.panels) {
-      if (lastView.panels.length === 2) {
-        layoutManager.splitTwo(lastView.panels[0], lastView.panels[1], mainWindow);
-      } else {
-        layoutManager.splitN(lastView.panels, mainWindow);
-      }
-    } else if (lastView.type === "layout" && lastView.name) {
-      layoutManager.apply(lastView.name, mainWindow);
-    } else if (lastView.type === "panel" && lastView.id) {
-      panelManager.switchTo(lastView.id, mainWindow);
-    }
-  } else if (mainWindow) {
-    panelManager.switchTo("claude", mainWindow);
+  // Only restore panels if not gated by onboarding
+  if (!needsOnboarding) {
+    restorePanels();
   }
 
   // Global hotkey: Cmd+Y / Ctrl+Y
@@ -248,13 +273,6 @@ async function boot() {
   });
   ipcMain.handle("skills-remove", (_e, name: string) => skillEngine.deleteSkill(name));
 
-  // IPC: layout config
-  ipcMain.handle("panels-list", () => panelManager.listPanels());
-  ipcMain.handle("panels-add", (_e, id: string, url: string) => {
-    panelManager.addPanel(id, url);
-    return true;
-  });
-
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>
     layoutManager.listLayouts().map((l) => ({
@@ -292,7 +310,7 @@ async function boot() {
 
   // IPC: autocomplete data
   ipcMain.handle("get-completions", () => ({
-    panels: panelManager.listPanels().map((p) => p.id),
+    apps: appConnector.list().map((a) => a.id),
     library: library.list(),
     skills: skillEngine.listSkills(),
     layouts: layoutManager.listLayouts().map((l) => l.name),
@@ -335,13 +353,12 @@ async function boot() {
   // IPC: apps CRUD + connect + pick
   ipcMain.handle("apps-list", () => appConnector.list());
   ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
-    // Register as panel too
-    if (!panelManager.hasPanel(id)) {
-      panelManager.addPanel(id, url);
-    }
-    return appConnector.add(id, name, url);
+    const app = appConnector.add(id, name, url);
+    panelManager.addPanel(id, url);
+    return app;
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-connect", async (_e, id: string, webContentsId?: number) => {
     const appConfig = appConnector.get(id);
     if (!appConfig) return { ok: false, error: "App not found" };
@@ -350,9 +367,7 @@ async function boot() {
     let wc = webContentsId ? webContents.fromId(webContentsId) : null;
     if (!wc) {
       if (!mainWindow) return { ok: false, error: "No window" };
-      if (!panelManager.hasPanel(id)) {
-        panelManager.addPanel(id, appConfig.url);
-      }
+      if (!panelManager.hasPanel(id)) panelManager.addPanel(id, appConfig.url);
       const view = panelManager.getOrCreateView(id, mainWindow);
       if (!view) return { ok: false, error: "Could not create panel" };
       wc = view.webContents;
@@ -393,10 +408,199 @@ async function boot() {
     if (!wc) return "App not loaded.";
 
     try {
-      return await executeCommand(wc, mapping);
+      // For setValue/push, send a test string so the user can see it working
+      const testValue = mapping.action === "setValue" ? "Hello from yo!" : undefined;
+      return await executeCommand(wc, mapping, testValue);
     } catch (err: unknown) {
       return err instanceof Error ? err.message : String(err);
     }
+  });
+
+  // IPC: DOM picker — inject picker script into a webContents, receive result via console-message
+  // (executeJavaScript doesn't properly await Promises in Electron 35, so we use a message channel)
+  ipcMain.on("start-picker", (_e, webContentsId: number) => {
+    const wc = webContents.fromId(webContentsId);
+    if (!wc) {
+      mainWindow?.webContents.send("picker-result", null);
+      return;
+    }
+
+    // Listen for the picker result via console.log message
+    const handler = (_event: Electron.Event, _level: number, message: string) => {
+      if (!message.startsWith("__YO_PICK__:")) return;
+      wc.removeListener("console-message", handler);
+      try {
+        const json = message.slice("__YO_PICK__:".length);
+        const result = JSON.parse(json);
+        mainWindow?.webContents.send("picker-result", result);
+      } catch {
+        mainWindow?.webContents.send("picker-result", null);
+      }
+    };
+    wc.on("console-message", handler);
+
+    // Timeout: cancel after 30s if no pick
+    setTimeout(() => {
+      wc.removeListener("console-message", handler);
+    }, 30000);
+
+    // Inject the picker script (fire-and-forget, no return value needed)
+    const pickerScript = `
+      (function() {
+        var overlay = document.createElement('div');
+        overlay.id = '__yo_picker_overlay__';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;cursor:crosshair;';
+
+        var highlight = document.createElement('div');
+        highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;' +
+          'border:2px solid #a855f7;background:rgba(168,85,247,0.08);border-radius:3px;' +
+          'transition:all 0.05s ease;box-shadow:0 0 12px rgba(168,85,247,0.3);display:none;';
+        document.body.appendChild(highlight);
+
+        var label = document.createElement('div');
+        label.style.cssText = 'position:fixed;z-index:1000000;pointer-events:none;' +
+          'background:#1a1a1a;color:#e0e0e0;font:12px monospace;' +
+          'padding:4px 8px;border-radius:4px;border:1px solid #a855f7;' +
+          'box-shadow:0 4px 12px rgba(0,0,0,0.5);max-width:400px;overflow:hidden;' +
+          'text-overflow:ellipsis;white-space:nowrap;display:none;';
+        document.body.appendChild(label);
+
+        var lastTarget = null;
+
+        function getEl(e) {
+          overlay.style.pointerEvents = 'none';
+          var el = document.elementFromPoint(e.clientX, e.clientY);
+          overlay.style.pointerEvents = 'auto';
+          return el;
+        }
+
+        // Filter out dynamic/framework-generated class names
+        var DYNAMIC_CLASS_RE = /^(ng-tns-|ng-star-|ng-trigger-|ng-animating|ng-untouched|ng-touched|ng-pristine|ng-dirty|ng-valid|ng-invalid|cdk-|mat-|css-|sc-|_|jsx-|svelte-|\\d)/;
+        var STATE_CLASS_RE = /^(is-|has-|with-|no-|not-|height-|width-|show-|hide-|visible-|hidden-|active$|focused$|disabled$|selected$|expanded$|collapsed$|open$|closed$)/;
+        function isStableClass(c) {
+          if (c.length <= 1 || c.length >= 50) return false;
+          if (DYNAMIC_CLASS_RE.test(c)) return false;
+          if (STATE_CLASS_RE.test(c)) return false;
+          // Skip classes that look like generated hashes (contain long digit sequences)
+          if (/\d{4,}/.test(c)) return false;
+          return true;
+        }
+
+        function buildSelector(el) {
+          if (!el || !el.tagName) return 'body';
+          if (el === document.body || el === document.documentElement) return 'body';
+          if (el.id) return '#' + CSS.escape(el.id);
+
+          // Prefer stable attributes over classes
+          try {
+            var tid = el.getAttribute('data-testid');
+            if (tid) return '[data-testid="' + tid + '"]';
+          } catch(e) {}
+          try {
+            var role = el.getAttribute('role');
+            if (role) {
+              var rs = el.tagName.toLowerCase() + '[role="' + role + '"]';
+              try { if (document.querySelectorAll(rs).length === 1) return rs; } catch(e) {}
+            }
+          } catch(e) {}
+          try {
+            var aria = el.getAttribute('aria-label');
+            if (aria) {
+              var s = el.tagName.toLowerCase() + '[aria-label="' + aria.replace(/"/g, '\\\\\\"') + '"]';
+              try { if (document.querySelectorAll(s).length === 1) return s; } catch(e) {}
+            }
+          } catch(e) {}
+          try {
+            if (el.getAttribute('contenteditable') === 'true') {
+              var ce = el.tagName.toLowerCase() + '[contenteditable="true"]';
+              try { if (document.querySelectorAll(ce).length === 1) return ce; } catch(e) {}
+            }
+          } catch(e) {}
+          try {
+            var ph = el.getAttribute('placeholder');
+            if (ph) {
+              var ps = el.tagName.toLowerCase() + '[placeholder="' + ph.replace(/"/g, '\\\\\\"') + '"]';
+              try { if (document.querySelectorAll(ps).length === 1) return ps; } catch(e) {}
+            }
+          } catch(e) {}
+
+          var parts = [];
+          var cur = el;
+          while (cur && cur !== document.body && cur !== document.documentElement && parts.length < 5) {
+            var tag = cur.tagName ? cur.tagName.toLowerCase() : '?';
+            if (cur.id) { parts.unshift('#' + CSS.escape(cur.id)); break; }
+            var cls = '';
+            try {
+              var stable = Array.from(cur.classList || []).filter(isStableClass).slice(0, 3);
+              cls = stable.map(function(c) { return '.' + CSS.escape(c); }).join('');
+            } catch(e) {}
+            // Also try role/contenteditable at this level for path segments
+            var attrSel = '';
+            try {
+              var r2 = cur.getAttribute('role');
+              if (r2) attrSel = '[role="' + r2 + '"]';
+              else if (cur.getAttribute('contenteditable') === 'true') attrSel = '[contenteditable="true"]';
+            } catch(e) {}
+            var seg = tag + cls + attrSel;
+            if (cur.parentElement) {
+              try {
+                var sibs = Array.from(cur.parentElement.children).filter(function(s) { return s.tagName === cur.tagName; });
+                if (sibs.length > 1) seg += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+              } catch(e) {}
+            }
+            parts.unshift(seg);
+            cur = cur.parentElement || (cur.getRootNode && cur.getRootNode().host) || null;
+          }
+          return parts.join(' > ') || el.tagName.toLowerCase();
+        }
+
+        overlay.addEventListener('mousemove', function(e) {
+          var el = getEl(e);
+          if (el === lastTarget) return;
+          lastTarget = el;
+          if (!el || el === overlay) { highlight.style.display = 'none'; label.style.display = 'none'; return; }
+          try {
+            var r = el.getBoundingClientRect();
+            highlight.style.display = 'block';
+            highlight.style.left = r.left + 'px'; highlight.style.top = r.top + 'px';
+            highlight.style.width = r.width + 'px'; highlight.style.height = r.height + 'px';
+            var info = (el.tagName || '?').toLowerCase();
+            if (el.id) info += '#' + el.id;
+            else if (el.className && typeof el.className === 'string') info += '.' + el.className.split(' ')[0];
+            try { var role = el.getAttribute('role'); if (role) info += ' [' + role + ']'; } catch(x) {}
+            label.textContent = info;
+            label.style.display = 'block';
+            label.style.left = r.left + 'px';
+            label.style.top = Math.max(0, r.top - 28) + 'px';
+          } catch(x) { highlight.style.display = 'none'; label.style.display = 'none'; }
+        });
+
+        overlay.addEventListener('click', function(e) {
+          e.preventDefault(); e.stopPropagation();
+          var el = getEl(e);
+          cleanup();
+          if (!el) { console.log('__YO_PICK__:null'); return; }
+          var tag = (el.tagName || 'unknown').toLowerCase();
+          var ce = false; try { ce = el.getAttribute('contenteditable') === 'true'; } catch(x) {}
+          var role = ''; try { role = el.getAttribute('role') || ''; } catch(x) {}
+          console.log('__YO_PICK__:' + JSON.stringify({
+            selector: buildSelector(el), tag: tag,
+            text: (el.innerText || el.textContent || '').trim().slice(0, 100),
+            isEditable: ce || tag === 'input' || tag === 'textarea',
+            isClickable: tag === 'button' || tag === 'a' || role === 'button',
+          }));
+        });
+
+        function onKey(e) {
+          if (e.key === 'Escape') { cleanup(); console.log('__YO_PICK__:null'); }
+        }
+        document.addEventListener('keydown', onKey);
+
+        function cleanup() { overlay.remove(); highlight.remove(); label.remove(); document.removeEventListener('keydown', onKey); }
+        document.body.appendChild(overlay);
+      })();
+    `;
+    wc.executeJavaScript(pickerScript).catch(() => {});
   });
 
   // IPC: license + API key
@@ -428,19 +632,22 @@ async function boot() {
   });
   ipcMain.on("chat-clear", () => yoChat.clear());
 
+  // IPC: onboarding complete — restore panels after activation
+  ipcMain.handle("onboarding-complete", () => {
+    restorePanels();
+    sendSplitState();
+  });
+
   // Tell renderer to check license gate
   mainWindow?.webContents.on("did-finish-load", () => {
-    const license = checkLicense();
-    const apiKey = loadApiKey();
-    const needsOnboarding = license.status === "expired" || !apiKey;
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
     mainWindow?.webContents.send("boot", {
-      license,
-      apiKey: apiKey ? true : false,
+      license: bootLicense,
+      apiKey: savedApiKey ? true : false,
       needsOnboarding,
       hideWelcome,
     });
-    sendSplitState();
+    if (!needsOnboarding) sendSplitState();
   });
 }
 

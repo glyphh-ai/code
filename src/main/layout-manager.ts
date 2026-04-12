@@ -340,7 +340,7 @@ export class LayoutManager {
     if (this.boundWindow === win) return;
     this.boundWindow = win;
     win.on("resize", () => {
-      if (this.activeGrid) this.applyGrid(win);
+      if (this.activeGrid && !this.panelManager.isHidden) this.applyGrid(win);
     });
   }
 
