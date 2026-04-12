@@ -1,19 +1,16 @@
 /**
- * YoChat — LLM-powered chat for cross-app automation.
+ * YoChat — LLM engine for inline yo/sup/wassup execution.
  *
- * An AI agent that lives inside yo with full access to:
- * - Connected apps (grab, push, submit, read, clear, custom commands)
- * - Panels and layouts (dip)
- * - Library files (yo/sup)
+ * Context-centric: the interceptor grabs content (yo) or loads it
+ * from library (sup) before calling the LLM. The LLM processes
+ * the context — it never reaches into app DOMs directly.
  *
- * Uses Claude Sonnet with streaming + tool use.
+ * Uses Claude Sonnet with tool use for library operations.
  */
 
-import { AppConnector } from "./app-connector";
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
 import { ToolManager } from "./tool-manager";
-import { executeCommand } from "./dom-bridge";
 
 export interface ChatCallbacks {
   onText: (delta: string) => void;
@@ -22,61 +19,19 @@ export interface ChatCallbacks {
 }
 
 const SYSTEM = `You are Yo, an AI assistant embedded in the YoSup desktop workspace.
-You can see and control connected web apps through DOM-level commands.
+You process content that the user has loaded as context. You do not control apps directly — the user works in their apps and passes you context to operate on.
 
 Capabilities:
-- grab: extract content from any connected app panel
-- push: inject text into an app's input
-- submit: trigger send/submit in an app
-- dip: switch panels (claude, gemini, gpt, code, cowork, or custom)
-- yo_save / sup_load: save/load markdown files in ~/yo/library/
-- library_list / library_search: browse the library
-- app_command: run any mapped command on any connected app
-- apps_list: see all connected apps
+- yo_save: save processed content to the library
+- sup_load: read a library file for reference
+- library_list / library_search: find files in the library
+- tools_list: discover available automation recipes
+- dip: switch the active panel
 
-When asked to do something, use tools — don't just describe what you'd do.
-Be concise. Act, then confirm.`;
+When given context, process it according to the user's instruction.
+Save results to the library when appropriate. Be concise.`;
 
 const TOOLS = [
-  {
-    name: "grab",
-    description: "Extract the main content/conversation from a connected app panel.",
-    input_schema: {
-      type: "object" as const,
-      properties: { app: { type: "string" as const, description: "App/panel ID" } },
-      required: ["app"],
-    },
-  },
-  {
-    name: "push",
-    description: "Inject text into a connected app's primary input field.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        app: { type: "string" as const, description: "App/panel ID" },
-        content: { type: "string" as const, description: "Text to inject" },
-      },
-      required: ["app", "content"],
-    },
-  },
-  {
-    name: "submit",
-    description: "Click the send/submit button in a connected app.",
-    input_schema: {
-      type: "object" as const,
-      properties: { app: { type: "string" as const, description: "App/panel ID" } },
-      required: ["app"],
-    },
-  },
-  {
-    name: "dip",
-    description: "Switch to a panel or layout.",
-    input_schema: {
-      type: "object" as const,
-      properties: { panel: { type: "string" as const, description: "Panel ID" } },
-      required: ["panel"],
-    },
-  },
   {
     name: "yo_save",
     description: "Save content to the library as a markdown file.",
@@ -113,27 +68,18 @@ const TOOLS = [
     },
   },
   {
-    name: "app_command",
-    description: "Run any mapped command on a connected app.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        app: { type: "string" as const, description: "App ID" },
-        command: { type: "string" as const, description: "Command name" },
-        value: { type: "string" as const, description: "Optional value for setValue" },
-      },
-      required: ["app", "command"],
-    },
-  },
-  {
-    name: "apps_list",
-    description: "List all connected apps and their available commands.",
-    input_schema: { type: "object" as const, properties: {} },
-  },
-  {
     name: "tools_list",
     description: "List all available wassup tools (AI automation recipes).",
     input_schema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "dip",
+    description: "Switch to a panel or layout.",
+    input_schema: {
+      type: "object" as const,
+      properties: { panel: { type: "string" as const, description: "Panel ID" } },
+      required: ["panel"],
+    },
   },
 ];
 
@@ -143,7 +89,6 @@ export class YoChat {
   private commandCallback: ((cmd: string) => Promise<string>) | null = null;
 
   constructor(
-    private appConnector: AppConnector,
     private panelManager: PanelManager,
     private library: Library,
     private toolManager: ToolManager,
@@ -197,31 +142,29 @@ export class YoChat {
     const context = this.buildContext();
     const userParts: string[] = [];
     if (command === "yo") {
-      userParts.push(`The user typed "yo ${instruction}" inside the ${appId} app.`);
-      userParts.push(`This means they want to CREATE/SAVE something.`);
+      userParts.push(`The user typed "yo ${instruction}".`);
+      userParts.push(`They want to process and save content from their current app.`);
       if (appContent) {
-        userParts.push(`\nHere is the content grabbed from the app:\n\n${appContent.slice(0, 8000)}`);
+        userParts.push(`\nHere is the content:\n\n${appContent.slice(0, 8000)}`);
       }
-      userParts.push(`\nExecute the user's instruction. Use tools to save to library, process with skills, etc. Be concise in your final response.`);
+      userParts.push(`\nProcess according to the instruction and save the result to the library. Be concise.`);
     } else if (command === "wassup") {
-      userParts.push(`The user typed "wassup ${instruction}" inside the ${appId} app.`);
-      userParts.push(`This means they want to RUN A TOOL — an AI automation recipe that orchestrates across apps.`);
+      userParts.push(`The user typed "wassup ${instruction}".`);
       if (appContent) {
-        userParts.push(`\nHere is the content from the current app:\n\n${appContent.slice(0, 8000)}`);
+        userParts.push(`\nHere is the loaded context:\n\n${appContent.slice(0, 8000)}`);
       }
       // Check if instruction matches a known tool
       const matchedTool = this.toolManager.search(instruction);
       if (matchedTool) {
-        userParts.push(`\nMatched tool: "${matchedTool.name}" (${matchedTool.description})`);
-        userParts.push(`\nTool prompt:\n${matchedTool.prompt}`);
-        userParts.push(`\nExecute this tool's instructions. Use the available tools (grab, push, submit, dip, etc.) to carry out the recipe. Be concise in your final response.`);
+        userParts.push(`\nMatched tool: "${matchedTool.name}" — ${matchedTool.description}`);
+        userParts.push(`\nTool instructions:\n${matchedTool.prompt}`);
+        userParts.push(`\nProcess the context according to the tool instructions. Save results to the library if appropriate. Be concise.`);
       } else {
-        userParts.push(`\nNo tool matched "${instruction}". The user wants you to improvise — carry out their instruction using the available tools. Be concise in your final response.`);
+        userParts.push(`\nNo tool matched — improvise based on the instruction and context. Save results to the library if appropriate. Be concise.`);
       }
     } else {
-      userParts.push(`The user typed "sup ${instruction}" inside the ${appId} app.`);
-      userParts.push(`This means they want to READ/PULL content from the library.`);
-      userParts.push(`\nSearch the library, find the right content, and push it into the ${appId} app. Be concise in your final response.`);
+      userParts.push(`The user typed "sup ${instruction}".`);
+      userParts.push(`They want to find a file in the library. Search for it and return the file name. Be concise.`);
     }
 
     const messages: any[] = [{ role: "user", content: userParts.join("\n") }];
@@ -304,16 +247,6 @@ export class YoChat {
   private buildContext(): string {
     const lines: string[] = ["## Current State"];
     lines.push(`Active panel: ${this.panelManager.activePanelId || "none"}`);
-    lines.push(`Apps: ${this.appConnector.list().map((a) => a.id).join(", ")}`);
-
-    const apps = this.appConnector.list();
-    if (apps.length > 0) {
-      lines.push("\n## Connected Apps");
-      for (const app of apps) {
-        const cmds = Object.keys(app.commands).join(", ") || "none";
-        lines.push(`- **${app.id}** (${app.name}): ${app.url} [${cmds}]`);
-      }
-    }
 
     const files = this.library.list();
     if (files.length > 0) {
@@ -329,117 +262,32 @@ export class YoChat {
   private async exec(name: string, input: Record<string, unknown>): Promise<string> {
     try {
       switch (name) {
-        case "grab":
-          return await this.toolGrab(input.app as string);
-        case "push":
-          return await this.toolPush(input.app as string, input.content as string);
-        case "submit":
-          return await this.toolSubmit(input.app as string);
-        case "dip":
-          return await this.toolDip(input.panel as string);
         case "yo_save":
-          return this.toolSave(input.name as string, input.content as string);
+          this.library.write(input.name as string, input.content as string);
+          return `Saved: ${input.name}.md`;
         case "sup_load":
-          return this.toolLoad(input.name as string);
-        case "library_list":
-          return this.toolList();
-        case "library_search":
-          return this.toolSearch(input.query as string);
-        case "app_command":
-          return await this.toolAppCmd(
-            input.app as string,
-            input.command as string,
-            input.value as string | undefined,
-          );
-        case "apps_list":
-          return this.toolAppsList();
-        case "tools_list":
-          return this.toolToolsList();
+          return this.library.read(input.name as string) || `File "${input.name}" not found.`;
+        case "library_list": {
+          const files = this.library.list();
+          return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : "Library is empty.";
+        }
+        case "library_search": {
+          const files = this.library.search(input.query as string);
+          return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : `No files matching "${input.query}".`;
+        }
+        case "tools_list": {
+          const tools = this.toolManager.list();
+          if (tools.length === 0) return "No tools configured.";
+          return tools.map((t) => `${t.id} — ${t.name}: ${t.description}`).join("\n");
+        }
+        case "dip":
+          if (this.commandCallback) return this.commandCallback(`dip ${input.panel}`);
+          return "Panel switching not available.";
         default:
           return `Unknown tool: ${name}`;
       }
     } catch (err) {
       return `Error: ${err instanceof Error ? err.message : err}`;
     }
-  }
-
-  private async toolGrab(appId: string): Promise<string> {
-    const wc = this.panelManager.getWebContents(appId);
-    if (!wc) return `Panel "${appId}" not loaded. Switch to it with dip first.`;
-    const app = this.appConnector.get(appId);
-    if (app?.commands.grab) return executeCommand(wc, app.commands.grab);
-    if (app?.commands.read) return executeCommand(wc, app.commands.read);
-    return wc.executeJavaScript("document.body.innerText.slice(0,10000)");
-  }
-
-  private async toolPush(appId: string, content: string): Promise<string> {
-    const wc = this.panelManager.getWebContents(appId);
-    if (!wc) return `Panel "${appId}" not loaded.`;
-    const app = this.appConnector.get(appId);
-    if (app?.commands.push) return executeCommand(wc, app.commands.push, content);
-    return "No push command mapped for this app.";
-  }
-
-  private async toolSubmit(appId: string): Promise<string> {
-    const wc = this.panelManager.getWebContents(appId);
-    if (!wc) return `Panel "${appId}" not loaded.`;
-    const app = this.appConnector.get(appId);
-    if (app?.commands.submit) return executeCommand(wc, app.commands.submit);
-    return "No submit command mapped.";
-  }
-
-  private async toolDip(panel: string): Promise<string> {
-    if (this.commandCallback) return this.commandCallback(`dip ${panel}`);
-    return "Panel switching not available.";
-  }
-
-  private toolSave(name: string, content: string): string {
-    this.library.write(name, content);
-    return `Saved: ${name}.md`;
-  }
-
-  private toolLoad(name: string): string {
-    return this.library.read(name) || `File "${name}" not found.`;
-  }
-
-  private toolList(): string {
-    const files = this.library.list();
-    return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : "Library is empty.";
-  }
-
-  private toolSearch(query: string): string {
-    const files = this.library.search(query);
-    return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : `No files matching "${query}".`;
-  }
-
-  private async toolAppCmd(appId: string, command: string, value?: string): Promise<string> {
-    const wc = this.panelManager.getWebContents(appId);
-    if (!wc) return `Panel "${appId}" not loaded.`;
-    const app = this.appConnector.get(appId);
-    if (!app) return `App "${appId}" not found.`;
-    const mapping = app.commands[command];
-    if (!mapping) {
-      return `Command "${command}" not mapped. Available: ${Object.keys(app.commands).join(", ")}`;
-    }
-    return executeCommand(wc, mapping, value);
-  }
-
-  private toolAppsList(): string {
-    const apps = this.appConnector.list();
-    if (apps.length === 0) return "No connected apps.";
-    return apps
-      .map((a) => {
-        const cmds = Object.keys(a.commands).join(", ") || "none";
-        return `${a.id} (${a.name}): ${a.url}\n  Commands: ${cmds}`;
-      })
-      .join("\n\n");
-  }
-
-  private toolToolsList(): string {
-    const tools = this.toolManager.list();
-    if (tools.length === 0) return "No tools configured.";
-    return tools
-      .map((t) => `${t.id} — ${t.name}: ${t.description}`)
-      .join("\n");
   }
 }

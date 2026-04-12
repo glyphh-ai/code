@@ -121,7 +121,7 @@ async function boot() {
   });
 
   // LLM engine for inline yo/sup/wassup execution
-  const yoChat = new YoChat(appConnector, panelManager, library, toolManager);
+  const yoChat = new YoChat(panelManager, library, toolManager);
   yoInterceptor.setYoChat(yoChat);
 
   // Notify renderer when active context changes (for titlebar pill)
