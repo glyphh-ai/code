@@ -39,13 +39,22 @@ export class Library {
     return true;
   }
 
-  /** List all context files */
+  /** List all context files (names only, sorted newest first) */
   list(): string[] {
+    return this.listWithMeta().map((f) => f.name);
+  }
+
+  /** List all context files with modification timestamps, sorted newest first. */
+  listWithMeta(): Array<{ name: string; modified: number }> {
     if (!fs.existsSync(this.root)) return [];
     return fs
       .readdirSync(this.root)
       .filter((f) => f.endsWith(".md"))
-      .map((f) => f.replace(/\.md$/, ""));
+      .map((f) => {
+        const stat = fs.statSync(path.join(this.root, f));
+        return { name: f.replace(/\.md$/, ""), modified: stat.mtimeMs };
+      })
+      .sort((a, b) => b.modified - a.modified);
   }
 
   /** Search files by content */
