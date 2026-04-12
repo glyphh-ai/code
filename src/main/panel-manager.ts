@@ -23,10 +23,14 @@ export class PanelManager {
   private previousPanel: string | null = null;
   private onCreated: PanelCreatedCallback | null = null;
   private zoomFactor = 1.0;
+  private _animating = false;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
   }
+
+  /** Whether a slide animation is in progress */
+  get isAnimating(): boolean { return this._animating; }
 
   /** Register a custom panel (dip add <url>) */
   addPanel(id: string, url: string): void {
@@ -54,6 +58,10 @@ export class PanelManager {
       },
     });
 
+    // Set a modern Chrome user agent so sites don't flag Electron's bundled Chromium as outdated
+    view.webContents.setUserAgent(
+      view.webContents.getUserAgent().replace(/Electron\/\S+\s*/g, "").replace(/\s+/g, " ").trim()
+    );
     view.webContents.loadURL(config.url);
     view.webContents.on("did-finish-load", () => {
       view.webContents.setZoomFactor(this.zoomFactor);
@@ -63,36 +71,107 @@ export class PanelManager {
     return view;
   }
 
-  /** Switch to a panel (dip <id>) */
-  switchTo(id: string, parent: BrowserWindow): boolean {
+  /** Switch to a panel with slide animation (dip <id>) */
+  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left"): boolean {
     const view = this.getOrCreate(id, parent);
     if (!view) return false;
 
-    // Hide current
-    if (this.activePanel) {
-      this.previousPanel = this.activePanel;
+    const oldId = this.activePanel;
+    if (oldId) this.previousPanel = oldId;
+    this.activePanel = id;
+
+    const [w, h] = parent.getContentSize();
+    const finalBounds = { x: 0, y: 48, width: w, height: h - 48 };
+
+    // No animation if same panel, hidden, or already animating
+    if (oldId === id || this._hidden || this._animating) {
+      parent.setBrowserView(view);
+      view.setBounds(finalBounds);
+      view.setAutoResize({ width: true, height: true });
+      return true;
     }
 
-    // Show new
-    parent.setBrowserView(view);
-    const bounds = parent.getBounds();
-    // Leave room for command bar at top (48px)
-    view.setBounds({
-      x: 0,
-      y: 48,
-      width: bounds.width,
-      height: bounds.height - 48,
-    });
-    view.setAutoResize({ width: true, height: true });
+    const oldViews = parent.getBrowserViews();
+    const oldBounds = oldViews.map((v) => ({ view: v, bounds: { ...v.getBounds() } }));
 
-    this.activePanel = id;
+    // Position new view off-screen
+    const offset = direction === "left" ? w : -w;
+    view.setBounds({ ...finalBounds, x: offset });
+    view.setAutoResize({ width: false, height: false });
+    parent.addBrowserView(view);
+
+    this.slideViews(
+      parent, oldBounds,
+      [{ view, finalBounds }],
+      offset,
+      220,
+      () => { view.setAutoResize({ width: true, height: true }); },
+    );
     return true;
   }
 
-  /** Switch to previous panel (dip back) */
+  /** Switch to previous panel — slides in from the left */
   switchBack(parent: BrowserWindow): boolean {
     if (!this.previousPanel) return false;
-    return this.switchTo(this.previousPanel, parent);
+    return this.switchTo(this.previousPanel, parent, "right");
+  }
+
+  /** Animate old views out + new views in (carousel slide) */
+  slideViews(
+    parent: BrowserWindow,
+    oldViews: Array<{ view: BrowserView; bounds: Electron.Rectangle }>,
+    newViews: Array<{ view: BrowserView; finalBounds: Electron.Rectangle }>,
+    offset: number,
+    duration = 220,
+    onDone?: () => void,
+  ) {
+    this._animating = true;
+    const newSet = new Set(newViews.map((n) => n.view));
+    const start = Date.now();
+
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const t = Math.min(elapsed / duration, 1);
+      // Ease-out cubic
+      const ease = 1 - Math.pow(1 - t, 3);
+
+      // Slide old views out
+      for (const { view, bounds } of oldViews) {
+        if (newSet.has(view)) continue;
+        try {
+          view.setBounds({
+            ...bounds,
+            x: Math.round(bounds.x - offset * ease),
+          });
+        } catch { /* view may have been destroyed */ }
+      }
+
+      // Slide new views in
+      for (const { view, finalBounds } of newViews) {
+        view.setBounds({
+          ...finalBounds,
+          x: Math.round(finalBounds.x + offset * (1 - ease)),
+        });
+      }
+
+      if (t < 1) {
+        setTimeout(tick, 16);
+      } else {
+        // Animation done — clean up
+        this._animating = false;
+        for (const { view } of oldViews) {
+          if (!newSet.has(view)) {
+            try { parent.removeBrowserView(view); } catch {}
+          }
+        }
+        for (const { view, finalBounds } of newViews) {
+          view.setBounds(finalBounds);
+          view.setAutoResize({ width: false, height: false });
+        }
+        onDone?.();
+      }
+    };
+    tick();
   }
 
   /** Get the active panel's webContents */

@@ -92,7 +92,7 @@ export class LayoutManager {
         { panelId: rightId, col: 1, row: 0, colSpan: 1, rowSpan: 1 },
       ],
     };
-    this.applyGrid(win);
+    this.applyGrid(win, true);
     this.bindResize(win);
     return true;
   }
@@ -114,7 +114,7 @@ export class LayoutManager {
         panelId: id, col: i, row: 0, colSpan: 1, rowSpan: 1,
       })),
     };
-    this.applyGrid(win);
+    this.applyGrid(win, true);
     this.bindResize(win);
     return true;
   }
@@ -145,7 +145,7 @@ export class LayoutManager {
       rowHeights: Array(numRows).fill(1 / numRows),
       cells,
     };
-    this.applyGrid(win);
+    this.applyGrid(win, true);
     this.bindResize(win);
     return true;
   }
@@ -156,7 +156,7 @@ export class LayoutManager {
       if (!this.panelManager.getOrCreateView(cell.panelId, win)) return false;
     }
     this.activeGrid = JSON.parse(JSON.stringify(grid));
-    this.applyGrid(win);
+    this.applyGrid(win, true);
     this.bindResize(win);
     return true;
   }
@@ -209,7 +209,7 @@ export class LayoutManager {
     const layout = this.layouts.get(name);
     if (!layout) return false;
     this.activeGrid = JSON.parse(JSON.stringify(layout));
-    this.applyGrid(win);
+    this.applyGrid(win, true);
     this.bindResize(win);
     return true;
   }
@@ -288,15 +288,23 @@ export class LayoutManager {
 
   // ── Grid rendering ────────────────────────────────────────
 
-  private applyGrid(win: BrowserWindow) {
+  private applyGrid(win: BrowserWindow, animate = false) {
     const grid = this.activeGrid;
     if (!grid) return;
 
     const [w, h] = win.getContentSize();
     const contentHeight = h - CONTENT_TOP;
 
-    for (const bv of win.getBrowserViews()) {
-      win.removeBrowserView(bv);
+    // Capture old views for animation
+    const oldViews = animate && !this.panelManager.isAnimating
+      ? win.getBrowserViews().map((v) => ({ view: v, bounds: { ...v.getBounds() } }))
+      : [];
+
+    // Remove old views (unless animating — slideViews handles cleanup)
+    if (!animate || oldViews.length === 0) {
+      for (const bv of win.getBrowserViews()) {
+        win.removeBrowserView(bv);
+      }
     }
 
     // Cumulative column positions (fractions)
@@ -309,10 +317,12 @@ export class LayoutManager {
 
     const halfGap = Math.floor(SPLIT_GAP / 2);
 
+    // Compute final bounds for each cell
+    const newViews: Array<{ view: import("electron").BrowserView; finalBounds: Electron.Rectangle }> = [];
+
     for (const cell of grid.cells) {
       const view = this.panelManager.getOrCreateView(cell.panelId, win);
       if (!view) continue;
-      win.addBrowserView(view);
 
       // Raw pixel bounds from grid fractions
       let x = Math.floor(cumCol[cell.col] * w);
@@ -326,13 +336,29 @@ export class LayoutManager {
       if (cell.row > 0) { y += halfGap; cellH -= halfGap; }
       if (cell.row + cell.rowSpan < grid.rows) { cellH -= halfGap; }
 
-      view.setBounds({
+      const finalBounds = {
         x,
         y: CONTENT_TOP + y,
         width: Math.max(cellW, 1),
         height: Math.max(cellH, 1),
-      });
-      view.setAutoResize({ width: false, height: false });
+      };
+
+      if (animate && oldViews.length > 0) {
+        // Position off-screen; slideViews will animate in
+        view.setBounds({ ...finalBounds, x: finalBounds.x + w });
+        view.setAutoResize({ width: false, height: false });
+        win.addBrowserView(view);
+        newViews.push({ view, finalBounds });
+      } else {
+        win.addBrowserView(view);
+        view.setBounds(finalBounds);
+        view.setAutoResize({ width: false, height: false });
+      }
+    }
+
+    // Animate if we have old views to slide out
+    if (animate && oldViews.length > 0 && newViews.length > 0) {
+      this.panelManager.slideViews(win, oldViews, newViews, w);
     }
   }
 
@@ -340,7 +366,7 @@ export class LayoutManager {
     if (this.boundWindow === win) return;
     this.boundWindow = win;
     win.on("resize", () => {
-      if (this.activeGrid && !this.panelManager.isHidden) this.applyGrid(win);
+      if (this.activeGrid && !this.panelManager.isHidden && !this.panelManager.isAnimating) this.applyGrid(win);
     });
   }
 

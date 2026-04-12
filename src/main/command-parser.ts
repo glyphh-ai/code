@@ -197,7 +197,7 @@ export class CommandParser {
 
   private handleDip(args: string[]): string {
     if (args.length === 0) {
-      return "Usage: dip <panel> | dip split <a> <b> | dip back | dip add <url>";
+      return "Usage: dip <panel> | dip split <a> <b> | dip grid <cells> | dip back | dip add <url>";
     }
 
     const sub = args[0].toLowerCase();
@@ -251,36 +251,17 @@ export class CommandParser {
 
     // dip split <panel1> <panel2> [<panel3> ...] [/ <row2panels> ...]
     if (sub === "split" && args.length >= 3) {
-      const splitArgs = args.slice(1).map((a) => a.toLowerCase());
+      return this.handleDipSplit(args.slice(1), win);
+    }
 
-      // Check for "/" row separator → multi-row grid
-      if (splitArgs.includes("/")) {
-        const rows: string[][] = [];
-        let current: string[] = [];
-        for (const a of splitArgs) {
-          if (a === "/") {
-            if (current.length > 0) rows.push(current);
-            current = [];
-          } else {
-            current.push(a);
-          }
-        }
-        if (current.length > 0) rows.push(current);
-        const ok = this.layouts.splitGrid(rows, win);
-        if (ok) setPreference("lastView", { type: "grid", rows });
-        const label = rows.map((r) => r.join(" ")).join(" / ");
-        return ok ? `Grid: ${label}` : "Unknown panel(s). Try: dip list";
-      }
-
-      // N panels in a single row
-      if (splitArgs.length === 2) {
-        const ok = this.layouts.splitTwo(splitArgs[0], splitArgs[1], win);
-        if (ok) setPreference("lastView", { type: "split", panels: splitArgs });
-        return ok ? `Split: ${splitArgs.join(" | ")}` : "Unknown panel(s). Try: dip list";
-      }
-      const ok = this.layouts.splitN(splitArgs, win);
-      if (ok) setPreference("lastView", { type: "split", panels: splitArgs });
-      return ok ? `Split: ${splitArgs.join(" | ")}` : "Unknown panel(s). Try: dip list";
+    // dip grid — full grid with spans, custom widths/heights
+    //   dip grid claude,gpt / gemini,code             — 2x2 equal
+    //   dip grid claude:2,gpt / gemini,code           — claude spans 2 cols
+    //   dip grid claude|2,gpt / gemini,code           — claude spans 2 rows
+    //   dip grid [70,30] claude,gpt                   — custom col widths (%)
+    //   dip grid [70,30] [60,40] claude,gpt / g,code  — custom col + row heights
+    if (sub === "grid" && args.length >= 2) {
+      return this.handleDipGrid(args.slice(1), win);
     }
 
     // Check for saved layout
@@ -297,5 +278,170 @@ export class CommandParser {
     return switched
       ? `Switched to ${sub}`
       : `Unknown panel: ${sub}. Try: dip list`;
+  }
+
+  // ── dip split ────────────────────────────────────────────────
+
+  private handleDipSplit(splitArgs: string[], win: BrowserWindow): string {
+    const ids = splitArgs.map((a) => a.toLowerCase());
+
+    // Check for "/" row separator → multi-row grid
+    if (ids.includes("/")) {
+      const rows: string[][] = [];
+      let current: string[] = [];
+      for (const a of ids) {
+        if (a === "/") {
+          if (current.length > 0) rows.push(current);
+          current = [];
+        } else {
+          current.push(a);
+        }
+      }
+      if (current.length > 0) rows.push(current);
+      const ok = this.layouts.splitGrid(rows, win);
+      if (ok) setPreference("lastView", { type: "grid", rows });
+      const label = rows.map((r) => r.join(" ")).join(" / ");
+      return ok ? `Grid: ${label}` : "Unknown panel(s). Try: dip list";
+    }
+
+    // N panels in a single row
+    if (ids.length === 2) {
+      const ok = this.layouts.splitTwo(ids[0], ids[1], win);
+      if (ok) setPreference("lastView", { type: "split", panels: ids });
+      return ok ? `Split: ${ids.join(" | ")}` : "Unknown panel(s). Try: dip list";
+    }
+    const ok = this.layouts.splitN(ids, win);
+    if (ok) setPreference("lastView", { type: "split", panels: ids });
+    return ok ? `Split: ${ids.join(" | ")}` : "Unknown panel(s). Try: dip list";
+  }
+
+  // ── dip grid ─────────────────────────────────────────────────
+  //
+  // Syntax:
+  //   dip grid claude,gpt / gemini,code           — 2×2 equal
+  //   dip grid claude:2,gpt / gemini,code         — claude colSpan=2
+  //   dip grid claude|2,gpt / gemini,code         — claude rowSpan=2
+  //   dip grid claude:2|2,gpt / gemini,code       — claude colSpan=2 rowSpan=2
+  //   dip grid [70,30] claude,gpt                 — custom column widths (%)
+  //   dip grid [70,30] [60,40] claude,gpt / g,c   — custom col + row widths
+  //
+  // Panels within a row are comma-separated.
+  // Rows are separated by "/".
+  // Spans:  panel:colSpan  panel|rowSpan  panel:colSpan|rowSpan
+  // Widths: [w1,w2,...] before cells = column widths in %
+  //         Second [...] = row heights in %
+
+  private handleDipGrid(args: string[], win: BrowserWindow): string {
+    // Extract bracket groups [n,n,...] for custom widths/heights
+    const bracketRe = /^\[([0-9,. ]+)\]$/;
+    const brackets: number[][] = [];
+    let cellStart = 0;
+
+    for (let i = 0; i < args.length; i++) {
+      const m = args[i].match(bracketRe);
+      if (m) {
+        brackets.push(m[1].split(",").map((v) => parseFloat(v.trim())));
+        cellStart = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    // Remaining args are the cell definitions, joined and split by "/"
+    const cellStr = args.slice(cellStart).join(" ");
+    const rowStrs = cellStr.split(/\s*\/\s*/);
+
+    if (rowStrs.length === 0 || (rowStrs.length === 1 && !rowStrs[0].trim())) {
+      return "Usage: dip grid panel1,panel2 / panel3,panel4";
+    }
+
+    // Parse each row into cells with optional spans
+    interface ParsedCell { id: string; colSpan: number; rowSpan: number }
+    const parsedRows: ParsedCell[][] = [];
+    const cellRe = /^([a-z0-9_-]+)(?::(\d+))?(?:\|(\d+))?$/i;
+
+    for (const rowStr of rowStrs) {
+      const items = rowStr.trim().split(/[, ]+/);
+      const row: ParsedCell[] = [];
+      for (const item of items) {
+        if (!item) continue;
+        const cm = item.match(cellRe);
+        if (!cm) return `Invalid cell: "${item}". Format: panel or panel:colSpan|rowSpan`;
+        row.push({
+          id: cm[1].toLowerCase(),
+          colSpan: cm[2] ? parseInt(cm[2], 10) : 1,
+          rowSpan: cm[3] ? parseInt(cm[3], 10) : 1,
+        });
+      }
+      if (row.length > 0) parsedRows.push(row);
+    }
+
+    if (parsedRows.length === 0) return "No panels specified.";
+
+    // Compute grid dimensions from cells + spans
+    const numRows = parsedRows.length;
+    // Each row's effective column count = sum of colSpans
+    const rowColCounts = parsedRows.map((r) => r.reduce((s, c) => s + c.colSpan, 0));
+    const numCols = Math.max(...rowColCounts);
+
+    // Build cells with grid positions
+    const cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> = [];
+    for (let r = 0; r < parsedRows.length; r++) {
+      let col = 0;
+      for (const pc of parsedRows[r]) {
+        cells.push({
+          panelId: pc.id,
+          col,
+          row: r,
+          colSpan: pc.colSpan,
+          rowSpan: pc.rowSpan,
+        });
+        col += pc.colSpan;
+      }
+    }
+
+    // Column widths — from brackets[0] or equal
+    let colWidths: number[];
+    if (brackets.length >= 1 && brackets[0].length === numCols) {
+      const total = brackets[0].reduce((s, v) => s + v, 0);
+      colWidths = brackets[0].map((v) => v / total);
+    } else {
+      colWidths = Array(numCols).fill(1 / numCols);
+    }
+
+    // Row heights — from brackets[1] or equal
+    let rowHeights: number[];
+    if (brackets.length >= 2 && brackets[1].length === numRows) {
+      const total = brackets[1].reduce((s, v) => s + v, 0);
+      rowHeights = brackets[1].map((v) => v / total);
+    } else {
+      rowHeights = Array(numRows).fill(1 / numRows);
+    }
+
+    const grid = {
+      name: "",
+      version: 2 as const,
+      cols: numCols,
+      rows: numRows,
+      colWidths,
+      rowHeights,
+      cells,
+    };
+
+    const ok = this.layouts.applyGridLayout(grid, win);
+    if (!ok) return "Unknown panel(s). Try: dip list";
+
+    setPreference("lastView", { type: "grid-full", grid });
+
+    // Build display label
+    const label = parsedRows.map((r) =>
+      r.map((c) => {
+        let s = c.id;
+        if (c.colSpan > 1) s += `:${c.colSpan}`;
+        if (c.rowSpan > 1) s += `|${c.rowSpan}`;
+        return s;
+      }).join(","),
+    ).join(" / ");
+    return `Grid: ${label}`;
   }
 }

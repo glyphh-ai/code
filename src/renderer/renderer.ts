@@ -4,7 +4,7 @@
 
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
-import { initAutocomplete } from "./autocomplete.js";
+import { initAutocomplete, hideDropdown } from "./autocomplete.js";
 import { initChat, isChatVisible, hideChat } from "./chat.js";
 
 declare global {
@@ -118,6 +118,7 @@ input.addEventListener("keydown", (e) => {
     const value = input.value.trim();
     if (value) {
       hideResults();
+      hideDropdown();
       window.yo.command(value);
       input.value = "";
     }

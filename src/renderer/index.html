@@ -64,15 +64,9 @@
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <div class="help-nav-spacer"></div>
-        <div class="help-nav-footer">
-          <label class="dismiss-label">
-            <input type="checkbox" id="dismiss-check" />
-            <span>Hide on startup</span>
-          </label>
-          <button id="help-close" class="help-close-btn">Close</button>
-        </div>
       </nav>
       <main id="help-content">
+        <button id="help-close" class="help-close-x" aria-label="Close">&times;</button>
 
         <!-- Guide -->
         <div class="help-section active" data-section="guide">
@@ -120,12 +114,45 @@
               <span>Switch to a panel</span>
             </div>
             <div class="cmd-row">
+              <code>dip back</code>
+              <span>Switch to the previous panel</span>
+            </div>
+            <div class="cmd-row">
               <code>dip split claude gpt</code>
               <span>Side-by-side panels</span>
             </div>
             <div class="cmd-row">
+              <code>dip split claude gpt / gemini code</code>
+              <span>Multi-row grid — <code>/</code> separates rows</span>
+            </div>
+            <div class="cmd-row">
               <code>dip yo</code>
               <span>Open the AI chat — automate across apps, manage library, control panels</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>dip grid <span class="cmd-desc">— advanced layouts</span></h3>
+            <p class="cmd-intro">Full grid control with spans and custom sizing. Commas separate panels, <code>/</code> separates rows.</p>
+            <div class="cmd-row">
+              <code>dip grid claude,gpt / gemini,code</code>
+              <span>2&times;2 grid</span>
+            </div>
+            <div class="cmd-row">
+              <code>dip grid claude:2,gpt / gemini,code</code>
+              <span><code>:N</code> = column span — claude takes 2 columns</span>
+            </div>
+            <div class="cmd-row">
+              <code>dip grid claude|2,gpt / gemini,code</code>
+              <span><code>|N</code> = row span — claude takes 2 rows</span>
+            </div>
+            <div class="cmd-row">
+              <code>dip grid [70,30] claude,gpt</code>
+              <span><code>[%,%]</code> = custom column widths</span>
+            </div>
+            <div class="cmd-row">
+              <code>dip grid [70,30] [60,40] claude,gpt / gemini,code</code>
+              <span>Custom column widths + row heights</span>
             </div>
           </div>
 

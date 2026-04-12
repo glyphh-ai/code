@@ -123,9 +123,11 @@ async function boot() {
 
   // Restore panels from last view (or default to claude)
   function restorePanels() {
-    const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][] }>("lastView", null!);
+    const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
     if (lastView && mainWindow) {
-      if (lastView.type === "grid" && lastView.rows) {
+      if (lastView.type === "grid-full" && lastView.grid) {
+        layoutManager.applyGridLayout(lastView.grid, mainWindow);
+      } else if (lastView.type === "grid" && lastView.rows) {
         layoutManager.splitGrid(lastView.rows, mainWindow);
       } else if (lastView.type === "split" && lastView.panels) {
         if (lastView.panels.length === 2) {

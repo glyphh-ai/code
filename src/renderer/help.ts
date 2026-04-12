@@ -52,10 +52,6 @@ function loadActiveSection() {
 export function initHelp() {
   document.getElementById("help-close")!.addEventListener("click", closeHelp);
 
-  document.getElementById("dismiss-check")!.addEventListener("change", (e) => {
-    window.yo.setPreference("hideWelcome", (e.target as HTMLInputElement).checked);
-  });
-
   // Library
   document.getElementById("library-save-btn")!.addEventListener("click", saveLibraryItem);
   document.getElementById("library-new-btn")!.addEventListener("click", newLibraryItem);
@@ -561,6 +557,7 @@ const appMapCommand = document.getElementById("app-map-command")!;
 const appPreview = document.getElementById("app-preview") as HTMLElement & {
   src: string;
   partition: string;
+  useragent: string;
   getWebContentsId: () => number;
   executeJavaScript: (code: string) => Promise<unknown>;
   reload: () => void;
@@ -657,8 +654,9 @@ async function openAppDetail(id: string) {
   appConnectStatus.textContent = "";
   appMapCommand.classList.add("hidden");
 
-  // Load app in the embedded webview preview
+  // Load app in the embedded webview preview (strip Electron token so sites don't flag it)
   appPreview.partition = `persist:panel-${id}`;
+  appPreview.useragent = navigator.userAgent.replace(/Electron\/\S+\s*/g, "").replace(/\s+/g, " ").trim();
   appPreview.src = app.url;
 
   renderCommands(app);
@@ -687,7 +685,7 @@ function renderCommands(app: AppData) {
   const standardKeys = ["grab", "push", "submit", "clear", "read"];
   const customKeys = Object.keys(app.commands).filter((k) => !standardKeys.includes(k));
 
-  let html = '<div class="commands-section"><h4>Standard Commands</h4>';
+  let html = '<div class="commands-section"><h4>Standard Commands</h4><p class="commands-hint">These are used by yo/sup/dip and the AI chat to interact with the app. <b>grab</b> reads content, <b>push</b> types into the input, <b>submit</b> sends it, <b>clear</b> resets the input, <b>read</b> gets a quick page snapshot.</p>';
   for (const key of standardKeys) {
     const cmd = app.commands[key];
     html += `

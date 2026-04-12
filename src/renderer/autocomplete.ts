@@ -124,8 +124,14 @@ let selectedIndex = -1;
 export function initAutocomplete() {
   input.addEventListener("keydown", handleKey);
   input.addEventListener("input", () => { selectedIndex = -1; showCompletions(); });
+  // Restore panels when input loses focus (user clicked away or pressed Escape)
+  input.addEventListener("blur", () => {
+    // Small delay so click handlers on dropdown items fire first
+    setTimeout(() => hideDropdown(), 100);
+  });
   document.addEventListener("click", (e) => {
-    if (!(e.target as HTMLElement).closest("#autocomplete-dropdown")) {
+    if (!(e.target as HTMLElement).closest("#autocomplete-dropdown") &&
+        !(e.target as HTMLElement).closest("#command-input")) {
       hideDropdown();
     }
   });
@@ -136,14 +142,15 @@ let panelsHidden = false;
 async function showCompletions() {
   const value = input.value;
   if (!value.trim()) {
-    hideDropdown();
+    closeDropdown();
     return;
   }
   items = await getCompletions(value);
   if (items.length === 0) {
-    hideDropdown();
+    closeDropdown();
     return;
   }
+  // Hide panels so dropdown is visible (BrowserViews render above HTML)
   if (!panelsHidden) {
     window.yo.panelsHide();
     panelsHidden = true;
@@ -167,13 +174,19 @@ function renderDropdown() {
   });
 }
 
-function hideDropdown() {
+/** Close just the dropdown UI (no panel restore — user may still be typing) */
+function closeDropdown() {
   dropdown.classList.add("hidden");
   items = [];
   selectedIndex = -1;
+}
+
+/** Fully dismiss: close dropdown AND restore panels */
+export function hideDropdown() {
+  closeDropdown();
   if (panelsHidden) {
-    window.yo.panelsShow();
     panelsHidden = false;
+    window.yo.panelsShow();
   }
 }
 
