@@ -112,12 +112,41 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
+// ── Command input ─────────────────────────────────────────
+
+const commandInput = document.getElementById("command-input") as HTMLInputElement;
+
+commandInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const value = commandInput.value.trim();
+    if (value) {
+      window.yo.execCommand(value);
+      commandInput.value = "";
+      commandInput.blur();
+    }
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    commandInput.value = "";
+    commandInput.blur();
+  }
+});
+
+// Cmd+K from panel → focus command input
+window.yo.onFocusInput(() => commandInput.focus());
 
 // ── Global keyboard shortcuts ──────────────────────────────
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (isHelpOpen()) closeHelp();
+  }
+
+  // Cmd+K to focus command input
+  if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    commandInput.focus();
   }
 
   // Cmd+R / Ctrl+R to refresh panels

@@ -51,6 +51,9 @@ contextBridge.exposeInMainWorld("yo", {
   onShowWelcome: (callback: () => void) => {
     ipcRenderer.on("show-welcome", () => callback());
   },
+  onFocusInput: (callback: () => void) => {
+    ipcRenderer.on("focus-command-input", () => callback());
+  },
 
   // Apps CRUD
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,

@@ -241,6 +241,27 @@ body {
   -webkit-text-fill-color: #25C75E;
 }
 
+/* ── Command input ──────────────────────────────────────── */
+
+#command-input {
+  flex: 1;
+  max-width: 360px;
+  height: 24px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  padding: 0 10px;
+  outline: none;
+  -webkit-app-region: no-drag;
+  transition: border-color 0.15s;
+}
+
+#command-input::placeholder { color: #444; }
+#command-input:focus { border-color: #25C75E; background: #161616; }
+
 /* ── Tools editor ────────────────────────────────────────── */
 
 .tools-desc-input {
