@@ -6,7 +6,7 @@
  * dip commands route through here.
  */
 
-import { BrowserWindow, BrowserView, WebContents } from "electron";
+import { BrowserWindow, BrowserView, WebContents, session } from "electron";
 
 export interface PanelConfig {
   id: string;
@@ -33,6 +33,8 @@ export class PanelManager {
     *::-webkit-scrollbar-corner { background: transparent; }
   `;
 
+  private static permissionsConfigured = false;
+
   private panels: Map<string, BrowserView> = new Map();
   private configs: Map<string, PanelConfig> = new Map();
   private activePanel: string | null = null;
@@ -45,6 +47,34 @@ export class PanelManager {
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
+    PanelManager.setupPermissions();
+  }
+
+  /** Configure permission handlers on the persist:yo session (once) */
+  private static setupPermissions(): void {
+    if (PanelManager.permissionsConfigured) return;
+    PanelManager.permissionsConfigured = true;
+
+    const ses = session.fromPartition("persist:yo");
+
+    // Grant common permissions web apps need
+    const ALLOWED_PERMISSIONS = new Set([
+      "clipboard-read", "clipboard-sanitized-write",
+      "notifications", "fullscreen",
+      "pointerLock", "media",
+      "display-capture", "mediaKeySystem",
+      "local-fonts", "window-management",
+      "idle-detection", "storage-access",
+      "file-system",
+    ]);
+
+    ses.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(ALLOWED_PERMISSIONS.has(permission));
+    });
+
+    ses.setPermissionCheckHandler((_wc, permission) => {
+      return ALLOWED_PERMISSIONS.has(permission);
+    });
   }
 
   /** Register callback for when a panel becomes active (after switch or page load). */
@@ -113,6 +143,17 @@ export class PanelManager {
         e.preventDefault();
       }
     });
+    const popupOptions = {
+      action: "allow" as const,
+      overrideBrowserWindowOptions: {
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          partition: isLocal ? undefined : "persist:yo",
+        },
+      },
+    };
+
     view.webContents.setWindowOpenHandler(({ url }) => {
       // Block native app protocol redirects (slack://, zoommtg://, etc.)
       if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
@@ -120,21 +161,34 @@ export class PanelManager {
       }
       // Allow JS-driven dialogs (about:blank popups populated via script)
       if (url === "about:blank" || url === "") {
-        return { action: "allow" };
+        return popupOptions;
       }
       // Allow same-origin popups (app dialogs, pickers, etc.)
       try {
         const panelOrigin = new URL(config.url).origin;
         const popupOrigin = new URL(url).origin;
-        if (popupOrigin === panelOrigin) return { action: "allow" };
+        if (popupOrigin === panelOrigin) return popupOptions;
       } catch { /* invalid URL, fall through */ }
       // Allow OAuth popups (Google, GitHub, etc.)
       if (url.includes("accounts.google.com") || url.includes("github.com/login") || url.includes("auth") || url.includes("oauth") || url.includes("signin")) {
-        return { action: "allow" };
+        return popupOptions;
       }
       // Cross-origin links: open in the same view instead of a popup
       view.webContents.loadURL(url);
       return { action: "deny" };
+    });
+
+    // Configure popup windows created from this panel
+    view.webContents.on("did-create-window", (childWindow) => {
+      // Ensure popup is visible and focused
+      childWindow.once("ready-to-show", () => {
+        childWindow.show();
+        childWindow.focus();
+      });
+      // Share user agent with parent
+      if (!isLocal) {
+        childWindow.webContents.setUserAgent(view.webContents.getUserAgent());
+      }
     });
 
     // Intercept Cmd/Ctrl shortcuts so they work even when a panel has focus
