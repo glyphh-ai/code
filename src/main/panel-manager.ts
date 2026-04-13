@@ -114,14 +114,25 @@ export class PanelManager {
       }
     });
     view.webContents.setWindowOpenHandler(({ url }) => {
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      // Block native app protocol redirects (slack://, zoommtg://, etc.)
+      if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
         return { action: "deny" };
       }
-      // Allow OAuth popups (Google, GitHub, etc.) to open as real windows
+      // Allow JS-driven dialogs (about:blank popups populated via script)
+      if (url === "about:blank" || url === "") {
+        return { action: "allow" };
+      }
+      // Allow same-origin popups (app dialogs, pickers, etc.)
+      try {
+        const panelOrigin = new URL(config.url).origin;
+        const popupOrigin = new URL(url).origin;
+        if (popupOrigin === panelOrigin) return { action: "allow" };
+      } catch { /* invalid URL, fall through */ }
+      // Allow OAuth popups (Google, GitHub, etc.)
       if (url.includes("accounts.google.com") || url.includes("github.com/login") || url.includes("auth") || url.includes("oauth") || url.includes("signin")) {
         return { action: "allow" };
       }
-      // Open other external links in the same view instead of a popup
+      // Cross-origin links: open in the same view instead of a popup
       view.webContents.loadURL(url);
       return { action: "deny" };
     });
