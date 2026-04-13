@@ -311,36 +311,27 @@ document.addEventListener('keyup',function(e){
   //   sup           → inject raw session content (paste shortcut)
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // No session content → show library file picker
-    if (!this.session.hasContent()) {
-      if (!instruction) {
-        this.showSupBrowser(wc);
-        return;
-      }
-      // With instruction but no session → try loading from library by name
-      const content = this.library.read(instruction.split(/\s+/)[0]);
-      if (content) {
-        this.session.capture("library", content, instruction.split(/\s+/)[0] + ".md");
-        this.session.copyToClipboard();
-        await this.clearNotify(wc);
-        const injected = await this.injectContent(wc, content);
-        if (!injected) {
-          this.notify(wc, `Loaded: ${instruction.split(/\s+/)[0]}.md — copied to clipboard`, "success");
-        }
-        return;
-      }
+    // Bare "sup" → always show library browser
+    if (!instruction) {
       this.showSupBrowser(wc);
       return;
     }
 
-    // Bare "sup" → inject raw session content (like paste but smarter)
-    if (!instruction) {
-      await this.clearNotify(wc);
-      const injected = await this.injectContent(wc, this.session.get());
-      if (!injected) {
-        this.notify(wc, "Session content copied to clipboard. Paste with Cmd+V.", "success");
+    // No session content + instruction → try loading from library by name first
+    if (!this.session.hasContent()) {
+      const name = instruction.split(/\s+/)[0];
+      const content = this.library.read(name);
+      if (content) {
+        this.session.capture("library", content, name + ".md");
         this.session.copyToClipboard();
+        await this.clearNotify(wc);
+        const injected = await this.injectContent(wc, content);
+        if (!injected) {
+          this.notify(wc, `Loaded: ${name}.md \u2014 copied to clipboard`, "success");
+        }
+        return;
       }
+      this.showSupBrowser(wc);
       return;
     }
 

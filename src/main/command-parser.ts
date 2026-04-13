@@ -230,12 +230,8 @@ export class CommandParser {
       return deleted ? `Forgot: ${name}` : `Not found: ${name}`;
     }
 
-    // Bare "sup" → copy session or show library browser
+    // Bare "sup" → always show library browser
     if (args.length === 0) {
-      if (this.session.hasContent()) {
-        this.session.copyToClipboard();
-        return "Session copied to clipboard.";
-      }
       return "__SUP_BROWSE__";
     }
 
