@@ -1,15 +1,14 @@
 /**
  * ConnectorAgent — LLM-powered DOM analysis.
  *
- * Given a page's DOM structure, the agent identifies interactive
- * elements and maps standard commands (grab, push, submit, clear, read)
- * plus discovers app-specific actions.
+ * Given a page's DOM structure, the agent identifies the grab command
+ * and discovers app-specific custom commands.
  *
  * Does 99% of the connector work. DOM picker handles the rest.
  */
 
 import { WebContents } from "electron";
-import { CommandMapping, STANDARD_COMMANDS } from "./app-connector";
+import { CommandMapping } from "./app-connector";
 import { extractDomStructure, validateSelector } from "./dom-bridge";
 
 interface AgentResult {
@@ -22,16 +21,12 @@ interface AgentResult {
 
 const AGENT_SYSTEM_PROMPT = `You are a DOM connector agent for YoSup, a desktop app that bridges web applications.
 
-Your job: Given a simplified DOM tree of a web page, map standard commands to CSS selectors and discover app-specific actions.
+Your job: Given a simplified DOM tree of a web page, map the "grab" command to a CSS selector and discover useful app-specific custom commands.
 
-## Standard Commands to Map
+## Standard Command
 - grab: Extract the main content area (conversation, feed, document body). Use "extractText" or "extractHTML" action.
-- push: Target the primary text input (chat box, compose area, search bar). Use "setValue" action.
-- submit: The send/submit button. Use "click" action.
-- clear: How to clear the input. Usually the same selector as push but with "custom" action and a script.
-- read: Lightweight read of visible content. Use "extractText" action on the main content area.
 
-## App-Specific Commands
+## Custom Commands
 Discover additional capabilities based on the app type. Examples:
 - Chat apps: new-chat, switch-thread
 - Email apps: compose, reply, forward
@@ -50,8 +45,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "commands": {
     "grab": { "selector": "...", "action": "extractText", "description": "..." },
-    "push": { "selector": "...", "action": "setValue", "description": "..." },
-    ...additional commands...
+    ...additional custom commands...
   },
   "meta": {
     "description": "Brief description of what this app is",

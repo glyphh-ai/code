@@ -8,6 +8,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
+import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
@@ -33,6 +34,7 @@ let mcpServer: MCPServer;
 let cloudSync: CloudSync;
 let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
+let terminalManager: TerminalManager;
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -76,33 +78,21 @@ async function boot() {
   appConnector = new AppConnector();
   connectorAgent = new ConnectorAgent();
 
+  // Terminal manager — pty processes for terminal panels
+  terminalManager = new TerminalManager();
+  terminalManager.init();
+
   // yo/sup/dip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine);
 
   panelManager = new PanelManager((id, wc) => {
-    // Always activate interceptor so yo/dip/wassup work on all panels
-    yoInterceptor.activate(wc, id);
-  });
-
-  // Focus the app's push input when a panel becomes active
-  panelManager.setOnPanelReady((id, wc) => {
-    const app = appConnector.get(id);
-    const pushSel = app?.commands.push?.selector;
-    if (!pushSel) return;
-    const sel = JSON.stringify(pushSel);
-    wc.executeJavaScript(`
-(function(){
-  try {
-    var el=document.querySelector(${sel});
-    if(!el)return;
-    el.focus();
-    if(el.isContentEditable||el.getAttribute('contenteditable')==='true'||el.getAttribute('role')==='textbox'){
-      var s=window.getSelection(),r=document.createRange();
-      r.selectNodeContents(el);r.collapse(false);
-      s.removeAllRanges();s.addRange(r);
+    if (id === "term") {
+      // Spawn pty when terminal page loads
+      wc.on("did-finish-load", () => terminalManager.spawn(wc));
+    } else {
+      // Activate interceptor so yo/dip/sup work on app panels
+      yoInterceptor.activate(wc, id);
     }
-  } catch(e){}
-})();`).catch(() => {});
   });
 
   // Persist zoom when changed via keyboard shortcut in panels
@@ -111,8 +101,14 @@ async function boot() {
   });
 
   // Seed PanelManager configs from apps (apps are the source of truth)
+  const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
+  const terminalPreload = path.join(__dirname, "terminal-preload.js");
   for (const app of appConnector.list()) {
-    panelManager.addPanel(app.id, app.url);
+    if (app.url === "yo://terminal") {
+      panelManager.addPanel(app.id, terminalHtml, terminalPreload);
+    } else {
+      panelManager.addPanel(app.id, app.url);
+    }
   }
 
   layoutManager = new LayoutManager(panelManager);
@@ -640,6 +636,7 @@ app.whenReady().then(boot);
 app.on("window-all-closed", () => {
   mcpServer?.stop();
   cloudSync?.stop();
+  terminalManager?.killAll();
   if (process.platform !== "darwin") {
     app.quit();
   }

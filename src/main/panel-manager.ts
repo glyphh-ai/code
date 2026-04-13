@@ -12,6 +12,7 @@ export interface PanelConfig {
   id: string;
   name: string;
   url: string;
+  preload?: string;
 }
 
 export type PanelCreatedCallback = (id: string, webContents: WebContents) => void;
@@ -47,8 +48,8 @@ export class PanelManager {
   get isAnimating(): boolean { return this._animating; }
 
   /** Register a custom panel (dip add <url>) */
-  addPanel(id: string, url: string): void {
-    this.configs.set(id, { id, name: id, url });
+  addPanel(id: string, url: string, preload?: string): void {
+    this.configs.set(id, { id, name: id, url, preload });
   }
 
   /** Get or create a panel's BrowserView (public for layout manager) */
@@ -74,21 +75,27 @@ export class PanelManager {
     const config = this.configs.get(id);
     if (!config) return null;
 
+    const isLocal = config.url.startsWith("file://");
+
     const view = new BrowserView({
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        partition: `persist:panel-${id}`,
+        partition: isLocal ? undefined : `persist:panel-${id}`,
+        ...(config.preload ? { preload: config.preload } : {}),
       },
     });
 
-    // Set a modern Chrome user agent so sites don't flag Electron's bundled Chromium as outdated
-    view.webContents.setUserAgent(
-      view.webContents.getUserAgent().replace(/Electron\/\S+\s*/g, "").replace(/\s+/g, " ").trim()
-    );
+    if (!isLocal) {
+      // Set a modern Chrome user agent so sites don't flag Electron's bundled Chromium as outdated
+      view.webContents.setUserAgent(
+        view.webContents.getUserAgent().replace(/Electron\/\S+\s*/g, "").replace(/\s+/g, " ").trim()
+      );
+    }
 
     // Block native app protocol redirects (slack://, zoommtg://, etc.)
     view.webContents.on("will-navigate", (e, url) => {
+      if (isLocal && url.startsWith("file://")) return;
       if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
         e.preventDefault();
       }

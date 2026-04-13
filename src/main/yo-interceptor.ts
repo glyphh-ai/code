@@ -95,28 +95,24 @@ export class YoInterceptor {
   // ── Injection ──────────────────────────────────────────
 
   private async inject(wc: WebContents, appId: string): Promise<void> {
-    const app = this.appConnector.get(appId);
-    const pushSel = app?.commands.push?.selector ?? null;
     try {
-      await wc.executeJavaScript(this.buildScript(pushSel));
+      await wc.executeJavaScript(this.buildScript());
     } catch { /* page may have navigated away */ }
   }
 
   /**
    * Build the monitoring script to inject into the app page.
    *
-   * Watches the push-command's input (if mapped) or any focused editable
-   * element. On Enter, if text matches "yo <skill>" or "sup <search>",
-   * intercepts and signals back via console.log with our PREFIX.
+   * Watches any focused editable element. On Enter, if text matches
+   * "yo <skill>" or "sup <search>", intercepts and signals back via
+   * console.log with our PREFIX.
    */
-  private buildScript(pushSelector: string | null): string {
-    const sel = pushSelector ? JSON.stringify(pushSelector) : "null";
+  private buildScript(): string {
     // The template uses single-letter vars and no newlines for compactness.
     // PREFIX is baked in as a literal so we don't need to escape it.
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
-var S=${sel};
 var CMD_RE=/^(yo|sup|dip)(?:\\s+(.+))?$/i;
 var lastText='';
 var handled=false;
@@ -137,9 +133,6 @@ window.__yoInject=function(text){
 };
 
 function ed(){
-  // Try mapped push selector first
-  if(S){try{var el=document.querySelector(S);
-    if(el&&(el.contains(document.activeElement)||el===document.activeElement))return el;}catch(e){}}
   var a=document.activeElement;if(!a||a===document.body)a=null;
   // Walk into shadow roots to find the real active element (nested shadows, e.g. Gemini)
   while(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;
@@ -495,8 +488,6 @@ document.addEventListener('keyup',function(e){
     let content = "";
     if (app?.commands.grab) {
       content = await executeCommand(wc, app.commands.grab);
-    } else if (app?.commands.read) {
-      content = await executeCommand(wc, app.commands.read);
     } else {
       content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)");
     }

@@ -690,10 +690,10 @@ function getPreviewWebContentsId(): number | undefined {
 }
 
 function renderCommands(app: AppData) {
-  const standardKeys = ["grab", "push", "submit", "clear", "read"];
+  const standardKeys = ["grab"];
   const customKeys = Object.keys(app.commands).filter((k) => !standardKeys.includes(k));
 
-  let html = '<div class="commands-section"><h4>Standard Commands</h4><p class="commands-hint">These are used by yo/sup/dip and the AI chat to interact with the app. <b>grab</b> reads content, <b>push</b> types into the input, <b>submit</b> sends it, <b>clear</b> resets the input, <b>read</b> gets a quick page snapshot.</p>';
+  let html = '<div class="commands-section"><h4>Standard Commands</h4><p class="commands-hint"><b>grab</b> extracts the main content from the page. All other commands are custom per-app.</p>';
   for (const key of standardKeys) {
     const cmd = app.commands[key];
     html += `
