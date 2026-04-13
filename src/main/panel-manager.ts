@@ -6,7 +6,7 @@
  * dip commands route through here.
  */
 
-import { BrowserWindow, BrowserView, WebContents, session } from "electron";
+import { BrowserWindow, BrowserView, WebContents, session, dialog, net } from "electron";
 
 export interface PanelConfig {
   id: string;
@@ -50,6 +50,46 @@ export class PanelManager {
     PanelManager.setupPermissions();
   }
 
+  /** Script injected into panels to bridge showDirectoryPicker to Electron's native dialog */
+  private static readonly FILE_DIALOG_BRIDGE = `
+    (function() {
+      if (window.__yoDialogBridged) return;
+      window.__yoDialogBridged = true;
+      const origDir = window.showDirectoryPicker;
+      const origOpen = window.showOpenFilePicker;
+      const origSave = window.showSaveFilePicker;
+      window.showDirectoryPicker = async function(opts) {
+        try {
+          if (origDir) {
+            const result = await origDir.call(window, opts);
+            return result;
+          }
+        } catch(e) {
+          console.error('[yo-bridge] showDirectoryPicker failed, trying native dialog:', e.message);
+        }
+        const resp = await fetch('yo-dialog://open?type=directory');
+        if (!resp.ok) throw new DOMException('The user aborted a request.', 'AbortError');
+        return resp.json();
+      };
+      window.showOpenFilePicker = async function(opts) {
+        try {
+          if (origOpen) return await origOpen.call(window, opts);
+        } catch(e) {
+          console.error('[yo-bridge] showOpenFilePicker failed:', e.message);
+        }
+        throw new DOMException('The user aborted a request.', 'AbortError');
+      };
+      window.showSaveFilePicker = async function(opts) {
+        try {
+          if (origSave) return await origSave.call(window, opts);
+        } catch(e) {
+          console.error('[yo-bridge] showSaveFilePicker failed:', e.message);
+        }
+        throw new DOMException('The user aborted a request.', 'AbortError');
+      };
+    })();
+  `;
+
   /** Configure permission handlers on the persist:yo session (once) */
   private static setupPermissions(): void {
     if (PanelManager.permissionsConfigured) return;
@@ -57,25 +97,34 @@ export class PanelManager {
 
     const ses = session.fromPartition("persist:yo");
 
-    // Grant common permissions web apps need
-    const ALLOWED_PERMISSIONS = new Set([
-      "clipboard-read", "clipboard-sanitized-write",
-      "notifications", "fullscreen",
-      "pointerLock", "media",
-      "display-capture", "mediaKeySystem",
-      "local-fonts", "window-management",
-      "idle-detection", "storage-access",
-      "file-system", "fileSystem",
-    ]);
+    // Register yo-dialog:// protocol for native file dialog bridging
+    ses.protocol.handle("yo-dialog", async (request) => {
+      const url = new URL(request.url);
+      if (url.pathname === "//open" || url.pathname === "/open") {
+        const type = url.searchParams.get("type");
+        const win = BrowserWindow.getAllWindows()[0];
+        const properties: Array<"openDirectory" | "openFile"> =
+          type === "directory" ? ["openDirectory"] : ["openFile"];
+        const result = await dialog.showOpenDialog(win, { properties });
+        if (result.canceled || result.filePaths.length === 0) {
+          return new Response(null, { status: 204 });
+        }
+        return new Response(JSON.stringify({ path: result.filePaths[0] }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
 
+    // Grant all permissions — web apps need clipboard, file system, etc.
     ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
       console.log("[perm-request]", permission, details);
-      callback(true); // grant all for now
+      callback(true);
     });
 
     ses.setPermissionCheckHandler((_wc, permission, _origin, details) => {
       console.log("[perm-check]", permission, details);
-      return true; // grant all for now
+      return true;
     });
   }
 
@@ -175,8 +224,13 @@ export class PanelManager {
     });
 
     // Configure popup windows created from this panel
-    view.webContents.on("did-create-window", (childWindow) => {
-      // Ensure popup is visible and focused
+    view.webContents.on("did-create-window", (childWindow, { url }) => {
+      console.log(`[panel:${id}:child-created]`, url?.slice(0, 120));
+      // Set reasonable defaults for popup windows
+      childWindow.setMinimumSize(400, 300);
+      // Show immediately — don't wait for ready-to-show which may not fire
+      childWindow.show();
+      childWindow.focus();
       childWindow.once("ready-to-show", () => {
         childWindow.show();
         childWindow.focus();
@@ -185,6 +239,13 @@ export class PanelManager {
       if (!isLocal) {
         childWindow.webContents.setUserAgent(view.webContents.getUserAgent());
       }
+      // Log child window navigation issues
+      childWindow.webContents.on("did-fail-load", (_e, code, desc, failUrl) => {
+        console.log(`[panel:${id}:child-fail]`, code, desc, failUrl?.slice(0, 120));
+      });
+      childWindow.webContents.on("did-finish-load", () => {
+        console.log(`[panel:${id}:child-loaded]`, childWindow.webContents.getURL().slice(0, 120));
+      });
     });
 
     // Intercept Cmd/Ctrl shortcuts so they work even when a panel has focus
@@ -215,6 +276,10 @@ export class PanelManager {
       view.webContents.setZoomFactor(this.zoomFactor);
       // Inject thin scrollbar styles into all panels
       view.webContents.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});
+      // Bridge File System Access API to Electron's native dialog (BrowserView compat)
+      if (!isLocal) {
+        view.webContents.executeJavaScript(PanelManager.FILE_DIALOG_BRIDGE).catch(() => {});
+      }
       if (this.activePanel === id) {
         this.onReady?.(id, view.webContents);
       }
