@@ -65,14 +65,17 @@ export class PanelManager {
       "display-capture", "mediaKeySystem",
       "local-fonts", "window-management",
       "idle-detection", "storage-access",
-      "file-system",
+      "file-system", "fileSystem",
     ]);
 
     ses.setPermissionRequestHandler((_wc, permission, callback) => {
+      // File System Access API (showDirectoryPicker, etc.) uses "fileSystem"
+      if ((permission as string) === "fileSystem") { callback(true); return; }
       callback(ALLOWED_PERMISSIONS.has(permission));
     });
 
     ses.setPermissionCheckHandler((_wc, permission) => {
+      if ((permission as string) === "fileSystem") return true;
       return ALLOWED_PERMISSIONS.has(permission);
     });
   }
