@@ -14,6 +14,7 @@ import { setPreference } from "./preferences";
 
 export class CommandParser {
   private onShowWelcome: (() => void) | null = null;
+  private mainWindow: BrowserWindow | null = null;
 
   constructor(
     private panels: PanelManager,
@@ -22,6 +23,11 @@ export class CommandParser {
     private layouts: LayoutManager,
     private appConnector: AppConnector,
   ) {}
+
+  /** Set the main window reference (used by dip commands). */
+  setMainWindow(win: BrowserWindow): void {
+    this.mainWindow = win;
+  }
 
   /** Register callback for yo help */
   setWelcomeHandler(fn: () => void) {
@@ -203,8 +209,8 @@ export class CommandParser {
     }
 
     const sub = args[0].toLowerCase();
-    const win = BrowserWindow.getFocusedWindow();
-    if (!win) return "No active window";
+    const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
+    if (!win || win.isDestroyed()) return "No active window";
 
     if (sub === "back") {
       return this.panels.switchBack(win)

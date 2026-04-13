@@ -38,9 +38,12 @@ let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
 
 async function createWindow() {
+  const saved = getPreference<{ x?: number; y?: number; width: number; height: number; maximized?: boolean }>("windowBounds", { width: 1200, height: 800 });
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: saved.width,
+    height: saved.height,
+    ...(saved.x !== undefined && saved.y !== undefined ? { x: saved.x, y: saved.y } : {}),
     frame: false,
     transparent: false,
     show: false,
@@ -52,6 +55,8 @@ async function createWindow() {
     },
   });
 
+  if (saved.maximized) mainWindow.maximize();
+
   mainWindow.loadFile(
     path.join(__dirname, "..", "renderer", "index.html")
   );
@@ -59,6 +64,21 @@ async function createWindow() {
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
   });
+
+  // Persist window position and size
+  let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+  const saveBounds = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const maximized = mainWindow.isMaximized();
+      const bounds = maximized ? (getPreference<any>("windowBounds", null) || mainWindow.getBounds()) : mainWindow.getBounds();
+      setPreference("windowBounds", { ...bounds, maximized });
+    }, 500);
+  };
+  mainWindow.on("resize", saveBounds);
+  mainWindow.on("move", saveBounds);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -159,6 +179,16 @@ async function boot() {
   yoInterceptor.setCommandHandler(execCommand);
   yoChat.setCommandCallback(execCommand);
 
+  // Terminal yo/sup/dip — route through command parser, show result in terminal
+  terminalManager.setCommandHandler(async (cmd, wc) => {
+    const result = await execCommand(cmd);
+    if (result && !wc.isDestroyed()) {
+      // Write result to terminal in grey, then newline for fresh prompt
+      const lines = result.replace(/\r/g, "").split("\n").join("\r\n");
+      wc.send("terminal:data", `\x1b[90m${lines}\x1b[0m\r\n`);
+    }
+  });
+
   // Local MCP server
   mcpServer = new MCPServer(library);
   await mcpServer.start();
@@ -169,6 +199,7 @@ async function boot() {
 
   // Create window
   await createWindow();
+  if (mainWindow) commandParser.setMainWindow(mainWindow);
 
   // Restore panels from last view (or default to claude)
   function restorePanels() {

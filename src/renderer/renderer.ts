@@ -60,6 +60,7 @@ declare global {
       buyLicense: () => Promise<string | null>;
       onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
+      onFocusInput: (callback: () => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
         cols: number;
@@ -163,6 +164,9 @@ const commandInput = document.getElementById("command-input") as HTMLInputElemen
 initAutocomplete((cmd) => {
   window.yo.execCommand(cmd);
 });
+
+// Cmd+K from panel → focus command input
+window.yo.onFocusInput(() => commandInput.focus());
 
 // ── Grid drag handles ───────────────────────────────────
 

@@ -7,6 +7,7 @@
  */
 
 import { BrowserWindow, BrowserView, WebContents, session } from "electron";
+import * as http from "http";
 
 export interface PanelConfig {
   id: string;
@@ -80,6 +81,39 @@ export class PanelManager {
     });
   }
 
+  /**
+   * Handle OAuth localhost callback failures.
+   * When a popup navigates to localhost:PORT/callback?code=... and fails (no server),
+   * spin up a temp HTTP server on that port and reload so the callback succeeds.
+   */
+  private static handleOAuthCallback(childWindow: BrowserWindow, failUrl: string): void {
+    try {
+      const url = new URL(failUrl);
+      if (url.hostname !== "localhost" || !url.searchParams.has("code")) return;
+      const port = parseInt(url.port);
+      if (isNaN(port) || port < 1024) return;
+
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(`<html><body style="background:#1e1e1e;color:#ccc;font-family:system-ui;
+          display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+          <div style="text-align:center"><p>Authenticated — closing…</p></div>
+          <script>setTimeout(()=>window.close(),1500)</script>
+        </body></html>`);
+        setTimeout(() => { try { server.close(); } catch {} }, 10000);
+      });
+
+      server.listen(port, () => {
+        console.log(`[oauth] temp server on :${port}, reloading callback`);
+        if (!childWindow.isDestroyed()) childWindow.loadURL(failUrl);
+        else server.close();
+      });
+      server.on("error", (err) => console.log("[oauth] server error:", err.message));
+    } catch (e) {
+      console.log("[oauth] intercept error:", e);
+    }
+  }
+
   /** Register callback for when a panel becomes active (after switch or page load). */
   setOnPanelReady(cb: PanelReadyCallback): void {
     this.onReady = cb;
@@ -135,7 +169,10 @@ export class PanelManager {
     if (!isLocal) {
       // Set a modern Chrome user agent so sites don't flag Electron's bundled Chromium as outdated
       view.webContents.setUserAgent(
-        view.webContents.getUserAgent().replace(/Electron\/\S+\s*/g, "").replace(/\s+/g, " ").trim()
+        view.webContents.getUserAgent()
+          .replace(/Electron\/\S+\s*/g, "")
+          .replace(/\S+-client\/\S+\s*/g, "")  // strip app name (yo-client/1.0.0)
+          .replace(/\s+/g, " ").trim()
       );
     }
 
@@ -191,9 +228,13 @@ export class PanelManager {
       if (!isLocal) {
         childWindow.webContents.setUserAgent(view.webContents.getUserAgent());
       }
-      // Log child window navigation issues
+      // Log child window navigation issues + handle OAuth localhost callbacks
       childWindow.webContents.on("did-fail-load", (_e, code, desc, failUrl) => {
         console.log(`[panel:${id}:child-fail]`, code, desc, failUrl?.slice(0, 120));
+        // ERR_CONNECTION_REFUSED on localhost callback → OAuth flow needs a temp server
+        if (code === -102 && failUrl) {
+          PanelManager.handleOAuthCallback(childWindow, failUrl);
+        }
       });
       childWindow.webContents.on("did-finish-load", () => {
         console.log(`[panel:${id}:child-loaded]`, childWindow.webContents.getURL().slice(0, 120));
@@ -220,6 +261,11 @@ export class PanelManager {
         // Cmd+Opt+I (mac) or Ctrl+Shift+I (win/linux) — DevTools for active panel
         e.preventDefault();
         this.toggleDevTools();
+      } else if (input.key === "k") {
+        // Cmd+K — focus command input in the titlebar
+        e.preventDefault();
+        parent.webContents.send("focus-command-input");
+        parent.webContents.focus();
       }
     });
 

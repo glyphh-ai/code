@@ -14,7 +14,7 @@
  * into the app's DOM via executeJavaScript — zero renderer changes needed.
  */
 
-import { WebContents } from "electron";
+import { WebContents, WebFrameMain } from "electron";
 import { AppConnector } from "./app-connector";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
@@ -72,13 +72,20 @@ export class YoInterceptor {
         this.dispatch(wc, appId, JSON.parse(msg.slice(PREFIX.length)));
       } catch { /* ignore malformed */ }
     };
+    // Re-inject into subframes whenever any frame finishes loading
+    const onFrameLoad = (_e: any, isMainFrame: boolean) => {
+      if (isMainFrame) return; // main frame handled by did-finish-load
+      this.injectFrames(wc);
+    };
 
     wc.on("did-finish-load", inject);
+    wc.on("did-frame-finish-load", onFrameLoad);
     (wc as any).on("console-message", onConsole);
     if (!wc.isLoading()) inject();
 
     this.active.set(wc.id, () => {
       wc.removeListener("did-finish-load", inject);
+      wc.removeListener("did-frame-finish-load", onFrameLoad);
       (wc as any).removeListener("console-message", onConsole);
     });
   }
@@ -103,10 +110,24 @@ export class YoInterceptor {
 
   // ── Injection ──────────────────────────────────────────
 
-  private async inject(wc: WebContents, appId: string): Promise<void> {
+  private async inject(wc: WebContents, _appId: string): Promise<void> {
+    const script = this.buildScript();
     try {
-      await wc.executeJavaScript(this.buildScript());
+      await wc.executeJavaScript(script);
     } catch { /* page may have navigated away */ }
+    // Also inject into all subframes (iframes) — VS Code webviews, extensions, etc.
+    this.injectFrames(wc);
+  }
+
+  /** Inject interceptor script into all child frames (iframes). */
+  private injectFrames(wc: WebContents): void {
+    const script = this.buildScript();
+    try {
+      for (const frame of wc.mainFrame.framesInSubtree) {
+        if (frame === wc.mainFrame) continue;
+        frame.executeJavaScript(script).catch(() => {});
+      }
+    } catch { /* frames may not be available yet */ }
   }
 
   /**
