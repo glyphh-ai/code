@@ -6,7 +6,7 @@
  * dip commands route through here.
  */
 
-import { BrowserWindow, BrowserView, WebContents, session, dialog, net } from "electron";
+import { BrowserWindow, BrowserView, WebContents, session } from "electron";
 
 export interface PanelConfig {
   id: string;
@@ -50,43 +50,14 @@ export class PanelManager {
     PanelManager.setupPermissions();
   }
 
-  /** Script injected into panels to bridge showDirectoryPicker to Electron's native dialog */
-  private static readonly FILE_DIALOG_BRIDGE = `
+  /** Script injected into panels to fix JS dialogs that don't render in BrowserView */
+  private static readonly JS_DIALOG_FIX = `
     (function() {
-      if (window.__yoDialogBridged) return;
-      window.__yoDialogBridged = true;
-      const origDir = window.showDirectoryPicker;
-      const origOpen = window.showOpenFilePicker;
-      const origSave = window.showSaveFilePicker;
-      window.showDirectoryPicker = async function(opts) {
-        try {
-          if (origDir) {
-            const result = await origDir.call(window, opts);
-            return result;
-          }
-        } catch(e) {
-          console.error('[yo-bridge] showDirectoryPicker failed, trying native dialog:', e.message);
-        }
-        const resp = await fetch('yo-dialog://open?type=directory');
-        if (!resp.ok) throw new DOMException('The user aborted a request.', 'AbortError');
-        return resp.json();
-      };
-      window.showOpenFilePicker = async function(opts) {
-        try {
-          if (origOpen) return await origOpen.call(window, opts);
-        } catch(e) {
-          console.error('[yo-bridge] showOpenFilePicker failed:', e.message);
-        }
-        throw new DOMException('The user aborted a request.', 'AbortError');
-      };
-      window.showSaveFilePicker = async function(opts) {
-        try {
-          if (origSave) return await origSave.call(window, opts);
-        } catch(e) {
-          console.error('[yo-bridge] showSaveFilePicker failed:', e.message);
-        }
-        throw new DOMException('The user aborted a request.', 'AbortError');
-      };
+      if (window.__yoDialogFixed) return;
+      window.__yoDialogFixed = true;
+      window.alert = function(msg) { console.log('[alert]', msg); };
+      window.confirm = function(msg) { console.log('[confirm]', msg); return true; };
+      window.prompt = function(msg, def) { console.log('[prompt]', msg); return def || ''; };
     })();
   `;
 
@@ -96,25 +67,6 @@ export class PanelManager {
     PanelManager.permissionsConfigured = true;
 
     const ses = session.fromPartition("persist:yo");
-
-    // Register yo-dialog:// protocol for native file dialog bridging
-    ses.protocol.handle("yo-dialog", async (request) => {
-      const url = new URL(request.url);
-      if (url.pathname === "//open" || url.pathname === "/open") {
-        const type = url.searchParams.get("type");
-        const win = BrowserWindow.getAllWindows()[0];
-        const properties: Array<"openDirectory" | "openFile"> =
-          type === "directory" ? ["openDirectory"] : ["openFile"];
-        const result = await dialog.showOpenDialog(win, { properties });
-        if (result.canceled || result.filePaths.length === 0) {
-          return new Response(null, { status: 204 });
-        }
-        return new Response(JSON.stringify({ path: result.filePaths[0] }), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return new Response(null, { status: 404 });
-    });
 
     // Grant all permissions — web apps need clipboard, file system, etc.
     ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
@@ -276,9 +228,9 @@ export class PanelManager {
       view.webContents.setZoomFactor(this.zoomFactor);
       // Inject thin scrollbar styles into all panels
       view.webContents.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});
-      // Bridge File System Access API to Electron's native dialog (BrowserView compat)
+      // Fix JS dialogs (alert/confirm/prompt) that don't render in BrowserView
       if (!isLocal) {
-        view.webContents.executeJavaScript(PanelManager.FILE_DIALOG_BRIDGE).catch(() => {});
+        view.webContents.executeJavaScript(PanelManager.JS_DIALOG_FIX).catch(() => {});
       }
       if (this.activePanel === id) {
         this.onReady?.(id, view.webContents);
