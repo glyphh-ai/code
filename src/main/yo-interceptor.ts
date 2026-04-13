@@ -419,7 +419,6 @@ document.addEventListener('keyup',function(e){
         const content = this.library.read(files[0]);
         if (content) {
           await this.injectContent(wc, content);
-          this.notify(wc, `Loaded: ${files[0]}.md`, "success");
           return;
         }
       }
@@ -476,10 +475,10 @@ document.addEventListener('keyup',function(e){
         return;
       }
 
+      // Clear spinner, then inject result into the input
+      await this.clearNotify(wc);
       const injected = await this.injectContent(wc, result);
-      if (injected) {
-        this.notify(wc, "Done.", "success");
-      } else {
+      if (!injected) {
         this.notify(wc, result, "success");
       }
     } catch (err) {
@@ -516,10 +515,10 @@ ${libraryContext}
 Find the best matching content. If you find a match in auto-captured memory, use the memory_read tool with the entry ID. If it's in the library, use sup_load with the file name. Return the content to the user. Be concise — just return the relevant content, no commentary.`;
 
       const result = await this.yoChat.executeInline("sup", searchPrompt, appId);
+      // Clear spinner, then inject result into the input
+      await this.clearNotify(wc);
       const injected = await this.injectContent(wc, result);
-      if (injected) {
-        this.notify(wc, "Done.", "success");
-      } else {
+      if (!injected) {
         this.notify(wc, result, "success");
       }
     } catch (err) {
@@ -540,7 +539,6 @@ Find the best matching content. If you find a match in auto-captured memory, use
       const content = this.library.read(fileName);
       if (content) {
         await this.injectContent(wc, content);
-        this.notify(wc, `Loaded: ${fileName}.md`, "success");
       }
       return;
     }
@@ -564,10 +562,10 @@ Find the best matching content. If you find a match in auto-captured memory, use
         ? `${skillPrompt}\n\nAdditional instruction: ${prompt || "process this content"}`
         : instruction;
       const result = await this.yoChat.executeInline("sup", fullInstruction, appId, ctx);
+      // Clear spinner, then inject result into the input
+      await this.clearNotify(wc);
       const injected = await this.injectContent(wc, result);
-      if (injected) {
-        this.notify(wc, "Done.", "success");
-      } else {
+      if (!injected) {
         this.notify(wc, result, "success");
       }
     } catch (err) {
@@ -686,79 +684,46 @@ Find the best matching content. If you find a match in auto-captured memory, use
       ? loadingMessages[Math.floor(Math.random() * loadingMessages.length)]
       : msg;
     const icon = type === "success" ? "\u2713 " : type === "error" ? "\u2717 " : "";
-    const msgData = JSON.stringify(icon + displayMsg);
+    const text = icon + displayMsg;
     const autoRemove = type !== "loading";
-    const textColor = type === "success" ? "#4ade80" : type === "error" ? "#f87171" : "#a0a0a0";
     try {
       await wc.executeJavaScript(`
 (function(){
-var o=document.getElementById('__yo_note');if(o)o.remove();
-var el=window.__yoLastEl;
-var n=document.createElement('div');n.id='__yo_note';
+// Clear any previous spinner interval
+if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
+var el=window.__yoLastEl;if(!el)return;
 var isLoading=${type === "loading"};
-if(isLoading){
-  var sp=document.createElement('span');sp.className='__yo_spin';
-  sp.textContent='\\u2800';
-  var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
-  var fi=0;sp.style.cssText='margin-right:6px;display:inline-block;';
-  var iv=setInterval(function(){sp.textContent=frames[fi%frames.length];fi++;},100);
-  n.dataset.iv=iv;
-  n.appendChild(sp);
-}
-var tx=document.createElement('span');tx.textContent=${msgData};
-n.appendChild(tx);
-n.style.cssText='position:absolute;z-index:999999;color:${textColor};font:13px/1.4 "SF Mono","Fira Code",monospace;padding:6px 0;pointer-events:none;opacity:0;transition:opacity 0.15s;white-space:nowrap;';
-if(el){
-  try{
-    var r=el.getBoundingClientRect();
-    var p=el.offsetParent||document.body;
-    n.style.position='fixed';
-    n.style.left=r.left+'px';
-    n.style.top=(r.bottom+4)+'px';
-  }catch(e){
-    n.style.position='fixed';n.style.bottom='16px';n.style.left='16px';
+var text=${JSON.stringify(text)};
+
+function setText(val){
+  if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+    var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    var s=Object.getOwnPropertyDescriptor(p,'value');
+    if(s&&s.set)s.set.call(el,val);else el.value=val;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }else{
+    el.innerText=val;
   }
-}else{
-  n.style.position='fixed';n.style.bottom='16px';n.style.left='16px';
 }
-document.body.appendChild(n);
-requestAnimationFrame(function(){n.style.opacity='1';});
-${autoRemove ? "setTimeout(function(){n.style.opacity='0';setTimeout(function(){if(n.dataset.iv)clearInterval(parseInt(n.dataset.iv));if(n.parentNode)n.remove();},200);},2500);" : ""}
+
+if(isLoading){
+  var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
+  var fi=0;
+  setText(frames[0]+' '+text);
+  window.__yoNoteIv=setInterval(function(){
+    fi++;setText(frames[fi%frames.length]+' '+text);
+  },100);
+}else{
+  setText(text);
+  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},2500);" : ""}
+}
 })();`);
     } catch { /* page navigated */ }
   }
 
-  private async showYoResult(wc: WebContents, fileName: string, content: string): Promise<void> {
-    const data = JSON.stringify({ fileName, preview: content.slice(0, 500) });
-    try {
-      await wc.executeJavaScript(`
-(function(){
-var o=document.getElementById('__yo_note');if(o){if(o.dataset.iv)clearInterval(parseInt(o.dataset.iv));o.remove();}
-var m=document.getElementById('__yo_modal');if(m)m.remove();
-var d=${data};
-var ov=document.createElement('div');ov.id='__yo_modal';
-ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
-var card=document.createElement('div');
-card.style.cssText='background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:24px;max-width:500px;width:90%;max-height:60vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;';
-var t=document.createElement('div');t.textContent='\\u2713 '+d.fileName+'.md';
-t.style.cssText='font-size:14px;font-weight:600;margin-bottom:12px;color:#4ade80;';
-card.appendChild(t);
-var pre=document.createElement('pre');pre.textContent=d.preview;
-pre.style.cssText='font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:0 0 16px;padding:12px;background:#0d0d0d;border:1px solid #222;border-radius:6px;max-height:300px;overflow:auto;color:#bbb;';
-card.appendChild(pre);
-var btn=document.createElement('button');btn.textContent='Done';
-btn.style.cssText='background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;padding:7px 20px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.15s;';
-btn.onmouseenter=function(){btn.style.background='#333';btn.style.color='#fff';};
-btn.onmouseleave=function(){btn.style.background='#2a2a2a';btn.style.color='#ccc';};
-btn.onclick=function(){ov.remove();};
-card.appendChild(btn);
-ov.appendChild(card);
-ov.onclick=function(e){if(e.target===ov)ov.remove();};
-document.body.appendChild(ov);
-requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';});
-setTimeout(function(){var el=document.getElementById('__yo_modal');if(el)el.remove();},15000);
-})();`);
-    } catch {}
+  private async showYoResult(wc: WebContents, fileName: string, _content: string): Promise<void> {
+    // Show save confirmation in the input line, then clear
+    await this.notify(wc, `Saved: ${fileName}.md`, "success");
   }
 
   /** Unified modal for yo (capture) and sup (recall). Shows prompt + skills + library. */
@@ -774,7 +739,7 @@ setTimeout(function(){var el=document.getElementById('__yo_modal');if(el)el.remo
     try {
       await wc.executeJavaScript(`
 (function(){
-var o=document.getElementById('__yo_note');if(o){if(o.dataset.iv)clearInterval(parseInt(o.dataset.iv));o.remove();}
+if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
 var m=document.getElementById('__yo_modal');if(m)m.remove();
 var D=${data};
 var mode=D.mode,skills=D.skills,files=D.files;

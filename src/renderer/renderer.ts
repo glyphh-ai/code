@@ -55,6 +55,7 @@ declare global {
       activateLicense: (key: string) => Promise<boolean>;
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
+      buyLicense: () => Promise<string | null>;
       onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onSplitState: (callback: (info: {

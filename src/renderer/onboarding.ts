@@ -248,3 +248,16 @@ activateBtn.addEventListener("click", async () => {
     if (e.key === "Enter") activateBtn.click();
   });
 });
+
+// Buy license — opens Stripe Checkout in default browser
+const buyBtn = document.getElementById("onboarding-buy") as HTMLButtonElement;
+buyBtn.addEventListener("click", async () => {
+  buyBtn.disabled = true;
+  buyBtn.textContent = "Opening...";
+  const url = await window.yo.buyLicense();
+  if (!url) {
+    setStatus("Could not reach license server", true);
+  }
+  buyBtn.disabled = false;
+  buyBtn.textContent = "Get License";
+});

@@ -135,6 +135,20 @@ body {
 .onboarding-error { color: #ff5f57; }
 .onboarding-success { color: #28c840; }
 
+.onboarding-buy {
+  margin-top: 16px;
+  padding: 8px 24px;
+  background: none;
+  border: 1px solid #3a3a3a;
+  color: #999;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+.onboarding-buy:hover { border-color: #7c3aed; color: #e0e0e0; }
+.onboarding-buy:disabled { opacity: 0.5; cursor: default; }
+
 /* ── Window controls ─────────────────────────────────────── */
 
 #window-controls {

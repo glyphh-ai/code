@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld("yo", {
   activateLicense: (key: string) => ipcRenderer.invoke("activate-license", key) as Promise<boolean>,
   validateApiKey: (key: string) => ipcRenderer.invoke("validate-api-key", key) as Promise<{ valid: boolean; error?: string }>,
   getApiKey: () => ipcRenderer.invoke("get-api-key") as Promise<string | null>,
+  buyLicense: () => ipcRenderer.invoke("get-checkout-url") as Promise<string | null>,
   onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },

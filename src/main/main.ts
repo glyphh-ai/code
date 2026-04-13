@@ -15,7 +15,7 @@ import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
 import { CloudSync } from "./cloud-sync";
-import { checkLicense, activateLicense, loadApiKey, saveApiKey, validateApiKey } from "./license";
+import { checkLicense, activateLicense, loadApiKey, saveApiKey, validateApiKey, getCheckoutUrl } from "./license";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector, CommandMapping } from "./app-connector";
 import { ConnectorAgent } from "./connector-agent";
@@ -663,6 +663,14 @@ async function boot() {
     return result;
   });
   ipcMain.handle("get-api-key", () => loadApiKey());
+  ipcMain.handle("get-checkout-url", async () => {
+    const url = await getCheckoutUrl();
+    if (url) {
+      const { shell } = await import("electron");
+      shell.openExternal(url);
+    }
+    return url;
+  });
 
   // IPC: preferences
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
