@@ -24,7 +24,6 @@ import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { SessionCache } from "./session-cache";
-import { ToolManager } from "./tool-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -107,11 +106,8 @@ async function boot() {
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
 
-  // Tool manager — AI automation recipes
-  const toolManager = new ToolManager();
-
   // yo/sup/dip/wassup interceptor — injected into ALL app panels
-  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, session, toolManager);
+  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, session);
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -143,7 +139,7 @@ async function boot() {
   }
 
   layoutManager = new LayoutManager(panelManager);
-  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector);
+  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector, session);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
@@ -153,12 +149,35 @@ async function boot() {
   yoChat.setSkillEngine(skillEngine);
   yoChat.setAppConnector(appConnector);
   yoInterceptor.setYoChat(yoChat);
+  commandParser.setYoChat(yoChat);
 
   // Give interceptor access to visible panel IDs (for multi-panel grab)
   yoInterceptor.setVisiblePanelsGetter(() => {
     const gridInfo = layoutManager.getGridInfo();
     if (gridInfo) return gridInfo.panelIds;
     return panelManager.activePanelId ? [panelManager.activePanelId] : [];
+  });
+
+  // Give command parser a way to grab panel content for yo/sup from the command bar
+  commandParser.setGrabber(async () => {
+    const panelIds = layoutManager.getGridInfo()?.panelIds
+      ?? (panelManager.activePanelId ? [panelManager.activePanelId] : []);
+    const sections: string[] = [];
+    for (const id of panelIds) {
+      const wc = panelManager.getWebContents(id);
+      if (!wc) continue;
+      const app = appConnector.get(id);
+      let content = "";
+      if (app?.commands.grab) {
+        try { content = await executeCommand(wc, app.commands.grab); } catch {}
+      } else {
+        try { content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
+      }
+      if (content && !content.startsWith("[Element not found")) {
+        sections.push(panelIds.length > 1 ? `## ${app?.name || id}\n\n${content}` : content);
+      }
+    }
+    return sections.length > 0 ? sections.join("\n\n---\n\n") : null;
   });
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
@@ -705,19 +724,6 @@ async function boot() {
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd);
   });
-
-  // IPC: tools CRUD
-  ipcMain.handle("tools-list", () => toolManager.list());
-  ipcMain.handle("tools-read", (_e, id: string) => toolManager.get(id) || null);
-  ipcMain.handle("tools-write", (_e, id: string, name: string, description: string, prompt: string) => {
-    const existing = toolManager.get(id);
-    if (existing) {
-      return toolManager.update(id, { name, description, prompt });
-    }
-    toolManager.add(id, name, description, prompt);
-    return true;
-  });
-  ipcMain.handle("tools-remove", (_e, id: string) => toolManager.remove(id));
 
   // IPC: license + API key
   ipcMain.handle("check-license", () => checkLicense());

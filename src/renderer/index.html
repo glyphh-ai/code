@@ -52,7 +52,6 @@
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
-        <button class="help-nav-item" data-section="tools">Tools</button>
         <div class="help-nav-spacer"></div>
         <label class="dismiss-label"><input type="checkbox" id="dismiss-check" /> Don't show on startup</label>
       </nav>
@@ -144,19 +143,19 @@
           </div>
 
           <div class="help-group">
-            <h3>wassup <span class="cmd-desc">— tools</span></h3>
-            <p class="cmd-intro">Run AI automation tools from inside any app panel.</p>
+            <h3>wassup <span class="cmd-desc">— creating skills</span></h3>
+            <p class="cmd-intro">Create reusable AI skills with natural language instructions.</p>
             <div class="cmd-row">
               <code>wassup</code>
-              <span>Browse available tools</span>
+              <span>List available skills</span>
             </div>
             <div class="cmd-row">
-              <code>wassup broadcast</code>
-              <span>Run a tool by name</span>
+              <code>wassup summary extract key points and action items</code>
+              <span>Create a skill — AI writes the prompt for you</span>
             </div>
             <div class="cmd-row">
-              <code>wassup summarize everything on this page</code>
-              <span>Natural language — AI improvises when no tool matches</span>
+              <code>wassup translate convert content to Spanish</code>
+              <span>Then use it: <code>yo summary</code> or <code>sup translate</code></span>
             </div>
           </div>
 
@@ -322,25 +321,6 @@
                 <webview id="app-preview" allowpopups></webview>
               </div>
             </div>
-          </div>
-        </div>
-
-        <!-- Tools -->
-        <div class="help-section" data-section="tools">
-          <h2>Tools</h2>
-          <p class="section-desc">AI automation recipes. Run them from any app with <code>wassup &lt;tool&gt;</code>. Stored in <code>~/yo/tools/</code></p>
-          <div class="tab-toolbar">
-            <input id="tools-new-name" type="text" placeholder="new tool name" spellcheck="false" />
-            <button id="tools-new-btn" class="action-btn primary">+ New Tool</button>
-          </div>
-          <div id="tools-list" class="item-list"></div>
-          <div id="tools-editor" class="editor-area hidden">
-            <div class="editor-header">
-              <span id="tools-edit-name"></span>
-              <button id="tools-save-btn" class="action-btn primary">Save</button>
-            </div>
-            <input id="tools-edit-desc" type="text" placeholder="Short description..." spellcheck="false" class="tools-desc-input" />
-            <textarea id="tools-edit-prompt" placeholder="Tool prompt — what should the AI do when this tool runs?" spellcheck="false"></textarea>
           </div>
         </div>
 

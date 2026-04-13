@@ -1,7 +1,13 @@
 /**
- * CommandParser — parses and executes yo/sup/dip commands.
+ * CommandParser — parses and executes yo/sup/dip/wassup commands.
  *
- * Three commands. That's the whole product.
+ * Four commands, all from the command bar or interceptor.
+ *   yo          → grab panels → session + clipboard
+ *   yo <skill>  → grab → skill process → session + clipboard
+ *   sup         → paste session content (clipboard)
+ *   sup <skill> → session → skill/LLM → clipboard
+ *   dip <panel> → switch/split/grid
+ *   wassup <name> <instructions> → LLM writes a skill
  */
 
 import { BrowserWindow } from "electron";
@@ -10,11 +16,15 @@ import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
+import { SessionCache } from "./session-cache";
 import { setPreference } from "./preferences";
+import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
   private onShowWelcome: (() => void) | null = null;
   private mainWindow: BrowserWindow | null = null;
+  private yoChat: YoChat | null = null;
+  private grabber: (() => Promise<string | null>) | null = null;
 
   constructor(
     private panels: PanelManager,
@@ -22,6 +32,7 @@ export class CommandParser {
     private skillEngine: SkillEngine,
     private layouts: LayoutManager,
     private appConnector: AppConnector,
+    private session: SessionCache,
   ) {}
 
   /** Set the main window reference (used by dip commands). */
@@ -32,6 +43,16 @@ export class CommandParser {
   /** Register callback for yo help */
   setWelcomeHandler(fn: () => void) {
     this.onShowWelcome = fn;
+  }
+
+  /** Set the LLM engine for inline processing. */
+  setYoChat(chat: YoChat): void {
+    this.yoChat = chat;
+  }
+
+  /** Set the grabber callback — grabs content from visible panels. */
+  setGrabber(fn: () => Promise<string | null>): void {
+    this.grabber = fn;
   }
 
   /** Parse and execute a command string */
@@ -51,45 +72,59 @@ export class CommandParser {
       case "dip":
         return this.handleDip(args);
       case "wassup":
-        // wassup commands are handled by the interceptor directly.
-        // If routed through terminal, just acknowledge.
-        return args.length > 0 ? `wassup: use inside an app panel` : "wassup: use inside an app panel";
+        return this.handleWassup(args);
       default:
         return `Unknown command: ${cmd}. Try yo, sup, dip, or wassup.`;
     }
   }
 
-  // ── yo: save context ────────────────────────────────────────
+  // ── yo: capture → session + clipboard ──────────────────────
 
   private async handleYo(args: string[]): Promise<string> {
-    if (args.length === 0) {
-      return "Usage: yo <name> <content> | yo help | yo skill | yo layout";
-    }
-
-    if (args[0] === "help") {
+    // yo help
+    if (args[0]?.toLowerCase() === "help") {
       this.onShowWelcome?.();
       return "";
     }
 
     // yo skill create/list
-    if (args[0] === "skill") {
+    if (args[0]?.toLowerCase() === "skill") {
       return this.handleYoSkill(args.slice(1));
     }
 
     // yo layout save/list/delete
-    if (args[0] === "layout") {
+    if (args[0]?.toLowerCase() === "layout") {
       return this.handleYoLayout(args.slice(1));
     }
 
-    // yo <name> [content...] — save content to library
-    const name = args[0];
-    const inline = args.slice(1).join(" ");
-    if (!inline) {
-      return `Nothing to capture. Tip: yo ${name} <content>, or use yo from an AI chat via MCP.`;
+    // Grab content from visible panels
+    if (!this.grabber) return "No panel grabber available.";
+    const content = await this.grabber();
+    if (!content) return "Could not grab content from panels.";
+
+    // Optional skill/LLM processing
+    const instruction = args.join(" ").trim();
+    let finalContent = content;
+
+    if (instruction) {
+      // Check for known skill
+      const knownSkill = /^\S+$/.test(instruction)
+        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
+        : undefined;
+
+      if (knownSkill) {
+        finalContent = await this.skillEngine.process(content, knownSkill);
+      } else if (this.yoChat) {
+        finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
+      }
     }
-    const content = await this.skillEngine.process(inline);
-    this.library.write(name, content);
-    return `Saved: ${name}.md`;
+
+    // Store in session + copy to clipboard
+    this.session.capture("command-bar", finalContent);
+    this.session.copyToClipboard();
+
+    const label = instruction ? `yo ${instruction}` : "yo";
+    return `${label} \u2014 captured + copied`;
   }
 
   private handleYoSkill(args: string[]): string {
@@ -169,14 +204,11 @@ export class CommandParser {
     return "Usage: yo layout save <name> <panel1> <panel2> ... | yo layout list | yo layout delete <name>";
   }
 
-  // ── sup: recall context ─────────────────────────────────────
+  // ── sup: session → process → clipboard ─────────────────────
 
-  private handleSup(args: string[]): string {
-    if (args.length === 0) {
-      return "Usage: sup <name> | sup list | sup search <term> | sup forget <name>";
-    }
-
-    const sub = args[0].toLowerCase();
+  private async handleSup(args: string[]): Promise<string> {
+    // Library management subcommands
+    const sub = args[0]?.toLowerCase();
 
     if (sub === "list") {
       const files = this.library.list();
@@ -197,10 +229,37 @@ export class CommandParser {
       return deleted ? `Forgot: ${name}` : `Not found: ${name}`;
     }
 
-    // sup <name> — read and return content
-    const content = this.library.read(args[0]);
-    if (!content) return `Not found: ${args[0]}`;
-    return content;
+    // Bare "sup" → copy session to clipboard
+    if (args.length === 0) {
+      if (!this.session.hasContent()) return "Nothing captured yet. Use yo first.";
+      this.session.copyToClipboard();
+      return "Session copied to clipboard.";
+    }
+
+    // sup <instruction> → process session with skill/LLM
+    if (!this.session.hasContent()) return "Nothing captured yet. Use yo first.";
+
+    const instruction = args.join(" ").trim();
+    const sessionContent = this.session.get();
+
+    // Check for known skill
+    const knownSkill = /^\S+$/.test(instruction)
+      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
+      : undefined;
+
+    let result: string;
+    if (knownSkill) {
+      result = await this.skillEngine.process(sessionContent, knownSkill);
+    } else if (this.yoChat) {
+      result = await this.yoChat.executeInline("sup", instruction, "command-bar", sessionContent);
+    } else {
+      return "No AI engine available.";
+    }
+
+    // Copy result to clipboard
+    const { clipboard } = await import("electron");
+    clipboard.writeText(result);
+    return `sup ${instruction} \u2014 result copied to clipboard`;
   }
 
   // ── dip: switch panels ──────────────────────────────────────
@@ -271,11 +330,6 @@ export class CommandParser {
     }
 
     // dip grid — full grid with spans, custom widths/heights
-    //   dip grid claude,gpt / gemini,code             — 2x2 equal
-    //   dip grid claude:2,gpt / gemini,code           — claude spans 2 cols
-    //   dip grid claude|2,gpt / gemini,code           — claude spans 2 rows
-    //   dip grid [70,30] claude,gpt                   — custom col widths (%)
-    //   dip grid [70,30] [60,40] claude,gpt / g,code  — custom col + row heights
     if (sub === "grid" && args.length >= 2) {
       return this.handleDipGrid(args.slice(1), win);
     }
@@ -332,20 +386,6 @@ export class CommandParser {
   }
 
   // ── dip grid ─────────────────────────────────────────────────
-  //
-  // Syntax:
-  //   dip grid claude,gpt / gemini,code           — 2×2 equal
-  //   dip grid claude:2,gpt / gemini,code         — claude colSpan=2
-  //   dip grid claude|2,gpt / gemini,code         — claude rowSpan=2
-  //   dip grid claude:2|2,gpt / gemini,code       — claude colSpan=2 rowSpan=2
-  //   dip grid [70,30] claude,gpt                 — custom column widths (%)
-  //   dip grid [70,30] [60,40] claude,gpt / g,c   — custom col + row widths
-  //
-  // Panels within a row are comma-separated.
-  // Rows are separated by "/".
-  // Spans:  panel:colSpan  panel|rowSpan  panel:colSpan|rowSpan
-  // Widths: [w1,w2,...] before cells = column widths in %
-  //         Second [...] = row heights in %
 
   private handleDipGrid(args: string[], win: BrowserWindow): string {
     // Extract bracket groups [n,n,...] for custom widths/heights
@@ -394,13 +434,10 @@ export class CommandParser {
 
     if (parsedRows.length === 0) return "No panels specified.";
 
-    // Compute grid dimensions from cells + spans
     const numRows = parsedRows.length;
-    // Each row's effective column count = sum of colSpans
     const rowColCounts = parsedRows.map((r) => r.reduce((s, c) => s + c.colSpan, 0));
     const numCols = Math.max(...rowColCounts);
 
-    // Build cells with grid positions
     const cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> = [];
     for (let r = 0; r < parsedRows.length; r++) {
       let col = 0;
@@ -416,7 +453,6 @@ export class CommandParser {
       }
     }
 
-    // Column widths — from brackets[0] or equal
     let colWidths: number[];
     if (brackets.length >= 1 && brackets[0].length === numCols) {
       const total = brackets[0].reduce((s, v) => s + v, 0);
@@ -425,7 +461,6 @@ export class CommandParser {
       colWidths = Array(numCols).fill(1 / numCols);
     }
 
-    // Row heights — from brackets[1] or equal
     let rowHeights: number[];
     if (brackets.length >= 2 && brackets[1].length === numRows) {
       const total = brackets[1].reduce((s, v) => s + v, 0);
@@ -449,7 +484,6 @@ export class CommandParser {
 
     setPreference("lastView", { type: "grid-full", grid });
 
-    // Build display label
     const label = parsedRows.map((r) =>
       r.map((c) => {
         let s = c.id;
@@ -459,5 +493,38 @@ export class CommandParser {
       }).join(","),
     ).join(" / ");
     return `Grid: ${label}`;
+  }
+
+  // ── wassup: create skills via LLM ───────────────────────────
+
+  private async handleWassup(args: string[]): Promise<string> {
+    if (args.length === 0) {
+      const skills = this.skillEngine.listSkills();
+      if (skills.length === 0) return "No skills yet. Create one: wassup <name> <instructions>";
+      return "Skills:\n" + skills.map((s) => `  ${s}`).join("\n");
+    }
+
+    if (args.length === 1) {
+      // Check if it's an existing skill — show its prompt
+      const name = args[0];
+      const prompt = this.skillEngine.readSkill(name);
+      if (prompt !== null) return `Skill "${name}":\n${prompt}`;
+      return `Skill "${name}" not found. Create it: wassup ${name} <instructions>`;
+    }
+
+    // wassup <name> <instructions...> → LLM writes the skill prompt
+    const name = args[0];
+    const instructions = args.slice(1).join(" ");
+
+    if (!this.yoChat) return "No AI engine available.";
+
+    const result = await this.yoChat.executeInline(
+      "wassup",
+      `Write a skill prompt (system prompt) for a skill called "${name}". The user's instructions for what this skill should do: ${instructions}\n\nRespond with ONLY the skill prompt text, nothing else. No markdown fencing, no explanation.`,
+      "command-bar",
+    );
+
+    this.skillEngine.createSkill(name, result.trim());
+    return `Skill created: ${name}`;
   }
 }

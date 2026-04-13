@@ -262,25 +262,6 @@ body {
 #command-input::placeholder { color: #444; }
 #command-input:focus { border-color: #25C75E; background: #161616; }
 
-/* ── Tools editor ────────────────────────────────────────── */
-
-.tools-desc-input {
-  width: 100%;
-  box-sizing: border-box;
-  background: #1e1e1e;
-  border: 1px solid #2e2e2e;
-  border-radius: 6px;
-  color: #e0e0e0;
-  font-size: 13px;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.tools-desc-input:focus { border-color: #25C75E; }
-.tools-desc-input::placeholder { color: #555; }
-
 /* ── Panel screenshots (freeze-frame) ────────────────────── */
 
 #panel-screenshots {

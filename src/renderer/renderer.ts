@@ -30,11 +30,6 @@ declare global {
       skillsRead: (name: string) => Promise<string | null>;
       skillsWrite: (name: string, prompt: string) => Promise<boolean>;
       skillsRemove: (name: string) => Promise<boolean>;
-      // Tools
-      toolsList: () => Promise<Array<{ id: string; name: string; description: string; prompt: string }>>;
-      toolsRead: (id: string) => Promise<{ id: string; name: string; description: string; prompt: string } | null>;
-      toolsWrite: (id: string, name: string, description: string, prompt: string) => Promise<boolean>;
-      toolsRemove: (id: string) => Promise<boolean>;
       // Apps
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;

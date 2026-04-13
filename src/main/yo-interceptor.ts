@@ -11,8 +11,8 @@
  *   sup <text>   → session cache → LLM process → inject result
  *   sup          → session manager UI (future)
  *   dip <args>   → panel navigation (via command parser)
- *   wassup       → tool picker
- *   wassup <id>  → run tool with session context
+ *   wassup       → list skills
+ *   wassup <name> <instructions> → LLM creates a skill
  *
  * All UI (notifications, tool picker) is injected directly into the
  * app's DOM via executeJavaScript. Session content is also copied to
@@ -24,7 +24,6 @@ import { AppConnector } from "./app-connector";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { SessionCache } from "./session-cache";
-import { ToolManager } from "./tool-manager";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
 
@@ -41,7 +40,6 @@ export class YoInterceptor {
     private library: Library,
     private skillEngine: SkillEngine,
     private session: SessionCache,
-    private toolManager: ToolManager,
   ) {}
 
   setYoChat(chat: YoChat): void { this.yoChat = chat; }
@@ -344,127 +342,58 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── wassup: tools ─────────────────────────────────────
+  // ── wassup: skill creation ─────────────────────────────
   //
-  //   wassup        → show tool picker
-  //   wassup <id>   → run matching tool with session context
-  //   wassup <text> → LLM improvises with session context
+  //   wassup             → list skills
+  //   wassup <name> <instructions> → LLM creates a skill
 
-  private async handleWassup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // Bare "wassup" → show tool picker
+  private async handleWassup(wc: WebContents, _appId: string, instruction?: string): Promise<void> {
+    // Bare "wassup" → list skills
     if (!instruction) {
-      this.showToolPicker(wc);
+      const skills = this.skillEngine.listSkills();
+      if (skills.length === 0) {
+        this.notify(wc, "No skills yet. Create one: wassup <name> <instructions>", "success");
+      } else {
+        this.notify(wc, `Skills: ${skills.join(", ")}`, "success");
+      }
       return;
     }
 
-    // Search for matching tool
-    const tool = this.toolManager.search(instruction);
+    const parts = instruction.split(/\s+/);
+    const name = parts[0];
 
-    this.notify(wc, "", "loading");
-    try {
-      let result: string;
-      if (tool && this.yoChat) {
-        // Run tool prompt with session context
-        const context = this.session.hasContent() ? this.session.get() : undefined;
-        result = await this.yoChat.executeInline("wassup", tool.prompt, appId, context);
-      } else if (this.yoChat) {
-        // No matching tool → LLM improvises
-        const context = this.session.hasContent() ? this.session.get() : undefined;
-        result = await this.yoChat.executeInline("wassup", instruction, appId, context);
+    if (parts.length === 1) {
+      // Single word → check if existing skill
+      const prompt = this.skillEngine.readSkill(name);
+      if (prompt !== null) {
+        this.notify(wc, `Skill "${name}" exists. To recreate: wassup ${name} <instructions>`, "success");
       } else {
-        this.notify(wc, "No AI engine available.", "error");
-        return;
+        this.notify(wc, `Create it: wassup ${name} <instructions>`, "success");
       }
+      return;
+    }
 
-      await this.clearNotify(wc);
-      const injected = await this.injectContent(wc, result);
-      if (!injected) {
-        this.notify(wc, result, "success");
-      }
+    // wassup <name> <instructions...> → LLM writes skill prompt
+    if (!this.yoChat) {
+      this.notify(wc, "No AI engine available.", "error");
+      return;
+    }
+
+    const instructions = parts.slice(1).join(" ");
+    this.notify(wc, "", "loading");
+
+    try {
+      const result = await this.yoChat.executeInline(
+        "wassup",
+        `Write a skill prompt (system prompt) for a skill called "${name}". The user's instructions for what this skill should do: ${instructions}\n\nRespond with ONLY the skill prompt text, nothing else. No markdown fencing, no explanation.`,
+        _appId,
+      );
+
+      this.skillEngine.createSkill(name, result.trim());
+      this.notify(wc, `Skill created: ${name}`, "success");
     } catch (err) {
       this.notify(wc, `wassup failed: ${err instanceof Error ? err.message : err}`, "error");
     }
-  }
-
-  // ── Tool picker (injected DOM) ────────────────────────
-
-  private async showToolPicker(wc: WebContents): Promise<void> {
-    const tools = this.toolManager.list().map((t) => ({
-      id: t.id,
-      name: t.name,
-      description: t.description,
-    }));
-    const data = JSON.stringify(tools);
-    try {
-      await wc.executeJavaScript(`
-(function(){
-var m=document.getElementById('__yo_modal');if(m)m.remove();
-var tools=${data};
-var ov=document.createElement('div');ov.id='__yo_modal';
-ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
-var card=document.createElement('div');
-card.style.cssText='background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:24px;max-width:480px;width:90%;max-height:60vh;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;display:flex;flex-direction:column;';
-var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;';
-var t=document.createElement('div');t.textContent='wassup';
-t.style.cssText='font-size:15px;font-weight:600;color:#e0e0e0;';
-hdr.appendChild(t);
-var closeBtn=document.createElement('button');closeBtn.textContent='\\u00d7';
-closeBtn.style.cssText='background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;';
-closeBtn.onclick=function(){ov.remove();};
-hdr.appendChild(closeBtn);
-card.appendChild(hdr);
-var pi=document.createElement('input');pi.type='text';
-pi.placeholder='run a tool or describe what you need...';
-pi.style.cssText='width:100%;box-sizing:border-box;background:#1e1e1e;border:1px solid #333;color:#e8e8e8;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;outline:none;';
-pi.onfocus=function(){pi.style.borderColor='#555';};
-pi.onblur=function(){pi.style.borderColor='#333';};
-card.appendChild(pi);
-pi.addEventListener('keydown',function(e){
-  if(e.key==='Escape'){ov.remove();return;}
-  if(e.key==='Enter'&&pi.value.trim()){
-    ov.remove();
-    console.log('${PREFIX}'+JSON.stringify({type:'wassup',instruction:pi.value.trim()}));
-  }
-});
-var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
-card.appendChild(list);
-function render(){
-  list.innerHTML='';
-  var q=pi.value.toLowerCase();
-  var filtered=tools.filter(function(t){return !q||t.name.toLowerCase().includes(q)||t.description.toLowerCase().includes(q);});
-  if(filtered.length===0){
-    var em=document.createElement('div');
-    em.textContent=tools.length===0?'No tools yet. Create one in Settings > Tools.':'No matches. Press Enter to let AI handle it.';
-    em.style.cssText='color:#555;text-align:center;padding:20px;font-size:13px;';
-    list.appendChild(em);
-    return;
-  }
-  filtered.forEach(function(tool){
-    var item=document.createElement('div');
-    item.style.cssText='display:flex;flex-direction:column;gap:2px;padding:8px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
-    item.onmouseenter=function(){this.style.background='#1e1e1e';};
-    item.onmouseleave=function(){this.style.background='transparent';};
-    var n=document.createElement('div');n.textContent=tool.name;
-    n.style.cssText='font-size:13px;font-weight:500;color:#ccc;';
-    item.appendChild(n);
-    if(tool.description){
-      var d=document.createElement('div');d.textContent=tool.description;
-      d.style.cssText='font-size:11px;color:#555;';
-      item.appendChild(d);
-    }
-    item.onclick=function(){ov.remove();
-      console.log('${PREFIX}'+JSON.stringify({type:'wassup',instruction:tool.id}));};
-    list.appendChild(item);
-  });
-}
-pi.oninput=function(){render();};
-render();
-ov.onclick=function(e){if(e.target===ov)ov.remove();};
-ov.appendChild(card);
-document.body.appendChild(ov);
-requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';pi.focus();});
-})();`);
-    } catch {}
   }
 
   // ── Content grabbing ──────────────────────────────────
