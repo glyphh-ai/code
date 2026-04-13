@@ -16,12 +16,18 @@ export interface SessionEntry {
   content: string;
 }
 
+export interface SessionInfo {
+  hasContent: boolean;
+  label: string;
+}
+
 export class SessionCache {
   private entries: SessionEntry[] = [];
   private combined = "";
+  private _label = "";
 
   /** Add captured content from a panel. Replaces any existing entry from the same app. */
-  capture(appId: string, content: string): void {
+  capture(appId: string, content: string, label?: string): void {
     // Replace existing entry from same app (latest capture wins)
     this.entries = this.entries.filter((e) => e.appId !== appId);
     this.entries.push({
@@ -30,6 +36,7 @@ export class SessionCache {
       timestamp: Date.now(),
       content,
     });
+    this._label = label || appId;
     this.rebuildCombined();
   }
 
@@ -48,6 +55,14 @@ export class SessionCache {
     return this.combined.length > 0;
   }
 
+  /** Get session info for the renderer (pill display). */
+  getInfo(): SessionInfo {
+    return {
+      hasContent: this.combined.length > 0,
+      label: this._label,
+    };
+  }
+
   /** Copy current session to system clipboard. */
   copyToClipboard(): void {
     if (this.combined) {
@@ -59,6 +74,7 @@ export class SessionCache {
   clear(): void {
     this.entries = [];
     this.combined = "";
+    this._label = "";
   }
 
   /** Remove a specific entry by app ID. */

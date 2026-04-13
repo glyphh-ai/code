@@ -54,8 +54,12 @@ export class YoInterceptor {
     const onConsole = (_e: any, _l: any, msg: string) => {
       if (typeof msg !== "string" || !msg.startsWith(PREFIX)) return;
       try {
-        this.dispatch(wc, appId, JSON.parse(msg.slice(PREFIX.length)));
-      } catch { /* ignore malformed */ }
+        const data = JSON.parse(msg.slice(PREFIX.length));
+        this.dispatch(wc, appId, data).catch((err) => {
+          console.error("YoInterceptor dispatch error:", err);
+          this.notify(wc, `Error: ${err instanceof Error ? err.message : err}`, "error").catch(() => {});
+        });
+      } catch { /* ignore malformed JSON */ }
     };
     const onFrameLoad = (_e: any, isMainFrame: boolean) => {
       if (isMainFrame) return;
@@ -210,6 +214,20 @@ document.addEventListener('keyup',function(e){
       case "wassup":
         await this.handleWassup(wc, appId, data.instruction ?? undefined);
         break;
+      case "sup-load-file": {
+        const name = data.instruction;
+        if (name) {
+          const content = this.library.read(name);
+          if (content) {
+            this.session.capture("library", content, name + ".md");
+            this.session.copyToClipboard();
+            this.notify(wc, `Loaded: ${name}.md \u2014 copied to clipboard`, "success");
+          } else {
+            this.notify(wc, `Not found: ${name}`, "error");
+          }
+        }
+        break;
+      }
     }
   }
 
@@ -276,13 +294,10 @@ document.addEventListener('keyup',function(e){
     }
 
     // Store in session + copy to clipboard
-    if (currentOnly) {
-      this.session.capture(appId, finalContent);
-    } else {
-      // For multi-panel grab, store each panel separately was complex.
-      // Just store the combined result under the source panel.
-      this.session.capture(appId, finalContent);
-    }
+    const sessionLabel = realInstruction
+      ? (realInstruction.split(/\s+/)[0] + ".md")
+      : "captured";
+    this.session.capture(appId, finalContent, sessionLabel);
     this.session.copyToClipboard();
 
     const label = realInstruction ? `yo ${realInstruction}` : "yo";
@@ -296,8 +311,25 @@ document.addEventListener('keyup',function(e){
   //   sup           → inject raw session content (paste shortcut)
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
+    // No session content → show library file picker
     if (!this.session.hasContent()) {
-      this.notify(wc, "Nothing captured yet. Use yo first.", "error");
+      if (!instruction) {
+        this.showSupBrowser(wc);
+        return;
+      }
+      // With instruction but no session → try loading from library by name
+      const content = this.library.read(instruction.split(/\s+/)[0]);
+      if (content) {
+        this.session.capture("library", content, instruction.split(/\s+/)[0] + ".md");
+        this.session.copyToClipboard();
+        await this.clearNotify(wc);
+        const injected = await this.injectContent(wc, content);
+        if (!injected) {
+          this.notify(wc, `Loaded: ${instruction.split(/\s+/)[0]}.md — copied to clipboard`, "success");
+        }
+        return;
+      }
+      this.showSupBrowser(wc);
       return;
     }
 
@@ -394,6 +426,79 @@ document.addEventListener('keyup',function(e){
     } catch (err) {
       this.notify(wc, `wassup failed: ${err instanceof Error ? err.message : err}`, "error");
     }
+  }
+
+  // ── Sup browser (injected DOM) ─────────────────────────
+
+  private async showSupBrowser(wc: WebContents): Promise<void> {
+    const files = this.library.list();
+    const data = JSON.stringify(files);
+    try {
+      await wc.executeJavaScript(`
+(function(){
+var m=document.getElementById('__yo_modal');if(m)m.remove();
+var files=${data};
+var PREFIX='${PREFIX}';
+var ov=document.createElement('div');ov.id='__yo_modal';
+ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:flex-start;justify-content:center;padding-top:60px;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
+var card=document.createElement('div');
+card.style.cssText='background:#111;border:1px solid #222;border-radius:12px;padding:0;width:480px;max-height:60vh;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;display:flex;flex-direction:column;overflow:hidden;';
+var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #1e1e1e;';
+var si=document.createElement('input');si.type='text';si.placeholder='search library...';
+si.style.cssText='flex:1;height:30px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:0 12px;color:#e0e0e0;font-size:13px;font-family:monospace;outline:none;';
+si.onfocus=function(){si.style.borderColor='#25C75E';};
+si.onblur=function(){si.style.borderColor='#2a2a2a';};
+hdr.appendChild(si);
+var cb=document.createElement('button');cb.textContent='\\u00d7';
+cb.style.cssText='background:none;border:none;color:#555;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;';
+cb.onclick=function(){ov.remove();};
+hdr.appendChild(cb);
+card.appendChild(hdr);
+var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
+card.appendChild(list);
+function render(f){
+  list.innerHTML='';
+  var shown=f||files;
+  if(shown.length===0){
+    var em=document.createElement('div');
+    em.textContent=files.length===0?'Library is empty. Use yo to capture content.':'No matches.';
+    em.style.cssText='color:#555;text-align:center;padding:24px;font-size:13px;';
+    list.appendChild(em);
+    return;
+  }
+  shown.slice(0,20).forEach(function(name){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;border-bottom:1px solid #161616;transition:background 0.1s;';
+    row.onmouseenter=function(){this.style.background='#1a1a1a';};
+    row.onmouseleave=function(){this.style.background='';};
+    var n=document.createElement('span');n.textContent=name+'.md';
+    n.style.cssText='font-size:13px;font-family:monospace;color:#ccc;';
+    row.appendChild(n);
+    var meta=document.createElement('span');meta.textContent='load';
+    meta.style.cssText='font-size:11px;color:#25C75E;';
+    row.appendChild(meta);
+    row.onclick=function(){
+      ov.remove();
+      console.log(PREFIX+JSON.stringify({type:'sup-load-file',instruction:name}));
+    };
+    list.appendChild(row);
+  });
+}
+si.oninput=function(){
+  var q=si.value.trim().toLowerCase();
+  if(!q){render();return;}
+  render(files.filter(function(f){return f.toLowerCase().includes(q);}));
+};
+render();
+si.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){ov.remove();return;}
+});
+ov.onclick=function(e){if(e.target===ov)ov.remove();};
+ov.appendChild(card);
+document.body.appendChild(ov);
+requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';si.focus();});
+})();`);
+    } catch {}
   }
 
   // ── Content grabbing ──────────────────────────────────

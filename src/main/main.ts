@@ -180,11 +180,17 @@ async function boot() {
     return sections.length > 0 ? sections.join("\n\n---\n\n") : null;
   });
 
+  // Push session state to renderer
+  const sendSessionState = () => {
+    mainWindow?.webContents.send("session-changed", session.getInfo());
+  };
+
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const execCommand = async (cmd: string) => {
     const result = await commandParser.execute(cmd);
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
+    sendSessionState();
     return result;
   };
   yoInterceptor.setCommandHandler(execCommand);
@@ -723,6 +729,54 @@ async function boot() {
   // IPC: command execution (used by interceptor routing, no UI)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd);
+  });
+
+  // IPC: session info (for context pill)
+  ipcMain.handle("session-info", () => session.getInfo());
+
+  // IPC: load a library file into session as active context
+  ipcMain.handle("session-load-file", (_e, name: string) => {
+    const content = library.read(name);
+    if (!content) return false;
+    session.capture("library", content, name + ".md");
+    session.copyToClipboard();
+    sendSessionState();
+    return true;
+  });
+
+  // IPC: clear session
+  ipcMain.handle("session-clear", () => {
+    session.clear();
+    sendSessionState();
+    return true;
+  });
+
+  // IPC: AI-powered library search
+  ipcMain.handle("library-search-ai", async (_e, query: string) => {
+    const files = library.list();
+    if (files.length === 0) return [];
+
+    // Quick exact/partial match first
+    const lower = query.toLowerCase();
+    const exact = files.filter((f) => f.toLowerCase().includes(lower));
+    if (exact.length > 0) return exact;
+
+    // AI search: ask LLM to pick best matches
+    if (!yoChat) return files.slice(0, 10);
+
+    try {
+      const result = await yoChat.executeInline(
+        "sup",
+        `The user is searching their library for: "${query}"\n\nAvailable files:\n${files.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY the matching file names, one per line. If nothing matches well, return the closest matches. No explanation.`,
+        "search",
+      );
+      const matches = result.trim().split("\n")
+        .map((l) => l.replace(/^-\s*/, "").trim())
+        .filter((l) => files.includes(l));
+      return matches.length > 0 ? matches : files.slice(0, 10);
+    } catch {
+      return files.slice(0, 10);
+    }
   });
 
   // IPC: license + API key

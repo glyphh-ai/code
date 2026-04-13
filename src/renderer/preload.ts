@@ -40,6 +40,15 @@ contextBridge.exposeInMainWorld("yo", {
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
     ipcRenderer.send("grid-drag-end", type, index, fraction),
 
+  // Session
+  sessionInfo: () => ipcRenderer.invoke("session-info") as Promise<{ hasContent: boolean; label: string }>,
+  sessionLoadFile: (name: string) => ipcRenderer.invoke("session-load-file", name) as Promise<boolean>,
+  sessionClear: () => ipcRenderer.invoke("session-clear") as Promise<boolean>,
+  onSessionChanged: (callback: (info: { hasContent: boolean; label: string }) => void) => {
+    ipcRenderer.on("session-changed", (_event, info) => callback(info));
+  },
+  librarySearchAi: (query: string) => ipcRenderer.invoke("library-search-ai", query) as Promise<string[]>,
+
   // Preferences
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
   onShowWelcome: (callback: () => void) => {

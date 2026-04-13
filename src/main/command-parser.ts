@@ -120,7 +120,8 @@ export class CommandParser {
     }
 
     // Store in session + copy to clipboard
-    this.session.capture("command-bar", finalContent);
+    const skillLabel = instruction?.split(/\s+/)[0] || undefined;
+    this.session.capture("command-bar", finalContent, skillLabel ? `${skillLabel}.md` : "captured");
     this.session.copyToClipboard();
 
     const label = instruction ? `yo ${instruction}` : "yo";
@@ -229,15 +230,17 @@ export class CommandParser {
       return deleted ? `Forgot: ${name}` : `Not found: ${name}`;
     }
 
-    // Bare "sup" → copy session to clipboard
+    // Bare "sup" → copy session or show library browser
     if (args.length === 0) {
-      if (!this.session.hasContent()) return "Nothing captured yet. Use yo first.";
-      this.session.copyToClipboard();
-      return "Session copied to clipboard.";
+      if (this.session.hasContent()) {
+        this.session.copyToClipboard();
+        return "Session copied to clipboard.";
+      }
+      return "__SUP_BROWSE__";
     }
 
     // sup <instruction> → process session with skill/LLM
-    if (!this.session.hasContent()) return "Nothing captured yet. Use yo first.";
+    if (!this.session.hasContent()) return "__SUP_BROWSE__";
 
     const instruction = args.join(" ").trim();
     const sessionContent = this.session.get();

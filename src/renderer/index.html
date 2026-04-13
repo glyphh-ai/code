@@ -33,6 +33,28 @@
     </div>
     <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span> Dip<span class="dot">.</span></div>
     <input id="command-input" type="text" placeholder="yo, sup, dip, wassup..." spellcheck="false" autocomplete="off" />
+    <span id="context-pill" class="hidden"></span>
+  </div>
+
+  <!-- Sup browser overlay (library file picker) -->
+  <div id="sup-browser" class="hidden">
+    <div class="sup-browser-card">
+      <div class="sup-browser-header">
+        <input id="sup-search" type="text" placeholder="search library..." spellcheck="false" autocomplete="off" />
+        <button id="sup-close" class="sup-close-btn">&times;</button>
+      </div>
+      <div id="sup-list" class="sup-list"></div>
+      <div id="sup-preview" class="sup-preview hidden">
+        <div class="sup-preview-header">
+          <span id="sup-preview-name"></span>
+          <div class="sup-preview-actions">
+            <button id="sup-load-btn" class="action-btn primary">Load as Context</button>
+            <button id="sup-preview-close" class="action-btn">Back</button>
+          </div>
+        </div>
+        <pre id="sup-preview-content"></pre>
+      </div>
+    </div>
   </div>
 
   <!-- Panel screenshots (freeze-frame when panels are hidden) -->

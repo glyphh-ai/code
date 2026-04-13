@@ -1,8 +1,9 @@
 /**
- * Renderer — titlebar + grid handles + boot gate.
+ * Renderer — titlebar + grid handles + boot gate + sup browser.
  *
  * All user commands (yo/sup/dip/wassup) happen inside app panels
- * via the interceptor. The renderer just manages the window chrome.
+ * via the interceptor, or from the command bar. The renderer
+ * manages window chrome, session state display, and the sup browser.
  */
 
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
@@ -47,6 +48,12 @@ declare global {
       layoutsDelete: (name: string) => Promise<boolean>;
       // Grid resize
       gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
+      // Session
+      sessionInfo: () => Promise<{ hasContent: boolean; label: string }>;
+      sessionLoadFile: (name: string) => Promise<boolean>;
+      sessionClear: () => Promise<boolean>;
+      onSessionChanged: (callback: (info: { hasContent: boolean; label: string }) => void) => void;
+      librarySearchAi: (query: string) => Promise<string[]>;
       // Preferences + boot
       setPreference: (key: string, value: unknown) => void;
       onboardingComplete: () => Promise<void>;
@@ -68,7 +75,7 @@ declare global {
         rowHeights: number[];
         cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
       } | null) => void) => void;
-      // Command execution (used internally by interceptor)
+      // Command execution
       execCommand: (cmd: string) => Promise<string>;
     };
   }
@@ -107,23 +114,74 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
+// ── Context pill ─────────────────────────────────────────
+
+const contextPill = document.getElementById("context-pill")!;
+
+function updateContextPill(info: { hasContent: boolean; label: string }) {
+  if (info.hasContent && info.label) {
+    contextPill.textContent = info.label;
+    contextPill.classList.remove("hidden");
+  } else {
+    contextPill.classList.add("hidden");
+  }
+}
+
+window.yo.onSessionChanged(updateContextPill);
+
+// Click pill → clear context
+contextPill.addEventListener("click", async () => {
+  await window.yo.sessionClear();
+  updateContextPill({ hasContent: false, label: "" });
+});
+
+// Load initial state
+window.yo.sessionInfo().then(updateContextPill);
+
 // ── Command input ─────────────────────────────────────────
 
 const commandInput = document.getElementById("command-input") as HTMLInputElement;
+let resultTimer: ReturnType<typeof setTimeout> | null = null;
 
-commandInput.addEventListener("keydown", (e) => {
+function showResult(text: string) {
+  if (resultTimer) clearTimeout(resultTimer);
+  commandInput.value = text;
+  commandInput.classList.add("result");
+  resultTimer = setTimeout(() => {
+    commandInput.value = "";
+    commandInput.classList.remove("result");
+    resultTimer = null;
+  }, 2500);
+}
+
+commandInput.addEventListener("keydown", async (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
     const value = commandInput.value.trim();
-    if (value) {
-      window.yo.execCommand(value);
-      commandInput.value = "";
-      commandInput.blur();
+    if (!value) return;
+
+    commandInput.value = "";
+    commandInput.blur();
+
+    try {
+      const result = await window.yo.execCommand(value);
+      if (result === "__SUP_BROWSE__") {
+        openSupBrowser();
+      } else if (result) {
+        showResult(result);
+      }
+    } catch (err) {
+      showResult(`Error: ${err instanceof Error ? err.message : err}`);
     }
   }
   if (e.key === "Escape") {
     e.preventDefault();
+    if (resultTimer) {
+      clearTimeout(resultTimer);
+      resultTimer = null;
+    }
     commandInput.value = "";
+    commandInput.classList.remove("result");
     commandInput.blur();
   }
 });
@@ -131,11 +189,152 @@ commandInput.addEventListener("keydown", (e) => {
 // Cmd+K from panel → focus command input
 window.yo.onFocusInput(() => commandInput.focus());
 
+// ── Sup browser (library file picker) ─────────────────────
+
+const supBrowser = document.getElementById("sup-browser")!;
+const supSearch = document.getElementById("sup-search") as HTMLInputElement;
+const supList = document.getElementById("sup-list")!;
+const supPreview = document.getElementById("sup-preview")!;
+const supPreviewName = document.getElementById("sup-preview-name")!;
+const supPreviewContent = document.getElementById("sup-preview-content")!;
+
+let supFiles: string[] = [];
+let supPage = 0;
+const SUP_PAGE_SIZE = 15;
+let supSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function openSupBrowser() {
+  window.yo.panelsHide();
+  supBrowser.classList.remove("hidden");
+  supPreview.classList.add("hidden");
+  supList.classList.remove("hidden");
+  supSearch.value = "";
+  supPage = 0;
+  loadSupFiles();
+  supSearch.focus();
+}
+
+function closeSupBrowser() {
+  supBrowser.classList.add("hidden");
+  window.yo.panelsShow();
+}
+
+async function loadSupFiles(filter?: string[]) {
+  if (filter) {
+    supFiles = filter;
+  } else {
+    supFiles = await window.yo.libraryList();
+  }
+  supPage = 0;
+  renderSupList();
+}
+
+function renderSupList() {
+  if (supFiles.length === 0) {
+    supList.innerHTML = `<div class="sup-empty">Library is empty. Use <b>yo</b> to capture content first.</div>`;
+    return;
+  }
+
+  const start = supPage * SUP_PAGE_SIZE;
+  const pageFiles = supFiles.slice(start, start + SUP_PAGE_SIZE);
+  const totalPages = Math.ceil(supFiles.length / SUP_PAGE_SIZE);
+
+  let html = pageFiles.map((name) => `
+    <div class="sup-file-row" data-name="${name}">
+      <span class="sup-file-name">${name}.md</span>
+      <span class="sup-file-meta">click to view</span>
+    </div>`).join("");
+
+  if (totalPages > 1) {
+    html += `<div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;">
+      <button class="action-btn sup-prev" ${supPage === 0 ? "disabled" : ""}>&larr; Prev</button>
+      <span style="font-size:11px;color:#555;">${supPage + 1} / ${totalPages}</span>
+      <button class="action-btn sup-next" ${supPage >= totalPages - 1 ? "disabled" : ""}>Next &rarr;</button>
+    </div>`;
+  }
+
+  supList.innerHTML = html;
+
+  supList.querySelectorAll(".sup-file-row").forEach((row) => {
+    row.addEventListener("click", () => viewSupFile((row as HTMLElement).dataset.name!));
+  });
+
+  const prevBtn = supList.querySelector(".sup-prev");
+  const nextBtn = supList.querySelector(".sup-next");
+  prevBtn?.addEventListener("click", () => { supPage--; renderSupList(); });
+  nextBtn?.addEventListener("click", () => { supPage++; renderSupList(); });
+}
+
+async function viewSupFile(name: string) {
+  const content = await window.yo.libraryRead(name);
+  supPreviewName.textContent = name + ".md";
+  supPreviewContent.textContent = content || "(empty)";
+  supPreview.dataset.name = name;
+  supList.classList.add("hidden");
+  supPreview.classList.remove("hidden");
+}
+
+async function loadSupFile(name: string) {
+  await window.yo.sessionLoadFile(name);
+  closeSupBrowser();
+  showResult(`Loaded: ${name}.md \u2014 copied to clipboard`);
+}
+
+document.getElementById("sup-close")!.addEventListener("click", closeSupBrowser);
+document.getElementById("sup-load-btn")!.addEventListener("click", () => {
+  const name = supPreview.dataset.name;
+  if (name) loadSupFile(name);
+});
+document.getElementById("sup-preview-close")!.addEventListener("click", () => {
+  supPreview.classList.add("hidden");
+  supList.classList.remove("hidden");
+});
+
+// Search: debounce + AI search
+supSearch.addEventListener("input", () => {
+  if (supSearchTimer) clearTimeout(supSearchTimer);
+  const q = supSearch.value.trim();
+
+  if (!q) {
+    loadSupFiles();
+    return;
+  }
+
+  // Quick local filter first (instant)
+  window.yo.libraryList().then((all) => {
+    const lower = q.toLowerCase();
+    const filtered = all.filter((f) => f.toLowerCase().includes(lower));
+    if (filtered.length > 0) {
+      loadSupFiles(filtered);
+    }
+  });
+
+  // AI search after debounce (for natural language queries)
+  supSearchTimer = setTimeout(async () => {
+    const results = await window.yo.librarySearchAi(q);
+    if (results.length > 0 && supSearch.value.trim() === q) {
+      loadSupFiles(results);
+    }
+  }, 600);
+});
+
+supSearch.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeSupBrowser();
+  }
+});
+
+// Click overlay background → close
+supBrowser.addEventListener("click", (e) => {
+  if (e.target === supBrowser) closeSupBrowser();
+});
+
 // ── Global keyboard shortcuts ──────────────────────────────
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (isHelpOpen()) closeHelp();
+    if (isSupBrowserOpen()) closeSupBrowser();
+    else if (isHelpOpen()) closeHelp();
   }
 
   // Cmd+K to focus command input
@@ -164,6 +363,10 @@ document.addEventListener("keydown", (e) => {
     window.yo.panelsZoom(1.0);
   }
 });
+
+function isSupBrowserOpen(): boolean {
+  return !supBrowser.classList.contains("hidden");
+}
 
 // yo help trigger from main process
 window.yo.onShowWelcome(() => openHelp());
