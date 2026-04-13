@@ -88,6 +88,15 @@ export class MemoryStore {
     }).join("\n");
   }
 
+  /** Get the most recent capture for an app. */
+  getLatest(app: string): string | null {
+    const entries = this.manifest
+      .filter((e) => e.app === app)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    if (entries.length === 0) return null;
+    return this.read(entries[0].id);
+  }
+
   /** Read the full content of a memory entry by ID. */
   read(id: string): string | null {
     const entry = this.manifest.find((e) => e.id === id);

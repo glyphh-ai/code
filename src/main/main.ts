@@ -132,6 +132,9 @@ async function boot() {
     return panelManager.activePanelId ? [panelManager.activePanelId] : [];
   });
 
+  // Give interceptor access to previous panel ID (for sup *)
+  yoInterceptor.setPreviousPanelGetter(() => panelManager.previousPanelId);
+
   // Auto-capture: snapshot leaving panel when user switches panels
   panelManager.setOnPanelReady((_id, _wc) => {
     const prevId = panelManager.previousPanelId;

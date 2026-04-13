@@ -30,6 +30,7 @@ export class YoInterceptor {
   private yoChat: YoChat | null = null;
   private memoryStore: MemoryStore;
   private getVisiblePanelIds: (() => string[]) | null = null;
+  private getPreviousPanelId: (() => string | null) | null = null;
 
   constructor(
     private appConnector: AppConnector,
@@ -53,6 +54,11 @@ export class YoInterceptor {
   /** Set getter for visible panel IDs (from layout manager). */
   setVisiblePanelsGetter(getter: () => string[]): void {
     this.getVisiblePanelIds = getter;
+  }
+
+  /** Set getter for previous panel ID (from panel manager). */
+  setPreviousPanelGetter(getter: () => string | null): void {
+    this.getPreviousPanelId = getter;
   }
 
   /** Start watching a panel's webContents for yo/sup commands. */
@@ -325,7 +331,7 @@ document.addEventListener('keyup',function(e){
     skill?: string,
     instruction?: string,
   ): Promise<void> {
-    this.notify(wc, "Saving...", "loading");
+    this.notify(wc, "", "loading");
     try {
       const content = await this.grabAllPanels(wc, appId, !currentOnly);
       if (!content) {
@@ -359,13 +365,39 @@ document.addEventListener('keyup',function(e){
 
   // ── sup flow: recall + use ─────────────────────────────────
   //
-  //   bare "sup"          → show modal (browse library + memory)
-  //   "sup <query>"       → LLM searches memory+library → inject result
+  //   bare "sup"              → show modal (browse library + memory)
+  //   "sup <query>"           → LLM searches memory+library → inject result
+  //   "sup . <skill/prompt>"  → snapshot current panel → process → inject
+  //   "sup * <skill/prompt>"  → use previous panel's last capture → process → inject
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Bare "sup" → show modal
     if (!instruction) {
       this.showCommandModal(wc, "sup");
+      return;
+    }
+
+    // Parse dot/star modifiers: "sup ." or "sup . <instruction>" / "sup *" or "sup * <instruction>"
+    const dotMatch = instruction.match(/^\.\s*(.*)?$/);
+    const starMatch = instruction.match(/^\*\s*(.*)?$/);
+
+    if (dotMatch) {
+      const prompt = dotMatch[1]?.trim();
+      if (!prompt) {
+        this.notify(wc, "sup . needs a skill or instruction", "error");
+        return;
+      }
+      await this.supProcess(wc, appId, prompt, "current");
+      return;
+    }
+
+    if (starMatch) {
+      const prompt = starMatch[1]?.trim();
+      if (!prompt) {
+        this.notify(wc, "sup * needs a skill or instruction", "error");
+        return;
+      }
+      await this.supProcess(wc, appId, prompt, "previous");
       return;
     }
 
@@ -397,6 +429,64 @@ document.addEventListener('keyup',function(e){
     await this.supSearch(wc, appId, instruction);
   }
 
+  /** Process context with a skill/prompt and inject the result.
+   *  source: "current" = live snapshot, "previous" = last memory capture from previous panel */
+  private async supProcess(
+    wc: WebContents,
+    appId: string,
+    prompt: string,
+    source: "current" | "previous",
+  ): Promise<void> {
+    this.notify(wc, "", "loading");
+
+    let content: string | null = null;
+
+    if (source === "current") {
+      const app = this.appConnector.get(appId);
+      content = await this.grabContent(wc, app);
+    } else {
+      // Previous panel's last captured content from memory store
+      const prevId = this.getPreviousPanelId?.();
+      if (!prevId) {
+        this.notify(wc, "No previous panel.", "error");
+        return;
+      }
+      content = this.memoryStore.getLatest(prevId);
+    }
+
+    if (!content) {
+      this.notify(wc, source === "current" ? "Could not grab content." : "No captured content from previous panel.", "error");
+      return;
+    }
+
+    // Check if prompt is a known skill
+    const isSingleWord = /^\S+$/.test(prompt);
+    const knownSkill = isSingleWord ? this.skillEngine.listSkills().find(
+      (s) => s.toLowerCase() === prompt.toLowerCase(),
+    ) : undefined;
+
+    try {
+      let result: string;
+      if (knownSkill) {
+        result = await this.skillEngine.process(content, knownSkill);
+      } else if (this.yoChat) {
+        result = await this.yoChat.executeInline("sup", prompt, appId, content);
+      } else {
+        this.notify(wc, "Chat engine not available.", "error");
+        return;
+      }
+
+      const injected = await this.injectContent(wc, result);
+      if (injected) {
+        this.notify(wc, "Done.", "success");
+      } else {
+        this.notify(wc, result, "success");
+      }
+    } catch (err) {
+      this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
+    }
+  }
+
   /** LLM-powered recall: search memory + library, return best match. */
   private async supSearch(wc: WebContents, appId: string, query: string): Promise<void> {
     if (!this.yoChat) {
@@ -404,7 +494,7 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    this.notify(wc, "Searching...", "loading");
+    this.notify(wc, "", "loading");
     try {
       // Build search context from memory store + library
       const memoryContext = this.memoryStore.buildSearchContext(100);
@@ -467,7 +557,7 @@ Find the best matching content. If you find a match in auto-captured memory, use
       ? `Process using skill "${skill}": ${prompt}`
       : `Process using skill "${skill}"`;
 
-    this.notify(wc, "Processing...", "loading");
+    this.notify(wc, "", "loading");
     try {
       const skillPrompt = skill ? this.skillEngine.readSkill(skill) : null;
       const fullInstruction = skillPrompt
@@ -586,25 +676,54 @@ Find the best matching content. If you find a match in auto-captured memory, use
     msg: string,
     type: "loading" | "success" | "error",
   ): Promise<void> {
-    const colors: Record<string, [string, string]> = {
-      loading: ["#1a1a2e", "#a855f7"],
-      success: ["#1a2e1a", "#22c55e"],
-      error: ["#2e1a1a", "#ef4444"],
-    };
-    const [bg, border] = colors[type];
+    const loadingMessages = [
+      "chilling...", "vibing...", "supping...", "cooking...",
+      "thinking...", "brewing...", "manifesting...", "marinating...",
+      "pondering...", "scheming...", "simmering...", "noodling...",
+      "conjuring...", "percolating...", "riffing...", "hatching...",
+    ];
+    const displayMsg = type === "loading"
+      ? loadingMessages[Math.floor(Math.random() * loadingMessages.length)]
+      : msg;
     const icon = type === "success" ? "\u2713 " : type === "error" ? "\u2717 " : "";
-    const msgData = JSON.stringify(icon + msg);
+    const msgData = JSON.stringify(icon + displayMsg);
     const autoRemove = type !== "loading";
+    const textColor = type === "success" ? "#4ade80" : type === "error" ? "#f87171" : "#a0a0a0";
     try {
       await wc.executeJavaScript(`
 (function(){
 var o=document.getElementById('__yo_note');if(o)o.remove();
+var el=window.__yoLastEl;
 var n=document.createElement('div');n.id='__yo_note';
-n.textContent=${msgData};
-n.style.cssText='position:fixed;top:16px;right:16px;z-index:999999;background:${bg};border:1px solid ${border};color:#e0e0e0;padding:12px 20px;border-radius:8px;font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-width:400px;opacity:0;transform:translateY(-8px);transition:all 0.2s ease;pointer-events:none;';
+var isLoading=${type === "loading"};
+if(isLoading){
+  var sp=document.createElement('span');sp.className='__yo_spin';
+  sp.textContent='\\u2800';
+  var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
+  var fi=0;sp.style.cssText='margin-right:6px;display:inline-block;';
+  var iv=setInterval(function(){sp.textContent=frames[fi%frames.length];fi++;},100);
+  n.dataset.iv=iv;
+  n.appendChild(sp);
+}
+var tx=document.createElement('span');tx.textContent=${msgData};
+n.appendChild(tx);
+n.style.cssText='position:absolute;z-index:999999;color:${textColor};font:13px/1.4 "SF Mono","Fira Code",monospace;padding:6px 0;pointer-events:none;opacity:0;transition:opacity 0.15s;white-space:nowrap;';
+if(el){
+  try{
+    var r=el.getBoundingClientRect();
+    var p=el.offsetParent||document.body;
+    n.style.position='fixed';
+    n.style.left=r.left+'px';
+    n.style.top=(r.bottom+4)+'px';
+  }catch(e){
+    n.style.position='fixed';n.style.bottom='16px';n.style.left='16px';
+  }
+}else{
+  n.style.position='fixed';n.style.bottom='16px';n.style.left='16px';
+}
 document.body.appendChild(n);
-requestAnimationFrame(function(){n.style.opacity='1';n.style.transform='none';});
-${autoRemove ? "setTimeout(function(){n.style.opacity='0';n.style.transform='translateY(-8px)';setTimeout(function(){if(n.parentNode)n.remove();},300);},3500);" : ""}
+requestAnimationFrame(function(){n.style.opacity='1';});
+${autoRemove ? "setTimeout(function(){n.style.opacity='0';setTimeout(function(){if(n.dataset.iv)clearInterval(parseInt(n.dataset.iv));if(n.parentNode)n.remove();},200);},2500);" : ""}
 })();`);
     } catch { /* page navigated */ }
   }
@@ -614,23 +733,23 @@ ${autoRemove ? "setTimeout(function(){n.style.opacity='0';n.style.transform='tra
     try {
       await wc.executeJavaScript(`
 (function(){
-var o=document.getElementById('__yo_note');if(o)o.remove();
+var o=document.getElementById('__yo_note');if(o){if(o.dataset.iv)clearInterval(parseInt(o.dataset.iv));o.remove();}
 var m=document.getElementById('__yo_modal');if(m)m.remove();
 var d=${data};
 var ov=document.createElement('div');ov.id='__yo_modal';
-ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
+ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
 var card=document.createElement('div');
-card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:60vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;';
-var t=document.createElement('div');t.textContent='\\u2713 Saved: '+d.fileName+'.md';
-t.style.cssText='font-size:16px;font-weight:600;margin-bottom:12px;color:#a855f7;';
+card.style.cssText='background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:24px;max-width:500px;width:90%;max-height:60vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;';
+var t=document.createElement('div');t.textContent='\\u2713 '+d.fileName+'.md';
+t.style.cssText='font-size:14px;font-weight:600;margin-bottom:12px;color:#4ade80;';
 card.appendChild(t);
 var pre=document.createElement('pre');pre.textContent=d.preview;
-pre.style.cssText='font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:0 0 16px;padding:12px;background:#0d0d1a;border-radius:6px;max-height:300px;overflow:auto;color:#ccc;';
+pre.style.cssText='font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:0 0 16px;padding:12px;background:#0d0d0d;border:1px solid #222;border-radius:6px;max-height:300px;overflow:auto;color:#bbb;';
 card.appendChild(pre);
-var btn=document.createElement('button');btn.textContent='Got it';
-btn.style.cssText='background:#a855f7;color:white;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;transition:background 0.15s;';
-btn.onmouseenter=function(){btn.style.background='#9333ea';};
-btn.onmouseleave=function(){btn.style.background='#a855f7';};
+var btn=document.createElement('button');btn.textContent='Done';
+btn.style.cssText='background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;padding:7px 20px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.15s;';
+btn.onmouseenter=function(){btn.style.background='#333';btn.style.color='#fff';};
+btn.onmouseleave=function(){btn.style.background='#2a2a2a';btn.style.color='#ccc';};
 btn.onclick=function(){ov.remove();};
 card.appendChild(btn);
 ov.appendChild(card);
@@ -655,28 +774,35 @@ setTimeout(function(){var el=document.getElementById('__yo_modal');if(el)el.remo
     try {
       await wc.executeJavaScript(`
 (function(){
-var o=document.getElementById('__yo_note');if(o)o.remove();
+var o=document.getElementById('__yo_note');if(o){if(o.dataset.iv)clearInterval(parseInt(o.dataset.iv));o.remove();}
 var m=document.getElementById('__yo_modal');if(m)m.remove();
 var D=${data};
 var mode=D.mode,skills=D.skills,files=D.files;
 var PAGE=15,page=0,filtered=files;
 var ov=document.createElement('div');ov.id='__yo_modal';
-ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
+ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
 var card=document.createElement('div');
-card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:580px;width:90%;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;display:flex;flex-direction:column;';
-var title=mode==='yo'?'Yo — Capture':'Sup — Recall';
+card.style.cssText='background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:24px;max-width:580px;width:90%;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;display:flex;flex-direction:column;';
+var title=mode==='yo'?'Yo':'Sup';
 var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;';
 var t=document.createElement('div');t.textContent=title;
-t.style.cssText='font-size:16px;font-weight:600;color:#a855f7;';
+t.style.cssText='font-size:15px;font-weight:600;color:#e0e0e0;';
 hdr.appendChild(t);
+var closeBtn=document.createElement('button');closeBtn.textContent='\\u00d7';
+closeBtn.style.cssText='background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;transition:color 0.15s;';
+closeBtn.onmouseenter=function(){closeBtn.style.color='#fff';};
+closeBtn.onmouseleave=function(){closeBtn.style.color='#555';};
+closeBtn.onclick=function(){ov.remove();};
+hdr.appendChild(closeBtn);
 card.appendChild(hdr);
 var pi=document.createElement('input');pi.type='text';
-pi.placeholder=mode==='yo'?'What do you want to save?':'What are you looking for?';
-pi.style.cssText='width:100%;box-sizing:border-box;background:#0d0d1a;border:1px solid #333;color:#e0e0e0;padding:10px 12px;border-radius:6px;font-size:14px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
-pi.onfocus=function(){pi.style.borderColor='#a855f7';};
+pi.placeholder=mode==='yo'?'what do you want to save?':'what are you looking for?';
+pi.style.cssText='width:100%;box-sizing:border-box;background:#1e1e1e;border:1px solid #333;color:#e8e8e8;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
+pi.onfocus=function(){pi.style.borderColor='#555';};
 pi.onblur=function(){pi.style.borderColor='#333';};
 card.appendChild(pi);
 pi.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){ov.remove();return;}
   if(e.key==='Enter'&&pi.value.trim()){
     ov.remove();
     console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',prompt:pi.value.trim()}));
@@ -684,16 +810,16 @@ pi.addEventListener('keydown',function(e){
 });
 var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
 card.appendChild(list);
-var pager=document.createElement('div');pager.style.cssText='display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid #222;margin-top:6px;';
+var pager=document.createElement('div');pager.style.cssText='display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid #1e1e1e;margin-top:6px;';
 var prevBtn=document.createElement('button');prevBtn.textContent='\\u2190';
-prevBtn.style.cssText='background:none;border:1px solid #333;color:#888;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
-prevBtn.onmouseenter=function(){prevBtn.style.borderColor='#a855f7';prevBtn.style.color='#fff';};
-prevBtn.onmouseleave=function(){prevBtn.style.borderColor='#333';prevBtn.style.color='#888';};
-var pageInfo=document.createElement('span');pageInfo.style.cssText='font-size:11px;color:#555;';
+prevBtn.style.cssText='background:none;border:1px solid #2a2a2a;color:#666;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
+prevBtn.onmouseenter=function(){prevBtn.style.borderColor='#555';prevBtn.style.color='#fff';};
+prevBtn.onmouseleave=function(){prevBtn.style.borderColor='#2a2a2a';prevBtn.style.color='#666';};
+var pageInfo=document.createElement('span');pageInfo.style.cssText='font-size:11px;color:#444;';
 var nextBtn=document.createElement('button');nextBtn.textContent='\\u2192';
-nextBtn.style.cssText='background:none;border:1px solid #333;color:#888;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
-nextBtn.onmouseenter=function(){nextBtn.style.borderColor='#a855f7';nextBtn.style.color='#fff';};
-nextBtn.onmouseleave=function(){nextBtn.style.borderColor='#333';nextBtn.style.color='#888';};
+nextBtn.style.cssText='background:none;border:1px solid #2a2a2a;color:#666;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
+nextBtn.onmouseenter=function(){nextBtn.style.borderColor='#555';nextBtn.style.color='#fff';};
+nextBtn.onmouseleave=function(){nextBtn.style.borderColor='#2a2a2a';nextBtn.style.color='#666';};
 pager.appendChild(prevBtn);pager.appendChild(pageInfo);pager.appendChild(nextBtn);
 card.appendChild(pager);
 function ago(ms){
@@ -712,18 +838,18 @@ function render(){
   filtered=fFiles;
   if(fSkills.length>0){
     var sh=document.createElement('div');sh.textContent='Skills';
-    sh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#555;padding:4px 12px 6px;';
+    sh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#444;padding:4px 12px 6px;';
     list.appendChild(sh);
     fSkills.forEach(function(sk){
       var item=document.createElement('div');
       item.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
-      item.onmouseenter=function(){this.style.background='#252540';};
+      item.onmouseenter=function(){this.style.background='#1e1e1e';};
       item.onmouseleave=function(){this.style.background='transparent';};
       var dot=document.createElement('span');dot.textContent='\\u25CF';
-      dot.style.cssText='color:#a855f7;font-size:8px;';
+      dot.style.cssText='color:#7c3aed;font-size:6px;';
       item.appendChild(dot);
       var n=document.createElement('span');n.textContent=sk;
-      n.style.cssText='font-size:13px;font-weight:500;';
+      n.style.cssText='font-size:13px;font-weight:500;color:#ccc;';
       item.appendChild(n);
       item.onclick=function(){ov.remove();
         console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',skill:sk,prompt:pi.value.trim()||null}));};
@@ -732,7 +858,7 @@ function render(){
   }
   if(fFiles.length>0){
     var fh=document.createElement('div');fh.textContent='Library';
-    fh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#555;padding:8px 12px 6px;';
+    fh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#444;padding:8px 12px 6px;';
     list.appendChild(fh);
     var total=fFiles.length;
     var pages=Math.max(1,Math.ceil(total/PAGE));
@@ -746,18 +872,18 @@ function render(){
       var f=fFiles[i];
       var item=document.createElement('div');
       item.style.cssText='display:flex;align-items:center;gap:12px;padding:7px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
-      item.onmouseenter=function(){this.style.background='#252540';};
+      item.onmouseenter=function(){this.style.background='#1e1e1e';};
       item.onmouseleave=function(){this.style.background='transparent';};
       var left=document.createElement('div');left.style.cssText='flex:1;min-width:0;';
       var n=document.createElement('div');n.textContent=f.name+'.md';
-      n.style.cssText='font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      n.style.cssText='font-size:13px;font-weight:500;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       left.appendChild(n);
       if(f.preview){var p=document.createElement('div');p.textContent=f.preview;
-      p.style.cssText='font-size:11px;color:#666;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      p.style.cssText='font-size:11px;color:#555;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
       left.appendChild(p);}
       item.appendChild(left);
       var ts=document.createElement('div');ts.textContent=ago(f.modified);
-      ts.style.cssText='font-size:11px;color:#555;white-space:nowrap;flex-shrink:0;';
+      ts.style.cssText='font-size:11px;color:#444;white-space:nowrap;flex-shrink:0;';
       item.appendChild(ts);
       (function(name){item.onclick=function(){ov.remove();
         console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',fileName:name,prompt:pi.value.trim()||null}));};})(f.name);
@@ -768,7 +894,7 @@ function render(){
   }
   if(fSkills.length===0&&fFiles.length===0){
     var em=document.createElement('div');em.textContent='No matches';
-    em.style.cssText='color:#666;text-align:center;padding:20px;font-size:14px;';list.appendChild(em);
+    em.style.cssText='color:#555;text-align:center;padding:20px;font-size:13px;';list.appendChild(em);
     pager.style.display='none';
   }
 }
