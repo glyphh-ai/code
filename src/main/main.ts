@@ -123,6 +123,8 @@ async function boot() {
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager, library, memoryStore);
+  yoChat.setSkillEngine(skillEngine);
+  yoChat.setAppConnector(appConnector);
   yoInterceptor.setYoChat(yoChat);
 
   // Give interceptor access to visible panel IDs (for multi-panel grab)
@@ -303,12 +305,19 @@ async function boot() {
   });
   ipcMain.handle("panels-get-zoom", () => panelManager.getZoom());
 
+  // IPC: capture panel screenshots (freeze-frame before hiding)
+  ipcMain.handle("capture-panels", async () => {
+    if (!mainWindow) return [];
+    return panelManager.captureScreenshots(mainWindow);
+  });
+
   // IPC: panel visibility (for help overlay)
   ipcMain.on("panels-hide", () => {
     if (mainWindow) panelManager.hideActive(mainWindow);
   });
   ipcMain.on("panels-show", () => {
     if (!mainWindow || !panelsReady) return;
+    panelManager.hidden = false;
     if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
     } else {
@@ -639,7 +648,19 @@ async function boot() {
 
   // IPC: command bar — exec command + autocomplete completions
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
-    return execCommand(cmd);
+    const result = await execCommand(cmd);
+    // Intercept wassup signal from command parser → show modal in renderer
+    if (result.startsWith("__wassup__:")) {
+      const instruction = result.slice("__wassup__:".length).trim();
+      mainWindow?.webContents.send("show-wassup", instruction);
+      return "";
+    }
+    return result;
+  });
+
+  // IPC: wassup admin command — LLM-powered workspace configuration
+  ipcMain.handle("wassup-send", async (_e, instruction: string) => {
+    return yoChat.executeAdmin(instruction);
   });
   ipcMain.handle("get-completions", () => {
     return {

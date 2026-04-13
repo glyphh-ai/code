@@ -17,6 +17,7 @@ declare global {
       windowMaximize: () => void;
       panelsHide: () => void;
       panelsShow: () => void;
+      capturePanels: () => Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>;
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
       panelsGetZoom: () => Promise<number>;
@@ -69,11 +70,35 @@ declare global {
       // Command bar
       execCommand: (cmd: string) => Promise<string>;
       getCompletions: () => Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>;
+      // Wassup admin modal
+      onShowWassup: (callback: (instruction: string) => void) => void;
+      wassupSend: (instruction: string) => Promise<string>;
     };
   }
 }
 
 const gridHandles = document.getElementById("grid-handles")!;
+const screenshotContainer = document.getElementById("panel-screenshots")!;
+
+// ── Panel screenshot helpers (freeze-frame when hiding panels) ──
+
+async function showPanelScreenshots(): Promise<void> {
+  const captures = await window.yo.capturePanels();
+  for (const cap of captures) {
+    const div = document.createElement("div");
+    div.className = "panel-screenshot";
+    div.style.left = `${cap.bounds.x}px`;
+    div.style.top = `${cap.bounds.y}px`;
+    div.style.width = `${cap.bounds.width}px`;
+    div.style.height = `${cap.bounds.height}px`;
+    div.style.backgroundImage = `url(${cap.dataUrl})`;
+    screenshotContainer.appendChild(div);
+  }
+}
+
+function clearPanelScreenshots(): void {
+  screenshotContainer.innerHTML = "";
+}
 
 // ── Window controls ────────────────────────────────────────
 
@@ -90,6 +115,12 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => openH
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    const wassup = document.getElementById("wassup-overlay");
+    if (wassup && !wassup.classList.contains("hidden")) {
+      wassup.classList.add("hidden");
+      window.yo.panelsShow();
+      return;
+    }
     if (isHelpOpen()) closeHelp();
   }
 
@@ -201,7 +232,7 @@ window.addEventListener("resize", () => {
 
 // ── Drag protocol ─────────────────────────────────────────
 
-function startDrag(e: MouseEvent, type: "col" | "row", index: number) {
+async function startDrag(e: MouseEvent, type: "col" | "row", index: number) {
   e.preventDefault();
   isDragging = true;
   dragType = type;
@@ -210,6 +241,8 @@ function startDrag(e: MouseEvent, type: "col" | "row", index: number) {
   const handle = e.currentTarget as HTMLElement;
   handle.classList.add("dragging");
 
+  // Capture freeze-frame before hiding panels
+  await showPanelScreenshots();
   window.yo.panelsHide();
 
   const overlay = document.getElementById("drag-overlay")!;
@@ -249,6 +282,9 @@ document.addEventListener("mouseup", () => {
   overlay.classList.add("hidden");
   overlay.className = "";
 
+  // Clear screenshots before restoring real panels
+  clearPanelScreenshots();
+
   if (dragType === "col") {
     const handle = gridHandles.querySelectorAll(".grid-col-handle")[dragIndex] as HTMLElement;
     if (handle) {
@@ -265,6 +301,93 @@ document.addEventListener("mouseup", () => {
     }
   }
 });
+
+// ── Wassup admin modal ──────────────────────────────────────
+
+const wassupOverlay = document.getElementById("wassup-overlay")!;
+const wassupMessages = document.getElementById("wassup-messages")!;
+const wassupInput = document.getElementById("wassup-input") as HTMLTextAreaElement;
+const wassupSendBtn = document.getElementById("wassup-send-btn") as HTMLButtonElement;
+const wassupCloseBtn = document.getElementById("wassup-close")!;
+
+function autoResize() {
+  wassupInput.style.height = "auto";
+  wassupInput.style.height = Math.min(wassupInput.scrollHeight, 160) + "px";
+}
+
+function openWassup(instruction?: string) {
+  window.yo.panelsHide();
+  wassupOverlay.classList.remove("hidden");
+  wassupMessages.innerHTML = "";
+  wassupInput.value = "";
+  wassupInput.disabled = false;
+  wassupSendBtn.disabled = false;
+  autoResize();
+  wassupInput.focus();
+
+  // If instruction was provided (e.g. "wassup create a skill..."), auto-submit
+  if (instruction) {
+    wassupInput.value = instruction;
+    sendWassup();
+  }
+}
+
+function closeWassup() {
+  wassupOverlay.classList.add("hidden");
+  window.yo.panelsShow();
+}
+
+function addWassupMessage(text: string, role: "user" | "assistant" | "thinking") {
+  const msg = document.createElement("div");
+  msg.className = `wassup-msg ${role}`;
+  msg.textContent = text;
+  wassupMessages.appendChild(msg);
+  wassupMessages.scrollTop = wassupMessages.scrollHeight;
+  return msg;
+}
+
+async function sendWassup() {
+  const text = wassupInput.value.trim();
+  if (!text) return;
+
+  addWassupMessage(text, "user");
+  wassupInput.value = "";
+  autoResize();
+  wassupInput.disabled = true;
+  wassupSendBtn.disabled = true;
+
+  const thinking = addWassupMessage("thinking...", "thinking");
+
+  try {
+    const result = await window.yo.wassupSend(text);
+    thinking.remove();
+    addWassupMessage(result, "assistant");
+  } catch (err: unknown) {
+    thinking.remove();
+    addWassupMessage(`Error: ${err instanceof Error ? err.message : err}`, "assistant");
+  }
+
+  wassupInput.disabled = false;
+  wassupSendBtn.disabled = false;
+  autoResize();
+  wassupInput.focus();
+}
+
+wassupSendBtn.addEventListener("click", sendWassup);
+wassupInput.addEventListener("input", autoResize);
+wassupInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendWassup();
+  }
+});
+wassupCloseBtn.addEventListener("click", closeWassup);
+wassupOverlay.addEventListener("click", (e) => {
+  if (e.target === wassupOverlay) closeWassup();
+});
+
+// Listen for show-wassup from main process
+window.yo.onShowWassup((instruction) => openWassup(instruction || undefined));
 
 // ── Boot gate ───────────────────────────────────────────────
 

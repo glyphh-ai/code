@@ -27,7 +27,7 @@ export async function getCompletions(input: string): Promise<string[]> {
 
   // Still typing the first word — complete command names
   if (argc === 1) {
-    return filterPrefix(["yo", "sup", "dip"], cmd);
+    return filterPrefix(["yo", "sup", "dip", "wassup"], cmd);
   }
 
   const sub = parts[1]?.toLowerCase() ?? "";
@@ -144,7 +144,23 @@ async function showCompletions(): Promise<void> {
   }
   // Hide panels so dropdown is visible (BrowserViews render above HTML)
   if (!panelsHidden) {
-    window.yo.panelsHide();
+    // Capture freeze-frame then hide real panels
+    window.yo.capturePanels().then((captures) => {
+      const container = document.getElementById("panel-screenshots");
+      if (container) {
+        for (const cap of captures) {
+          const div = document.createElement("div");
+          div.className = "panel-screenshot";
+          div.style.left = `${cap.bounds.x}px`;
+          div.style.top = `${cap.bounds.y}px`;
+          div.style.width = `${cap.bounds.width}px`;
+          div.style.height = `${cap.bounds.height}px`;
+          div.style.backgroundImage = `url(${cap.dataUrl})`;
+          container.appendChild(div);
+        }
+      }
+      window.yo.panelsHide();
+    });
     panelsHidden = true;
   }
   renderDropdown();
@@ -178,6 +194,8 @@ export function hideDropdown(): void {
   closeDropdown();
   if (panelsHidden) {
     panelsHidden = false;
+    const container = document.getElementById("panel-screenshots");
+    if (container) container.innerHTML = "";
     window.yo.panelsShow();
   }
 }

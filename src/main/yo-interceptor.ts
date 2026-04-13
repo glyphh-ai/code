@@ -135,6 +135,9 @@ window.__yoInject=function(text){
     if(s&&s.set)s.set.call(el,text);else el.value=text;
     el.dispatchEvent(new Event('input',{bubbles:true}));
   }else{
+    // Select all existing content first, then replace with insertText
+    var sel=window.getSelection();var range=document.createRange();
+    range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
     document.execCommand('insertText',false,text);
   }
 };
@@ -225,12 +228,12 @@ document.addEventListener('keyup',function(e){
   private async dispatch(
     wc: WebContents,
     appId: string,
-    data: { type: string; instruction?: string | null; fileName?: string; skill?: string; prompt?: string; args?: string | null },
+    data: { type: string; instruction?: string | null; fileName?: string; memoryId?: string; skill?: string; prompt?: string; args?: string | null },
   ): Promise<void> {
     if (data.type === "yo") {
       await this.handleYo(wc, appId, data.instruction ?? undefined);
     } else if (data.type === "yo-select") {
-      await this.handleYoSelect(wc, appId, data.skill, data.fileName, data.prompt);
+      await this.handleYoSelect(wc, appId, data.skill, data.fileName, data.memoryId, data.prompt);
     } else if (data.type === "sup") {
       await this.handleSup(wc, appId, data.instruction ?? undefined);
     } else if (data.type === "sup-select") {
@@ -278,7 +281,7 @@ document.addEventListener('keyup',function(e){
 
     // Bare "yo" or "yo ." → show modal
     if (!realInstruction) {
-      this.showCommandModal(wc, "yo");
+      this.showYoModal(wc);
       return;
     }
 
@@ -297,16 +300,25 @@ document.addEventListener('keyup',function(e){
     await this.yoSave(wc, appId, currentOnly, undefined, realInstruction);
   }
 
-  /** Handle modal selection for yo (skill or library file picked). */
+  /** Handle modal selection for yo (memory entry, skill, or prompt picked). */
   private async handleYoSelect(
     wc: WebContents,
     appId: string,
     skill?: string,
     fileName?: string,
+    memoryId?: string,
     prompt?: string,
   ): Promise<void> {
-    if (fileName) {
-      // Append current page content to existing library file
+    if (memoryId) {
+      // Memory entry selected → crystallize it into library
+      const rawContent = this.memoryStore.read(memoryId);
+      if (!rawContent) {
+        this.notify(wc, "Memory entry not found.", "error");
+        return;
+      }
+      await this.yoCrystallize(wc, appId, rawContent, skill, prompt);
+    } else if (fileName) {
+      // Library file selected → append current page content to it
       const content = await this.grabAllPanels(wc, appId, false);
       if (!content) {
         this.notify(wc, "Could not grab content from this page.", "error");
@@ -318,8 +330,42 @@ document.addEventListener('keyup',function(e){
       this.library.write(fileName, appended);
       this.notify(wc, `Appended to ${fileName}.md`, "success");
     } else {
-      // Process with skill/prompt and save (default: all panels)
+      // No memory/file selected → grab from live page and process
       await this.yoSave(wc, appId, false, skill, prompt);
+    }
+  }
+
+  /** Crystallize raw content into a library .md file. */
+  private async yoCrystallize(
+    wc: WebContents,
+    appId: string,
+    rawContent: string,
+    skill?: string,
+    instruction?: string,
+  ): Promise<void> {
+    this.notify(wc, "", "loading");
+    try {
+      let processed: string;
+      if (instruction && this.yoChat) {
+        processed = await this.yoChat.executeInline("yo", instruction, appId, rawContent);
+      } else {
+        processed = await this.skillEngine.process(rawContent, skill);
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      const base = skill || appId;
+      let name = `${base}-${date}`;
+      const existing = this.library.list();
+      if (existing.includes(name)) {
+        let i = 2;
+        while (existing.includes(`${name}-${i}`)) i++;
+        name = `${name}-${i}`;
+      }
+
+      this.library.write(name, processed);
+      this.showYoResult(wc, name, processed);
+    } catch (err) {
+      this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
     }
   }
 
@@ -373,7 +419,7 @@ document.addEventListener('keyup',function(e){
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Bare "sup" → show modal
     if (!instruction) {
-      this.showCommandModal(wc, "sup");
+      this.showSupModal(wc);
       return;
     }
 
@@ -486,40 +532,57 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  /** LLM-powered recall: search memory + library, return best match. */
+  /** Search library for matching content. LLM-assisted for natural language queries. */
   private async supSearch(wc: WebContents, appId: string, query: string): Promise<void> {
+    // Word-match search first
+    const matches = this.library.search(query);
+    if (matches.length === 1) {
+      const content = this.library.read(matches[0]);
+      if (content) {
+        await this.injectContent(wc, content);
+        return;
+      }
+    }
+
+    // Multiple matches or zero — ask LLM to pick
     if (!this.yoChat) {
-      this.notify(wc, "Chat engine not available.", "error");
+      if (matches.length > 0) {
+        const content = this.library.read(matches[0]);
+        if (content) { await this.injectContent(wc, content); return; }
+      }
+      this.notify(wc, `Nothing found for "${query}"`, "error");
       return;
     }
 
     this.notify(wc, "", "loading");
     try {
-      // Build search context from memory store + library
-      const memoryContext = this.memoryStore.buildSearchContext(100);
-      const libraryFiles = this.library.list();
-      const libraryContext = libraryFiles.length > 0
-        ? "Library files: " + libraryFiles.slice(0, 50).join(", ")
-        : "Library is empty.";
+      const files = this.library.list();
+      const findPrompt = `The user asked: "${query}"
 
-      const searchPrompt = `The user is searching for content. Their query: "${query}"
+Available library files: ${files.join(", ")}
 
-Available content sources:
+Reply with ONLY the exact file name (no .md extension) that best matches. If nothing matches, reply: NONE`;
 
-## Auto-captured memory
-${memoryContext}
+      const picked = (await this.yoChat.executeInline("sup", findPrompt, appId))
+        .trim().replace(/\.md$/, "").replace(/[*"`]/g, "");
 
-## Library (curated saves)
-${libraryContext}
+      if (picked === "NONE" || !picked) {
+        this.notify(wc, `Nothing found for "${query}"`, "error");
+        return;
+      }
 
-Find the best matching content. If you find a match in auto-captured memory, use the memory_read tool with the entry ID. If it's in the library, use sup_load with the file name. Return the content to the user. Be concise — just return the relevant content, no commentary.`;
+      let content = this.library.read(picked);
+      if (!content) {
+        // LLM may have slightly mangled the name — fuzzy fallback
+        const fuzzy = this.library.search(picked);
+        if (fuzzy.length > 0) content = this.library.read(fuzzy[0]);
+      }
 
-      const result = await this.yoChat.executeInline("sup", searchPrompt, appId);
-      // Clear spinner, then inject result into the input
-      await this.clearNotify(wc);
-      const injected = await this.injectContent(wc, result);
-      if (!injected) {
-        this.notify(wc, result, "success");
+      if (content) {
+        await this.clearNotify(wc);
+        await this.injectContent(wc, content);
+      } else {
+        this.notify(wc, `Nothing found for "${query}"`, "error");
       }
     } catch (err) {
       this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
@@ -709,9 +772,14 @@ function setText(val){
 if(isLoading){
   var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
   var fi=0;
-  setText(frames[0]+' '+text);
+  setText(frames[0]+' '+text+'   ');
+  // Move cursor to start so it doesn't blink next to the spinner
+  try{if(el.setSelectionRange)el.setSelectionRange(0,0);
+  else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}
   window.__yoNoteIv=setInterval(function(){
-    fi++;setText(frames[fi%frames.length]+' '+text);
+    fi++;setText(frames[fi%frames.length]+' '+text+'   ');
+    try{if(el.setSelectionRange)el.setSelectionRange(0,0);
+    else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}
   },100);
 }else{
   setText(text);
@@ -721,12 +789,24 @@ if(isLoading){
     } catch { /* page navigated */ }
   }
 
-  /** Clear spinner from the input (stop interval + empty text). */
+  /** Clear spinner from the input (stop interval + empty the element). */
   private async clearNotify(wc: WebContents): Promise<void> {
     try {
       await wc.executeJavaScript(`
 (function(){
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
+var el=window.__yoLastEl;if(!el)return;
+if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+  var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+  var s=Object.getOwnPropertyDescriptor(p,'value');
+  if(s&&s.set)s.set.call(el,'');else el.value='';
+  el.dispatchEvent(new Event('input',{bubbles:true}));
+}else{
+  el.focus();
+  var sel=window.getSelection();var range=document.createRange();
+  range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
+  document.execCommand('delete',false);
+}
 })();`);
     } catch {}
   }
@@ -737,30 +817,30 @@ if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
   }
 
   /** Unified modal for yo (capture) and sup (recall). Shows prompt + skills + library. */
-  private async showCommandModal(wc: WebContents, mode: "yo" | "sup"): Promise<void> {
+  /** Yo modal: memory entries + skills + prompt → crystallize into library. */
+  private async showYoModal(wc: WebContents): Promise<void> {
     const skills = this.skillEngine.listSkills();
-    const meta = this.library.listWithMeta();
-    const files = meta.map((f) => ({
-      name: f.name,
-      modified: f.modified,
-      preview: (this.library.read(f.name) || "").slice(0, 120).replace(/\n/g, " "),
+    const memories = this.memoryStore.getManifest(100).map((e) => ({
+      id: e.id,
+      app: e.app,
+      timestamp: e.timestamp,
+      preview: e.preview,
     }));
-    const data = JSON.stringify({ mode, skills, files });
+    const data = JSON.stringify({ skills, memories });
     try {
       await wc.executeJavaScript(`
 (function(){
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
 var m=document.getElementById('__yo_modal');if(m)m.remove();
 var D=${data};
-var mode=D.mode,skills=D.skills,files=D.files;
-var PAGE=15,page=0,filtered=files;
+var skills=D.skills,memories=D.memories;
+var PAGE=12,page=0;
 var ov=document.createElement('div');ov.id='__yo_modal';
 ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
 var card=document.createElement('div');
 card.style.cssText='background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:24px;max-width:580px;width:90%;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;display:flex;flex-direction:column;';
-var title=mode==='yo'?'Yo':'Sup';
 var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;';
-var t=document.createElement('div');t.textContent=title;
+var t=document.createElement('div');t.textContent='Yo';
 t.style.cssText='font-size:15px;font-weight:600;color:#e0e0e0;';
 hdr.appendChild(t);
 var closeBtn=document.createElement('button');closeBtn.textContent='\\u00d7';
@@ -771,7 +851,7 @@ closeBtn.onclick=function(){ov.remove();};
 hdr.appendChild(closeBtn);
 card.appendChild(hdr);
 var pi=document.createElement('input');pi.type='text';
-pi.placeholder=mode==='yo'?'what do you want to save?':'what are you looking for?';
+pi.placeholder='how should this be crystallized?';
 pi.style.cssText='width:100%;box-sizing:border-box;background:#1e1e1e;border:1px solid #333;color:#e8e8e8;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
 pi.onfocus=function(){pi.style.borderColor='#555';};
 pi.onblur=function(){pi.style.borderColor='#333';};
@@ -780,7 +860,154 @@ pi.addEventListener('keydown',function(e){
   if(e.key==='Escape'){ov.remove();return;}
   if(e.key==='Enter'&&pi.value.trim()){
     ov.remove();
-    console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',prompt:pi.value.trim()}));
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-select',prompt:pi.value.trim()}));
+  }
+});
+var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
+card.appendChild(list);
+var pager=document.createElement('div');pager.style.cssText='display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid #1e1e1e;margin-top:6px;';
+var prevBtn=document.createElement('button');prevBtn.textContent='\\u2190';
+prevBtn.style.cssText='background:none;border:1px solid #2a2a2a;color:#666;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
+prevBtn.onmouseenter=function(){prevBtn.style.borderColor='#555';prevBtn.style.color='#fff';};
+prevBtn.onmouseleave=function(){prevBtn.style.borderColor='#2a2a2a';prevBtn.style.color='#666';};
+var pageInfo=document.createElement('span');pageInfo.style.cssText='font-size:11px;color:#444;';
+var nextBtn=document.createElement('button');nextBtn.textContent='\\u2192';
+nextBtn.style.cssText='background:none;border:1px solid #2a2a2a;color:#666;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
+nextBtn.onmouseenter=function(){nextBtn.style.borderColor='#555';nextBtn.style.color='#fff';};
+nextBtn.onmouseleave=function(){nextBtn.style.borderColor='#2a2a2a';nextBtn.style.color='#666';};
+pager.appendChild(prevBtn);pager.appendChild(pageInfo);pager.appendChild(nextBtn);
+card.appendChild(pager);
+function ago(ms){
+  var s=Math.floor((Date.now()-ms)/1000);
+  if(s<60)return 'just now';
+  var m=Math.floor(s/60);if(m<60)return m+'m ago';
+  var h=Math.floor(m/60);if(h<24)return h+'h ago';
+  var d=Math.floor(h/24);if(d<30)return d+'d ago';
+  return new Date(ms).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+}
+function render(){
+  list.innerHTML='';
+  var q=pi.value.toLowerCase();
+  var fSkills=skills.filter(function(s){return !q||s.toLowerCase().includes(q);});
+  var fMems=q?memories.filter(function(m){return m.app.toLowerCase().includes(q)||m.preview.toLowerCase().includes(q);}):memories;
+  if(fSkills.length>0){
+    var sh=document.createElement('div');sh.textContent='Skills';
+    sh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#444;padding:4px 12px 6px;';
+    list.appendChild(sh);
+    fSkills.forEach(function(sk){
+      var item=document.createElement('div');
+      item.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
+      item.onmouseenter=function(){this.style.background='#1e1e1e';};
+      item.onmouseleave=function(){this.style.background='transparent';};
+      var dot=document.createElement('span');dot.textContent='\\u25CF';
+      dot.style.cssText='color:#7c3aed;font-size:6px;';
+      item.appendChild(dot);
+      var n=document.createElement('span');n.textContent=sk;
+      n.style.cssText='font-size:13px;font-weight:500;color:#ccc;';
+      item.appendChild(n);
+      item.onclick=function(){ov.remove();
+        console.log('${PREFIX}'+JSON.stringify({type:'yo-select',skill:sk,prompt:pi.value.trim()||null}));};
+      list.appendChild(item);
+    });
+  }
+  if(fMems.length>0){
+    var mh=document.createElement('div');mh.textContent='Memory';
+    mh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#444;padding:8px 12px 6px;';
+    list.appendChild(mh);
+    var total=fMems.length;
+    var pages=Math.max(1,Math.ceil(total/PAGE));
+    if(page>=pages)page=pages-1;
+    var start=page*PAGE,end=Math.min(start+PAGE,total);
+    pageInfo.textContent=(page+1)+'/'+pages;
+    prevBtn.style.visibility=page>0?'visible':'hidden';
+    nextBtn.style.visibility=page<pages-1?'visible':'hidden';
+    pager.style.display=total>PAGE?'flex':'none';
+    for(var i=start;i<end;i++){
+      var mem=fMems[i];
+      var item=document.createElement('div');
+      item.style.cssText='display:flex;align-items:center;gap:12px;padding:7px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
+      item.onmouseenter=function(){this.style.background='#1e1e1e';};
+      item.onmouseleave=function(){this.style.background='transparent';};
+      var left=document.createElement('div');left.style.cssText='flex:1;min-width:0;';
+      var n=document.createElement('div');n.textContent=mem.app;
+      n.style.cssText='font-size:13px;font-weight:500;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      left.appendChild(n);
+      var p=document.createElement('div');p.textContent=mem.preview;
+      p.style.cssText='font-size:11px;color:#555;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      left.appendChild(p);
+      item.appendChild(left);
+      var ts=document.createElement('div');ts.textContent=ago(mem.timestamp);
+      ts.style.cssText='font-size:11px;color:#444;white-space:nowrap;flex-shrink:0;';
+      item.appendChild(ts);
+      (function(id){item.onclick=function(){ov.remove();
+        console.log('${PREFIX}'+JSON.stringify({type:'yo-select',memoryId:id,prompt:pi.value.trim()||null}));};})(mem.id);
+      list.appendChild(item);
+    }
+  } else {
+    pager.style.display='none';
+  }
+  if(fSkills.length===0&&fMems.length===0){
+    var em=document.createElement('div');em.textContent='No memory yet — browse your apps and come back';
+    em.style.cssText='color:#555;text-align:center;padding:20px;font-size:13px;';list.appendChild(em);
+    pager.style.display='none';
+  }
+}
+prevBtn.onclick=function(){if(page>0){page--;render();}};
+nextBtn.onclick=function(){page++;render();};
+pi.oninput=function(){page=0;render();};
+render();
+ov.onclick=function(e){if(e.target===ov)ov.remove();};
+ov.appendChild(card);
+document.body.appendChild(ov);
+requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';pi.focus();});
+})();`);
+    } catch {}
+  }
+
+  /** Sup modal: library files + skills + prompt → inject context into app. */
+  private async showSupModal(wc: WebContents): Promise<void> {
+    const skills = this.skillEngine.listSkills();
+    const meta = this.library.listWithMeta();
+    const files = meta.map((f) => ({
+      name: f.name,
+      modified: f.modified,
+      preview: (this.library.read(f.name) || "").slice(0, 120).replace(/\n/g, " "),
+    }));
+    const data = JSON.stringify({ skills, files });
+    try {
+      await wc.executeJavaScript(`
+(function(){
+if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
+var m=document.getElementById('__yo_modal');if(m)m.remove();
+var D=${data};
+var skills=D.skills,files=D.files;
+var PAGE=15,page=0;
+var ov=document.createElement('div');ov.id='__yo_modal';
+ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;backdrop-filter:blur(2px);';
+var card=document.createElement('div');
+card.style.cssText='background:#151515;border:1px solid #2a2a2a;border-radius:10px;padding:24px;max-width:580px;width:90%;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.6);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.96);transition:transform 0.2s;display:flex;flex-direction:column;';
+var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;';
+var t=document.createElement('div');t.textContent='Sup';
+t.style.cssText='font-size:15px;font-weight:600;color:#e0e0e0;';
+hdr.appendChild(t);
+var closeBtn=document.createElement('button');closeBtn.textContent='\\u00d7';
+closeBtn.style.cssText='background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;transition:color 0.15s;';
+closeBtn.onmouseenter=function(){closeBtn.style.color='#fff';};
+closeBtn.onmouseleave=function(){closeBtn.style.color='#555';};
+closeBtn.onclick=function(){ov.remove();};
+hdr.appendChild(closeBtn);
+card.appendChild(hdr);
+var pi=document.createElement('input');pi.type='text';
+pi.placeholder='what are you looking for?';
+pi.style.cssText='width:100%;box-sizing:border-box;background:#1e1e1e;border:1px solid #333;color:#e8e8e8;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
+pi.onfocus=function(){pi.style.borderColor='#555';};
+pi.onblur=function(){pi.style.borderColor='#333';};
+card.appendChild(pi);
+pi.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){ov.remove();return;}
+  if(e.key==='Enter'&&pi.value.trim()){
+    ov.remove();
+    console.log('${PREFIX}'+JSON.stringify({type:'sup-select',prompt:pi.value.trim()}));
   }
 });
 var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
@@ -810,7 +1037,6 @@ function render(){
   var q=pi.value.toLowerCase();
   var fSkills=skills.filter(function(s){return !q||s.toLowerCase().includes(q);});
   var fFiles=q?files.filter(function(f){return f.name.toLowerCase().includes(q)||f.preview.toLowerCase().includes(q);}):files;
-  filtered=fFiles;
   if(fSkills.length>0){
     var sh=document.createElement('div');sh.textContent='Skills';
     sh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#444;padding:4px 12px 6px;';
@@ -827,7 +1053,7 @@ function render(){
       n.style.cssText='font-size:13px;font-weight:500;color:#ccc;';
       item.appendChild(n);
       item.onclick=function(){ov.remove();
-        console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',skill:sk,prompt:pi.value.trim()||null}));};
+        console.log('${PREFIX}'+JSON.stringify({type:'sup-select',skill:sk,prompt:pi.value.trim()||null}));};
       list.appendChild(item);
     });
   }
@@ -861,14 +1087,14 @@ function render(){
       ts.style.cssText='font-size:11px;color:#444;white-space:nowrap;flex-shrink:0;';
       item.appendChild(ts);
       (function(name){item.onclick=function(){ov.remove();
-        console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',fileName:name,prompt:pi.value.trim()||null}));};})(f.name);
+        console.log('${PREFIX}'+JSON.stringify({type:'sup-select',fileName:name,prompt:pi.value.trim()||null}));};})(f.name);
       list.appendChild(item);
     }
   } else {
     pager.style.display='none';
   }
   if(fSkills.length===0&&fFiles.length===0){
-    var em=document.createElement('div');em.textContent='No matches';
+    var em=document.createElement('div');em.textContent='Library is empty — use yo to crystallize content first';
     em.style.cssText='color:#555;text-align:center;padding:20px;font-size:13px;';list.appendChild(em);
     pager.style.display='none';
   }

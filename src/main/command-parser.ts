@@ -44,8 +44,10 @@ export class CommandParser {
         return this.handleSup(args);
       case "dip":
         return this.handleDip(args);
+      case "wassup":
+        return `__wassup__:${args.join(" ")}`;
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, or dip.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, or wassup.`;
     }
   }
 

@@ -57,16 +57,26 @@ export class Library {
       .sort((a, b) => b.modified - a.modified);
   }
 
-  /** Search files by content */
+  /** Search files by name/content. Splits query into words, ranks by match count. */
   search(term: string): string[] {
-    const lower = term.toLowerCase();
-    return this.list().filter((name) => {
-      const content = this.read(name);
-      return (
-        name.toLowerCase().includes(lower) ||
-        (content && content.toLowerCase().includes(lower))
-      );
-    });
+    const words = term.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
+    if (words.length === 0) return [];
+
+    const scored = this.list()
+      .map((name) => {
+        const nameLower = name.toLowerCase();
+        const content = (this.read(name) || "").toLowerCase();
+        let score = 0;
+        for (const w of words) {
+          if (nameLower.includes(w)) score += 2; // name match weighted higher
+          if (content.includes(w)) score += 1;
+        }
+        return { name, score };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return scored.map((r) => r.name);
   }
 
   /** Resolve name → file path */

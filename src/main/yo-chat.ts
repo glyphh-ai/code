@@ -11,6 +11,8 @@
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
 import { MemoryStore } from "./memory-store";
+import { SkillEngine } from "./skill-engine";
+import { AppConnector } from "./app-connector";
 
 export interface ChatCallbacks {
   onText: (delta: string) => void;
@@ -90,6 +92,8 @@ export class YoChat {
   private history: any[] = [];
   private apiKey: string | null = null;
   private commandCallback: ((cmd: string) => Promise<string>) | null = null;
+  private skillEngine: SkillEngine | null = null;
+  private appConnector: AppConnector | null = null;
 
   constructor(
     private panelManager: PanelManager,
@@ -102,6 +106,9 @@ export class YoChat {
   setCommandCallback(cb: (cmd: string) => Promise<string>): void {
     this.commandCallback = cb;
   }
+
+  setSkillEngine(se: SkillEngine): void { this.skillEngine = se; }
+  setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
 
   async send(message: string, cb: ChatCallbacks): Promise<void> {
     this.apiKey = process.env.ANTHROPIC_API_KEY || this.apiKey;
@@ -273,6 +280,190 @@ export class YoChat {
         case "dip":
           if (this.commandCallback) return this.commandCallback(`dip ${input.panel}`);
           return "Panel switching not available.";
+        default:
+          return `Unknown tool: ${name}`;
+      }
+    } catch (err) {
+      return `Error: ${err instanceof Error ? err.message : err}`;
+    }
+  }
+
+  // ── Admin execution (wassup) ─────────────────────────
+
+  private static readonly ADMIN_SYSTEM = `You are Yo, the admin assistant for the YoSup desktop workspace.
+The user is configuring their workspace. You can create skills, add apps, and create layouts.
+
+When creating skills: the prompt should be a clear system instruction for how to process content.
+When adding apps: use the URL the user provides. The ID is auto-derived from the URL.
+When creating layouts: panels are referenced by their app ID (e.g. "claude", "gpt", "gemini").
+
+Be concise. Execute the tools and confirm what you did.`;
+
+  private static readonly ADMIN_TOOLS = [
+    {
+      name: "skill_create",
+      description: "Create or update a skill (a named prompt for processing content).",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          name: { type: "string" as const, description: "Skill name (lowercase, no spaces)" },
+          prompt: { type: "string" as const, description: "The system prompt instruction for this skill" },
+        },
+        required: ["name", "prompt"],
+      },
+    },
+    {
+      name: "skill_list",
+      description: "List all existing skills.",
+      input_schema: { type: "object" as const, properties: {} },
+    },
+    {
+      name: "skill_delete",
+      description: "Delete a skill by name.",
+      input_schema: {
+        type: "object" as const,
+        properties: { name: { type: "string" as const, description: "Skill name" } },
+        required: ["name"],
+      },
+    },
+    {
+      name: "app_add",
+      description: "Add a new web app panel to the workspace.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          name: { type: "string" as const, description: "Display name for the app" },
+          url: { type: "string" as const, description: "Full URL (https://...)" },
+        },
+        required: ["name", "url"],
+      },
+    },
+    {
+      name: "app_list",
+      description: "List all configured apps.",
+      input_schema: { type: "object" as const, properties: {} },
+    },
+    {
+      name: "layout_create",
+      description: "Create a named layout (arrangement of panels). Use 'dip <name>' to activate later.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          name: { type: "string" as const, description: "Layout name" },
+          command: { type: "string" as const, description: "The dip command to create this layout, e.g. 'dip split claude gpt' or 'dip grid claude,gpt / gemini,code'" },
+        },
+        required: ["name", "command"],
+      },
+    },
+    {
+      name: "layout_list",
+      description: "List all saved layouts.",
+      input_schema: { type: "object" as const, properties: {} },
+    },
+  ];
+
+  async executeAdmin(instruction: string): Promise<string> {
+    this.apiKey = process.env.ANTHROPIC_API_KEY || this.apiKey;
+    if (!this.apiKey) return "No API key configured.";
+
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey: this.apiKey! });
+
+    // Build context about current state
+    const context: string[] = [];
+    if (this.skillEngine) {
+      const skills = this.skillEngine.listSkills();
+      context.push(`Existing skills: ${skills.length > 0 ? skills.join(", ") : "none"}`);
+    }
+    if (this.appConnector) {
+      const apps = this.appConnector.list();
+      context.push(`Existing apps: ${apps.length > 0 ? apps.map((a) => `${a.id} (${a.url})`).join(", ") : "none"}`);
+    }
+
+    const messages: any[] = [{
+      role: "user",
+      content: `${instruction}\n\nCurrent state:\n${context.join("\n")}`,
+    }];
+    let finalText = "";
+
+    for (let i = 0; i < 5; i++) {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: YoChat.ADMIN_SYSTEM,
+        messages,
+        tools: YoChat.ADMIN_TOOLS as any,
+      });
+
+      messages.push({ role: "assistant", content: response.content });
+
+      for (const block of response.content) {
+        if (block.type === "text") finalText += block.text;
+      }
+
+      const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
+      if (toolBlocks.length > 0 && response.stop_reason === "tool_use") {
+        const results: any[] = [];
+        for (const block of toolBlocks) {
+          if (block.type !== "tool_use") continue;
+          const result = await this.execAdmin(block.name, block.input as Record<string, unknown>);
+          results.push({ type: "tool_result", tool_use_id: block.id, content: result });
+        }
+        messages.push({ role: "user", content: results });
+        finalText = "";
+      } else {
+        break;
+      }
+    }
+
+    return finalText || "Done.";
+  }
+
+  private async execAdmin(name: string, input: Record<string, unknown>): Promise<string> {
+    try {
+      switch (name) {
+        case "skill_create":
+          if (!this.skillEngine) return "Skill engine not available.";
+          if (this.skillEngine.readSkill(input.name as string) !== null) {
+            this.skillEngine.updateSkill(input.name as string, input.prompt as string);
+            return `Updated skill: ${input.name}`;
+          }
+          this.skillEngine.createSkill(input.name as string, input.prompt as string);
+          return `Created skill: ${input.name}`;
+        case "skill_list": {
+          if (!this.skillEngine) return "Skill engine not available.";
+          const skills = this.skillEngine.listSkills();
+          return skills.length > 0 ? skills.join(", ") : "No skills yet.";
+        }
+        case "skill_delete":
+          if (!this.skillEngine) return "Skill engine not available.";
+          return this.skillEngine.deleteSkill(input.name as string)
+            ? `Deleted skill: ${input.name}` : `Skill not found: ${input.name}`;
+        case "app_add": {
+          if (!this.appConnector) return "App connector not available.";
+          const url = input.url as string;
+          const id = (input.name as string).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+          this.appConnector.add(id, input.name as string, url);
+          this.panelManager.addPanel(id, url);
+          return `Added app: ${input.name} (${id}) → ${url}`;
+        }
+        case "app_list": {
+          if (!this.appConnector) return "App connector not available.";
+          const apps = this.appConnector.list();
+          return apps.length > 0
+            ? apps.map((a) => `${a.id} — ${a.url}`).join("\n")
+            : "No apps yet.";
+        }
+        case "layout_create": {
+          if (!this.commandCallback) return "Command handler not available.";
+          const cmd = input.command as string;
+          await this.commandCallback(cmd);
+          await this.commandCallback(`yo layout save ${input.name} ${cmd.replace(/^dip\s+(split|grid)\s+/, "")}`);
+          return `Created layout: ${input.name}`;
+        }
+        case "layout_list":
+          if (!this.commandCallback) return "Command handler not available.";
+          return this.commandCallback("yo layout list");
         default:
           return `Unknown tool: ${name}`;
       }

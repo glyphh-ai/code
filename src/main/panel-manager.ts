@@ -20,6 +20,19 @@ export type PanelCreatedCallback = (id: string, webContents: WebContents) => voi
 export type PanelReadyCallback = (id: string, webContents: WebContents) => void;
 
 export class PanelManager {
+  private static readonly SCROLLBAR_CSS = `
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: rgba(168, 85, 247, 0.45);
+    }
+    *::-webkit-scrollbar-corner { background: transparent; }
+  `;
+
   private panels: Map<string, BrowserView> = new Map();
   private configs: Map<string, PanelConfig> = new Map();
   private activePanel: string | null = null;
@@ -139,6 +152,8 @@ export class PanelManager {
     view.webContents.loadURL(config.url);
     view.webContents.on("did-finish-load", () => {
       view.webContents.setZoomFactor(this.zoomFactor);
+      // Inject thin scrollbar styles into all panels
+      view.webContents.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});
       if (this.activePanel === id) {
         this.onReady?.(id, view.webContents);
       }
@@ -276,7 +291,25 @@ export class PanelManager {
   get isHidden(): boolean {
     return this._hidden;
   }
+  set hidden(v: boolean) {
+    this._hidden = v;
+  }
   private _hidden = false;
+
+  /** Capture screenshots of all visible BrowserViews (for freeze-frame during hide) */
+  async captureScreenshots(parent: BrowserWindow): Promise<Array<{ dataUrl: string; bounds: Electron.Rectangle }>> {
+    const results: Array<{ dataUrl: string; bounds: Electron.Rectangle }> = [];
+    for (const bv of parent.getBrowserViews()) {
+      try {
+        const bounds = bv.getBounds();
+        const image = await bv.webContents.capturePage();
+        if (!image.isEmpty()) {
+          results.push({ dataUrl: image.toDataURL(), bounds });
+        }
+      } catch { /* view may have been destroyed */ }
+    }
+    return results;
+  }
 
   /** Hide ALL BrowserViews (for overlay support) */
   hideActive(parent: BrowserWindow): void {

@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("yo", {
   // Panel visibility + refresh
   panelsHide: () => ipcRenderer.send("panels-hide"),
   panelsShow: () => ipcRenderer.send("panels-show"),
+  capturePanels: () => ipcRenderer.invoke("capture-panels") as Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>,
   panelsRefresh: (id?: string) => ipcRenderer.send("panels-refresh", id),
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
   panelsGetZoom: () => ipcRenderer.invoke("panels-get-zoom") as Promise<number>,
@@ -91,4 +92,10 @@ contextBridge.exposeInMainWorld("yo", {
   // Command bar
   execCommand: (cmd: string) => ipcRenderer.invoke("exec-command", cmd) as Promise<string>,
   getCompletions: () => ipcRenderer.invoke("get-completions") as Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>,
+
+  // Wassup admin modal
+  onShowWassup: (callback: (instruction: string) => void) => {
+    ipcRenderer.on("show-wassup", (_event, instruction: string) => callback(instruction));
+  },
+  wassupSend: (instruction: string) => ipcRenderer.invoke("wassup-send", instruction) as Promise<string>,
 });

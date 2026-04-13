@@ -38,6 +38,9 @@
     </div>
   </div>
 
+  <!-- Panel screenshots (freeze-frame when panels are hidden) -->
+  <div id="panel-screenshots"></div>
+
   <!-- Grid drag handles + overlay -->
   <div id="grid-handles"></div>
   <div id="drag-overlay" class="hidden"></div>
@@ -139,6 +142,19 @@
             <div class="cmd-row">
               <code>dip grid [70,30] [60,40] claude,gpt / gemini,code</code>
               <span>Custom column widths + row heights</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>wassup <span class="cmd-desc">— configuring</span></h3>
+            <p class="cmd-intro">Talk to Yo to configure your workspace. Command bar only.</p>
+            <div class="cmd-row">
+              <code>wassup</code>
+              <span>Open the admin assistant</span>
+            </div>
+            <div class="cmd-row">
+              <code>wassup create a skill called summary that...</code>
+              <span>Natural language — create skills, add apps, build layouts</span>
             </div>
           </div>
 
@@ -307,6 +323,23 @@
         </div>
 
       </main>
+    </div>
+  </div>
+
+  <!-- Wassup admin modal -->
+  <div id="wassup-overlay" class="hidden">
+    <div id="wassup-modal">
+      <div class="wassup-header">
+        <span class="wassup-title">wassup<span class="dot">.</span></span>
+        <button id="wassup-close" class="wassup-close-btn">&times;</button>
+      </div>
+      <div id="wassup-messages"></div>
+      <div class="wassup-composer">
+        <textarea id="wassup-input" rows="1" placeholder="create a skill, add an app, make a layout..." spellcheck="false"></textarea>
+        <button id="wassup-send-btn" class="wassup-send" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13V9l10-1-10-1V3l14 5-14 5z" fill="currentColor"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 
