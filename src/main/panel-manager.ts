@@ -104,7 +104,11 @@ export class PanelManager {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         return { action: "deny" };
       }
-      // Open external links in the same view instead of a popup
+      // Allow OAuth popups (Google, GitHub, etc.) to open as real windows
+      if (url.includes("accounts.google.com") || url.includes("github.com/login") || url.includes("auth") || url.includes("oauth") || url.includes("signin")) {
+        return { action: "allow" };
+      }
+      // Open other external links in the same view instead of a popup
       view.webContents.loadURL(url);
       return { action: "deny" };
     });
