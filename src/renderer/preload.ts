@@ -9,12 +9,6 @@ contextBridge.exposeInMainWorld("yo", {
   windowMinimize: () => ipcRenderer.send("window-minimize"),
   windowMaximize: () => ipcRenderer.send("window-maximize"),
 
-  // Active context
-  onContextUpdate: (callback: (ctx: { name: string } | null) => void) => {
-    ipcRenderer.on("context-update", (_event, ctx) => callback(ctx));
-  },
-  contextClear: () => ipcRenderer.send("context-clear"),
-
   // Panel visibility + refresh
   panelsHide: () => ipcRenderer.send("panels-hide"),
   panelsShow: () => ipcRenderer.send("panels-show"),

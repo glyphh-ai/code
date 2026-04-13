@@ -23,6 +23,7 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
+import { MemoryStore } from "./memory-store";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -82,8 +83,11 @@ async function boot() {
   terminalManager = new TerminalManager();
   terminalManager.init();
 
+  // Memory store — silent auto-capture of panel content
+  const memoryStore = new MemoryStore();
+
   // yo/sup/dip interceptor — injected into ALL app panels
-  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine);
+  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, memoryStore);
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -118,12 +122,23 @@ async function boot() {
   });
 
   // LLM engine for inline yo/sup execution
-  const yoChat = new YoChat(panelManager, library);
+  const yoChat = new YoChat(panelManager, library, memoryStore);
   yoInterceptor.setYoChat(yoChat);
 
-  // Notify renderer when active context changes (for titlebar pill)
-  yoInterceptor.setOnContextChange((ctx) => {
-    mainWindow?.webContents.send("context-update", ctx);
+  // Give interceptor access to visible panel IDs (for multi-panel grab)
+  yoInterceptor.setVisiblePanelsGetter(() => {
+    const gridInfo = layoutManager.getGridInfo();
+    if (gridInfo) return gridInfo.panelIds;
+    return panelManager.activePanelId ? [panelManager.activePanelId] : [];
+  });
+
+  // Auto-capture: snapshot leaving panel when user switches panels
+  panelManager.setOnPanelReady((_id, _wc) => {
+    const prevId = panelManager.previousPanelId;
+    if (prevId && prevId !== "term") {
+      const prevWc = panelManager.getWebContents(prevId);
+      if (prevWc) yoInterceptor.autoCapture(prevWc, prevId);
+    }
   });
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
@@ -239,11 +254,6 @@ async function boot() {
   ipcMain.on("window-maximize", () => {
     if (mainWindow?.isMaximized()) mainWindow.unmaximize();
     else mainWindow?.maximize();
-  });
-
-  // IPC: active context
-  ipcMain.on("context-clear", () => {
-    yoInterceptor.clearContext();
   });
 
   // IPC: refresh panels

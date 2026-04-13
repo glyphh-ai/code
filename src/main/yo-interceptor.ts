@@ -3,8 +3,12 @@
  *
  * When a connected app's BrowserView loads, injects a script that watches
  * for yo/sup patterns in editable inputs:
- *   "yo <skill>" → grab content → LLM summarize → save to ~/yo/library/
- *   "sup <search>" → search library → push content into app (or show picker)
+ *   "yo"               → grab ALL visible panels → open modal
+ *   "yo ."             → grab current panel only → open modal
+ *   "yo <skill>"       → grab all panels → skill → save (silent)
+ *   "yo . <skill>"     → grab current panel → skill → save (silent)
+ *   "sup <query>"      → LLM searches memory+library → push result
+ *   "sup"              → open modal with library browse
  *
  * All UI (notifications, result modals, file picker) is injected directly
  * into the app's DOM via executeJavaScript — zero renderer changes needed.
@@ -14,6 +18,7 @@ import { WebContents } from "electron";
 import { AppConnector } from "./app-connector";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
+import { MemoryStore } from "./memory-store";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
 
@@ -23,14 +28,17 @@ export class YoInterceptor {
   private active = new Map<number, () => void>();
   private commandHandler: ((input: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
-  private activeContext: { name: string; content: string } | null = null;
-  private onContextChange: ((ctx: { name: string } | null) => void) | null = null;
+  private memoryStore: MemoryStore;
+  private getVisiblePanelIds: (() => string[]) | null = null;
 
   constructor(
     private appConnector: AppConnector,
     private library: Library,
     private skillEngine: SkillEngine,
-  ) {}
+    memoryStore: MemoryStore,
+  ) {
+    this.memoryStore = memoryStore;
+  }
 
   /** Set the YoChat instance for inline LLM execution. */
   setYoChat(chat: YoChat): void {
@@ -42,26 +50,9 @@ export class YoInterceptor {
     this.commandHandler = handler;
   }
 
-  /** Set callback for context changes (notifies renderer for titlebar pill). */
-  setOnContextChange(cb: (ctx: { name: string } | null) => void): void {
-    this.onContextChange = cb;
-  }
-
-  /** Load a library file as active context. */
-  setContext(name: string, content: string): void {
-    this.activeContext = { name, content };
-    this.onContextChange?.({ name });
-  }
-
-  /** Clear the active context. */
-  clearContext(): void {
-    this.activeContext = null;
-    this.onContextChange?.(null);
-  }
-
-  /** Get the active context (for external use). */
-  getContext(): { name: string; content: string } | null {
-    return this.activeContext;
+  /** Set getter for visible panel IDs (from layout manager). */
+  setVisiblePanelsGetter(getter: () => string[]): void {
+    this.getVisiblePanelIds = getter;
   }
 
   /** Start watching a panel's webContents for yo/sup commands. */
@@ -92,6 +83,18 @@ export class YoInterceptor {
     this.active.delete(wcId);
   }
 
+  /** Auto-capture: grab content from a panel and store in memory. */
+  async autoCapture(wc: WebContents, appId: string): Promise<boolean> {
+    try {
+      const app = this.appConnector.get(appId);
+      const content = await this.grabContent(wc, app);
+      if (!content) return false;
+      return this.memoryStore.capture(appId, content);
+    } catch {
+      return false;
+    }
+  }
+
   // ── Injection ──────────────────────────────────────────
 
   private async inject(wc: WebContents, appId: string): Promise<void> {
@@ -108,8 +111,6 @@ export class YoInterceptor {
    * console.log with our PREFIX.
    */
   private buildScript(): string {
-    // The template uses single-letter vars and no newlines for compactness.
-    // PREFIX is baked in as a literal so we don't need to escape it.
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
@@ -243,12 +244,15 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── yo flow: crystallize ──────────────────────────────────
+  // ── yo flow: capture ──────────────────────────────────────
   //
-  //   bare "yo"           → show modal (skills + library) for saving
+  //   bare "yo"           → grab ALL panels → show modal
+  //   "yo ."              → grab current panel → show modal
   //   "yo help"           → open help overlay
-  //   "yo <known-skill>"  → grab + skill → save (fast path)
-  //   "yo <instruction>"  → grab + LLM → save
+  //   "yo <known-skill>"  → grab ALL panels + skill → save (fast path)
+  //   "yo . <skill>"      → grab current panel + skill → save
+  //   "yo <instruction>"  → grab ALL panels + LLM → save
+  //   "yo . <instruction>"→ grab current panel + LLM → save
 
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Route subcommands through command parser
@@ -261,25 +265,30 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Bare "yo" → show unified modal for crystallizing
-    if (!instruction) {
+    // Parse the dot modifier: "yo ." or "yo . <instruction>"
+    const dotMatch = instruction?.match(/^\.\s*(.*)?$/);
+    const currentOnly = !!dotMatch;
+    const realInstruction = currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
+
+    // Bare "yo" or "yo ." → show modal
+    if (!realInstruction) {
       this.showCommandModal(wc, "yo");
       return;
     }
 
     // Single known skill → fast path
-    const isSingleWord = /^\S+$/.test(instruction);
+    const isSingleWord = /^\S+$/.test(realInstruction);
     const knownSkill = isSingleWord ? this.skillEngine.listSkills().find(
-      (s) => s.toLowerCase() === instruction!.toLowerCase(),
+      (s) => s.toLowerCase() === realInstruction!.toLowerCase(),
     ) : undefined;
 
     if (knownSkill) {
-      await this.yoSave(wc, appId, knownSkill);
+      await this.yoSave(wc, appId, currentOnly, knownSkill);
       return;
     }
 
     // Natural language → LLM processes and saves
-    await this.yoSave(wc, appId, undefined, instruction);
+    await this.yoSave(wc, appId, currentOnly, undefined, realInstruction);
   }
 
   /** Handle modal selection for yo (skill or library file picked). */
@@ -292,8 +301,7 @@ document.addEventListener('keyup',function(e){
   ): Promise<void> {
     if (fileName) {
       // Append current page content to existing library file
-      const app = this.appConnector.get(appId);
-      const content = await this.grabContent(wc, app);
+      const content = await this.grabAllPanels(wc, appId, false);
       if (!content) {
         this.notify(wc, "Could not grab content from this page.", "error");
         return;
@@ -304,19 +312,24 @@ document.addEventListener('keyup',function(e){
       this.library.write(fileName, appended);
       this.notify(wc, `Appended to ${fileName}.md`, "success");
     } else {
-      // Process with skill/prompt and save
-      await this.yoSave(wc, appId, skill, prompt);
+      // Process with skill/prompt and save (default: all panels)
+      await this.yoSave(wc, appId, false, skill, prompt);
     }
   }
 
-  /** Grab content from current app, process with skill/LLM, save to library. */
-  private async yoSave(wc: WebContents, appId: string, skill?: string, instruction?: string): Promise<void> {
+  /** Grab content, process with skill/LLM, save to library. */
+  private async yoSave(
+    wc: WebContents,
+    appId: string,
+    currentOnly: boolean,
+    skill?: string,
+    instruction?: string,
+  ): Promise<void> {
     this.notify(wc, "Saving...", "loading");
     try {
-      const app = this.appConnector.get(appId);
-      const content = await this.grabContent(wc, app);
+      const content = await this.grabAllPanels(wc, appId, !currentOnly);
       if (!content) {
-        this.notify(wc, "Could not grab content from this page.", "error");
+        this.notify(wc, "Could not grab content.", "error");
         return;
       }
 
@@ -344,52 +357,75 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── sup flow: use context ─────────────────────────────────
+  // ── sup flow: recall + use ─────────────────────────────────
   //
-  //   bare "sup"           → show modal (skills + library) for using content
-  //   "sup <single-word>"  → search library, load as context (fast path)
-  //   "sup <instruction>"  → LLM processes context → inject into input
+  //   bare "sup"          → show modal (browse library + memory)
+  //   "sup <query>"       → LLM searches memory+library → inject result
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // Bare "sup" → show unified modal
+    // Bare "sup" → show modal
     if (!instruction) {
       this.showCommandModal(wc, "sup");
       return;
     }
 
-    // Single word → search library, load or pick
-    const isSingleWord = /^\S+$/.test(instruction);
-    if (isSingleWord) {
-      const files = this.library.search(instruction);
-      if (files.length === 0) {
-        this.notify(wc, `No files matching "${instruction}"`, "error");
-        return;
+    // Subcommands via command parser
+    const sub = instruction.split(/\s+/)[0]?.toLowerCase();
+    if (sub === "list" || sub === "search" || sub === "forget") {
+      if (this.commandHandler) {
+        const result = await this.commandHandler(`sup ${instruction}`);
+        if (result) this.notify(wc, result, "success");
       }
-      if (files.length === 1) {
-        // Load as context AND inject into input
-        this.loadContext(wc, files[0]);
-        const content = this.library.read(files[0]);
-        if (content) await this.injectContent(wc, content);
-        return;
-      }
-      // Multiple matches → show modal filtered
-      this.showCommandModal(wc, "sup");
       return;
     }
 
-    // Multi-word instruction → LLM processes active context → inject result
-    if (!this.activeContext) {
-      this.notify(wc, "No context loaded. Type sup to browse library.", "error");
-      return;
+    // Single word → try library search first (fast path)
+    const isSingleWord = /^\S+$/.test(instruction);
+    if (isSingleWord) {
+      const files = this.library.search(instruction);
+      if (files.length === 1) {
+        const content = this.library.read(files[0]);
+        if (content) {
+          await this.injectContent(wc, content);
+          this.notify(wc, `Loaded: ${files[0]}.md`, "success");
+          return;
+        }
+      }
     }
+
+    // LLM-powered search across memory + library
+    await this.supSearch(wc, appId, instruction);
+  }
+
+  /** LLM-powered recall: search memory + library, return best match. */
+  private async supSearch(wc: WebContents, appId: string, query: string): Promise<void> {
     if (!this.yoChat) {
       this.notify(wc, "Chat engine not available.", "error");
       return;
     }
 
-    this.notify(wc, "Processing...", "loading");
+    this.notify(wc, "Searching...", "loading");
     try {
-      const result = await this.yoChat.executeInline("sup", instruction, appId, this.activeContext.content);
+      // Build search context from memory store + library
+      const memoryContext = this.memoryStore.buildSearchContext(100);
+      const libraryFiles = this.library.list();
+      const libraryContext = libraryFiles.length > 0
+        ? "Library files: " + libraryFiles.slice(0, 50).join(", ")
+        : "Library is empty.";
+
+      const searchPrompt = `The user is searching for content. Their query: "${query}"
+
+Available content sources:
+
+## Auto-captured memory
+${memoryContext}
+
+## Library (curated saves)
+${libraryContext}
+
+Find the best matching content. If you find a match in auto-captured memory, use the memory_read tool with the entry ID. If it's in the library, use sup_load with the file name. Return the content to the user. Be concise — just return the relevant content, no commentary.`;
+
+      const result = await this.yoChat.executeInline("sup", searchPrompt, appId);
       const injected = await this.injectContent(wc, result);
       if (injected) {
         this.notify(wc, "Done.", "success");
@@ -410,23 +446,17 @@ document.addEventListener('keyup',function(e){
     prompt?: string,
   ): Promise<void> {
     if (fileName && !skill) {
-      // Library file → load as context + inject into input
-      this.loadContext(wc, fileName);
+      // Library file → inject into input
       const content = this.library.read(fileName);
-      if (content) await this.injectContent(wc, content);
+      if (content) {
+        await this.injectContent(wc, content);
+        this.notify(wc, `Loaded: ${fileName}.md`, "success");
+      }
       return;
     }
 
-    // Skill selected → process active context with skill and inject
-    if (!this.activeContext && !fileName) {
-      this.notify(wc, "No context loaded. Pick a library file first.", "error");
-      return;
-    }
-
-    // If a file was also picked, use that as context
-    const ctx = fileName
-      ? this.library.read(fileName) || ""
-      : this.activeContext!.content;
+    // Skill selected → process with LLM
+    const ctx = fileName ? this.library.read(fileName) || "" : "";
 
     if (!this.yoChat) {
       this.notify(wc, "Chat engine not available.", "error");
@@ -455,17 +485,67 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── Context loading ─────────────────────────────────────
+  // ── Multi-panel grab ──────────────────────────────────
 
-  /** Load a library file as active context + notify the page. */
-  private loadContext(wc: WebContents, fileName: string): void {
-    const content = this.library.read(fileName);
-    if (!content) {
-      this.notify(wc, `"${fileName}" not found.`, "error");
-      return;
+  /** Grab content from all visible panels (or just current). */
+  private async grabAllPanels(wc: WebContents, appId: string, allPanels: boolean): Promise<string | null> {
+    if (!allPanels) {
+      // Current panel only
+      const app = this.appConnector.get(appId);
+      return this.grabContent(wc, app);
     }
-    this.setContext(fileName, content);
-    this.notify(wc, `Context: ${fileName}.md`, "success");
+
+    // All visible panels
+    const panelIds = this.getVisiblePanelIds?.() ?? [appId];
+
+    // If only one panel visible, just grab it
+    if (panelIds.length <= 1) {
+      const app = this.appConnector.get(appId);
+      return this.grabContent(wc, app);
+    }
+
+    // Grab from all visible panels, label each section
+    const sections: string[] = [];
+    for (const id of panelIds) {
+      const app = this.appConnector.get(id);
+      // For the source panel, use the wc we already have
+      let content: string | null;
+      if (id === appId) {
+        content = await this.grabContent(wc, app);
+      } else {
+        // Get webContents for other panels
+        const otherWc = this.getWebContentsForPanel(id);
+        if (!otherWc) continue;
+        content = await this.grabContent(otherWc, app);
+      }
+      if (content) {
+        sections.push(`## ${app?.name || id}\n\n${content}`);
+      }
+    }
+
+    if (sections.length === 0) return null;
+    return sections.join("\n\n---\n\n");
+  }
+
+  /** Get webContents for a panel by ID (via the active map). */
+  private getWebContentsForPanel(panelId: string): WebContents | null {
+    // The PanelManager.getWebContents is not directly available here,
+    // but we can look through our active watchers
+    for (const [wcId] of this.active) {
+      try {
+        const { webContents } = require("electron");
+        const wc = webContents.fromId(wcId);
+        if (wc && !wc.isDestroyed()) {
+          // Check if this wc belongs to the requested panel
+          // We use the URL as a heuristic — match against app config
+          const app = this.appConnector.get(panelId);
+          if (app && wc.getURL().includes(new URL(app.url).hostname)) {
+            return wc;
+          }
+        }
+      } catch { /* skip */ }
+    }
+    return null;
   }
 
   // ── Helpers ─────────────────────────────────────────────
@@ -562,7 +642,7 @@ setTimeout(function(){var el=document.getElementById('__yo_modal');if(el)el.remo
     } catch {}
   }
 
-  /** Unified modal for yo (crystallize) and sup (use). Shows prompt + skills + library. */
+  /** Unified modal for yo (capture) and sup (recall). Shows prompt + skills + library. */
   private async showCommandModal(wc: WebContents, mode: "yo" | "sup"): Promise<void> {
     const skills = this.skillEngine.listSkills();
     const meta = this.library.listWithMeta();
@@ -584,14 +664,14 @@ var ov=document.createElement('div');ov.id='__yo_modal';
 ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
 var card=document.createElement('div');
 card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:580px;width:90%;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;display:flex;flex-direction:column;';
-var title=mode==='yo'?'Yo — Crystallize':'Sup — Use Context';
+var title=mode==='yo'?'Yo — Capture':'Sup — Recall';
 var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;';
 var t=document.createElement('div');t.textContent=title;
 t.style.cssText='font-size:16px;font-weight:600;color:#a855f7;';
 hdr.appendChild(t);
 card.appendChild(hdr);
 var pi=document.createElement('input');pi.type='text';
-pi.placeholder=mode==='yo'?'What do you want to save?':'What do you need?';
+pi.placeholder=mode==='yo'?'What do you want to save?':'What are you looking for?';
 pi.style.cssText='width:100%;box-sizing:border-box;background:#0d0d1a;border:1px solid #333;color:#e0e0e0;padding:10px 12px;border-radius:6px;font-size:14px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
 pi.onfocus=function(){pi.style.borderColor='#a855f7';};
 pi.onblur=function(){pi.style.borderColor='#333';};

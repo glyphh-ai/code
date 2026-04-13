@@ -259,6 +259,11 @@ export class PanelManager {
     return this.activePanel;
   }
 
+  /** Get the previously active panel ID */
+  get previousPanelId(): string | null {
+    return this.previousPanel;
+  }
+
   /** Whether panels are currently hidden for overlay */
   get isHidden(): boolean {
     return this._hidden;

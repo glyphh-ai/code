@@ -20,9 +20,6 @@ declare global {
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
       panelsGetZoom: () => Promise<number>;
-      // Context
-      onContextUpdate: (callback: (ctx: { name: string } | null) => void) => void;
-      contextClear: () => void;
       // Library
       libraryList: () => Promise<string[]>;
       libraryRead: (name: string) => Promise<string | null>;
@@ -87,24 +84,6 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
-// ── Context pill ───────────────────────────────────────────
-
-const contextPill = document.getElementById("context-pill")!;
-const contextName = document.getElementById("context-name")!;
-
-document.getElementById("context-clear")!.addEventListener("click", () => {
-  window.yo.contextClear();
-});
-
-window.yo.onContextUpdate((ctx) => {
-  if (ctx) {
-    contextName.textContent = ctx.name + ".md";
-    contextPill.classList.remove("hidden");
-  } else {
-    contextPill.classList.add("hidden");
-    contextName.textContent = "";
-  }
-});
 
 // ── Global keyboard shortcuts ──────────────────────────────
 

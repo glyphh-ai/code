@@ -10,6 +10,7 @@
 
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
+import { MemoryStore } from "./memory-store";
 
 export interface ChatCallbacks {
   onText: (delta: string) => void;
@@ -66,6 +67,15 @@ const TOOLS = [
     },
   },
   {
+    name: "memory_read",
+    description: "Read the full content of an auto-captured memory entry by its ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: { id: { type: "string" as const, description: "Memory entry ID (e.g. claude-1713012345)" } },
+      required: ["id"],
+    },
+  },
+  {
     name: "dip",
     description: "Switch to a panel or layout.",
     input_schema: {
@@ -84,6 +94,7 @@ export class YoChat {
   constructor(
     private panelManager: PanelManager,
     private library: Library,
+    private memoryStore?: MemoryStore,
   ) {
     this.apiKey = process.env.ANTHROPIC_API_KEY || null;
   }
@@ -253,6 +264,12 @@ export class YoChat {
           const files = this.library.search(input.query as string);
           return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : `No files matching "${input.query}".`;
         }
+        case "memory_read":
+          if (this.memoryStore) {
+            const content = this.memoryStore.read(input.id as string);
+            return content || `Memory entry "${input.id}" not found.`;
+          }
+          return "Memory store not available.";
         case "dip":
           if (this.commandCallback) return this.commandCallback(`dip ${input.panel}`);
           return "Panel switching not available.";
