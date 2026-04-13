@@ -219,6 +219,12 @@ export class CommandParser {
         : "Nothing to refresh";
     }
 
+    if (sub === "clear-session") {
+      const target = args[1]?.toLowerCase();
+      this.panels.clearSession(target);
+      return `Cleared session for ${target || this.panels.activePanelId || "panel"}`;
+    }
+
     if (sub === "zoom") {
       if (!args[1]) return `Zoom: ${Math.round(this.panels.getZoom() * 100)}%`;
       const val = args[1] === "reset" ? 1.0 : parseFloat(args[1]);

@@ -440,4 +440,17 @@ export class PanelManager {
   hasPanel(id: string): boolean {
     return this.configs.has(id);
   }
+
+  /** Clear cookies/storage/cache for a panel (or active panel) and reload */
+  async clearSession(id?: string): Promise<boolean> {
+    const targetId = id ?? this.activePanel;
+    if (!targetId) return false;
+    const view = this.panels.get(targetId);
+    if (!view) return false;
+    const ses = view.webContents.session;
+    await ses.clearStorageData();
+    await ses.clearCache();
+    view.webContents.reload();
+    return true;
+  }
 }

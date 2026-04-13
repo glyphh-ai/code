@@ -80,11 +80,14 @@ function completeSup(parts: string[], sub: string, argc: number): string[] {
 function completeDip(parts: string[], sub: string, argc: number): string[] {
   if (argc === 2) {
     return filterPrefix(
-      ["back", "list", "add", "split", "refresh", "zoom", ...cache.apps, ...cache.layouts],
+      ["back", "list", "add", "split", "refresh", "zoom", "clear-session", ...cache.apps, ...cache.layouts],
       sub,
     );
   }
   if (sub === "refresh" && argc === 3) {
+    return filterPrefix(cache.apps, parts[2]);
+  }
+  if (sub === "clear-session" && argc === 3) {
     return filterPrefix(cache.apps, parts[2]);
   }
   if (sub === "zoom" && argc === 3) {
