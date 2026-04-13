@@ -239,6 +239,38 @@ async function boot() {
         ],
       },
       {
+        label: "View",
+        submenu: [
+          {
+            label: "Toggle Panel DevTools",
+            accelerator: "CmdOrCtrl+Alt+I",
+            click: () => panelManager.toggleDevTools(),
+          },
+          {
+            label: "Toggle App DevTools",
+            accelerator: "CmdOrCtrl+Shift+I",
+            click: () => {
+              if (mainWindow) {
+                if (mainWindow.webContents.isDevToolsOpened()) {
+                  mainWindow.webContents.closeDevTools();
+                } else {
+                  mainWindow.webContents.openDevTools({ mode: "detach" });
+                }
+              }
+            },
+          },
+          { type: "separator" },
+          { role: "reload" },
+          { role: "forceReload" },
+          { type: "separator" },
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" },
+          { type: "separator" },
+          { role: "togglefullscreen" },
+        ],
+      },
+      {
         label: "Window",
         submenu: [
           { role: "minimize" },

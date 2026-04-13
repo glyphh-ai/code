@@ -81,7 +81,7 @@ export class PanelManager {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        partition: isLocal ? undefined : `persist:panel-${id}`,
+        partition: isLocal ? undefined : "persist:yo",
         ...(config.preload ? { preload: config.preload } : {}),
       },
     });
@@ -125,6 +125,10 @@ export class PanelManager {
       } else if (input.key === "r") {
         e.preventDefault();
         this.refresh(this.activePanel ?? undefined);
+      } else if (input.key === "i" && (input.alt || input.shift)) {
+        // Cmd+Opt+I (mac) or Ctrl+Shift+I (win/linux) — DevTools for active panel
+        e.preventDefault();
+        this.toggleDevTools();
       }
     });
 
@@ -298,6 +302,20 @@ export class PanelManager {
   /** Get current zoom factor */
   getZoom(): number {
     return this.zoomFactor;
+  }
+
+  /** Toggle DevTools for a panel (or active panel if no id given) */
+  toggleDevTools(id?: string): boolean {
+    const targetId = id ?? this.activePanel;
+    if (!targetId) return false;
+    const view = this.panels.get(targetId);
+    if (!view) return false;
+    if (view.webContents.isDevToolsOpened()) {
+      view.webContents.closeDevTools();
+    } else {
+      view.webContents.openDevTools({ mode: "detach" });
+    }
+    return true;
   }
 
   /** Reload a panel (or all visible panels if no id given) */
