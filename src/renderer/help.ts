@@ -124,6 +124,24 @@ export function initHelp() {
     if (e.key === "Enter") appDetailName.blur();
   });
 
+  // ID rename on blur / enter
+  const appDetailId = document.getElementById("app-detail-id") as HTMLInputElement;
+  appDetailId.addEventListener("blur", async () => {
+    const newId = appDetailId.value.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+$/, "");
+    if (currentAppId && newId && newId !== currentAppId) {
+      const ok = await window.yo.appsUpdateId(currentAppId, newId);
+      if (ok) {
+        currentAppId = newId;
+        appDetailId.value = newId;
+      } else {
+        appDetailId.value = currentAppId; // revert
+      }
+    }
+  });
+  appDetailId.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") appDetailId.blur();
+  });
+
   // Delete from detail screen
   document.getElementById("app-detail-delete")!.addEventListener("click", async () => {
     if (!currentAppId) return;
@@ -499,14 +517,19 @@ async function editLayout(name: string) {
   const layouts = await window.yo.layoutsList();
   const layout = layouts.find((l) => l.name === name);
   if (layout) {
-    // Reconstruct builder state from layout cells
-    const panelIds = layout.splits.map((s) => s.panelId);
-    builderCols = panelIds.length;
-    builderRows = 1;
+    // Restore full grid state from saved layout
+    builderCols = layout.cols || 2;
+    builderRows = layout.rows || 1;
     initBuilderCells();
-    builderCells.forEach((c, i) => {
-      if (i < panelIds.length) c.panelId = panelIds[i];
-    });
+    // Place panels in their saved grid positions
+    for (const s of layout.splits) {
+      const cell = builderCells.find((c) => c.col === s.col && c.row === s.row);
+      if (cell) {
+        cell.panelId = s.panelId;
+        cell.colSpan = s.colSpan ?? 1;
+        cell.rowSpan = s.rowSpan ?? 1;
+      }
+    }
   } else {
     builderCols = 2;
     builderRows = 1;
@@ -657,6 +680,7 @@ async function openAppDetail(id: string) {
   const app = apps.find((a) => a.id === id);
   if (!app) return;
 
+  (document.getElementById("app-detail-id") as HTMLInputElement).value = app.id;
   appDetailName.value = app.name;
   appDetailUrl.textContent = app.url;
   appConnectStatus.textContent = "";

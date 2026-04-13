@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld("yo", {
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
 
   // Layouts CRUD
-  layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>,
+  layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,
   layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) =>
     ipcRenderer.invoke("layouts-save-grid", grid) as Promise<boolean>,
@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld("yo", {
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
   appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
+  appsUpdateId: (oldId: string, newId: string) => ipcRenderer.invoke("apps-update-id", oldId, newId) as Promise<boolean>,
   appsConnect: (id: string, webContentsId?: number) =>
     ipcRenderer.invoke("apps-connect", id, webContentsId) as Promise<{ ok: boolean; error?: string; commandCount?: number }>,
   appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) =>

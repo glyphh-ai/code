@@ -36,12 +36,13 @@ declare global {
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
       appsRemove: (id: string) => Promise<boolean>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
+      appsUpdateId: (oldId: string, newId: string) => Promise<boolean>;
       appsConnect: (id: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string; commandCount?: number }>;
       appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) => Promise<boolean>;
       appsRemoveCommand: (id: string, commandKey: string) => Promise<boolean>;
       appsTestCommand: (id: string, commandKey: string, webContentsId?: number) => Promise<string>;
       // Layouts
-      layoutsList: () => Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>;
+      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
       layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;

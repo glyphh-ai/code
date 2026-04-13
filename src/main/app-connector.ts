@@ -72,6 +72,9 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "stackblitz", name: "StackBlitz", url: "https://stackblitz.com" },
   { id: "codepen", name: "CodePen", url: "https://codepen.io" },
   { id: "codesandbox", name: "CodeSandbox", url: "https://codesandbox.io" },
+  { id: "vscode", name: "VS Code", url: "https://vscode.dev" },
+  { id: "github-dev", name: "GitHub.dev", url: "https://github.dev" },
+  { id: "monaco", name: "Monaco", url: "yo://monaco" },
 
   // ── Dev Platforms ───────────────
   { id: "github", name: "GitHub", url: "https://github.com" },
@@ -220,6 +223,21 @@ export class AppConnector {
     const app = this.apps.get(id);
     if (!app) return false;
     app.name = name;
+    this.save(app);
+    return true;
+  }
+
+  /** Update an app's ID (renames file and map entry) */
+  updateId(oldId: string, newId: string): boolean {
+    const app = this.apps.get(oldId);
+    if (!app || this.apps.has(newId)) return false;
+    // Remove old file
+    const oldPath = path.join(this.appsDir, `${oldId}.json`);
+    try { fs.unlinkSync(oldPath); } catch { /* ok */ }
+    // Update map
+    this.apps.delete(oldId);
+    app.id = newId;
+    this.apps.set(newId, app);
     this.save(app);
     return true;
   }

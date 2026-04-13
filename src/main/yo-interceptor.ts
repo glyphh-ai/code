@@ -900,7 +900,7 @@ function render(){
       item.onmouseenter=function(){this.style.background='#1e1e1e';};
       item.onmouseleave=function(){this.style.background='transparent';};
       var dot=document.createElement('span');dot.textContent='\\u25CF';
-      dot.style.cssText='color:#7c3aed;font-size:6px;';
+      dot.style.cssText='color:#25C75E;font-size:6px;';
       item.appendChild(dot);
       var n=document.createElement('span');n.textContent=sk;
       n.style.cssText='font-size:13px;font-weight:500;color:#ccc;';
@@ -1047,7 +1047,7 @@ function render(){
       item.onmouseenter=function(){this.style.background='#1e1e1e';};
       item.onmouseleave=function(){this.style.background='transparent';};
       var dot=document.createElement('span');dot.textContent='\\u25CF';
-      dot.style.cssText='color:#7c3aed;font-size:6px;';
+      dot.style.cssText='color:#25C75E;font-size:6px;';
       item.appendChild(dot);
       var n=document.createElement('span');n.textContent=sk;
       n.style.cssText='font-size:13px;font-weight:500;color:#ccc;';

@@ -37,15 +37,15 @@ export function activatePicker(webContents: WebContents): Promise<PickResult> {
       // Highlight box
       var highlight = document.createElement('div');
       highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;' +
-        'border:2px solid #a855f7;background:rgba(168,85,247,0.08);border-radius:3px;' +
-        'transition:all 0.05s ease;box-shadow:0 0 12px rgba(168,85,247,0.3);';
+        'border:2px solid #25C75E;background:rgba(37,199,94,0.08);border-radius:3px;' +
+        'transition:all 0.05s ease;box-shadow:0 0 12px rgba(37,199,94,0.3);';
       document.body.appendChild(highlight);
 
       // Label showing element info
       var label = document.createElement('div');
       label.style.cssText = 'position:fixed;z-index:1000000;pointer-events:none;' +
         'background:#1a1a1a;color:#e0e0e0;font:12px "SF Mono",monospace;' +
-        'padding:4px 8px;border-radius:4px;border:1px solid #a855f7;' +
+        'padding:4px 8px;border-radius:4px;border:1px solid #25C75E;' +
         'box-shadow:0 4px 12px rgba(0,0,0,0.5);max-width:400px;overflow:hidden;' +
         'text-overflow:ellipsis;white-space:nowrap;';
       document.body.appendChild(label);

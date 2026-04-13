@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
+    #editor { width: 100%; height: 100%; }
+    /* Thin scrollbars matching app style */
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    *::-webkit-scrollbar-thumb:hover { background: rgba(168,85,247,0.45); }
+  </style>
+  <link rel="stylesheet" href="monaco/editor/editor.main.css">
+</head>
+<body>
+  <div id="editor"></div>
+  <script src="monaco/loader.js"></script>
+  <script>
+    require.config({ paths: { vs: "monaco" } });
+    require(["vs/editor/editor.main"], function () {
+      const editor = monaco.editor.create(document.getElementById("editor"), {
+        value: "// Welcome to Monaco Editor\n// Start typing or open a file\n",
+        language: "typescript",
+        theme: "vs-dark",
+        fontSize: 14,
+        fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+        minimap: { enabled: true },
+        wordWrap: "on",
+        automaticLayout: true,
+        padding: { top: 12 },
+        smoothScrolling: true,
+        cursorBlinking: "smooth",
+        cursorSmoothCaretAnimation: "on",
+        renderLineHighlight: "all",
+        bracketPairColorization: { enabled: true },
+        scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+      });
+    });
+  </script>
+</body>
+</html>

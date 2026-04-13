@@ -107,9 +107,12 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
+  const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   for (const app of appConnector.list()) {
     if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://monaco") {
+      panelManager.addPanel(app.id, monacoHtml);
     } else {
       panelManager.addPanel(app.id, app.url);
     }
@@ -351,7 +354,11 @@ async function boot() {
   ipcMain.handle("layouts-list", () =>
     layoutManager.listLayouts().map((l) => ({
       name: l.name,
-      splits: l.cells.map((c) => ({ panelId: c.panelId })),
+      cols: l.cols,
+      rows: l.rows,
+      colWidths: l.colWidths,
+      rowHeights: l.rowHeights,
+      splits: l.cells.map((c) => ({ panelId: c.panelId, col: c.col, row: c.row, colSpan: c.colSpan, rowSpan: c.rowSpan })),
     }))
   );
   ipcMain.handle("layouts-save", (_e, name: string, panelIds: string[]) => {
@@ -418,6 +425,15 @@ async function boot() {
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
+  ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {
+    const ok = appConnector.updateId(oldId, newId);
+    if (ok) {
+      // Re-register panel with new ID
+      const app = appConnector.get(newId);
+      if (app) panelManager.addPanel(newId, app.url);
+    }
+    return ok;
+  });
   ipcMain.handle("apps-connect", async (_e, id: string, webContentsId?: number) => {
     const appConfig = appConnector.get(id);
     if (!appConfig) return { ok: false, error: "App not found" };
@@ -512,14 +528,14 @@ async function boot() {
 
         var highlight = document.createElement('div');
         highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;' +
-          'border:2px solid #a855f7;background:rgba(168,85,247,0.08);border-radius:3px;' +
-          'transition:all 0.05s ease;box-shadow:0 0 12px rgba(168,85,247,0.3);display:none;';
+          'border:2px solid #25C75E;background:rgba(37,199,94,0.08);border-radius:3px;' +
+          'transition:all 0.05s ease;box-shadow:0 0 12px rgba(37,199,94,0.3);display:none;';
         document.body.appendChild(highlight);
 
         var label = document.createElement('div');
         label.style.cssText = 'position:fixed;z-index:1000000;pointer-events:none;' +
           'background:#1a1a1a;color:#e0e0e0;font:12px monospace;' +
-          'padding:4px 8px;border-radius:4px;border:1px solid #a855f7;' +
+          'padding:4px 8px;border-radius:4px;border:1px solid #25C75E;' +
           'box-shadow:0 4px 12px rgba(0,0,0,0.5);max-width:400px;overflow:hidden;' +
           'text-overflow:ellipsis;white-space:nowrap;display:none;';
         document.body.appendChild(label);

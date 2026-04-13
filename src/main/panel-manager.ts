@@ -28,7 +28,7 @@ export class PanelManager {
       border-radius: 3px;
     }
     *::-webkit-scrollbar-thumb:hover {
-      background: rgba(168, 85, 247, 0.45);
+      background: rgba(37, 199, 94, 0.45);
     }
     *::-webkit-scrollbar-corner { background: transparent; }
   `;
@@ -68,15 +68,14 @@ export class PanelManager {
       "file-system", "fileSystem",
     ]);
 
-    ses.setPermissionRequestHandler((_wc, permission, callback) => {
-      // File System Access API (showDirectoryPicker, etc.) uses "fileSystem"
-      if ((permission as string) === "fileSystem") { callback(true); return; }
-      callback(ALLOWED_PERMISSIONS.has(permission));
+    ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
+      console.log("[perm-request]", permission, details);
+      callback(true); // grant all for now
     });
 
-    ses.setPermissionCheckHandler((_wc, permission) => {
-      if ((permission as string) === "fileSystem") return true;
-      return ALLOWED_PERMISSIONS.has(permission);
+    ses.setPermissionCheckHandler((_wc, permission, _origin, details) => {
+      console.log("[perm-check]", permission, details);
+      return true; // grant all for now
     });
   }
 
@@ -157,28 +156,22 @@ export class PanelManager {
       },
     };
 
-    view.webContents.setWindowOpenHandler(({ url }) => {
+    // Log webContents errors for debugging
+    view.webContents.on("console-message", (_e, level, message) => {
+      if (level >= 2) console.log(`[panel:${id}:console]`, message.slice(0, 200));
+    });
+    view.webContents.on("did-fail-load", (_e, code, desc, url) => {
+      console.log(`[panel:${id}:fail-load]`, code, desc, url);
+    });
+
+    view.webContents.setWindowOpenHandler(({ url, features }) => {
+      console.log(`[panel:${id}:popup]`, url.slice(0, 120), features?.slice(0, 80));
       // Block native app protocol redirects (slack://, zoommtg://, etc.)
       if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
         return { action: "deny" };
       }
-      // Allow JS-driven dialogs (about:blank popups populated via script)
-      if (url === "about:blank" || url === "") {
-        return popupOptions;
-      }
-      // Allow same-origin popups (app dialogs, pickers, etc.)
-      try {
-        const panelOrigin = new URL(config.url).origin;
-        const popupOrigin = new URL(url).origin;
-        if (popupOrigin === panelOrigin) return popupOptions;
-      } catch { /* invalid URL, fall through */ }
-      // Allow OAuth popups (Google, GitHub, etc.)
-      if (url.includes("accounts.google.com") || url.includes("github.com/login") || url.includes("auth") || url.includes("oauth") || url.includes("signin")) {
-        return popupOptions;
-      }
-      // Cross-origin links: open in the same view instead of a popup
-      view.webContents.loadURL(url);
-      return { action: "deny" };
+      // Allow all popups — grant with shared session
+      return popupOptions;
     });
 
     // Configure popup windows created from this panel
