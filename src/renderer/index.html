@@ -30,7 +30,11 @@
       <button id="btn-minimize" class="wc wc-minimize"></button>
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
-    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span> Dip<span class="dot">.</span></div>
+    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span></div>
+    <div id="command-bar">
+      <input id="command-input" type="text" placeholder="type a command..." spellcheck="false" autocomplete="off" />
+      <div id="autocomplete-dropdown" class="hidden"></div>
+    </div>
     <div id="context-pill" class="hidden">
       <span id="context-name"></span>
       <button id="context-clear">&times;</button>
@@ -59,7 +63,7 @@
 
         <!-- Guide -->
         <div class="help-section active" data-section="guide">
-          <h2>Three commands. Just talk.</h2>
+          <h2>Just talk.</h2>
 
           <div class="help-group">
             <h3>yo <span class="cmd-desc">— creating</span></h3>

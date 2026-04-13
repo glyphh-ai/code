@@ -592,6 +592,19 @@ async function boot() {
     wc.executeJavaScript(pickerScript).catch(() => {});
   });
 
+  // IPC: command bar — exec command + autocomplete completions
+  ipcMain.handle("exec-command", async (_e, cmd: string) => {
+    return execCommand(cmd);
+  });
+  ipcMain.handle("get-completions", () => {
+    return {
+      apps: appConnector.list().map((a) => a.id),
+      library: library.list(),
+      skills: skillEngine.listSkills(),
+      layouts: layoutManager.listLayouts().map((l) => l.name),
+    };
+  });
+
   // IPC: license + API key
   ipcMain.handle("check-license", () => checkLicense());
   ipcMain.handle("activate-license", (_e, key: string) => activateLicense(key));

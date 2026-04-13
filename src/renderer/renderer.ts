@@ -7,6 +7,7 @@
 
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
+import { initAutocomplete } from "./autocomplete.js";
 
 declare global {
   interface Window {
@@ -67,6 +68,9 @@ declare global {
         rowHeights: number[];
         cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
       } | null) => void) => void;
+      // Command bar
+      execCommand: (cmd: string) => Promise<string>;
+      getCompletions: () => Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>;
     };
   }
 }
@@ -128,6 +132,12 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     window.yo.panelsZoom(1.0);
   }
+
+  // Cmd+K to focus command bar
+  if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    commandInput.focus();
+  }
 });
 
 // yo help trigger from main process
@@ -135,6 +145,12 @@ window.yo.onShowWelcome(() => openHelp());
 
 // Initialize help overlay
 initHelp();
+
+// Initialize command bar autocomplete
+const commandInput = document.getElementById("command-input") as HTMLInputElement;
+initAutocomplete((cmd) => {
+  window.yo.execCommand(cmd);
+});
 
 // ── Grid drag handles ───────────────────────────────────
 

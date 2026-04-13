@@ -92,4 +92,8 @@ contextBridge.exposeInMainWorld("yo", {
   } | null) => void) => {
     ipcRenderer.on("split-state", (_event, info) => callback(info));
   },
+
+  // Command bar
+  execCommand: (cmd: string) => ipcRenderer.invoke("exec-command", cmd) as Promise<string>,
+  getCompletions: () => ipcRenderer.invoke("get-completions") as Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>,
 });
