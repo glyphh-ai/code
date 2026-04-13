@@ -7,7 +7,6 @@
 
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
-import { initAutocomplete } from "./autocomplete.js";
 
 declare global {
   interface Window {
@@ -31,6 +30,11 @@ declare global {
       skillsRead: (name: string) => Promise<string | null>;
       skillsWrite: (name: string, prompt: string) => Promise<boolean>;
       skillsRemove: (name: string) => Promise<boolean>;
+      // Tools
+      toolsList: () => Promise<Array<{ id: string; name: string; description: string; prompt: string }>>;
+      toolsRead: (id: string) => Promise<{ id: string; name: string; description: string; prompt: string } | null>;
+      toolsWrite: (id: string, name: string, description: string, prompt: string) => Promise<boolean>;
+      toolsRemove: (id: string) => Promise<boolean>;
       // Apps
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
@@ -69,12 +73,8 @@ declare global {
         rowHeights: number[];
         cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
       } | null) => void) => void;
-      // Command bar
+      // Command execution (used internally by interceptor)
       execCommand: (cmd: string) => Promise<string>;
-      getCompletions: () => Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>;
-      // Wassup admin modal
-      onShowWassup: (callback: (instruction: string) => void) => void;
-      wassupSend: (instruction: string) => Promise<string>;
     };
   }
 }
@@ -117,12 +117,6 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => openH
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    const wassup = document.getElementById("wassup-overlay");
-    if (wassup && !wassup.classList.contains("hidden")) {
-      wassup.classList.add("hidden");
-      window.yo.panelsShow();
-      return;
-    }
     if (isHelpOpen()) closeHelp();
   }
 
@@ -145,12 +139,6 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     window.yo.panelsZoom(1.0);
   }
-
-  // Cmd+K to focus command bar
-  if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    commandInput.focus();
-  }
 });
 
 // yo help trigger from main process
@@ -158,15 +146,6 @@ window.yo.onShowWelcome(() => openHelp());
 
 // Initialize help overlay
 initHelp();
-
-// Initialize command bar autocomplete
-const commandInput = document.getElementById("command-input") as HTMLInputElement;
-initAutocomplete((cmd) => {
-  window.yo.execCommand(cmd);
-});
-
-// Cmd+K from panel → focus command input
-window.yo.onFocusInput(() => commandInput.focus());
 
 // ── Grid drag handles ───────────────────────────────────
 
@@ -306,93 +285,6 @@ document.addEventListener("mouseup", () => {
     }
   }
 });
-
-// ── Wassup admin modal ──────────────────────────────────────
-
-const wassupOverlay = document.getElementById("wassup-overlay")!;
-const wassupMessages = document.getElementById("wassup-messages")!;
-const wassupInput = document.getElementById("wassup-input") as HTMLTextAreaElement;
-const wassupSendBtn = document.getElementById("wassup-send-btn") as HTMLButtonElement;
-const wassupCloseBtn = document.getElementById("wassup-close")!;
-
-function autoResize() {
-  wassupInput.style.height = "auto";
-  wassupInput.style.height = Math.min(wassupInput.scrollHeight, 160) + "px";
-}
-
-function openWassup(instruction?: string) {
-  window.yo.panelsHide();
-  wassupOverlay.classList.remove("hidden");
-  wassupMessages.innerHTML = "";
-  wassupInput.value = "";
-  wassupInput.disabled = false;
-  wassupSendBtn.disabled = false;
-  autoResize();
-  wassupInput.focus();
-
-  // If instruction was provided (e.g. "wassup create a skill..."), auto-submit
-  if (instruction) {
-    wassupInput.value = instruction;
-    sendWassup();
-  }
-}
-
-function closeWassup() {
-  wassupOverlay.classList.add("hidden");
-  window.yo.panelsShow();
-}
-
-function addWassupMessage(text: string, role: "user" | "assistant" | "thinking") {
-  const msg = document.createElement("div");
-  msg.className = `wassup-msg ${role}`;
-  msg.textContent = text;
-  wassupMessages.appendChild(msg);
-  wassupMessages.scrollTop = wassupMessages.scrollHeight;
-  return msg;
-}
-
-async function sendWassup() {
-  const text = wassupInput.value.trim();
-  if (!text) return;
-
-  addWassupMessage(text, "user");
-  wassupInput.value = "";
-  autoResize();
-  wassupInput.disabled = true;
-  wassupSendBtn.disabled = true;
-
-  const thinking = addWassupMessage("thinking...", "thinking");
-
-  try {
-    const result = await window.yo.wassupSend(text);
-    thinking.remove();
-    addWassupMessage(result, "assistant");
-  } catch (err: unknown) {
-    thinking.remove();
-    addWassupMessage(`Error: ${err instanceof Error ? err.message : err}`, "assistant");
-  }
-
-  wassupInput.disabled = false;
-  wassupSendBtn.disabled = false;
-  autoResize();
-  wassupInput.focus();
-}
-
-wassupSendBtn.addEventListener("click", sendWassup);
-wassupInput.addEventListener("input", autoResize);
-wassupInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendWassup();
-  }
-});
-wassupCloseBtn.addEventListener("click", closeWassup);
-wassupOverlay.addEventListener("click", (e) => {
-  if (e.target === wassupOverlay) closeWassup();
-});
-
-// Listen for show-wassup from main process
-window.yo.onShowWassup((instruction) => openWassup(instruction || undefined));
 
 // ── Boot gate ───────────────────────────────────────────────
 

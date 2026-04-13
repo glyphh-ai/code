@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld("yo", {
   skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean>,
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
 
+  // Tools CRUD
+  toolsList: () => ipcRenderer.invoke("tools-list") as Promise<Array<{ id: string; name: string; description: string; prompt: string }>>,
+  toolsRead: (id: string) => ipcRenderer.invoke("tools-read", id) as Promise<{ id: string; name: string; description: string; prompt: string } | null>,
+  toolsWrite: (id: string, name: string, description: string, prompt: string) => ipcRenderer.invoke("tools-write", id, name, description, prompt) as Promise<boolean>,
+  toolsRemove: (id: string) => ipcRenderer.invoke("tools-remove", id) as Promise<boolean>,
+
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,
@@ -44,9 +50,6 @@ contextBridge.exposeInMainWorld("yo", {
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
   onShowWelcome: (callback: () => void) => {
     ipcRenderer.on("show-welcome", () => callback());
-  },
-  onFocusInput: (callback: () => void) => {
-    ipcRenderer.on("focus-command-input", () => callback());
   },
 
   // Apps CRUD
@@ -93,13 +96,6 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("split-state", (_event, info) => callback(info));
   },
 
-  // Command bar
+  // Command execution (used internally by interceptor routing)
   execCommand: (cmd: string) => ipcRenderer.invoke("exec-command", cmd) as Promise<string>,
-  getCompletions: () => ipcRenderer.invoke("get-completions") as Promise<{ apps: string[]; library: string[]; skills: string[]; layouts: string[] }>,
-
-  // Wassup admin modal
-  onShowWassup: (callback: (instruction: string) => void) => {
-    ipcRenderer.on("show-wassup", (_event, instruction: string) => callback(instruction));
-  },
-  wassupSend: (instruction: string) => ipcRenderer.invoke("wassup-send", instruction) as Promise<string>,
 });

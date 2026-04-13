@@ -10,7 +10,6 @@
 
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
-import { MemoryStore } from "./memory-store";
 import { SkillEngine } from "./skill-engine";
 import { AppConnector } from "./app-connector";
 
@@ -69,15 +68,6 @@ const TOOLS = [
     },
   },
   {
-    name: "memory_read",
-    description: "Read the full content of an auto-captured memory entry by its ID.",
-    input_schema: {
-      type: "object" as const,
-      properties: { id: { type: "string" as const, description: "Memory entry ID (e.g. claude-1713012345)" } },
-      required: ["id"],
-    },
-  },
-  {
     name: "dip",
     description: "Switch to a panel or layout.",
     input_schema: {
@@ -98,7 +88,6 @@ export class YoChat {
   constructor(
     private panelManager: PanelManager,
     private library: Library,
-    private memoryStore?: MemoryStore,
   ) {
     this.apiKey = process.env.ANTHROPIC_API_KEY || null;
   }
@@ -133,12 +122,12 @@ export class YoChat {
   }
 
   /**
-   * One-shot LLM execution for inline yo/sup from the interceptor.
+   * One-shot LLM execution for inline yo/sup/wassup from the interceptor.
    * Uses a separate history so it doesn't pollute the chat conversation.
    * Runs non-streaming and returns the final text result.
    */
   async executeInline(
-    command: "yo" | "sup",
+    command: "yo" | "sup" | "wassup",
     instruction: string,
     appId: string,
     appContent?: string,
@@ -153,14 +142,25 @@ export class YoChat {
     const userParts: string[] = [];
     if (command === "yo") {
       userParts.push(`The user typed "yo ${instruction}".`);
-      userParts.push(`They want to process and save content from their current app.`);
+      userParts.push(`They want to process content from their current app and save it to their session.`);
       if (appContent) {
         userParts.push(`\nHere is the content:\n\n${appContent.slice(0, 8000)}`);
       }
-      userParts.push(`\nProcess according to the instruction and save the result to the library. Be concise.`);
-    } else {
+      userParts.push(`\nProcess according to the instruction. Return the processed result directly. Be concise.`);
+    } else if (command === "sup") {
       userParts.push(`The user typed "sup ${instruction}".`);
-      userParts.push(`They want to find a file in the library. Search for it and return the file name. Be concise.`);
+      userParts.push(`They have session content they want processed and injected into their current app.`);
+      if (appContent) {
+        userParts.push(`\nHere is their session content:\n\n${appContent.slice(0, 8000)}`);
+      }
+      userParts.push(`\nProcess according to the instruction. Return the result directly — it will be injected into their input. Be concise.`);
+    } else {
+      // wassup — tool execution
+      userParts.push(`The user invoked a tool with instruction: "${instruction}".`);
+      if (appContent) {
+        userParts.push(`\nHere is the context from their session:\n\n${appContent.slice(0, 8000)}`);
+      }
+      userParts.push(`\nFollow the instruction. Return the result directly. Be concise.`);
     }
 
     const messages: any[] = [{ role: "user", content: userParts.join("\n") }];
@@ -271,12 +271,6 @@ export class YoChat {
           const files = this.library.search(input.query as string);
           return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : `No files matching "${input.query}".`;
         }
-        case "memory_read":
-          if (this.memoryStore) {
-            const content = this.memoryStore.read(input.id as string);
-            return content || `Memory entry "${input.id}" not found.`;
-          }
-          return "Memory store not available.";
         case "dip":
           if (this.commandCallback) return this.commandCallback(`dip ${input.panel}`);
           return "Panel switching not available.";

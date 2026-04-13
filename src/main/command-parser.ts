@@ -51,7 +51,9 @@ export class CommandParser {
       case "dip":
         return this.handleDip(args);
       case "wassup":
-        return `__wassup__:${args.join(" ")}`;
+        // wassup commands are handled by the interceptor directly.
+        // If routed through terminal, just acknowledge.
+        return args.length > 0 ? `wassup: use inside an app panel` : "wassup: use inside an app panel";
       default:
         return `Unknown command: ${cmd}. Try yo, sup, dip, or wassup.`;
     }

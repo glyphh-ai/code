@@ -31,11 +31,7 @@
       <button id="btn-minimize" class="wc wc-minimize"></button>
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
-    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span></div>
-    <div id="command-bar">
-      <input id="command-input" type="text" placeholder="type a command..." spellcheck="false" autocomplete="off" />
-      <div id="autocomplete-dropdown" class="hidden"></div>
-    </div>
+    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span> Dip<span class="dot">.</span></div>
   </div>
 
   <!-- Panel screenshots (freeze-frame when panels are hidden) -->
@@ -55,6 +51,7 @@
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
+        <button class="help-nav-item" data-section="tools">Tools</button>
         <div class="help-nav-spacer"></div>
         <label class="dismiss-label"><input type="checkbox" id="dismiss-check" /> Don't show on startup</label>
       </nav>
@@ -146,15 +143,19 @@
           </div>
 
           <div class="help-group">
-            <h3>wassup <span class="cmd-desc">— configuring</span></h3>
-            <p class="cmd-intro">Talk to Yo to configure your workspace. Command bar only.</p>
+            <h3>wassup <span class="cmd-desc">— tools</span></h3>
+            <p class="cmd-intro">Run AI automation tools from inside any app panel.</p>
             <div class="cmd-row">
               <code>wassup</code>
-              <span>Open the admin assistant</span>
+              <span>Browse available tools</span>
             </div>
             <div class="cmd-row">
-              <code>wassup create a skill called summary that...</code>
-              <span>Natural language — create skills, add apps, build layouts</span>
+              <code>wassup broadcast</code>
+              <span>Run a tool by name</span>
+            </div>
+            <div class="cmd-row">
+              <code>wassup summarize everything on this page</code>
+              <span>Natural language — AI improvises when no tool matches</span>
             </div>
           </div>
 
@@ -323,24 +324,26 @@
           </div>
         </div>
 
-      </main>
-    </div>
-  </div>
+        <!-- Tools -->
+        <div class="help-section" data-section="tools">
+          <h2>Tools</h2>
+          <p class="section-desc">AI automation recipes. Run them from any app with <code>wassup &lt;tool&gt;</code>. Stored in <code>~/yo/tools/</code></p>
+          <div class="tab-toolbar">
+            <input id="tools-new-name" type="text" placeholder="new tool name" spellcheck="false" />
+            <button id="tools-new-btn" class="action-btn primary">+ New Tool</button>
+          </div>
+          <div id="tools-list" class="item-list"></div>
+          <div id="tools-editor" class="editor-area hidden">
+            <div class="editor-header">
+              <span id="tools-edit-name"></span>
+              <button id="tools-save-btn" class="action-btn primary">Save</button>
+            </div>
+            <input id="tools-edit-desc" type="text" placeholder="Short description..." spellcheck="false" class="tools-desc-input" />
+            <textarea id="tools-edit-prompt" placeholder="Tool prompt — what should the AI do when this tool runs?" spellcheck="false"></textarea>
+          </div>
+        </div>
 
-  <!-- Wassup admin modal -->
-  <div id="wassup-overlay" class="hidden">
-    <div id="wassup-modal">
-      <div class="wassup-header">
-        <span class="wassup-title">wassup<span class="dot">.</span></span>
-        <button id="wassup-close" class="wassup-close-btn">&times;</button>
-      </div>
-      <div id="wassup-messages"></div>
-      <div class="wassup-composer">
-        <textarea id="wassup-input" rows="1" placeholder="create a skill, add an app, make a layout..." spellcheck="false"></textarea>
-        <button id="wassup-send-btn" class="wassup-send" aria-label="Send">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13V9l10-1-10-1V3l14 5-14 5z" fill="currentColor"/></svg>
-        </button>
-      </div>
+      </main>
     </div>
   </div>
 

@@ -241,118 +241,24 @@ body {
   -webkit-text-fill-color: #25C75E;
 }
 
-/* ── Command bar ─────────────────────────────────────────── */
+/* ── Tools editor ────────────────────────────────────────── */
 
-#command-bar {
-  flex: 1;
-  position: relative;
-  max-width: 400px;
-  -webkit-app-region: no-drag;
-}
-
-#command-input {
+.tools-desc-input {
   width: 100%;
-  height: 26px;
+  box-sizing: border-box;
   background: #1e1e1e;
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  color: #e8e8e8;
-  font-size: 12px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  padding: 0 10px;
-  outline: none;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-#command-input::placeholder {
-  color: #666;
-}
-
-#command-input:focus {
-  border-color: #25C75E;
-  background: #161616;
-}
-
-#autocomplete-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 4px;
-  background: #1a1a1a;
   border: 1px solid #2e2e2e;
   border-radius: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 1000;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-#autocomplete-dropdown.hidden { display: none; }
-
-.ac-item {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  color: #ccc;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.ac-item:hover,
-.ac-item.selected {
-  background: #142a1a;
   color: #e0e0e0;
+  font-size: 13px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  outline: none;
+  transition: border-color 0.15s;
 }
 
-.ac-item.selected {
-  border-left: 2px solid #25C75E;
-}
-
-/* ── Context pill ────────────────────────────────────────── */
-
-#context-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #0e1f14;
-  border: 1px solid #1a5a30;
-  border-radius: 12px;
-  padding: 2px 8px 2px 10px;
-  -webkit-app-region: no-drag;
-  animation: ctx-in 0.2s ease;
-}
-
-@keyframes ctx-in {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-#context-pill.hidden { display: none !important; }
-
-#context-name {
-  font-size: 11px;
-  font-weight: 500;
-  color: #5dd889;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#context-clear {
-  background: none;
-  border: none;
-  color: #666;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  transition: color 0.15s;
-}
-
-#context-clear:hover { color: #ff5f57; }
+.tools-desc-input:focus { border-color: #25C75E; }
+.tools-desc-input::placeholder { color: #555; }
 
 /* ── Panel screenshots (freeze-frame) ────────────────────── */
 
@@ -1323,158 +1229,4 @@ body {
 
 /* ── Wassup admin modal ─────────────────────────────────── */
 
-#wassup-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 150;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-}
-
-#wassup-modal {
-  width: 520px;
-  max-height: 70vh;
-  background: #131313;
-  border: 1px solid #2a2a2a;
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
-  overflow: hidden;
-}
-
-.wassup-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid #1e1e1e;
-}
-
-.wassup-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #ccc;
-  letter-spacing: -0.01em;
-}
-
-.wassup-title .dot {
-  color: #25C75E;
-  -webkit-text-fill-color: #25C75E;
-}
-
-.wassup-close-btn {
-  background: none;
-  border: none;
-  color: #555;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
-}
-
-.wassup-close-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-#wassup-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 80px;
-  max-height: 50vh;
-}
-
-.wassup-msg {
-  font-size: 13px;
-  line-height: 1.55;
-  padding: 10px 14px;
-  border-radius: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.wassup-msg.user {
-  background: #0e1f14;
-  color: #8fd9a4;
-  align-self: flex-end;
-  max-width: 85%;
-  border: 1px solid #1a5a30;
-}
-
-.wassup-msg.assistant {
-  background: #1a1a1a;
-  color: #ccc;
-  align-self: flex-start;
-  max-width: 85%;
-  border: 1px solid #222;
-}
-
-.wassup-msg.thinking {
-  color: #666;
-  font-style: italic;
-}
-
-.wassup-composer {
-  position: relative;
-  margin: 12px 18px;
-  background: #1a1a1a;
-  border: 1px solid #2e2e2e;
-  border-radius: 12px;
-  transition: border-color 0.2s;
-}
-
-.wassup-composer:focus-within {
-  border-color: #25C75E;
-}
-
-#wassup-input {
-  display: block;
-  width: 100%;
-  min-height: 42px;
-  max-height: 160px;
-  padding: 12px 48px 12px 16px;
-  background: transparent;
-  border: none;
-  color: #f0f0f0;
-  font-size: 13px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  overflow-y: auto;
-}
-
-#wassup-input::placeholder { color: #4a4a4a; }
-#wassup-input:disabled { opacity: 0.5; }
-
-.wassup-send {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 28px;
-  height: 28px;
-  background: #25C75E;
-  border: none;
-  border-radius: 8px;
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: opacity 0.15s, transform 0.15s;
-}
-
-.wassup-send:hover { opacity: 0.85; }
-.wassup-send:active { transform: scale(0.92); }
-.wassup-send:disabled { opacity: 0.25; cursor: default; transform: none; }
 

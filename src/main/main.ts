@@ -23,7 +23,8 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
-import { MemoryStore } from "./memory-store";
+import { SessionCache } from "./session-cache";
+import { ToolManager } from "./tool-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -103,11 +104,14 @@ async function boot() {
   terminalManager = new TerminalManager();
   terminalManager.init();
 
-  // Memory store — silent auto-capture of panel content
-  const memoryStore = new MemoryStore();
+  // Session cache — in-memory yo/sup content store
+  const session = new SessionCache();
 
-  // yo/sup/dip interceptor — injected into ALL app panels
-  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, memoryStore);
+  // Tool manager — AI automation recipes
+  const toolManager = new ToolManager();
+
+  // yo/sup/dip/wassup interceptor — injected into ALL app panels
+  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, session, toolManager);
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -144,8 +148,8 @@ async function boot() {
     mainWindow?.webContents.send("show-welcome");
   });
 
-  // LLM engine for inline yo/sup execution
-  const yoChat = new YoChat(panelManager, library, memoryStore);
+  // LLM engine for inline yo/sup/wassup execution
+  const yoChat = new YoChat(panelManager, library);
   yoChat.setSkillEngine(skillEngine);
   yoChat.setAppConnector(appConnector);
   yoInterceptor.setYoChat(yoChat);
@@ -155,18 +159,6 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     if (gridInfo) return gridInfo.panelIds;
     return panelManager.activePanelId ? [panelManager.activePanelId] : [];
-  });
-
-  // Give interceptor access to previous panel ID (for sup *)
-  yoInterceptor.setPreviousPanelGetter(() => panelManager.previousPanelId);
-
-  // Auto-capture: snapshot leaving panel when user switches panels
-  panelManager.setOnPanelReady((_id, _wc) => {
-    const prevId = panelManager.previousPanelId;
-    if (prevId && prevId !== "term") {
-      const prevWc = panelManager.getWebContents(prevId);
-      if (prevWc) yoInterceptor.autoCapture(prevWc, prevId);
-    }
   });
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
@@ -709,30 +701,23 @@ async function boot() {
     wc.executeJavaScript(pickerScript).catch(() => {});
   });
 
-  // IPC: command bar — exec command + autocomplete completions
+  // IPC: command execution (used by interceptor routing, no UI)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
-    const result = await execCommand(cmd);
-    // Intercept wassup signal from command parser → show modal in renderer
-    if (result.startsWith("__wassup__:")) {
-      const instruction = result.slice("__wassup__:".length).trim();
-      mainWindow?.webContents.send("show-wassup", instruction);
-      return "";
-    }
-    return result;
+    return execCommand(cmd);
   });
 
-  // IPC: wassup admin command — LLM-powered workspace configuration
-  ipcMain.handle("wassup-send", async (_e, instruction: string) => {
-    return yoChat.executeAdmin(instruction);
+  // IPC: tools CRUD
+  ipcMain.handle("tools-list", () => toolManager.list());
+  ipcMain.handle("tools-read", (_e, id: string) => toolManager.get(id) || null);
+  ipcMain.handle("tools-write", (_e, id: string, name: string, description: string, prompt: string) => {
+    const existing = toolManager.get(id);
+    if (existing) {
+      return toolManager.update(id, { name, description, prompt });
+    }
+    toolManager.add(id, name, description, prompt);
+    return true;
   });
-  ipcMain.handle("get-completions", () => {
-    return {
-      apps: appConnector.list().map((a) => a.id),
-      library: library.list(),
-      skills: skillEngine.listSkills(),
-      layouts: layoutManager.listLayouts().map((l) => l.name),
-    };
-  });
+  ipcMain.handle("tools-remove", (_e, id: string) => toolManager.remove(id));
 
   // IPC: license + API key
   ipcMain.handle("check-license", () => checkLicense());
