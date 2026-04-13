@@ -22,7 +22,6 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
-import { ToolManager } from "./tool-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -77,11 +76,8 @@ async function boot() {
   appConnector = new AppConnector();
   connectorAgent = new ConnectorAgent();
 
-  // Tool manager (wassup recipes)
-  const toolManager = new ToolManager();
-
-  // yo/sup/dip/wassup interceptor — injected into ALL app panels
-  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, toolManager);
+  // yo/sup/dip interceptor — injected into ALL app panels
+  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine);
 
   panelManager = new PanelManager((id, wc) => {
     // Always activate interceptor so yo/dip/wassup work on all panels
@@ -120,13 +116,13 @@ async function boot() {
   }
 
   layoutManager = new LayoutManager(panelManager);
-  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector, toolManager);
+  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
 
-  // LLM engine for inline yo/sup/wassup execution
-  const yoChat = new YoChat(panelManager, library, toolManager);
+  // LLM engine for inline yo/sup execution
+  const yoChat = new YoChat(panelManager, library);
   yoInterceptor.setYoChat(yoChat);
 
   // Notify renderer when active context changes (for titlebar pill)
@@ -300,19 +296,6 @@ async function boot() {
     return true;
   });
   ipcMain.handle("skills-remove", (_e, name: string) => skillEngine.deleteSkill(name));
-
-  // IPC: tools CRUD
-  ipcMain.handle("tools-list", () => toolManager.list());
-  ipcMain.handle("tools-read", (_e, id: string) => toolManager.get(id));
-  ipcMain.handle("tools-write", (_e, id: string, name: string, description: string, prompt: string) => {
-    const existing = toolManager.get(id);
-    if (existing) {
-      return toolManager.update(id, { name, description, prompt });
-    }
-    toolManager.add(id, name, description, prompt);
-    return true;
-  });
-  ipcMain.handle("tools-remove", (_e, id: string) => toolManager.remove(id));
 
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>

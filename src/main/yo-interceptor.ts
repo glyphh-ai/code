@@ -14,7 +14,6 @@ import { WebContents } from "electron";
 import { AppConnector } from "./app-connector";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
-import { ToolManager } from "./tool-manager";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
 
@@ -31,7 +30,6 @@ export class YoInterceptor {
     private appConnector: AppConnector,
     private library: Library,
     private skillEngine: SkillEngine,
-    private toolManager: ToolManager,
   ) {}
 
   /** Set the YoChat instance for inline LLM execution. */
@@ -119,11 +117,11 @@ export class YoInterceptor {
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
 var S=${sel};
-var CMD_RE=/^(yo|sup|dip|wassup)(?:\\s+(.+))?$/i;
+var CMD_RE=/^(yo|sup|dip)(?:\\s+(.+))?$/i;
 var lastText='';
 var handled=false;
 
-// Remember the element the command was typed in so sup/wassup can inject back
+// Remember the element the command was typed in so sup can inject back
 window.__yoLastEl=null;
 window.__yoInject=function(text){
   var el=window.__yoLastEl;if(!el)return;
@@ -173,7 +171,6 @@ function fire(text,srcEl){
   if(cmd==='yo')console.log('${PREFIX}'+JSON.stringify({type:'yo',instruction:arg}));
   else if(cmd==='sup')console.log('${PREFIX}'+JSON.stringify({type:'sup',instruction:arg}));
   else if(cmd==='dip')console.log('${PREFIX}'+JSON.stringify({type:'dip',args:arg}));
-  else if(cmd==='wassup')console.log('${PREFIX}'+JSON.stringify({type:'wassup',instruction:arg}));
 }
 
 // Primary: capture-phase keydown (works for most apps)
@@ -228,20 +225,18 @@ document.addEventListener('keyup',function(e){
   private async dispatch(
     wc: WebContents,
     appId: string,
-    data: { type: string; instruction?: string | null; fileName?: string; args?: string | null; toolId?: string },
+    data: { type: string; instruction?: string | null; fileName?: string; skill?: string; prompt?: string; args?: string | null },
   ): Promise<void> {
     if (data.type === "yo") {
       await this.handleYo(wc, appId, data.instruction ?? undefined);
+    } else if (data.type === "yo-select") {
+      await this.handleYoSelect(wc, appId, data.skill, data.fileName, data.prompt);
     } else if (data.type === "sup") {
       await this.handleSup(wc, appId, data.instruction ?? undefined);
     } else if (data.type === "sup-select") {
-      this.loadContext(wc, data.fileName!);
+      await this.handleSupSelect(wc, appId, data.skill, data.fileName, data.prompt);
     } else if (data.type === "dip") {
       await this.handleDip(wc, data.args ?? undefined);
-    } else if (data.type === "wassup") {
-      await this.handleWassup(wc, appId, data.instruction ?? undefined);
-    } else if (data.type === "wassup-select") {
-      await this.handleWassup(wc, appId, data.toolId ?? undefined);
     }
   }
 
@@ -255,15 +250,15 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── yo flow: creating ────────────────────────────────────
+  // ── yo flow: crystallize ──────────────────────────────────
   //
-  // Smart routing:
-  //   bare "yo"           → grab + default skill → save
-  //   "yo <known-skill>"  → grab + skill → save  (fast path)
-  //   "yo <natural lang>" → grab + LLM inline execution
+  //   bare "yo"           → show modal (skills + library) for saving
+  //   "yo help"           → open help overlay
+  //   "yo <known-skill>"  → grab + skill → save (fast path)
+  //   "yo <instruction>"  → grab + LLM → save
 
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // Route subcommands through command parser (yo help, yo skill, yo layout)
+    // Route subcommands through command parser
     const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
     if (sub === "help" || sub === "skill" || sub === "layout") {
       if (this.commandHandler) {
@@ -273,33 +268,74 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    const app = this.appConnector.get(appId);
-
-    // Decide: fast path (no instruction or single known skill) vs LLM
-    const isSingleWord = instruction && /^\S+$/.test(instruction);
-    const knownSkill = isSingleWord ? this.skillEngine.listSkills().find(
-      (s) => s.toLowerCase() === instruction!.toLowerCase(),
-    ) : undefined;
-    const needsLLM = instruction && !knownSkill;
-
-    if (needsLLM) {
-      await this.handleYoInline(wc, appId, instruction!);
+    // Bare "yo" → show unified modal for crystallizing
+    if (!instruction) {
+      this.showCommandModal(wc, "yo");
       return;
     }
 
-    this.notify(wc, "Saving...", "loading");
+    // Single known skill → fast path
+    const isSingleWord = /^\S+$/.test(instruction);
+    const knownSkill = isSingleWord ? this.skillEngine.listSkills().find(
+      (s) => s.toLowerCase() === instruction!.toLowerCase(),
+    ) : undefined;
 
+    if (knownSkill) {
+      await this.yoSave(wc, appId, knownSkill);
+      return;
+    }
+
+    // Natural language → LLM processes and saves
+    await this.yoSave(wc, appId, undefined, instruction);
+  }
+
+  /** Handle modal selection for yo (skill or library file picked). */
+  private async handleYoSelect(
+    wc: WebContents,
+    appId: string,
+    skill?: string,
+    fileName?: string,
+    prompt?: string,
+  ): Promise<void> {
+    if (fileName) {
+      // Append current page content to existing library file
+      const app = this.appConnector.get(appId);
+      const content = await this.grabContent(wc, app);
+      if (!content) {
+        this.notify(wc, "Could not grab content from this page.", "error");
+        return;
+      }
+      const existing = this.library.read(fileName) || "";
+      const timestamp = new Date().toLocaleString();
+      const appended = existing + `\n\n---\n*Appended ${timestamp}*\n\n` + content;
+      this.library.write(fileName, appended);
+      this.notify(wc, `Appended to ${fileName}.md`, "success");
+    } else {
+      // Process with skill/prompt and save
+      await this.yoSave(wc, appId, skill, prompt);
+    }
+  }
+
+  /** Grab content from current app, process with skill/LLM, save to library. */
+  private async yoSave(wc: WebContents, appId: string, skill?: string, instruction?: string): Promise<void> {
+    this.notify(wc, "Saving...", "loading");
     try {
+      const app = this.appConnector.get(appId);
       const content = await this.grabContent(wc, app);
       if (!content) {
         this.notify(wc, "Could not grab content from this page.", "error");
         return;
       }
 
-      const processed = await this.skillEngine.process(content, knownSkill);
+      let processed: string;
+      if (instruction && this.yoChat) {
+        processed = await this.yoChat.executeInline("yo", instruction, appId, content);
+      } else {
+        processed = await this.skillEngine.process(content, skill);
+      }
 
       const date = new Date().toISOString().slice(0, 10);
-      const base = knownSkill || appId;
+      const base = skill || appId;
       let name = `${base}-${date}`;
       const existing = this.library.list();
       if (existing.includes(name)) {
@@ -315,65 +351,20 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  /** LLM-powered yo: grab content, send instruction + content to LLM. */
-  private async handleYoInline(wc: WebContents, appId: string, instruction: string): Promise<void> {
-    if (!this.yoChat) {
-      this.notify(wc, "Chat engine not available.", "error");
-      return;
-    }
-    const app = this.appConnector.get(appId);
-
-    this.notify(wc, "Thinking...", "loading");
-
-    try {
-      const content = await this.grabContent(wc, app);
-      const result = await this.yoChat.executeInline("yo", instruction, appId, content || undefined);
-      this.notify(wc, result, "success");
-    } catch (err) {
-      this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
-    }
-  }
-
-  // ── sup flow: reading ───────────────────────────────────
+  // ── sup flow: use context ─────────────────────────────────
   //
-  // Smart routing:
-  //   bare "sup"                → show all library files
-  //   "sup <single-word>"       → search library (fast path)
-  //   "sup <natural lang>"      → LLM inline execution
+  //   bare "sup"           → show modal (skills + library) for using content
+  //   "sup <single-word>"  → search library, load as context (fast path)
+  //   "sup <instruction>"  → LLM processes context → inject into input
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // No instruction → inject current context raw into textarea
+    // Bare "sup" → show unified modal
     if (!instruction) {
-      if (!this.activeContext) {
-        this.notify(wc, "No context loaded. Use: sup yo", "error");
-        return;
-      }
-      const injected = await this.injectContent(wc, this.activeContext.content);
-      if (injected) {
-        this.notify(wc, `Injected: ${this.activeContext.name}.md`, "success");
-      } else {
-        this.notify(wc, "Could not inject content.", "error");
-      }
+      this.showCommandModal(wc, "sup");
       return;
     }
 
-    // "sup yo" → open library picker to select new context
-    if (instruction.toLowerCase() === "yo") {
-      const meta = this.library.listWithMeta();
-      if (meta.length === 0) {
-        this.notify(wc, "Library is empty.", "error");
-        return;
-      }
-      const items = meta.map((f) => ({
-        name: f.name,
-        modified: f.modified,
-        preview: (this.library.read(f.name) || "").slice(0, 120).replace(/\n/g, " "),
-      }));
-      this.showSupPicker(wc, items);
-      return;
-    }
-
-    // Single word → direct library search, load as context
+    // Single word → search library, load or pick
     const isSingleWord = /^\S+$/.test(instruction);
     if (isSingleWord) {
       const files = this.library.search(instruction);
@@ -382,141 +373,93 @@ document.addEventListener('keyup',function(e){
         return;
       }
       if (files.length === 1) {
+        // Load as context AND inject into input
         this.loadContext(wc, files[0]);
+        const content = this.library.read(files[0]);
+        if (content) await this.injectContent(wc, content);
         return;
       }
-      const meta = this.library.listWithMeta();
-      const metaMap = new Map(meta.map((m) => [m.name, m.modified]));
-      const items = files.map((f) => ({
-        name: f,
-        modified: metaMap.get(f) || 0,
-        preview: (this.library.read(f) || "").slice(0, 120).replace(/\n/g, " "),
-      }));
-      this.showSupPicker(wc, items);
+      // Multiple matches → show modal filtered
+      this.showCommandModal(wc, "sup");
       return;
     }
 
-    // Multi-word → LLM inline (finds the right file, then loads as context)
-    await this.handleSupInline(wc, appId, instruction);
-  }
-
-  /** LLM-powered sup: natural language library retrieval + push. */
-  private async handleSupInline(wc: WebContents, appId: string, instruction: string): Promise<void> {
+    // Multi-word instruction → LLM processes active context → inject result
+    if (!this.activeContext) {
+      this.notify(wc, "No context loaded. Type sup to browse library.", "error");
+      return;
+    }
     if (!this.yoChat) {
       this.notify(wc, "Chat engine not available.", "error");
       return;
     }
 
-    this.notify(wc, "Searching...", "loading");
-
+    this.notify(wc, "Processing...", "loading");
     try {
-      const result = await this.yoChat.executeInline("sup", instruction, appId);
-      this.notify(wc, result, "success");
+      const result = await this.yoChat.executeInline("sup", instruction, appId, this.activeContext.content);
+      const injected = await this.injectContent(wc, result);
+      if (injected) {
+        this.notify(wc, "Done.", "success");
+      } else {
+        this.notify(wc, result, "success");
+      }
     } catch (err) {
       this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
     }
   }
 
-  // ── wassup flow: run tools ──────────────────────────────
-  //
-  // Smart routing:
-  //   bare "wassup"              → show tool picker
-  //   "wassup <known-tool>"      → run tool recipe via LLM
-  //   "wassup <natural lang>"    → LLM improvises with available tools
-
-  private async handleWassup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // No instruction → show tool picker
-    if (!instruction) {
-      const tools = this.toolManager.list();
-      if (tools.length === 0) {
-        this.notify(wc, "No tools yet. Create one in Yo. Sup. Dip. → Tools.", "error");
-        return;
-      }
-      this.showToolPicker(wc, tools);
+  /** Handle modal selection for sup (skill or library file picked). */
+  private async handleSupSelect(
+    wc: WebContents,
+    appId: string,
+    skill?: string,
+    fileName?: string,
+    prompt?: string,
+  ): Promise<void> {
+    if (fileName && !skill) {
+      // Library file → load as context + inject into input
+      this.loadContext(wc, fileName);
+      const content = this.library.read(fileName);
+      if (content) await this.injectContent(wc, content);
       return;
     }
 
-    // Need context to run a tool
-    if (!this.activeContext) {
-      this.notify(wc, "No context loaded. Use sup to load context first.", "error");
+    // Skill selected → process active context with skill and inject
+    if (!this.activeContext && !fileName) {
+      this.notify(wc, "No context loaded. Pick a library file first.", "error");
       return;
     }
+
+    // If a file was also picked, use that as context
+    const ctx = fileName
+      ? this.library.read(fileName) || ""
+      : this.activeContext!.content;
 
     if (!this.yoChat) {
       this.notify(wc, "Chat engine not available.", "error");
       return;
     }
 
-    this.notify(wc, "Running...", "loading");
+    const instruction = prompt
+      ? `Process using skill "${skill}": ${prompt}`
+      : `Process using skill "${skill}"`;
 
+    this.notify(wc, "Processing...", "loading");
     try {
-      const result = await this.yoChat.executeInline("wassup", instruction, appId, this.activeContext.content);
-      // Inject result into the input where the command was typed
+      const skillPrompt = skill ? this.skillEngine.readSkill(skill) : null;
+      const fullInstruction = skillPrompt
+        ? `${skillPrompt}\n\nAdditional instruction: ${prompt || "process this content"}`
+        : instruction;
+      const result = await this.yoChat.executeInline("sup", fullInstruction, appId, ctx);
       const injected = await this.injectContent(wc, result);
       if (injected) {
         this.notify(wc, "Done.", "success");
       } else {
-        // Fallback: show as notification if injection fails
         this.notify(wc, result, "success");
       }
     } catch (err) {
-      this.notify(wc, `wassup failed: ${err instanceof Error ? err.message : err}`, "error");
+      this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
     }
-  }
-
-  private async showToolPicker(
-    wc: WebContents,
-    tools: Array<{ id: string; name: string; description: string }>,
-  ): Promise<void> {
-    const data = JSON.stringify(tools);
-    try {
-      await wc.executeJavaScript(`
-(function(){
-var o=document.getElementById('__yo_note');if(o)o.remove();
-var m=document.getElementById('__yo_modal');if(m)m.remove();
-var tools=${data};
-var ov=document.createElement('div');ov.id='__yo_modal';
-ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
-var card=document.createElement('div');
-card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:70vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;display:flex;flex-direction:column;';
-var t=document.createElement('div');t.textContent='Run a tool';
-t.style.cssText='font-size:16px;font-weight:600;margin-bottom:12px;color:#a855f7;';
-card.appendChild(t);
-var si=document.createElement('input');si.type='text';si.placeholder='Search tools...';
-si.style.cssText='width:100%;box-sizing:border-box;background:#0d0d1a;border:1px solid #333;color:#e0e0e0;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
-si.onfocus=function(){si.style.borderColor='#a855f7';};
-si.onblur=function(){si.style.borderColor='#333';};
-card.appendChild(si);
-var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
-card.appendChild(list);
-function render(arr){
-  list.innerHTML='';
-  arr.forEach(function(tool){
-    var item=document.createElement('div');
-    item.style.cssText='padding:10px 12px;cursor:pointer;border-radius:6px;margin-bottom:2px;transition:background 0.1s;';
-    item.onmouseenter=function(){item.style.background='#252540';};
-    item.onmouseleave=function(){item.style.background='transparent';};
-    var n=document.createElement('div');n.textContent=tool.name;
-    n.style.cssText='font-size:14px;font-weight:500;';item.appendChild(n);
-    if(tool.description){var p=document.createElement('div');p.textContent=tool.description;
-    p.style.cssText='font-size:12px;color:#888;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-    item.appendChild(p);}
-    item.onclick=function(){ov.remove();
-      console.log('${PREFIX}'+JSON.stringify({type:'wassup-select',toolId:tool.id}));};
-    list.appendChild(item);
-  });
-  if(arr.length===0){var em=document.createElement('div');em.textContent='No matches';
-  em.style.cssText='color:#666;text-align:center;padding:20px;font-size:14px;';list.appendChild(em);}
-}
-render(tools);
-si.oninput=function(){var q=si.value.toLowerCase();
-  render(tools.filter(function(t){return t.name.toLowerCase().includes(q)||t.id.toLowerCase().includes(q)||(t.description||'').toLowerCase().includes(q);}));};
-ov.onclick=function(e){if(e.target===ov)ov.remove();};
-ov.appendChild(card);
-document.body.appendChild(ov);
-requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';si.focus();});
-})();`);
-    } catch {}
   }
 
   // ── Context loading ─────────────────────────────────────
@@ -559,29 +502,6 @@ requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scal
     }
     if (!content || content.startsWith("[Element not found")) return null;
     return content;
-  }
-
-  private async pushFile(wc: WebContents, appId: string, fileName: string): Promise<void> {
-    const content = this.library.read(fileName);
-    if (!content) {
-      this.notify(wc, `"${fileName}" not found.`, "error");
-      return;
-    }
-    // Try direct injection into the element where the command was typed
-    const injected = await this.injectContent(wc, content);
-    if (injected) {
-      this.notify(wc, `Loaded: ${fileName}.md`, "success");
-      return;
-    }
-    // Fallback: try push command mapping
-    const app = this.appConnector.get(appId);
-    if (app?.commands.push) {
-      await executeCommand(wc, app.commands.push, content);
-      this.notify(wc, `Loaded: ${fileName}.md`, "success");
-    } else {
-      // Last resort — show content for manual copy
-      this.showSupContent(wc, fileName, content);
-    }
   }
 
   // ── Injected UI ────────────────────────────────────────
@@ -651,44 +571,56 @@ setTimeout(function(){var el=document.getElementById('__yo_modal');if(el)el.remo
     } catch {}
   }
 
-  private async showSupPicker(
-    wc: WebContents,
-    files: Array<{ name: string; modified: number; preview: string }>,
-  ): Promise<void> {
-    const data = JSON.stringify(files);
+  /** Unified modal for yo (crystallize) and sup (use). Shows prompt + skills + library. */
+  private async showCommandModal(wc: WebContents, mode: "yo" | "sup"): Promise<void> {
+    const skills = this.skillEngine.listSkills();
+    const meta = this.library.listWithMeta();
+    const files = meta.map((f) => ({
+      name: f.name,
+      modified: f.modified,
+      preview: (this.library.read(f.name) || "").slice(0, 120).replace(/\n/g, " "),
+    }));
+    const data = JSON.stringify({ mode, skills, files });
     try {
       await wc.executeJavaScript(`
 (function(){
 var o=document.getElementById('__yo_note');if(o)o.remove();
 var m=document.getElementById('__yo_modal');if(m)m.remove();
-var files=${data};
-var PAGE=20,page=0,filtered=files;
+var D=${data};
+var mode=D.mode,skills=D.skills,files=D.files;
+var PAGE=15,page=0,filtered=files;
 var ov=document.createElement('div');ov.id='__yo_modal';
 ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
 var card=document.createElement('div');
-card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:580px;width:90%;max-height:70vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;display:flex;flex-direction:column;';
+card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:580px;width:90%;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;display:flex;flex-direction:column;';
+var title=mode==='yo'?'Yo — Crystallize':'Sup — Use Context';
 var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;';
-var t=document.createElement('div');t.textContent='Load context';
+var t=document.createElement('div');t.textContent=title;
 t.style.cssText='font-size:16px;font-weight:600;color:#a855f7;';
 hdr.appendChild(t);
-var cnt=document.createElement('div');cnt.style.cssText='font-size:11px;color:#555;';
-hdr.appendChild(cnt);
 card.appendChild(hdr);
-var si=document.createElement('input');si.type='text';si.placeholder='Search files...';
-si.style.cssText='width:100%;box-sizing:border-box;background:#0d0d1a;border:1px solid #333;color:#e0e0e0;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
-si.onfocus=function(){si.style.borderColor='#a855f7';};
-si.onblur=function(){si.style.borderColor='#333';};
-card.appendChild(si);
+var pi=document.createElement('input');pi.type='text';
+pi.placeholder=mode==='yo'?'What do you want to save?':'What do you need?';
+pi.style.cssText='width:100%;box-sizing:border-box;background:#0d0d1a;border:1px solid #333;color:#e0e0e0;padding:10px 12px;border-radius:6px;font-size:14px;margin-bottom:12px;outline:none;transition:border-color 0.15s;';
+pi.onfocus=function(){pi.style.borderColor='#a855f7';};
+pi.onblur=function(){pi.style.borderColor='#333';};
+card.appendChild(pi);
+pi.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&pi.value.trim()){
+    ov.remove();
+    console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',prompt:pi.value.trim()}));
+  }
+});
 var list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;min-height:0;';
 card.appendChild(list);
-var pager=document.createElement('div');pager.style.cssText='display:flex;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid #222;margin-top:8px;';
-var prevBtn=document.createElement('button');prevBtn.textContent='\\u2190 Prev';
-prevBtn.style.cssText='background:none;border:1px solid #333;color:#888;padding:4px 12px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
+var pager=document.createElement('div');pager.style.cssText='display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid #222;margin-top:6px;';
+var prevBtn=document.createElement('button');prevBtn.textContent='\\u2190';
+prevBtn.style.cssText='background:none;border:1px solid #333;color:#888;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
 prevBtn.onmouseenter=function(){prevBtn.style.borderColor='#a855f7';prevBtn.style.color='#fff';};
 prevBtn.onmouseleave=function(){prevBtn.style.borderColor='#333';prevBtn.style.color='#888';};
 var pageInfo=document.createElement('span');pageInfo.style.cssText='font-size:11px;color:#555;';
-var nextBtn=document.createElement('button');nextBtn.textContent='Next \\u2192';
-nextBtn.style.cssText='background:none;border:1px solid #333;color:#888;padding:4px 12px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
+var nextBtn=document.createElement('button');nextBtn.textContent='\\u2192';
+nextBtn.style.cssText='background:none;border:1px solid #333;color:#888;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer;transition:all 0.15s;';
 nextBtn.onmouseenter=function(){nextBtn.style.borderColor='#a855f7';nextBtn.style.color='#fff';};
 nextBtn.onmouseleave=function(){nextBtn.style.borderColor='#333';nextBtn.style.color='#888';};
 pager.appendChild(prevBtn);pager.appendChild(pageInfo);pager.appendChild(nextBtn);
@@ -703,93 +635,80 @@ function ago(ms){
 }
 function render(){
   list.innerHTML='';
-  var total=filtered.length;
-  var pages=Math.max(1,Math.ceil(total/PAGE));
-  if(page>=pages)page=pages-1;
-  var start=page*PAGE,end=Math.min(start+PAGE,total);
-  cnt.textContent=total+' file'+(total===1?'':'s');
-  pageInfo.textContent=(page+1)+' / '+pages;
-  prevBtn.style.visibility=page>0?'visible':'hidden';
-  nextBtn.style.visibility=page<pages-1?'visible':'hidden';
-  pager.style.display=total>PAGE?'flex':'none';
-  for(var i=start;i<end;i++){
-    var f=filtered[i];
-    var item=document.createElement('div');
-    item.style.cssText='display:flex;align-items:center;gap:12px;padding:8px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
-    item.onmouseenter=function(){this.style.background='#252540';};
-    item.onmouseleave=function(){this.style.background='transparent';};
-    var left=document.createElement('div');left.style.cssText='flex:1;min-width:0;';
-    var n=document.createElement('div');n.textContent=f.name+'.md';
-    n.style.cssText='font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-    left.appendChild(n);
-    if(f.preview){var p=document.createElement('div');p.textContent=f.preview;
-    p.style.cssText='font-size:11px;color:#666;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-    left.appendChild(p);}
-    item.appendChild(left);
-    var ts=document.createElement('div');ts.textContent=ago(f.modified);
-    ts.style.cssText='font-size:11px;color:#555;white-space:nowrap;flex-shrink:0;';
-    item.appendChild(ts);
-    (function(name){item.onclick=function(){ov.remove();
-      console.log('${PREFIX}'+JSON.stringify({type:'sup-select',fileName:name}));};})(f.name);
-    list.appendChild(item);
+  var q=pi.value.toLowerCase();
+  var fSkills=skills.filter(function(s){return !q||s.toLowerCase().includes(q);});
+  var fFiles=q?files.filter(function(f){return f.name.toLowerCase().includes(q)||f.preview.toLowerCase().includes(q);}):files;
+  filtered=fFiles;
+  if(fSkills.length>0){
+    var sh=document.createElement('div');sh.textContent='Skills';
+    sh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#555;padding:4px 12px 6px;';
+    list.appendChild(sh);
+    fSkills.forEach(function(sk){
+      var item=document.createElement('div');
+      item.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
+      item.onmouseenter=function(){this.style.background='#252540';};
+      item.onmouseleave=function(){this.style.background='transparent';};
+      var dot=document.createElement('span');dot.textContent='\\u25CF';
+      dot.style.cssText='color:#a855f7;font-size:8px;';
+      item.appendChild(dot);
+      var n=document.createElement('span');n.textContent=sk;
+      n.style.cssText='font-size:13px;font-weight:500;';
+      item.appendChild(n);
+      item.onclick=function(){ov.remove();
+        console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',skill:sk,prompt:pi.value.trim()||null}));};
+      list.appendChild(item);
+    });
   }
-  if(total===0){var em=document.createElement('div');em.textContent='No matches';
-  em.style.cssText='color:#666;text-align:center;padding:20px;font-size:14px;';list.appendChild(em);}
+  if(fFiles.length>0){
+    var fh=document.createElement('div');fh.textContent='Library';
+    fh.style.cssText='font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#555;padding:8px 12px 6px;';
+    list.appendChild(fh);
+    var total=fFiles.length;
+    var pages=Math.max(1,Math.ceil(total/PAGE));
+    if(page>=pages)page=pages-1;
+    var start=page*PAGE,end=Math.min(start+PAGE,total);
+    pageInfo.textContent=(page+1)+'/'+pages;
+    prevBtn.style.visibility=page>0?'visible':'hidden';
+    nextBtn.style.visibility=page<pages-1?'visible':'hidden';
+    pager.style.display=total>PAGE?'flex':'none';
+    for(var i=start;i<end;i++){
+      var f=fFiles[i];
+      var item=document.createElement('div');
+      item.style.cssText='display:flex;align-items:center;gap:12px;padding:7px 12px;cursor:pointer;border-radius:6px;margin-bottom:1px;transition:background 0.1s;';
+      item.onmouseenter=function(){this.style.background='#252540';};
+      item.onmouseleave=function(){this.style.background='transparent';};
+      var left=document.createElement('div');left.style.cssText='flex:1;min-width:0;';
+      var n=document.createElement('div');n.textContent=f.name+'.md';
+      n.style.cssText='font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      left.appendChild(n);
+      if(f.preview){var p=document.createElement('div');p.textContent=f.preview;
+      p.style.cssText='font-size:11px;color:#666;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      left.appendChild(p);}
+      item.appendChild(left);
+      var ts=document.createElement('div');ts.textContent=ago(f.modified);
+      ts.style.cssText='font-size:11px;color:#555;white-space:nowrap;flex-shrink:0;';
+      item.appendChild(ts);
+      (function(name){item.onclick=function(){ov.remove();
+        console.log('${PREFIX}'+JSON.stringify({type:mode+'-select',fileName:name,prompt:pi.value.trim()||null}));};})(f.name);
+      list.appendChild(item);
+    }
+  } else {
+    pager.style.display='none';
+  }
+  if(fSkills.length===0&&fFiles.length===0){
+    var em=document.createElement('div');em.textContent='No matches';
+    em.style.cssText='color:#666;text-align:center;padding:20px;font-size:14px;';list.appendChild(em);
+    pager.style.display='none';
+  }
 }
 prevBtn.onclick=function(){if(page>0){page--;render();}};
 nextBtn.onclick=function(){page++;render();};
+pi.oninput=function(){page=0;render();};
 render();
-si.oninput=function(){var q=si.value.toLowerCase();page=0;
-  filtered=files.filter(function(f){return f.name.toLowerCase().includes(q)||f.preview.toLowerCase().includes(q);});
-  render();};
 ov.onclick=function(e){if(e.target===ov)ov.remove();};
 ov.appendChild(card);
 document.body.appendChild(ov);
-requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';si.focus();});
-})();`);
-    } catch {}
-  }
-
-  private async showSupContent(
-    wc: WebContents,
-    fileName: string,
-    content: string,
-  ): Promise<void> {
-    const data = JSON.stringify({ fileName, content: content.slice(0, 2000) });
-    try {
-      await wc.executeJavaScript(`
-(function(){
-var o=document.getElementById('__yo_note');if(o)o.remove();
-var m=document.getElementById('__yo_modal');if(m)m.remove();
-var d=${data};
-var ov=document.createElement('div');ov.id='__yo_modal';
-ov.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;';
-var card=document.createElement('div');
-card.style.cssText='background:#1a1a2e;border:1px solid #a855f7;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:70vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e0e0e0;transform:scale(0.95);transition:transform 0.2s;';
-var t=document.createElement('div');t.textContent=d.fileName+'.md';
-t.style.cssText='font-size:16px;font-weight:600;margin-bottom:12px;color:#a855f7;';
-card.appendChild(t);
-var pre=document.createElement('pre');pre.textContent=d.content;
-pre.style.cssText='font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:0 0 16px;padding:12px;background:#0d0d1a;border-radius:6px;max-height:400px;overflow:auto;color:#ccc;user-select:all;';
-card.appendChild(pre);
-var row=document.createElement('div');row.style.cssText='display:flex;gap:8px;';
-var cp=document.createElement('button');cp.textContent='Copy';
-cp.style.cssText='background:#333;color:#e0e0e0;border:1px solid #555;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;transition:all 0.15s;';
-cp.onmouseenter=function(){cp.style.background='#444';};
-cp.onmouseleave=function(){cp.style.background='#333';};
-cp.onclick=function(){navigator.clipboard.writeText(d.content);cp.textContent='Copied!';setTimeout(function(){cp.textContent='Copy';},2000);};
-row.appendChild(cp);
-var cl=document.createElement('button');cl.textContent='Close';
-cl.style.cssText='background:#a855f7;color:white;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;transition:background 0.15s;';
-cl.onmouseenter=function(){cl.style.background='#9333ea';};
-cl.onmouseleave=function(){cl.style.background='#a855f7';};
-cl.onclick=function(){ov.remove();};
-row.appendChild(cl);
-card.appendChild(row);
-ov.appendChild(card);
-ov.onclick=function(e){if(e.target===ov)ov.remove();};
-document.body.appendChild(ov);
-requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';});
+requestAnimationFrame(function(){ov.style.opacity='1';card.style.transform='scale(1)';pi.focus();});
 })();`);
     } catch {}
   }

@@ -34,12 +34,6 @@ contextBridge.exposeInMainWorld("yo", {
   skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean>,
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
 
-  // Tools CRUD
-  toolsList: () => ipcRenderer.invoke("tools-list") as Promise<Array<{ id: string; name: string; description: string; prompt: string }>>,
-  toolsRead: (id: string) => ipcRenderer.invoke("tools-read", id) as Promise<{ id: string; name: string; description: string; prompt: string } | null>,
-  toolsWrite: (id: string, name: string, description: string, prompt: string) => ipcRenderer.invoke("tools-write", id, name, description, prompt) as Promise<boolean>,
-  toolsRemove: (id: string) => ipcRenderer.invoke("tools-remove", id) as Promise<boolean>,
-
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; splits: Array<{ panelId: string }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,

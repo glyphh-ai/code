@@ -10,7 +10,6 @@
 
 import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
-import { ToolManager } from "./tool-manager";
 
 export interface ChatCallbacks {
   onText: (delta: string) => void;
@@ -25,7 +24,6 @@ Capabilities:
 - yo_save: save processed content to the library
 - sup_load: read a library file for reference
 - library_list / library_search: find files in the library
-- tools_list: discover available automation recipes
 - dip: switch the active panel
 
 When given context, process it according to the user's instruction.
@@ -68,11 +66,6 @@ const TOOLS = [
     },
   },
   {
-    name: "tools_list",
-    description: "List all available wassup tools (AI automation recipes).",
-    input_schema: { type: "object" as const, properties: {} },
-  },
-  {
     name: "dip",
     description: "Switch to a panel or layout.",
     input_schema: {
@@ -91,7 +84,6 @@ export class YoChat {
   constructor(
     private panelManager: PanelManager,
     private library: Library,
-    private toolManager: ToolManager,
   ) {
     this.apiKey = process.env.ANTHROPIC_API_KEY || null;
   }
@@ -128,7 +120,7 @@ export class YoChat {
    * Runs non-streaming and returns the final text result.
    */
   async executeInline(
-    command: "yo" | "sup" | "wassup",
+    command: "yo" | "sup",
     instruction: string,
     appId: string,
     appContent?: string,
@@ -148,20 +140,6 @@ export class YoChat {
         userParts.push(`\nHere is the content:\n\n${appContent.slice(0, 8000)}`);
       }
       userParts.push(`\nProcess according to the instruction and save the result to the library. Be concise.`);
-    } else if (command === "wassup") {
-      userParts.push(`The user typed "wassup ${instruction}".`);
-      if (appContent) {
-        userParts.push(`\nHere is the loaded context:\n\n${appContent.slice(0, 8000)}`);
-      }
-      // Check if instruction matches a known tool
-      const matchedTool = this.toolManager.search(instruction);
-      if (matchedTool) {
-        userParts.push(`\nMatched tool: "${matchedTool.name}" — ${matchedTool.description}`);
-        userParts.push(`\nTool instructions:\n${matchedTool.prompt}`);
-        userParts.push(`\nProcess the context according to the tool instructions. Save results to the library if appropriate. Be concise.`);
-      } else {
-        userParts.push(`\nNo tool matched — improvise based on the instruction and context. Save results to the library if appropriate. Be concise.`);
-      }
     } else {
       userParts.push(`The user typed "sup ${instruction}".`);
       userParts.push(`They want to find a file in the library. Search for it and return the file name. Be concise.`);
@@ -274,11 +252,6 @@ export class YoChat {
         case "library_search": {
           const files = this.library.search(input.query as string);
           return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : `No files matching "${input.query}".`;
-        }
-        case "tools_list": {
-          const tools = this.toolManager.list();
-          if (tools.length === 0) return "No tools configured.";
-          return tools.map((t) => `${t.id} — ${t.name}: ${t.description}`).join("\n");
         }
         case "dip":
           if (this.commandCallback) return this.commandCallback(`dip ${input.panel}`);

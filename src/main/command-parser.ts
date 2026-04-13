@@ -10,7 +10,6 @@ import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
-import { ToolManager } from "./tool-manager";
 import { setPreference } from "./preferences";
 
 export class CommandParser {
@@ -22,7 +21,6 @@ export class CommandParser {
     private skillEngine: SkillEngine,
     private layouts: LayoutManager,
     private appConnector: AppConnector,
-    private toolManager: ToolManager,
   ) {}
 
   /** Register callback for yo help */
@@ -46,10 +44,8 @@ export class CommandParser {
         return this.handleSup(args);
       case "dip":
         return this.handleDip(args);
-      case "wassup":
-        return this.handleWassup(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, or wassup.`;
+        return `Unknown command: ${cmd}. Try yo, sup, or dip.`;
     }
   }
 
@@ -195,18 +191,6 @@ export class CommandParser {
     const content = this.library.read(args[0]);
     if (!content) return `Not found: ${args[0]}`;
     return content;
-  }
-
-  // ── wassup: run tools ────────────────────────────────────────
-
-  private handleWassup(args: string[]): string {
-    if (args.length === 0) {
-      const tools = this.toolManager.list();
-      if (tools.length === 0) return "No tools yet. Create one in Yo. Sup. Dip. → Tools.";
-      return tools.map((t) => `  ${t.id} — ${t.description}`).join("\n");
-    }
-    // With args, the interceptor handles LLM execution directly
-    return `wassup ${args.join(" ")}`;
   }
 
   // ── dip: switch panels ──────────────────────────────────────

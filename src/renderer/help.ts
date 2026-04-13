@@ -43,7 +43,6 @@ function loadActiveSection() {
   const sec = activeSection();
   if (sec === "library") loadLibrary();
   else if (sec === "skills") loadSkills();
-  else if (sec === "tools") loadTools();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
 }
@@ -60,10 +59,6 @@ export function initHelp() {
   // Skills
   document.getElementById("skills-save-btn")!.addEventListener("click", saveSkillItem);
   document.getElementById("skills-new-btn")!.addEventListener("click", newSkillItem);
-
-  // Tools
-  document.getElementById("tools-save-btn")!.addEventListener("click", saveToolItem);
-  document.getElementById("tools-new-btn")!.addEventListener("click", newToolItem);
 
   // Dismiss checkbox
   const dismissCheck = document.getElementById("dismiss-check") as HTMLInputElement;
@@ -284,80 +279,6 @@ async function newSkillItem() {
   input.value = "";
   loadSkills();
   editSkillItem(name);
-}
-
-// ── Tools ───────────────────────────────────────────────
-
-const toolsList = document.getElementById("tools-list")!;
-const toolsEditor = document.getElementById("tools-editor")!;
-const toolsEditName = document.getElementById("tools-edit-name")!;
-const toolsEditDescription = document.getElementById("tools-edit-description") as HTMLInputElement;
-const toolsEditPrompt = document.getElementById("tools-edit-prompt") as HTMLTextAreaElement;
-
-async function loadTools() {
-  toolsEditor.classList.add("hidden");
-  const items = await window.yo.toolsList();
-  if (items.length === 0) {
-    toolsList.innerHTML = `<div class="empty-state">No tools yet. Create one to use with <strong>wassup</strong>.</div>`;
-    return;
-  }
-  toolsList.innerHTML = items.map((tool) => `
-    <div class="item-row" data-id="${tool.id}">
-      <span class="item-name">${tool.name}</span>
-      <span class="tool-description">${tool.description}</span>
-      <div class="action-btns">
-        <button class="action-btn edit-btn">Edit</button>
-        <button class="action-btn danger delete-btn">Delete</button>
-      </div>
-    </div>`).join("");
-
-  toolsList.querySelectorAll(".item-row").forEach((row) => {
-    row.addEventListener("click", () => editToolItem((row as HTMLElement).dataset.id!));
-  });
-  toolsList.querySelectorAll(".edit-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      editToolItem((btn.closest(".item-row") as HTMLElement).dataset.id!);
-    });
-  });
-  toolsList.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await window.yo.toolsRemove((btn.closest(".item-row") as HTMLElement).dataset.id!);
-      loadTools();
-    });
-  });
-}
-
-async function editToolItem(id: string) {
-  const tool = await window.yo.toolsRead(id);
-  if (!tool) return;
-  toolsEditName.textContent = tool.name;
-  toolsEditDescription.value = tool.description;
-  toolsEditPrompt.value = tool.prompt;
-  toolsEditor.classList.remove("hidden");
-  toolsEditor.dataset.id = id;
-  toolsEditor.dataset.toolName = tool.name;
-  toolsEditPrompt.focus();
-}
-
-async function saveToolItem() {
-  const id = toolsEditor.dataset.id!;
-  const name = toolsEditor.dataset.toolName!;
-  await window.yo.toolsWrite(id, name, toolsEditDescription.value, toolsEditPrompt.value);
-  toolsEditor.classList.add("hidden");
-  loadTools();
-}
-
-async function newToolItem() {
-  const input = document.getElementById("tools-new-name") as HTMLInputElement;
-  const name = input.value.trim();
-  if (!name) return;
-  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
-  await window.yo.toolsWrite(id, name, "", "");
-  input.value = "";
-  loadTools();
-  editToolItem(id);
 }
 
 // ── Layouts (Grid Builder) ──────────────────────────────────
