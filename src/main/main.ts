@@ -391,6 +391,22 @@ async function boot() {
       layoutManager.updateRowHeight(index, fraction, mainWindow);
     }
     sendSplitState();
+    // Persist updated proportions so they survive restart
+    const gridInfo = layoutManager.getGridInfo();
+    if (gridInfo) {
+      setPreference("lastView", {
+        type: "grid-full",
+        grid: {
+          name: "",
+          version: 2,
+          cols: gridInfo.cols,
+          rows: gridInfo.rows,
+          colWidths: gridInfo.colWidths,
+          rowHeights: gridInfo.rowHeights,
+          cells: gridInfo.cells,
+        },
+      });
+    }
   });
 
   // IPC: apps CRUD + connect + pick
