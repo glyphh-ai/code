@@ -721,6 +721,16 @@ if(isLoading){
     } catch { /* page navigated */ }
   }
 
+  /** Clear spinner from the input (stop interval + empty text). */
+  private async clearNotify(wc: WebContents): Promise<void> {
+    try {
+      await wc.executeJavaScript(`
+(function(){
+if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
+})();`);
+    } catch {}
+  }
+
   private async showYoResult(wc: WebContents, fileName: string, _content: string): Promise<void> {
     // Show save confirmation in the input line, then clear
     await this.notify(wc, `Saved: ${fileName}.md`, "success");
