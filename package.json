@@ -7,7 +7,7 @@
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
     "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco",
     "build:main": "tsc",
-    "build:renderer": "tsc -p src/renderer/tsconfig.json && shx cp src/renderer/index.html src/renderer/styles.css dist/renderer/",
+    "build:renderer": "tsc -p src/renderer/tsconfig.json && shx cp src/renderer/index.html src/renderer/styles.css src/renderer/browser.html dist/renderer/",
     "build:terminal": "esbuild src/renderer/terminal-renderer.ts --bundle --outfile=dist/renderer/terminal-bundle.js --platform=browser && shx cp node_modules/@xterm/xterm/css/xterm.css src/renderer/terminal.html dist/renderer/",
     "build:monaco": "shx cp src/renderer/monaco.html dist/renderer/ && shx cp -r node_modules/monaco-editor/min/vs dist/renderer/monaco",
     "start": "electron .",

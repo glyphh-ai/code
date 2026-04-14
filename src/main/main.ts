@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserView, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
@@ -38,45 +38,385 @@ let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
 
-function buildDripHtml(_effect: string, w: number, h: number): string {
-  const colors = JSON.stringify(["#ff0", "#f0f", "#0ff", "#f44", "#4f4", "#ff6600", "#ff00ff", "#00ffcc"]);
-  return `<!DOCTYPE html><html><head><style>
-    html,body{margin:0;padding:0;width:${w}px;height:${h}px;overflow:hidden;background:transparent;}
-    .p{position:absolute;border-radius:50%;}
-  </style></head><body><script>
-    var COLORS=${colors};
-    var bursts=[{x:${w * 0.5},y:${h * 0.4}},{x:${w * 0.25},y:${h * 0.35}},{x:${w * 0.75},y:${h * 0.35}}];
-    var particles=[];
-    bursts.forEach(function(b,bi){
-      setTimeout(function(){
-        for(var i=0;i<50;i++){
-          var el=document.createElement("div");
-          var sz=3+Math.random()*5;
-          el.className="p";
-          el.style.width=sz+"px";el.style.height=sz+"px";
-          el.style.background=COLORS[Math.floor(Math.random()*COLORS.length)];
-          document.body.appendChild(el);
-          var angle=Math.random()*Math.PI*2;
-          var speed=2+Math.random()*6;
-          particles.push({el:el,x:b.x,y:b.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed-3,life:1});
-        }
-      },bi*300);
-    });
-    function animate(){
-      var alive=false;
-      for(var i=0;i<particles.length;i++){
-        var p=particles[i];
-        if(p.life<=0)continue;
-        alive=true;
-        p.x+=p.vx;p.y+=p.vy;p.vy+=0.08;p.life-=0.012;
-        p.el.style.left=p.x+"px";p.el.style.top=p.y+"px";
-        p.el.style.opacity=Math.max(0,p.life);
-      }
-      if(alive)requestAnimationFrame(animate);
-      else console.log("__drip_done__");
+// ── Drip effects ────────────────────────────────────────────
+// All CSS-animation-only (no JS rAF) — macOS transparent windows
+// don't repaint with JS-driven animation.
+
+const DRIP_COLORS = ["#25C75E", "#1ae052", "#10a37f", "#00ffcc", "#4fffb0", "#fff", "#cff5e0", "#88ffbb", "#33ff99", "#a0ffd0"];
+const DRIP_WARM = ["#ff4444", "#ff1493", "#ff6b6b", "#ff9ff3", "#feca57", "#ff9f43", "#ee5a24", "#f368e0", "#ff4757", "#ff69b4"];
+const DRIP_COOL = ["#25C75E", "#00ffcc", "#48dbfb", "#0abde3", "#a0ffd0", "#fff", "#54a0ff", "#c8d6e5"];
+const DRIP_RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#00ffff", "#0088ff", "#8800ff", "#ff00ff"];
+const DRIP_FIREWORK = ["#ff4444", "#ffaa00", "#ffee44", "#44ff44", "#44ffff", "#ff44ff", "#ff6600", "#ffffff", "#ff69b4", "#44aaff", "#ffd700", "#ff1493"];
+
+function dripWrap(w: number, h: number, keyframes: string, divs: string, dur: number): string {
+  return `<html><head><style>
+*{margin:0;padding:0}
+html,body{width:${w}px;height:${h}px;overflow:hidden;background:rgba(0,0,0,0)}
+${keyframes}
+</style></head><body>
+${divs}
+<script>setTimeout(function(){console.log("__drip_close__")},${dur})</${"script"}>
+</body></html>`;
+}
+
+function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+function rng(min: number, max: number): number { return min + Math.random() * (max - min); }
+
+// 1. fireworks — realistic multi-color bursts with trails and secondary explosions
+function dripFireworks(w: number, h: number): string {
+  const bursts = [
+    { x: w * 0.5, y: h * 0.22, d: 0 },
+    { x: w * 0.15, y: h * 0.18, d: 300 },
+    { x: w * 0.82, y: h * 0.2, d: 500 },
+    { x: w * 0.35, y: h * 0.35, d: 800 },
+    { x: w * 0.68, y: h * 0.3, d: 1000 },
+    { x: w * 0.1, y: h * 0.4, d: 1300 },
+    { x: w * 0.9, y: h * 0.38, d: 1500 },
+    { x: w * 0.5, y: h * 0.15, d: 1800 },
+    { x: w * 0.25, y: h * 0.5, d: 2100 },
+    { x: w * 0.75, y: h * 0.45, d: 2300 },
+  ];
+  let kf = "", dv = "", id = 0;
+
+  for (const b of bursts) {
+    // Each burst gets its own random color palette (1-2 colors)
+    const c1 = pick(DRIP_FIREWORK), c2 = Math.random() > 0.4 ? pick(DRIP_FIREWORK) : c1;
+
+    // Launch trail — a streak rising from the bottom to the burst point
+    const tn = `t${id++}`;
+    kf += `@keyframes ${tn}{0%{height:0;opacity:0.9;bottom:0}70%{opacity:0.7}100%{height:${h - b.y + 40}px;opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${b.x}px;bottom:0;width:2px;background:linear-gradient(to top,transparent,${c1});animation:${tn} ${0.4 + b.d / 4000}s ease-in ${Math.max(0, b.d - 300)}ms forwards;opacity:0"></div>`;
+
+    // Main burst — 70 particles radiating outward
+    for (let i = 0; i < 70; i++) {
+      const a = Math.random() * Math.PI * 2, sp = rng(120, 600);
+      const dx = Math.cos(a) * sp, dy = Math.sin(a) * sp;
+      const gravity = rng(180, 350); // particles fall after burst
+      const sz = rng(3, 8), c = Math.random() > 0.5 ? c1 : c2;
+      const dur = rng(1.2, 2.2), n = `p${id++}`;
+      const trail = sz > 5 ? `box-shadow:0 0 ${sz * 2}px ${c},0 0 ${sz * 4}px ${c}66;` : `box-shadow:0 0 ${sz}px ${c};`;
+      kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(1.2);opacity:1}40%{opacity:0.9}70%{opacity:0.5}100%{transform:translate(${dx}px,${dy + gravity}px) scale(0.1);opacity:0}}\n`;
+      dv += `<div style="position:absolute;left:${b.x}px;top:${b.y}px;width:${sz}px;height:${sz}px;border-radius:50%;background:${c};${trail}animation:${n} ${dur}s ease-out ${b.d}ms forwards;opacity:0"></div>`;
     }
-    requestAnimationFrame(animate);
-  </${"script"}></body></html>`;
+
+    // Secondary mini-bursts — a few particles explode again mid-flight
+    for (let s = 0; s < 3; s++) {
+      const sa = Math.random() * Math.PI * 2, ssp = rng(100, 250);
+      const sx = b.x + Math.cos(sa) * ssp, sy = b.y + Math.sin(sa) * ssp * 0.6;
+      const sDelay = b.d + rng(600, 1000);
+      const sc = pick(DRIP_FIREWORK);
+      for (let j = 0; j < 15; j++) {
+        const ja = Math.random() * Math.PI * 2, jsp = rng(40, 150);
+        const jdx = Math.cos(ja) * jsp, jdy = Math.sin(ja) * jsp + rng(30, 80);
+        const jsz = rng(2, 5), jn = `q${id++}`;
+        kf += `@keyframes ${jn}{0%{transform:translate(0,0);opacity:1}100%{transform:translate(${jdx}px,${jdy}px);opacity:0}}\n`;
+        dv += `<div style="position:absolute;left:${sx}px;top:${sy}px;width:${jsz}px;height:${jsz}px;border-radius:50%;background:${sc};box-shadow:0 0 ${jsz * 2}px ${sc};animation:${jn} 0.8s ease-out ${sDelay}ms forwards;opacity:0"></div>`;
+      }
+    }
+  }
+
+  // Flash — brief white flash behind each burst
+  for (const b of bursts) {
+    const fn = `fl${id++}`;
+    kf += `@keyframes ${fn}{0%{opacity:0}10%{opacity:0.15}100%{opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${b.x - 150}px;top:${b.y - 150}px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,#fff,transparent 70%);animation:${fn} 0.4s ease-out ${b.d}ms forwards;opacity:0"></div>`;
+  }
+
+  return dripWrap(w, h, kf, dv, 4800);
+}
+
+// 2. hearts — big hearts rise across full screen, burst into glowing sparks
+function dripHearts(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  const heartEmojis = ["\u2764\uFE0F", "\uD83E\uDE77", "\uD83D\uDC95", "\uD83D\uDC96", "\uD83D\uDC97", "\uD83D\uDC93"];
+  for (let i = 0; i < 45; i++) {
+    const x = rng(w * 0.05, w * 0.95), delay = rng(0, 2000);
+    const rise = rng(h * 0.4, h * 0.8), sway = rng(-120, 120), dur = rng(2, 3.5), sz = rng(24, 56);
+    const n = `h${id++}`, heart = pick(heartEmojis);
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(0.2);opacity:0}15%{opacity:1;transform:translate(${sway*0.15}px,${-rise*0.15}px) scale(1)}70%{opacity:1;transform:translate(${sway*0.7}px,${-rise*0.7}px) scale(1.3)}85%{opacity:0.8}100%{transform:translate(${sway}px,${-rise}px) scale(0.4);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:${h*0.8}px;font-size:${sz}px;filter:drop-shadow(0 0 8px rgba(255,50,100,0.6));animation:${n} ${dur}s ease-out ${delay}ms forwards;opacity:0">${heart}</div>`;
+    // Burst sparks
+    for (let j = 0; j < 12; j++) {
+      const a = Math.random() * Math.PI * 2, sp = rng(60, 180);
+      const sdx = Math.cos(a) * sp, sdy = Math.sin(a) * sp - 40;
+      const sn = `s${id++}`, sc = pick(DRIP_WARM), ssz = rng(3, 8);
+      kf += `@keyframes ${sn}{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(${sdx}px,${sdy}px) scale(0.2);opacity:0}}\n`;
+      dv += `<div style="position:absolute;left:${x+sway}px;top:${h*0.8-rise}px;width:${ssz}px;height:${ssz}px;border-radius:50%;background:${sc};box-shadow:0 0 ${ssz*2}px ${sc};animation:${sn} 0.9s ease-out ${delay + dur*1000 - 300}ms forwards;opacity:0"></div>`;
+    }
+  }
+  return dripWrap(w, h, kf, dv, 5500);
+}
+
+// 3. confetti — massive colorful rectangles + circles tumbling from top
+function dripConfetti(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  const shapes = ["rect", "circle", "strip"];
+  for (let i = 0; i < 150; i++) {
+    const x = rng(-20, w + 20), delay = rng(0, 2500), dur = rng(2.5, 5);
+    const drift = rng(-180, 180), spin = rng(540, 1800);
+    const c = pick(DRIP_RAINBOW), n = `c${id++}`, shape = pick(shapes);
+    let style: string;
+    if (shape === "circle") {
+      const sz = rng(8, 18);
+      style = `width:${sz}px;height:${sz}px;border-radius:50%;background:${c};box-shadow:0 0 ${sz}px ${c}88;`;
+    } else if (shape === "strip") {
+      style = `width:${rng(3, 6)}px;height:${rng(18, 35)}px;background:${c};border-radius:2px;box-shadow:0 0 6px ${c}66;`;
+    } else {
+      style = `width:${rng(10, 20)}px;height:${rng(6, 12)}px;background:${c};border-radius:2px;box-shadow:0 0 6px ${c}66;`;
+    }
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) rotate(0deg) scaleX(1);opacity:1}25%{transform:translate(${drift*0.25}px,${(h+60)*0.25}px) rotate(${spin*0.25}deg) scaleX(0.5)}50%{transform:translate(${drift*0.5}px,${(h+60)*0.5}px) rotate(${spin*0.5}deg) scaleX(1)}75%{transform:translate(${drift*0.75}px,${(h+60)*0.75}px) rotate(${spin*0.75}deg) scaleX(0.5)}100%{transform:translate(${drift}px,${h+60}px) rotate(${spin}deg) scaleX(1);opacity:0.5}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:-30px;${style}animation:${n} ${dur}s ease-in ${delay}ms forwards;opacity:0"></div>`;
+  }
+  return dripWrap(w, h, kf, dv, 7500);
+}
+
+// 4. stars — big glowing stars twinkle, pulse and drift across the screen
+function dripStars(w: number, h: number): string {
+  const starEmojis = ["\u2B50", "\u2728", "\uD83C\uDF1F", "\u26A1"];
+  let kf = "", dv = "", id = 0;
+  for (let i = 0; i < 80; i++) {
+    const x = rng(0, w), y = rng(h * 0.1, h * 0.95), delay = rng(0, 3000), dur = rng(2, 4);
+    const drift = rng(-100, 100), rise = rng(150, 500), sz = rng(22, 52), n = `st${id++}`;
+    const star = pick(starEmojis);
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(0) rotate(0deg);opacity:0}20%{opacity:1;transform:translate(${drift*0.2}px,${-rise*0.2}px) scale(1.4) rotate(72deg)}50%{opacity:1;transform:translate(${drift*0.5}px,${-rise*0.5}px) scale(0.9) rotate(144deg)}75%{opacity:0.8;transform:translate(${drift*0.75}px,${-rise*0.75}px) scale(1.2) rotate(216deg)}100%{transform:translate(${drift}px,${-rise}px) scale(0.3) rotate(360deg);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:${y}px;font-size:${sz}px;filter:drop-shadow(0 0 12px rgba(255,215,0,0.7));animation:${n} ${dur}s ease-in-out ${delay}ms forwards;opacity:0">${star}</div>`;
+  }
+  return dripWrap(w, h, kf, dv, 7000);
+}
+
+// 5. rain — dense luminous matrix-style rain with splashes
+function dripRain(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  for (let i = 0; i < 120; i++) {
+    const x = rng(0, w), delay = rng(0, 3000), dur = rng(0.6, 1.8);
+    const n = `r${id++}`, c = pick(DRIP_COOL), sz = rng(2, 6);
+    const streak = rng(25, 70);
+    kf += `@keyframes ${n}{0%{transform:translateY(0);opacity:0.9}100%{transform:translateY(${h+30}px);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:-${streak}px;width:${sz}px;height:${streak}px;background:linear-gradient(${c},${c}88,transparent);border-radius:${sz}px;box-shadow:0 0 ${sz*2}px ${c}44;animation:${n} ${dur}s linear ${delay}ms forwards;opacity:0"></div>`;
+    // Splash at bottom
+    if (i < 40) {
+      const sn = `rs${id++}`;
+      const splashDelay = delay + dur * 1000 - 100;
+      kf += `@keyframes ${sn}{0%{transform:scaleX(0.3) scaleY(1);opacity:0.8}100%{transform:scaleX(2.5) scaleY(0);opacity:0}}\n`;
+      dv += `<div style="position:absolute;left:${x-4}px;top:${h-4}px;width:8px;height:4px;border-radius:50%;background:${c};box-shadow:0 0 8px ${c};animation:${sn} 0.4s ease-out ${splashDelay}ms forwards;opacity:0"></div>`;
+    }
+  }
+  return dripWrap(w, h, kf, dv, 5000);
+}
+
+// 6. bubbles — big iridescent bubbles float up, wobble and pop with sparkles
+function dripBubbles(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  for (let i = 0; i < 50; i++) {
+    const x = rng(w * 0.02, w * 0.98), delay = rng(0, 2500), dur = rng(2.5, 5);
+    const sway = rng(-140, 140), rise = rng(h * 0.5, h * 0.95), sz = rng(30, 90), n = `b${id++}`;
+    const c = pick(DRIP_COOL);
+    const wobble = rng(20, 50);
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(0.2);opacity:0}10%{opacity:0.7;transform:translate(${wobble*0.3}px,${-rise*0.05}px) scale(1)}30%{transform:translate(${-wobble*0.5}px,${-rise*0.3}px) scale(1.05)}50%{transform:translate(${sway*0.4}px,${-rise*0.5}px) scale(0.95)}70%{transform:translate(${-wobble*0.3+sway*0.5}px,${-rise*0.7}px) scale(1.05)}90%{opacity:0.5;transform:translate(${sway*0.9}px,${-rise*0.9}px) scale(1.15)}100%{transform:translate(${sway}px,${-rise}px) scale(1.8);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:${h*0.9}px;width:${sz}px;height:${sz}px;border-radius:50%;border:2px solid ${c}88;background:radial-gradient(circle at 35% 35%,rgba(255,255,255,0.2),transparent 50%);box-shadow:inset -${sz/3}px -${sz/3}px ${sz/2}px rgba(255,255,255,0.08),0 0 ${sz}px ${c}33,0 0 ${sz*2}px ${c}11;animation:${n} ${dur}s ease-out ${delay}ms forwards;opacity:0"></div>`;
+    // Pop sparkles
+    const popDelay = delay + dur * 1000 - 200;
+    for (let j = 0; j < 6; j++) {
+      const pa = Math.random() * Math.PI * 2, psp = rng(20, sz);
+      const pdx = Math.cos(pa) * psp, pdy = Math.sin(pa) * psp;
+      const pn = `bp${id++}`, psz = rng(2, 5);
+      kf += `@keyframes ${pn}{0%{transform:translate(0,0);opacity:1}100%{transform:translate(${pdx}px,${pdy}px);opacity:0}}\n`;
+      dv += `<div style="position:absolute;left:${x+sway+sz/2}px;top:${h*0.9-rise}px;width:${psz}px;height:${psz}px;border-radius:50%;background:#fff;box-shadow:0 0 6px ${c};animation:${pn} 0.5s ease-out ${popDelay}ms forwards;opacity:0"></div>`;
+    }
+  }
+  return dripWrap(w, h, kf, dv, 7500);
+}
+
+// 7. sparkle — dense sparkle field popping across the entire screen, multi-wave
+function dripSparkle(w: number, h: number): string {
+  const sparkEmojis = ["\u2728", "\uD83C\uDF1F", "\u2B50", "\u26A1"];
+  let kf = "", dv = "", id = 0;
+  // Three waves of sparkles
+  for (let wave = 0; wave < 3; wave++) {
+    const waveDelay = wave * 1200;
+    for (let i = 0; i < 40; i++) {
+      const x = rng(0, w), y = rng(0, h), delay = waveDelay + rng(0, 800), dur = rng(0.4, 1.0);
+      const sz = rng(20, 50), n = `sp${id++}`, em = pick(sparkEmojis);
+      kf += `@keyframes ${n}{0%{transform:scale(0) rotate(0deg);opacity:0}40%{transform:scale(1.5) rotate(90deg);opacity:1}60%{transform:scale(1.2) rotate(135deg);opacity:1}100%{transform:scale(0) rotate(360deg);opacity:0}}\n`;
+      dv += `<div style="position:absolute;left:${x}px;top:${y}px;font-size:${sz}px;filter:drop-shadow(0 0 8px rgba(255,215,0,0.5));animation:${n} ${dur}s ease-in-out ${delay}ms forwards;opacity:0">${em}</div>`;
+    }
+  }
+  return dripWrap(w, h, kf, dv, 5500);
+}
+
+// 8. spiral — galaxy of particles spiraling outward from center with trails
+function dripSpiral(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.min(w, h) * 0.45;
+  for (let i = 0; i < 120; i++) {
+    const baseAngle = (i / 120) * Math.PI * 8; // more rotations
+    const r = rng(maxR * 0.3, maxR), dur = rng(1.8, 3.5), delay = (i / 120) * 2000;
+    const endX = Math.cos(baseAngle) * r, endY = Math.sin(baseAngle) * r;
+    const mid1 = r * 0.3, mid2 = r * 0.65;
+    const m1x = Math.cos(baseAngle - 0.8) * mid1, m1y = Math.sin(baseAngle - 0.8) * mid1;
+    const m2x = Math.cos(baseAngle - 0.3) * mid2, m2y = Math.sin(baseAngle - 0.3) * mid2;
+    const sz = rng(4, 12), c = pick(DRIP_RAINBOW), n = `sp${id++}`;
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(0);opacity:0}15%{opacity:1;transform:translate(${m1x}px,${m1y}px) scale(1.3)}50%{opacity:0.9;transform:translate(${m2x}px,${m2y}px) scale(1)}100%{transform:translate(${endX}px,${endY}px) scale(0.15);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;border-radius:50%;background:${c};box-shadow:0 0 ${sz*2}px ${c},0 0 ${sz*4}px ${c}44;animation:${n} ${dur}s ease-out ${delay}ms forwards;opacity:0"></div>`;
+  }
+  return dripWrap(w, h, kf, dv, 6000);
+}
+
+// 9. emoji rain — big happy faces fall from top, bounce hard and scatter
+function dripEmoji(w: number, h: number): string {
+  const faces = ["\uD83D\uDE00", "\uD83D\uDE02", "\uD83E\uDD29", "\uD83E\uDD73", "\uD83D\uDE0E", "\uD83D\uDE1C", "\uD83E\uDD2A", "\uD83D\uDE0D", "\u270C\uFE0F", "\uD83E\uDD19", "\uD83E\uDD18", "\uD83D\uDE4C", "\uD83D\uDE80", "\uD83C\uDF89", "\uD83C\uDF8A"];
+  let kf = "", dv = "", id = 0;
+  for (let i = 0; i < 60; i++) {
+    const x = rng(10, w - 50), delay = rng(0, 3000), dur = rng(2.5, 4);
+    const bounce = h * rng(0.55, 0.82), drift = rng(-80, 80);
+    const sz = rng(30, 60), n = `e${id++}`, face = pick(faces);
+    const bounceH = rng(80, 160), spin1 = rng(180, 400), spin2 = rng(400, 700);
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) rotate(0deg) scale(0.5);opacity:1}55%{transform:translate(${drift*0.55}px,${bounce}px) rotate(${spin1}deg) scale(1.1);opacity:1}68%{transform:translate(${drift*0.68}px,${bounce-bounceH}px) rotate(${spin1+60}deg) scale(1.2);opacity:1}80%{transform:translate(${drift*0.8}px,${bounce}px) rotate(${spin2}deg) scale(1);opacity:0.9}88%{transform:translate(${drift*0.88}px,${bounce-bounceH*0.3}px) rotate(${spin2+30}deg) scale(1.1)}95%{transform:translate(${drift*0.95}px,${bounce+10}px) rotate(${spin2+50}deg) scale(1)}100%{transform:translate(${drift}px,${bounce+40}px) rotate(${spin2+70}deg) scale(0.8);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:-60px;font-size:${sz}px;animation:${n} ${dur}s ease-in ${delay}ms forwards;opacity:0">${face}</div>`;
+  }
+  return dripWrap(w, h, kf, dv, 7000);
+}
+
+// 10. wave — massive concentric ripple rings expanding from center with glow
+function dripWave(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.max(w, h) * 0.55;
+  // Three wave groups from different points
+  const origins = [
+    { x: cx, y: cy, d: 0 },
+    { x: w * 0.25, y: h * 0.4, d: 800 },
+    { x: w * 0.75, y: h * 0.6, d: 1600 },
+  ];
+  for (const o of origins) {
+    for (let i = 0; i < 6; i++) {
+      const delay = o.d + i * 200, n = `w${id++}`;
+      const c = pick(DRIP_RAINBOW);
+      kf += `@keyframes ${n}{0%{width:0;height:0;margin-left:0;margin-top:0;opacity:0.9;border-width:4px}50%{opacity:0.5}100%{width:${maxR*2}px;height:${maxR*2}px;margin-left:${-maxR}px;margin-top:${-maxR}px;opacity:0;border-width:1px}}\n`;
+      dv += `<div style="position:absolute;left:${o.x}px;top:${o.y}px;border-radius:50%;border:4px solid ${c};box-shadow:0 0 20px ${c}66,0 0 40px ${c}22;animation:${n} 2.5s ease-out ${delay}ms forwards;opacity:0"></div>`;
+    }
+  }
+  return dripWrap(w, h, kf, dv, 5500);
+}
+
+// 11. thumbsup — giant thumbs up burst from center with celebration particles
+function dripThumbsup(w: number, h: number): string {
+  let kf = "", dv = "", id = 0;
+  const cx = w / 2, cy = h / 2;
+  const thumbs = ["\uD83D\uDC4D", "\uD83D\uDC4D\uD83C\uDFFB", "\uD83D\uDC4D\uD83C\uDFFC", "\uD83D\uDC4D\uD83C\uDFFD", "\uD83D\uDC4D\uD83C\uDFFE", "\uD83D\uDC4D\uD83C\uDFFF"];
+
+  // Giant center thumbs up — grows, pulses, then bursts
+  kf += `@keyframes bigthumb{0%{transform:scale(0) rotate(-30deg);opacity:0}15%{transform:scale(1.8) rotate(10deg);opacity:1}25%{transform:scale(1.5) rotate(0deg)}40%{transform:scale(1.7) rotate(-5deg)}55%{transform:scale(1.5) rotate(5deg)}70%{transform:scale(2.2) rotate(0deg);opacity:1}85%{transform:scale(3) rotate(0deg);opacity:0.6}100%{transform:scale(4) rotate(0deg);opacity:0}}\n`;
+  dv += `<div style="position:absolute;left:${cx}px;top:${cy}px;font-size:120px;transform-origin:center;margin-left:-60px;margin-top:-60px;animation:bigthumb 2.5s ease-in-out forwards;opacity:0;filter:drop-shadow(0 0 30px rgba(255,200,0,0.5))">\uD83D\uDC4D</div>`;
+
+  // Ring of thumbs bursting outward
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2, sp = rng(200, 500);
+    const dx = Math.cos(a) * sp, dy = Math.sin(a) * sp;
+    const sz = rng(30, 60), dur = rng(1.2, 2.0), n = `tb${id++}`;
+    const thumb = pick(thumbs);
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(0) rotate(0deg);opacity:0}20%{opacity:1;transform:translate(${dx*0.15}px,${dy*0.15}px) scale(1.2) rotate(${rng(-30,30)}deg)}100%{transform:translate(${dx}px,${dy+80}px) scale(0.4) rotate(${rng(-180,180)}deg);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${cx}px;top:${cy}px;font-size:${sz}px;animation:${n} ${dur}s ease-out ${600 + i * 60}ms forwards;opacity:0">${thumb}</div>`;
+  }
+
+  // Celebration particles around the burst
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random() * Math.PI * 2, sp = rng(150, 600);
+    const dx = Math.cos(a) * sp, dy = Math.sin(a) * sp;
+    const sz = rng(4, 10), c = pick([...DRIP_RAINBOW, "#ffd700", "#ffd700", "#ffaa00"]);
+    const dur = rng(1.0, 2.0), n = `tc${id++}`;
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(${dx}px,${dy + rng(50, 150)}px) scale(0.2);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;border-radius:50%;background:${c};box-shadow:0 0 ${sz*2}px ${c};animation:${n} ${dur}s ease-out ${rng(400, 1200)}ms forwards;opacity:0"></div>`;
+  }
+
+  // Scattered smaller thumbs drifting up across the screen
+  for (let i = 0; i < 20; i++) {
+    const x = rng(w * 0.05, w * 0.95), delay = rng(800, 2500), dur = rng(1.5, 3);
+    const rise = rng(200, h * 0.6), sway = rng(-60, 60), sz = rng(24, 44), n = `td${id++}`;
+    const thumb = pick(thumbs);
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(0.3);opacity:0}25%{opacity:1;transform:translate(${sway*0.2}px,${-rise*0.2}px) scale(1)}100%{transform:translate(${sway}px,${-rise}px) scale(0.5);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:${h*0.7}px;font-size:${sz}px;animation:${n} ${dur}s ease-out ${delay}ms forwards;opacity:0">${thumb}</div>`;
+  }
+
+  return dripWrap(w, h, kf, dv, 5000);
+}
+
+// Easter egg: timme — long running cinematic animation
+function dripTimme(w: number, h: number): string {
+  const quote = "The only true currency in this bankrupt world is what you share with someone else when you're uncool.";
+  const attribution = "\u2014 Lester Bangs";
+  let kf = "", dv = "";
+
+  // Background fade in
+  kf += `@keyframes bgfade{0%{opacity:0}10%{opacity:1}85%{opacity:1}100%{opacity:0}}\n`;
+  dv += `<div style="position:absolute;inset:0;background:radial-gradient(ellipse at center,#0a1a0f 0%,#000 70%);animation:bgfade 15s ease-in-out forwards;opacity:0"></div>`;
+
+  // Ambient particles — slow drifting glowing dots
+  let id = 0;
+  for (let i = 0; i < 40; i++) {
+    const x = rng(0, w), y = rng(0, h), delay = rng(0, 8000), dur = rng(4, 8);
+    const drift = rng(-100, 100), rise = rng(-150, 150), sz = rng(2, 5);
+    const c = pick(DRIP_COOL), n = `a${id++}`;
+    kf += `@keyframes ${n}{0%{transform:translate(0,0);opacity:0}30%{opacity:0.6}70%{opacity:0.6}100%{transform:translate(${drift}px,${rise}px);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${x}px;top:${y}px;width:${sz}px;height:${sz}px;border-radius:50%;background:${c};box-shadow:0 0 ${sz*3}px ${c};animation:${n} ${dur}s ease-in-out ${delay}ms forwards;opacity:0"></div>`;
+  }
+
+  // Quote — type in word by word
+  const words = quote.split(" ");
+  let wordDivs = "";
+  const startDelay = 1500;
+  const wordGap = 200;
+  for (let i = 0; i < words.length; i++) {
+    const d = startDelay + i * wordGap;
+    const wn = `tw${i}`;
+    kf += `@keyframes ${wn}{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}\n`;
+    wordDivs += `<span style="display:inline-block;opacity:0;animation:${wn} 0.6s ease-out ${d}ms forwards;margin-right:7px">${words[i]}</span>`;
+  }
+
+  // Attribution — fade in after quote
+  const attrDelay = startDelay + words.length * wordGap + 800;
+  kf += `@keyframes attrin{0%{opacity:0;transform:translateY(10px)}100%{opacity:0.6;transform:translateY(0)}}\n`;
+
+  // Quote container
+  kf += `@keyframes qfade{0%{opacity:0}8%{opacity:1}82%{opacity:1}100%{opacity:0}}\n`;
+  dv += `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;animation:qfade 15s ease-in-out forwards;opacity:0;z-index:2">`;
+  dv += `<div style="max-width:${Math.min(w * 0.7, 600)}px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:${Math.min(24, w * 0.03)}px;font-weight:300;color:#cff5e0;line-height:1.7;letter-spacing:0.02em;text-shadow:0 0 30px #25C75E44">${wordDivs}</div>`;
+  dv += `<div style="margin-top:24px;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:${Math.min(16, w * 0.02)}px;font-style:italic;color:#25C75E;letter-spacing:0.05em;animation:attrin 0.8s ease-out ${attrDelay}ms forwards;opacity:0">${attribution}</div>`;
+  dv += `</div>`;
+
+  // Finale sparkle burst
+  const finaleStart = 12000;
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random() * Math.PI * 2, sp = rng(100, 350);
+    const dx = Math.cos(a) * sp, dy = Math.sin(a) * sp - 100;
+    const sz = rng(3, 7), c = pick(DRIP_COLORS), dur = rng(1.2, 2.0), n = `f${id++}`;
+    kf += `@keyframes ${n}{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(${dx}px,${dy+80}px) scale(0.2);opacity:0}}\n`;
+    dv += `<div style="position:absolute;left:${w/2}px;top:${h/2}px;width:${sz}px;height:${sz}px;border-radius:50%;background:${c};box-shadow:0 0 ${sz*2}px ${c};animation:${n} ${dur}s ease-out ${finaleStart + rng(0, 400)}ms forwards;opacity:0;z-index:3"></div>`;
+  }
+
+  return dripWrap(w, h, kf, dv, 16000);
+}
+
+// Effect dispatcher
+const DRIP_EFFECTS: Record<string, (w: number, h: number) => string> = {
+  fireworks: dripFireworks,
+  hearts: dripHearts,
+  confetti: dripConfetti,
+  stars: dripStars,
+  rain: dripRain,
+  bubbles: dripBubbles,
+  sparkle: dripSparkle,
+  spiral: dripSpiral,
+  emoji: dripEmoji,
+  wave: dripWave,
+  thumbsup: dripThumbsup,
+  timme: dripTimme,
+};
+
+function buildDripHtml(effect: string, w: number, h: number): string {
+  const builder = DRIP_EFFECTS[effect] || DRIP_EFFECTS.fireworks;
+  return builder(w, h);
 }
 
 async function createWindow() {
@@ -179,11 +519,14 @@ async function boot() {
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
+  const browserHtml = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
   for (const app of appConnector.list()) {
     if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
+    } else if (app.url === "yo://browser") {
+      panelManager.addPanel(app.id, browserHtml, undefined, undefined, true);
     } else {
       panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
     }
@@ -284,23 +627,37 @@ async function boot() {
   await createWindow();
   if (mainWindow) commandParser.setMainWindow(mainWindow);
 
-  // Drip effects — transparent BrowserView overlay on top of panels
+  // Drip effects — transparent child window renders on top of everything
   commandParser.setDripHandler((effect) => {
     if (!mainWindow) return;
-    const bounds = mainWindow.getContentBounds();
-    const overlay = new BrowserView({
+    const bounds = mainWindow.getBounds();
+    const overlay = new BrowserWindow({
+      parent: mainWindow,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      backgroundColor: "#00000000",
+      skipTaskbar: true,
+      show: false,
       webPreferences: { contextIsolation: true, nodeIntegration: false },
     });
-    mainWindow.addBrowserView(overlay);
-    overlay.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
-    overlay.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDripHtml(effect, bounds.width, bounds.height))}`);
-    // Auto-remove after animation completes
+    overlay.setIgnoreMouseEvents(true);
+    overlay.once("ready-to-show", () => {
+      if (!overlay.isDestroyed()) overlay.showInactive();
+    });
+    overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDripHtml(effect, bounds.width, bounds.height))}`);
     overlay.webContents.on("console-message", (_e, _level, msg) => {
-      if (msg === "__drip_done__") {
-        mainWindow?.removeBrowserView(overlay);
-        overlay.webContents.close();
+      if (msg === "__drip_close__") {
+        if (!overlay.isDestroyed()) overlay.close();
       }
     });
+    // Safety: auto-close (17s for timmetime, 5s for others)
+    const safetyMs = effect === "timme" ? 17000 : 8000;
+    setTimeout(() => { if (!overlay.isDestroyed()) overlay.close(); }, safetyMs);
   });
 
   // Restore panels from last view (or default to claude)
@@ -887,10 +1244,10 @@ async function boot() {
   });
 
   // IPC: Workbench AI refinement (skill-aware)
-  // Returns { message: string, content: string } so the renderer can show
-  // a Yo: chat message AND an artifact card separately.
+  // Returns { message, content, type } so the renderer can show
+  // the correct card type (content artifact vs skill).
   ipcMain.handle("yo-workbench-refine", async (_e, instruction: string, content: string) => {
-    // Check if instruction matches a known skill name
+    // Check if instruction matches a known skill name (direct invocation)
     const trimmed = instruction.trim();
     const knownSkill = /^\S+$/.test(trimmed)
       ? skillEngine.listSkills().find((s) => s.toLowerCase() === trimmed.toLowerCase())
@@ -898,11 +1255,11 @@ async function boot() {
 
     if (knownSkill) {
       const result = await skillEngine.process(content, knownSkill);
-      return { message: `Applied skill: ${knownSkill}`, content: result };
+      return { message: `Applied skill: ${knownSkill}`, content: result, type: "content" as const };
     }
 
-    // Use dedicated refine() — no tools, returns { message, content } directly
-    return yoChat.refine(instruction, content);
+    // Pass skill names so the LLM knows what exists and can create/update skills
+    return yoChat.refine(instruction, content, skillEngine.listSkills());
   });
 
   // IPC: Suggest a filename from content

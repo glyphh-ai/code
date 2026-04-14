@@ -18,6 +18,8 @@ export interface PanelConfig {
   preload?: string;
   /** Suppress "open in desktop app" banners and protocol redirects */
   forceWeb?: boolean;
+  /** Enable <webview> tag in this panel (for embedded browser) */
+  webviewTag?: boolean;
 }
 
 export type PanelCreatedCallback = (id: string, webContents: WebContents) => void;
@@ -233,8 +235,8 @@ export class PanelManager {
   get isAnimating(): boolean { return this._animating; }
 
   /** Register a custom panel (dip add <url>) */
-  addPanel(id: string, url: string, preload?: string, forceWeb?: boolean): void {
-    this.configs.set(id, { id, name: id, url, preload, forceWeb });
+  addPanel(id: string, url: string, preload?: string, forceWeb?: boolean, webviewTag?: boolean): void {
+    this.configs.set(id, { id, name: id, url, preload, forceWeb, webviewTag });
   }
 
   /** Get or create a panel's BrowserView (public for layout manager) */
@@ -273,6 +275,7 @@ export class PanelManager {
         nodeIntegration: false,
         partition: isLocal ? undefined : "persist:yo",
         ...(config.preload ? { preload: config.preload } : {}),
+        ...(config.webviewTag ? { webviewTag: true } : {}),
       },
     });
 
@@ -408,6 +411,15 @@ export class PanelManager {
       }
     });
     this.panels.set(id, view);
+
+    // When a panel's webContents gains focus (user clicked it), track as active
+    view.webContents.on("focus", () => {
+      if (this.activePanel && this.activePanel !== id) {
+        this.previousPanel = this.activePanel;
+      }
+      this.activePanel = id;
+    });
+
     this.onCreated?.(id, view.webContents);
     return view;
   }
@@ -430,6 +442,7 @@ export class PanelManager {
       parent.setBrowserView(view);
       view.setBounds(finalBounds);
       view.setAutoResize({ width: true, height: true });
+      view.webContents.focus();
       this.onReady?.(id, view.webContents);
       return true;
     }
@@ -450,6 +463,7 @@ export class PanelManager {
       220,
       () => {
         view.setAutoResize({ width: true, height: true });
+        view.webContents.focus();
         this.onReady?.(id, view.webContents);
       },
     );

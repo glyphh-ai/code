@@ -319,10 +319,12 @@ export class LayoutManager {
 
     // Compute final bounds for each cell
     const newViews: Array<{ view: import("electron").BrowserView; finalBounds: Electron.Rectangle }> = [];
+    let firstView: import("electron").BrowserView | null = null;
 
     for (const cell of grid.cells) {
       const view = this.panelManager.getOrCreateView(cell.panelId, win);
       if (!view) continue;
+      if (!firstView) firstView = view;
 
       // Raw pixel bounds from grid fractions
       let x = Math.floor(cumCol[cell.col] * w);
@@ -358,7 +360,11 @@ export class LayoutManager {
 
     // Animate if we have old views to slide out
     if (animate && oldViews.length > 0 && newViews.length > 0) {
-      this.panelManager.slideViews(win, oldViews, newViews, w);
+      this.panelManager.slideViews(win, oldViews, newViews, w, undefined, () => {
+        if (firstView) firstView.webContents.focus();
+      });
+    } else if (firstView) {
+      firstView.webContents.focus();
     }
   }
 

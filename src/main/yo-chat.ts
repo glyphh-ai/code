@@ -122,36 +122,54 @@ export class YoChat {
   }
 
   /**
-   * Workbench refinement — no tools, returns both a chat message and the
-   * full document content so the renderer can show them separately.
+   * Workbench refinement — skill-aware. Returns a chat message, the
+   * full document content, and whether the result is a skill or content.
+   *
+   * The LLM knows about existing skills and can create/update them.
+   * It signals via <type>skill</type> or <type>content</type>.
    */
   async refine(
     instruction: string,
     content: string,
-  ): Promise<{ message: string; content: string }> {
-    if (!this.llmConfig?.apiKey) return { message: "", content: "No API key configured." };
+    skillNames: string[],
+  ): Promise<{ message: string; content: string; type: "skill" | "content" }> {
+    if (!this.llmConfig?.apiKey) return { message: "", content: "No API key configured.", type: "content" };
 
     const context = this.buildContext();
-    const userPrompt = `Process the following content according to the user's instruction.
+
+    const skillList = skillNames.length > 0
+      ? `Existing skills: ${skillNames.join(", ")}`
+      : "No skills exist yet.";
+
+    const userPrompt = `You are working in the user's content workspace. The workspace has two types of items:
+
+1. **Content** — documents, notes, artifacts (stored in library as .md files)
+2. **Skills** — reusable prompt templates that transform content (stored as skill files)
+
+${skillList}
+
+A skill is a system prompt / instruction template. When the user says "create a skill" or "update the X skill", you are creating or editing a prompt template, NOT processing content. The skill prompt should be written as instructions for an AI to follow when processing content (e.g. "You are a professional email formatter. Take the user's casual input and rewrite it as a polished professional email...").
+
+When the user asks to modify, update, refine, or create content/artifacts, use type "content".
+When the user asks to create, update, or modify a skill, use type "skill".
 
 User instruction: ${instruction}
 
-Content:
-${content.slice(0, 8000)}
+${content ? `Current content:\n${content.slice(0, 8000)}` : "(No content loaded)"}
 
-Return your response in this exact format — both parts are required:
+Return your response in this exact format — all three parts are required:
+<type>skill or content</type>
 <message>Brief 1-2 sentence summary of what you created or changed</message>
 <document>
-The complete refined/generated document content
+The complete output — either the refined content OR the skill prompt template
 </document>
 
 Return the FULL document between <document> tags. Do NOT abbreviate or summarize it.`;
 
-    const response = await createCompletion(this.llmConfig, {
+    const response = await createCompletion(this.llmConfig!, {
       system: SYSTEM + "\n\n" + context,
       messages: [{ role: "user", content: userPrompt }],
       maxTokens: 4096,
-      // No tools — forces text-only output, prevents yo_save from eating the content
     });
 
     let text = "";
@@ -159,18 +177,22 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
       if (block.type === "text") text += block.text;
     }
 
+    const typeMatch = text.match(/<type>(skill|content)<\/type>/i);
     const msgMatch = text.match(/<message>([\s\S]*?)<\/message>/);
     const docMatch = text.match(/<document>([\s\S]*?)<\/document>/);
+
+    const resultType = typeMatch && typeMatch[1].toLowerCase() === "skill" ? "skill" : "content";
 
     if (docMatch) {
       return {
         message: msgMatch ? msgMatch[1].trim() : "",
         content: docMatch[1].trim(),
+        type: resultType,
       };
     }
 
     // Fallback: treat entire response as content
-    return { message: "", content: text };
+    return { message: "", content: text, type: resultType };
   }
 
   /**

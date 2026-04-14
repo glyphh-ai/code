@@ -140,7 +140,7 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));
   },
   workbenchRefine: (instruction: string, content: string) =>
-    ipcRenderer.invoke("yo-workbench-refine", instruction, content) as Promise<{ message: string; content: string }>,
+    ipcRenderer.invoke("yo-workbench-refine", instruction, content) as Promise<{ message: string; content: string; type: "skill" | "content" }>,
   suggestName: (content: string) =>
     ipcRenderer.invoke("yo-suggest-name", content) as Promise<string>,
 });

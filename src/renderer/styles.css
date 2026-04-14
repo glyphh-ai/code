@@ -544,8 +544,8 @@ body {
 }
 #yo-workbench input::placeholder,
 #yo-workbench textarea::placeholder {
-  color: #666 !important;
-  -webkit-text-fill-color: #666;
+  color: #777 !important;
+  -webkit-text-fill-color: #777;
 }
 
 #yo-workbench {
@@ -569,16 +569,16 @@ body {
 }
 .wb-header-left { display: flex; align-items: center; gap: 10px; }
 .wb-icon-btn {
-  background: none; border: none; color: #666; cursor: pointer;
+  background: none; border: none; color: #999; cursor: pointer;
   padding: 4px; display: flex; align-items: center; justify-content: center;
   border-radius: 4px; transition: color 0.15s, background 0.15s;
 }
 .wb-icon-btn:hover { color: #ccc; background: #1a1a1a; }
 .wb-icon-btn.active { color: #25C75E; }
-.wb-title { font-size: 13px; font-weight: 600; color: #888; }
+.wb-title { font-size: 13px; font-weight: 600; color: #ccc; }
 .wb-actions { display: flex; align-items: center; gap: 8px; }
 .wb-close-btn {
-  background: none; border: none; color: #555;
+  background: none; border: none; color: #888;
   font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1;
 }
 .wb-close-btn:hover { color: #fff; }
@@ -593,7 +593,7 @@ body {
 }
 .wb-output-title-input:hover { border-color: #2a2a2a; background: #111; }
 .wb-output-title-input:focus { border-color: #25C75E; background: #111; }
-.wb-output-title-input::placeholder { color: #555; font-weight: 400; }
+.wb-output-title-input::placeholder { color: #777; font-weight: 400; }
 
 .wb-body { display: flex; flex: 1; min-height: 0; overflow: hidden; position: relative; }
 
@@ -648,8 +648,7 @@ body {
   width: 240px;
   min-width: 240px;
   border-right: 1px solid #1e1e1e;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   min-height: 0;
 }
 .wb-sidebar-filter-wrap {
@@ -666,11 +665,11 @@ body {
   color: #ccc; font-size: 12px;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
 }
-#wb-filter-input::placeholder { color: #555; }
+#wb-filter-input::placeholder { color: #777; }
 .wb-file-list { flex: 1; overflow-y: auto; }
 .wb-file-item {
   display: flex; flex-direction: column;
-  padding: 7px 10px; font-size: 12px; color: #999;
+  padding: 7px 10px; font-size: 12px; color: #bbb;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   border-bottom: 1px solid #141414; transition: background 0.1s;
   position: relative;
@@ -687,7 +686,7 @@ body {
 .wb-file-meta {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 2px;
-  font-size: 10px; color: #555; line-height: 1.3;
+  font-size: 10px; color: #888; line-height: 1.3;
 }
 .wb-file-actions {
   display: flex; gap: 2px; flex-shrink: 0;
@@ -697,10 +696,10 @@ body {
 .wb-file-action {
   background: none; border: none; cursor: pointer;
   padding: 2px 4px; border-radius: 4px;
-  color: #666; font-size: 11px; line-height: 1;
+  color: #999; font-size: 11px; line-height: 1;
   transition: color 0.1s, background 0.1s;
 }
-.wb-file-action:hover { color: #ccc; background: #222; }
+.wb-file-action:hover { color: #fff; background: #222; }
 .wb-file-action.danger:hover { color: #ff5555; background: #1a1111; }
 
 /* ── Workbench viewer modal ── */
@@ -761,12 +760,37 @@ body {
   flex-direction: column;
 }
 
+/* Welcome message — branded intro */
+.wb-msg-welcome {
+  align-items: center;
+  text-align: center;
+  padding-top: 48px;
+  padding-bottom: 32px;
+}
+.wb-welcome-brand {
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.04em;
+  margin-bottom: 12px;
+}
+.wb-welcome-dot {
+  color: #25C75E;
+  -webkit-text-fill-color: #25C75E;
+}
+.wb-welcome-text {
+  font-size: 14px;
+  color: #888;
+  line-height: 1.6;
+  max-width: 420px;
+}
+
 /* User messages — right-aligned bubble */
 .wb-msg-user {
   align-items: flex-end;
 }
 .wb-msg-user .wb-msg-label {
-  font-size: 11px; font-weight: 600; color: #666;
+  font-size: 11px; font-weight: 600; color: #999;
   text-transform: uppercase; letter-spacing: 0.04em;
   margin-bottom: 4px;
 }
@@ -803,7 +827,7 @@ body {
   align-items: flex-start;
 }
 .wb-msg-content-block .wb-msg-label {
-  font-size: 11px; font-weight: 600; color: #888;
+  font-size: 11px; font-weight: 600; color: #999;
   text-transform: uppercase; letter-spacing: 0.04em;
   margin-bottom: 6px;
 }
@@ -826,7 +850,7 @@ body {
 .wb-artifact-header:hover { background: #141414; }
 .wb-artifact-chevron {
   font-size: 10px;
-  color: #555;
+  color: #888;
   transition: transform 0.2s;
   flex-shrink: 0;
   width: 16px;
@@ -857,13 +881,13 @@ body {
 }
 .wb-artifact-name-input:hover { border-color: #2a2a2a; background: #111; }
 .wb-artifact-name-input:focus { border-color: #25C75E; background: #111; cursor: text; }
-.wb-artifact-name-input::placeholder { color: #555; font-weight: 400; }
+.wb-artifact-name-input::placeholder { color: #777; font-weight: 400; }
 .wb-artifact-save,
 .wb-artifact-context,
 .wb-artifact-open {
   background: none;
   border: none;
-  color: #555;
+  color: #888;
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -988,6 +1012,95 @@ body {
 .wb-send-btn:hover { background: #12b88a; }
 .wb-send-btn:disabled { background: #333; color: #555; cursor: default; }
 
+/* ── Skill picker bar ── */
+.wb-skill-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.wb-skill-picker {
+  position: relative;
+  flex: 1;
+  max-width: 220px;
+}
+#wb-skill-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+#wb-skill-input:focus { border-color: #25C75E; outline: none; }
+#wb-skill-input.active {
+  background: #0e1f14;
+  border-color: #25C75E;
+  color: #25C75E;
+  font-weight: 600;
+}
+.wb-skill-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  z-index: 20;
+}
+.wb-skill-option {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #ccc;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.wb-skill-option:hover { background: #222; color: #fff; }
+.wb-skill-clear {
+  width: 20px; height: 20px;
+  background: none; border: none;
+  color: #666; font-size: 14px;
+  cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.wb-skill-clear:hover { color: #fff; }
+#wb-chat-input.skill-active {
+  opacity: 0.4;
+  pointer-events: none;
+  min-height: 40px;
+}
+
+/* ── Sidebar headings and skills ── */
+.wb-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.wb-library-section {
+  border-top: 1px solid #222;
+}
+.wb-sidebar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+}
 /* ── Right output panel (slides in) ── */
 .wb-output-panel {
   width: 0;
@@ -1017,7 +1130,7 @@ body {
 .wb-output-tabs { display: flex; gap: 4px; }
 .wb-output-tab {
   background: none; border: 1px solid #333; border-radius: 4px;
-  color: #666; font-size: 11px; padding: 3px 10px; cursor: pointer;
+  color: #999; font-size: 11px; padding: 3px 10px; cursor: pointer;
   transition: all 0.15s;
 }
 .wb-output-tab:hover { color: #ccc; border-color: #555; }

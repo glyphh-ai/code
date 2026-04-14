@@ -182,6 +182,9 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: bo
 
   // ── Terminal ────────────────────
   { id: "term", name: "Terminal", url: "yo://terminal" },
+
+  // ── Browser ────────────────────
+  { id: "browser", name: "Browser", url: "yo://browser" },
 ];
 
 // ── AppConnector ─────────────────────────────────────��──

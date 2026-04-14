@@ -94,7 +94,7 @@ declare global {
       saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; error?: string }>;
       // Yo Workbench
       onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => void;
-      workbenchRefine: (instruction: string, content: string) => Promise<{ message: string; content: string }>;
+      workbenchRefine: (instruction: string, content: string) => Promise<{ message: string; content: string; type: "skill" | "content" }>;
       suggestName: (content: string) => Promise<string>;
     };
   }
@@ -438,8 +438,14 @@ const wbOutputRaw = document.getElementById("wb-output-raw") as HTMLTextAreaElem
 const wbSearchModal = document.getElementById("wb-search-modal")!;
 const wbSearchInput = document.getElementById("wb-search-input") as HTMLInputElement;
 const wbSearchResults = document.getElementById("wb-search-results")!;
+const wbSkillsList = document.getElementById("wb-skills-list")!;
+const wbSkillInput = document.getElementById("wb-skill-input") as HTMLInputElement;
+const wbSkillDropdown = document.getElementById("wb-skill-dropdown")!;
+const wbSkillClear = document.getElementById("wb-skill-clear")!;
 
 let wbContent = "";
+let wbActiveSkill: string | null = null;  // currently selected skill name
+let wbSkillNames: string[] = [];          // cached skill list
 let wbThinkingBrailleIv: ReturnType<typeof setInterval> | null = null;
 let wbThinkingWordIv: ReturnType<typeof setInterval> | null = null;
 
@@ -453,6 +459,7 @@ function openWorkbench(content: string, label: string) {
   wbContent = content;
   wbConversation.innerHTML = "";
   wbChatInput.value = "";
+  clearSkillSelection();
 
   // Pre-fill the output panel title with a suggested name
   const fallback = label.replace(/\.md$/, "").replace(/^yo\s*/i, "") || "Output";
@@ -478,11 +485,20 @@ function openWorkbench(content: string, label: string) {
   wbDragLeft.classList.remove("visible");
   closeOutputPanel();
 
+  // Welcome message
+  const welcome = document.createElement("div");
+  welcome.className = "wb-msg wb-msg-welcome";
+  welcome.innerHTML =
+    `<div class="wb-welcome-brand">Yo<span class="wb-welcome-dot">.</span> Sup<span class="wb-welcome-dot">.</span></div>` +
+    `<div class="wb-welcome-text">Your content workspace. Create skills, refine artifacts, combine files — all from the prompt. Use a skill to transform content, or just ask.</div>`;
+  wbConversation.appendChild(welcome);
+
   // Show captured content as first message (content block with expand)
-  addMessage("content", "Captured", content);
+  if (content) addMessage("content", "Captured", content);
   scrollConversation();
 
   loadWbLibrary();
+  loadWbSkills();
   wbChatInput.focus();
 }
 
@@ -518,7 +534,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function addMessage(type: "content" | "user" | "yo" | "loading", label: string, content: string): HTMLElement {
+function addMessage(type: "content" | "skill" | "user" | "yo" | "loading", label: string, content: string): HTMLElement {
   const msg = document.createElement("div");
 
   if (type === "user") {
@@ -531,7 +547,8 @@ function addMessage(type: "content" | "user" | "yo" | "loading", label: string, 
     msg.innerHTML =
       `<div class="wb-msg-label">${escapeHtml(label)}</div>` +
       `<div class="wb-msg-text">${renderMarkdown(content)}</div>`;
-  } else if (type === "content") {
+  } else if (type === "content" || type === "skill") {
+    const isSkill = type === "skill";
     msg.className = "wb-msg wb-msg-content-block";
     // Generate a display name from the label or first line of content
     const isYoResponse = label === "Yo" || label.startsWith("Yo:");
@@ -541,15 +558,22 @@ function addMessage(type: "content" | "user" | "yo" | "loading", label: string, 
       docName = firstLine.replace(/^#+\s*/, "").slice(0, 60);
       if (docName.length === 60) docName += "...";
     }
+    // Different icons: lightning bolt for skills, document for content
+    const iconSvg = isSkill
+      ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`
+      : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>`;
+    // Context button only for content, not skills
+    const contextBtnHtml = isSkill ? "" :
+      `<button class="wb-artifact-context" title="Set as context"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>`;
     msg.innerHTML =
       `<div class="wb-msg-label">${escapeHtml(isYoResponse || label === "" ? "Yo" : label)}</div>` +
-      `<div class="wb-artifact">` +
+      `<div class="wb-artifact${isSkill ? " wb-artifact-skill" : ""}">` +
         `<div class="wb-artifact-header">` +
           `<span class="wb-artifact-chevron">\u25B6</span>` +
-          `<span class="wb-artifact-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></span>` +
+          `<span class="wb-artifact-icon">${iconSvg}</span>` +
           `<input class="wb-artifact-name-input" type="text" value="${escapeHtml(docName)}" spellcheck="false" autocomplete="off" />` +
           `<button class="wb-artifact-save" title="Save"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>` +
-          `<button class="wb-artifact-context" title="Set as context"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>` +
+          contextBtnHtml +
           `<button class="wb-artifact-open" title="Open in panel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg></button>` +
         `</div>` +
         `<div class="wb-artifact-body">${renderMarkdown(content)}</div>` +
@@ -560,7 +584,7 @@ function addMessage(type: "content" | "user" | "yo" | "loading", label: string, 
     const openBtn = msg.querySelector(".wb-artifact-open")!;
     const nameInput = msg.querySelector(".wb-artifact-name-input") as HTMLInputElement;
     const saveBtn = msg.querySelector(".wb-artifact-save")!;
-    const contextBtn = msg.querySelector(".wb-artifact-context")!;
+    const contextBtn = msg.querySelector(".wb-artifact-context");
     header.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest(".wb-artifact-open") || target.closest(".wb-artifact-save") || target.closest(".wb-artifact-context") || target.closest(".wb-artifact-name-input")) return;
@@ -568,32 +592,49 @@ function addMessage(type: "content" | "user" | "yo" | "loading", label: string, 
     });
     // Stop clicks on input from bubbling
     nameInput.addEventListener("click", (e) => e.stopPropagation());
-    openBtn.addEventListener("click", () => openOutputPanel(content, nameInput.value.trim() || docName));
+    openBtn.addEventListener("click", () => {
+      if (isSkill) {
+        openOutputPanel(content, nameInput.value.trim() || docName);
+        wbOutputPanel.dataset.skillName = nameInput.value.trim() || docName;
+        wbOutputContextBtn.classList.add("hidden");
+      } else {
+        openOutputPanel(content, nameInput.value.trim() || docName);
+      }
+    });
     // Save from artifact card
     saveBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const name = nameInput.value.trim();
       if (!name) { nameInput.focus(); return; }
-      const ok = await window.yo.libraryWrite(name, content);
+      let ok: boolean;
+      if (isSkill) {
+        ok = await window.yo.skillsWrite(name, content);
+        if (ok && wbSidebar.classList.contains("open")) loadWbSkills();
+      } else {
+        ok = await window.yo.libraryWrite(name, content);
+        if (ok && wbSidebar.classList.contains("open")) loadWbLibrary();
+      }
       if (ok) {
         (saveBtn as HTMLElement).style.color = "#25C75E";
         setTimeout(() => { (saveBtn as HTMLElement).style.color = ""; }, 1500);
-        if (wbSidebar.classList.contains("open")) loadWbLibrary();
       }
     });
-    // Set as context from artifact card
-    contextBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const name = nameInput.value.trim();
-      if (!name) { nameInput.focus(); return; }
-      await window.yo.libraryWrite(name, content);
-      const ok = await window.yo.sessionLoadFile(name);
-      if (ok) {
-        (contextBtn as HTMLElement).style.color = "#25C75E";
-        setTimeout(() => { (contextBtn as HTMLElement).style.color = ""; }, 1500);
-        if (wbSidebar.classList.contains("open")) loadWbLibrary();
-      }
-    });
+    // Set as context — only for content, not skills
+    if (contextBtn) {
+      contextBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        await window.yo.libraryWrite(name, content);
+        const ok = await window.yo.sessionLoadFile(name);
+        if (ok) {
+          navigator.clipboard.writeText(content);
+          (contextBtn as HTMLElement).style.color = "#25C75E";
+          setTimeout(() => { (contextBtn as HTMLElement).style.color = ""; }, 1500);
+          if (wbSidebar.classList.contains("open")) loadWbLibrary();
+        }
+      });
+    }
   } else if (type === "loading") {
     msg.className = "wb-msg wb-msg-yo wb-msg-loading";
     const word = WB_LOADING_WORDS[Math.floor(Math.random() * WB_LOADING_WORDS.length)];
@@ -654,16 +695,20 @@ const wbDragRight = document.getElementById("wb-drag-right")!;
 const wbOutputTitle = document.getElementById("wb-output-title") as HTMLInputElement;
 let wbOutputContent = "";  // raw content currently in the output panel
 
+const wbOutputContextBtn = document.getElementById("wb-output-context")!;
+
 async function openOutputPanel(content: string, title?: string) {
+  delete wbOutputPanel.dataset.skillName;  // clear skill flag; callers set it explicitly if needed
+  wbOutputContextBtn.classList.remove("hidden");  // show context button by default (hidden for skills by callers)
   wbOutputContent = content;
   wbOutputRendered.innerHTML = renderMarkdown(content);
   wbOutputRaw.value = content;
-  wbOutputRendered.classList.remove("hidden");
-  wbOutputRaw.classList.add("hidden");
+  wbOutputRendered.classList.add("hidden");
+  wbOutputRaw.classList.remove("hidden");
   wbOutputTitle.value = title || "Output";
-  // Reset tab state
+  // Default to Raw tab
   wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((t) => {
-    t.classList.toggle("active", (t as HTMLElement).dataset.mode === "markdown");
+    t.classList.toggle("active", (t as HTMLElement).dataset.mode === "raw");
   });
   // Restore persisted width
   const savedW = await window.yo.getPreference("wbOutputWidth") as number | undefined;
@@ -697,16 +742,25 @@ document.getElementById("wb-output-download")!.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-// Save (output panel)
+// Save (output panel) — saves as library file or skill depending on context
 document.getElementById("wb-output-save")!.addEventListener("click", async () => {
   const name = wbOutputTitle.value.trim();
   if (!name) { wbOutputTitle.focus(); return; }
-  const ok = await window.yo.libraryWrite(name, wbOutputContent);
+  const isSkill = wbOutputPanel.dataset.skillName !== undefined;
+  let ok: boolean;
+  if (isSkill) {
+    ok = await window.yo.skillsWrite(name, wbOutputContent);
+    if (ok && wbSidebar.classList.contains("open")) loadWbSkills();
+  } else {
+    ok = await window.yo.libraryWrite(name, wbOutputContent);
+    if (ok && wbSidebar.classList.contains("open")) loadWbLibrary();
+  }
   if (ok) {
     const btn = document.getElementById("wb-output-save")!;
     btn.style.color = "#25C75E";
     setTimeout(() => { btn.style.color = ""; }, 1500);
-    if (wbSidebar.classList.contains("open")) loadWbLibrary();
+    // Refresh skill names for the dropdown
+    if (isSkill) wbSkillNames = await window.yo.skillsList();
   }
 });
 
@@ -717,6 +771,8 @@ document.getElementById("wb-output-context")!.addEventListener("click", async ()
   await window.yo.libraryWrite(name, wbOutputContent);
   const ok = await window.yo.sessionLoadFile(name);
   if (ok) {
+    // Also copy to clipboard
+    navigator.clipboard.writeText(wbOutputContent);
     const btn = document.getElementById("wb-output-context")!;
     btn.style.color = "#25C75E";
     setTimeout(() => { btn.style.color = ""; }, 1500);
@@ -740,9 +796,12 @@ wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((tab) => {
   });
 });
 
-// Sync raw edits back to wbContent
+// Sync raw edits back to both wbOutputContent and wbContent
 wbOutputRaw.addEventListener("input", () => {
+  wbOutputContent = wbOutputRaw.value;
   wbContent = wbOutputRaw.value;
+  // Live-update rendered markdown
+  wbOutputRendered.innerHTML = renderMarkdown(wbOutputRaw.value);
 });
 
 // -- Left sidebar toggle --
@@ -759,6 +818,7 @@ async function toggleSidebar() {
       wbSidebar.style.minWidth = savedW + "px";
     }
     loadWbLibrary();
+    loadWbSkills();
   } else {
     wbSidebar.style.width = "";
     wbSidebar.style.minWidth = "";
@@ -907,15 +967,6 @@ window.yo.onOpenSupBrowser(() => openSupBrowser());
 // Close
 document.getElementById("wb-close")!.addEventListener("click", closeWorkbench);
 
-// Copy
-document.getElementById("wb-copy")!.addEventListener("click", () => {
-  navigator.clipboard.writeText(wbContent);
-  const btn = document.getElementById("wb-copy")!;
-  btn.textContent = "Copied!";
-  setTimeout(() => { btn.textContent = "Copy"; }, 1500);
-});
-
-
 // Auto-grow chat input
 wbChatInput.addEventListener("input", () => {
   wbChatInput.style.height = "auto";
@@ -924,10 +975,11 @@ wbChatInput.addEventListener("input", () => {
 
 // Send refinement
 async function sendRefinement() {
-  const instruction = wbChatInput.value.trim();
+  const instruction = wbActiveSkill || wbChatInput.value.trim();
   if (!instruction) return;
 
-  addMessage("user", "You", instruction);
+  const displayLabel = wbActiveSkill ? `skill: ${wbActiveSkill}` : instruction;
+  addMessage("user", "You", displayLabel);
   wbChatInput.value = "";
   wbChatInput.style.height = "auto";
   wbChatInput.disabled = true;
@@ -942,11 +994,12 @@ async function sendRefinement() {
     if (result.message) {
       addMessage("yo", "Yo", result.message);
     }
-    // Show the generated/refined content as an artifact card
+    // Show as the correct card type — skill or content
+    const cardType = result.type === "skill" ? "skill" : "content";
     wbContent = result.content;
-    const contentMsg = addMessage("content", "", result.content);
+    const contentMsg = addMessage(cardType, "", result.content);
     scrollConversation();
-    // Auto-suggest a name for the generated content
+    // Auto-suggest a name for the generated item
     window.yo.suggestName(result.content).then((suggested) => {
       if (suggested && isWorkbenchOpen()) {
         const nameInput = contentMsg.querySelector(".wb-artifact-name-input") as HTMLInputElement | null;
@@ -954,6 +1007,11 @@ async function sendRefinement() {
         wbOutputTitle.value = suggested;
       }
     });
+    // Refresh sidebar lists so new skills/content show up
+    if (wbSidebar.classList.contains("open")) {
+      if (cardType === "skill") loadWbSkills();
+      else loadWbLibrary();
+    }
   } catch (err) {
     removeLoading();
     addMessage("yo", "Yo", `Error: ${err instanceof Error ? err.message : err}`);
@@ -962,6 +1020,7 @@ async function sendRefinement() {
 
   wbChatInput.disabled = false;
   wbSendBtn.removeAttribute("disabled");
+  clearSkillSelection();
   wbChatInput.focus();
 }
 
@@ -1104,8 +1163,158 @@ function renderWbLibrary(files: FileMeta[]) {
       const ok = await window.yo.libraryRemove(name);
       if (ok) loadWbLibrary();
     });
+
+    // Click row -> open in right panel editor
+    el.addEventListener("click", async () => {
+      const content = await window.yo.libraryRead(name);
+      if (content !== null) {
+        openOutputPanel(content, name);
+      }
+    });
   });
 }
+
+// -- Skills list in sidebar --
+
+async function loadWbSkills() {
+  const skills = await window.yo.skillsList();
+  wbSkillNames = skills;
+  if (skills.length === 0) {
+    wbSkillsList.innerHTML = '<div style="padding:8px 14px;color:#888;font-size:11px;">No skills yet</div>';
+    return;
+  }
+
+  wbSkillsList.innerHTML = skills.map((name) => `
+    <div class="wb-file-item" data-name="${name}">
+      <div class="wb-file-top">
+        <span class="wb-file-name" title="${name}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#25C75E" stroke-width="2" style="vertical-align:-1px;margin-right:4px;flex-shrink:0;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>${name}
+        </span>
+        <div class="wb-file-actions">
+          <button class="wb-file-action wb-act-view" title="View">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <button class="wb-file-action wb-act-use" title="Use skill on content">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+          <button class="wb-file-action wb-act-del danger" title="Delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>`).join("");
+
+  wbSkillsList.querySelectorAll(".wb-file-item[data-name]").forEach((el) => {
+    const name = (el as HTMLElement).dataset.name!;
+
+    // View — opens skill prompt in the viewer modal
+    el.querySelector(".wb-act-view")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const content = await window.yo.skillsRead(name);
+      if (content !== null) openViewer(name, content);
+    });
+
+    // Use — select skill in the dropdown to run on current content
+    el.querySelector(".wb-act-use")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectSkill(name);
+      wbChatInput.focus();
+    });
+
+    // Delete
+    el.querySelector(".wb-act-del")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await window.yo.skillsRemove(name);
+      if (ok) {
+        loadWbSkills();
+        if (wbActiveSkill === name) clearSkillSelection();
+      }
+    });
+
+    // Click row -> open in right panel editor
+    el.addEventListener("click", async () => {
+      const content = await window.yo.skillsRead(name);
+      if (content !== null) {
+        delete wbOutputPanel.dataset.skillName;
+        openOutputPanel(content, name);
+        wbOutputPanel.dataset.skillName = name;
+        wbOutputContextBtn.classList.add("hidden");
+      }
+    });
+  });
+}
+
+// -- Skill dropdown in chat input --
+
+function selectSkill(name: string) {
+  wbActiveSkill = name;
+  wbSkillInput.value = name;
+  wbSkillInput.classList.add("active");
+  wbSkillClear.classList.remove("hidden");
+  wbChatInput.classList.add("skill-active");
+  wbChatInput.placeholder = `Will run skill "${name}" on current content`;
+  wbSkillDropdown.classList.add("hidden");
+}
+
+function clearSkillSelection() {
+  wbActiveSkill = null;
+  wbSkillInput.value = "";
+  wbSkillInput.classList.remove("active");
+  wbSkillClear.classList.add("hidden");
+  wbChatInput.classList.remove("skill-active");
+  wbChatInput.placeholder = "Ask Yo to refine this content...";
+  wbSkillDropdown.classList.add("hidden");
+}
+
+function renderSkillDropdown(filter: string) {
+  const q = filter.toLowerCase();
+  const matches = q ? wbSkillNames.filter((s) => s.toLowerCase().includes(q)) : wbSkillNames;
+  if (matches.length === 0) {
+    wbSkillDropdown.classList.add("hidden");
+    return;
+  }
+  wbSkillDropdown.innerHTML = matches.map((name) =>
+    `<div class="wb-skill-option" data-name="${name}">${name}</div>`
+  ).join("");
+  wbSkillDropdown.classList.remove("hidden");
+
+  wbSkillDropdown.querySelectorAll(".wb-skill-option").forEach((opt) => {
+    opt.addEventListener("mousedown", (e) => {
+      e.preventDefault();  // prevent blur
+      selectSkill((opt as HTMLElement).dataset.name!);
+    });
+  });
+}
+
+wbSkillInput.addEventListener("focus", () => {
+  if (!wbActiveSkill) renderSkillDropdown(wbSkillInput.value);
+});
+
+wbSkillInput.addEventListener("input", () => {
+  if (wbActiveSkill) clearSkillSelection();
+  renderSkillDropdown(wbSkillInput.value);
+});
+
+wbSkillInput.addEventListener("blur", () => {
+  setTimeout(() => wbSkillDropdown.classList.add("hidden"), 150);
+});
+
+wbSkillInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    wbSkillDropdown.classList.add("hidden");
+    wbSkillInput.blur();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const firstOpt = wbSkillDropdown.querySelector(".wb-skill-option") as HTMLElement | null;
+    if (firstOpt) selectSkill(firstOpt.dataset.name!);
+    else if (wbActiveSkill) sendRefinement();
+  }
+});
+
+wbSkillClear.addEventListener("click", () => {
+  clearSkillSelection();
+  wbSkillInput.focus();
+});
 
 // -- Global keyboard shortcuts --
 

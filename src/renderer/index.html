@@ -38,7 +38,7 @@
       <button id="btn-minimize" class="wc wc-minimize"></button>
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
-    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span> Dip<span class="dot">.</span></div>
+    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span></div>
     <input id="command-input" type="text" placeholder="yo, sup, dip..." spellcheck="false" autocomplete="off" />
     <span id="context-pill" class="hidden">
       <span id="context-pill-name"></span>
@@ -84,7 +84,6 @@
           </button>
         </div>
         <div class="wb-actions">
-          <button id="wb-copy" class="action-btn">Copy</button>
           <button id="wb-close" class="wb-close-btn">&times;</button>
         </div>
       </div>
@@ -92,11 +91,18 @@
       <div class="wb-body">
         <!-- Left: History sidebar (collapsible) -->
         <div id="wb-sidebar" class="wb-sidebar">
-          <div class="wb-sidebar-filter-wrap">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input id="wb-filter-input" type="text" placeholder="Filter..." spellcheck="false" autocomplete="off" />
+          <div class="wb-sidebar-section wb-skills-section">
+            <div class="wb-sidebar-heading">Skills</div>
+            <div id="wb-skills-list" class="wb-file-list"></div>
           </div>
-          <div id="wb-library-list" class="wb-file-list"></div>
+          <div class="wb-sidebar-section wb-library-section">
+            <div class="wb-sidebar-heading">Library</div>
+            <div class="wb-sidebar-filter-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input id="wb-filter-input" type="text" placeholder="Filter..." spellcheck="false" autocomplete="off" />
+            </div>
+            <div id="wb-library-list" class="wb-file-list"></div>
+          </div>
         </div>
 
         <div id="wb-drag-left" class="wb-drag-handle"></div>
@@ -120,6 +126,13 @@
           <div id="wb-conversation" class="wb-conversation"></div>
           <div class="wb-input-area">
             <div class="wb-input-wrap">
+              <div class="wb-skill-bar">
+                <div class="wb-skill-picker">
+                  <input id="wb-skill-input" type="text" placeholder="Select skill..." spellcheck="false" autocomplete="off" />
+                  <div id="wb-skill-dropdown" class="wb-skill-dropdown hidden"></div>
+                </div>
+                <button id="wb-skill-clear" class="wb-skill-clear hidden" title="Clear skill">&times;</button>
+              </div>
               <textarea id="wb-chat-input" rows="3" placeholder="Ask Yo to refine this content..." spellcheck="false"></textarea>
               <button id="wb-send" class="wb-send-btn" aria-label="Send">&#8593;</button>
             </div>
