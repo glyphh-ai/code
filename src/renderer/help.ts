@@ -1008,7 +1008,7 @@ async function sendSkillLlm() {
 
   try {
     const result = await window.yo.execCommand(
-      `wassup refine-skill Refine this skill prompt based on the user's request.\n\nCurrent prompt:\n${currentContent}\n\nUser request: ${userMsg}\n\nRespond with ONLY the updated prompt text, nothing else.`
+      `wassup refine-skill Refine this skill prompt based on the user's request.\n\nCurrent prompt:\n${currentContent}\n\nUser request: ${userMsg}\n\nIMPORTANT: The skill prompt MUST include an explicit instruction to output plain text without markdown formatting. Skill output gets pasted into real apps (email, chat, docs) where markdown syntax looks broken. Always include a line like: "Output plain text only. Do not use markdown formatting."\n\nRespond with ONLY the updated prompt text, nothing else.`
     );
     loadingDiv.remove();
     const aiDiv = document.createElement("div");

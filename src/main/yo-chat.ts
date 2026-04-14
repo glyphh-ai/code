@@ -150,6 +150,8 @@ ${skillList}
 
 A skill is a system prompt / instruction template. When the user says "create a skill" or "update the X skill", you are creating or editing a prompt template, NOT processing content. The skill prompt should be written as instructions for an AI to follow when processing content (e.g. "You are a professional email formatter. Take the user's casual input and rewrite it as a polished professional email...").
 
+IMPORTANT: Every skill prompt you generate MUST include an explicit instruction to output plain text without markdown formatting. Skill output gets pasted into real apps (email, chat, docs) where markdown syntax looks broken. Always include a line like: "Output plain text only. Do not use markdown formatting (no **, no ## headers, no bullet symbols). Use natural line breaks and spacing."
+
 When the user asks to modify, update, refine, or create content/artifacts, use type "content".
 When the user asks to create, update, or modify a skill, use type "skill".
 
