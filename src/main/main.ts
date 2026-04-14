@@ -595,6 +595,7 @@ async function boot() {
     return result;
   };
   yoInterceptor.setCommandHandler(execCommand);
+  yoInterceptor.setSessionNotifier(sendSessionState);
   yoChat.setCommandCallback(execCommand);
 
   // Terminal yo/sup/dip — route through command parser, show result in terminal

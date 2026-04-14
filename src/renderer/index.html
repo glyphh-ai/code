@@ -39,12 +39,12 @@
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
     <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span></div>
-    <input id="command-input" type="text" placeholder="yo, sup, dip..." spellcheck="false" autocomplete="off" />
     <span id="context-pill" class="hidden">
       <span id="context-pill-name"></span>
-      <button id="context-pill-edit" class="context-pill-icon" title="Edit in workbench">
+      <button id="context-pill-edit" class="context-pill-icon" title="Browse library">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
       </button>
+      <button id="context-pill-clear" class="context-pill-icon" title="Clear context">&times;</button>
     </span>
   </div>
 
@@ -70,6 +70,13 @@
         </div>
         <pre id="sup-preview-content"></pre>
       </div>
+    </div>
+  </div>
+
+  <!-- Cmd+K command overlay -->
+  <div id="cmdk-overlay" class="hidden">
+    <div class="cmdk-card">
+      <input id="cmdk-input" type="text" placeholder=".yo, .sup, .dip..." spellcheck="false" autocomplete="off" />
     </div>
   </div>
 
@@ -102,91 +109,99 @@
           <h2>Just talk.</h2>
 
           <div class="help-group">
-            <h3>yo <span class="cmd-desc">— capture</span></h3>
-            <p class="cmd-intro">Grabs content from your panels and sets it as active context.</p>
+            <h3>.yo <span class="cmd-desc">— capture</span></h3>
+            <p class="cmd-intro">Grabs content from your panels, saves to library, and sets as active context.</p>
             <div class="cmd-row">
-              <code>yo</code>
-              <span>Capture all open panels as context (auto-named)</span>
+              <code>.yo</code>
+              <span>Capture all open panels (auto-named)</span>
             </div>
             <div class="cmd-row">
-              <code>yo .</code>
+              <code>.yo .</code>
               <span>Capture only the active panel</span>
             </div>
             <div class="cmd-row">
-              <code>yo summarize this conversation</code>
+              <code>.yo summarize this conversation</code>
               <span>Capture all panels + AI formats the result</span>
             </div>
             <div class="cmd-row">
-              <code>yo . feature-spec</code>
+              <code>.yo . feature-spec</code>
               <span>Active panel only + use a skill or prompt</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo . .dip gmail</code>
+              <span>Chain: capture active panel, then switch to gmail</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>sup <span class="cmd-desc">— use context</span></h3>
+            <h3>.sup <span class="cmd-desc">— use context</span></h3>
             <p class="cmd-intro">Browse your library or paste context into the active app.</p>
             <div class="cmd-row">
-              <code>sup</code>
+              <code>.sup</code>
               <span>Browse library to pick content as active context</span>
             </div>
             <div class="cmd-row">
-              <code>sup .</code>
+              <code>.sup .</code>
               <span>Paste active context raw — no AI</span>
             </div>
             <div class="cmd-row">
-              <code>sup . email-format</code>
+              <code>.sup . email-format</code>
               <span>Paste context formatted by a skill or prompt</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>dip <span class="cmd-desc">— navigating</span></h3>
+            <h3>.dip <span class="cmd-desc">— navigate</span></h3>
             <p class="cmd-intro">Switch between panels, layouts, and connected apps.</p>
             <div class="cmd-row">
-              <code>dip claude</code>
+              <code>.dip claude</code>
               <span>Switch to a panel</span>
             </div>
             <div class="cmd-row">
-              <code>dip back</code>
+              <code>.dip back</code>
               <span>Switch to the previous panel</span>
             </div>
             <div class="cmd-row">
-              <code>dip split claude gpt</code>
+              <code>.dip split claude gpt</code>
               <span>Side-by-side panels</span>
             </div>
             <div class="cmd-row">
-              <code>dip split claude gpt / gemini code</code>
+              <code>.dip split claude gpt / gemini code</code>
               <span>Multi-row grid — <code>/</code> separates rows</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>dip grid <span class="cmd-desc">— advanced layouts</span></h3>
+            <h3>.dip grid <span class="cmd-desc">— advanced layouts</span></h3>
             <p class="cmd-intro">Full grid control with spans and custom sizing. Commas separate panels, <code>/</code> separates rows.</p>
             <div class="cmd-row">
-              <code>dip grid claude,gpt / gemini,code</code>
+              <code>.dip grid claude,gpt / gemini,code</code>
               <span>2&times;2 grid</span>
             </div>
             <div class="cmd-row">
-              <code>dip grid claude:2,gpt / gemini,code</code>
+              <code>.dip grid claude:2,gpt / gemini,code</code>
               <span><code>:N</code> = column span — claude takes 2 columns</span>
             </div>
             <div class="cmd-row">
-              <code>dip grid claude|2,gpt / gemini,code</code>
+              <code>.dip grid claude|2,gpt / gemini,code</code>
               <span><code>|N</code> = row span — claude takes 2 rows</span>
             </div>
             <div class="cmd-row">
-              <code>dip grid [70,30] claude,gpt</code>
+              <code>.dip grid [70,30] claude,gpt</code>
               <span><code>[%,%]</code> = custom column widths</span>
             </div>
             <div class="cmd-row">
-              <code>dip grid [70,30] [60,40] claude,gpt / gemini,code</code>
+              <code>.dip grid [70,30] [60,40] claude,gpt / gemini,code</code>
               <span>Custom column widths + row heights</span>
             </div>
           </div>
 
           <div class="help-group">
             <h3>Shortcuts</h3>
+            <div class="cmd-row">
+              <code>&#8984;K</code>
+              <span>Open command bar</span>
+            </div>
             <div class="cmd-row">
               <code>&#8984;Y</code>
               <span>Show / hide Yo from anywhere</span>
@@ -205,7 +220,7 @@
         <!-- Skills -->
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
-          <p class="section-desc">Reusable prompt templates. Use with <code>yo &lt;skill&gt;</code> or <code>sup . &lt;skill&gt;</code>.</p>
+          <p class="section-desc">Reusable prompt templates. Use with <code>.yo &lt;skill&gt;</code> or <code>.sup . &lt;skill&gt;</code>.</p>
           <div class="tab-toolbar">
             <button id="skill-create-btn" class="tab-action-btn" title="Create skill with AI">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M11 6.2L9.7 5"/><path d="M11 11.8L9.7 13"/><path d="M3 21l9-9"/><path d="M12.2 6.25a3.5 3.5 0 0 0-3.94 3.94L3 21l10.81-5.26a3.5 3.5 0 0 0 3.94-3.94"/></svg>
@@ -225,7 +240,7 @@
         <!-- Layouts -->
         <div class="help-section" data-section="layouts">
           <h2>Layouts</h2>
-          <p class="section-desc">Custom panel arrangements. Use <code>dip &lt;name&gt;</code> to activate.</p>
+          <p class="section-desc">Custom panel arrangements. Use <code>.dip &lt;name&gt;</code> to activate.</p>
           <div class="tab-toolbar">
             <input id="layout-new-name" type="text" placeholder="layout name" spellcheck="false" />
             <button id="layout-new-btn" class="action-btn primary">+ New Layout</button>
@@ -263,7 +278,7 @@
         <!-- Apps -->
         <div class="help-section" data-section="apps">
           <h2>Apps</h2>
-          <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to yo/sup/dip.</p>
+          <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to .yo/.sup/.dip.</p>
           <div class="tab-toolbar">
             <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
             <input id="app-new-name" type="text" placeholder="app name" spellcheck="false" />
@@ -383,6 +398,21 @@
         </button>
         <button class="btn-cancel" id="skill-create-cancel">Cancel</button>
         <button class="btn-create" id="skill-create-save">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Library edit modal -->
+  <div id="lib-edit-modal" class="hidden">
+    <div class="lib-edit-card">
+      <div class="lib-edit-header">
+        <input id="lib-edit-name" type="text" placeholder="file name" spellcheck="false" autocomplete="off" />
+        <button id="lib-edit-close" class="wb-close-btn">&times;</button>
+      </div>
+      <textarea id="lib-edit-content" rows="16" placeholder="Content..."></textarea>
+      <div class="lib-edit-actions">
+        <button id="lib-edit-delete" class="btn-cancel">Delete</button>
+        <button id="lib-edit-save" class="btn-create">Save</button>
       </div>
     </div>
   </div>

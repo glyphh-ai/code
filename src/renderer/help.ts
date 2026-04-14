@@ -107,6 +107,14 @@ export function initHelp() {
     if (e.target === document.getElementById("skill-create-modal")) closeSkillCreateModal();
   });
 
+  // Library edit modal
+  document.getElementById("lib-edit-close")!.addEventListener("click", closeLibEdit);
+  document.getElementById("lib-edit-save")!.addEventListener("click", saveLibEdit);
+  document.getElementById("lib-edit-delete")!.addEventListener("click", deleteLibEdit);
+  libEditModal.addEventListener("click", (e) => {
+    if (e.target === libEditModal) closeLibEdit();
+  });
+
   // Apps
   document.getElementById("app-add-btn")!.addEventListener("click", addApp);
   document.getElementById("app-connect-btn")!.addEventListener("click", connectApp);
@@ -868,6 +876,9 @@ const skillsList = document.getElementById("skills-list")!;
 const skillCreateModal = document.getElementById("skill-create-modal")!;
 const skillCreateName = document.getElementById("skill-create-name") as HTMLInputElement;
 const skillCreatePrompt = document.getElementById("skill-create-prompt") as HTMLTextAreaElement;
+const skillModalTitle = document.querySelector("#skill-create-modal .skill-create-card h3")!;
+const skillCreateSaveBtn = document.getElementById("skill-create-save")!;
+let editingSkillName = "";  // non-empty when editing existing skill
 
 async function loadSkills() {
   const skills = await window.yo.skillsList();
@@ -885,20 +896,23 @@ async function loadSkills() {
       </div>
       <span class="help-item-name">${name.replace(/\.md$/i, "")}</span>
       <div class="help-item-actions">
-        <button class="help-item-action skill-view" title="View">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        <button class="help-item-action skill-edit" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
         <button class="help-item-action danger skill-delete" title="Delete">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>`;
 
-    row.querySelector(".skill-view")!.addEventListener("click", async (e) => {
+    row.querySelector(".skill-edit")!.addEventListener("click", async (e) => {
       e.stopPropagation();
       const prompt = await window.yo.skillsRead(name);
       if (prompt !== null) {
+        editingSkillName = name;
         skillCreateName.value = name.replace(/\.md$/i, "");
         skillCreatePrompt.value = prompt;
+        skillModalTitle.textContent = "Edit Skill";
+        skillCreateSaveBtn.textContent = "Save";
         skillCreateModal.classList.remove("hidden");
       }
     });
@@ -914,14 +928,18 @@ async function loadSkills() {
 }
 
 function openSkillCreateModal() {
+  editingSkillName = "";
   skillCreateName.value = "";
   skillCreatePrompt.value = "";
+  skillModalTitle.textContent = "Create Skill";
+  skillCreateSaveBtn.textContent = "Create";
   skillCreateModal.classList.remove("hidden");
   skillCreateName.focus();
 }
 
 function closeSkillCreateModal() {
   skillCreateModal.classList.add("hidden");
+  editingSkillName = "";
 }
 
 async function saveNewSkill() {
@@ -929,6 +947,12 @@ async function saveNewSkill() {
   const prompt = skillCreatePrompt.value.trim();
   if (!name) { skillCreateName.focus(); return; }
   if (!prompt) { skillCreatePrompt.focus(); return; }
+
+  // If editing and name changed, remove old skill
+  if (editingSkillName && editingSkillName !== name && editingSkillName !== `${name}.md`) {
+    await window.yo.skillsRemove(editingSkillName);
+  }
+
   await window.yo.skillsWrite(name.endsWith(".md") ? name : `${name}.md`, prompt);
   closeSkillCreateModal();
   loadSkills();
@@ -939,32 +963,77 @@ async function generateSkillPrompt() {
   const desc = skillCreatePrompt.value.trim();
   if (!name && !desc) { skillCreateName.focus(); return; }
 
-  const input = desc || name;
+  const wandBtn = document.getElementById("skill-create-wand") as HTMLButtonElement;
+  const prevText = skillCreatePrompt.value;
+  wandBtn.disabled = true;
   skillCreatePrompt.value = "Generating...";
 
   try {
+    const input = desc || name;
     const result = await window.yo.execCommand(`wassup ${name || "skill"} ${input}`);
-    // The wassup command creates the skill and returns confirmation
     // Read back the generated prompt
-    const prompt = await window.yo.skillsRead(name.endsWith(".md") ? name : `${name}.md`);
+    const skillFile = name.endsWith(".md") ? name : `${name}.md`;
+    const prompt = await window.yo.skillsRead(skillFile);
     if (prompt !== null) {
       skillCreatePrompt.value = prompt;
     } else {
-      skillCreatePrompt.value = result || desc;
+      skillCreatePrompt.value = result || prevText;
     }
   } catch {
-    skillCreatePrompt.value = desc; // revert
+    skillCreatePrompt.value = prevText; // revert
+  } finally {
+    wandBtn.disabled = false;
   }
 }
 
 // ── Library ───────────────────────────────────────────────
 
 const libraryList = document.getElementById("library-list")!;
+const libEditModal = document.getElementById("lib-edit-modal")!;
+const libEditName = document.getElementById("lib-edit-name") as HTMLInputElement;
+const libEditContent = document.getElementById("lib-edit-content") as HTMLTextAreaElement;
+let editingLibFile = "";  // original file name being edited
+
+function openLibEdit(name: string, content: string) {
+  editingLibFile = name;
+  libEditName.value = name.replace(/\.md$/i, "");
+  libEditContent.value = content;
+  libEditModal.classList.remove("hidden");
+}
+
+function closeLibEdit() {
+  libEditModal.classList.add("hidden");
+  editingLibFile = "";
+}
+
+async function saveLibEdit() {
+  const name = libEditName.value.trim();
+  const content = libEditContent.value;
+  if (!name) { libEditName.focus(); return; }
+
+  // If name changed, remove old file
+  const newName = name.endsWith(".md") ? name : `${name}.md`;
+  if (editingLibFile && editingLibFile !== name && editingLibFile !== newName) {
+    await window.yo.libraryRemove(editingLibFile);
+  }
+
+  await window.yo.libraryWrite(name, content);
+  closeLibEdit();
+  loadLibrary();
+}
+
+async function deleteLibEdit() {
+  if (editingLibFile) {
+    await window.yo.libraryRemove(editingLibFile);
+  }
+  closeLibEdit();
+  loadLibrary();
+}
 
 async function loadLibrary() {
   const files = await window.yo.libraryListMeta();
   if (files.length === 0) {
-    libraryList.innerHTML = `<div class="help-item-empty">Library is empty. Use <code>yo</code> to capture content.</div>`;
+    libraryList.innerHTML = `<div class="help-item-empty">Library is empty. Use <code>.yo</code> to capture content.</div>`;
     return;
   }
   // Sort by modified descending
@@ -982,6 +1051,9 @@ async function loadLibrary() {
       <span class="help-item-name">${cleanName}</span>
       <span class="help-item-meta">${ago}</span>
       <div class="help-item-actions">
+        <button class="help-item-action lib-edit" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
         <button class="help-item-action lib-use" title="Set as context">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
         </button>
@@ -997,6 +1069,12 @@ async function loadLibrary() {
         row.style.background = "#0a1a0f";
         setTimeout(() => { row.style.background = ""; }, 600);
       }
+    });
+
+    row.querySelector(".lib-edit")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const content = await window.yo.libraryRead(file.name);
+      openLibEdit(file.name, content || "");
     });
 
     row.querySelector(".lib-use")!.addEventListener("click", async (e) => {

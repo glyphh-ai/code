@@ -162,40 +162,69 @@ contextPillEdit.addEventListener("click", (e) => {
   openSupBrowser(currentContextFileName);
 });
 
+// Click X -> clear context
+const contextPillClear = document.getElementById("context-pill-clear")!;
+contextPillClear.addEventListener("click", (e) => {
+  e.stopPropagation();
+  window.yo.sessionClear();
+});
+
 // Load initial state
 window.yo.sessionInfo().then(updateContextPill);
 
-// -- Command input --
+// -- Cmd+K command overlay --
 
-const commandInput = document.getElementById("command-input") as HTMLInputElement;
+const cmdkOverlay = document.getElementById("cmdk-overlay")!;
+const cmdkInput = document.getElementById("cmdk-input") as HTMLInputElement;
 let resultTimer: ReturnType<typeof setTimeout> | null = null;
+
+function openCmdK() {
+  if (!cmdkOverlay.classList.contains("hidden")) return;
+  window.yo.panelsHide();
+  cmdkOverlay.classList.remove("hidden");
+  cmdkInput.value = "";
+  cmdkInput.classList.remove("result");
+  cmdkInput.focus();
+}
+
+function closeCmdK() {
+  if (resultTimer) { clearTimeout(resultTimer); resultTimer = null; }
+  cmdkOverlay.classList.add("hidden");
+  cmdkInput.value = "";
+  cmdkInput.classList.remove("result");
+  window.yo.panelsShow();
+}
+
+function isCmdKOpen(): boolean {
+  return !cmdkOverlay.classList.contains("hidden");
+}
 
 function showResult(text: string) {
   if (resultTimer) clearTimeout(resultTimer);
-  commandInput.value = text;
-  commandInput.classList.add("result");
+  cmdkInput.value = text;
+  cmdkInput.classList.add("result");
   resultTimer = setTimeout(() => {
-    commandInput.value = "";
-    commandInput.classList.remove("result");
-    resultTimer = null;
-  }, 2500);
+    closeCmdK();
+  }, 2000);
 }
 
-commandInput.addEventListener("keydown", async (e) => {
+cmdkInput.addEventListener("keydown", async (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    const value = commandInput.value.trim();
+    const value = cmdkInput.value.trim();
     if (!value) return;
 
-    commandInput.value = "";
-    commandInput.blur();
+    cmdkInput.value = "";
 
     try {
       const result = await window.yo.execCommand(value);
       if (result === "__SUP_BROWSE__") {
+        closeCmdK();
         openSupBrowser();
       } else if (result) {
         showResult(result);
+      } else {
+        closeCmdK();
       }
     } catch (err) {
       showResult(`Error: ${err instanceof Error ? err.message : err}`);
@@ -203,18 +232,17 @@ commandInput.addEventListener("keydown", async (e) => {
   }
   if (e.key === "Escape") {
     e.preventDefault();
-    if (resultTimer) {
-      clearTimeout(resultTimer);
-      resultTimer = null;
-    }
-    commandInput.value = "";
-    commandInput.classList.remove("result");
-    commandInput.blur();
+    closeCmdK();
   }
 });
 
-// Cmd+K from panel -> focus command input
-window.yo.onFocusInput(() => commandInput.focus());
+// Click overlay background -> close
+cmdkOverlay.addEventListener("click", (e) => {
+  if (e.target === cmdkOverlay) closeCmdK();
+});
+
+// Cmd+K from panel -> open overlay
+window.yo.onFocusInput(() => openCmdK());
 
 // -- Sup browser (library file picker) --
 
@@ -432,14 +460,15 @@ supBrowser.addEventListener("click", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (isSupBrowserOpen()) closeSupBrowser();
+    if (isCmdKOpen()) closeCmdK();
+    else if (isSupBrowserOpen()) closeSupBrowser();
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+K to focus command input
+  // Cmd+K to open command overlay
   if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
-    commandInput.focus();
+    openCmdK();
   }
 
   // Cmd+R / Ctrl+R to refresh panels

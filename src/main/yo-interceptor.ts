@@ -34,6 +34,7 @@ export class YoInterceptor {
   private commandHandler: ((input: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
   private getVisiblePanelIds: (() => string[]) | null = null;
+  private sessionNotifier: (() => void) | null = null;
   constructor(
     private appConnector: AppConnector,
     private library: Library,
@@ -44,6 +45,7 @@ export class YoInterceptor {
   setYoChat(chat: YoChat): void { this.yoChat = chat; }
   setCommandHandler(handler: (input: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
+  setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -104,7 +106,7 @@ export class YoInterceptor {
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
-var CMD_RE=/^(yo|sup|dip|drip|wassup)(?:\\s+(.+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|wassup)(?:\\s+(.+))?$/i;
 var lastText='';
 var handled=false;
 
@@ -227,6 +229,7 @@ document.addEventListener('keyup',function(e){
           if (content) {
             this.session.capture("library", content, name + ".md", name);
             this.session.copyToClipboard();
+            this.sessionNotifier?.();
             this.notify(wc, `Loaded: ${name}.md \u2014 copied to clipboard`, "success");
           } else {
             this.notify(wc, `Not found: ${name}`, "error");
@@ -255,6 +258,8 @@ document.addEventListener('keyup',function(e){
   //   yo . <skill> → grab current → skill → session + clipboard
   //   yo help      → open help overlay
 
+  private static readonly COMMAND_KEYWORDS = new Set(["yo", "sup", "dip", "drip", "wassup"]);
+
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Subcommands routed through command parser
     const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
@@ -271,11 +276,32 @@ document.addEventListener('keyup',function(e){
     const currentOnly = !!dotMatch;
     const realInstruction = currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
 
+    // Check if realInstruction starts with a command keyword → chained command
+    // e.g. "yo . dip gmail" → capture active panel, then run "dip gmail"
+    const firstWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
+    const isChainedCommand = firstWord && YoInterceptor.COMMAND_KEYWORDS.has(firstWord);
+
     // Grab content
     this.notify(wc, "", "loading");
     const content = await this.grabPanels(wc, appId, !currentOnly);
     if (!content) {
       this.notify(wc, "Could not grab content.", "error");
+      return;
+    }
+
+    // If chained command, do bare capture then delegate rest to command handler
+    if (isChainedCommand && this.commandHandler) {
+      const now = new Date();
+      const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
+      this.session.capture(appId, content, `${ts}.md`, ts);
+      this.library.write(ts, content);
+      this.session.copyToClipboard();
+      this.sessionNotifier?.();
+      await this.clearNotify(wc);
+      this.notify(wc, `yo${currentOnly ? " ." : ""} — captured`, "success");
+      // Execute the chained command
+      const chainResult = await this.commandHandler(realInstruction!);
+      if (chainResult) this.notify(wc, chainResult, "success");
       return;
     }
 
@@ -305,6 +331,8 @@ document.addEventListener('keyup',function(e){
     const skillLabel = realInstruction?.split(/\s+/)[0] || undefined;
     const sessionLabel = skillLabel ? `${skillLabel}.md` : `${ts}.md`;
     this.session.capture(appId, finalContent, sessionLabel, skillLabel || ts);
+    this.library.write(skillLabel || ts, finalContent);
+    this.sessionNotifier?.();
 
     const label = realInstruction ? `yo ${realInstruction}` : "yo";
     await this.clearNotify(wc);
@@ -349,6 +377,7 @@ document.addEventListener('keyup',function(e){
       if (content) {
         this.session.capture("library", content, name + ".md", name);
         this.session.copyToClipboard();
+        this.sessionNotifier?.();
         await this.clearNotify(wc);
         const injected = await this.injectContent(wc, content);
         if (!injected) {

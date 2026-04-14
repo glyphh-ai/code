@@ -105,7 +105,8 @@ export class CommandParser {
 
   /** Parse and execute a command string (supports chaining). */
   async execute(input: string): Promise<string> {
-    const trimmed = input.trim();
+    // Strip dot prefix from command keywords (.yo → yo, .dip → dip)
+    const trimmed = input.trim().replace(/\.(yo|sup|dip|drip|wassup)\b/gi, "$1");
     if (!trimmed) return "";
 
     const segments = this.splitChain(trimmed);
@@ -178,6 +179,7 @@ export class CommandParser {
     const label = skillLabel || ts;
 
     this.session.capture("command-bar", finalContent, `${label}.md`, label);
+    this.library.write(label, finalContent);
     this.session.copyToClipboard();
 
     return `yo${activeOnly ? " ." : ""}${instruction ? " " + instruction : ""} \u2014 captured`;
