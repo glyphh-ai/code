@@ -185,6 +185,13 @@ async function boot() {
     mainWindow?.webContents.send("session-changed", session.getInfo());
   };
 
+  // Open the context workbench modal in the renderer
+  const openWorkbench = (content: string, label: string) => {
+    mainWindow?.webContents.send("yo-workbench-open", { content, label });
+  };
+  yoInterceptor.setWorkbenchOpener(openWorkbench);
+  commandParser.setWorkbenchOpener(openWorkbench);
+
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const execCommand = async (cmd: string) => {
     const result = await commandParser.execute(cmd);
@@ -777,6 +784,20 @@ async function boot() {
     } catch {
       return files.slice(0, 10);
     }
+  });
+
+  // IPC: Workbench AI refinement (skill-aware)
+  ipcMain.handle("yo-workbench-refine", async (_e, instruction: string, content: string) => {
+    // Check if instruction matches a known skill name
+    const trimmed = instruction.trim();
+    const knownSkill = /^\S+$/.test(trimmed)
+      ? skillEngine.listSkills().find((s) => s.toLowerCase() === trimmed.toLowerCase())
+      : undefined;
+
+    if (knownSkill) {
+      return skillEngine.process(content, knownSkill);
+    }
+    return yoChat.executeInline("yo", instruction, "workbench", content);
   });
 
   // IPC: license + API key

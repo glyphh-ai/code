@@ -25,6 +25,7 @@ export class CommandParser {
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
   private grabber: (() => Promise<string | null>) | null = null;
+  private workbenchOpener: ((content: string, label: string) => void) | null = null;
 
   constructor(
     private panels: PanelManager,
@@ -53,6 +54,11 @@ export class CommandParser {
   /** Set the grabber callback — grabs content from visible panels. */
   setGrabber(fn: () => Promise<string | null>): void {
     this.grabber = fn;
+  }
+
+  /** Set the workbench opener — opens the context workbench modal. */
+  setWorkbenchOpener(fn: (content: string, label: string) => void): void {
+    this.workbenchOpener = fn;
   }
 
   /** Parse and execute a command string */
@@ -119,12 +125,16 @@ export class CommandParser {
       }
     }
 
-    // Store in session + copy to clipboard
+    // Store in session
     const skillLabel = instruction?.split(/\s+/)[0] || undefined;
     this.session.capture("command-bar", finalContent, skillLabel ? `${skillLabel}.md` : "captured");
-    this.session.copyToClipboard();
 
     const label = instruction ? `yo ${instruction}` : "yo";
+    if (this.workbenchOpener) {
+      this.workbenchOpener(finalContent, label);
+      return "";
+    }
+    this.session.copyToClipboard();
     return `${label} \u2014 captured + copied`;
   }
 

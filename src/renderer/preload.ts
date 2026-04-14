@@ -104,4 +104,11 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Command execution (used internally by interceptor routing)
   execCommand: (cmd: string) => ipcRenderer.invoke("exec-command", cmd) as Promise<string>,
+
+  // Yo Workbench
+  onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => {
+    ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));
+  },
+  workbenchRefine: (instruction: string, content: string) =>
+    ipcRenderer.invoke("yo-workbench-refine", instruction, content) as Promise<string>,
 });

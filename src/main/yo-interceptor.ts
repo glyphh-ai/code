@@ -34,6 +34,7 @@ export class YoInterceptor {
   private commandHandler: ((input: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
   private getVisiblePanelIds: (() => string[]) | null = null;
+  private workbenchOpener: ((content: string, label: string) => void) | null = null;
 
   constructor(
     private appConnector: AppConnector,
@@ -45,6 +46,7 @@ export class YoInterceptor {
   setYoChat(chat: YoChat): void { this.yoChat = chat; }
   setCommandHandler(handler: (input: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
+  setWorkbenchOpener(fn: (content: string, label: string) => void): void { this.workbenchOpener = fn; }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -293,15 +295,21 @@ document.addEventListener('keyup',function(e){
       }
     }
 
-    // Store in session + copy to clipboard
+    // Store in session
     const sessionLabel = realInstruction
       ? (realInstruction.split(/\s+/)[0] + ".md")
       : "captured";
     this.session.capture(appId, finalContent, sessionLabel);
-    this.session.copyToClipboard();
 
     const label = realInstruction ? `yo ${realInstruction}` : "yo";
-    this.notify(wc, `${label} \u2014 captured + copied`, "success");
+    await this.clearNotify(wc);
+
+    if (this.workbenchOpener) {
+      this.workbenchOpener(finalContent, label);
+    } else {
+      this.session.copyToClipboard();
+      this.notify(wc, `${label} \u2014 captured + copied`, "success");
+    }
   }
 
   // ── sup: session → process → inject ───────────────────

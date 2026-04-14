@@ -1,9 +1,9 @@
 /**
- * Renderer — titlebar + grid handles + boot gate + sup browser.
+ * Renderer — titlebar + grid handles + boot gate + sup browser + yo workbench.
  *
  * All user commands (yo/sup/dip/wassup) happen inside app panels
  * via the interceptor, or from the command bar. The renderer
- * manages window chrome, session state display, and the sup browser.
+ * manages window chrome, session state display, and the yo workbench.
  */
 
 import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
@@ -77,6 +77,9 @@ declare global {
       } | null) => void) => void;
       // Command execution
       execCommand: (cmd: string) => Promise<string>;
+      // Yo Workbench
+      onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => void;
+      workbenchRefine: (instruction: string, content: string) => Promise<string>;
     };
   }
 }
@@ -84,7 +87,7 @@ declare global {
 const gridHandles = document.getElementById("grid-handles")!;
 const screenshotContainer = document.getElementById("panel-screenshots")!;
 
-// ── Panel screenshot helpers (freeze-frame when hiding panels) ──
+// -- Panel screenshot helpers (freeze-frame when hiding panels) --
 
 async function showPanelScreenshots(): Promise<void> {
   const captures = await window.yo.capturePanels();
@@ -104,17 +107,17 @@ function clearPanelScreenshots(): void {
   screenshotContainer.innerHTML = "";
 }
 
-// ── Window controls ────────────────────────────────────────
+// -- Window controls --
 
 document.getElementById("btn-close")!.addEventListener("click", () => window.yo.windowClose());
 document.getElementById("btn-minimize")!.addEventListener("click", () => window.yo.windowMinimize());
 document.getElementById("btn-maximize")!.addEventListener("click", () => window.yo.windowMaximize());
 
-// ── Titlebar label → open help ─────────────────────────────
+// -- Titlebar label -> open help --
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
-// ── Context pill ─────────────────────────────────────────
+// -- Context pill --
 
 const contextPill = document.getElementById("context-pill")!;
 
@@ -129,16 +132,15 @@ function updateContextPill(info: { hasContent: boolean; label: string }) {
 
 window.yo.onSessionChanged(updateContextPill);
 
-// Click pill → clear context
-contextPill.addEventListener("click", async () => {
-  await window.yo.sessionClear();
-  updateContextPill({ hasContent: false, label: "" });
+// Click pill -> open sup browser
+contextPill.addEventListener("click", () => {
+  openSupBrowser();
 });
 
 // Load initial state
 window.yo.sessionInfo().then(updateContextPill);
 
-// ── Command input ─────────────────────────────────────────
+// -- Command input --
 
 const commandInput = document.getElementById("command-input") as HTMLInputElement;
 let resultTimer: ReturnType<typeof setTimeout> | null = null;
@@ -186,10 +188,10 @@ commandInput.addEventListener("keydown", async (e) => {
   }
 });
 
-// Cmd+K from panel → focus command input
+// Cmd+K from panel -> focus command input
 window.yo.onFocusInput(() => commandInput.focus());
 
-// ── Sup browser (library file picker) ─────────────────────
+// -- Sup browser (library file picker) --
 
 const supBrowser = document.getElementById("sup-browser")!;
 const supSearch = document.getElementById("sup-search") as HTMLInputElement;
@@ -324,16 +326,402 @@ supSearch.addEventListener("keydown", (e) => {
   }
 });
 
-// Click overlay background → close
+// Click overlay background -> close
 supBrowser.addEventListener("click", (e) => {
   if (e.target === supBrowser) closeSupBrowser();
 });
 
-// ── Global keyboard shortcuts ──────────────────────────────
+// -- Yo Context Workbench --
+
+const workbench = document.getElementById("yo-workbench")!;
+const wbConversation = document.getElementById("wb-conversation")!;
+const wbChatInput = document.getElementById("wb-chat-input") as HTMLTextAreaElement;
+const wbSendBtn = document.getElementById("wb-send")!;
+const wbLibraryList = document.getElementById("wb-library-list")!;
+const wbSaveName = document.getElementById("wb-save-name") as HTMLInputElement;
+const wbSidebar = document.getElementById("wb-sidebar")!;
+const wbSidebarToggle = document.getElementById("wb-sidebar-toggle")!;
+const wbOutputPanel = document.getElementById("wb-output-panel")!;
+const wbOutputRendered = document.getElementById("wb-output-rendered")!;
+const wbOutputRaw = document.getElementById("wb-output-raw") as HTMLTextAreaElement;
+const wbSearchModal = document.getElementById("wb-search-modal")!;
+const wbSearchInput = document.getElementById("wb-search-input") as HTMLInputElement;
+const wbSearchResults = document.getElementById("wb-search-results")!;
+
+let wbContent = "";
+let wbThinkingBrailleIv: ReturnType<typeof setInterval> | null = null;
+let wbThinkingWordIv: ReturnType<typeof setInterval> | null = null;
+
+const WB_LOADING_WORDS = [
+  "chilling...", "vibing...", "supping...", "cooking...",
+  "thinking...", "brewing...", "manifesting...", "marinating...",
+];
+const WB_BRAILLE_FRAMES = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
+
+function openWorkbench(content: string, label: string) {
+  wbContent = content;
+  wbConversation.innerHTML = "";
+  wbChatInput.value = "";
+  wbSaveName.value = label.replace(/\.md$/, "").replace(/^yo\s*/i, "") || "";
+
+  // Close any open overlays first
+  if (isSupBrowserOpen()) closeSupBrowser();
+  if (isHelpOpen()) closeHelp();
+
+  window.yo.panelsHide();
+  workbench.classList.remove("hidden");
+
+  // Close panels by default
+  wbSidebar.classList.remove("open");
+  wbSidebarToggle.classList.remove("active");
+  closeOutputPanel();
+
+  // Show captured content as first message (content block with expand)
+  addMessage("content", "Captured", content);
+  scrollConversation();
+
+  loadWbLibrary();
+  wbChatInput.focus();
+}
+
+function closeWorkbench() {
+  workbench.classList.add("hidden");
+  clearThinkingIntervals();
+  closeOutputPanel();
+  closeSearchModal();
+  window.yo.panelsShow();
+}
+
+function isWorkbenchOpen(): boolean {
+  return !workbench.classList.contains("hidden");
+}
+
+// Minimal markdown to HTML
+function renderMarkdown(md: string): string {
+  return md
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>")
+    .replace(/\n\n/g, "<br><br>");
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function addMessage(type: "content" | "user" | "yo" | "loading", label: string, content: string) {
+  const msg = document.createElement("div");
+
+  if (type === "user") {
+    msg.className = "wb-msg wb-msg-user";
+    msg.innerHTML =
+      `<div class="wb-msg-label">${escapeHtml(label)}</div>` +
+      `<div class="wb-msg-bubble">${escapeHtml(content)}</div>`;
+  } else if (type === "yo") {
+    msg.className = "wb-msg wb-msg-yo";
+    msg.innerHTML =
+      `<div class="wb-msg-label">${escapeHtml(label)}</div>` +
+      `<div class="wb-msg-text">${renderMarkdown(content)}</div>`;
+  } else if (type === "content") {
+    msg.className = "wb-msg wb-msg-content-block";
+    const preview = content.split("\n").slice(0, 6).join("\n");
+    const isYoResponse = label === "Yo" || label.startsWith("Yo:");
+    const btnText = isYoResponse ? "View updated content" : "View full content";
+    msg.innerHTML =
+      `<div class="wb-msg-label">${escapeHtml(label)}</div>` +
+      `<div class="wb-content-preview">${escapeHtml(preview)}</div>` +
+      `<button class="wb-expand-btn">\u25B6 ${btnText}</button>`;
+    const expandBtn = msg.querySelector(".wb-expand-btn")!;
+    expandBtn.addEventListener("click", () => openOutputPanel(content));
+  } else if (type === "loading") {
+    msg.className = "wb-msg wb-msg-yo wb-msg-loading";
+    const word = WB_LOADING_WORDS[Math.floor(Math.random() * WB_LOADING_WORDS.length)];
+    msg.innerHTML =
+      `<div class="wb-msg-label">Yo</div>` +
+      `<div class="wb-thinking">` +
+      `<span class="wb-braille">${WB_BRAILLE_FRAMES[0]}</span>` +
+      `<span class="wb-word">${word}</span>` +
+      `</div>`;
+    startThinkingAnimation(msg);
+  }
+
+  wbConversation.appendChild(msg);
+}
+
+function startThinkingAnimation(msgEl: HTMLElement) {
+  clearThinkingIntervals();
+  const brailleEl = msgEl.querySelector(".wb-braille");
+  const wordEl = msgEl.querySelector(".wb-word");
+  if (!brailleEl || !wordEl) return;
+
+  let fi = 0;
+  wbThinkingBrailleIv = setInterval(() => {
+    fi++;
+    brailleEl.textContent = WB_BRAILLE_FRAMES[fi % WB_BRAILLE_FRAMES.length];
+  }, 100);
+
+  wbThinkingWordIv = setInterval(() => {
+    wordEl.classList.add("wiping");
+    setTimeout(() => {
+      const newWord = WB_LOADING_WORDS[Math.floor(Math.random() * WB_LOADING_WORDS.length)];
+      wordEl.textContent = newWord;
+      wordEl.classList.remove("wiping");
+    }, 400);
+  }, 3000);
+}
+
+function clearThinkingIntervals() {
+  if (wbThinkingBrailleIv) { clearInterval(wbThinkingBrailleIv); wbThinkingBrailleIv = null; }
+  if (wbThinkingWordIv) { clearInterval(wbThinkingWordIv); wbThinkingWordIv = null; }
+}
+
+function removeLoading() {
+  clearThinkingIntervals();
+  const loading = wbConversation.querySelector(".wb-msg-loading");
+  if (loading) loading.remove();
+}
+
+function scrollConversation() {
+  wbConversation.scrollTop = wbConversation.scrollHeight;
+}
+
+// -- Right output panel --
+
+function openOutputPanel(content: string) {
+  wbOutputRendered.innerHTML = renderMarkdown(content);
+  wbOutputRaw.value = content;
+  wbOutputRendered.classList.remove("hidden");
+  wbOutputRaw.classList.add("hidden");
+  // Reset tab state
+  wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((t) => {
+    t.classList.toggle("active", (t as HTMLElement).dataset.mode === "markdown");
+  });
+  wbOutputPanel.classList.add("open");
+}
+
+function closeOutputPanel() {
+  wbOutputPanel.classList.remove("open");
+}
+
+document.getElementById("wb-output-close")!.addEventListener("click", closeOutputPanel);
+
+// Tab toggle (markdown/raw)
+wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const mode = (tab as HTMLElement).dataset.mode;
+    wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    if (mode === "raw") {
+      wbOutputRendered.classList.add("hidden");
+      wbOutputRaw.classList.remove("hidden");
+    } else {
+      wbOutputRendered.classList.remove("hidden");
+      wbOutputRaw.classList.add("hidden");
+    }
+  });
+});
+
+// Sync raw edits back to wbContent
+wbOutputRaw.addEventListener("input", () => {
+  wbContent = wbOutputRaw.value;
+});
+
+// -- Left sidebar toggle --
+
+function toggleSidebar() {
+  const isOpen = wbSidebar.classList.toggle("open");
+  wbSidebarToggle.classList.toggle("active", isOpen);
+  if (isOpen) loadWbLibrary();
+}
+
+wbSidebarToggle.addEventListener("click", toggleSidebar);
+
+// -- Search modal --
+
+let wbSearchTimer2: ReturnType<typeof setTimeout> | null = null;
+
+function openSearchModal() {
+  wbSearchModal.classList.remove("hidden");
+  wbSearchInput.value = "";
+  wbSearchResults.innerHTML = '<div class="wb-search-empty">Type to search across all saved files...</div>';
+  wbSearchInput.focus();
+}
+
+function closeSearchModal() {
+  wbSearchModal.classList.add("hidden");
+  if (wbSearchTimer2) { clearTimeout(wbSearchTimer2); wbSearchTimer2 = null; }
+}
+
+document.getElementById("wb-search-btn")!.addEventListener("click", openSearchModal);
+document.getElementById("wb-search-close")!.addEventListener("click", closeSearchModal);
+
+// Click backdrop to close
+wbSearchModal.addEventListener("click", (e) => {
+  if (e.target === wbSearchModal) closeSearchModal();
+});
+
+wbSearchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeSearchModal();
+});
+
+wbSearchInput.addEventListener("input", () => {
+  if (wbSearchTimer2) clearTimeout(wbSearchTimer2);
+  const q = wbSearchInput.value.trim();
+
+  if (!q) {
+    wbSearchResults.innerHTML = '<div class="wb-search-empty">Type to search across all saved files...</div>';
+    return;
+  }
+
+  // Instant local name filter
+  window.yo.libraryList().then((all) => {
+    const lower = q.toLowerCase();
+    const filtered = all.filter((f) => f.toLowerCase().includes(lower));
+    if (filtered.length > 0) renderSearchResults(filtered);
+  });
+
+  // AI search after debounce
+  wbSearchTimer2 = setTimeout(async () => {
+    const results = await window.yo.librarySearchAi(q);
+    if (results.length > 0 && wbSearchInput.value.trim() === q) {
+      renderSearchResults(results);
+    }
+  }, 600);
+});
+
+function renderSearchResults(files: string[]) {
+  if (files.length === 0) {
+    wbSearchResults.innerHTML = '<div class="wb-search-empty">No results found</div>';
+    return;
+  }
+  wbSearchResults.innerHTML = files.map((name) =>
+    `<div class="wb-search-result" data-name="${name}">${name}.md</div>`
+  ).join("");
+
+  wbSearchResults.querySelectorAll(".wb-search-result").forEach((el) => {
+    el.addEventListener("click", async () => {
+      const name = (el as HTMLElement).dataset.name!;
+      const content = await window.yo.libraryRead(name);
+      if (content !== null) {
+        wbContent = content;
+        wbSaveName.value = name;
+        addMessage("content", `Loaded: ${name}.md`, content);
+        scrollConversation();
+      }
+      closeSearchModal();
+    });
+  });
+}
+
+// Listen for workbench open from main process
+window.yo.onWorkbenchOpen((data) => openWorkbench(data.content, data.label));
+
+// Close
+document.getElementById("wb-close")!.addEventListener("click", closeWorkbench);
+
+// Copy
+document.getElementById("wb-copy")!.addEventListener("click", () => {
+  navigator.clipboard.writeText(wbContent);
+  const btn = document.getElementById("wb-copy")!;
+  btn.textContent = "Copied!";
+  setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+});
+
+// Save
+document.getElementById("wb-save")!.addEventListener("click", async () => {
+  const name = wbSaveName.value.trim();
+  if (!name) { wbSaveName.focus(); return; }
+  const ok = await window.yo.libraryWrite(name, wbContent);
+  if (ok) {
+    const btn = document.getElementById("wb-save")!;
+    btn.textContent = "Saved!";
+    setTimeout(() => { btn.textContent = "Save"; }, 1500);
+    if (wbSidebar.classList.contains("open")) loadWbLibrary();
+  }
+});
+
+// Auto-grow chat input
+wbChatInput.addEventListener("input", () => {
+  wbChatInput.style.height = "auto";
+  wbChatInput.style.height = Math.min(wbChatInput.scrollHeight, 200) + "px";
+});
+
+// Send refinement
+async function sendRefinement() {
+  const instruction = wbChatInput.value.trim();
+  if (!instruction) return;
+
+  addMessage("user", "You", instruction);
+  wbChatInput.value = "";
+  wbChatInput.style.height = "auto";
+  wbChatInput.disabled = true;
+  wbSendBtn.setAttribute("disabled", "");
+  addMessage("loading", "Yo", "");
+  scrollConversation();
+
+  try {
+    const refined = await window.yo.workbenchRefine(instruction, wbContent);
+    removeLoading();
+    wbContent = refined;
+    addMessage("content", "Yo", refined);
+    scrollConversation();
+  } catch (err) {
+    removeLoading();
+    addMessage("yo", "Yo", `Error: ${err instanceof Error ? err.message : err}`);
+    scrollConversation();
+  }
+
+  wbChatInput.disabled = false;
+  wbSendBtn.removeAttribute("disabled");
+  wbChatInput.focus();
+}
+
+wbChatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendRefinement();
+  }
+});
+
+wbSendBtn.addEventListener("click", sendRefinement);
+
+// Library sidebar file list
+async function loadWbLibrary() {
+  const files = await window.yo.libraryList();
+  wbLibraryList.innerHTML = files.length === 0
+    ? '<div class="wb-file-item" style="color:#555;cursor:default;">No files yet</div>'
+    : files.map((name) =>
+        `<div class="wb-file-item" data-name="${name}">${name}.md</div>`
+      ).join("");
+
+  wbLibraryList.querySelectorAll(".wb-file-item[data-name]").forEach((el) => {
+    el.addEventListener("click", async () => {
+      const name = (el as HTMLElement).dataset.name!;
+      const content = await window.yo.libraryRead(name);
+      if (content !== null) {
+        wbContent = content;
+        wbSaveName.value = name;
+        wbLibraryList.querySelectorAll(".wb-file-item").forEach((f) => f.classList.remove("active"));
+        el.classList.add("active");
+        addMessage("content", `Loaded: ${name}.md`, content);
+        scrollConversation();
+      }
+    });
+  });
+}
+
+// -- Global keyboard shortcuts --
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (isSupBrowserOpen()) closeSupBrowser();
+    if (isWorkbenchOpen()) closeWorkbench();
+    else if (isSupBrowserOpen()) closeSupBrowser();
     else if (isHelpOpen()) closeHelp();
   }
 
@@ -374,7 +762,7 @@ window.yo.onShowWelcome(() => openHelp());
 // Initialize help overlay
 initHelp();
 
-// ── Grid drag handles ───────────────────────────────────
+// -- Grid drag handles --
 
 type GridInfo = {
   panelIds: string[];
@@ -441,7 +829,7 @@ window.addEventListener("resize", () => {
   }
 });
 
-// ── Drag protocol ─────────────────────────────────────────
+// -- Drag protocol --
 
 async function startDrag(e: MouseEvent, type: "col" | "row", index: number) {
   e.preventDefault();
@@ -513,7 +901,7 @@ document.addEventListener("mouseup", () => {
   }
 });
 
-// ── Boot gate ───────────────────────────────────────────────
+// -- Boot gate --
 
 window.yo.onBoot((data) => {
   if (data.needsOnboarding) {
