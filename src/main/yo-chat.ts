@@ -12,6 +12,7 @@ import { PanelManager } from "./panel-manager";
 import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { AppConnector } from "./app-connector";
+import { LLMConfig, createCompletion, createStream } from "./llm-config";
 
 export interface ChatCallbacks {
   onText: (delta: string) => void;
@@ -80,7 +81,7 @@ const TOOLS = [
 
 export class YoChat {
   private history: any[] = [];
-  private apiKey: string | null = null;
+  private llmConfig: LLMConfig | null = null;
   private commandCallback: ((cmd: string) => Promise<string>) | null = null;
   private skillEngine: SkillEngine | null = null;
   private appConnector: AppConnector | null = null;
@@ -88,9 +89,9 @@ export class YoChat {
   constructor(
     private panelManager: PanelManager,
     private library: Library,
-  ) {
-    this.apiKey = process.env.ANTHROPIC_API_KEY || null;
-  }
+  ) {}
+
+  setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
 
   setCommandCallback(cb: (cmd: string) => Promise<string>): void {
     this.commandCallback = cb;
@@ -100,9 +101,8 @@ export class YoChat {
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
 
   async send(message: string, cb: ChatCallbacks): Promise<void> {
-    this.apiKey = process.env.ANTHROPIC_API_KEY || this.apiKey;
-    if (!this.apiKey) {
-      cb.onText("No API key configured. Add your Anthropic API key in settings.");
+    if (!this.llmConfig?.apiKey) {
+      cb.onText("No API key configured. Set your LLM provider in Settings.");
       cb.onDone();
       return;
     }
@@ -132,11 +132,7 @@ export class YoChat {
     appId: string,
     appContent?: string,
   ): Promise<string> {
-    this.apiKey = process.env.ANTHROPIC_API_KEY || this.apiKey;
-    if (!this.apiKey) return "No API key configured.";
-
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey: this.apiKey! });
+    if (!this.llmConfig?.apiKey) return "No API key configured.";
 
     const context = this.buildContext();
     const userParts: string[] = [];
@@ -168,12 +164,11 @@ export class YoChat {
 
     // Tool loop (max 5 iterations to prevent runaway)
     for (let i = 0; i < 5; i++) {
-      const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
+      const response = await createCompletion(this.llmConfig, {
         system: SYSTEM + "\n\n" + context,
         messages,
-        tools: TOOLS as any,
+        tools: TOOLS,
+        maxTokens: 2048,
       });
 
       messages.push({ role: "assistant", content: response.content });
@@ -185,7 +180,7 @@ export class YoChat {
 
       // Handle tool calls
       const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
-      if (toolBlocks.length > 0 && response.stop_reason === "tool_use") {
+      if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
         const results: any[] = [];
         for (const block of toolBlocks) {
           if (block.type !== "tool_use") continue;
@@ -205,27 +200,19 @@ export class YoChat {
   // ── Stream + tool loop ────────────────────────────────
 
   private async streamLoop(cb: ChatCallbacks): Promise<void> {
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey: this.apiKey! });
-
     const context = this.buildContext();
 
-    const stream = client.messages.stream({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: SYSTEM + "\n\n" + context,
-      messages: this.history,
-      tools: TOOLS as any,
-    });
+    const response = await createStream(
+      this.llmConfig!,
+      { system: SYSTEM + "\n\n" + context, messages: this.history, tools: TOOLS, maxTokens: 4096 },
+      (text) => cb.onText(text),
+    );
 
-    stream.on("text", (text: string) => cb.onText(text));
-
-    const response = await stream.finalMessage();
     this.history.push({ role: "assistant", content: response.content });
 
     // Handle tool calls
     const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
-    if (toolBlocks.length > 0 && response.stop_reason === "tool_use") {
+    if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
       const results: any[] = [];
       for (const block of toolBlocks) {
         if (block.type !== "tool_use") continue;
@@ -234,7 +221,7 @@ export class YoChat {
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }
       this.history.push({ role: "user", content: results });
-      await this.streamLoop(cb); // continue conversation
+      await this.streamLoop(cb);
     } else {
       cb.onDone();
     }
@@ -357,11 +344,7 @@ Be concise. Execute the tools and confirm what you did.`;
   ];
 
   async executeAdmin(instruction: string): Promise<string> {
-    this.apiKey = process.env.ANTHROPIC_API_KEY || this.apiKey;
-    if (!this.apiKey) return "No API key configured.";
-
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey: this.apiKey! });
+    if (!this.llmConfig?.apiKey) return "No API key configured.";
 
     // Build context about current state
     const context: string[] = [];
@@ -381,12 +364,11 @@ Be concise. Execute the tools and confirm what you did.`;
     let finalText = "";
 
     for (let i = 0; i < 5; i++) {
-      const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
+      const response = await createCompletion(this.llmConfig, {
         system: YoChat.ADMIN_SYSTEM,
         messages,
-        tools: YoChat.ADMIN_TOOLS as any,
+        tools: YoChat.ADMIN_TOOLS,
+        maxTokens: 2048,
       });
 
       messages.push({ role: "assistant", content: response.content });
@@ -396,7 +378,7 @@ Be concise. Execute the tools and confirm what you did.`;
       }
 
       const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
-      if (toolBlocks.length > 0 && response.stop_reason === "tool_use") {
+      if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
         const results: any[] = [];
         for (const block of toolBlocks) {
           if (block.type !== "tool_use") continue;

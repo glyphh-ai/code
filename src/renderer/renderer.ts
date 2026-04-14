@@ -86,6 +86,10 @@ declare global {
       onDripEffect: (callback: (effect: string) => void) => void;
       // Sup browser (from terminal)
       onOpenSupBrowser: (callback: () => void) => void;
+      // LLM config
+      getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
+      getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
+      saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; error?: string }>;
       // Yo Workbench
       onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => void;
       workbenchRefine: (instruction: string, content: string) => Promise<string>;

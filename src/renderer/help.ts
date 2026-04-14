@@ -44,12 +44,16 @@ function loadActiveSection() {
   if (sec === "skills") loadSkills();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
+  else if (sec === "settings") loadSettings();
 }
 
 // ── Init ─────────────────────────────────────────────────
 
 export function initHelp() {
   document.getElementById("help-close")!.addEventListener("click", closeHelp);
+
+  // Settings
+  initSettings();
 
   // Skills
   document.getElementById("skills-save-btn")!.addEventListener("click", saveSkillItem);
@@ -783,6 +787,111 @@ async function pickElement() {
   (document.getElementById("map-command-key") as HTMLSelectElement).value = "";
   (document.getElementById("map-description") as HTMLInputElement).value = "";
 }
+
+// ── Settings ─────────────────────────────────────────────
+
+const settingsProvider = document.getElementById("settings-provider") as HTMLSelectElement;
+const settingsModelSelect = document.getElementById("settings-model-select") as HTMLSelectElement;
+const settingsModelCustom = document.getElementById("settings-model-custom") as HTMLInputElement;
+const settingsApiKey = document.getElementById("settings-api-key") as HTMLInputElement;
+const settingsBaseUrl = document.getElementById("settings-base-url") as HTMLInputElement;
+const settingsBaseUrlLabel = document.getElementById("settings-base-url-label")!;
+const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
+const settingsStatus = document.getElementById("settings-status")!;
+
+let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
+
+function initSettings() {
+  settingsProvider.addEventListener("change", () => updateSettingsUI());
+  settingsSaveBtn.addEventListener("click", saveSettings);
+}
+
+function updateSettingsUI(currentModel?: string) {
+  const provider = settingsProvider.value;
+  const preset = settingsPresets[provider];
+
+  // API key placeholder
+  if (preset) {
+    settingsApiKey.placeholder = `${preset.keyPlaceholder}`;
+  }
+
+  // Model dropdown vs custom input
+  if (preset && preset.models.length > 0) {
+    settingsModelSelect.innerHTML = preset.models.map((m) =>
+      `<option value="${m}" ${m === currentModel ? "selected" : ""}>${m}</option>`
+    ).join("");
+    settingsModelSelect.classList.remove("hidden");
+    settingsModelCustom.classList.add("hidden");
+  } else {
+    settingsModelSelect.classList.add("hidden");
+    settingsModelCustom.classList.remove("hidden");
+    if (currentModel) settingsModelCustom.value = currentModel;
+  }
+
+  // Base URL — show for custom and providers with base URLs
+  const showBaseUrl = provider === "custom" || provider === "openai" || provider === "google";
+  settingsBaseUrl.classList.toggle("hidden", !showBaseUrl);
+  settingsBaseUrlLabel.classList.toggle("hidden", !showBaseUrl);
+  if (preset?.baseUrl && !settingsBaseUrl.value) {
+    settingsBaseUrl.placeholder = preset.baseUrl;
+  }
+}
+
+async function loadSettings() {
+  settingsStatus.textContent = "";
+  const [config, presets] = await Promise.all([
+    window.yo.getLLMConfig(),
+    window.yo.getLLMPresets(),
+  ]);
+  settingsPresets = presets;
+
+  settingsProvider.value = config.provider;
+  settingsApiKey.value = config.apiKey;
+  settingsBaseUrl.value = config.baseUrl || "";
+
+  updateSettingsUI(config.model);
+}
+
+async function saveSettings() {
+  const provider = settingsProvider.value;
+  const preset = settingsPresets[provider];
+  const model = (preset && preset.models.length > 0)
+    ? settingsModelSelect.value
+    : settingsModelCustom.value.trim();
+  const apiKey = settingsApiKey.value.trim();
+
+  if (!apiKey) {
+    settingsStatus.textContent = "API key is required";
+    settingsStatus.className = "settings-error";
+    return;
+  }
+
+  settingsSaveBtn.disabled = true;
+  settingsSaveBtn.textContent = "Validating...";
+  settingsStatus.textContent = "";
+
+  const config: { provider: string; model: string; apiKey: string; baseUrl?: string } = {
+    provider,
+    model,
+    apiKey,
+  };
+  const baseUrl = settingsBaseUrl.value.trim();
+  if (baseUrl) config.baseUrl = baseUrl;
+
+  const result = await window.yo.saveLLMConfig(config);
+  settingsSaveBtn.disabled = false;
+  settingsSaveBtn.textContent = "Save";
+
+  if (result.ok) {
+    settingsStatus.textContent = "Saved!";
+    settingsStatus.className = "settings-success";
+  } else {
+    settingsStatus.textContent = result.error || "Validation failed";
+    settingsStatus.className = "settings-error";
+  }
+}
+
+// ── App Mapping ─────────────────────────────────────────
 
 async function saveMapping() {
   const keySelect = document.getElementById("map-command-key") as HTMLSelectElement;

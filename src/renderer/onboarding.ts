@@ -156,11 +156,29 @@ function initAnimation(canvas: HTMLCanvasElement) {
 const overlay = document.getElementById("onboarding-overlay")!;
 const canvas = document.getElementById("onboarding-canvas") as HTMLCanvasElement;
 const licenseInput = document.getElementById("onboarding-license") as HTMLInputElement;
+const providerSelect = document.getElementById("onboarding-provider") as HTMLSelectElement;
 const apiKeyInput = document.getElementById("onboarding-apikey") as HTMLInputElement;
-const cloudTokenInput = document.getElementById("onboarding-cloud-token") as HTMLInputElement;
+const baseUrlInput = document.getElementById("onboarding-base-url") as HTMLInputElement;
+const modelInput = document.getElementById("onboarding-model") as HTMLInputElement;
 const activateBtn = document.getElementById("onboarding-activate") as HTMLButtonElement;
 const statusEl = document.getElementById("onboarding-status")!;
 const trialInfo = document.getElementById("onboarding-trial")!;
+
+// Provider change -> update placeholders
+let presets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> | null = null;
+
+window.yo.getLLMPresets().then((p) => { presets = p; });
+
+providerSelect.addEventListener("change", () => {
+  const p = providerSelect.value;
+  const preset = presets?.[p];
+  if (preset) {
+    apiKeyInput.placeholder = `${preset.name} API key (${preset.keyPlaceholder})`;
+  }
+  const isCustom = p === "custom";
+  baseUrlInput.classList.toggle("hidden", !isCustom);
+  modelInput.classList.toggle("hidden", !isCustom);
+});
 
 let stopAnimation: (() => void) | null = null;
 let inTrial = false;
@@ -195,6 +213,7 @@ function setStatus(msg: string, isError = false) {
 activateBtn.addEventListener("click", async () => {
   const license = licenseInput.value.trim();
   const apiKey = apiKeyInput.value.trim();
+  const provider = providerSelect.value;
 
   if (!license && !inTrial) {
     setStatus("License key is required", true);
@@ -220,19 +239,24 @@ activateBtn.addEventListener("click", async () => {
     }
   }
 
-  // Test API key by making a real call
-  const apiResult = await window.yo.validateApiKey(apiKey);
-  if (!apiResult.valid) {
-    setStatus(apiResult.error || "Invalid API key", true);
+  // Build LLM config and validate via save-llm-config (validates + saves + applies)
+  const preset = presets?.[provider];
+  const model = provider === "custom" ? modelInput.value.trim() : (preset?.defaultModel || "");
+  const config: { provider: string; model: string; apiKey: string; baseUrl?: string } = {
+    provider,
+    model,
+    apiKey,
+  };
+  if (provider === "custom" && baseUrlInput.value.trim()) {
+    config.baseUrl = baseUrlInput.value.trim();
+  }
+
+  const result = await window.yo.saveLLMConfig(config);
+  if (!result.ok) {
+    setStatus(result.error || "Invalid API key", true);
     activateBtn.disabled = false;
     activateBtn.textContent = "Activate";
     return;
-  }
-
-  // Save cloud sync token if provided (optional)
-  const cloudToken = cloudTokenInput.value.trim();
-  if (cloudToken) {
-    window.yo.setPreference("cloudToken", cloudToken);
   }
 
   setStatus("Activated!");
@@ -243,7 +267,7 @@ activateBtn.addEventListener("click", async () => {
 });
 
 // Enter key submits
-[licenseInput, apiKeyInput, cloudTokenInput].forEach((input) => {
+[licenseInput, apiKeyInput, baseUrlInput, modelInput].forEach((input) => {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") activateBtn.click();
   });

@@ -16,8 +16,15 @@
       <p id="onboarding-trial" class="onboarding-sub"></p>
       <div class="onboarding-fields">
         <input id="onboarding-license" type="text" placeholder="License key (YO-...)" spellcheck="false" autocomplete="off" />
+        <select id="onboarding-provider">
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="google">Google AI</option>
+          <option value="custom">Custom</option>
+        </select>
         <input id="onboarding-apikey" type="password" placeholder="Anthropic API key (sk-ant-...)" spellcheck="false" autocomplete="off" />
-        <input id="onboarding-cloud-token" type="password" placeholder="Cloud sync token (optional)" spellcheck="false" autocomplete="off" />
+        <input id="onboarding-base-url" type="text" placeholder="Base URL (for custom provider)" spellcheck="false" autocomplete="off" class="hidden" />
+        <input id="onboarding-model" type="text" placeholder="Model name" spellcheck="false" autocomplete="off" class="hidden" />
         <button id="onboarding-activate">Activate</button>
       </div>
       <div id="onboarding-status"></div>
@@ -158,6 +165,7 @@
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
+        <button class="help-nav-item" data-section="settings">Settings</button>
         <div class="help-nav-spacer"></div>
         <label class="dismiss-label"><input type="checkbox" id="dismiss-check" /> Don't show on startup</label>
       </nav>
@@ -408,6 +416,38 @@
                 </div>
                 <webview id="app-preview" allowpopups></webview>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="help-section" data-section="settings">
+          <h2>Settings</h2>
+          <p class="section-desc">Configure your LLM provider, model, and API key.</p>
+          <div class="settings-form">
+            <label class="settings-label">Provider</label>
+            <select id="settings-provider" class="settings-input">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="google">Google AI</option>
+              <option value="custom">Custom</option>
+            </select>
+
+            <label class="settings-label">Model</label>
+            <div class="settings-model-wrap">
+              <select id="settings-model-select" class="settings-input"></select>
+              <input id="settings-model-custom" type="text" class="settings-input hidden" placeholder="model name" spellcheck="false" autocomplete="off" />
+            </div>
+
+            <label class="settings-label">API Key</label>
+            <input id="settings-api-key" type="password" class="settings-input" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" />
+
+            <label id="settings-base-url-label" class="settings-label hidden">Base URL</label>
+            <input id="settings-base-url" type="text" class="settings-input hidden" placeholder="https://api.openai.com/v1" spellcheck="false" autocomplete="off" />
+
+            <div class="settings-actions">
+              <button id="settings-save" class="action-btn primary">Save</button>
+              <span id="settings-status"></span>
             </div>
           </div>
         </div>

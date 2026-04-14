@@ -127,6 +127,12 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("drip-effect", (_event, effect) => callback(effect));
   },
 
+  // LLM config
+  getLLMConfig: () => ipcRenderer.invoke("get-llm-config") as Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>,
+  getLLMPresets: () => ipcRenderer.invoke("get-llm-presets") as Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>,
+  saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
+    ipcRenderer.invoke("save-llm-config", config) as Promise<{ ok: boolean; error?: string }>,
+
   // Yo Workbench
   onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => {
     ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));

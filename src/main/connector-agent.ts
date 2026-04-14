@@ -10,6 +10,7 @@
 import { WebContents } from "electron";
 import { CommandMapping } from "./app-connector";
 import { extractDomStructure, validateSelector } from "./dom-bridge";
+import { LLMConfig, createCompletion } from "./llm-config";
 
 interface AgentResult {
   commands: Record<string, CommandMapping>;
@@ -54,19 +55,19 @@ Return ONLY valid JSON (no markdown, no explanation):
 }`;
 
 export class ConnectorAgent {
-  private apiKey: string | null = null;
+  private llmConfig: LLMConfig | null = null;
 
-  constructor() {
-    this.apiKey = process.env.ANTHROPIC_API_KEY || null;
-  }
+  constructor() {}
+
+  setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
 
   /**
    * Analyze a page's DOM and return command mappings.
    * Extracts DOM structure, sends to LLM, validates results.
    */
   async analyze(webContents: WebContents, appName: string, appUrl: string): Promise<AgentResult> {
-    if (!this.apiKey) {
-      throw new Error("No API key configured. Set your Anthropic API key in settings.");
+    if (!this.llmConfig?.apiKey) {
+      throw new Error("No API key configured. Set your LLM provider in Settings.");
     }
 
     // 1. Extract DOM structure
@@ -81,14 +82,10 @@ URL: ${appUrl}
 DOM Structure:
 ${domJson}`;
 
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey: this.apiKey });
-
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
+    const response = await createCompletion(this.llmConfig!, {
       system: AGENT_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
+      maxTokens: 4096,
     });
 
     const block = response.content[0];

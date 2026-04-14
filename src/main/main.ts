@@ -15,7 +15,8 @@ import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
 import { CloudSync } from "./cloud-sync";
-import { checkLicense, activateLicense, loadApiKey, saveApiKey, validateApiKey, getCheckoutUrl } from "./license";
+import { checkLicense, activateLicense, getCheckoutUrl } from "./license";
+import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector, CommandMapping } from "./app-connector";
 import { ConnectorAgent } from "./connector-agent";
@@ -86,11 +87,20 @@ async function createWindow() {
 }
 
 async function boot() {
-  // Load saved API key into process.env BEFORE constructing services
-  // (they read process.env.ANTHROPIC_API_KEY in their constructors)
-  const savedApiKey = loadApiKey();
-  if (savedApiKey) {
-    process.env.ANTHROPIC_API_KEY = savedApiKey;
+  // Load LLM config (auto-migrates from legacy .apikey if needed)
+  let llmConfig = loadLLMConfig();
+  if (llmConfig.provider === "anthropic" && llmConfig.apiKey) {
+    process.env.ANTHROPIC_API_KEY = llmConfig.apiKey;
+  }
+
+  function applyLLMConfig(config: LLMConfig) {
+    llmConfig = config;
+    if (config.provider === "anthropic" && config.apiKey) {
+      process.env.ANTHROPIC_API_KEY = config.apiKey;
+    }
+    yoChat?.setLLMConfig(config);
+    skillEngine?.setLLMConfig(config);
+    connectorAgent?.setLLMConfig(config);
   }
 
   // Core services
@@ -148,6 +158,7 @@ async function boot() {
   const yoChat = new YoChat(panelManager, library);
   yoChat.setSkillEngine(skillEngine);
   yoChat.setAppConnector(appConnector);
+  applyLLMConfig(llmConfig);
   yoInterceptor.setYoChat(yoChat);
   commandParser.setYoChat(yoChat);
 
@@ -265,7 +276,7 @@ async function boot() {
   // Check if onboarding is needed BEFORE restoring panels
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
   const bootLicense = checkLicense();
-  const needsOnboarding = bootLicense.status === "expired" || !savedApiKey;
+  const needsOnboarding = bootLicense.status === "expired" || !llmConfig.apiKey;
   let panelsReady = false;
 
   // Restore zoom level
@@ -831,15 +842,35 @@ async function boot() {
   ipcMain.handle("check-license", () => checkLicense());
   ipcMain.handle("activate-license", (_e, key: string) => activateLicense(key));
   ipcMain.handle("validate-api-key", async (_e, key: string) => {
-    const result = await validateApiKey(key);
+    // Legacy handler — validates as Anthropic by default
+    const config: LLMConfig = { ...llmConfig, apiKey: key };
+    const result = await validateLLMConfig(config);
     if (result.valid) {
-      saveApiKey(key);
-      // Update skill engine with the new key
-      process.env.ANTHROPIC_API_KEY = key;
+      saveLLMConfig(config);
+      applyLLMConfig(config);
     }
     return result;
   });
-  ipcMain.handle("get-api-key", () => loadApiKey());
+  ipcMain.handle("get-api-key", () => llmConfig.apiKey || null);
+
+  // LLM config — multi-provider settings
+  ipcMain.handle("get-llm-config", () => ({
+    provider: llmConfig.provider,
+    model: llmConfig.model,
+    apiKey: llmConfig.apiKey ? "..." + llmConfig.apiKey.slice(-4) : "",
+    baseUrl: llmConfig.baseUrl || null,
+  }));
+  ipcMain.handle("get-llm-presets", () => PROVIDER_PRESETS);
+  ipcMain.handle("save-llm-config", async (_e, config: LLMConfig) => {
+    const result = await validateLLMConfig(config);
+    if (result.valid) {
+      saveLLMConfig(config);
+      applyLLMConfig(config);
+      return { ok: true };
+    }
+    return { ok: false, error: result.error };
+  });
+
   ipcMain.handle("get-checkout-url", async () => {
     const url = await getCheckoutUrl();
     if (url) {
@@ -866,7 +897,7 @@ async function boot() {
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
     mainWindow?.webContents.send("boot", {
       license: bootLicense,
-      apiKey: savedApiKey ? true : false,
+      apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding,
       hideWelcome,
     });

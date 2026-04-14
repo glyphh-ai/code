@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { Library } from "./library";
+import { LLMConfig, createCompletion } from "./llm-config";
 
 interface Skill {
   name: string;
@@ -33,14 +34,15 @@ Format as clean, readable markdown. Be concise.`;
 export class SkillEngine {
   private skills: Map<string, Skill> = new Map();
   private skillsDir: string;
-  private apiKey: string | null = null;
+  private llmConfig: LLMConfig | null = null;
 
   constructor(private library: Library) {
     this.skillsDir = path.join(os.homedir(), "yo", "skills");
     fs.mkdirSync(this.skillsDir, { recursive: true });
     this.loadSkills();
-    this.apiKey = process.env.ANTHROPIC_API_KEY || null;
   }
+
+  setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
 
   /** Process raw session buffer through a skill */
   async process(buffer: string, skillName?: string): Promise<string> {
@@ -49,7 +51,7 @@ export class SkillEngine {
       : null;
     const prompt = skill?.prompt || DEFAULT_SKILL_PROMPT;
 
-    if (!this.apiKey) {
+    if (!this.llmConfig?.apiKey) {
       // No API key — return raw buffer with a header
       return `---\ncaptured: ${new Date().toISOString()}\nskill: ${skillName || "default"}\n---\n\n${buffer}`;
     }
@@ -95,28 +97,15 @@ export class SkillEngine {
 
   private async callLLM(systemPrompt: string, content: string): Promise<string> {
     try {
-      const { default: Anthropic } = await import("@anthropic-ai/sdk");
-      const client = new Anthropic({ apiKey: this.apiKey! });
-
-      const response = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 4096,
+      const response = await createCompletion(this.llmConfig!, {
         system: systemPrompt,
-        messages: [
-          {
-            role: "user",
-            content: `Here is the raw session content to process:\n\n${content}`,
-          },
-        ],
+        messages: [{ role: "user", content: `Here is the raw session content to process:\n\n${content}` }],
+        maxTokens: 4096,
       });
-
       const block = response.content[0];
-      if (block.type === "text") {
-        return block.text;
-      }
+      if (block.type === "text") return block.text;
       return content;
     } catch (error) {
-      // Fallback to raw content with error note
       return `---\nerror: LLM processing failed\ncaptured: ${new Date().toISOString()}\n---\n\n${content}`;
     }
   }
