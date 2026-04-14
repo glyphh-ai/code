@@ -178,8 +178,9 @@ const cmdkOverlay = document.getElementById("cmdk-overlay")!;
 const cmdkInput = document.getElementById("cmdk-input") as HTMLInputElement;
 let resultTimer: ReturnType<typeof setTimeout> | null = null;
 
-function openCmdK() {
+async function openCmdK() {
   if (!cmdkOverlay.classList.contains("hidden")) return;
+  await showPanelScreenshots();
   window.yo.panelsHide();
   cmdkOverlay.classList.remove("hidden");
   cmdkInput.value = "";
@@ -192,6 +193,7 @@ function closeCmdK() {
   cmdkOverlay.classList.add("hidden");
   cmdkInput.value = "";
   cmdkInput.classList.remove("result");
+  clearPanelScreenshots();
   window.yo.panelsShow();
 }
 

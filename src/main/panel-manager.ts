@@ -80,36 +80,31 @@ export class PanelManager {
 
       // Hide "open in desktop app" banners via a MutationObserver
       const BANNER_PATTERNS = [
-        /open\\s+(in|with)\\s+(the\\s+)?(desktop|native|app|slack|discord|teams|zoom)/i,
+        /open\\s+(in|with)\\s+(the\\s+)?(desktop|native|app)/i,
         /download\\s+(the\\s+)?app/i,
         /use\\s+(the\\s+)?(desktop|native)\\s+app/i,
         /switch\\s+to\\s+(the\\s+)?(desktop|app)/i,
         /get\\s+(the\\s+)?(desktop|native)\\s+app/i,
         /continue\\s+in\\s+(the\\s+)?app/i,
-        /open\\s+slack/i,
-        /try\\s+it\\s+in\\s+the\\s+app/i,
-        /launch\\s+(the\\s+)?app/i,
       ];
 
       function hideBanners(root) {
         const candidates = root.querySelectorAll
-          ? root.querySelectorAll('a, button, [role="dialog"], [role="banner"], [role="alertdialog"], [class*="banner"], [class*="modal"], [class*="download"], [class*="desktop"], [class*="ssb"], [class*="interstitial"], [class*="launch"], [data-qa*="ssb"], [data-qa*="open_in_app"]')
+          ? root.querySelectorAll('a, button, [role="dialog"], [role="banner"], [class*="banner"], [class*="modal"], [class*="download"], [class*="desktop"]')
           : [];
         for (const el of candidates) {
           const text = (el.textContent || '').trim();
-          if (text.length > 300) continue;
+          if (text.length > 200) continue;
           for (const pat of BANNER_PATTERNS) {
             if (pat.test(text)) {
               // Walk up to find the container (banner/modal wrapper)
               let target = el;
-              for (let i = 0; i < 6 && target.parentElement; i++) {
+              for (let i = 0; i < 5 && target.parentElement; i++) {
                 const p = target.parentElement;
                 const tag = p.tagName.toLowerCase();
                 if (tag === 'body' || tag === 'main' || tag === 'html') break;
-                const cls = p.className || '';
-                const role = p.getAttribute('role') || '';
-                if (role === 'dialog' || role === 'banner' || role === 'alertdialog'
-                    || /banner|modal|overlay|download|desktop|interstitial|ssb|launch/i.test(cls)) {
+                if (p.getAttribute('role') === 'dialog' || p.getAttribute('role') === 'banner'
+                    || /banner|modal|overlay|download|desktop/i.test(p.className || '')) {
                   target = p;
                 }
               }
@@ -117,28 +112,6 @@ export class PanelManager {
               console.log('[yo:forceWeb] hid banner:', text.slice(0, 60));
               break;
             }
-          }
-        }
-
-        // Slack-specific: hide the "Open Slack" / "Use Slack in browser" interstitial
-        const slackInterstitial = root.querySelectorAll
-          ? root.querySelectorAll('[class*="p-ssb_redirect"], [class*="p-client_download"], [class*="p-get_started"]')
-          : [];
-        for (const el of slackInterstitial) {
-          el.style.display = 'none';
-          console.log('[yo:forceWeb] hid slack interstitial');
-        }
-
-        // Auto-click "Use Slack in your browser" / "use the web version" links
-        const browserLinks = root.querySelectorAll
-          ? root.querySelectorAll('a[href*="get_started"], a[class*="browser"], a[data-qa*="browser"]')
-          : [];
-        for (const link of browserLinks) {
-          const lt = (link.textContent || '').toLowerCase();
-          if (/browser|web\s+version|continue\s+in\s+browser|use.*browser/i.test(lt)) {
-            console.log('[yo:forceWeb] auto-clicking browser link:', lt.slice(0, 60));
-            link.click();
-            break;
           }
         }
       }
@@ -181,19 +154,6 @@ export class PanelManager {
     ses.setPermissionCheckHandler((_wc, permission, _origin, details) => {
       console.log("[perm-check]", permission, details);
       return true;
-    });
-
-    // Enable cross-origin isolation for sites that need SharedArrayBuffer (VS Code, etc.)
-    // and inject permissive headers so File System Access API works
-    ses.webRequest.onHeadersReceived((details, callback) => {
-      const headers = { ...details.responseHeaders };
-      const url = details.url || "";
-      // VS Code web needs cross-origin isolation for SharedArrayBuffer
-      if (url.includes("vscode.dev") || url.includes("github.dev") || url.includes("insiders.vscode.dev")) {
-        headers["Cross-Origin-Opener-Policy"] = ["same-origin"];
-        headers["Cross-Origin-Embedder-Policy"] = ["credentialless"];
-      }
-      callback({ responseHeaders: headers });
     });
 
     // Handle file downloads — auto-save to ~/Downloads with progress UI
@@ -313,9 +273,7 @@ export class PanelManager {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
         partition: isLocal ? undefined : "persist:yo",
-        allowRunningInsecureContent: false,
         ...(config.preload ? { preload: config.preload } : {}),
         ...(config.webviewTag ? { webviewTag: true } : {}),
       },
@@ -342,7 +300,7 @@ export class PanelManager {
       if (config.forceWeb) {
         try {
           const u = new URL(url);
-          if (/\/(get[_-]?started|download|desktop|install|apps|ssb[_-]?redirect|client[_-]?download|landing)\b/i.test(u.pathname)) {
+          if (/\/(get-started|download|desktop|install|apps)\b/i.test(u.pathname)) {
             console.log(`[panel:${id}:forceWeb] blocked redirect to:`, url);
             e.preventDefault();
           }
@@ -394,6 +352,26 @@ export class PanelManager {
       if (!isLocal) {
         childWindow.webContents.setUserAgent(view.webContents.getUserAgent());
       }
+
+      // For forceWeb panels, block native protocol redirects in popup windows too
+      // (e.g. Slack popup opens https:// then redirects to slack://)
+      if (config.forceWeb) {
+        childWindow.webContents.on("will-navigate", (e, navUrl) => {
+          if (!navUrl.startsWith("http://") && !navUrl.startsWith("https://") && !navUrl.startsWith("about:")) {
+            console.log(`[panel:${id}:child-blocked]`, navUrl.slice(0, 120));
+            e.preventDefault();
+            return;
+          }
+        });
+        childWindow.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+          if (!childUrl.startsWith("http://") && !childUrl.startsWith("https://") && !childUrl.startsWith("about:")) {
+            console.log(`[panel:${id}:child-popup-blocked]`, childUrl.slice(0, 120));
+            return { action: "deny" };
+          }
+          return { action: "allow" };
+        });
+      }
+
       // Log child window navigation issues + handle OAuth localhost callbacks
       childWindow.webContents.on("did-fail-load", (_e, code, desc, failUrl) => {
         console.log(`[panel:${id}:child-fail]`, code, desc, failUrl?.slice(0, 120));
