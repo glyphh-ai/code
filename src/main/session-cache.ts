@@ -19,15 +19,18 @@ export interface SessionEntry {
 export interface SessionInfo {
   hasContent: boolean;
   label: string;
+  /** Library file name (without .md) if loaded from library, empty otherwise */
+  fileName: string;
 }
 
 export class SessionCache {
   private entries: SessionEntry[] = [];
   private combined = "";
   private _label = "";
+  private _fileName = "";
 
   /** Add captured content from a panel. Replaces any existing entry from the same app. */
-  capture(appId: string, content: string, label?: string): void {
+  capture(appId: string, content: string, label?: string, fileName?: string): void {
     // Replace existing entry from same app (latest capture wins)
     this.entries = this.entries.filter((e) => e.appId !== appId);
     this.entries.push({
@@ -37,6 +40,7 @@ export class SessionCache {
       content,
     });
     this._label = label || appId;
+    this._fileName = fileName || "";
     this.rebuildCombined();
   }
 
@@ -60,6 +64,7 @@ export class SessionCache {
     return {
       hasContent: this.combined.length > 0,
       label: this._label,
+      fileName: this._fileName,
     };
   }
 
@@ -75,6 +80,7 @@ export class SessionCache {
     this.entries = [];
     this.combined = "";
     this._label = "";
+    this._fileName = "";
   }
 
   /** Remove a specific entry by app ID. */

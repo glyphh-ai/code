@@ -249,16 +249,29 @@ async function boot() {
     if (lastView && mainWindow) {
       if (lastView.type === "grid-full" && lastView.grid) {
         layoutManager.applyGridLayout(lastView.grid, mainWindow);
+        // Seed active panel so dip back works after first dip
+        if (lastView.grid.cells.length > 0) {
+          panelManager.setInitialActive(lastView.grid.cells[0].panelId);
+        }
       } else if (lastView.type === "grid" && lastView.rows) {
         layoutManager.splitGrid(lastView.rows, mainWindow);
+        if (lastView.rows.length > 0 && lastView.rows[0].length > 0) {
+          panelManager.setInitialActive(lastView.rows[0][0]);
+        }
       } else if (lastView.type === "split" && lastView.panels) {
         if (lastView.panels.length === 2) {
           layoutManager.splitTwo(lastView.panels[0], lastView.panels[1], mainWindow);
         } else {
           layoutManager.splitN(lastView.panels, mainWindow);
         }
+        panelManager.setInitialActive(lastView.panels[0]);
       } else if (lastView.type === "layout" && lastView.name) {
         layoutManager.apply(lastView.name, mainWindow);
+        // For named layouts, seed from the layout's first cell
+        const grid = layoutManager.getGridInfo();
+        if (grid && grid.panelIds.length > 0) {
+          panelManager.setInitialActive(grid.panelIds[0]);
+        }
       } else if (lastView.type === "panel" && lastView.id) {
         panelManager.switchTo(lastView.id, mainWindow);
       }
@@ -409,6 +422,7 @@ async function boot() {
 
   // IPC: library CRUD
   ipcMain.handle("library-list", () => library.list());
+  ipcMain.handle("library-list-meta", () => library.listWithMeta());
   ipcMain.handle("library-read", (_e, name: string) => library.read(name));
   ipcMain.handle("library-write", (_e, name: string, content: string) => {
     library.write(name, content);
@@ -470,6 +484,9 @@ async function boot() {
   // IPC: grid resize (drag dividers)
   ipcMain.on("grid-drag-end", (_e, type: "col" | "row", index: number, fraction: number) => {
     if (!mainWindow) return;
+    // Panels were hidden during drag (panelsHide); mark visible again so
+    // window-resize keeps updating bounds via bindResize.
+    panelManager.hidden = false;
     if (type === "col") {
       layoutManager.updateColWidth(index, fraction, mainWindow);
     } else {
@@ -768,7 +785,7 @@ async function boot() {
   ipcMain.handle("session-load-file", (_e, name: string) => {
     const content = library.read(name);
     if (!content) return false;
-    session.capture("library", content, name + ".md");
+    session.capture("library", content, name + ".md", name);
     session.copyToClipboard();
     sendSessionState();
     return true;
@@ -810,6 +827,8 @@ async function boot() {
   });
 
   // IPC: Workbench AI refinement (skill-aware)
+  // Returns { message: string, content: string } so the renderer can show
+  // a Yo: chat message AND an artifact card separately.
   ipcMain.handle("yo-workbench-refine", async (_e, instruction: string, content: string) => {
     // Check if instruction matches a known skill name
     const trimmed = instruction.trim();
@@ -818,9 +837,12 @@ async function boot() {
       : undefined;
 
     if (knownSkill) {
-      return skillEngine.process(content, knownSkill);
+      const result = await skillEngine.process(content, knownSkill);
+      return { message: `Applied skill: ${knownSkill}`, content: result };
     }
-    return yoChat.executeInline("yo", instruction, "workbench", content);
+
+    // Use dedicated refine() — no tools, returns { message, content } directly
+    return yoChat.refine(instruction, content);
   });
 
   // IPC: Suggest a filename from content
@@ -883,6 +905,9 @@ async function boot() {
   // IPC: preferences
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
     setPreference(key, value);
+  });
+  ipcMain.handle("get-preference", (_e, key: string, defaultVal: unknown) => {
+    return getPreference(key, defaultVal);
   });
 
   // IPC: onboarding complete — restore panels after activation

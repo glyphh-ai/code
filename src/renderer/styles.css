@@ -270,7 +270,7 @@ body {
   align-items: center;
   gap: 4px;
   height: 22px;
-  padding: 0 10px;
+  padding: 0 6px 0 10px;
   background: #0e1f14;
   border: 1px solid #1a5a30;
   border-radius: 11px;
@@ -278,7 +278,6 @@ body {
   font-size: 11px;
   font-weight: 500;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  cursor: pointer;
   -webkit-app-region: no-drag;
   white-space: nowrap;
   transition: all 0.15s;
@@ -292,6 +291,29 @@ body {
   font-size: 8px;
   color: #25C75E;
 }
+
+#context-pill-name {
+  cursor: pointer;
+}
+
+.context-pill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 2px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #25C75E;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.context-pill-icon:hover { opacity: 1; }
 
 /* ── Sup browser overlay ───────────────────────────────── */
 
@@ -366,9 +388,8 @@ body {
 
 .sup-file-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
+  flex-direction: column;
+  padding: 8px 16px;
   cursor: pointer;
   border-bottom: 1px solid #161616;
   transition: background 0.1s;
@@ -376,15 +397,71 @@ body {
 
 .sup-file-row:hover { background: #1a1a1a; }
 
+.sup-file-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .sup-file-name {
   font-size: 13px;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   color: #ccc;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sup-file-meta {
-  font-size: 11px;
+.sup-file-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sup-file-row:hover .sup-file-actions { opacity: 1; }
+
+.sup-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.sup-action-btn:hover {
+  color: #fff;
+  background: #222;
+  border-color: #333;
+}
+
+.sup-action-btn.sup-action-delete:hover { color: #e55; }
+
+.sup-file-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.sup-file-date {
+  font-size: 10px;
   color: #555;
+}
+
+.sup-file-size {
+  font-size: 10px;
+  color: #444;
 }
 
 .sup-empty {
@@ -418,7 +495,28 @@ body {
 
 .sup-preview-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
+}
+
+.sup-preview-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sup-preview-icon-btn:hover {
+  color: #fff;
+  background: #222;
+  border-color: #555;
 }
 
 #sup-preview-content {
@@ -485,25 +583,53 @@ body {
 }
 .wb-close-btn:hover { color: #fff; }
 
-/* ── Save bar (chat column footer) ── */
-.wb-save-bar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 16px;
-  border-top: 1px solid #1a1a1a;
-  background: #0d0d0d;
-  flex-shrink: 0;
+/* ── Output title (editable input) ── */
+.wb-output-title-input {
+  flex: 1; min-width: 0; height: 26px;
+  background: transparent; border: 1px solid transparent; border-radius: 5px;
+  padding: 0 8px; font-size: 13px; font-weight: 600; color: #ccc;
+  font-family: inherit; outline: none;
+  transition: border-color 0.15s, background 0.15s;
 }
-#wb-save-name {
-  flex: 1; height: 28px;
-  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
-  padding: 0 10px; font-size: 12px; color: #ccc;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  outline: none;
-}
-#wb-save-name:focus { border-color: #25C75E; }
-#wb-save-name::placeholder { color: #555; }
+.wb-output-title-input:hover { border-color: #2a2a2a; background: #111; }
+.wb-output-title-input:focus { border-color: #25C75E; background: #111; }
+.wb-output-title-input::placeholder { color: #555; font-weight: 400; }
 
-.wb-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.wb-body { display: flex; flex: 1; min-height: 0; overflow: hidden; position: relative; }
+
+/* ── Drag handles (matches grid panel grabber style) ── */
+.wb-drag-handle {
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  display: none;
+}
+.wb-drag-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  background: #333;
+  border-radius: 1px;
+  transition: all 0.15s;
+}
+.wb-drag-handle:hover::after,
+.wb-drag-handle.dragging::after {
+  background: #25C75E;
+  height: 48px;
+  width: 3px;
+  box-shadow: 0 0 8px rgba(37, 199, 94, 0.4);
+}
+#wb-drag-left,
+#wb-drag-right { display: none; }
+#wb-drag-left.visible,
+#wb-drag-right.visible { display: block; }
 
 /* ── Left sidebar (collapsible) ── */
 .wb-sidebar {
@@ -517,10 +643,14 @@ body {
   transition: width 0.3s ease, min-width 0.3s ease, border-right 0.3s ease;
   flex-shrink: 0;
 }
+.wb-sidebar.no-transition { transition: none; }
 .wb-sidebar.open {
   width: 240px;
   min-width: 240px;
   border-right: 1px solid #1e1e1e;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 .wb-sidebar-filter-wrap {
   display: flex; align-items: center; gap: 8px;
@@ -539,16 +669,25 @@ body {
 #wb-filter-input::placeholder { color: #555; }
 .wb-file-list { flex: 1; overflow-y: auto; }
 .wb-file-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 10px; font-size: 12px; color: #999;
+  display: flex; flex-direction: column;
+  padding: 7px 10px; font-size: 12px; color: #999;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   border-bottom: 1px solid #141414; transition: background 0.1s;
+  position: relative;
 }
 .wb-file-item:hover { background: #1a1a1a; }
 .wb-file-item.active { color: #25C75E; background: #111; }
+.wb-file-top {
+  display: flex; align-items: center; justify-content: space-between;
+}
 .wb-file-name {
   flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   cursor: default;
+}
+.wb-file-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 2px;
+  font-size: 10px; color: #555; line-height: 1.3;
 }
 .wb-file-actions {
   display: flex; gap: 2px; flex-shrink: 0;
@@ -659,38 +798,93 @@ body {
   max-width: 100%;
 }
 
-/* Content blocks — preview with expand */
+/* Content blocks — Claude-style artifact card */
 .wb-msg-content-block {
   align-items: flex-start;
 }
 .wb-msg-content-block .wb-msg-label {
   font-size: 11px; font-weight: 600; color: #888;
   text-transform: uppercase; letter-spacing: 0.04em;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
-.wb-content-preview {
-  background: #0d0d0d;
+.wb-artifact {
+  width: 100%;
   border: 1px solid #222;
   border-radius: 10px;
+  overflow: hidden;
+  background: #0d0d0d;
+}
+.wb-artifact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.wb-artifact-header:hover { background: #141414; }
+.wb-artifact-chevron {
+  font-size: 10px;
+  color: #555;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+.wb-artifact.expanded .wb-artifact-chevron { transform: rotate(90deg); }
+.wb-artifact-icon {
+  flex-shrink: 0;
+  color: #25C75E;
+  display: flex;
+  align-items: center;
+}
+.wb-artifact-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #ccc !important;
+  -webkit-text-fill-color: #ccc;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.wb-artifact-name-input:hover { border-color: #2a2a2a; background: #111; }
+.wb-artifact-name-input:focus { border-color: #25C75E; background: #111; cursor: text; }
+.wb-artifact-name-input::placeholder { color: #555; font-weight: 400; }
+.wb-artifact-save,
+.wb-artifact-context,
+.wb-artifact-open {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.wb-artifact-save:hover,
+.wb-artifact-context:hover,
+.wb-artifact-open:hover { color: #25C75E; }
+.wb-artifact-body {
+  display: none;
+  border-top: 1px solid #1a1a1a;
   padding: 14px 18px;
   color: #aaa;
   font-size: 13px;
   line-height: 1.6;
-  max-width: 100%;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  word-wrap: break-word;
+  max-height: 300px;
+  overflow-y: auto;
 }
-.wb-expand-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-top: 6px;
-  background: none; border: none; color: #25C75E;
-  font-size: 12px; cursor: pointer; padding: 2px 0;
-  transition: color 0.15s;
-}
-.wb-expand-btn:hover { color: #2dd66a; }
+.wb-artifact.expanded .wb-artifact-body { display: block; }
 
 /* Rendered markdown inside yo messages */
 .wb-msg-text h1, .wb-msg-text h2, .wb-msg-text h3 {
@@ -806,10 +1000,12 @@ body {
   flex-shrink: 0;
   transition: width 0.3s ease, min-width 0.3s ease, border-left 0.3s ease;
 }
+.wb-output-panel.no-transition { transition: none; }
 .wb-output-panel.open {
   width: 420px;
   min-width: 420px;
   border-left: 1px solid #222;
+  min-height: 0;  /* allow flex children to scroll */
 }
 .wb-output-header {
   display: flex; align-items: center; gap: 10px;
@@ -817,10 +1013,7 @@ body {
   border-bottom: 1px solid #1e1e1e;
   flex-shrink: 0;
 }
-.wb-output-title {
-  font-size: 13px; font-weight: 600; color: #888;
-  margin-right: auto;
-}
+/* wb-output-title is now an input — see .wb-output-title-input above */
 .wb-output-tabs { display: flex; gap: 4px; }
 .wb-output-tab {
   background: none; border: 1px solid #333; border-radius: 4px;

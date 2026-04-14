@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Library CRUD
   libraryList: () => ipcRenderer.invoke("library-list") as Promise<string[]>,
+  libraryListMeta: () => ipcRenderer.invoke("library-list-meta") as Promise<Array<{ name: string; modified: number; size: number }>>,
   libraryRead: (name: string) => ipcRenderer.invoke("library-read", name) as Promise<string | null>,
   libraryWrite: (name: string, content: string) => ipcRenderer.invoke("library-write", name, content) as Promise<boolean>,
   libraryRemove: (name: string) => ipcRenderer.invoke("library-remove", name) as Promise<boolean>,
@@ -41,16 +42,17 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.send("grid-drag-end", type, index, fraction),
 
   // Session
-  sessionInfo: () => ipcRenderer.invoke("session-info") as Promise<{ hasContent: boolean; label: string }>,
+  sessionInfo: () => ipcRenderer.invoke("session-info") as Promise<{ hasContent: boolean; label: string; fileName: string }>,
   sessionLoadFile: (name: string) => ipcRenderer.invoke("session-load-file", name) as Promise<boolean>,
   sessionClear: () => ipcRenderer.invoke("session-clear") as Promise<boolean>,
-  onSessionChanged: (callback: (info: { hasContent: boolean; label: string }) => void) => {
+  onSessionChanged: (callback: (info: { hasContent: boolean; label: string; fileName: string }) => void) => {
     ipcRenderer.on("session-changed", (_event, info) => callback(info));
   },
   librarySearchAi: (query: string) => ipcRenderer.invoke("library-search-ai", query) as Promise<string[]>,
 
   // Preferences
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
+  getPreference: (key: string, defaultVal?: unknown) => ipcRenderer.invoke("get-preference", key, defaultVal),
   onShowWelcome: (callback: () => void) => {
     ipcRenderer.on("show-welcome", () => callback());
   },
@@ -138,7 +140,7 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));
   },
   workbenchRefine: (instruction: string, content: string) =>
-    ipcRenderer.invoke("yo-workbench-refine", instruction, content) as Promise<string>,
+    ipcRenderer.invoke("yo-workbench-refine", instruction, content) as Promise<{ message: string; content: string }>,
   suggestName: (content: string) =>
     ipcRenderer.invoke("yo-suggest-name", content) as Promise<string>,
 });

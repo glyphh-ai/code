@@ -122,6 +122,58 @@ export class YoChat {
   }
 
   /**
+   * Workbench refinement — no tools, returns both a chat message and the
+   * full document content so the renderer can show them separately.
+   */
+  async refine(
+    instruction: string,
+    content: string,
+  ): Promise<{ message: string; content: string }> {
+    if (!this.llmConfig?.apiKey) return { message: "", content: "No API key configured." };
+
+    const context = this.buildContext();
+    const userPrompt = `Process the following content according to the user's instruction.
+
+User instruction: ${instruction}
+
+Content:
+${content.slice(0, 8000)}
+
+Return your response in this exact format — both parts are required:
+<message>Brief 1-2 sentence summary of what you created or changed</message>
+<document>
+The complete refined/generated document content
+</document>
+
+Return the FULL document between <document> tags. Do NOT abbreviate or summarize it.`;
+
+    const response = await createCompletion(this.llmConfig, {
+      system: SYSTEM + "\n\n" + context,
+      messages: [{ role: "user", content: userPrompt }],
+      maxTokens: 4096,
+      // No tools — forces text-only output, prevents yo_save from eating the content
+    });
+
+    let text = "";
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
+    }
+
+    const msgMatch = text.match(/<message>([\s\S]*?)<\/message>/);
+    const docMatch = text.match(/<document>([\s\S]*?)<\/document>/);
+
+    if (docMatch) {
+      return {
+        message: msgMatch ? msgMatch[1].trim() : "",
+        content: docMatch[1].trim(),
+      };
+    }
+
+    // Fallback: treat entire response as content
+    return { message: "", content: text };
+  }
+
+  /**
    * One-shot LLM execution for inline yo/sup/wassup from the interceptor.
    * Uses a separate history so it doesn't pollute the chat conversation.
    * Runs non-streaming and returns the final text result.

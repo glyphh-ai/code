@@ -49,13 +49,15 @@ declare global {
       // Grid resize
       gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
       // Session
-      sessionInfo: () => Promise<{ hasContent: boolean; label: string }>;
+      sessionInfo: () => Promise<{ hasContent: boolean; label: string; fileName: string }>;
       sessionLoadFile: (name: string) => Promise<boolean>;
       sessionClear: () => Promise<boolean>;
-      onSessionChanged: (callback: (info: { hasContent: boolean; label: string }) => void) => void;
+      onSessionChanged: (callback: (info: { hasContent: boolean; label: string; fileName: string }) => void) => void;
+      libraryListMeta: () => Promise<Array<{ name: string; modified: number; size: number }>>;
       librarySearchAi: (query: string) => Promise<string[]>;
       // Preferences + boot
       setPreference: (key: string, value: unknown) => void;
+      getPreference: (key: string, defaultVal?: unknown) => Promise<unknown>;
       onboardingComplete: () => Promise<void>;
       startPicker: (webContentsId: number) => void;
       onPickerResult: (callback: (result: unknown) => void) => void;
@@ -92,7 +94,7 @@ declare global {
       saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; error?: string }>;
       // Yo Workbench
       onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => void;
-      workbenchRefine: (instruction: string, content: string) => Promise<string>;
+      workbenchRefine: (instruction: string, content: string) => Promise<{ message: string; content: string }>;
       suggestName: (content: string) => Promise<string>;
     };
   }
@@ -134,21 +136,44 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => openH
 // -- Context pill --
 
 const contextPill = document.getElementById("context-pill")!;
+const contextPillName = document.getElementById("context-pill-name")!;
+const contextPillEdit = document.getElementById("context-pill-edit")!;
+let currentContextFileName = "";
 
-function updateContextPill(info: { hasContent: boolean; label: string }) {
+function updateContextPill(info: { hasContent: boolean; label: string; fileName: string }) {
   if (info.hasContent && info.label) {
-    contextPill.textContent = info.label;
+    // Show clean name — strip .md extension if present
+    const cleanName = info.label.replace(/\.md$/i, "");
+    contextPillName.textContent = cleanName;
+    currentContextFileName = info.fileName || "";
     contextPill.classList.remove("hidden");
   } else {
     contextPill.classList.add("hidden");
+    currentContextFileName = "";
   }
 }
 
 window.yo.onSessionChanged(updateContextPill);
 
-// Click pill -> open sup browser
-contextPill.addEventListener("click", () => {
-  openSupBrowser();
+// Click pill name -> open sup browser with current file selected
+contextPillName.addEventListener("click", () => {
+  openSupBrowser(currentContextFileName);
+});
+
+// Click edit icon -> open workbench with current context
+contextPillEdit.addEventListener("click", async (e) => {
+  e.stopPropagation();
+  const name = currentContextFileName;
+  const label = contextPillName.textContent || "Context";
+  if (name) {
+    const content = await window.yo.libraryRead(name);
+    if (content) {
+      openWorkbench(content, label);
+      return;
+    }
+  }
+  // Fallback: open workbench with empty content
+  openWorkbench("", label);
 });
 
 // Load initial state
@@ -214,20 +239,26 @@ const supPreview = document.getElementById("sup-preview")!;
 const supPreviewName = document.getElementById("sup-preview-name")!;
 const supPreviewContent = document.getElementById("sup-preview-content")!;
 
+interface SupFileMeta { name: string; modified: number; size: number }
 let supFiles: string[] = [];
+let supFileMeta: Map<string, SupFileMeta> = new Map();
 let supPage = 0;
 const SUP_PAGE_SIZE = 15;
 let supSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
-function openSupBrowser() {
+function openSupBrowser(selectFileName?: string) {
   window.yo.panelsHide();
   supBrowser.classList.remove("hidden");
   supPreview.classList.add("hidden");
   supList.classList.remove("hidden");
   supSearch.value = "";
   supPage = 0;
-  loadSupFiles();
-  supSearch.focus();
+  loadSupFiles().then(() => {
+    if (selectFileName) {
+      viewSupFile(selectFileName);
+    }
+  });
+  if (!selectFileName) supSearch.focus();
 }
 
 function closeSupBrowser() {
@@ -236,10 +267,14 @@ function closeSupBrowser() {
 }
 
 async function loadSupFiles(filter?: string[]) {
+  // Always fetch metadata for date/size display
+  const allMeta = await window.yo.libraryListMeta();
+  supFileMeta = new Map(allMeta.map((m) => [m.name, m]));
+
   if (filter) {
     supFiles = filter;
   } else {
-    supFiles = await window.yo.libraryList();
+    supFiles = allMeta.map((m) => m.name);
   }
   supPage = 0;
   renderSupList();
@@ -255,11 +290,29 @@ function renderSupList() {
   const pageFiles = supFiles.slice(start, start + SUP_PAGE_SIZE);
   const totalPages = Math.ceil(supFiles.length / SUP_PAGE_SIZE);
 
-  let html = pageFiles.map((name) => `
+  let html = pageFiles.map((name) => {
+    const meta = supFileMeta.get(name);
+    const dateStr = meta ? formatRelativeDate(meta.modified) : "";
+    const sizeStr = meta ? formatSize(meta.size) : "";
+    return `
     <div class="sup-file-row" data-name="${name}">
-      <span class="sup-file-name">${name}.md</span>
-      <span class="sup-file-meta">click to view</span>
-    </div>`).join("");
+      <div class="sup-file-top">
+        <span class="sup-file-name">${name}</span>
+        <div class="sup-file-actions">
+          <button class="sup-action-btn sup-action-load" title="Set as context" data-name="${name}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
+          </button>
+          <button class="sup-action-btn sup-action-delete" title="Delete" data-name="${name}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="sup-file-meta-row">
+        <span class="sup-file-date">${dateStr}</span>
+        <span class="sup-file-size">${sizeStr}</span>
+      </div>
+    </div>`;
+  }).join("");
 
   if (totalPages > 1) {
     html += `<div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;">
@@ -271,8 +324,33 @@ function renderSupList() {
 
   supList.innerHTML = html;
 
+  // Click row → view file preview
   supList.querySelectorAll(".sup-file-row").forEach((row) => {
-    row.addEventListener("click", () => viewSupFile((row as HTMLElement).dataset.name!));
+    row.addEventListener("click", (e) => {
+      // Don't trigger if an action button was clicked
+      if ((e.target as HTMLElement).closest(".sup-action-btn")) return;
+      viewSupFile((row as HTMLElement).dataset.name!);
+    });
+  });
+
+  // Load as context buttons
+  supList.querySelectorAll(".sup-action-load").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const name = (btn as HTMLElement).dataset.name!;
+      loadSupFile(name);
+    });
+  });
+
+  // Delete buttons
+  supList.querySelectorAll(".sup-action-delete").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const name = (btn as HTMLElement).dataset.name!;
+      window.yo.libraryRemove(name).then((ok) => {
+        if (ok) loadSupFiles();
+      });
+    });
   });
 
   const prevBtn = supList.querySelector(".sup-prev");
@@ -352,7 +430,6 @@ const wbConversation = document.getElementById("wb-conversation")!;
 const wbChatInput = document.getElementById("wb-chat-input") as HTMLTextAreaElement;
 const wbSendBtn = document.getElementById("wb-send")!;
 const wbLibraryList = document.getElementById("wb-library-list")!;
-const wbSaveName = document.getElementById("wb-save-name") as HTMLInputElement;
 const wbSidebar = document.getElementById("wb-sidebar")!;
 const wbSidebarToggle = document.getElementById("wb-sidebar-toggle")!;
 const wbOutputPanel = document.getElementById("wb-output-panel")!;
@@ -377,16 +454,12 @@ function openWorkbench(content: string, label: string) {
   wbConversation.innerHTML = "";
   wbChatInput.value = "";
 
-  // Set initial name from label, then ask LLM for a better one
-  const fallback = label.replace(/\.md$/, "").replace(/^yo\s*/i, "") || "";
-  wbSaveName.value = fallback;
-  wbSaveName.placeholder = "suggesting name...";
+  // Pre-fill the output panel title with a suggested name
+  const fallback = label.replace(/\.md$/, "").replace(/^yo\s*/i, "") || "Output";
+  wbOutputTitle.value = fallback;
   window.yo.suggestName(content).then((name) => {
     if (name && isWorkbenchOpen()) {
-      wbSaveName.value = name;
-      wbSaveName.placeholder = "file name...";
-    } else {
-      wbSaveName.placeholder = "file name...";
+      wbOutputTitle.value = name;
     }
   });
 
@@ -399,7 +472,10 @@ function openWorkbench(content: string, label: string) {
 
   // Close panels by default
   wbSidebar.classList.remove("open");
+  wbSidebar.style.width = "";
+  wbSidebar.style.minWidth = "";
   wbSidebarToggle.classList.remove("active");
+  wbDragLeft.classList.remove("visible");
   closeOutputPanel();
 
   // Show captured content as first message (content block with expand)
@@ -442,7 +518,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function addMessage(type: "content" | "user" | "yo" | "loading", label: string, content: string) {
+function addMessage(type: "content" | "user" | "yo" | "loading", label: string, content: string): HTMLElement {
   const msg = document.createElement("div");
 
   if (type === "user") {
@@ -457,15 +533,67 @@ function addMessage(type: "content" | "user" | "yo" | "loading", label: string, 
       `<div class="wb-msg-text">${renderMarkdown(content)}</div>`;
   } else if (type === "content") {
     msg.className = "wb-msg wb-msg-content-block";
-    const preview = content.split("\n").slice(0, 6).join("\n");
+    // Generate a display name from the label or first line of content
     const isYoResponse = label === "Yo" || label.startsWith("Yo:");
-    const btnText = isYoResponse ? "View updated content" : "View full content";
+    let docName = label;
+    if (label === "Captured" || label === "Yo" || label === "") {
+      const firstLine = content.split("\n").find((l) => l.trim()) || "Untitled";
+      docName = firstLine.replace(/^#+\s*/, "").slice(0, 60);
+      if (docName.length === 60) docName += "...";
+    }
     msg.innerHTML =
-      `<div class="wb-msg-label">${escapeHtml(label)}</div>` +
-      `<div class="wb-content-preview">${escapeHtml(preview)}</div>` +
-      `<button class="wb-expand-btn">\u25B6 ${btnText}</button>`;
-    const expandBtn = msg.querySelector(".wb-expand-btn")!;
-    expandBtn.addEventListener("click", () => openOutputPanel(content));
+      `<div class="wb-msg-label">${escapeHtml(isYoResponse || label === "" ? "Yo" : label)}</div>` +
+      `<div class="wb-artifact">` +
+        `<div class="wb-artifact-header">` +
+          `<span class="wb-artifact-chevron">\u25B6</span>` +
+          `<span class="wb-artifact-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></span>` +
+          `<input class="wb-artifact-name-input" type="text" value="${escapeHtml(docName)}" spellcheck="false" autocomplete="off" />` +
+          `<button class="wb-artifact-save" title="Save"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>` +
+          `<button class="wb-artifact-context" title="Set as context"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>` +
+          `<button class="wb-artifact-open" title="Open in panel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg></button>` +
+        `</div>` +
+        `<div class="wb-artifact-body">${renderMarkdown(content)}</div>` +
+      `</div>`;
+    // Toggle expand on header click (skip if clicking buttons or input)
+    const header = msg.querySelector(".wb-artifact-header")!;
+    const artifact = msg.querySelector(".wb-artifact")!;
+    const openBtn = msg.querySelector(".wb-artifact-open")!;
+    const nameInput = msg.querySelector(".wb-artifact-name-input") as HTMLInputElement;
+    const saveBtn = msg.querySelector(".wb-artifact-save")!;
+    const contextBtn = msg.querySelector(".wb-artifact-context")!;
+    header.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".wb-artifact-open") || target.closest(".wb-artifact-save") || target.closest(".wb-artifact-context") || target.closest(".wb-artifact-name-input")) return;
+      artifact.classList.toggle("expanded");
+    });
+    // Stop clicks on input from bubbling
+    nameInput.addEventListener("click", (e) => e.stopPropagation());
+    openBtn.addEventListener("click", () => openOutputPanel(content, nameInput.value.trim() || docName));
+    // Save from artifact card
+    saveBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const name = nameInput.value.trim();
+      if (!name) { nameInput.focus(); return; }
+      const ok = await window.yo.libraryWrite(name, content);
+      if (ok) {
+        (saveBtn as HTMLElement).style.color = "#25C75E";
+        setTimeout(() => { (saveBtn as HTMLElement).style.color = ""; }, 1500);
+        if (wbSidebar.classList.contains("open")) loadWbLibrary();
+      }
+    });
+    // Set as context from artifact card
+    contextBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const name = nameInput.value.trim();
+      if (!name) { nameInput.focus(); return; }
+      await window.yo.libraryWrite(name, content);
+      const ok = await window.yo.sessionLoadFile(name);
+      if (ok) {
+        (contextBtn as HTMLElement).style.color = "#25C75E";
+        setTimeout(() => { (contextBtn as HTMLElement).style.color = ""; }, 1500);
+        if (wbSidebar.classList.contains("open")) loadWbLibrary();
+      }
+    });
   } else if (type === "loading") {
     msg.className = "wb-msg wb-msg-yo wb-msg-loading";
     const word = WB_LOADING_WORDS[Math.floor(Math.random() * WB_LOADING_WORDS.length)];
@@ -479,6 +607,7 @@ function addMessage(type: "content" | "user" | "yo" | "loading", label: string, 
   }
 
   wbConversation.appendChild(msg);
+  return msg;
 }
 
 function startThinkingAnimation(msgEl: HTMLElement) {
@@ -520,23 +649,80 @@ function scrollConversation() {
 
 // -- Right output panel --
 
-function openOutputPanel(content: string) {
+const wbDragLeft = document.getElementById("wb-drag-left")!;
+const wbDragRight = document.getElementById("wb-drag-right")!;
+const wbOutputTitle = document.getElementById("wb-output-title") as HTMLInputElement;
+let wbOutputContent = "";  // raw content currently in the output panel
+
+async function openOutputPanel(content: string, title?: string) {
+  wbOutputContent = content;
   wbOutputRendered.innerHTML = renderMarkdown(content);
   wbOutputRaw.value = content;
   wbOutputRendered.classList.remove("hidden");
   wbOutputRaw.classList.add("hidden");
+  wbOutputTitle.value = title || "Output";
   // Reset tab state
   wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((t) => {
     t.classList.toggle("active", (t as HTMLElement).dataset.mode === "markdown");
   });
+  // Restore persisted width
+  const savedW = await window.yo.getPreference("wbOutputWidth") as number | undefined;
+  if (savedW && savedW >= 200) {
+    wbOutputPanel.style.width = savedW + "px";
+    wbOutputPanel.style.minWidth = savedW + "px";
+  }
   wbOutputPanel.classList.add("open");
+  wbDragRight.classList.add("visible");
 }
 
 function closeOutputPanel() {
   wbOutputPanel.classList.remove("open");
+  wbOutputPanel.style.width = "";
+  wbOutputPanel.style.minWidth = "";
+  wbDragRight.classList.remove("visible");
 }
 
 document.getElementById("wb-output-close")!.addEventListener("click", closeOutputPanel);
+
+// Download
+document.getElementById("wb-output-download")!.addEventListener("click", () => {
+  const text = wbOutputContent;
+  const name = (wbOutputTitle.value || "output").replace(/[^a-zA-Z0-9_\- ]/g, "").trim() || "output";
+  const blob = new Blob([text], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name + ".md";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// Save (output panel)
+document.getElementById("wb-output-save")!.addEventListener("click", async () => {
+  const name = wbOutputTitle.value.trim();
+  if (!name) { wbOutputTitle.focus(); return; }
+  const ok = await window.yo.libraryWrite(name, wbOutputContent);
+  if (ok) {
+    const btn = document.getElementById("wb-output-save")!;
+    btn.style.color = "#25C75E";
+    setTimeout(() => { btn.style.color = ""; }, 1500);
+    if (wbSidebar.classList.contains("open")) loadWbLibrary();
+  }
+});
+
+// Set as context (output panel)
+document.getElementById("wb-output-context")!.addEventListener("click", async () => {
+  const name = wbOutputTitle.value.trim();
+  if (!name) { wbOutputTitle.focus(); return; }
+  await window.yo.libraryWrite(name, wbOutputContent);
+  const ok = await window.yo.sessionLoadFile(name);
+  if (ok) {
+    const btn = document.getElementById("wb-output-context")!;
+    btn.style.color = "#25C75E";
+    setTimeout(() => { btn.style.color = ""; }, 1500);
+    if (wbSidebar.classList.contains("open")) loadWbLibrary();
+  }
+});
 
 // Tab toggle (markdown/raw)
 wbOutputPanel.querySelectorAll(".wb-output-tab").forEach((tab) => {
@@ -561,13 +747,80 @@ wbOutputRaw.addEventListener("input", () => {
 
 // -- Left sidebar toggle --
 
-function toggleSidebar() {
+async function toggleSidebar() {
   const isOpen = wbSidebar.classList.toggle("open");
   wbSidebarToggle.classList.toggle("active", isOpen);
-  if (isOpen) loadWbLibrary();
+  wbDragLeft.classList.toggle("visible", isOpen);
+  if (isOpen) {
+    // Restore persisted width
+    const savedW = await window.yo.getPreference("wbSidebarWidth") as number | undefined;
+    if (savedW && savedW >= 120) {
+      wbSidebar.style.width = savedW + "px";
+      wbSidebar.style.minWidth = savedW + "px";
+    }
+    loadWbLibrary();
+  } else {
+    wbSidebar.style.width = "";
+    wbSidebar.style.minWidth = "";
+  }
 }
 
 wbSidebarToggle.addEventListener("click", toggleSidebar);
+
+// -- Panel drag resize --
+
+let wbDragTarget: "left" | "right" | null = null;
+
+function startWbDrag(e: MouseEvent, target: "left" | "right") {
+  e.preventDefault();
+  wbDragTarget = target;
+  const handle = target === "left" ? wbDragLeft : wbDragRight;
+  handle.classList.add("dragging");
+  // Disable transitions during drag
+  wbSidebar.classList.add("no-transition");
+  wbOutputPanel.classList.add("no-transition");
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+}
+
+wbDragLeft.addEventListener("mousedown", (e) => startWbDrag(e, "left"));
+wbDragRight.addEventListener("mousedown", (e) => startWbDrag(e, "right"));
+
+document.addEventListener("mousemove", (e) => {
+  if (!wbDragTarget) return;
+  const body = workbench.querySelector(".wb-body") as HTMLElement;
+  if (!body) return;
+  const bodyRect = body.getBoundingClientRect();
+
+  if (wbDragTarget === "left") {
+    const newWidth = Math.max(120, Math.min(500, e.clientX - bodyRect.left));
+    wbSidebar.style.width = newWidth + "px";
+    wbSidebar.style.minWidth = newWidth + "px";
+  } else {
+    const newWidth = Math.max(200, Math.min(700, bodyRect.right - e.clientX));
+    wbOutputPanel.style.width = newWidth + "px";
+    wbOutputPanel.style.minWidth = newWidth + "px";
+  }
+});
+
+document.addEventListener("mouseup", () => {
+  if (!wbDragTarget) return;
+  const handle = wbDragTarget === "left" ? wbDragLeft : wbDragRight;
+  handle.classList.remove("dragging");
+  wbSidebar.classList.remove("no-transition");
+  wbOutputPanel.classList.remove("no-transition");
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  // Persist panel widths
+  const sidebarW = wbSidebar.offsetWidth;
+  const outputW = wbOutputPanel.offsetWidth;
+  if (wbDragTarget === "left" && sidebarW > 0) {
+    window.yo.setPreference("wbSidebarWidth", sidebarW);
+  } else if (wbDragTarget === "right" && outputW > 0) {
+    window.yo.setPreference("wbOutputWidth", outputW);
+  }
+  wbDragTarget = null;
+});
 
 // -- Search modal --
 
@@ -636,7 +889,7 @@ function renderSearchResults(files: string[]) {
       const content = await window.yo.libraryRead(name);
       if (content !== null) {
         wbContent = content;
-        wbSaveName.value = name;
+        wbOutputTitle.value = name;
         addMessage("content", `Loaded: ${name}.md`, content);
         scrollConversation();
       }
@@ -662,33 +915,6 @@ document.getElementById("wb-copy")!.addEventListener("click", () => {
   setTimeout(() => { btn.textContent = "Copy"; }, 1500);
 });
 
-// Save
-document.getElementById("wb-save")!.addEventListener("click", async () => {
-  const name = wbSaveName.value.trim();
-  if (!name) { wbSaveName.focus(); return; }
-  const ok = await window.yo.libraryWrite(name, wbContent);
-  if (ok) {
-    const btn = document.getElementById("wb-save")!;
-    btn.textContent = "Saved!";
-    setTimeout(() => { btn.textContent = "Save"; }, 1500);
-    if (wbSidebar.classList.contains("open")) loadWbLibrary();
-  }
-});
-
-// Set as Context — save first if needed, then load as active session context
-document.getElementById("wb-set-context")!.addEventListener("click", async () => {
-  let name = wbSaveName.value.trim();
-  if (!name) { wbSaveName.focus(); return; }
-  // Save first so it's in the library
-  await window.yo.libraryWrite(name, wbContent);
-  const ok = await window.yo.sessionLoadFile(name);
-  if (ok) {
-    const btn = document.getElementById("wb-set-context")!;
-    btn.textContent = "Context set!";
-    setTimeout(() => { btn.textContent = "Set as Context"; }, 1500);
-    if (wbSidebar.classList.contains("open")) loadWbLibrary();
-  }
-});
 
 // Auto-grow chat input
 wbChatInput.addEventListener("input", () => {
@@ -710,11 +936,24 @@ async function sendRefinement() {
   scrollConversation();
 
   try {
-    const refined = await window.yo.workbenchRefine(instruction, wbContent);
+    const result = await window.yo.workbenchRefine(instruction, wbContent);
     removeLoading();
-    wbContent = refined;
-    addMessage("content", "Yo", refined);
+    // Show Yo's conversational message (if any) as a chat bubble
+    if (result.message) {
+      addMessage("yo", "Yo", result.message);
+    }
+    // Show the generated/refined content as an artifact card
+    wbContent = result.content;
+    const contentMsg = addMessage("content", "", result.content);
     scrollConversation();
+    // Auto-suggest a name for the generated content
+    window.yo.suggestName(result.content).then((suggested) => {
+      if (suggested && isWorkbenchOpen()) {
+        const nameInput = contentMsg.querySelector(".wb-artifact-name-input") as HTMLInputElement | null;
+        if (nameInput) nameInput.value = suggested;
+        wbOutputTitle.value = suggested;
+      }
+    });
   } catch (err) {
     removeLoading();
     addMessage("yo", "Yo", `Error: ${err instanceof Error ? err.message : err}`);
@@ -759,7 +998,7 @@ document.getElementById("wb-viewer-add")!.addEventListener("click", async () => 
   const content = await window.yo.libraryRead(name);
   if (content !== null) {
     wbContent = content;
-    wbSaveName.value = name;
+    wbOutputTitle.value = name;
     addMessage("content", `Loaded: ${name}.md`, content);
     scrollConversation();
   }
@@ -776,37 +1015,65 @@ let wbAllFiles: string[] = [];
 
 wbFilterInput.addEventListener("input", () => {
   const q = wbFilterInput.value.trim().toLowerCase();
-  const filtered = q ? wbAllFiles.filter((f) => f.toLowerCase().includes(q)) : wbAllFiles;
+  const filtered = q ? wbAllMeta.filter((f) => f.name.toLowerCase().includes(q)) : wbAllMeta;
   renderWbLibrary(filtered);
 });
 
 // Library sidebar file list
+interface FileMeta { name: string; modified: number; size: number }
+let wbAllMeta: FileMeta[] = [];
+
+function formatRelativeDate(ms: number): string {
+  const diff = Date.now() - ms;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 async function loadWbLibrary() {
-  wbAllFiles = await window.yo.libraryList();
+  wbAllMeta = await window.yo.libraryListMeta();
+  wbAllFiles = wbAllMeta.map((f) => f.name);
   const q = wbFilterInput.value.trim().toLowerCase();
-  const filtered = q ? wbAllFiles.filter((f) => f.toLowerCase().includes(q)) : wbAllFiles;
+  const filtered = q ? wbAllMeta.filter((f) => f.name.toLowerCase().includes(q)) : wbAllMeta;
   renderWbLibrary(filtered);
 }
 
-function renderWbLibrary(files: string[]) {
+function renderWbLibrary(files: FileMeta[]) {
   if (files.length === 0) {
     wbLibraryList.innerHTML = '<div style="padding:12px 14px;color:#555;font-size:12px;">No files</div>';
     return;
   }
 
-  wbLibraryList.innerHTML = files.map((name) => `
-    <div class="wb-file-item" data-name="${name}">
-      <span class="wb-file-name" title="${name}.md">${name}.md</span>
-      <div class="wb-file-actions">
-        <button class="wb-file-action wb-act-view" title="View">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
-        <button class="wb-file-action wb-act-add" title="Add to context">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-        <button class="wb-file-action wb-act-del danger" title="Delete">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
-        </button>
+  wbLibraryList.innerHTML = files.map((f) => `
+    <div class="wb-file-item" data-name="${f.name}">
+      <div class="wb-file-top">
+        <span class="wb-file-name" title="${f.name}.md">${f.name}.md</span>
+        <div class="wb-file-actions">
+          <button class="wb-file-action wb-act-view" title="View">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <button class="wb-file-action wb-act-add" title="Add to context">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button class="wb-file-action wb-act-del danger" title="Delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="wb-file-meta">
+        <span class="wb-file-date">${formatRelativeDate(f.modified)}</span>
+        <span class="wb-file-size">${formatSize(f.size)}</span>
       </div>
     </div>`).join("");
 
@@ -824,7 +1091,7 @@ function renderWbLibrary(files: string[]) {
       const content = await window.yo.libraryRead(name);
       if (content !== null) {
         wbContent = content;
-        wbSaveName.value = name;
+        wbOutputTitle.value = name;
         wbLibraryList.querySelectorAll(".wb-file-item").forEach((f) => f.classList.remove("active"));
         el.classList.add("active");
         addMessage("content", `Loaded: ${name}.md`, content);

@@ -526,6 +526,12 @@ export class PanelManager {
     return this.panels.get(this.activePanel)?.webContents ?? null;
   }
 
+  /** Seed the active panel ID without triggering a switch.
+   *  Used on startup so dip back has a target after the first dip. */
+  setInitialActive(id: string): void {
+    if (!this.activePanel) this.activePanel = id;
+  }
+
   /** Get active panel ID */
   get activePanelId(): string | null {
     return this.activePanel;

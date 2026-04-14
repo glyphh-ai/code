@@ -102,6 +102,7 @@ export class TerminalManager {
         `yo()  { printf '\\033]7770;yo %s\\007' "$*"; };` +
         `sup() { printf '\\033]7770;sup %s\\007' "$*"; };` +
         `dip() { printf '\\033]7770;dip %s\\007' "$*"; };` +
+        `drip(){ printf '\\033]7770;drip %s\\007' "$*"; };` +
         `clear\r`,
       );
     }, 400);

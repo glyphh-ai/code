@@ -172,7 +172,7 @@ export class CommandParser {
 
     // Store in session
     const skillLabel = instruction?.split(/\s+/)[0] || undefined;
-    this.session.capture("command-bar", finalContent, skillLabel ? `${skillLabel}.md` : "captured");
+    this.session.capture("command-bar", finalContent, skillLabel ? `${skillLabel}.md` : "captured", skillLabel || "");
 
     const label = instruction ? `yo ${instruction}` : "yo";
 
@@ -182,12 +182,14 @@ export class CommandParser {
       return `${label} \u2014 captured`;
     }
 
-    if (this.workbenchOpener) {
+    if (!instruction && this.workbenchOpener) {
+      // Bare yo — open the workbench for interactive refinement
       this.workbenchOpener(finalContent, label);
       return "";
     }
+    // yo <skill/prompt> — content is processed, just set context + notify
     this.session.copyToClipboard();
-    return `${label} \u2014 captured + copied`;
+    return `${label} \u2014 captured`;
   }
 
   private handleYoSkill(args: string[]): string {
@@ -298,6 +300,15 @@ export class CommandParser {
     // Bare "sup" → always show library browser
     if (args.length === 0) {
       return "__SUP_BROWSE__";
+    }
+
+    // sup . → paste session content directly to clipboard, no LLM
+    if (args.length === 1 && args[0] === ".") {
+      if (!this.session.hasContent()) return "No context loaded. Use yo to capture first.";
+      const content = this.session.get();
+      const { clipboard } = await import("electron");
+      clipboard.writeText(content);
+      return "Context copied to clipboard";
     }
 
     // sup <instruction> → process session with skill/LLM

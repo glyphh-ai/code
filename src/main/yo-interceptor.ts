@@ -107,7 +107,7 @@ export class YoInterceptor {
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
-var CMD_RE=/^(yo|sup|dip|wassup)(?:\\s+(.+))?$/i;
+var CMD_RE=/^(yo|sup|dip|drip|wassup)(?:\\s+(.+))?$/i;
 var lastText='';
 var handled=false;
 
@@ -216,12 +216,19 @@ document.addEventListener('keyup',function(e){
       case "wassup":
         await this.handleWassup(wc, appId, data.instruction ?? undefined);
         break;
+      case "drip":
+        // Delegate to command parser which sends drip-effect to renderer
+        if (this.commandHandler) {
+          const cmd = data.instruction ? `drip ${data.instruction}` : "drip";
+          await this.commandHandler(cmd);
+        }
+        break;
       case "sup-load-file": {
         const name = data.instruction;
         if (name) {
           const content = this.library.read(name);
           if (content) {
-            this.session.capture("library", content, name + ".md");
+            this.session.capture("library", content, name + ".md", name);
             this.session.copyToClipboard();
             this.notify(wc, `Loaded: ${name}.md \u2014 copied to clipboard`, "success");
           } else {
@@ -304,11 +311,13 @@ document.addEventListener('keyup',function(e){
     const label = realInstruction ? `yo ${realInstruction}` : "yo";
     await this.clearNotify(wc);
 
-    if (this.workbenchOpener) {
+    if (!realInstruction && this.workbenchOpener) {
+      // Bare yo / yo . — open the workbench for interactive refinement
       this.workbenchOpener(finalContent, label);
     } else {
+      // yo <skill/prompt> — content is processed, just set context + notify
       this.session.copyToClipboard();
-      this.notify(wc, `${label} \u2014 captured + copied`, "success");
+      this.notify(wc, `${label} \u2014 captured`, "success");
     }
   }
 
@@ -325,12 +334,28 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
+    // sup . → paste session content directly, no LLM
+    if (instruction === ".") {
+      if (!this.session.hasContent()) {
+        this.notify(wc, "No context loaded. Use yo to capture first.", "error");
+        return;
+      }
+      const content = this.session.get();
+      await this.clearNotify(wc);
+      const injected = await this.injectContent(wc, content);
+      if (!injected) {
+        this.session.copyToClipboard();
+        this.notify(wc, "Context copied to clipboard", "success");
+      }
+      return;
+    }
+
     // No session content + instruction → try loading from library by name first
     if (!this.session.hasContent()) {
       const name = instruction.split(/\s+/)[0];
       const content = this.library.read(name);
       if (content) {
-        this.session.capture("library", content, name + ".md");
+        this.session.capture("library", content, name + ".md", name);
         this.session.copyToClipboard();
         await this.clearNotify(wc);
         const injected = await this.injectContent(wc, content);
@@ -663,14 +688,32 @@ function setText(val){
 }
 if(isLoading){
   var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
+  var words=['chilling...','vibing...','supping...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
   var fi=0;
-  setText(frames[0]+' '+text+'   ');
-  try{if(el.setSelectionRange)el.setSelectionRange(0,0);
-  else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}
+  var curWord=text;
+  var nextWord='';
+  var wipePos=-1;
+  var lastSwap=Date.now();
+  function pickNext(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
+  function cursorHome(){try{if(el.setSelectionRange)el.setSelectionRange(0,0);else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}}
+  setText(frames[0]+' '+curWord+'   ');
+  cursorHome();
   window.__yoNoteIv=setInterval(function(){
-    fi++;setText(frames[fi%frames.length]+' '+text+'   ');
-    try{if(el.setSelectionRange)el.setSelectionRange(0,0);
-    else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}
+    fi++;
+    var now=Date.now();
+    if(wipePos>=0){
+      wipePos++;
+      var display=curWord;
+      if(wipePos<=display.length){
+        display=nextWord.substring(0,wipePos)+display.substring(wipePos);
+        if(wipePos>=curWord.length){curWord=nextWord;wipePos=-1;lastSwap=now;}
+      }
+      setText(frames[fi%frames.length]+' '+display+'   ');
+    }else{
+      setText(frames[fi%frames.length]+' '+curWord+'   ');
+      if(now-lastSwap>3000){nextWord=pickNext();wipePos=0;}
+    }
+    cursorHome();
   },100);
 }else{
   setText(text);
