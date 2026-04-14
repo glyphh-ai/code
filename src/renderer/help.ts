@@ -41,8 +41,7 @@ function activeSection(): string {
 
 function loadActiveSection() {
   const sec = activeSection();
-  if (sec === "library") loadLibrary();
-  else if (sec === "skills") loadSkills();
+  if (sec === "skills") loadSkills();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
 }
@@ -51,10 +50,6 @@ function loadActiveSection() {
 
 export function initHelp() {
   document.getElementById("help-close")!.addEventListener("click", closeHelp);
-
-  // Library
-  document.getElementById("library-save-btn")!.addEventListener("click", saveLibraryItem);
-  document.getElementById("library-new-btn")!.addEventListener("click", newLibraryItem);
 
   // Skills
   document.getElementById("skills-save-btn")!.addEventListener("click", saveSkillItem);
@@ -163,73 +158,6 @@ export function initHelp() {
       custom.classList.add("hidden");
     }
   });
-}
-
-// ── Library ──────────────────────────────────────────────
-
-const libraryList = document.getElementById("library-list")!;
-const libraryEditor = document.getElementById("library-editor")!;
-const libraryEditName = document.getElementById("library-edit-name")!;
-const libraryEditContent = document.getElementById("library-edit-content") as HTMLTextAreaElement;
-
-async function loadLibrary() {
-  libraryEditor.classList.add("hidden");
-  const items = await window.yo.libraryList();
-  if (items.length === 0) {
-    libraryList.innerHTML = `<div class="empty-state">No files yet. Use <strong>yo &lt;name&gt;</strong> to save context.</div>`;
-    return;
-  }
-  libraryList.innerHTML = items.map((name) => `
-    <div class="item-row" data-name="${name}">
-      <span class="item-name">${name}.md</span>
-      <div class="action-btns">
-        <button class="action-btn edit-btn">Edit</button>
-        <button class="action-btn danger delete-btn">Delete</button>
-      </div>
-    </div>`).join("");
-
-  libraryList.querySelectorAll(".item-row").forEach((row) => {
-    row.addEventListener("click", () => editLibraryItem((row as HTMLElement).dataset.name!));
-  });
-  libraryList.querySelectorAll(".edit-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      editLibraryItem((btn.closest(".item-row") as HTMLElement).dataset.name!);
-    });
-  });
-  libraryList.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await window.yo.libraryRemove((btn.closest(".item-row") as HTMLElement).dataset.name!);
-      loadLibrary();
-    });
-  });
-}
-
-async function editLibraryItem(name: string) {
-  const content = await window.yo.libraryRead(name);
-  libraryEditName.textContent = name + ".md";
-  libraryEditContent.value = content || "";
-  libraryEditor.classList.remove("hidden");
-  libraryEditor.dataset.name = name;
-  libraryEditContent.focus();
-}
-
-async function saveLibraryItem() {
-  const name = libraryEditor.dataset.name!;
-  await window.yo.libraryWrite(name, libraryEditContent.value);
-  libraryEditor.classList.add("hidden");
-  loadLibrary();
-}
-
-async function newLibraryItem() {
-  const input = document.getElementById("library-new-name") as HTMLInputElement;
-  const name = input.value.trim();
-  if (!name) return;
-  await window.yo.libraryWrite(name, "");
-  input.value = "";
-  loadLibrary();
-  editLibraryItem(name);
 }
 
 // ── Skills ───────────────────────────────────────────────
