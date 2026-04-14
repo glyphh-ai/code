@@ -80,6 +80,7 @@ declare global {
       // Yo Workbench
       onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => void;
       workbenchRefine: (instruction: string, content: string) => Promise<string>;
+      suggestName: (content: string) => Promise<string>;
     };
   }
 }
@@ -362,7 +363,19 @@ function openWorkbench(content: string, label: string) {
   wbContent = content;
   wbConversation.innerHTML = "";
   wbChatInput.value = "";
-  wbSaveName.value = label.replace(/\.md$/, "").replace(/^yo\s*/i, "") || "";
+
+  // Set initial name from label, then ask LLM for a better one
+  const fallback = label.replace(/\.md$/, "").replace(/^yo\s*/i, "") || "";
+  wbSaveName.value = fallback;
+  wbSaveName.placeholder = "suggesting name...";
+  window.yo.suggestName(content).then((name) => {
+    if (name && isWorkbenchOpen()) {
+      wbSaveName.value = name;
+      wbSaveName.placeholder = "file name...";
+    } else {
+      wbSaveName.placeholder = "file name...";
+    }
+  });
 
   // Close any open overlays first
   if (isSupBrowserOpen()) closeSupBrowser();
@@ -642,6 +655,21 @@ document.getElementById("wb-save")!.addEventListener("click", async () => {
     const btn = document.getElementById("wb-save")!;
     btn.textContent = "Saved!";
     setTimeout(() => { btn.textContent = "Save"; }, 1500);
+    if (wbSidebar.classList.contains("open")) loadWbLibrary();
+  }
+});
+
+// Set as Context — save first if needed, then load as active session context
+document.getElementById("wb-set-context")!.addEventListener("click", async () => {
+  let name = wbSaveName.value.trim();
+  if (!name) { wbSaveName.focus(); return; }
+  // Save first so it's in the library
+  await window.yo.libraryWrite(name, wbContent);
+  const ok = await window.yo.sessionLoadFile(name);
+  if (ok) {
+    const btn = document.getElementById("wb-set-context")!;
+    btn.textContent = "Context set!";
+    setTimeout(() => { btn.textContent = "Set as Context"; }, 1500);
     if (wbSidebar.classList.contains("open")) loadWbLibrary();
   }
 });

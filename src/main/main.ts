@@ -800,6 +800,21 @@ async function boot() {
     return yoChat.executeInline("yo", instruction, "workbench", content);
   });
 
+  // IPC: Suggest a filename from content
+  ipcMain.handle("yo-suggest-name", async (_e, content: string) => {
+    try {
+      const result = await yoChat.executeInline(
+        "yo",
+        `Suggest a short, descriptive filename (no .md, no spaces — use hyphens) for this content. Return ONLY the filename, nothing else.`,
+        "workbench",
+        content,
+      );
+      return result.trim().replace(/\.md$/i, "").replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 60) || "";
+    } catch {
+      return "";
+    }
+  });
+
   // IPC: license + API key
   ipcMain.handle("check-license", () => checkLicense());
   ipcMain.handle("activate-license", (_e, key: string) => activateLicense(key));

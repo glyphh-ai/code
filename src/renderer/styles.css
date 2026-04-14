@@ -485,14 +485,23 @@ body {
 }
 .wb-close-btn:hover { color: #fff; }
 
+/* ── Save bar (chat column footer) ── */
+.wb-save-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid #1a1a1a;
+  background: #0d0d0d;
+  flex-shrink: 0;
+}
 #wb-save-name {
-  width: 140px; height: 28px;
+  flex: 1; height: 28px;
   background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
-  padding: 0 10px; font-size: 12px;
+  padding: 0 10px; font-size: 12px; color: #ccc;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   outline: none;
 }
 #wb-save-name:focus { border-color: #25C75E; }
+#wb-save-name::placeholder { color: #555; }
 
 .wb-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 

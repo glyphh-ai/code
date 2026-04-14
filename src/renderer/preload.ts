@@ -111,4 +111,6 @@ contextBridge.exposeInMainWorld("yo", {
   },
   workbenchRefine: (instruction: string, content: string) =>
     ipcRenderer.invoke("yo-workbench-refine", instruction, content) as Promise<string>,
+  suggestName: (content: string) =>
+    ipcRenderer.invoke("yo-suggest-name", content) as Promise<string>,
 });
