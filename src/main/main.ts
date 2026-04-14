@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
+import { app, BrowserView, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
@@ -37,6 +37,47 @@ let cloudSync: CloudSync;
 let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
+
+function buildDripHtml(_effect: string, w: number, h: number): string {
+  const colors = JSON.stringify(["#ff0", "#f0f", "#0ff", "#f44", "#4f4", "#ff6600", "#ff00ff", "#00ffcc"]);
+  return `<!DOCTYPE html><html><head><style>
+    html,body{margin:0;padding:0;width:${w}px;height:${h}px;overflow:hidden;background:transparent;}
+    .p{position:absolute;border-radius:50%;}
+  </style></head><body><script>
+    var COLORS=${colors};
+    var bursts=[{x:${w * 0.5},y:${h * 0.4}},{x:${w * 0.25},y:${h * 0.35}},{x:${w * 0.75},y:${h * 0.35}}];
+    var particles=[];
+    bursts.forEach(function(b,bi){
+      setTimeout(function(){
+        for(var i=0;i<50;i++){
+          var el=document.createElement("div");
+          var sz=3+Math.random()*5;
+          el.className="p";
+          el.style.width=sz+"px";el.style.height=sz+"px";
+          el.style.background=COLORS[Math.floor(Math.random()*COLORS.length)];
+          document.body.appendChild(el);
+          var angle=Math.random()*Math.PI*2;
+          var speed=2+Math.random()*6;
+          particles.push({el:el,x:b.x,y:b.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed-3,life:1});
+        }
+      },bi*300);
+    });
+    function animate(){
+      var alive=false;
+      for(var i=0;i<particles.length;i++){
+        var p=particles[i];
+        if(p.life<=0)continue;
+        alive=true;
+        p.x+=p.vx;p.y+=p.vy;p.vy+=0.08;p.life-=0.012;
+        p.el.style.left=p.x+"px";p.el.style.top=p.y+"px";
+        p.el.style.opacity=Math.max(0,p.life);
+      }
+      if(alive)requestAnimationFrame(animate);
+      else console.log("__drip_done__");
+    }
+    requestAnimationFrame(animate);
+  </${"script"}></body></html>`;
+}
 
 async function createWindow() {
   const saved = getPreference<{ x?: number; y?: number; width: number; height: number; maximized?: boolean }>("windowBounds", { width: 1200, height: 800 });
@@ -242,6 +283,25 @@ async function boot() {
   // Create window
   await createWindow();
   if (mainWindow) commandParser.setMainWindow(mainWindow);
+
+  // Drip effects — transparent BrowserView overlay on top of panels
+  commandParser.setDripHandler((effect) => {
+    if (!mainWindow) return;
+    const bounds = mainWindow.getContentBounds();
+    const overlay = new BrowserView({
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
+    });
+    mainWindow.addBrowserView(overlay);
+    overlay.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+    overlay.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDripHtml(effect, bounds.width, bounds.height))}`);
+    // Auto-remove after animation completes
+    overlay.webContents.on("console-message", (_e, _level, msg) => {
+      if (msg === "__drip_done__") {
+        mainWindow?.removeBrowserView(overlay);
+        overlay.webContents.close();
+      }
+    });
+  });
 
   // Restore panels from last view (or default to claude)
   function restorePanels() {

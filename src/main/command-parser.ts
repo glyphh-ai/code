@@ -24,6 +24,7 @@ export class CommandParser {
   private static readonly COMMAND_KEYWORDS = new Set(["yo", "sup", "dip", "drip", "wassup"]);
 
   private onShowWelcome: (() => void) | null = null;
+  private onDrip: ((effect: string) => void) | null = null;
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
   private grabber: (() => Promise<string | null>) | null = null;
@@ -46,6 +47,11 @@ export class CommandParser {
   /** Register callback for yo help */
   setWelcomeHandler(fn: () => void) {
     this.onShowWelcome = fn;
+  }
+
+  /** Register callback for drip effects */
+  setDripHandler(fn: (effect: string) => void) {
+    this.onDrip = fn;
   }
 
   /** Set the LLM engine for inline processing. */
@@ -574,7 +580,7 @@ export class CommandParser {
 
   private handleDrip(args: string[]): string {
     const effect = args[0]?.toLowerCase() || "fireworks";
-    this.mainWindow?.webContents.send("drip-effect", effect);
+    this.onDrip?.(effect);
     return "";
   }
 

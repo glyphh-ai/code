@@ -287,7 +287,7 @@ body {
 #context-pill:hover { background: #153a20; border-color: #25C75E; }
 
 #context-pill::before {
-  content: "\u25CF";
+  content: "\25CF";
   font-size: 8px;
   color: #25C75E;
 }

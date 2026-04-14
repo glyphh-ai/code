@@ -1,5 +1,5 @@
 /**
- * Help overlay — combined docs + settings (library, skills, layouts, panels).
+ * Help overlay — combined docs + settings (layouts, panels, apps).
  */
 
 const overlay = document.getElementById("help-overlay")!;
@@ -41,8 +41,7 @@ function activeSection(): string {
 
 function loadActiveSection() {
   const sec = activeSection();
-  if (sec === "skills") loadSkills();
-  else if (sec === "layouts") loadLayouts();
+  if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
 }
@@ -54,10 +53,6 @@ export function initHelp() {
 
   // Settings
   initSettings();
-
-  // Skills
-  document.getElementById("skills-save-btn")!.addEventListener("click", saveSkillItem);
-  document.getElementById("skills-new-btn")!.addEventListener("click", newSkillItem);
 
   // Dismiss checkbox
   const dismissCheck = document.getElementById("dismiss-check") as HTMLInputElement;
@@ -162,73 +157,6 @@ export function initHelp() {
       custom.classList.add("hidden");
     }
   });
-}
-
-// ── Skills ───────────────────────────────────────────────
-
-const skillsList = document.getElementById("skills-list")!;
-const skillsEditor = document.getElementById("skills-editor")!;
-const skillsEditName = document.getElementById("skills-edit-name")!;
-const skillsEditContent = document.getElementById("skills-edit-content") as HTMLTextAreaElement;
-
-async function loadSkills() {
-  skillsEditor.classList.add("hidden");
-  const items = await window.yo.skillsList();
-  if (items.length === 0) {
-    skillsList.innerHTML = `<div class="empty-state">No skills yet. Create one to process captured sessions.</div>`;
-    return;
-  }
-  skillsList.innerHTML = items.map((name) => `
-    <div class="item-row" data-name="${name}">
-      <span class="item-name">${name}</span>
-      <div class="action-btns">
-        <button class="action-btn edit-btn">Edit</button>
-        <button class="action-btn danger delete-btn">Delete</button>
-      </div>
-    </div>`).join("");
-
-  skillsList.querySelectorAll(".item-row").forEach((row) => {
-    row.addEventListener("click", () => editSkillItem((row as HTMLElement).dataset.name!));
-  });
-  skillsList.querySelectorAll(".edit-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      editSkillItem((btn.closest(".item-row") as HTMLElement).dataset.name!);
-    });
-  });
-  skillsList.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await window.yo.skillsRemove((btn.closest(".item-row") as HTMLElement).dataset.name!);
-      loadSkills();
-    });
-  });
-}
-
-async function editSkillItem(name: string) {
-  const content = await window.yo.skillsRead(name);
-  skillsEditName.textContent = name;
-  skillsEditContent.value = content || "";
-  skillsEditor.classList.remove("hidden");
-  skillsEditor.dataset.name = name;
-  skillsEditContent.focus();
-}
-
-async function saveSkillItem() {
-  const name = skillsEditor.dataset.name!;
-  await window.yo.skillsWrite(name, skillsEditContent.value);
-  skillsEditor.classList.add("hidden");
-  loadSkills();
-}
-
-async function newSkillItem() {
-  const input = document.getElementById("skills-new-name") as HTMLInputElement;
-  const name = input.value.trim();
-  if (!name) return;
-  await window.yo.skillsWrite(name, "");
-  input.value = "";
-  loadSkills();
-  editSkillItem(name);
 }
 
 // ── Layouts (Grid Builder) ──────────────────────────────────

@@ -39,7 +39,7 @@
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
     <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span> Dip<span class="dot">.</span></div>
-    <input id="command-input" type="text" placeholder="yo, sup, dip, wassup..." spellcheck="false" autocomplete="off" />
+    <input id="command-input" type="text" placeholder="yo, sup, dip..." spellcheck="false" autocomplete="off" />
     <span id="context-pill" class="hidden">
       <span id="context-pill-name"></span>
       <button id="context-pill-edit" class="context-pill-icon" title="Edit in workbench">
@@ -178,7 +178,6 @@
       <nav id="help-nav">
         <div class="help-brand">Yo<span class="dot">.</span></div>
         <button class="help-nav-item active" data-section="guide">Guide</button>
-        <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="settings">Settings</button>
@@ -273,23 +272,6 @@
           </div>
 
           <div class="help-group">
-            <h3>wassup <span class="cmd-desc">— creating skills</span></h3>
-            <p class="cmd-intro">Create reusable AI skills with natural language instructions.</p>
-            <div class="cmd-row">
-              <code>wassup</code>
-              <span>List available skills</span>
-            </div>
-            <div class="cmd-row">
-              <code>wassup summary extract key points and action items</code>
-              <span>Create a skill — AI writes the prompt for you</span>
-            </div>
-            <div class="cmd-row">
-              <code>wassup translate convert content to Spanish</code>
-              <span>Then use it: <code>yo summary</code> or <code>sup translate</code></span>
-            </div>
-          </div>
-
-          <div class="help-group">
             <h3>Shortcuts</h3>
             <div class="cmd-row">
               <code>&#8984;Y</code>
@@ -303,24 +285,6 @@
               <code>Esc</code>
               <span>Close this page</span>
             </div>
-          </div>
-        </div>
-
-        <!-- Skills -->
-        <div class="help-section" data-section="skills">
-          <h2>Skills</h2>
-          <p class="section-desc">System prompts for processing captured sessions. Stored in <code>~/yo/skills/</code></p>
-          <div class="tab-toolbar">
-            <input id="skills-new-name" type="text" placeholder="new skill name" spellcheck="false" />
-            <button id="skills-new-btn" class="action-btn primary">+ New</button>
-          </div>
-          <div id="skills-list" class="item-list"></div>
-          <div id="skills-editor" class="editor-area hidden">
-            <div class="editor-header">
-              <span id="skills-edit-name"></span>
-              <button id="skills-save-btn" class="action-btn primary">Save</button>
-            </div>
-            <textarea id="skills-edit-content" placeholder="Skill system prompt..." spellcheck="false"></textarea>
           </div>
         </div>
 
