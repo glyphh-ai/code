@@ -134,7 +134,7 @@ async function boot() {
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else {
-      panelManager.addPanel(app.id, app.url);
+      panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
     }
   }
 

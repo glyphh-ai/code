@@ -14,6 +14,8 @@ export interface PanelConfig {
   name: string;
   url: string;
   preload?: string;
+  /** Suppress "open in desktop app" banners and protocol redirects */
+  forceWeb?: boolean;
 }
 
 export type PanelCreatedCallback = (id: string, webContents: WebContents) => void;
@@ -52,6 +54,75 @@ export class PanelManager {
   }
 
   /** Script injected into panels to fix JS dialogs that don't render in BrowserView */
+  /** JS injected into forceWeb panels to suppress desktop-app redirects */
+  private static readonly FORCE_WEB_JS = `
+    (function() {
+      if (window.__yoForceWeb) return;
+      window.__yoForceWeb = true;
+
+      // Block location assignments to native app protocols (slack://, zoommtg://, etc.)
+      const origAssign = location.assign.bind(location);
+      const origReplace = location.replace.bind(location);
+      const blockNative = (fn, url) => {
+        if (typeof url === 'string' && !/^https?:\\/\\/|^about:|^\\//.test(url)) {
+          console.log('[yo:forceWeb] blocked redirect:', url);
+          return;
+        }
+        return fn(url);
+      };
+      location.assign = (url) => blockNative(origAssign, url);
+      location.replace = (url) => blockNative(origReplace, url);
+
+      // Hide "open in desktop app" banners via a MutationObserver
+      const BANNER_PATTERNS = [
+        /open\\s+(in|with)\\s+(the\\s+)?(desktop|native|app)/i,
+        /download\\s+(the\\s+)?app/i,
+        /use\\s+(the\\s+)?(desktop|native)\\s+app/i,
+        /switch\\s+to\\s+(the\\s+)?(desktop|app)/i,
+        /get\\s+(the\\s+)?(desktop|native)\\s+app/i,
+        /continue\\s+in\\s+(the\\s+)?app/i,
+      ];
+
+      function hideBanners(root) {
+        const candidates = root.querySelectorAll
+          ? root.querySelectorAll('a, button, [role="dialog"], [role="banner"], [class*="banner"], [class*="modal"], [class*="download"], [class*="desktop"]')
+          : [];
+        for (const el of candidates) {
+          const text = (el.textContent || '').trim();
+          if (text.length > 200) continue;
+          for (const pat of BANNER_PATTERNS) {
+            if (pat.test(text)) {
+              // Walk up to find the container (banner/modal wrapper)
+              let target = el;
+              for (let i = 0; i < 5 && target.parentElement; i++) {
+                const p = target.parentElement;
+                const tag = p.tagName.toLowerCase();
+                if (tag === 'body' || tag === 'main' || tag === 'html') break;
+                if (p.getAttribute('role') === 'dialog' || p.getAttribute('role') === 'banner'
+                    || /banner|modal|overlay|download|desktop/i.test(p.className || '')) {
+                  target = p;
+                }
+              }
+              target.style.display = 'none';
+              console.log('[yo:forceWeb] hid banner:', text.slice(0, 60));
+              break;
+            }
+          }
+        }
+      }
+
+      // Run on current DOM + watch for dynamic banners
+      hideBanners(document);
+      new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === 1) hideBanners(node);
+          }
+        }
+      }).observe(document.body || document.documentElement, { childList: true, subtree: true });
+    })();
+  `;
+
   private static readonly JS_DIALOG_FIX = `
     (function() {
       if (window.__yoDialogFixed) return;
@@ -128,8 +199,8 @@ export class PanelManager {
   get isAnimating(): boolean { return this._animating; }
 
   /** Register a custom panel (dip add <url>) */
-  addPanel(id: string, url: string, preload?: string): void {
-    this.configs.set(id, { id, name: id, url, preload });
+  addPanel(id: string, url: string, preload?: string, forceWeb?: boolean): void {
+    this.configs.set(id, { id, name: id, url, preload, forceWeb });
   }
 
   /** Get or create a panel's BrowserView (public for layout manager) */
@@ -181,6 +252,17 @@ export class PanelManager {
       if (isLocal && url.startsWith("file://")) return;
       if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
         e.preventDefault();
+        return;
+      }
+      // For forceWeb panels, block redirects to download/get-started pages
+      if (config.forceWeb) {
+        try {
+          const u = new URL(url);
+          if (/\/(get-started|download|desktop|install|apps)\b/i.test(u.pathname)) {
+            console.log(`[panel:${id}:forceWeb] blocked redirect to:`, url);
+            e.preventDefault();
+          }
+        } catch { /* ignore malformed URLs */ }
       }
     });
     const popupOptions = {
@@ -277,6 +359,10 @@ export class PanelManager {
       // Fix JS dialogs (alert/confirm/prompt) that don't render in BrowserView
       if (!isLocal) {
         view.webContents.executeJavaScript(PanelManager.JS_DIALOG_FIX).catch(() => {});
+      }
+      // Suppress desktop-app banners and protocol redirects
+      if (config.forceWeb) {
+        view.webContents.executeJavaScript(PanelManager.FORCE_WEB_JS).catch(() => {});
       }
       if (this.activePanel === id) {
         this.onReady?.(id, view.webContents);

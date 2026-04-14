@@ -27,6 +27,8 @@ export interface AppConfig {
   url: string;
   connected: boolean;
   commands: Record<string, CommandMapping>;
+  /** When true, suppress "open in desktop app" banners and protocol redirects */
+  forceWeb?: boolean;
   meta?: {
     description: string;
     capabilities: string[];
@@ -39,7 +41,7 @@ export const STANDARD_COMMANDS = [
 ] as const;
 
 // Default apps — seeded on first launch
-const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
+const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: boolean }> = [
   // ── AI Chat ─────────────────────
   { id: "claude", name: "Claude", url: "https://claude.ai" },
   { id: "gpt", name: "ChatGPT", url: "https://chatgpt.com" },
@@ -98,7 +100,7 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "digitalocean", name: "DigitalOcean", url: "https://cloud.digitalocean.com" },
 
   // ── Productivity ────────────────
-  { id: "notion", name: "Notion", url: "https://notion.so" },
+  { id: "notion", name: "Notion", url: "https://notion.so", forceWeb: true },
   { id: "linear", name: "Linear", url: "https://linear.app" },
   { id: "asana", name: "Asana", url: "https://app.asana.com" },
   { id: "trello", name: "Trello", url: "https://trello.com" },
@@ -110,10 +112,10 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "jira", name: "Jira", url: "https://jira.atlassian.com" },
 
   // ── Communication ───────────────
-  { id: "slack", name: "Slack", url: "https://app.slack.com" },
-  { id: "discord", name: "Discord", url: "https://discord.com/app" },
-  { id: "teams", name: "Teams", url: "https://teams.microsoft.com" },
-  { id: "zoom", name: "Zoom", url: "https://app.zoom.us" },
+  { id: "slack", name: "Slack", url: "https://app.slack.com", forceWeb: true },
+  { id: "discord", name: "Discord", url: "https://discord.com/app", forceWeb: true },
+  { id: "teams", name: "Teams", url: "https://teams.microsoft.com", forceWeb: true },
+  { id: "zoom", name: "Zoom", url: "https://app.zoom.us", forceWeb: true },
   { id: "telegram", name: "Telegram", url: "https://web.telegram.org" },
   { id: "whatsapp", name: "WhatsApp", url: "https://web.whatsapp.com" },
   { id: "messenger", name: "Messenger", url: "https://messenger.com" },
@@ -195,23 +197,31 @@ export class AppConnector {
     this.ensureDefaults();
   }
 
-  /** Seed default apps if they don't already exist */
+  /** Seed default apps if they don't already exist, and sync forceWeb from defaults */
   private ensureDefaults(): void {
     for (const def of DEFAULT_APPS) {
       if (!this.apps.has(def.id)) {
-        this.add(def.id, def.name, def.url);
+        this.add(def.id, def.name, def.url, def.forceWeb);
+      } else if (def.forceWeb !== undefined) {
+        // Upgrade existing configs with forceWeb when defaults specify it
+        const app = this.apps.get(def.id)!;
+        if (app.forceWeb !== def.forceWeb) {
+          app.forceWeb = def.forceWeb;
+          this.save(app);
+        }
       }
     }
   }
 
   /** Add a new app (unconnected) */
-  add(id: string, name: string, url: string): AppConfig {
+  add(id: string, name: string, url: string, forceWeb?: boolean): AppConfig {
     const app: AppConfig = {
       id,
       name,
       url,
       connected: false,
       commands: {},
+      ...(forceWeb ? { forceWeb } : {}),
     };
     this.apps.set(id, app);
     this.save(app);
