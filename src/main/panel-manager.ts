@@ -138,6 +138,53 @@ export class PanelManager {
     })();
   `;
 
+  /**
+   * Map a native protocol URL to the corresponding web client URL.
+   * Returns null if no mapping exists (caller should just close the popup).
+   */
+  private static nativeToWebUrl(nativeUrl: string, parentUrl: string): string | null {
+    try {
+      const parsed = new URL(nativeUrl);
+      const proto = parsed.protocol; // e.g. "slack:", "discord:", "msteams:"
+
+      if (proto === "slack:") {
+        const team = parsed.searchParams.get("team") || "";
+        return team
+          ? `https://app.slack.com/client/${team}`
+          : "https://app.slack.com/client";
+      }
+
+      if (proto === "discord:") {
+        // discord://- or discord://channels/... → discord.com/app
+        return "https://discord.com/app";
+      }
+
+      if (proto === "msteams:") {
+        // msteams://... → teams.microsoft.com
+        return "https://teams.microsoft.com";
+      }
+
+      if (proto === "zoommtg:" || proto === "zoomus:") {
+        // zoommtg://zoom.us/join?confno=... → app.zoom.us web client
+        const confno = parsed.searchParams.get("confno") || "";
+        return confno
+          ? `https://app.zoom.us/wc/${confno}/join`
+          : "https://app.zoom.us";
+      }
+
+      if (proto === "notion:") {
+        return "https://notion.so";
+      }
+    } catch { /* malformed URL */ }
+
+    // Unknown protocol — fall back to reloading the parent page
+    try {
+      return new URL(parentUrl).origin;
+    } catch {
+      return null;
+    }
+  }
+
   /** Configure permission handlers on the persist:yo session (once) */
   private static setupPermissions(): void {
     if (PanelManager.permissionsConfigured) return;
@@ -355,11 +402,21 @@ export class PanelManager {
 
       // For forceWeb panels, block native protocol redirects in popup windows too
       // (e.g. Slack popup opens https:// then redirects to slack://)
+      // When blocked, navigate the parent view to the web client and close the popup.
       if (config.forceWeb) {
         childWindow.webContents.on("will-navigate", (e, navUrl) => {
           if (!navUrl.startsWith("http://") && !navUrl.startsWith("https://") && !navUrl.startsWith("about:")) {
             console.log(`[panel:${id}:child-blocked]`, navUrl.slice(0, 120));
             e.preventDefault();
+
+            // Map native protocol redirects back to their web clients
+            const webRedirect = PanelManager.nativeToWebUrl(navUrl, config.url);
+            if (webRedirect) {
+              console.log(`[panel:${id}:forceWeb] redirecting parent to:`, webRedirect);
+              view.webContents.loadURL(webRedirect);
+            }
+
+            setTimeout(() => { if (!childWindow.isDestroyed()) childWindow.close(); }, 300);
             return;
           }
         });

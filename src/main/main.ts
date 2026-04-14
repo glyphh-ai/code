@@ -25,6 +25,7 @@ import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { SessionCache } from "./session-cache";
+import { VSCodeServer } from "./vscode-server";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -37,6 +38,7 @@ let cloudSync: CloudSync;
 let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
+let vscodeServer: VSCodeServer;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -520,6 +522,7 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const browserHtml = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
+  vscodeServer = new VSCodeServer();
   for (const app of appConnector.list()) {
     if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
@@ -527,9 +530,24 @@ async function boot() {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
       panelManager.addPanel(app.id, browserHtml, undefined, undefined, true);
+    } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
+      // VS Code uses local `code serve-web` for full file access
+      if (vscodeServer.available) {
+        panelManager.addPanel(app.id, VSCodeServer.expectedUrl());
+      } else {
+        // Fallback to vscode.dev if VS Code CLI not found
+        panelManager.addPanel(app.id, "https://vscode.dev");
+      }
     } else {
       panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
     }
+  }
+
+  // Start VS Code server in the background if CLI is available
+  if (vscodeServer.available) {
+    vscodeServer.start().catch((err) => {
+      console.log("[vscode-server] failed to start:", err.message);
+    });
   }
 
   layoutManager = new LayoutManager(panelManager);
@@ -1318,6 +1336,7 @@ app.on("window-all-closed", () => {
   mcpServer?.stop();
   cloudSync?.stop();
   terminalManager?.killAll();
+  vscodeServer?.stop();
   if (process.platform !== "darwin") {
     app.quit();
   }
@@ -1331,4 +1350,5 @@ app.on("activate", () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+  vscodeServer?.stop();
 });

@@ -74,7 +74,7 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: bo
   { id: "stackblitz", name: "StackBlitz", url: "https://stackblitz.com" },
   { id: "codepen", name: "CodePen", url: "https://codepen.io" },
   { id: "codesandbox", name: "CodeSandbox", url: "https://codesandbox.io" },
-  { id: "vscode", name: "VS Code", url: "https://vscode.dev" },
+  { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "github-dev", name: "GitHub.dev", url: "https://github.dev" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
 
@@ -200,18 +200,25 @@ export class AppConnector {
     this.ensureDefaults();
   }
 
-  /** Seed default apps if they don't already exist, and sync forceWeb from defaults */
+  /** Seed default apps if they don't already exist, and sync forceWeb/url from defaults */
   private ensureDefaults(): void {
     for (const def of DEFAULT_APPS) {
       if (!this.apps.has(def.id)) {
         this.add(def.id, def.name, def.url, def.forceWeb);
-      } else if (def.forceWeb !== undefined) {
-        // Upgrade existing configs with forceWeb when defaults specify it
+      } else {
         const app = this.apps.get(def.id)!;
-        if (app.forceWeb !== def.forceWeb) {
+        let changed = false;
+        // Upgrade existing configs with forceWeb when defaults specify it
+        if (def.forceWeb !== undefined && app.forceWeb !== def.forceWeb) {
           app.forceWeb = def.forceWeb;
-          this.save(app);
+          changed = true;
         }
+        // Upgrade VS Code URL from vscode.dev to yo://vscode
+        if (def.url.startsWith("yo://") && app.url !== def.url) {
+          app.url = def.url;
+          changed = true;
+        }
+        if (changed) this.save(app);
       }
     }
   }
