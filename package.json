@@ -7,9 +7,9 @@
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
     "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco",
     "build:main": "tsc",
-    "build:renderer": "tsc -p src/renderer/tsconfig.json && cp src/renderer/index.html src/renderer/styles.css dist/renderer/",
-    "build:terminal": "esbuild src/renderer/terminal-renderer.ts --bundle --outfile=dist/renderer/terminal-bundle.js --platform=browser && cp node_modules/@xterm/xterm/css/xterm.css src/renderer/terminal.html dist/renderer/",
-    "build:monaco": "cp src/renderer/monaco.html dist/renderer/ && cp -r node_modules/monaco-editor/min/vs dist/renderer/monaco",
+    "build:renderer": "tsc -p src/renderer/tsconfig.json && shx cp src/renderer/index.html src/renderer/styles.css dist/renderer/",
+    "build:terminal": "esbuild src/renderer/terminal-renderer.ts --bundle --outfile=dist/renderer/terminal-bundle.js --platform=browser && shx cp node_modules/@xterm/xterm/css/xterm.css src/renderer/terminal.html dist/renderer/",
+    "build:monaco": "shx cp src/renderer/monaco.html dist/renderer/ && shx cp -r node_modules/monaco-editor/min/vs dist/renderer/monaco",
     "start": "electron .",
     "postinstall": "electron-rebuild",
     "package:mac": "electron-builder --mac",
@@ -27,6 +27,7 @@
     "electron": "^35.0.0",
     "electron-builder": "^25.1.0",
     "esbuild": "^0.25.0",
+    "shx": "^0.4.0",
     "typescript": "^5.8.0"
   },
   "dependencies": {
