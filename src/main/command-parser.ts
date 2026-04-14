@@ -159,24 +159,24 @@ export class CommandParser {
     // Optional skill/LLM processing
     const instruction = args.join(" ").trim();
     let finalContent = content;
+    let matchedSkill: string | undefined;
 
     if (instruction) {
-      const knownSkill = /^\S+$/.test(instruction)
+      matchedSkill = /^\S+$/.test(instruction)
         ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
         : undefined;
 
-      if (knownSkill) {
-        finalContent = await this.skillEngine.process(content, knownSkill);
+      if (matchedSkill) {
+        finalContent = await this.skillEngine.process(content, matchedSkill);
       } else if (this.yoChat) {
         finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
       }
     }
 
-    // Auto-name: date-time for bare yo, skill label for yo <skill>
+    // Auto-name: use skill name for known skills, timestamp for everything else
     const now = new Date();
     const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
-    const skillLabel = instruction?.split(/\s+/)[0] || undefined;
-    const label = skillLabel || ts;
+    const label = matchedSkill || ts;
 
     this.session.capture("command-bar", finalContent, `${label}.md`, label);
     this.library.write(label, finalContent);

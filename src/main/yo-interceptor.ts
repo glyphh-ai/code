@@ -307,15 +307,16 @@ document.addEventListener('keyup',function(e){
 
     // Process with skill/LLM if instruction given
     let finalContent = content;
+    let matchedSkill: string | undefined;
     if (realInstruction) {
       try {
-        // Check for known skill
-        const knownSkill = /^\S+$/.test(realInstruction)
+        // Check for known skill (single-word only)
+        matchedSkill = /^\S+$/.test(realInstruction)
           ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === realInstruction.toLowerCase())
           : undefined;
 
-        if (knownSkill) {
-          finalContent = await this.skillEngine.process(content, knownSkill);
+        if (matchedSkill) {
+          finalContent = await this.skillEngine.process(content, matchedSkill);
         } else if (this.yoChat) {
           finalContent = await this.yoChat.executeInline("yo", realInstruction, appId, content);
         }
@@ -325,20 +326,19 @@ document.addEventListener('keyup',function(e){
       }
     }
 
-    // Auto-name: date-time for bare yo, skill label for yo <skill>
+    // Auto-name: use skill name for known skills, timestamp for everything else
     const now = new Date();
     const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
-    const skillLabel = realInstruction?.split(/\s+/)[0] || undefined;
-    const sessionLabel = skillLabel ? `${skillLabel}.md` : `${ts}.md`;
-    this.session.capture(appId, finalContent, sessionLabel, skillLabel || ts);
-    this.library.write(skillLabel || ts, finalContent);
+    const fileLabel = matchedSkill || ts;
+    this.session.capture(appId, finalContent, `${fileLabel}.md`, fileLabel);
+    this.library.write(fileLabel, finalContent);
     this.sessionNotifier?.();
 
-    const label = realInstruction ? `yo ${realInstruction}` : "yo";
+    const notifyLabel = realInstruction ? `yo ${realInstruction}` : "yo";
     await this.clearNotify(wc);
 
     this.session.copyToClipboard();
-    this.notify(wc, `${label} \u2014 captured`, "success");
+    this.notify(wc, `${notifyLabel} \u2014 captured`, "success");
   }
 
   // ── sup: session → process → inject ───────────────────
