@@ -12,7 +12,7 @@ mac:
 win:
   target:
     - nsis
-  icon: assets/icon.ico
+  icon: assets/icon.png
 
 directories:
   output: release
