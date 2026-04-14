@@ -27,6 +27,23 @@ export type PanelCreatedCallback = (id: string, webContents: WebContents) => voi
 export type PanelReadyCallback = (id: string, webContents: WebContents) => void;
 
 export class PanelManager {
+  /** Loading page shown while a local server starts up */
+  private static readonly LOADING_HTML = `<html><head><style>
+    body{background:#0a0a0a;color:#888;font-family:-apple-system,system-ui,sans-serif;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      height:100vh;margin:0;gap:20px}
+    .dots{display:flex;gap:6px}
+    .dot{width:8px;height:8px;border-radius:50%;background:#25C75E;
+      animation:pulse 1.4s infinite ease-in-out}
+    .dot:nth-child(2){animation-delay:.2s}
+    .dot:nth-child(3){animation-delay:.4s}
+    @keyframes pulse{0%,80%,100%{transform:scale(.3);opacity:.3}40%{transform:scale(1);opacity:1}}
+    p{font-size:14px;letter-spacing:.5px}
+  </style></head><body>
+    <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+    <p>Starting server...</p>
+  </body></html>`;
+
   private static readonly SCROLLBAR_CSS = `
     *::-webkit-scrollbar { width: 6px; height: 6px; }
     *::-webkit-scrollbar-track { background: transparent; }
@@ -339,6 +356,12 @@ export class PanelManager {
     // Block native app protocol redirects (slack://, zoommtg://, etc.)
     view.webContents.on("will-navigate", (e, url) => {
       if (isLocal && url.startsWith("file://")) return;
+      // Internal yo:// links (e.g. yo://open-settings from info pages)
+      if (url.startsWith("yo://open-settings")) {
+        e.preventDefault();
+        PanelManager.mainWebContents?.send("open-settings");
+        return;
+      }
       if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
         e.preventDefault();
         return;
@@ -369,9 +392,32 @@ export class PanelManager {
     view.webContents.on("console-message", (_e, level, message) => {
       if (level >= 2) console.log(`[panel:${id}:console]`, message.slice(0, 200));
     });
-    view.webContents.on("did-fail-load", (_e, code, desc, url) => {
-      console.log(`[panel:${id}:fail-load]`, code, desc, url);
+    let retrying = false;
+    view.webContents.on("did-fail-load", (_e, code, desc, failUrl) => {
+      console.log(`[panel:${id}:fail-load]`, code, desc, failUrl);
+      // ERR_CONNECTION_REFUSED on localhost → server starting up, show loading + retry
+      if (code === -102 && failUrl && /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(failUrl)) {
+        if (retrying) return; // already in retry loop, don't restart
+        retrying = true;
+        const retryUrl = failUrl;
+        view.webContents.loadURL(`data:text/html,${encodeURIComponent(PanelManager.LOADING_HTML)}`);
+        const retry = (attempt: number) => {
+          if (attempt > 15) { retrying = false; return; }
+          setTimeout(() => {
+            if (!retrying) return; // page loaded successfully, stop retrying
+            try {
+              if (!view.webContents.isDestroyed()) {
+                console.log(`[panel:${id}] retrying load (attempt ${attempt})...`);
+                view.webContents.loadURL(retryUrl);
+              }
+            } catch {}
+            retry(attempt + 1);
+          }, 2000);
+        };
+        retry(1);
+      }
     });
+    view.webContents.on("did-navigate", () => { retrying = false; });
 
     view.webContents.setWindowOpenHandler(({ url, features }) => {
       console.log(`[panel:${id}:popup]`, url.slice(0, 120), features?.slice(0, 80));

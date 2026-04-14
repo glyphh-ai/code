@@ -6,7 +6,7 @@
  * manages window chrome and session state display.
  */
 
-import { initHelp, openHelp, closeHelp, isHelpOpen } from "./help.js";
+import { initHelp, openHelp, openSettings, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
 
 declare global {
@@ -56,6 +56,7 @@ declare global {
       libraryListMeta: () => Promise<Array<{ name: string; modified: number; size: number }>>;
       librarySearchAi: (query: string) => Promise<string[]>;
       // Preferences + boot
+      relaunch: () => void;
       setPreference: (key: string, value: unknown) => void;
       getPreference: (key: string, defaultVal?: unknown) => Promise<unknown>;
       onboardingComplete: () => Promise<void>;
@@ -68,6 +69,7 @@ declare global {
       buyLicense: () => Promise<string | null>;
       onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
+      onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
@@ -500,6 +502,7 @@ function isSupBrowserOpen(): boolean {
 
 // yo help trigger from main process
 window.yo.onShowWelcome(() => openHelp());
+window.yo.onOpenSettings(() => openSettings());
 
 // Initialize help overlay
 initHelp();

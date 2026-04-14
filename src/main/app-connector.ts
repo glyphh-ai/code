@@ -40,6 +40,33 @@ export const STANDARD_COMMANDS = [
   { key: "grab", description: "Extract main content/conversation from the page" },
 ] as const;
 
+/** Script to extract all open editor content from VS Code via Monaco's AMD loader */
+const VSCODE_GRAB_SCRIPT = `
+  return await new Promise(function(resolve) {
+    if (!window.require) { resolve('VS Code editor not ready'); return; }
+    try {
+      window.require(['vs/editor/editor.main'], function(monaco) {
+        try {
+          var models = monaco.editor.getModels();
+          if (!models || models.length === 0) { resolve('No files open'); return; }
+          var parts = models.map(function(m) {
+            var uri = m.uri.toString();
+            // Clean up URI: file:///path/to/file.ts → path/to/file.ts
+            var name = uri.replace(/^file:\\/\\/\\//, '').replace(/^[^:]+:\\/\\//, '');
+            var lang = m.getLanguageId() || '';
+            var content = m.getValue();
+            return '## ' + name + (lang ? ' (' + lang + ')' : '') + '\\n\\n' +
+              '\\x60\\x60\\x60' + lang + '\\n' + content + '\\n\\x60\\x60\\x60';
+          });
+          resolve(parts.join('\\n\\n---\\n\\n'));
+        } catch(e) { resolve('Error reading editors: ' + e.message); }
+      });
+    } catch(e) { resolve('Monaco not available: ' + e.message); }
+    // Timeout fallback
+    setTimeout(function() { resolve('Monaco require timed out'); }, 5000);
+  });
+`;
+
 // Default apps — seeded on first launch
 const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: boolean }> = [
   // ── AI Chat ─────────────────────
@@ -220,6 +247,18 @@ export class AppConnector {
         }
         if (changed) this.save(app);
       }
+    }
+
+    // Ensure VS Code has a grab command that uses Monaco API
+    const vscode = this.apps.get("vscode");
+    if (vscode && !vscode.commands.grab) {
+      vscode.commands.grab = {
+        selector: "",
+        action: "custom",
+        description: "Extract all open editor content via Monaco API",
+        script: VSCODE_GRAB_SCRIPT,
+      };
+      this.save(vscode);
     }
   }
 

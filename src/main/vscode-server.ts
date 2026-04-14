@@ -11,6 +11,7 @@ import * as os from "os";
 
 const PORT = 9437;
 const HOST = "127.0.0.1";
+const DATA_DIR = `${os.homedir()}/yo/vscode`;
 
 /** Paths to check for the VS Code CLI on macOS */
 const CODE_PATHS = [
@@ -71,11 +72,16 @@ export class VSCodeServer {
         return;
       }
 
+      // Ensure data dirs exist for state persistence
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+
       const args = [
         "serve-web",
         "--port", String(PORT),
         "--host", HOST,
         "--without-connection-token",
+        "--accept-server-license-terms",
+        "--server-data-dir", DATA_DIR,
       ];
       if (folder) {
         args.push("--default-folder", folder);

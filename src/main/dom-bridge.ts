@@ -236,7 +236,7 @@ async function clickElement(wc: WebContents, selector: string): Promise<string> 
 async function runCustomScript(wc: WebContents, script: string, value?: string): Promise<string> {
   // The script can reference __value__ as the input
   const wrapped = `
-    (function() {
+    (async function() {
       var __value__ = ${JSON.stringify(value || "")};
       ${script}
     })()

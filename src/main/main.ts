@@ -522,6 +522,7 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const browserHtml = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
+  const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
   for (const app of appConnector.list()) {
     if (app.url === "yo://terminal") {
@@ -532,19 +533,46 @@ async function boot() {
       panelManager.addPanel(app.id, browserHtml, undefined, undefined, true);
     } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
       // VS Code uses local `code serve-web` for full file access
-      if (vscodeServer.available) {
+      if (enableVscode && vscodeServer.available) {
         panelManager.addPanel(app.id, VSCodeServer.expectedUrl());
       } else {
-        // Fallback to vscode.dev if VS Code CLI not found
-        panelManager.addPanel(app.id, "https://vscode.dev");
+        // Show setup instructions instead of broken fallback
+        const reason = !enableVscode
+          ? "VS Code Server is disabled."
+          : "VS Code CLI not found on this machine.";
+        const infoPage = `data:text/html,${encodeURIComponent(`<html><head><style>
+          body{background:#0a0a0a;color:#999;font-family:-apple-system,system-ui,sans-serif;
+            display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+          .card{text-align:center;max-width:420px;padding:40px}
+          h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
+          p{font-size:14px;line-height:1.6;margin:8px 0}
+          .reason{color:#777;font-size:13px;margin-bottom:16px}
+          a{color:#25C75E;text-decoration:none;font-weight:500;cursor:pointer}
+          a:hover{text-decoration:underline}
+          .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
+          .steps li{padding:6px 0;font-size:13px;color:#888}
+          .steps li::before{content:"→ ";color:#25C75E}
+          code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
+            background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
+        </style></head><body><div class="card">
+          <h2>VS Code Server</h2>
+          <p class="reason">${reason}</p>
+          <ul class="steps">
+            <li>Install <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a></li>
+            <li>Run <code>Shell Command: Install 'code' in PATH</code> from the VS Code command palette</li>
+            <li>Enable <strong>VS Code Server</strong> in <a href="yo://open-settings">Settings</a></li>
+            <li>Restart the app</li>
+          </ul>
+        </div></body></html>`)}`;
+        panelManager.addPanel(app.id, infoPage);
       }
     } else {
       panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
     }
   }
 
-  // Start VS Code server in the background if CLI is available
-  if (vscodeServer.available) {
+  // Start VS Code server in the background if enabled and CLI is available
+  if (enableVscode && vscodeServer.available) {
     vscodeServer.start().catch((err) => {
       console.log("[vscode-server] failed to start:", err.message);
     });
@@ -632,9 +660,11 @@ async function boot() {
     wc.send("terminal:data", `\x1b[90m${lines}\x1b[0m\r\n`);
   });
 
-  // Local MCP server
-  mcpServer = new MCPServer(library);
-  await mcpServer.start();
+  // Local MCP server (off by default — enable in preferences)
+  if (getPreference("enableMcpServer", false)) {
+    mcpServer = new MCPServer(library);
+    await mcpServer.start();
+  }
 
   // Cloud sync (pulls from yo.yo.dev → ~/yo/library/)
   cloudSync = new CloudSync(library);
@@ -1308,6 +1338,12 @@ async function boot() {
   });
   ipcMain.handle("get-preference", (_e, key: string, defaultVal: unknown) => {
     return getPreference(key, defaultVal);
+  });
+
+  // IPC: relaunch app (for settings that require restart)
+  ipcMain.on("relaunch", () => {
+    app.relaunch();
+    app.exit(0);
   });
 
   // IPC: onboarding complete — restore panels after activation

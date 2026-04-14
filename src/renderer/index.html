@@ -434,6 +434,31 @@
               <span id="settings-status"></span>
             </div>
           </div>
+
+          <h3 class="settings-subheading">Services</h3>
+          <p class="section-desc">Optional local servers. Changes take effect on next launch.</p>
+          <div class="settings-toggles">
+            <label class="settings-toggle">
+              <input type="checkbox" id="toggle-vscode-server" />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">VS Code Server</span>
+                <span class="toggle-desc">Run local <code>code serve-web</code> for full file access</span>
+              </div>
+            </label>
+            <label class="settings-toggle">
+              <input type="checkbox" id="toggle-mcp-server" />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">MCP Server</span>
+                <span class="toggle-desc">Local Model Context Protocol endpoint for tool integrations</span>
+              </div>
+            </label>
+          </div>
+          <div id="settings-relaunch" class="settings-relaunch hidden">
+            <span>Restart required for changes to take effect</span>
+            <button id="settings-relaunch-btn" class="action-btn primary">Relaunch</button>
+          </div>
         </div>
 
       </main>

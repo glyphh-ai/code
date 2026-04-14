@@ -1944,6 +1944,107 @@ select.settings-input {
   font-size: 13px;
 }
 
+.settings-subheading {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ddd;
+  margin: 28px 0 4px;
+}
+
+.settings-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+  margin-top: 12px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #222;
+  background: #111;
+  transition: border-color 0.15s;
+}
+.settings-toggle:hover { border-color: #333; }
+
+.settings-toggle input[type="checkbox"] {
+  display: none;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  min-width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: #333;
+  transition: background 0.2s;
+}
+.toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #888;
+  transition: transform 0.2s, background 0.2s;
+}
+.settings-toggle input:checked + .toggle-switch {
+  background: #25C75E;
+}
+.settings-toggle input:checked + .toggle-switch::after {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.toggle-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ddd;
+}
+.toggle-desc {
+  font-size: 11px;
+  color: #777;
+}
+.toggle-desc code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 11px;
+  color: #999;
+  background: #1a1a1a;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.settings-relaunch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #1a1500;
+  border: 1px solid #3a3000;
+  max-width: 420px;
+}
+.settings-relaunch span {
+  font-size: 13px;
+  color: #cc9;
+}
+.settings-relaunch.hidden { display: none; }
+
 /* Onboarding provider select */
 #onboarding-provider {
   width: 100%;

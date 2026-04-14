@@ -271,15 +271,30 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Parse dot modifier: "yo ." or "yo . <skill>"
-    const dotMatch = instruction?.match(/^\.\s*(.*)?$/);
-    const currentOnly = !!dotMatch;
-    const realInstruction = currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
+    // Check if instruction starts with a command keyword BEFORE dot modifier parsing.
+    // ".dip gmail" is a chained command, not a dot modifier — don't strip its dot.
+    const rawFirstWord = instruction?.split(/\s+/)[0]?.toLowerCase();
+    const isDirectChain = rawFirstWord && YoInterceptor.COMMAND_KEYWORDS.has(rawFirstWord);
 
-    // Check if realInstruction starts with a dot-prefixed command → chained command
-    // e.g. "yo . .dip gmail" → capture active panel, then run ".dip gmail"
-    const firstWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
-    const isChainedCommand = firstWord && YoInterceptor.COMMAND_KEYWORDS.has(firstWord);
+    let currentOnly = false;
+    let realInstruction = instruction;
+    let isChainedCommand = isDirectChain;
+
+    if (isDirectChain) {
+      // e.g. ".yo .dip gmail" → capture all panels, then run ".dip gmail"
+      currentOnly = false;
+      realInstruction = instruction;
+    } else {
+      // Parse dot modifier: "yo ." or "yo . <skill>" or "yo . .dip gmail"
+      const dotMatch = instruction?.match(/^\.\s*(.*)?$/);
+      currentOnly = !!dotMatch;
+      realInstruction = currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
+
+      // Check if what follows the dot modifier is a chained command
+      // e.g. "yo . .dip gmail" → capture active panel, then run ".dip gmail"
+      const firstWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
+      isChainedCommand = !!(firstWord && YoInterceptor.COMMAND_KEYWORDS.has(firstWord));
+    }
 
     // Grab content
     this.notify(wc, "", "loading");

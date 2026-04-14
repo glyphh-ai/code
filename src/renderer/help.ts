@@ -14,6 +14,17 @@ export function openHelp() {
   loadActiveSection();
 }
 
+export function openSettings() {
+  // Switch to settings tab
+  navItems.forEach((n) => n.classList.remove("active"));
+  sections.forEach((s) => s.classList.remove("active"));
+  const settingsNav = document.querySelector('.help-nav-item[data-section="settings"]') as HTMLElement;
+  const settingsSec = document.querySelector('.help-section[data-section="settings"]') as HTMLElement;
+  if (settingsNav) settingsNav.classList.add("active");
+  if (settingsSec) settingsSec.classList.add("active");
+  openHelp();
+}
+
 export function closeHelp() {
   overlay.classList.add("hidden");
   window.yo.panelsShow();
@@ -754,11 +765,33 @@ const settingsBaseUrlLabel = document.getElementById("settings-base-url-label")!
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsStatus = document.getElementById("settings-status")!;
 
+const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
+const toggleMcpServer = document.getElementById("toggle-mcp-server") as HTMLInputElement;
+
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
 
 function initSettings() {
   settingsProvider.addEventListener("change", () => updateSettingsUI());
   settingsSaveBtn.addEventListener("click", saveSettings);
+
+  // Service toggles — show relaunch bar when changed
+  const showRelaunch = () => {
+    const bar = document.getElementById("settings-relaunch")!;
+    if (bar) bar.classList.remove("hidden");
+  };
+  toggleVscodeServer.addEventListener("change", () => {
+    window.yo.setPreference("enableVscodeServer", toggleVscodeServer.checked);
+    showRelaunch();
+  });
+  toggleMcpServer.addEventListener("change", () => {
+    window.yo.setPreference("enableMcpServer", toggleMcpServer.checked);
+    showRelaunch();
+  });
+
+  // Relaunch button
+  document.getElementById("settings-relaunch-btn")?.addEventListener("click", () => {
+    window.yo.relaunch();
+  });
 }
 
 function updateSettingsUI(currentModel?: string) {
@@ -805,6 +838,10 @@ async function loadSettings() {
   settingsBaseUrl.value = config.baseUrl || "";
 
   updateSettingsUI(config.model);
+
+  // Load service toggle states
+  toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
+  toggleMcpServer.checked = await window.yo.getPreference("enableMcpServer", false) as boolean;
 }
 
 async function saveSettings() {

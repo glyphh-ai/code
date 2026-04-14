@@ -51,10 +51,14 @@ contextBridge.exposeInMainWorld("yo", {
   librarySearchAi: (query: string) => ipcRenderer.invoke("library-search-ai", query) as Promise<string[]>,
 
   // Preferences
+  relaunch: () => ipcRenderer.send("relaunch"),
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
   getPreference: (key: string, defaultVal?: unknown) => ipcRenderer.invoke("get-preference", key, defaultVal),
   onShowWelcome: (callback: () => void) => {
     ipcRenderer.on("show-welcome", () => callback());
+  },
+  onOpenSettings: (callback: () => void) => {
+    ipcRenderer.on("open-settings", () => callback());
   },
   onFocusInput: (callback: () => void) => {
     ipcRenderer.on("focus-command-input", () => callback());
