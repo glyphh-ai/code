@@ -639,165 +639,180 @@ body {
   font-size: 13px;
 }
 /* Skill create modal */
-#skill-create-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 97;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(4px);
-}
-#skill-create-modal.hidden { display: none; }
-.skill-create-card {
-  background: #111;
-  border: 1px solid #222;
-  border-radius: 12px;
-  padding: 20px;
-  width: 480px;
-  max-width: 90vw;
-}
-.skill-create-card h3 {
-  margin: 0 0 16px;
-  font-size: 16px;
-  color: #fff;
-  font-weight: 600;
-}
-.skill-create-card input,
-.skill-create-card textarea {
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 13px;
-  color: #fff !important;
-  -webkit-text-fill-color: #fff;
-  background: #0d0d0d;
-  border: 1px solid #222;
-  border-radius: 8px;
-  outline: none;
-  margin-bottom: 12px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-}
-.skill-create-card input::placeholder,
-.skill-create-card textarea::placeholder {
-  color: #555 !important;
-  -webkit-text-fill-color: #555;
-}
-.skill-create-card input:focus,
-.skill-create-card textarea:focus {
-  border-color: #25C75E;
-}
-.skill-create-card textarea {
-  min-height: 120px;
-  resize: vertical;
-  line-height: 1.6;
-}
-.skill-create-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 4px;
-}
-.skill-create-actions button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.skill-create-actions .btn-cancel {
-  background: #222;
-  color: #999;
-}
-.skill-create-actions .btn-cancel:hover { background: #333; }
-.skill-create-actions .btn-create {
-  background: #25C75E;
-  color: #000;
-  font-weight: 500;
-}
-.skill-create-actions .btn-create:hover { background: #2dd36f; }
-.skill-create-actions .btn-wand {
-  background: #0d0d0d;
-  border: 1px solid #222;
-  color: #25C75E;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.skill-create-actions .btn-wand:hover { background: #1a1a1a; border-color: #25C75E; }
-.skill-create-actions .btn-wand:disabled { opacity: 0.5; cursor: default; }
-.skill-create-actions .btn-wand svg { flex-shrink: 0; }
 
-/* ── Library edit modal ────────────────────────────────── */
+/* ── Detail view (skills + library split editor) ──────── */
 
-#lib-edit-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 97;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(4px);
-}
-#lib-edit-modal.hidden { display: none; }
-.lib-edit-card {
-  background: #111;
-  border: 1px solid #222;
-  border-radius: 12px;
-  padding: 20px;
-  width: 560px;
-  max-width: 90vw;
-  max-height: 80vh;
+.detail-view {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
-.lib-edit-header {
+.detail-view.hidden { display: none; }
+
+.detail-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #1e1e1e;
+  margin-bottom: 0;
 }
-.lib-edit-header input {
-  flex: 1;
-  height: 32px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  padding: 0 12px;
-  color: #fff !important;
-  -webkit-text-fill-color: #fff;
-  font-size: 14px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+.detail-info { display: flex; align-items: center; gap: 8px; }
+.detail-actions { gap: 8px; }
+
+.detail-title-input {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
   outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  width: 280px;
 }
-.lib-edit-header input:focus { border-color: #25C75E; }
-.lib-edit-header input::placeholder { color: #555; -webkit-text-fill-color: #555; }
-#lib-edit-content {
+.detail-title-input:hover { border-color: #333; }
+.detail-title-input:focus { border-color: #25C75E; }
+.detail-title-input::placeholder { color: #555; -webkit-text-fill-color: #555; }
+
+.detail-split {
+  display: flex;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.detail-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid #1e1e1e;
+}
+.detail-editor-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+  padding: 10px 14px 6px;
+  flex-shrink: 0;
+}
+.detail-editor textarea {
   flex: 1;
   min-height: 200px;
-  max-height: 60vh;
-  padding: 12px 14px;
+  padding: 10px 14px;
   font-size: 13px;
   line-height: 1.6;
   color: #fff !important;
   -webkit-text-fill-color: #fff;
+  background: #0a0a0a;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.detail-editor textarea::placeholder { color: #444; -webkit-text-fill-color: #444; }
+
+.detail-llm {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   background: #0d0d0d;
+}
+.detail-llm-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+  padding: 10px 14px 6px;
+  flex-shrink: 0;
+}
+.detail-llm-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #ccc;
+}
+.detail-llm-log .llm-msg {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.detail-llm-log .llm-msg.user {
+  background: #1a1a1a;
+  color: #fff;
+  text-align: right;
+  margin-left: 24px;
+}
+.detail-llm-log .llm-msg.ai {
+  background: #111;
+  color: #ccc;
+  border: 1px solid #1e1e1e;
+  margin-right: 24px;
+}
+.detail-llm-log .llm-msg.ai.loading {
+  color: #25C75E;
+  font-style: italic;
+}
+.detail-llm-log .llm-empty {
+  color: #444;
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 0;
+}
+.detail-llm-input-wrap {
+  position: relative;
+  padding: 8px 12px 12px;
+  border-top: 1px solid #1e1e1e;
+  flex-shrink: 0;
+}
+.detail-llm-input-wrap textarea {
+  width: 100%;
+  min-height: 48px;
+  max-height: 120px;
+  padding: 10px 40px 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+  background: #1a1a1a;
   border: 1px solid #222;
   border-radius: 8px;
   outline: none;
-  resize: vertical;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  resize: none;
+  font-family: inherit;
 }
-#lib-edit-content:focus { border-color: #25C75E; }
-#lib-edit-content::placeholder { color: #555; -webkit-text-fill-color: #555; }
-.lib-edit-actions {
+.detail-llm-input-wrap textarea:focus { border-color: #333; }
+.detail-llm-input-wrap textarea::placeholder { color: #555; -webkit-text-fill-color: #555; }
+.detail-llm-send {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #25C75E;
+  color: #000;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
   display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 12px;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
 }
+.detail-llm-send:hover { background: #2dd36f; }
+.detail-llm-send:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Panel screenshots (freeze-frame) ────────────────────── */
 
@@ -992,22 +1007,28 @@ body {
   display: block;
 }
 
-/* Apps section needs full height for the split layout */
-.help-section[data-section="apps"].active {
+/* Sections with split detail views need full height */
+.help-section[data-section="apps"].active,
+.help-section[data-section="skills"].active,
+.help-section[data-section="library"].active {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
 }
 
-.help-section[data-section="apps"] #app-detail {
+.help-section[data-section="apps"] #app-detail,
+.help-section[data-section="skills"] #skill-detail,
+.help-section[data-section="library"] #lib-detail {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.help-section[data-section="apps"] #app-detail.hidden {
+.help-section[data-section="apps"] #app-detail.hidden,
+.help-section[data-section="skills"] #skill-detail.hidden,
+.help-section[data-section="library"] #lib-detail.hidden {
   display: none !important;
 }
 

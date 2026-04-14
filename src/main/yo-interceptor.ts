@@ -258,7 +258,7 @@ document.addEventListener('keyup',function(e){
   //   yo . <skill> → grab current → skill → session + clipboard
   //   yo help      → open help overlay
 
-  private static readonly COMMAND_KEYWORDS = new Set(["yo", "sup", "dip", "drip", "wassup"]);
+  private static readonly COMMAND_KEYWORDS = new Set([".yo", ".sup", ".dip", ".drip"]);
 
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Subcommands routed through command parser
@@ -276,8 +276,8 @@ document.addEventListener('keyup',function(e){
     const currentOnly = !!dotMatch;
     const realInstruction = currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
 
-    // Check if realInstruction starts with a command keyword → chained command
-    // e.g. "yo . dip gmail" → capture active panel, then run "dip gmail"
+    // Check if realInstruction starts with a dot-prefixed command → chained command
+    // e.g. "yo . .dip gmail" → capture active panel, then run ".dip gmail"
     const firstWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
     const isChainedCommand = firstWord && YoInterceptor.COMMAND_KEYWORDS.has(firstWord);
 

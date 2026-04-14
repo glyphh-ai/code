@@ -222,12 +222,38 @@
           <h2>Skills</h2>
           <p class="section-desc">Reusable prompt templates. Use with <code>.yo &lt;skill&gt;</code> or <code>.sup . &lt;skill&gt;</code>.</p>
           <div class="tab-toolbar">
-            <button id="skill-create-btn" class="tab-action-btn" title="Create skill with AI">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M11 6.2L9.7 5"/><path d="M11 11.8L9.7 13"/><path d="M3 21l9-9"/><path d="M12.2 6.25a3.5 3.5 0 0 0-3.94 3.94L3 21l10.81-5.26a3.5 3.5 0 0 0 3.94-3.94"/></svg>
-              Create with AI
-            </button>
+            <input id="skill-new-name" type="text" placeholder="skill name" spellcheck="false" autocomplete="off" />
+            <button id="skill-create-btn" class="action-btn primary">+ New Skill</button>
           </div>
           <div id="skills-list" class="help-item-list"></div>
+
+          <!-- Skill detail (split: editor + LLM prompt) -->
+          <div id="skill-detail" class="detail-view hidden">
+            <div class="detail-header">
+              <div class="detail-info">
+                <input id="skill-detail-name" class="detail-title-input" spellcheck="false" placeholder="skill name" />
+              </div>
+              <div class="action-btns detail-actions">
+                <button id="skill-detail-save" class="action-btn primary">Save</button>
+                <button id="skill-detail-delete" class="action-btn danger">Delete</button>
+                <button id="skill-detail-close" class="action-btn">Back</button>
+              </div>
+            </div>
+            <div class="detail-split">
+              <div class="detail-editor">
+                <div class="detail-editor-label">Prompt Template</div>
+                <textarea id="skill-detail-content" placeholder="Write the prompt template..." spellcheck="false"></textarea>
+              </div>
+              <div class="detail-llm">
+                <div class="detail-llm-label">Refine with AI</div>
+                <div id="skill-llm-log" class="detail-llm-log"></div>
+                <div class="detail-llm-input-wrap">
+                  <textarea id="skill-llm-input" rows="2" placeholder="Ask AI to refine this skill..." spellcheck="false"></textarea>
+                  <button id="skill-llm-send" class="detail-llm-send">↑</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Library -->
@@ -235,6 +261,35 @@
           <h2>Library</h2>
           <p class="section-desc">Saved content. Click to set as active context.</p>
           <div id="library-list" class="help-item-list"></div>
+
+          <!-- Library detail (split: editor + LLM prompt) -->
+          <div id="lib-detail" class="detail-view hidden">
+            <div class="detail-header">
+              <div class="detail-info">
+                <input id="lib-detail-name" class="detail-title-input" spellcheck="false" placeholder="file name" />
+              </div>
+              <div class="action-btns detail-actions">
+                <button id="lib-detail-context" class="action-btn">Set as Context</button>
+                <button id="lib-detail-save" class="action-btn primary">Save</button>
+                <button id="lib-detail-delete" class="action-btn danger">Delete</button>
+                <button id="lib-detail-close" class="action-btn">Back</button>
+              </div>
+            </div>
+            <div class="detail-split">
+              <div class="detail-editor">
+                <div class="detail-editor-label">Content</div>
+                <textarea id="lib-detail-content" placeholder="Content..." spellcheck="false"></textarea>
+              </div>
+              <div class="detail-llm">
+                <div class="detail-llm-label">Refine with AI</div>
+                <div id="lib-llm-log" class="detail-llm-log"></div>
+                <div class="detail-llm-input-wrap">
+                  <textarea id="lib-llm-input" rows="2" placeholder="Ask AI to refine this content..." spellcheck="false"></textarea>
+                  <button id="lib-llm-send" class="detail-llm-send">↑</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Layouts -->
@@ -385,37 +440,7 @@
     </div>
   </div>
 
-  <!-- Skill create modal -->
-  <div id="skill-create-modal" class="hidden">
-    <div class="skill-create-card">
-      <h3>Create Skill</h3>
-      <input id="skill-create-name" type="text" placeholder="Skill name (e.g. meeting-notes)" spellcheck="false" autocomplete="off" />
-      <textarea id="skill-create-prompt" rows="4" placeholder="What should this skill do? Describe it or write the prompt template..."></textarea>
-      <div class="skill-create-actions">
-        <button class="btn-wand" id="skill-create-wand">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M11 6.2L9.7 5"/><path d="M11 11.8L9.7 13"/><path d="M3 21l9-9"/><path d="M12.2 6.25a3.5 3.5 0 0 0-3.94 3.94L3 21l10.81-5.26a3.5 3.5 0 0 0 3.94-3.94"/></svg>
-          Generate with AI
-        </button>
-        <button class="btn-cancel" id="skill-create-cancel">Cancel</button>
-        <button class="btn-create" id="skill-create-save">Create</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Library edit modal -->
-  <div id="lib-edit-modal" class="hidden">
-    <div class="lib-edit-card">
-      <div class="lib-edit-header">
-        <input id="lib-edit-name" type="text" placeholder="file name" spellcheck="false" autocomplete="off" />
-        <button id="lib-edit-close" class="wb-close-btn">&times;</button>
-      </div>
-      <textarea id="lib-edit-content" rows="16" placeholder="Content..."></textarea>
-      <div class="lib-edit-actions">
-        <button id="lib-edit-delete" class="btn-cancel">Delete</button>
-        <button id="lib-edit-save" class="btn-create">Save</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Download toast -->
   <div id="download-toast" class="download-toast hidden">

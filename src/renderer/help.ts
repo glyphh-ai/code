@@ -98,21 +98,29 @@ export function initHelp() {
     }
   });
 
-  // Skills
-  document.getElementById("skill-create-btn")!.addEventListener("click", openSkillCreateModal);
-  document.getElementById("skill-create-cancel")!.addEventListener("click", closeSkillCreateModal);
-  document.getElementById("skill-create-save")!.addEventListener("click", saveNewSkill);
-  document.getElementById("skill-create-wand")!.addEventListener("click", generateSkillPrompt);
-  document.getElementById("skill-create-modal")!.addEventListener("click", (e) => {
-    if (e.target === document.getElementById("skill-create-modal")) closeSkillCreateModal();
+  // Skills — inline creation
+  document.getElementById("skill-create-btn")!.addEventListener("click", createNewSkill);
+  skillNewName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") createNewSkill();
   });
 
-  // Library edit modal
-  document.getElementById("lib-edit-close")!.addEventListener("click", closeLibEdit);
-  document.getElementById("lib-edit-save")!.addEventListener("click", saveLibEdit);
-  document.getElementById("lib-edit-delete")!.addEventListener("click", deleteLibEdit);
-  libEditModal.addEventListener("click", (e) => {
-    if (e.target === libEditModal) closeLibEdit();
+  // Skill detail
+  document.getElementById("skill-detail-save")!.addEventListener("click", saveSkillDetail);
+  document.getElementById("skill-detail-delete")!.addEventListener("click", deleteSkillDetail);
+  document.getElementById("skill-detail-close")!.addEventListener("click", closeSkillDetail);
+  document.getElementById("skill-llm-send")!.addEventListener("click", sendSkillLlm);
+  skillLlmInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSkillLlm(); }
+  });
+
+  // Library detail
+  document.getElementById("lib-detail-context")!.addEventListener("click", setLibContext);
+  document.getElementById("lib-detail-save")!.addEventListener("click", saveLibDetail);
+  document.getElementById("lib-detail-delete")!.addEventListener("click", deleteLibDetail);
+  document.getElementById("lib-detail-close")!.addEventListener("click", closeLibDetail);
+  document.getElementById("lib-llm-send")!.addEventListener("click", sendLibLlm);
+  libLlmInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendLibLlm(); }
   });
 
   // Apps
@@ -873,14 +881,20 @@ async function saveMapping() {
 // ── Skills ────────────────────────────────────────────────
 
 const skillsList = document.getElementById("skills-list")!;
-const skillCreateModal = document.getElementById("skill-create-modal")!;
-const skillCreateName = document.getElementById("skill-create-name") as HTMLInputElement;
-const skillCreatePrompt = document.getElementById("skill-create-prompt") as HTMLTextAreaElement;
-const skillModalTitle = document.querySelector("#skill-create-modal .skill-create-card h3")!;
-const skillCreateSaveBtn = document.getElementById("skill-create-save")!;
-let editingSkillName = "";  // non-empty when editing existing skill
+const skillSection = skillsList.closest(".help-section") as HTMLElement;
+const skillToolbar = skillsList.previousElementSibling as HTMLElement; // .tab-toolbar
+const skillDetail = document.getElementById("skill-detail")!;
+const skillDetailName = document.getElementById("skill-detail-name") as HTMLInputElement;
+const skillDetailContent = document.getElementById("skill-detail-content") as HTMLTextAreaElement;
+const skillLlmLog = document.getElementById("skill-llm-log")!;
+const skillLlmInput = document.getElementById("skill-llm-input") as HTMLTextAreaElement;
+const skillNewName = document.getElementById("skill-new-name") as HTMLInputElement;
+let currentSkillFile = "";  // file name of skill being viewed in detail
 
 async function loadSkills() {
+  skillDetail.classList.add("hidden");
+  skillsList.classList.remove("hidden");
+  skillToolbar.classList.remove("hidden");
   const skills = await window.yo.skillsList();
   if (skills.length === 0) {
     skillsList.innerHTML = `<div class="help-item-empty">No skills yet. Click "Create with AI" to make one.</div>`;
@@ -890,32 +904,19 @@ async function loadSkills() {
   for (const name of skills) {
     const row = document.createElement("div");
     row.className = "help-item-row";
+    const cleanName = name.replace(/\.md$/i, "");
     row.innerHTML = `
       <div class="help-item-icon">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
       </div>
-      <span class="help-item-name">${name.replace(/\.md$/i, "")}</span>
+      <span class="help-item-name">${cleanName}</span>
       <div class="help-item-actions">
-        <button class="help-item-action skill-edit" title="Edit">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
         <button class="help-item-action danger skill-delete" title="Delete">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>`;
 
-    row.querySelector(".skill-edit")!.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const prompt = await window.yo.skillsRead(name);
-      if (prompt !== null) {
-        editingSkillName = name;
-        skillCreateName.value = name.replace(/\.md$/i, "");
-        skillCreatePrompt.value = prompt;
-        skillModalTitle.textContent = "Edit Skill";
-        skillCreateSaveBtn.textContent = "Save";
-        skillCreateModal.classList.remove("hidden");
-      }
-    });
+    row.addEventListener("click", () => openSkillDetail(name));
 
     row.querySelector(".skill-delete")!.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -927,110 +928,130 @@ async function loadSkills() {
   }
 }
 
-function openSkillCreateModal() {
-  editingSkillName = "";
-  skillCreateName.value = "";
-  skillCreatePrompt.value = "";
-  skillModalTitle.textContent = "Create Skill";
-  skillCreateSaveBtn.textContent = "Create";
-  skillCreateModal.classList.remove("hidden");
-  skillCreateName.focus();
+function toggleSectionChrome(section: HTMLElement, show: boolean) {
+  const h2 = section.querySelector("h2");
+  const desc = section.querySelector(".section-desc");
+  if (h2) h2.style.display = show ? "" : "none";
+  if (desc) (desc as HTMLElement).style.display = show ? "" : "none";
 }
 
-function closeSkillCreateModal() {
-  skillCreateModal.classList.add("hidden");
-  editingSkillName = "";
+async function openSkillDetail(fileName: string) {
+  currentSkillFile = fileName;
+  const prompt = await window.yo.skillsRead(fileName);
+  if (prompt === null) return;
+
+  skillDetailName.value = fileName.replace(/\.md$/i, "");
+  skillDetailContent.value = prompt;
+  skillLlmLog.innerHTML = `<div class="llm-empty">Ask AI to refine, expand, or rewrite the prompt.</div>`;
+
+  skillsList.classList.add("hidden");
+  skillToolbar.classList.add("hidden");
+  toggleSectionChrome(skillSection, false);
+  skillDetail.classList.remove("hidden");
 }
 
-async function saveNewSkill() {
-  const name = skillCreateName.value.trim();
-  const prompt = skillCreatePrompt.value.trim();
-  if (!name) { skillCreateName.focus(); return; }
-  if (!prompt) { skillCreatePrompt.focus(); return; }
-
-  // If editing and name changed, remove old skill
-  if (editingSkillName && editingSkillName !== name && editingSkillName !== `${name}.md`) {
-    await window.yo.skillsRemove(editingSkillName);
-  }
-
-  await window.yo.skillsWrite(name.endsWith(".md") ? name : `${name}.md`, prompt);
-  closeSkillCreateModal();
+function closeSkillDetail() {
+  skillDetail.classList.add("hidden");
+  skillsList.classList.remove("hidden");
+  skillToolbar.classList.remove("hidden");
+  toggleSectionChrome(skillSection, true);
+  currentSkillFile = "";
   loadSkills();
 }
 
-async function generateSkillPrompt() {
-  const name = skillCreateName.value.trim();
-  const desc = skillCreatePrompt.value.trim();
-  if (!name && !desc) { skillCreateName.focus(); return; }
+async function saveSkillDetail() {
+  const name = skillDetailName.value.trim();
+  const content = skillDetailContent.value.trim();
+  if (!name) { skillDetailName.focus(); return; }
+  if (!content) { skillDetailContent.focus(); return; }
 
-  const wandBtn = document.getElementById("skill-create-wand") as HTMLButtonElement;
-  const prevText = skillCreatePrompt.value;
-  wandBtn.disabled = true;
-  skillCreatePrompt.value = "Generating...";
+  const newFile = name.endsWith(".md") ? name : `${name}.md`;
+  if (currentSkillFile && currentSkillFile !== name && currentSkillFile !== newFile) {
+    await window.yo.skillsRemove(currentSkillFile);
+  }
+  await window.yo.skillsWrite(newFile, content);
+  currentSkillFile = newFile;
+}
+
+async function deleteSkillDetail() {
+  if (currentSkillFile) {
+    await window.yo.skillsRemove(currentSkillFile);
+  }
+  closeSkillDetail();
+}
+
+async function sendSkillLlm() {
+  const userMsg = skillLlmInput.value.trim();
+  if (!userMsg) return;
+
+  const currentContent = skillDetailContent.value;
+  skillLlmInput.value = "";
+  const sendBtn = document.getElementById("skill-llm-send") as HTMLButtonElement;
+  sendBtn.disabled = true;
+
+  // Clear empty state
+  const emptyEl = skillLlmLog.querySelector(".llm-empty");
+  if (emptyEl) emptyEl.remove();
+
+  // Show user message
+  const userDiv = document.createElement("div");
+  userDiv.className = "llm-msg user";
+  userDiv.textContent = userMsg;
+  skillLlmLog.appendChild(userDiv);
+
+  // Show loading
+  const loadingDiv = document.createElement("div");
+  loadingDiv.className = "llm-msg ai loading";
+  loadingDiv.textContent = "Thinking...";
+  skillLlmLog.appendChild(loadingDiv);
+  skillLlmLog.scrollTop = skillLlmLog.scrollHeight;
 
   try {
-    const input = desc || name;
-    const result = await window.yo.execCommand(`wassup ${name || "skill"} ${input}`);
-    // Read back the generated prompt
-    const skillFile = name.endsWith(".md") ? name : `${name}.md`;
-    const prompt = await window.yo.skillsRead(skillFile);
-    if (prompt !== null) {
-      skillCreatePrompt.value = prompt;
-    } else {
-      skillCreatePrompt.value = result || prevText;
+    const result = await window.yo.execCommand(
+      `wassup refine-skill Refine this skill prompt based on the user's request.\n\nCurrent prompt:\n${currentContent}\n\nUser request: ${userMsg}\n\nRespond with ONLY the updated prompt text, nothing else.`
+    );
+    loadingDiv.remove();
+    const aiDiv = document.createElement("div");
+    aiDiv.className = "llm-msg ai";
+    aiDiv.textContent = "Updated the prompt.";
+    skillLlmLog.appendChild(aiDiv);
+
+    if (result) {
+      skillDetailContent.value = result;
     }
   } catch {
-    skillCreatePrompt.value = prevText; // revert
+    loadingDiv.textContent = "Failed — try again.";
+    loadingDiv.classList.remove("loading");
   } finally {
-    wandBtn.disabled = false;
+    sendBtn.disabled = false;
+    skillLlmLog.scrollTop = skillLlmLog.scrollHeight;
   }
+}
+
+async function createNewSkill() {
+  const name = skillNewName.value.trim();
+  if (!name) { skillNewName.focus(); return; }
+  const fileName = name.endsWith(".md") ? name : `${name}.md`;
+  // Create with empty prompt, then open detail for editing
+  await window.yo.skillsWrite(fileName, "");
+  skillNewName.value = "";
+  openSkillDetail(fileName);
 }
 
 // ── Library ───────────────────────────────────────────────
 
 const libraryList = document.getElementById("library-list")!;
-const libEditModal = document.getElementById("lib-edit-modal")!;
-const libEditName = document.getElementById("lib-edit-name") as HTMLInputElement;
-const libEditContent = document.getElementById("lib-edit-content") as HTMLTextAreaElement;
-let editingLibFile = "";  // original file name being edited
-
-function openLibEdit(name: string, content: string) {
-  editingLibFile = name;
-  libEditName.value = name.replace(/\.md$/i, "");
-  libEditContent.value = content;
-  libEditModal.classList.remove("hidden");
-}
-
-function closeLibEdit() {
-  libEditModal.classList.add("hidden");
-  editingLibFile = "";
-}
-
-async function saveLibEdit() {
-  const name = libEditName.value.trim();
-  const content = libEditContent.value;
-  if (!name) { libEditName.focus(); return; }
-
-  // If name changed, remove old file
-  const newName = name.endsWith(".md") ? name : `${name}.md`;
-  if (editingLibFile && editingLibFile !== name && editingLibFile !== newName) {
-    await window.yo.libraryRemove(editingLibFile);
-  }
-
-  await window.yo.libraryWrite(name, content);
-  closeLibEdit();
-  loadLibrary();
-}
-
-async function deleteLibEdit() {
-  if (editingLibFile) {
-    await window.yo.libraryRemove(editingLibFile);
-  }
-  closeLibEdit();
-  loadLibrary();
-}
+const libSection = libraryList.closest(".help-section") as HTMLElement;
+const libDetail = document.getElementById("lib-detail")!;
+const libDetailName = document.getElementById("lib-detail-name") as HTMLInputElement;
+const libDetailContent = document.getElementById("lib-detail-content") as HTMLTextAreaElement;
+const libLlmLog = document.getElementById("lib-llm-log")!;
+const libLlmInput = document.getElementById("lib-llm-input") as HTMLTextAreaElement;
+let currentLibFile = "";  // file name of library item being viewed
 
 async function loadLibrary() {
+  libDetail.classList.add("hidden");
+  libraryList.classList.remove("hidden");
   const files = await window.yo.libraryListMeta();
   if (files.length === 0) {
     libraryList.innerHTML = `<div class="help-item-empty">Library is empty. Use <code>.yo</code> to capture content.</div>`;
@@ -1051,40 +1072,13 @@ async function loadLibrary() {
       <span class="help-item-name">${cleanName}</span>
       <span class="help-item-meta">${ago}</span>
       <div class="help-item-actions">
-        <button class="help-item-action lib-edit" title="Edit">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="help-item-action lib-use" title="Set as context">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-        </button>
         <button class="help-item-action danger lib-delete" title="Delete">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>`;
 
-    // Click row → set as context
-    row.addEventListener("click", async () => {
-      const ok = await window.yo.sessionLoadFile(file.name);
-      if (ok) {
-        row.style.background = "#0a1a0f";
-        setTimeout(() => { row.style.background = ""; }, 600);
-      }
-    });
-
-    row.querySelector(".lib-edit")!.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const content = await window.yo.libraryRead(file.name);
-      openLibEdit(file.name, content || "");
-    });
-
-    row.querySelector(".lib-use")!.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const ok = await window.yo.sessionLoadFile(file.name);
-      if (ok) {
-        row.style.background = "#0a1a0f";
-        setTimeout(() => { row.style.background = ""; }, 600);
-      }
-    });
+    // Click row → open detail view
+    row.addEventListener("click", () => openLibDetail(file.name));
 
     row.querySelector(".lib-delete")!.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -1093,6 +1087,102 @@ async function loadLibrary() {
     });
 
     libraryList.appendChild(row);
+  }
+}
+
+async function openLibDetail(fileName: string) {
+  currentLibFile = fileName;
+  const content = await window.yo.libraryRead(fileName);
+  if (content === null) return;
+
+  libDetailName.value = fileName.replace(/\.md$/i, "");
+  libDetailContent.value = content || "";
+  libLlmLog.innerHTML = `<div class="llm-empty">Ask AI to refine, summarize, or reformat this content.</div>`;
+
+  libraryList.classList.add("hidden");
+  toggleSectionChrome(libSection, false);
+  libDetail.classList.remove("hidden");
+}
+
+function closeLibDetail() {
+  libDetail.classList.add("hidden");
+  libraryList.classList.remove("hidden");
+  toggleSectionChrome(libSection, true);
+  currentLibFile = "";
+  loadLibrary();
+}
+
+async function saveLibDetail() {
+  const name = libDetailName.value.trim();
+  const content = libDetailContent.value;
+  if (!name) { libDetailName.focus(); return; }
+
+  const newFile = name.endsWith(".md") ? name : `${name}.md`;
+  if (currentLibFile && currentLibFile !== name && currentLibFile !== newFile) {
+    await window.yo.libraryRemove(currentLibFile);
+  }
+  await window.yo.libraryWrite(name, content);
+  currentLibFile = newFile;
+}
+
+async function deleteLibDetail() {
+  if (currentLibFile) {
+    await window.yo.libraryRemove(currentLibFile);
+  }
+  closeLibDetail();
+}
+
+async function setLibContext() {
+  if (currentLibFile) {
+    await window.yo.sessionLoadFile(currentLibFile);
+  }
+}
+
+async function sendLibLlm() {
+  const userMsg = libLlmInput.value.trim();
+  if (!userMsg) return;
+
+  const currentContent = libDetailContent.value;
+  libLlmInput.value = "";
+  const sendBtn = document.getElementById("lib-llm-send") as HTMLButtonElement;
+  sendBtn.disabled = true;
+
+  // Clear empty state
+  const emptyEl = libLlmLog.querySelector(".llm-empty");
+  if (emptyEl) emptyEl.remove();
+
+  // Show user message
+  const userDiv = document.createElement("div");
+  userDiv.className = "llm-msg user";
+  userDiv.textContent = userMsg;
+  libLlmLog.appendChild(userDiv);
+
+  // Show loading
+  const loadingDiv = document.createElement("div");
+  loadingDiv.className = "llm-msg ai loading";
+  loadingDiv.textContent = "Thinking...";
+  libLlmLog.appendChild(loadingDiv);
+  libLlmLog.scrollTop = libLlmLog.scrollHeight;
+
+  try {
+    const result = await window.yo.execCommand(
+      `wassup refine-content Refine this content based on the user's request.\n\nCurrent content:\n${currentContent}\n\nUser request: ${userMsg}\n\nRespond with ONLY the updated content, nothing else.`
+    );
+    loadingDiv.remove();
+    const aiDiv = document.createElement("div");
+    aiDiv.className = "llm-msg ai";
+    aiDiv.textContent = "Updated the content.";
+    libLlmLog.appendChild(aiDiv);
+
+    if (result) {
+      libDetailContent.value = result;
+    }
+  } catch {
+    loadingDiv.textContent = "Failed — try again.";
+    loadingDiv.classList.remove("loading");
+  } finally {
+    sendBtn.disabled = false;
+    libLlmLog.scrollTop = libLlmLog.scrollHeight;
   }
 }
 
