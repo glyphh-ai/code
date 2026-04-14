@@ -110,6 +110,18 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("open-sup-browser", () => callback());
   },
 
+  // Downloads
+  onDownloadStart: (cb: (info: { filename: string; totalBytes: number; savePath: string }) => void) => {
+    ipcRenderer.on("download:start", (_e, info) => cb(info));
+  },
+  onDownloadProgress: (cb: (info: { filename: string; receivedBytes: number; totalBytes: number }) => void) => {
+    ipcRenderer.on("download:progress", (_e, info) => cb(info));
+  },
+  onDownloadDone: (cb: (info: { filename: string; savePath: string; state: string }) => void) => {
+    ipcRenderer.on("download:done", (_e, info) => cb(info));
+  },
+  downloadShow: (filePath: string) => ipcRenderer.send("download:show", filePath),
+
   // Yo Workbench
   onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => {
     ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));

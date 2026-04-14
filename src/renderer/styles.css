@@ -1882,6 +1882,87 @@ body {
   accent-color: #25C75E;
 }
 
+/* ── Download toast ────────────────────────────────────── */
+
+.download-toast {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 300;
+  background: #1a1a2e;
+  border: 1px solid #25C75E33;
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 280px;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.25s ease-out;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.download-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+#download-filename {
+  font-size: 12px;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+#download-status {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+}
+
+.download-progress-bar {
+  height: 3px;
+  background: #ffffff10;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.download-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #25C75E;
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.download-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.download-dismiss {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.download-dismiss:hover { color: #fff; }
+
 /* ── Wassup admin modal ─────────────────────────────────── */
 
 

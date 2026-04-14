@@ -77,6 +77,11 @@ declare global {
       } | null) => void) => void;
       // Command execution
       execCommand: (cmd: string) => Promise<string>;
+      // Downloads
+      onDownloadStart: (cb: (info: { filename: string; totalBytes: number; savePath: string }) => void) => void;
+      onDownloadProgress: (cb: (info: { filename: string; receivedBytes: number; totalBytes: number }) => void) => void;
+      onDownloadDone: (cb: (info: { filename: string; savePath: string; state: string }) => void) => void;
+      downloadShow: (filePath: string) => void;
       // Sup browser (from terminal)
       onOpenSupBrowser: (callback: () => void) => void;
       // Yo Workbench
@@ -1013,6 +1018,68 @@ document.addEventListener("mouseup", () => {
       window.yo.gridDragEnd("row", dragIndex, fraction);
     }
   }
+});
+
+// -- Download toast --
+
+const dlToast = document.getElementById("download-toast")!;
+const dlFilename = document.getElementById("download-filename")!;
+const dlStatus = document.getElementById("download-status")!;
+const dlProgressBar = document.getElementById("download-progress-bar")!;
+const dlFill = document.getElementById("download-progress-fill")!;
+const dlShowBtn = document.getElementById("download-show")!;
+const dlDismiss = document.getElementById("download-dismiss")!;
+
+let dlSavePath = "";
+let dlDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+window.yo.onDownloadStart(({ filename, totalBytes }) => {
+  dlFilename.textContent = filename;
+  dlStatus.textContent = totalBytes > 0 ? formatBytes(totalBytes) : "downloading...";
+  dlFill.style.width = "0%";
+  dlProgressBar.classList.remove("hidden");
+  dlShowBtn.classList.add("hidden");
+  dlToast.classList.remove("hidden");
+  dlSavePath = "";
+  if (dlDismissTimer) { clearTimeout(dlDismissTimer); dlDismissTimer = null; }
+});
+
+window.yo.onDownloadProgress(({ receivedBytes, totalBytes }) => {
+  if (totalBytes > 0) {
+    const pct = Math.min(100, (receivedBytes / totalBytes) * 100);
+    dlFill.style.width = `${pct}%`;
+    dlStatus.textContent = `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}`;
+  } else {
+    dlStatus.textContent = formatBytes(receivedBytes);
+  }
+});
+
+window.yo.onDownloadDone(({ savePath, state }) => {
+  if (state === "completed") {
+    dlFill.style.width = "100%";
+    dlStatus.textContent = "Done";
+    dlSavePath = savePath;
+    dlShowBtn.classList.remove("hidden");
+    dlDismissTimer = setTimeout(() => dlToast.classList.add("hidden"), 8000);
+  } else {
+    dlStatus.textContent = state === "cancelled" ? "Cancelled" : "Failed";
+    dlDismissTimer = setTimeout(() => dlToast.classList.add("hidden"), 4000);
+  }
+});
+
+dlShowBtn.addEventListener("click", () => {
+  if (dlSavePath) window.yo.downloadShow(dlSavePath);
+});
+
+dlDismiss.addEventListener("click", () => {
+  dlToast.classList.add("hidden");
+  if (dlDismissTimer) { clearTimeout(dlDismissTimer); dlDismissTimer = null; }
 });
 
 // -- Boot gate --

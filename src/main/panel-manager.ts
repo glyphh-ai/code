@@ -6,7 +6,9 @@
  * dip commands route through here.
  */
 
-import { BrowserWindow, BrowserView, WebContents, session } from "electron";
+import { BrowserWindow, BrowserView, WebContents, session, shell } from "electron";
+import * as path from "path";
+import * as os from "os";
 import * as http from "http";
 
 export interface PanelConfig {
@@ -37,6 +39,7 @@ export class PanelManager {
   `;
 
   private static permissionsConfigured = false;
+  private static mainWebContents: WebContents | null = null;
 
   private panels: Map<string, BrowserView> = new Map();
   private configs: Map<string, PanelConfig> = new Map();
@@ -150,6 +153,37 @@ export class PanelManager {
       console.log("[perm-check]", permission, details);
       return true;
     });
+
+    // Handle file downloads — auto-save to ~/Downloads with progress UI
+    const downloadsDir = path.join(os.homedir(), "Downloads");
+    ses.on("will-download", (_event, item) => {
+      const filename = item.getFilename() || "download";
+      const savePath = path.join(downloadsDir, filename);
+      item.setSavePath(savePath);
+
+      const wc = PanelManager.mainWebContents;
+      const totalBytes = item.getTotalBytes();
+
+      wc?.send("download:start", { filename, totalBytes, savePath });
+
+      item.on("updated", (_e, state) => {
+        if (state === "progressing" && !item.isPaused()) {
+          wc?.send("download:progress", {
+            filename,
+            receivedBytes: item.getReceivedBytes(),
+            totalBytes,
+          });
+        }
+      });
+
+      item.once("done", (_e, state) => {
+        wc?.send("download:done", {
+          filename,
+          savePath,
+          state, // "completed", "cancelled", or "interrupted"
+        });
+      });
+    });
   }
 
   /**
@@ -209,6 +243,11 @@ export class PanelManager {
   }
 
   private getOrCreate(id: string, parent: BrowserWindow): BrowserView | null {
+    // Store main window ref for download notifications
+    if (!PanelManager.mainWebContents && !parent.isDestroyed()) {
+      PanelManager.mainWebContents = parent.webContents;
+    }
+
     if (this.panels.has(id)) {
       const existing = this.panels.get(id)!;
       // If the view or its webContents was destroyed, drop it and recreate

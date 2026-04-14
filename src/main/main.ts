@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, webContents } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
@@ -374,6 +374,11 @@ async function boot() {
   ipcMain.handle("capture-panels", async () => {
     if (!mainWindow) return [];
     return panelManager.captureScreenshots(mainWindow);
+  });
+
+  // IPC: reveal downloaded file in Finder/Explorer
+  ipcMain.on("download:show", (_e, filePath: string) => {
+    shell.showItemInFolder(filePath);
   });
 
   // IPC: panel visibility (for help overlay)

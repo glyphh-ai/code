@@ -416,6 +416,21 @@
     </div>
   </div>
 
+  <!-- Download toast -->
+  <div id="download-toast" class="download-toast hidden">
+    <div class="download-info">
+      <span id="download-filename"></span>
+      <span id="download-status"></span>
+    </div>
+    <div id="download-progress-bar" class="download-progress-bar">
+      <div id="download-progress-fill" class="download-progress-fill"></div>
+    </div>
+    <div class="download-actions">
+      <button id="download-show" class="action-btn hidden">Show</button>
+      <button id="download-dismiss" class="download-dismiss">&times;</button>
+    </div>
+  </div>
+
   <div id="panel-container"></div>
 
   <script type="module" src="renderer.js"></script>
