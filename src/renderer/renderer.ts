@@ -389,6 +389,7 @@ function closeWorkbench() {
   clearThinkingIntervals();
   closeOutputPanel();
   closeSearchModal();
+  closeViewer();
   window.yo.panelsShow();
 }
 
@@ -558,7 +559,6 @@ function closeSearchModal() {
   if (wbSearchTimer2) { clearTimeout(wbSearchTimer2); wbSearchTimer2 = null; }
 }
 
-document.getElementById("wb-search-btn")!.addEventListener("click", openSearchModal);
 document.getElementById("wb-search-close")!.addEventListener("click", closeSearchModal);
 
 // Click backdrop to close
@@ -691,18 +691,92 @@ wbChatInput.addEventListener("keydown", (e) => {
 
 wbSendBtn.addEventListener("click", sendRefinement);
 
+// -- Workbench viewer modal --
+
+const wbViewerModal = document.getElementById("wb-viewer-modal")!;
+const wbViewerName = document.getElementById("wb-viewer-name")!;
+const wbViewerContent = document.getElementById("wb-viewer-content")!;
+
+function openViewer(name: string, content: string) {
+  wbViewerName.textContent = name + ".md";
+  wbViewerContent.textContent = content || "(empty)";
+  wbViewerModal.dataset.name = name;
+  wbViewerModal.classList.remove("hidden");
+}
+
+function closeViewer() {
+  wbViewerModal.classList.add("hidden");
+}
+
+document.getElementById("wb-viewer-close")!.addEventListener("click", closeViewer);
+document.getElementById("wb-viewer-add")!.addEventListener("click", async () => {
+  const name = wbViewerModal.dataset.name;
+  if (!name) return;
+  const content = await window.yo.libraryRead(name);
+  if (content !== null) {
+    wbContent = content;
+    wbSaveName.value = name;
+    addMessage("content", `Loaded: ${name}.md`, content);
+    scrollConversation();
+  }
+  closeViewer();
+});
+wbViewerModal.addEventListener("click", (e) => {
+  if (e.target === wbViewerModal) closeViewer();
+});
+
+// -- Sidebar filter --
+
+const wbFilterInput = document.getElementById("wb-filter-input") as HTMLInputElement;
+let wbAllFiles: string[] = [];
+
+wbFilterInput.addEventListener("input", () => {
+  const q = wbFilterInput.value.trim().toLowerCase();
+  const filtered = q ? wbAllFiles.filter((f) => f.toLowerCase().includes(q)) : wbAllFiles;
+  renderWbLibrary(filtered);
+});
+
 // Library sidebar file list
 async function loadWbLibrary() {
-  const files = await window.yo.libraryList();
-  wbLibraryList.innerHTML = files.length === 0
-    ? '<div class="wb-file-item" style="color:#555;cursor:default;">No files yet</div>'
-    : files.map((name) =>
-        `<div class="wb-file-item" data-name="${name}">${name}.md</div>`
-      ).join("");
+  wbAllFiles = await window.yo.libraryList();
+  const q = wbFilterInput.value.trim().toLowerCase();
+  const filtered = q ? wbAllFiles.filter((f) => f.toLowerCase().includes(q)) : wbAllFiles;
+  renderWbLibrary(filtered);
+}
+
+function renderWbLibrary(files: string[]) {
+  if (files.length === 0) {
+    wbLibraryList.innerHTML = '<div style="padding:12px 14px;color:#555;font-size:12px;">No files</div>';
+    return;
+  }
+
+  wbLibraryList.innerHTML = files.map((name) => `
+    <div class="wb-file-item" data-name="${name}">
+      <span class="wb-file-name" title="${name}.md">${name}.md</span>
+      <div class="wb-file-actions">
+        <button class="wb-file-action wb-act-view" title="View">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="wb-file-action wb-act-add" title="Add to context">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="wb-file-action wb-act-del danger" title="Delete">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+        </button>
+      </div>
+    </div>`).join("");
 
   wbLibraryList.querySelectorAll(".wb-file-item[data-name]").forEach((el) => {
-    el.addEventListener("click", async () => {
-      const name = (el as HTMLElement).dataset.name!;
+    const name = (el as HTMLElement).dataset.name!;
+
+    el.querySelector(".wb-act-view")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const content = await window.yo.libraryRead(name);
+      if (content !== null) openViewer(name, content);
+    });
+
+    el.querySelector(".wb-act-add")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
       const content = await window.yo.libraryRead(name);
       if (content !== null) {
         wbContent = content;
@@ -713,6 +787,12 @@ async function loadWbLibrary() {
         scrollConversation();
       }
     });
+
+    el.querySelector(".wb-act-del")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await window.yo.libraryRemove(name);
+      if (ok) loadWbLibrary();
+    });
   });
 }
 
@@ -720,7 +800,8 @@ async function loadWbLibrary() {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (isWorkbenchOpen()) closeWorkbench();
+    if (!wbViewerModal.classList.contains("hidden")) closeViewer();
+    else if (isWorkbenchOpen()) closeWorkbench();
     else if (isSupBrowserOpen()) closeSupBrowser();
     else if (isHelpOpen()) closeHelp();
   }
