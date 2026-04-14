@@ -73,111 +73,6 @@
     </div>
   </div>
 
-  <!-- Yo Context Workbench -->
-  <div id="yo-workbench" class="hidden">
-    <div class="wb-layout">
-      <!-- Header -->
-      <div class="wb-header">
-        <div class="wb-header-left">
-          <button id="wb-sidebar-toggle" class="wb-icon-btn" title="Toggle sidebar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
-          </button>
-        </div>
-        <div class="wb-actions">
-          <button id="wb-close" class="wb-close-btn">&times;</button>
-        </div>
-      </div>
-
-      <div class="wb-body">
-        <!-- Left: History sidebar (collapsible) -->
-        <div id="wb-sidebar" class="wb-sidebar">
-          <div class="wb-sidebar-section wb-skills-section">
-            <div class="wb-sidebar-heading">Skills</div>
-            <div id="wb-skills-list" class="wb-file-list"></div>
-          </div>
-          <div class="wb-sidebar-section wb-library-section">
-            <div class="wb-sidebar-heading">Library</div>
-            <div class="wb-sidebar-filter-wrap">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input id="wb-filter-input" type="text" placeholder="Filter..." spellcheck="false" autocomplete="off" />
-            </div>
-            <div id="wb-library-list" class="wb-file-list"></div>
-          </div>
-        </div>
-
-        <div id="wb-drag-left" class="wb-drag-handle"></div>
-
-        <!-- Workbench file viewer modal -->
-        <div id="wb-viewer-modal" class="wb-viewer-modal hidden">
-          <div class="wb-viewer-card">
-            <div class="wb-viewer-header">
-              <span id="wb-viewer-name"></span>
-              <div class="wb-viewer-actions">
-                <button id="wb-viewer-add" class="action-btn primary">Add to Context</button>
-                <button id="wb-viewer-close" class="action-btn">Close</button>
-              </div>
-            </div>
-            <pre id="wb-viewer-content"></pre>
-          </div>
-        </div>
-
-        <!-- Center: Chat -->
-        <div class="wb-chat-col">
-          <div id="wb-conversation" class="wb-conversation"></div>
-          <div class="wb-input-area">
-            <div class="wb-input-wrap">
-              <div class="wb-skill-bar">
-                <div class="wb-skill-picker">
-                  <input id="wb-skill-input" type="text" placeholder="Select skill..." spellcheck="false" autocomplete="off" />
-                  <div id="wb-skill-dropdown" class="wb-skill-dropdown hidden"></div>
-                </div>
-                <button id="wb-skill-clear" class="wb-skill-clear hidden" title="Clear skill">&times;</button>
-              </div>
-              <textarea id="wb-chat-input" rows="3" placeholder="Ask Yo to refine this content..." spellcheck="false"></textarea>
-              <button id="wb-send" class="wb-send-btn" aria-label="Send">&#8593;</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="wb-drag-right" class="wb-drag-handle"></div>
-
-        <!-- Right: Output viewer (slides in) -->
-        <div id="wb-output-panel" class="wb-output-panel">
-          <div class="wb-output-header">
-            <input id="wb-output-title" class="wb-output-title-input" type="text" value="Output" spellcheck="false" autocomplete="off" placeholder="file name..." />
-            <div class="wb-output-tabs">
-              <button class="wb-output-tab active" data-mode="markdown">Markdown</button>
-              <button class="wb-output-tab" data-mode="raw">Raw</button>
-            </div>
-            <button id="wb-output-save" class="wb-icon-btn" title="Save">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            </button>
-            <button id="wb-output-context" class="wb-icon-btn" title="Set as context">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            </button>
-            <button id="wb-output-download" class="wb-icon-btn" title="Download">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-            <button id="wb-output-close" class="wb-close-btn">&times;</button>
-          </div>
-          <div id="wb-output-rendered" class="wb-output-rendered"></div>
-          <textarea id="wb-output-raw" class="wb-output-raw hidden" spellcheck="false"></textarea>
-        </div>
-      </div>
-    </div>
-
-    <!-- Search modal -->
-    <div id="wb-search-modal" class="wb-search-modal hidden">
-      <div class="wb-search-card">
-        <div class="wb-search-header">
-          <input id="wb-search-input" type="text" placeholder="Search across all saved files..." spellcheck="false" autocomplete="off" />
-          <button id="wb-search-close" class="wb-close-btn">&times;</button>
-        </div>
-        <div id="wb-search-results" class="wb-search-results"></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Panel screenshots (freeze-frame when panels are hidden) -->
   <div id="panel-screenshots"></div>
 
@@ -191,6 +86,8 @@
       <nav id="help-nav">
         <div class="help-brand">Yo<span class="dot">.</span></div>
         <button class="help-nav-item active" data-section="guide">Guide</button>
+        <button class="help-nav-item" data-section="skills">Skills</button>
+        <button class="help-nav-item" data-section="library">Library</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="settings">Settings</button>
@@ -205,36 +102,40 @@
           <h2>Just talk.</h2>
 
           <div class="help-group">
-            <h3>yo <span class="cmd-desc">— creating</span></h3>
-            <p class="cmd-intro">Captures content from the active panel and saves it to your library.</p>
+            <h3>yo <span class="cmd-desc">— capture</span></h3>
+            <p class="cmd-intro">Grabs content from your panels and sets it as active context.</p>
             <div class="cmd-row">
               <code>yo</code>
-              <span>Save the current session as-is</span>
+              <span>Capture all open panels as context (auto-named)</span>
             </div>
             <div class="cmd-row">
-              <code>yo save this but only the last few interactions</code>
-              <span>Natural language — AI grabs and processes what you asked for</span>
+              <code>yo .</code>
+              <span>Capture only the active panel</span>
             </div>
             <div class="cmd-row">
-              <code>yo feature create a feature spec from this conversation</code>
-              <span>Use a skill name or describe what you want</span>
+              <code>yo summarize this conversation</code>
+              <span>Capture all panels + AI formats the result</span>
+            </div>
+            <div class="cmd-row">
+              <code>yo . feature-spec</code>
+              <span>Active panel only + use a skill or prompt</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>sup <span class="cmd-desc">— reading</span></h3>
-            <p class="cmd-intro">Pulls content from your library back into the active app.</p>
+            <h3>sup <span class="cmd-desc">— use context</span></h3>
+            <p class="cmd-intro">Browse your library or paste context into the active app.</p>
             <div class="cmd-row">
               <code>sup</code>
-              <span>Browse all library files</span>
+              <span>Browse library to pick content as active context</span>
             </div>
             <div class="cmd-row">
-              <code>sup pull that feature from yesterday</code>
-              <span>Natural language — AI finds the right file and loads it</span>
+              <code>sup .</code>
+              <span>Paste active context raw — no AI</span>
             </div>
             <div class="cmd-row">
-              <code>sup roadmap</code>
-              <span>Quick search by name</span>
+              <code>sup . email-format</code>
+              <span>Paste context formatted by a skill or prompt</span>
             </div>
           </div>
 
@@ -299,6 +200,26 @@
               <span>Close this page</span>
             </div>
           </div>
+        </div>
+
+        <!-- Skills -->
+        <div class="help-section" data-section="skills">
+          <h2>Skills</h2>
+          <p class="section-desc">Reusable prompt templates. Use with <code>yo &lt;skill&gt;</code> or <code>sup . &lt;skill&gt;</code>.</p>
+          <div class="tab-toolbar">
+            <button id="skill-create-btn" class="tab-action-btn" title="Create skill with AI">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M11 6.2L9.7 5"/><path d="M11 11.8L9.7 13"/><path d="M3 21l9-9"/><path d="M12.2 6.25a3.5 3.5 0 0 0-3.94 3.94L3 21l10.81-5.26a3.5 3.5 0 0 0 3.94-3.94"/></svg>
+              Create with AI
+            </button>
+          </div>
+          <div id="skills-list" class="help-item-list"></div>
+        </div>
+
+        <!-- Library -->
+        <div class="help-section" data-section="library">
+          <h2>Library</h2>
+          <p class="section-desc">Saved content. Click to set as active context.</p>
+          <div id="library-list" class="help-item-list"></div>
         </div>
 
         <!-- Layouts -->
@@ -446,6 +367,23 @@
         </div>
 
       </main>
+    </div>
+  </div>
+
+  <!-- Skill create modal -->
+  <div id="skill-create-modal" class="hidden">
+    <div class="skill-create-card">
+      <h3>Create Skill</h3>
+      <input id="skill-create-name" type="text" placeholder="Skill name (e.g. meeting-notes)" spellcheck="false" autocomplete="off" />
+      <textarea id="skill-create-prompt" rows="4" placeholder="What should this skill do? Describe it or write the prompt template..."></textarea>
+      <div class="skill-create-actions">
+        <button class="btn-wand" id="skill-create-wand">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M11 6.2L9.7 5"/><path d="M11 11.8L9.7 13"/><path d="M3 21l9-9"/><path d="M12.2 6.25a3.5 3.5 0 0 0-3.94 3.94L3 21l10.81-5.26a3.5 3.5 0 0 0 3.94-3.94"/></svg>
+          Generate with AI
+        </button>
+        <button class="btn-cancel" id="skill-create-cancel">Cancel</button>
+        <button class="btn-create" id="skill-create-save">Create</button>
+      </div>
     </div>
   </div>
 

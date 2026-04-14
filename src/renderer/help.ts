@@ -41,7 +41,9 @@ function activeSection(): string {
 
 function loadActiveSection() {
   const sec = activeSection();
-  if (sec === "layouts") loadLayouts();
+  if (sec === "skills") loadSkills();
+  else if (sec === "library") loadLibrary();
+  else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
 }
@@ -94,6 +96,15 @@ export function initHelp() {
       doSplit(builderSelected);
       renderGridPreview();
     }
+  });
+
+  // Skills
+  document.getElementById("skill-create-btn")!.addEventListener("click", openSkillCreateModal);
+  document.getElementById("skill-create-cancel")!.addEventListener("click", closeSkillCreateModal);
+  document.getElementById("skill-create-save")!.addEventListener("click", saveNewSkill);
+  document.getElementById("skill-create-wand")!.addEventListener("click", generateSkillPrompt);
+  document.getElementById("skill-create-modal")!.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("skill-create-modal")) closeSkillCreateModal();
   });
 
   // Apps
@@ -849,5 +860,173 @@ async function saveMapping() {
   const apps: AppData[] = await window.yo.appsList();
   const app = apps.find((a) => a.id === currentAppId);
   if (app) renderCommands(app);
+}
+
+// ── Skills ────────────────────────────────────────────────
+
+const skillsList = document.getElementById("skills-list")!;
+const skillCreateModal = document.getElementById("skill-create-modal")!;
+const skillCreateName = document.getElementById("skill-create-name") as HTMLInputElement;
+const skillCreatePrompt = document.getElementById("skill-create-prompt") as HTMLTextAreaElement;
+
+async function loadSkills() {
+  const skills = await window.yo.skillsList();
+  if (skills.length === 0) {
+    skillsList.innerHTML = `<div class="help-item-empty">No skills yet. Click "Create with AI" to make one.</div>`;
+    return;
+  }
+  skillsList.innerHTML = "";
+  for (const name of skills) {
+    const row = document.createElement("div");
+    row.className = "help-item-row";
+    row.innerHTML = `
+      <div class="help-item-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <span class="help-item-name">${name.replace(/\.md$/i, "")}</span>
+      <div class="help-item-actions">
+        <button class="help-item-action skill-view" title="View">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="help-item-action danger skill-delete" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>`;
+
+    row.querySelector(".skill-view")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const prompt = await window.yo.skillsRead(name);
+      if (prompt !== null) {
+        skillCreateName.value = name.replace(/\.md$/i, "");
+        skillCreatePrompt.value = prompt;
+        skillCreateModal.classList.remove("hidden");
+      }
+    });
+
+    row.querySelector(".skill-delete")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await window.yo.skillsRemove(name);
+      loadSkills();
+    });
+
+    skillsList.appendChild(row);
+  }
+}
+
+function openSkillCreateModal() {
+  skillCreateName.value = "";
+  skillCreatePrompt.value = "";
+  skillCreateModal.classList.remove("hidden");
+  skillCreateName.focus();
+}
+
+function closeSkillCreateModal() {
+  skillCreateModal.classList.add("hidden");
+}
+
+async function saveNewSkill() {
+  const name = skillCreateName.value.trim();
+  const prompt = skillCreatePrompt.value.trim();
+  if (!name) { skillCreateName.focus(); return; }
+  if (!prompt) { skillCreatePrompt.focus(); return; }
+  await window.yo.skillsWrite(name.endsWith(".md") ? name : `${name}.md`, prompt);
+  closeSkillCreateModal();
+  loadSkills();
+}
+
+async function generateSkillPrompt() {
+  const name = skillCreateName.value.trim();
+  const desc = skillCreatePrompt.value.trim();
+  if (!name && !desc) { skillCreateName.focus(); return; }
+
+  const input = desc || name;
+  skillCreatePrompt.value = "Generating...";
+
+  try {
+    const result = await window.yo.execCommand(`wassup ${name || "skill"} ${input}`);
+    // The wassup command creates the skill and returns confirmation
+    // Read back the generated prompt
+    const prompt = await window.yo.skillsRead(name.endsWith(".md") ? name : `${name}.md`);
+    if (prompt !== null) {
+      skillCreatePrompt.value = prompt;
+    } else {
+      skillCreatePrompt.value = result || desc;
+    }
+  } catch {
+    skillCreatePrompt.value = desc; // revert
+  }
+}
+
+// ── Library ───────────────────────────────────────────────
+
+const libraryList = document.getElementById("library-list")!;
+
+async function loadLibrary() {
+  const files = await window.yo.libraryListMeta();
+  if (files.length === 0) {
+    libraryList.innerHTML = `<div class="help-item-empty">Library is empty. Use <code>yo</code> to capture content.</div>`;
+    return;
+  }
+  // Sort by modified descending
+  files.sort((a, b) => b.modified - a.modified);
+  libraryList.innerHTML = "";
+  for (const file of files) {
+    const row = document.createElement("div");
+    row.className = "help-item-row";
+    const cleanName = file.name.replace(/\.md$/i, "");
+    const ago = formatAge(file.modified);
+    row.innerHTML = `
+      <div class="help-item-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      </div>
+      <span class="help-item-name">${cleanName}</span>
+      <span class="help-item-meta">${ago}</span>
+      <div class="help-item-actions">
+        <button class="help-item-action lib-use" title="Set as context">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </button>
+        <button class="help-item-action danger lib-delete" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>`;
+
+    // Click row → set as context
+    row.addEventListener("click", async () => {
+      const ok = await window.yo.sessionLoadFile(file.name);
+      if (ok) {
+        row.style.background = "#0a1a0f";
+        setTimeout(() => { row.style.background = ""; }, 600);
+      }
+    });
+
+    row.querySelector(".lib-use")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await window.yo.sessionLoadFile(file.name);
+      if (ok) {
+        row.style.background = "#0a1a0f";
+        setTimeout(() => { row.style.background = ""; }, 600);
+      }
+    });
+
+    row.querySelector(".lib-delete")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await window.yo.libraryRemove(file.name);
+      loadLibrary();
+    });
+
+    libraryList.appendChild(row);
+  }
+}
+
+function formatAge(ms: number): string {
+  const diff = Date.now() - ms;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
 }
 

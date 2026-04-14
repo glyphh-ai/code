@@ -34,8 +34,6 @@ export class YoInterceptor {
   private commandHandler: ((input: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
   private getVisiblePanelIds: (() => string[]) | null = null;
-  private workbenchOpener: ((content: string, label: string) => void) | null = null;
-
   constructor(
     private appConnector: AppConnector,
     private library: Library,
@@ -46,7 +44,6 @@ export class YoInterceptor {
   setYoChat(chat: YoChat): void { this.yoChat = chat; }
   setCommandHandler(handler: (input: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
-  setWorkbenchOpener(fn: (content: string, label: string) => void): void { this.workbenchOpener = fn; }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -302,23 +299,18 @@ document.addEventListener('keyup',function(e){
       }
     }
 
-    // Store in session
-    const sessionLabel = realInstruction
-      ? (realInstruction.split(/\s+/)[0] + ".md")
-      : "captured";
-    this.session.capture(appId, finalContent, sessionLabel);
+    // Auto-name: date-time for bare yo, skill label for yo <skill>
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
+    const skillLabel = realInstruction?.split(/\s+/)[0] || undefined;
+    const sessionLabel = skillLabel ? `${skillLabel}.md` : `${ts}.md`;
+    this.session.capture(appId, finalContent, sessionLabel, skillLabel || ts);
 
     const label = realInstruction ? `yo ${realInstruction}` : "yo";
     await this.clearNotify(wc);
 
-    if (!realInstruction && this.workbenchOpener) {
-      // Bare yo / yo . — open the workbench for interactive refinement
-      this.workbenchOpener(finalContent, label);
-    } else {
-      // yo <skill/prompt> — content is processed, just set context + notify
-      this.session.copyToClipboard();
-      this.notify(wc, `${label} \u2014 captured`, "success");
-    }
+    this.session.copyToClipboard();
+    this.notify(wc, `${label} \u2014 captured`, "success");
   }
 
   // ── sup: session → process → inject ───────────────────

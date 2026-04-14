@@ -554,10 +554,15 @@ async function boot() {
   });
 
   // Give command parser a way to grab panel content for yo/sup from the command bar
-  commandParser.setGrabber(async () => {
-    const panelIds = (layoutManager.getGridInfo()?.panelIds
-      ?? (panelManager.activePanelId ? [panelManager.activePanelId] : []))
-      .filter((id) => id !== "term");
+  commandParser.setGrabber(async (activeOnly?: boolean) => {
+    let panelIds: string[];
+    if (activeOnly) {
+      panelIds = panelManager.activePanelId ? [panelManager.activePanelId] : [];
+    } else {
+      panelIds = (layoutManager.getGridInfo()?.panelIds
+        ?? (panelManager.activePanelId ? [panelManager.activePanelId] : []))
+        .filter((id) => id !== "term");
+    }
     const sections: string[] = [];
     for (const id of panelIds) {
       const wc = panelManager.getWebContents(id);
@@ -580,13 +585,6 @@ async function boot() {
   const sendSessionState = () => {
     mainWindow?.webContents.send("session-changed", session.getInfo());
   };
-
-  // Open the context workbench modal in the renderer
-  const openWorkbench = (content: string, label: string) => {
-    mainWindow?.webContents.send("yo-workbench-open", { content, label });
-  };
-  yoInterceptor.setWorkbenchOpener(openWorkbench);
-  commandParser.setWorkbenchOpener(openWorkbench);
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const execCommand = async (cmd: string) => {
@@ -1240,40 +1238,6 @@ async function boot() {
       return matches.length > 0 ? matches : files.slice(0, 10);
     } catch {
       return files.slice(0, 10);
-    }
-  });
-
-  // IPC: Workbench AI refinement (skill-aware)
-  // Returns { message, content, type } so the renderer can show
-  // the correct card type (content artifact vs skill).
-  ipcMain.handle("yo-workbench-refine", async (_e, instruction: string, content: string) => {
-    // Check if instruction matches a known skill name (direct invocation)
-    const trimmed = instruction.trim();
-    const knownSkill = /^\S+$/.test(trimmed)
-      ? skillEngine.listSkills().find((s) => s.toLowerCase() === trimmed.toLowerCase())
-      : undefined;
-
-    if (knownSkill) {
-      const result = await skillEngine.process(content, knownSkill);
-      return { message: `Applied skill: ${knownSkill}`, content: result, type: "content" as const };
-    }
-
-    // Pass skill names so the LLM knows what exists and can create/update skills
-    return yoChat.refine(instruction, content, skillEngine.listSkills());
-  });
-
-  // IPC: Suggest a filename from content
-  ipcMain.handle("yo-suggest-name", async (_e, content: string) => {
-    try {
-      const result = await yoChat.executeInline(
-        "yo",
-        `Suggest a short, descriptive filename (no .md, no spaces — use hyphens) for this content. Return ONLY the filename, nothing else.`,
-        "workbench",
-        content,
-      );
-      return result.trim().replace(/\.md$/i, "").replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 60) || "";
-    } catch {
-      return "";
     }
   });
 

@@ -27,8 +27,7 @@ export class CommandParser {
   private onDrip: ((effect: string) => void) | null = null;
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
-  private grabber: (() => Promise<string | null>) | null = null;
-  private workbenchOpener: ((content: string, label: string) => void) | null = null;
+  private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
 
   constructor(
     private panels: PanelManager,
@@ -60,13 +59,8 @@ export class CommandParser {
   }
 
   /** Set the grabber callback — grabs content from visible panels. */
-  setGrabber(fn: () => Promise<string | null>): void {
+  setGrabber(fn: (activeOnly?: boolean) => Promise<string | null>): void {
     this.grabber = fn;
-  }
-
-  /** Set the workbench opener — opens the context workbench modal. */
-  setWorkbenchOpener(fn: (content: string, label: string) => void): void {
-    this.workbenchOpener = fn;
   }
 
   /** Split input at command keyword boundaries for chaining. */
@@ -129,15 +123,13 @@ export class CommandParser {
   }
 
   // ── yo: capture → session + clipboard ──────────────────────
+  //
+  //   yo               → capture all panels, auto-name, set context
+  //   yo .             → capture active panel only, auto-name, set context
+  //   yo <skill/prompt> → capture all + LLM format, LLM names it
+  //   yo . <skill/prompt> → capture active + LLM format
 
   private async handleYo(args: string[]): Promise<string> {
-    // Check for * bypass (trust mode — skip workbench)
-    const bypass = args.length > 0 && args[args.length - 1] === "*";
-    if (bypass) args = args.slice(0, -1);
-
-    // Strip "." shorthand (current panel — default grab behavior)
-    if (args[0] === ".") args = args.slice(1);
-
     // yo help
     if (args[0]?.toLowerCase() === "help") {
       this.onShowWelcome?.();
@@ -154,9 +146,13 @@ export class CommandParser {
       return this.handleYoLayout(args.slice(1));
     }
 
-    // Grab content from visible panels
+    // Parse dot modifier: "yo ." or "yo . <skill>"
+    const activeOnly = args[0] === ".";
+    if (activeOnly) args = args.slice(1);
+
+    // Grab content
     if (!this.grabber) return "No panel grabber available.";
-    const content = await this.grabber();
+    const content = await this.grabber(activeOnly);
     if (!content) return "Could not grab content from panels.";
 
     // Optional skill/LLM processing
@@ -164,7 +160,6 @@ export class CommandParser {
     let finalContent = content;
 
     if (instruction) {
-      // Check for known skill
       const knownSkill = /^\S+$/.test(instruction)
         ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
         : undefined;
@@ -176,26 +171,16 @@ export class CommandParser {
       }
     }
 
-    // Store in session
+    // Auto-name: date-time for bare yo, skill label for yo <skill>
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
     const skillLabel = instruction?.split(/\s+/)[0] || undefined;
-    this.session.capture("command-bar", finalContent, skillLabel ? `${skillLabel}.md` : "captured", skillLabel || "");
+    const label = skillLabel || ts;
 
-    const label = instruction ? `yo ${instruction}` : "yo";
-
-    // If bypass (*), skip workbench — content is trusted
-    if (bypass) {
-      this.session.copyToClipboard();
-      return `${label} \u2014 captured`;
-    }
-
-    if (!instruction && this.workbenchOpener) {
-      // Bare yo — open the workbench for interactive refinement
-      this.workbenchOpener(finalContent, label);
-      return "";
-    }
-    // yo <skill/prompt> — content is processed, just set context + notify
+    this.session.capture("command-bar", finalContent, `${label}.md`, label);
     this.session.copyToClipboard();
-    return `${label} \u2014 captured`;
+
+    return `yo${activeOnly ? " ." : ""}${instruction ? " " + instruction : ""} \u2014 captured`;
   }
 
   private handleYoSkill(args: string[]): string {
@@ -303,7 +288,7 @@ export class CommandParser {
       return deleted ? `Forgot: ${name}` : `Not found: ${name}`;
     }
 
-    // Bare "sup" → always show library browser
+    // Bare "sup" → show library browser to pick content as context
     if (args.length === 0) {
       return "__SUP_BROWSE__";
     }
@@ -317,30 +302,44 @@ export class CommandParser {
       return "Context copied to clipboard";
     }
 
-    // sup <instruction> → process session with skill/LLM
-    if (!this.session.hasContent()) return "__SUP_BROWSE__";
+    // sup . <skill/prompt> → paste session content processed by skill/LLM
+    if (args[0] === "." && args.length >= 2) {
+      if (!this.session.hasContent()) return "No context loaded. Use yo to capture first.";
+      const instruction = args.slice(1).join(" ").trim();
+      const sessionContent = this.session.get();
 
-    const instruction = args.join(" ").trim();
-    const sessionContent = this.session.get();
+      const knownSkill = /^\S+$/.test(instruction)
+        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
+        : undefined;
 
-    // Check for known skill
-    const knownSkill = /^\S+$/.test(instruction)
-      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
-      : undefined;
+      let result: string;
+      if (knownSkill) {
+        result = await this.skillEngine.process(sessionContent, knownSkill);
+      } else if (this.yoChat) {
+        result = await this.yoChat.executeInline("sup", instruction, "command-bar", sessionContent);
+      } else {
+        return "No AI engine available.";
+      }
 
-    let result: string;
-    if (knownSkill) {
-      result = await this.skillEngine.process(sessionContent, knownSkill);
-    } else if (this.yoChat) {
-      result = await this.yoChat.executeInline("sup", instruction, "command-bar", sessionContent);
-    } else {
-      return "No AI engine available.";
+      const { clipboard } = await import("electron");
+      clipboard.writeText(result);
+      return `sup . ${instruction} \u2014 result copied to clipboard`;
     }
 
-    // Copy result to clipboard
-    const { clipboard } = await import("electron");
-    clipboard.writeText(result);
-    return `sup ${instruction} \u2014 result copied to clipboard`;
+    // sup <name> → try to load a library file as context
+    if (args.length === 1) {
+      const name = args[0];
+      const content = this.library.read(name.endsWith(".md") ? name : `${name}.md`);
+      if (content !== null) {
+        const fileName = name.endsWith(".md") ? name : `${name}.md`;
+        this.session.capture("library", content, fileName, name);
+        this.session.copyToClipboard();
+        return `Loaded: ${name}`;
+      }
+    }
+
+    // sup <search terms> → show library browser
+    return "__SUP_BROWSE__";
   }
 
   // ── dip: switch panels ──────────────────────────────────────
