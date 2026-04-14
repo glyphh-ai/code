@@ -82,6 +82,8 @@ declare global {
       onDownloadProgress: (cb: (info: { filename: string; receivedBytes: number; totalBytes: number }) => void) => void;
       onDownloadDone: (cb: (info: { filename: string; savePath: string; state: string }) => void) => void;
       downloadShow: (filePath: string) => void;
+      // Drip effects
+      onDripEffect: (callback: (effect: string) => void) => void;
       // Sup browser (from terminal)
       onOpenSupBrowser: (callback: () => void) => void;
       // Yo Workbench
@@ -1081,6 +1083,71 @@ dlDismiss.addEventListener("click", () => {
   dlToast.classList.add("hidden");
   if (dlDismissTimer) { clearTimeout(dlDismissTimer); dlDismissTimer = null; }
 });
+
+// -- Drip effects --
+
+const DRIP_COLORS = ["#ff0", "#f0f", "#0ff", "#f44", "#4f4", "#ff6600", "#ff00ff", "#00ffcc"];
+
+function dripFireworks() {
+  const overlay = document.createElement("div");
+  overlay.className = "drip-overlay";
+  document.body.appendChild(overlay);
+
+  const bursts = [
+    { x: window.innerWidth * 0.5, y: window.innerHeight * 0.4 },
+    { x: window.innerWidth * 0.25, y: window.innerHeight * 0.35 },
+    { x: window.innerWidth * 0.75, y: window.innerHeight * 0.35 },
+  ];
+
+  interface Particle { el: HTMLElement; x: number; y: number; vx: number; vy: number; life: number }
+  const particles: Particle[] = [];
+
+  bursts.forEach((burst, bi) => {
+    setTimeout(() => {
+      for (let i = 0; i < 50; i++) {
+        const el = document.createElement("div");
+        const size = 3 + Math.random() * 5;
+        el.style.cssText = `position:absolute;border-radius:50%;width:${size}px;height:${size}px;background:${DRIP_COLORS[Math.floor(Math.random() * DRIP_COLORS.length)]};`;
+        overlay.appendChild(el);
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 6;
+        particles.push({
+          el, x: burst.x, y: burst.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 3,
+          life: 1,
+        });
+      }
+    }, bi * 300);
+  });
+
+  function animate() {
+    let alive = false;
+    for (const p of particles) {
+      if (p.life <= 0) continue;
+      alive = true;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.08;
+      p.life -= 0.012;
+      p.el.style.left = `${p.x}px`;
+      p.el.style.top = `${p.y}px`;
+      p.el.style.opacity = String(Math.max(0, p.life));
+    }
+    if (alive) requestAnimationFrame(animate);
+    else overlay.remove();
+  }
+  requestAnimationFrame(animate);
+}
+
+function playDrip(effect: string) {
+  switch (effect) {
+    case "fireworks": dripFireworks(); break;
+    default: dripFireworks(); break;
+  }
+}
+
+window.yo.onDripEffect(playDrip);
 
 // -- Boot gate --
 

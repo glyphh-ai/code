@@ -122,6 +122,11 @@ contextBridge.exposeInMainWorld("yo", {
   },
   downloadShow: (filePath: string) => ipcRenderer.send("download:show", filePath),
 
+  // Drip effects
+  onDripEffect: (callback: (effect: string) => void) => {
+    ipcRenderer.on("drip-effect", (_event, effect) => callback(effect));
+  },
+
   // Yo Workbench
   onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => {
     ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));

@@ -21,6 +21,8 @@ import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
+  private static readonly COMMAND_KEYWORDS = new Set(["yo", "sup", "dip", "drip", "wassup"]);
+
   private onShowWelcome: (() => void) | null = null;
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
@@ -61,12 +63,27 @@ export class CommandParser {
     this.workbenchOpener = fn;
   }
 
-  /** Parse and execute a command string */
-  async execute(input: string): Promise<string> {
-    const trimmed = input.trim();
-    if (!trimmed) return "";
+  /** Split input at command keyword boundaries for chaining. */
+  private splitChain(input: string): string[] {
+    const tokens = input.split(/\s+/);
+    const segments: string[] = [];
+    let current: string[] = [];
 
-    const parts = trimmed.split(/\s+/);
+    for (const token of tokens) {
+      if (CommandParser.COMMAND_KEYWORDS.has(token.toLowerCase()) && current.length > 0) {
+        segments.push(current.join(" "));
+        current = [token];
+      } else {
+        current.push(token);
+      }
+    }
+    if (current.length > 0) segments.push(current.join(" "));
+    return segments;
+  }
+
+  /** Execute a single command segment. */
+  private async executeSingle(segment: string): Promise<string> {
+    const parts = segment.trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
 
@@ -77,16 +94,44 @@ export class CommandParser {
         return this.handleSup(args);
       case "dip":
         return this.handleDip(args);
+      case "drip":
+        return this.handleDrip(args);
       case "wassup":
         return this.handleWassup(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, or wassup.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or wassup.`;
     }
+  }
+
+  /** Parse and execute a command string (supports chaining). */
+  async execute(input: string): Promise<string> {
+    const trimmed = input.trim();
+    if (!trimmed) return "";
+
+    const segments = this.splitChain(trimmed);
+
+    // Single command — fast path
+    if (segments.length === 1) return this.executeSingle(segments[0]);
+
+    // Chain: execute sequentially, return last non-empty result
+    let lastResult = "";
+    for (const segment of segments) {
+      const result = await this.executeSingle(segment);
+      if (result) lastResult = result;
+    }
+    return lastResult;
   }
 
   // ── yo: capture → session + clipboard ──────────────────────
 
   private async handleYo(args: string[]): Promise<string> {
+    // Check for * bypass (trust mode — skip workbench)
+    const bypass = args.length > 0 && args[args.length - 1] === "*";
+    if (bypass) args = args.slice(0, -1);
+
+    // Strip "." shorthand (current panel — default grab behavior)
+    if (args[0] === ".") args = args.slice(1);
+
     // yo help
     if (args[0]?.toLowerCase() === "help") {
       this.onShowWelcome?.();
@@ -130,6 +175,13 @@ export class CommandParser {
     this.session.capture("command-bar", finalContent, skillLabel ? `${skillLabel}.md` : "captured");
 
     const label = instruction ? `yo ${instruction}` : "yo";
+
+    // If bypass (*), skip workbench — content is trusted
+    if (bypass) {
+      this.session.copyToClipboard();
+      return `${label} \u2014 captured`;
+    }
+
     if (this.workbenchOpener) {
       this.workbenchOpener(finalContent, label);
       return "";
@@ -147,6 +199,9 @@ export class CommandParser {
 
     if (args[0] === "create" && args.length >= 2) {
       const name = args[1];
+      if (CommandParser.COMMAND_KEYWORDS.has(name.toLowerCase())) {
+        return `Cannot use "${name}" as a skill name \u2014 it\u2019s a reserved command.`;
+      }
       const prompt = args.slice(2).join(" ");
       this.skillEngine.createSkill(name, prompt);
       return `Skill created: ${name}`;
@@ -504,6 +559,14 @@ export class CommandParser {
     return `Grid: ${label}`;
   }
 
+  // ── drip: CSS visual effects ────────────────────────────────
+
+  private handleDrip(args: string[]): string {
+    const effect = args[0]?.toLowerCase() || "fireworks";
+    this.mainWindow?.webContents.send("drip-effect", effect);
+    return "";
+  }
+
   // ── wassup: create skills via LLM ───────────────────────────
 
   private async handleWassup(args: string[]): Promise<string> {
@@ -523,6 +586,9 @@ export class CommandParser {
 
     // wassup <name> <instructions...> → LLM writes the skill prompt
     const name = args[0];
+    if (CommandParser.COMMAND_KEYWORDS.has(name.toLowerCase())) {
+      return `Cannot use "${name}" as a skill name \u2014 it\u2019s a reserved command.`;
+    }
     const instructions = args.slice(1).join(" ");
 
     if (!this.yoChat) return "No AI engine available.";
