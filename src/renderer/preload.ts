@@ -105,6 +105,11 @@ contextBridge.exposeInMainWorld("yo", {
   // Command execution (used internally by interceptor routing)
   execCommand: (cmd: string) => ipcRenderer.invoke("exec-command", cmd) as Promise<string>,
 
+  // Sup browser open (from terminal)
+  onOpenSupBrowser: (callback: () => void) => {
+    ipcRenderer.on("open-sup-browser", () => callback());
+  },
+
   // Yo Workbench
   onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => {
     ipcRenderer.on("yo-workbench-open", (_event, data) => callback(data));

@@ -77,6 +77,8 @@ declare global {
       } | null) => void) => void;
       // Command execution
       execCommand: (cmd: string) => Promise<string>;
+      // Sup browser (from terminal)
+      onOpenSupBrowser: (callback: () => void) => void;
       // Yo Workbench
       onWorkbenchOpen: (callback: (data: { content: string; label: string }) => void) => void;
       workbenchRefine: (instruction: string, content: string) => Promise<string>;
@@ -634,6 +636,9 @@ function renderSearchResults(files: string[]) {
 
 // Listen for workbench open from main process
 window.yo.onWorkbenchOpen((data) => openWorkbench(data.content, data.label));
+
+// Listen for sup browser open from terminal
+window.yo.onOpenSupBrowser(() => openSupBrowser());
 
 // Close
 document.getElementById("wb-close")!.addEventListener("click", closeWorkbench);

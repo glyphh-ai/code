@@ -160,8 +160,9 @@ async function boot() {
 
   // Give command parser a way to grab panel content for yo/sup from the command bar
   commandParser.setGrabber(async () => {
-    const panelIds = layoutManager.getGridInfo()?.panelIds
-      ?? (panelManager.activePanelId ? [panelManager.activePanelId] : []);
+    const panelIds = (layoutManager.getGridInfo()?.panelIds
+      ?? (panelManager.activePanelId ? [panelManager.activePanelId] : []))
+      .filter((id) => id !== "term");
     const sections: string[] = [];
     for (const id of panelIds) {
       const wc = panelManager.getWebContents(id);
@@ -206,11 +207,17 @@ async function boot() {
   // Terminal yo/sup/dip — route through command parser, show result in terminal
   terminalManager.setCommandHandler(async (cmd, wc) => {
     const result = await execCommand(cmd);
-    if (result && !wc.isDestroyed()) {
-      // Write result to terminal in grey, then newline for fresh prompt
-      const lines = result.replace(/\r/g, "").split("\n").join("\r\n");
-      wc.send("terminal:data", `\x1b[90m${lines}\x1b[0m\r\n`);
+    if (!result || wc.isDestroyed()) return;
+
+    // sup returns __SUP_BROWSE__ → open browser in main renderer, not terminal
+    if (result === "__SUP_BROWSE__") {
+      mainWindow?.webContents.send("open-sup-browser");
+      return;
     }
+
+    // Write result to terminal in grey
+    const lines = result.replace(/\r/g, "").split("\n").join("\r\n");
+    wc.send("terminal:data", `\x1b[90m${lines}\x1b[0m\r\n`);
   });
 
   // Local MCP server
