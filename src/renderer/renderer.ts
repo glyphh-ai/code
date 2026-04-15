@@ -1,7 +1,7 @@
 /**
- * Renderer — titlebar + grid handles + boot gate + sup browser.
+ * Renderer — titlebar + grid handles + boot gate.
  *
- * All user commands (yo/sup/dip/wassup) happen inside app panels
+ * All user commands (yo/dip/drip) happen inside app panels
  * via the interceptor, or from the command bar. The renderer
  * manages window chrome and session state display.
  */
@@ -21,11 +21,6 @@ declare global {
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
       panelsGetZoom: () => Promise<number>;
-      // Library
-      libraryList: () => Promise<string[]>;
-      libraryRead: (name: string) => Promise<string | null>;
-      libraryWrite: (name: string, content: string) => Promise<boolean>;
-      libraryRemove: (name: string) => Promise<boolean>;
       // Skills
       skillsList: () => Promise<string[]>;
       skillsRead: (name: string) => Promise<string | null>;
@@ -50,11 +45,8 @@ declare global {
       gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
       // Session
       sessionInfo: () => Promise<{ hasContent: boolean; label: string; fileName: string }>;
-      sessionLoadFile: (name: string) => Promise<boolean>;
       sessionClear: () => Promise<boolean>;
       onSessionChanged: (callback: (info: { hasContent: boolean; label: string; fileName: string }) => void) => void;
-      libraryListMeta: () => Promise<Array<{ name: string; modified: number; size: number }>>;
-      librarySearchAi: (query: string) => Promise<string[]>;
       // Preferences + boot
       relaunch: () => void;
       setPreference: (key: string, value: unknown) => void;
@@ -88,8 +80,6 @@ declare global {
       downloadShow: (filePath: string) => void;
       // Drip effects
       onDripEffect: (callback: (effect: string) => void) => void;
-      // Sup browser (from terminal)
-      onOpenSupBrowser: (callback: () => void) => void;
       // LLM config
       getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
@@ -136,32 +126,23 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => openH
 const contextPill = document.getElementById("context-pill")!;
 const contextPillName = document.getElementById("context-pill-name")!;
 const contextPillEdit = document.getElementById("context-pill-edit")!;
-let currentContextFileName = "";
-
 function updateContextPill(info: { hasContent: boolean; label: string; fileName: string }) {
   if (info.hasContent && info.label) {
-    // Show clean name — strip .md extension if present
     const cleanName = info.label.replace(/\.md$/i, "");
     contextPillName.textContent = cleanName;
-    currentContextFileName = info.fileName || "";
     contextPill.classList.remove("hidden");
   } else {
     contextPill.classList.add("hidden");
-    currentContextFileName = "";
   }
 }
 
 window.yo.onSessionChanged(updateContextPill);
 
-// Click pill name -> open sup browser with current file selected
-contextPillName.addEventListener("click", () => {
-  openSupBrowser(currentContextFileName);
-});
-
-// Click edit icon -> open sup browser with current file selected
+// Click pill name or edit icon -> open command bar
+contextPillName.addEventListener("click", () => openCmdK());
 contextPillEdit.addEventListener("click", (e) => {
   e.stopPropagation();
-  openSupBrowser(currentContextFileName);
+  openCmdK();
 });
 
 // Click X -> clear context
@@ -222,10 +203,7 @@ cmdkInput.addEventListener("keydown", async (e) => {
 
     try {
       const result = await window.yo.execCommand(value);
-      if (result === "__SUP_BROWSE__") {
-        closeCmdK();
-        openSupBrowser();
-      } else if (result) {
+      if (result) {
         showResult(result);
       } else {
         closeCmdK();
@@ -248,216 +226,6 @@ cmdkOverlay.addEventListener("click", (e) => {
 // Cmd+K from panel -> open overlay
 window.yo.onFocusInput(() => openCmdK());
 
-// -- Sup browser (library file picker) --
-
-const supBrowser = document.getElementById("sup-browser")!;
-const supSearch = document.getElementById("sup-search") as HTMLInputElement;
-const supList = document.getElementById("sup-list")!;
-const supPreview = document.getElementById("sup-preview")!;
-const supPreviewName = document.getElementById("sup-preview-name")!;
-const supPreviewContent = document.getElementById("sup-preview-content")!;
-
-interface SupFileMeta { name: string; modified: number; size: number }
-let supFiles: string[] = [];
-let supFileMeta: Map<string, SupFileMeta> = new Map();
-let supPage = 0;
-const SUP_PAGE_SIZE = 15;
-let supSearchTimer: ReturnType<typeof setTimeout> | null = null;
-
-function openSupBrowser(selectFileName?: string) {
-  window.yo.panelsHide();
-  supBrowser.classList.remove("hidden");
-  supPreview.classList.add("hidden");
-  supList.classList.remove("hidden");
-  supSearch.value = "";
-  supPage = 0;
-  loadSupFiles().then(() => {
-    if (selectFileName) {
-      viewSupFile(selectFileName);
-    }
-  });
-  if (!selectFileName) supSearch.focus();
-}
-
-function closeSupBrowser() {
-  supBrowser.classList.add("hidden");
-  window.yo.panelsShow();
-}
-
-function formatRelativeDate(ms: number): string {
-  const diff = Date.now() - ms;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-async function loadSupFiles(filter?: string[]) {
-  // Always fetch metadata for date/size display
-  const allMeta = await window.yo.libraryListMeta();
-  supFileMeta = new Map(allMeta.map((m) => [m.name, m]));
-
-  if (filter) {
-    supFiles = filter;
-  } else {
-    supFiles = allMeta.map((m) => m.name);
-  }
-  supPage = 0;
-  renderSupList();
-}
-
-function renderSupList() {
-  if (supFiles.length === 0) {
-    supList.innerHTML = `<div class="sup-empty">Library is empty. Use <b>yo</b> to capture content first.</div>`;
-    return;
-  }
-
-  const start = supPage * SUP_PAGE_SIZE;
-  const pageFiles = supFiles.slice(start, start + SUP_PAGE_SIZE);
-  const totalPages = Math.ceil(supFiles.length / SUP_PAGE_SIZE);
-
-  let html = pageFiles.map((name) => {
-    const meta = supFileMeta.get(name);
-    const dateStr = meta ? formatRelativeDate(meta.modified) : "";
-    const sizeStr = meta ? formatSize(meta.size) : "";
-    return `
-    <div class="sup-file-row" data-name="${name}">
-      <div class="sup-file-top">
-        <span class="sup-file-name">${name}</span>
-        <div class="sup-file-actions">
-          <button class="sup-action-btn sup-action-load" title="Set as context" data-name="${name}">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
-          </button>
-          <button class="sup-action-btn sup-action-delete" title="Delete" data-name="${name}">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="sup-file-meta-row">
-        <span class="sup-file-date">${dateStr}</span>
-        <span class="sup-file-size">${sizeStr}</span>
-      </div>
-    </div>`;
-  }).join("");
-
-  if (totalPages > 1) {
-    html += `<div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;">
-      <button class="action-btn sup-prev" ${supPage === 0 ? "disabled" : ""}>&larr; Prev</button>
-      <span style="font-size:11px;color:#555;">${supPage + 1} / ${totalPages}</span>
-      <button class="action-btn sup-next" ${supPage >= totalPages - 1 ? "disabled" : ""}>Next &rarr;</button>
-    </div>`;
-  }
-
-  supList.innerHTML = html;
-
-  // Click row → view file preview
-  supList.querySelectorAll(".sup-file-row").forEach((row) => {
-    row.addEventListener("click", (e) => {
-      // Don't trigger if an action button was clicked
-      if ((e.target as HTMLElement).closest(".sup-action-btn")) return;
-      viewSupFile((row as HTMLElement).dataset.name!);
-    });
-  });
-
-  // Load as context buttons
-  supList.querySelectorAll(".sup-action-load").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const name = (btn as HTMLElement).dataset.name!;
-      loadSupFile(name);
-    });
-  });
-
-  // Delete buttons
-  supList.querySelectorAll(".sup-action-delete").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const name = (btn as HTMLElement).dataset.name!;
-      window.yo.libraryRemove(name).then((ok) => {
-        if (ok) loadSupFiles();
-      });
-    });
-  });
-
-  const prevBtn = supList.querySelector(".sup-prev");
-  const nextBtn = supList.querySelector(".sup-next");
-  prevBtn?.addEventListener("click", () => { supPage--; renderSupList(); });
-  nextBtn?.addEventListener("click", () => { supPage++; renderSupList(); });
-}
-
-async function viewSupFile(name: string) {
-  const content = await window.yo.libraryRead(name);
-  supPreviewName.textContent = name + ".md";
-  supPreviewContent.textContent = content || "(empty)";
-  supPreview.dataset.name = name;
-  supList.classList.add("hidden");
-  supPreview.classList.remove("hidden");
-}
-
-async function loadSupFile(name: string) {
-  await window.yo.sessionLoadFile(name);
-  closeSupBrowser();
-  showResult(`Loaded: ${name}.md \u2014 copied to clipboard`);
-}
-
-document.getElementById("sup-close")!.addEventListener("click", closeSupBrowser);
-document.getElementById("sup-load-btn")!.addEventListener("click", () => {
-  const name = supPreview.dataset.name;
-  if (name) loadSupFile(name);
-});
-document.getElementById("sup-preview-close")!.addEventListener("click", () => {
-  supPreview.classList.add("hidden");
-  supList.classList.remove("hidden");
-});
-
-// Search: debounce + AI search
-supSearch.addEventListener("input", () => {
-  if (supSearchTimer) clearTimeout(supSearchTimer);
-  const q = supSearch.value.trim();
-
-  if (!q) {
-    loadSupFiles();
-    return;
-  }
-
-  // Quick local filter first (instant)
-  window.yo.libraryList().then((all) => {
-    const lower = q.toLowerCase();
-    const filtered = all.filter((f) => f.toLowerCase().includes(lower));
-    if (filtered.length > 0) {
-      loadSupFiles(filtered);
-    }
-  });
-
-  // AI search after debounce (for natural language queries)
-  supSearchTimer = setTimeout(async () => {
-    const results = await window.yo.librarySearchAi(q);
-    if (results.length > 0 && supSearch.value.trim() === q) {
-      loadSupFiles(results);
-    }
-  }, 600);
-});
-
-supSearch.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    closeSupBrowser();
-  }
-});
-
-// Click overlay background -> close
-supBrowser.addEventListener("click", (e) => {
-  if (e.target === supBrowser) closeSupBrowser();
-});
 
 
 // -- Global keyboard shortcuts --
@@ -465,7 +233,6 @@ supBrowser.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (isCmdKOpen()) closeCmdK();
-    else if (isSupBrowserOpen()) closeSupBrowser();
     else if (isHelpOpen()) closeHelp();
   }
 
@@ -496,9 +263,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-function isSupBrowserOpen(): boolean {
-  return !supBrowser.classList.contains("hidden");
-}
 
 // yo help trigger from main process
 window.yo.onShowWelcome(() => openHelp());

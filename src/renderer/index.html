@@ -38,45 +38,20 @@
       <button id="btn-minimize" class="wc wc-minimize"></button>
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
-    <div id="titlebar-label">Yo<span class="dot">.</span> Sup<span class="dot">.</span></div>
+    <div id="titlebar-label">Yo<span class="dot">.</span></div>
     <span id="context-pill" class="hidden">
       <span id="context-pill-name"></span>
-      <button id="context-pill-edit" class="context-pill-icon" title="Browse library">
+      <button id="context-pill-edit" class="context-pill-icon" title="Edit context">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
       </button>
       <button id="context-pill-clear" class="context-pill-icon" title="Clear context">&times;</button>
     </span>
   </div>
 
-  <!-- Sup browser overlay (library file picker) -->
-  <div id="sup-browser" class="hidden">
-    <div class="sup-browser-card">
-      <div class="sup-browser-header">
-        <input id="sup-search" type="text" placeholder="search library..." spellcheck="false" autocomplete="off" />
-        <button id="sup-close" class="sup-close-btn">&times;</button>
-      </div>
-      <div id="sup-list" class="sup-list"></div>
-      <div id="sup-preview" class="sup-preview hidden">
-        <div class="sup-preview-header">
-          <span id="sup-preview-name"></span>
-          <div class="sup-preview-actions">
-            <button id="sup-load-btn" class="sup-preview-icon-btn" title="Set as context">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
-            </button>
-            <button id="sup-preview-close" class="sup-preview-icon-btn" title="Back">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            </button>
-          </div>
-        </div>
-        <pre id="sup-preview-content"></pre>
-      </div>
-    </div>
-  </div>
-
   <!-- Cmd+K command overlay -->
   <div id="cmdk-overlay" class="hidden">
     <div class="cmdk-card">
-      <input id="cmdk-input" type="text" placeholder=".yo, .sup, .dip..." spellcheck="false" autocomplete="off" />
+      <input id="cmdk-input" type="text" placeholder=".yo, .dip..." spellcheck="false" autocomplete="off" />
     </div>
   </div>
 
@@ -94,7 +69,6 @@
         <div class="help-brand">Yo<span class="dot">.</span></div>
         <button class="help-nav-item active" data-section="guide">Guide</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
-        <button class="help-nav-item" data-section="library">Library</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="settings">Settings</button>
@@ -109,44 +83,23 @@
           <h2>Just talk.</h2>
 
           <div class="help-group">
-            <h3>.yo <span class="cmd-desc">— capture</span></h3>
-            <p class="cmd-intro">Grabs content from your panels, saves to library, and sets as active context.</p>
+            <h3>.yo <span class="cmd-desc">— ask &amp; capture</span></h3>
+            <p class="cmd-intro">Query your ambient context or force-capture the active panel.</p>
             <div class="cmd-row">
-              <code>.yo</code>
-              <span>Capture all open panels (auto-named)</span>
+              <code>.yo what was I looking at?</code>
+              <span>Search ambient context + AI response</span>
             </div>
             <div class="cmd-row">
               <code>.yo .</code>
-              <span>Capture only the active panel</span>
-            </div>
-            <div class="cmd-row">
-              <code>.yo summarize this conversation</code>
-              <span>Capture all panels + AI formats the result</span>
+              <span>Force-capture the active panel now</span>
             </div>
             <div class="cmd-row">
               <code>.yo . feature-spec</code>
-              <span>Active panel only + use a skill or prompt</span>
+              <span>Capture active panel + apply a skill</span>
             </div>
             <div class="cmd-row">
               <code>.yo . .dip gmail</code>
               <span>Chain: capture active panel, then switch to gmail</span>
-            </div>
-          </div>
-
-          <div class="help-group">
-            <h3>.sup <span class="cmd-desc">— use context</span></h3>
-            <p class="cmd-intro">Browse your library or paste context into the active app.</p>
-            <div class="cmd-row">
-              <code>.sup</code>
-              <span>Browse library to pick content as active context</span>
-            </div>
-            <div class="cmd-row">
-              <code>.sup .</code>
-              <span>Paste active context raw — no AI</span>
-            </div>
-            <div class="cmd-row">
-              <code>.sup . email-format</code>
-              <span>Paste context formatted by a skill or prompt</span>
             </div>
           </div>
 
@@ -220,7 +173,7 @@
         <!-- Skills -->
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
-          <p class="section-desc">Reusable prompt templates. Use with <code>.yo &lt;skill&gt;</code> or <code>.sup . &lt;skill&gt;</code>.</p>
+          <p class="section-desc">Reusable prompt templates. Use with <code>.yo &lt;skill&gt;</code> or <code>.yo . &lt;skill&gt;</code>.</p>
           <div class="tab-toolbar">
             <input id="skill-new-name" type="text" placeholder="skill name" spellcheck="false" autocomplete="off" />
             <button id="skill-create-btn" class="action-btn primary">+ New Skill</button>
@@ -250,42 +203,6 @@
                 <div class="detail-llm-input-wrap">
                   <textarea id="skill-llm-input" rows="2" placeholder="Ask AI to refine this skill..." spellcheck="false"></textarea>
                   <button id="skill-llm-send" class="detail-llm-send">↑</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Library -->
-        <div class="help-section" data-section="library">
-          <h2>Library</h2>
-          <p class="section-desc">Saved content. Click to set as active context.</p>
-          <div id="library-list" class="help-item-list"></div>
-
-          <!-- Library detail (split: editor + LLM prompt) -->
-          <div id="lib-detail" class="detail-view hidden">
-            <div class="detail-header">
-              <div class="detail-info">
-                <input id="lib-detail-name" class="detail-title-input" spellcheck="false" placeholder="file name" />
-              </div>
-              <div class="action-btns detail-actions">
-                <button id="lib-detail-context" class="action-btn">Set as Context</button>
-                <button id="lib-detail-save" class="action-btn primary">Save</button>
-                <button id="lib-detail-delete" class="action-btn danger">Delete</button>
-                <button id="lib-detail-close" class="action-btn">Back</button>
-              </div>
-            </div>
-            <div class="detail-split">
-              <div class="detail-editor">
-                <div class="detail-editor-label">Content</div>
-                <textarea id="lib-detail-content" placeholder="Content..." spellcheck="false"></textarea>
-              </div>
-              <div class="detail-llm">
-                <div class="detail-llm-label">Refine with AI</div>
-                <div id="lib-llm-log" class="detail-llm-log"></div>
-                <div class="detail-llm-input-wrap">
-                  <textarea id="lib-llm-input" rows="2" placeholder="Ask AI to refine this content..." spellcheck="false"></textarea>
-                  <button id="lib-llm-send" class="detail-llm-send">↑</button>
                 </div>
               </div>
             </div>
@@ -333,7 +250,7 @@
         <!-- Apps -->
         <div class="help-section" data-section="apps">
           <h2>Apps</h2>
-          <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to .yo/.sup/.dip.</p>
+          <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to .yo/.dip.</p>
           <div class="tab-toolbar">
             <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
             <input id="app-new-name" type="text" placeholder="app name" spellcheck="false" />

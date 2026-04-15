@@ -1,15 +1,14 @@
 /**
- * YoChat — LLM engine for inline yo/sup/wassup execution.
+ * YoChat — LLM engine for inline yo execution.
  *
- * Context-centric: the interceptor grabs content (yo) or loads it
- * from library (sup) before calling the LLM. The LLM processes
- * the context — it never reaches into app DOMs directly.
+ * Context-centric: the interceptor grabs content or the context store
+ * provides retrieved chunks. The LLM processes the context — it never
+ * reaches into app DOMs directly.
  *
- * Uses Claude Sonnet with tool use for library operations.
+ * Uses Claude Sonnet with tool use for workspace operations.
  */
 
 import { PanelManager } from "./panel-manager";
-import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { AppConnector } from "./app-connector";
 import { LLMConfig, createCompletion, createStream } from "./llm-config";
@@ -21,53 +20,16 @@ export interface ChatCallbacks {
 }
 
 const SYSTEM = `You are Yo, an AI assistant embedded in the YoSup desktop workspace.
-You process content that the user has loaded as context. You do not control apps directly — the user works in their apps and passes you context to operate on.
+You process content that the user has captured or that was retrieved from their ambient context across multiple panels over time. You do not control apps directly.
 
 Capabilities:
-- yo_save: save processed content to the library
-- sup_load: read a library file for reference
-- library_list / library_search: find files in the library
 - dip: switch the active panel
 
 When given context, process it according to the user's instruction.
-Save results to the library when appropriate. Be concise.`;
+The context may come from multiple panels captured at different times — use timestamps and source labels to understand recency and relevance.
+Be concise.`;
 
 const TOOLS = [
-  {
-    name: "yo_save",
-    description: "Save content to the library as a markdown file.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string" as const, description: "File name (no .md)" },
-        content: { type: "string" as const, description: "Markdown content" },
-      },
-      required: ["name", "content"],
-    },
-  },
-  {
-    name: "sup_load",
-    description: "Load and return the contents of a library file.",
-    input_schema: {
-      type: "object" as const,
-      properties: { name: { type: "string" as const, description: "File name (no .md)" } },
-      required: ["name"],
-    },
-  },
-  {
-    name: "library_list",
-    description: "List all files in ~/yo/library/.",
-    input_schema: { type: "object" as const, properties: {} },
-  },
-  {
-    name: "library_search",
-    description: "Search library files by name or content.",
-    input_schema: {
-      type: "object" as const,
-      properties: { query: { type: "string" as const, description: "Search term" } },
-      required: ["query"],
-    },
-  },
   {
     name: "dip",
     description: "Switch to a panel or layout.",
@@ -88,7 +50,6 @@ export class YoChat {
 
   constructor(
     private panelManager: PanelManager,
-    private library: Library,
   ) {}
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
@@ -143,7 +104,7 @@ export class YoChat {
 
     const userPrompt = `You are working in the user's content workspace. The workspace has two types of items:
 
-1. **Content** — documents, notes, artifacts (stored in library as .md files)
+1. **Content** — documents, notes, artifacts
 2. **Skills** — reusable prompt templates that transform content (stored as skill files)
 
 ${skillList}
@@ -203,7 +164,7 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
    * Runs non-streaming and returns the final text result.
    */
   async executeInline(
-    command: "yo" | "sup" | "wassup",
+    command: "yo",
     instruction: string,
     appId: string,
     appContent?: string,
@@ -212,28 +173,12 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
 
     const context = this.buildContext();
     const userParts: string[] = [];
-    if (command === "yo") {
-      userParts.push(`The user typed "yo ${instruction}".`);
-      userParts.push(`They want to process content from their current app and save it to their session.`);
-      if (appContent) {
-        userParts.push(`\nHere is the content:\n\n${appContent.slice(0, 8000)}`);
-      }
-      userParts.push(`\nProcess according to the instruction. Return the processed result directly. Be concise.`);
-    } else if (command === "sup") {
-      userParts.push(`The user typed "sup ${instruction}".`);
-      userParts.push(`They have session content they want processed and injected into their current app.`);
-      if (appContent) {
-        userParts.push(`\nHere is their session content:\n\n${appContent.slice(0, 8000)}`);
-      }
-      userParts.push(`\nProcess according to the instruction. Return the result directly — it will be injected into their input. Be concise.`);
-    } else {
-      // wassup — tool execution
-      userParts.push(`The user invoked a tool with instruction: "${instruction}".`);
-      if (appContent) {
-        userParts.push(`\nHere is the context from their session:\n\n${appContent.slice(0, 8000)}`);
-      }
-      userParts.push(`\nFollow the instruction. Return the result directly. Be concise.`);
+    userParts.push(`The user typed "yo ${instruction}".`);
+    userParts.push(`They want you to answer based on context retrieved from their workspace panels.`);
+    if (appContent) {
+      userParts.push(`\nHere is the context (may include content from multiple panels captured at different times):\n\n${appContent.slice(0, 8000)}`);
     }
+    userParts.push(`\nProcess according to the instruction. Return the result directly. Be concise.`);
 
     const messages: any[] = [{ role: "user", content: userParts.join("\n") }];
     let finalText = "";
@@ -306,13 +251,6 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
   private buildContext(): string {
     const lines: string[] = ["## Current State"];
     lines.push(`Active panel: ${this.panelManager.activePanelId || "none"}`);
-
-    const files = this.library.list();
-    if (files.length > 0) {
-      lines.push(`\n## Library (${files.length} files)`);
-      lines.push(files.slice(0, 30).join(", "));
-    }
-
     return lines.join("\n");
   }
 
@@ -321,19 +259,6 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
   private async exec(name: string, input: Record<string, unknown>): Promise<string> {
     try {
       switch (name) {
-        case "yo_save":
-          this.library.write(input.name as string, input.content as string);
-          return `Saved: ${input.name}.md`;
-        case "sup_load":
-          return this.library.read(input.name as string) || `File "${input.name}" not found.`;
-        case "library_list": {
-          const files = this.library.list();
-          return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : "Library is empty.";
-        }
-        case "library_search": {
-          const files = this.library.search(input.query as string);
-          return files.length > 0 ? files.map((f) => `${f}.md`).join("\n") : `No files matching "${input.query}".`;
-        }
         case "dip":
           if (this.commandCallback) return this.commandCallback(`dip ${input.panel}`);
           return "Panel switching not available.";

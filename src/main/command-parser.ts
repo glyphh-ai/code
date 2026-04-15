@@ -1,27 +1,27 @@
 /**
- * CommandParser — parses and executes yo/sup/dip/wassup commands.
+ * CommandParser — parses and executes yo/dip/drip commands.
  *
- * Four commands, all from the command bar or interceptor.
- *   yo          → grab panels → session + clipboard
- *   yo <skill>  → grab → skill process → session + clipboard
- *   sup         → paste session content (clipboard)
- *   sup <skill> → session → skill/LLM → clipboard
- *   dip <panel> → switch/split/grid
- *   wassup <name> <instructions> → LLM writes a skill
+ *   yo              → help
+ *   yo .            → force capture active panel into context store
+ *   yo . <skill>    → capture active + skill process → clipboard
+ *   yo <skill>      → capture all + skill process → clipboard
+ *   yo <query>      → search context store → LLM answer → clipboard
+ *   dip <panel>     → switch/split/grid
+ *   drip <effect>   → visual effect
  */
 
 import { BrowserWindow } from "electron";
 import { PanelManager } from "./panel-manager";
-import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { SessionCache } from "./session-cache";
+import { ContextStore } from "./context-store";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["yo", "sup", "dip", "drip", "wassup"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["yo", "dip", "drip"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -31,11 +31,11 @@ export class CommandParser {
 
   constructor(
     private panels: PanelManager,
-    private library: Library,
     private skillEngine: SkillEngine,
     private layouts: LayoutManager,
     private appConnector: AppConnector,
     private session: SessionCache,
+    private contextStore: ContextStore,
   ) {}
 
   /** Set the main window reference (used by dip commands). */
@@ -90,23 +90,19 @@ export class CommandParser {
     switch (cmd) {
       case "yo":
         return this.handleYo(args);
-      case "sup":
-        return this.handleSup(args);
       case "dip":
         return this.handleDip(args, sourcePanelId);
       case "drip":
         return this.handleDrip(args);
-      case "wassup":
-        return this.handleWassup(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or wassup.`;
+        return `Unknown command: ${cmd}. Try yo, dip, or drip.`;
     }
   }
 
   /** Parse and execute a command string (supports chaining). */
   async execute(input: string, sourcePanelId?: string): Promise<string> {
     // Strip dot prefix from command keywords (.yo → yo, .dip → dip)
-    const trimmed = input.trim().replace(/\.(yo|sup|dip|drip|wassup)\b/gi, "$1");
+    const trimmed = input.trim().replace(/\.(yo|dip|drip)\b/gi, "$1");
     if (!trimmed) return "";
 
     const segments = this.splitChain(trimmed);
@@ -123,16 +119,11 @@ export class CommandParser {
     return lastResult;
   }
 
-  // ── yo: capture → session + clipboard ──────────────────────
-  //
-  //   yo               → capture all panels, auto-name, set context
-  //   yo .             → capture active panel only, auto-name, set context
-  //   yo <skill/prompt> → capture all + LLM format, LLM names it
-  //   yo . <skill/prompt> → capture active + LLM format
+  // ── yo: capture, query, or help ─────────────────────────────
 
   private async handleYo(args: string[]): Promise<string> {
     // yo help
-    if (args[0]?.toLowerCase() === "help") {
+    if (args.length === 0 || args[0]?.toLowerCase() === "help") {
       this.onShowWelcome?.();
       return "";
     }
@@ -147,42 +138,103 @@ export class CommandParser {
       return this.handleYoLayout(args.slice(1));
     }
 
-    // Parse dot modifier: "yo ." or "yo . <skill>"
-    const activeOnly = args[0] === ".";
-    if (activeOnly) args = args.slice(1);
-
-    // Grab content
-    if (!this.grabber) return "No panel grabber available.";
-    const content = await this.grabber(activeOnly);
-    if (!content) return "Could not grab content from panels.";
-
-    // Optional skill/LLM processing
-    const instruction = args.join(" ").trim();
-    let finalContent = content;
-    let matchedSkill: string | undefined;
-
-    if (instruction) {
-      matchedSkill = /^\S+$/.test(instruction)
-        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
-        : undefined;
-
-      if (matchedSkill) {
-        finalContent = await this.skillEngine.process(content, matchedSkill);
-      } else if (this.yoChat) {
-        finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
-      }
+    // yo - → open command palette
+    if (args.length === 1 && args[0] === "-") {
+      return "";
     }
 
-    // Auto-name: use skill name for known skills, timestamp for everything else
+    // yo . → force capture active panel into context store
+    if (args[0] === ".") {
+      args = args.slice(1);
+      if (!this.grabber) return "No panel grabber available.";
+      const content = await this.grabber(true);
+      if (!content) return "Could not grab content from panels.";
+
+      const instruction = args.join(" ").trim();
+      let finalContent = content;
+      let matchedSkill: string | undefined;
+
+      if (instruction) {
+        matchedSkill = /^\S+$/.test(instruction)
+          ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
+          : undefined;
+
+        if (matchedSkill) {
+          finalContent = await this.skillEngine.process(content, matchedSkill);
+        } else if (this.yoChat) {
+          finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
+        }
+      }
+
+      const label = matchedSkill || this.timestamp();
+      this.session.capture("command-bar", finalContent, `${label}.md`, label);
+      this.session.copyToClipboard();
+      return `yo .${instruction ? " " + instruction : ""} \u2014 captured`;
+    }
+
+    // yo <query> → search context store + LLM answer
+    const query = args.join(" ").trim();
+    return this.handleYoQuery(query);
+  }
+
+  /** Search ambient context and answer with LLM. */
+  private async handleYoQuery(query: string): Promise<string> {
+    // Check if single-word query matches a skill → use existing capture + skill flow
+    const matchedSkill = /^\S+$/.test(query)
+      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === query.toLowerCase())
+      : undefined;
+
+    if (matchedSkill) {
+      if (!this.grabber) return "No panel grabber available.";
+      const content = await this.grabber(false);
+      if (!content) return "Could not grab content from panels.";
+
+      const result = await this.skillEngine.process(content, matchedSkill);
+      const label = matchedSkill;
+      this.session.capture("command-bar", result, `${label}.md`, label);
+      this.session.copyToClipboard();
+      return `yo ${matchedSkill} \u2014 captured`;
+    }
+
+    // Search context store for relevant chunks
+    const chunks = this.contextStore.search(query, 15);
+
+    // If no ambient context, fall back to grabbing current visible panels
+    if (chunks.length === 0) {
+      if (!this.grabber) return "No context available.";
+      const content = await this.grabber(false);
+      if (!content) return "No context available. Ambient capture may still be loading.";
+
+      if (this.yoChat) {
+        return this.yoChat.executeInline("yo", query, "command-bar", content);
+      }
+      return "No AI engine available.";
+    }
+
+    // Assemble retrieved context with metadata
+    const contextParts = chunks.map((c) => {
+      const age = this.formatAge(c.timestamp);
+      return `[${c.panel_id} | ${c.title} | ${age}]\n${c.content}`;
+    });
+    const assembledContext = contextParts.join("\n\n---\n\n");
+
+    // Send to LLM with retrieval-augmented prompt
+    if (!this.yoChat) return assembledContext;
+
+    return this.yoChat.executeInline("yo", query, "command-bar", assembledContext);
+  }
+
+  private timestamp(): string {
     const now = new Date();
-    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
-    const label = matchedSkill || ts;
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
+  }
 
-    this.session.capture("command-bar", finalContent, `${label}.md`, label);
-    this.library.write(label, finalContent);
-    this.session.copyToClipboard();
-
-    return `yo${activeOnly ? " ." : ""}${instruction ? " " + instruction : ""} \u2014 captured`;
+  private formatAge(timestamp: number): string {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return "just now";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
   }
 
   private handleYoSkill(args: string[]): string {
@@ -263,85 +315,6 @@ export class CommandParser {
     }
 
     return "Usage: yo layout save <name> <panel1> <panel2> ... | yo layout list | yo layout delete <name>";
-  }
-
-  // ── sup: session → process → clipboard ─────────────────────
-
-  private async handleSup(args: string[]): Promise<string> {
-    // Library management subcommands
-    const sub = args[0]?.toLowerCase();
-
-    if (sub === "list") {
-      const files = this.library.list();
-      if (files.length === 0) return "Library is empty. Save something first: yo <name>";
-      return files.map((f) => `  ${f}`).join("\n");
-    }
-
-    if (sub === "search" && args.length >= 2) {
-      const term = args.slice(1).join(" ");
-      const results = this.library.search(term);
-      if (results.length === 0) return `No results for "${term}"`;
-      return results.map((r) => `  ${r}`).join("\n");
-    }
-
-    if (sub === "forget" && args.length >= 2) {
-      const name = args[1];
-      const deleted = this.library.remove(name);
-      return deleted ? `Forgot: ${name}` : `Not found: ${name}`;
-    }
-
-    // Bare "sup" → show library browser to pick content as context
-    if (args.length === 0) {
-      return "__SUP_BROWSE__";
-    }
-
-    // sup . → paste session content directly to clipboard, no LLM
-    if (args.length === 1 && args[0] === ".") {
-      if (!this.session.hasContent()) return "No context loaded. Use yo to capture first.";
-      const content = this.session.get();
-      const { clipboard } = await import("electron");
-      clipboard.writeText(content);
-      return "Context copied to clipboard";
-    }
-
-    // sup . <skill/prompt> → paste session content processed by skill/LLM
-    if (args[0] === "." && args.length >= 2) {
-      if (!this.session.hasContent()) return "No context loaded. Use yo to capture first.";
-      const instruction = args.slice(1).join(" ").trim();
-      const sessionContent = this.session.get();
-
-      const knownSkill = /^\S+$/.test(instruction)
-        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
-        : undefined;
-
-      let result: string;
-      if (knownSkill) {
-        result = await this.skillEngine.process(sessionContent, knownSkill);
-      } else if (this.yoChat) {
-        result = await this.yoChat.executeInline("sup", instruction, "command-bar", sessionContent);
-      } else {
-        return "No AI engine available.";
-      }
-
-      const { clipboard } = await import("electron");
-      clipboard.writeText(result);
-      return `sup . ${instruction} \u2014 result copied to clipboard`;
-    }
-
-    // sup <name> → try to load a library file as context
-    if (args.length === 1) {
-      const name = args[0];
-      const content = this.library.read(name.endsWith(".md") ? name : `${name}.md`);
-      if (content !== null) {
-        const fileName = name.endsWith(".md") ? name : `${name}.md`;
-        this.session.capture("library", content, fileName, name);
-        this.session.copyToClipboard();
-        return `Loaded: ${name}`;
-      }
-    }
-
-    // sup <search terms> → show library browser
-    return "__SUP_BROWSE__";
   }
 
   // ── dip: switch panels ──────────────────────────────────────
@@ -599,39 +572,4 @@ export class CommandParser {
     return "";
   }
 
-  // ── wassup: create skills via LLM ───────────────────────────
-
-  private async handleWassup(args: string[]): Promise<string> {
-    if (args.length === 0) {
-      const skills = this.skillEngine.listSkills();
-      if (skills.length === 0) return "No skills yet. Create one: wassup <name> <instructions>";
-      return "Skills:\n" + skills.map((s) => `  ${s}`).join("\n");
-    }
-
-    if (args.length === 1) {
-      // Check if it's an existing skill — show its prompt
-      const name = args[0];
-      const prompt = this.skillEngine.readSkill(name);
-      if (prompt !== null) return `Skill "${name}":\n${prompt}`;
-      return `Skill "${name}" not found. Create it: wassup ${name} <instructions>`;
-    }
-
-    // wassup <name> <instructions...> → LLM writes the skill prompt
-    const name = args[0];
-    if (CommandParser.COMMAND_KEYWORDS.has(name.toLowerCase())) {
-      return `Cannot use "${name}" as a skill name \u2014 it\u2019s a reserved command.`;
-    }
-    const instructions = args.slice(1).join(" ");
-
-    if (!this.yoChat) return "No AI engine available.";
-
-    const result = await this.yoChat.executeInline(
-      "wassup",
-      `Write a skill prompt (system prompt) for a skill called "${name}". The user's instructions for what this skill should do: ${instructions}\n\nRespond with ONLY the skill prompt text, nothing else. No markdown fencing, no explanation.`,
-      "command-bar",
-    );
-
-    this.skillEngine.createSkill(name, result.trim());
-    return `Skill created: ${name}`;
-  }
 }

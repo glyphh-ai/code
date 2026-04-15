@@ -17,13 +17,6 @@ contextBridge.exposeInMainWorld("yo", {
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
   panelsGetZoom: () => ipcRenderer.invoke("panels-get-zoom") as Promise<number>,
 
-  // Library CRUD
-  libraryList: () => ipcRenderer.invoke("library-list") as Promise<string[]>,
-  libraryListMeta: () => ipcRenderer.invoke("library-list-meta") as Promise<Array<{ name: string; modified: number; size: number }>>,
-  libraryRead: (name: string) => ipcRenderer.invoke("library-read", name) as Promise<string | null>,
-  libraryWrite: (name: string, content: string) => ipcRenderer.invoke("library-write", name, content) as Promise<boolean>,
-  libraryRemove: (name: string) => ipcRenderer.invoke("library-remove", name) as Promise<boolean>,
-
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
   skillsRead: (name: string) => ipcRenderer.invoke("skills-read", name) as Promise<string | null>,
@@ -43,12 +36,10 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Session
   sessionInfo: () => ipcRenderer.invoke("session-info") as Promise<{ hasContent: boolean; label: string; fileName: string }>,
-  sessionLoadFile: (name: string) => ipcRenderer.invoke("session-load-file", name) as Promise<boolean>,
   sessionClear: () => ipcRenderer.invoke("session-clear") as Promise<boolean>,
   onSessionChanged: (callback: (info: { hasContent: boolean; label: string; fileName: string }) => void) => {
     ipcRenderer.on("session-changed", (_event, info) => callback(info));
   },
-  librarySearchAi: (query: string) => ipcRenderer.invoke("library-search-ai", query) as Promise<string[]>,
 
   // Preferences
   relaunch: () => ipcRenderer.send("relaunch"),
@@ -110,11 +101,6 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Command execution (used internally by interceptor routing)
   execCommand: (cmd: string) => ipcRenderer.invoke("exec-command", cmd) as Promise<string>,
-
-  // Sup browser open (from terminal)
-  onOpenSupBrowser: (callback: () => void) => {
-    ipcRenderer.on("open-sup-browser", () => callback());
-  },
 
   // Downloads
   onDownloadStart: (cb: (info: { filename: string; totalBytes: number; savePath: string }) => void) => {

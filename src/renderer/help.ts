@@ -53,7 +53,6 @@ function activeSection(): string {
 function loadActiveSection() {
   const sec = activeSection();
   if (sec === "skills") loadSkills();
-  else if (sec === "library") loadLibrary();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
@@ -122,16 +121,6 @@ export function initHelp() {
   document.getElementById("skill-llm-send")!.addEventListener("click", sendSkillLlm);
   skillLlmInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSkillLlm(); }
-  });
-
-  // Library detail
-  document.getElementById("lib-detail-context")!.addEventListener("click", setLibContext);
-  document.getElementById("lib-detail-save")!.addEventListener("click", saveLibDetail);
-  document.getElementById("lib-detail-delete")!.addEventListener("click", deleteLibDetail);
-  document.getElementById("lib-detail-close")!.addEventListener("click", closeLibDetail);
-  document.getElementById("lib-llm-send")!.addEventListener("click", sendLibLlm);
-  libLlmInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendLibLlm(); }
   });
 
   // Apps
@@ -540,7 +529,7 @@ function renderAppsList() {
     ? allApps.filter((a) => a.id.includes(query) || a.name.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
     : allApps;
   if (allApps.length === 0) {
-    appsList.innerHTML = `<div class="empty-state">No apps yet. Add a web app to connect it to yo/sup/dip.</div>`;
+    appsList.innerHTML = `<div class="empty-state">No apps yet. Add a web app to connect it to yo/dip.</div>`;
     return;
   }
   if (apps.length === 0) {
@@ -1067,7 +1056,7 @@ async function sendSkillLlm() {
 
   try {
     const result = await window.yo.execCommand(
-      `wassup refine-skill Refine this skill prompt based on the user's request.\n\nCurrent prompt:\n${currentContent}\n\nUser request: ${userMsg}\n\nIMPORTANT: The skill prompt MUST include an explicit instruction to output plain text without markdown formatting. Skill output gets pasted into real apps (email, chat, docs) where markdown syntax looks broken. Always include a line like: "Output plain text only. Do not use markdown formatting."\n\nRespond with ONLY the updated prompt text, nothing else.`
+      `yo . Refine this skill prompt based on the user's request.\n\nCurrent prompt:\n${currentContent}\n\nUser request: ${userMsg}\n\nIMPORTANT: The skill prompt MUST include an explicit instruction to output plain text without markdown formatting. Skill output gets pasted into real apps (email, chat, docs) where markdown syntax looks broken. Always include a line like: "Output plain text only. Do not use markdown formatting."\n\nRespond with ONLY the updated prompt text, nothing else.`
     );
     loadingDiv.remove();
     const aiDiv = document.createElement("div");
@@ -1097,163 +1086,4 @@ async function createNewSkill() {
   openSkillDetail(fileName);
 }
 
-// ── Library ───────────────────────────────────────────────
-
-const libraryList = document.getElementById("library-list")!;
-const libSection = libraryList.closest(".help-section") as HTMLElement;
-const libDetail = document.getElementById("lib-detail")!;
-const libDetailName = document.getElementById("lib-detail-name") as HTMLInputElement;
-const libDetailContent = document.getElementById("lib-detail-content") as HTMLTextAreaElement;
-const libLlmLog = document.getElementById("lib-llm-log")!;
-const libLlmInput = document.getElementById("lib-llm-input") as HTMLTextAreaElement;
-let currentLibFile = "";  // file name of library item being viewed
-
-async function loadLibrary() {
-  libDetail.classList.add("hidden");
-  libraryList.classList.remove("hidden");
-  const files = await window.yo.libraryListMeta();
-  if (files.length === 0) {
-    libraryList.innerHTML = `<div class="help-item-empty">Library is empty. Use <code>.yo</code> to capture content.</div>`;
-    return;
-  }
-  // Sort by modified descending
-  files.sort((a, b) => b.modified - a.modified);
-  libraryList.innerHTML = "";
-  for (const file of files) {
-    const row = document.createElement("div");
-    row.className = "help-item-row";
-    const cleanName = file.name.replace(/\.md$/i, "");
-    const ago = formatAge(file.modified);
-    row.innerHTML = `
-      <div class="help-item-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-      </div>
-      <span class="help-item-name">${cleanName}</span>
-      <span class="help-item-meta">${ago}</span>
-      <div class="help-item-actions">
-        <button class="help-item-action danger lib-delete" title="Delete">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-      </div>`;
-
-    // Click row → open detail view
-    row.addEventListener("click", () => openLibDetail(file.name));
-
-    row.querySelector(".lib-delete")!.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await window.yo.libraryRemove(file.name);
-      loadLibrary();
-    });
-
-    libraryList.appendChild(row);
-  }
-}
-
-async function openLibDetail(fileName: string) {
-  currentLibFile = fileName;
-  const content = await window.yo.libraryRead(fileName);
-  if (content === null) return;
-
-  libDetailName.value = fileName.replace(/\.md$/i, "");
-  libDetailContent.value = content || "";
-  libLlmLog.innerHTML = `<div class="llm-empty">Ask AI to refine, summarize, or reformat this content.</div>`;
-
-  libraryList.classList.add("hidden");
-  toggleSectionChrome(libSection, false);
-  libDetail.classList.remove("hidden");
-}
-
-function closeLibDetail() {
-  libDetail.classList.add("hidden");
-  libraryList.classList.remove("hidden");
-  toggleSectionChrome(libSection, true);
-  currentLibFile = "";
-  loadLibrary();
-}
-
-async function saveLibDetail() {
-  const name = libDetailName.value.trim();
-  const content = libDetailContent.value;
-  if (!name) { libDetailName.focus(); return; }
-
-  const newFile = name.endsWith(".md") ? name : `${name}.md`;
-  if (currentLibFile && currentLibFile !== name && currentLibFile !== newFile) {
-    await window.yo.libraryRemove(currentLibFile);
-  }
-  await window.yo.libraryWrite(name, content);
-  currentLibFile = newFile;
-}
-
-async function deleteLibDetail() {
-  if (currentLibFile) {
-    await window.yo.libraryRemove(currentLibFile);
-  }
-  closeLibDetail();
-}
-
-async function setLibContext() {
-  if (currentLibFile) {
-    await window.yo.sessionLoadFile(currentLibFile);
-  }
-}
-
-async function sendLibLlm() {
-  const userMsg = libLlmInput.value.trim();
-  if (!userMsg) return;
-
-  const currentContent = libDetailContent.value;
-  libLlmInput.value = "";
-  const sendBtn = document.getElementById("lib-llm-send") as HTMLButtonElement;
-  sendBtn.disabled = true;
-
-  // Clear empty state
-  const emptyEl = libLlmLog.querySelector(".llm-empty");
-  if (emptyEl) emptyEl.remove();
-
-  // Show user message
-  const userDiv = document.createElement("div");
-  userDiv.className = "llm-msg user";
-  userDiv.textContent = userMsg;
-  libLlmLog.appendChild(userDiv);
-
-  // Show loading
-  const loadingDiv = document.createElement("div");
-  loadingDiv.className = "llm-msg ai loading";
-  loadingDiv.textContent = "Thinking...";
-  libLlmLog.appendChild(loadingDiv);
-  libLlmLog.scrollTop = libLlmLog.scrollHeight;
-
-  try {
-    const result = await window.yo.execCommand(
-      `wassup refine-content Refine this content based on the user's request.\n\nCurrent content:\n${currentContent}\n\nUser request: ${userMsg}\n\nRespond with ONLY the updated content, nothing else.`
-    );
-    loadingDiv.remove();
-    const aiDiv = document.createElement("div");
-    aiDiv.className = "llm-msg ai";
-    aiDiv.textContent = "Updated the content.";
-    libLlmLog.appendChild(aiDiv);
-
-    if (result) {
-      libDetailContent.value = result;
-    }
-  } catch {
-    loadingDiv.textContent = "Failed — try again.";
-    loadingDiv.classList.remove("loading");
-  } finally {
-    sendBtn.disabled = false;
-    libLlmLog.scrollTop = libLlmLog.scrollHeight;
-  }
-}
-
-function formatAge(ms: number): string {
-  const diff = Date.now() - ms;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d`;
-  return `${Math.floor(days / 30)}mo`;
-}
 

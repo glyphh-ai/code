@@ -25,6 +25,8 @@ import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { SessionCache } from "./session-cache";
+import { ContextStore } from "./context-store";
+import { AmbientCapture } from "./ambient-capture";
 import { VSCodeServer } from "./vscode-server";
 
 let mainWindow: BrowserWindow | null = null;
@@ -39,6 +41,8 @@ let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
+let contextStore: ContextStore;
+let ambientCapture: AmbientCapture;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -488,7 +492,7 @@ async function boot() {
 
   // Core services
   library = new Library();
-  skillEngine = new SkillEngine(library);
+  skillEngine = new SkillEngine();
   appConnector = new AppConnector();
   connectorAgent = new ConnectorAgent();
 
@@ -499,8 +503,8 @@ async function boot() {
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
 
-  // yo/sup/dip/wassup interceptor — injected into ALL app panels
-  const yoInterceptor = new YoInterceptor(appConnector, library, skillEngine, session);
+  // yo/dip/drip interceptor — injected into ALL app panels
+  const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -578,14 +582,18 @@ async function boot() {
     });
   }
 
+  // Context store + ambient capture
+  contextStore = new ContextStore();
+  ambientCapture = new AmbientCapture(panelManager, appConnector, contextStore);
+
   layoutManager = new LayoutManager(panelManager);
-  commandParser = new CommandParser(panelManager, library, skillEngine, layoutManager, appConnector, session);
+  commandParser = new CommandParser(panelManager, skillEngine, layoutManager, appConnector, session, contextStore);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
 
-  // LLM engine for inline yo/sup/wassup execution
-  const yoChat = new YoChat(panelManager, library);
+  // LLM engine for inline yo execution
+  const yoChat = new YoChat(panelManager);
   yoChat.setSkillEngine(skillEngine);
   yoChat.setAppConnector(appConnector);
   applyLLMConfig(llmConfig);
@@ -648,12 +656,6 @@ async function boot() {
   terminalManager.setCommandHandler(async (cmd, wc) => {
     const result = await execCommand(cmd);
     if (!result || wc.isDestroyed()) return;
-
-    // sup returns __SUP_BROWSE__ → open browser in main renderer, not terminal
-    if (result === "__SUP_BROWSE__") {
-      mainWindow?.webContents.send("open-sup-browser");
-      return;
-    }
 
     // Write result to terminal in grey
     const lines = result.replace(/\r/g, "").split("\n").join("\r\n");
@@ -764,7 +766,11 @@ async function boot() {
   if (!needsOnboarding) {
     restorePanels();
     panelsReady = true;
+    ambientCapture.start();
   }
+
+  // Daily prune of old context chunks (every 24h)
+  setInterval(() => contextStore.prune(), 24 * 60 * 60 * 1000);
 
   // Global hotkey: Cmd+Y / Ctrl+Y
   registerHotkey(mainWindow!);
@@ -883,16 +889,6 @@ async function boot() {
     }
     sendSplitState();
   });
-
-  // IPC: library CRUD
-  ipcMain.handle("library-list", () => library.list());
-  ipcMain.handle("library-list-meta", () => library.listWithMeta());
-  ipcMain.handle("library-read", (_e, name: string) => library.read(name));
-  ipcMain.handle("library-write", (_e, name: string, content: string) => {
-    library.write(name, content);
-    return true;
-  });
-  ipcMain.handle("library-remove", (_e, name: string) => library.remove(name));
 
   // IPC: skills CRUD
   ipcMain.handle("skills-list", () => skillEngine.listSkills());
@@ -1245,49 +1241,11 @@ async function boot() {
   // IPC: session info (for context pill)
   ipcMain.handle("session-info", () => session.getInfo());
 
-  // IPC: load a library file into session as active context
-  ipcMain.handle("session-load-file", (_e, name: string) => {
-    const content = library.read(name);
-    if (!content) return false;
-    session.capture("library", content, name + ".md", name);
-    session.copyToClipboard();
-    sendSessionState();
-    return true;
-  });
-
   // IPC: clear session
   ipcMain.handle("session-clear", () => {
     session.clear();
     sendSessionState();
     return true;
-  });
-
-  // IPC: AI-powered library search
-  ipcMain.handle("library-search-ai", async (_e, query: string) => {
-    const files = library.list();
-    if (files.length === 0) return [];
-
-    // Quick exact/partial match first
-    const lower = query.toLowerCase();
-    const exact = files.filter((f) => f.toLowerCase().includes(lower));
-    if (exact.length > 0) return exact;
-
-    // AI search: ask LLM to pick best matches
-    if (!yoChat) return files.slice(0, 10);
-
-    try {
-      const result = await yoChat.executeInline(
-        "sup",
-        `The user is searching their library for: "${query}"\n\nAvailable files:\n${files.map((f) => `- ${f}`).join("\n")}\n\nReturn ONLY the matching file names, one per line. If nothing matches well, return the closest matches. No explanation.`,
-        "search",
-      );
-      const matches = result.trim().split("\n")
-        .map((l) => l.replace(/^-\s*/, "").trim())
-        .filter((l) => files.includes(l));
-      return matches.length > 0 ? matches : files.slice(0, 10);
-    } catch {
-      return files.slice(0, 10);
-    }
   });
 
   // IPC: license + API key
@@ -1350,6 +1308,7 @@ async function boot() {
   ipcMain.handle("onboarding-complete", () => {
     restorePanels();
     panelsReady = true;
+    ambientCapture.start();
     sendSplitState();
   });
 
@@ -1369,6 +1328,8 @@ async function boot() {
 app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
+  if (ambientCapture) ambientCapture.stop();
+  if (contextStore) contextStore.close();
   mcpServer?.stop();
   cloudSync?.stop();
   terminalManager?.killAll();

@@ -10,7 +10,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { Library } from "./library";
+
 import { LLMConfig, createCompletion } from "./llm-config";
 
 interface Skill {
@@ -36,7 +36,7 @@ export class SkillEngine {
   private skillsDir: string;
   private llmConfig: LLMConfig | null = null;
 
-  constructor(private library: Library) {
+  constructor() {
     this.skillsDir = path.join(os.homedir(), "yo", "skills");
     fs.mkdirSync(this.skillsDir, { recursive: true });
     this.loadSkills();
