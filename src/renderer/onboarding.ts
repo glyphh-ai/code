@@ -192,7 +192,7 @@ export function showOnboarding(trialDays?: number) {
   inTrial = trialDays !== undefined && trialDays > 0;
   if (inTrial) {
     trialInfo.textContent = `${trialDays} day${trialDays === 1 ? "" : "s"} remaining in trial`;
-    licenseInput.placeholder = "License key (YO-...) — optional during trial";
+    licenseInput.placeholder = "License key (YO-...)";
   } else if (trialDays === 0) {
     trialInfo.textContent = "Trial expired — enter a license key";
     trialInfo.classList.add("expired");

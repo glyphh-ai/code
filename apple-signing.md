@@ -46,8 +46,11 @@ Either from Keychain (right-click → Export as .p12) or command line:
 ```bash
 openssl pkcs12 -export -out ~/yo-dev-id.p12 \
   -inkey ~/yo-dev-id.key \
-  -in ~/path/to/developerID_application.cer
+  -in ~/path/to/developerID_application.cer \
+  -legacy
 ```
+
+> **Important:** The `-legacy` flag is required when using OpenSSL 3.x. Without it, OpenSSL uses modern encryption algorithms (AES-256-CBC + PBKDF2) that macOS's `security import` command cannot read. The error is misleadingly reported as "MAC verification failed (wrong password?)" but it's actually an algorithm mismatch. The `-legacy` flag forces SHA1/3DES encryption which macOS understands.
 
 ### 6. Generate an app-specific password
 
@@ -102,3 +105,12 @@ xattr -cr /Applications/Yo.app
 **"Certificate not trusted"** — install Apple's Developer ID G2 intermediate cert from https://www.apple.com/certificateauthority/
 
 **Notarization fails** — check that `APPLE_APP_SPECIFIC_PASSWORD` is valid and the Apple Developer membership is active.
+
+**"MAC verification failed during PKCS12 import (wrong password?)"** — if the password is correct, this is an OpenSSL 3.x compatibility issue. Re-export the `.p12` with the `-legacy` flag:
+```bash
+openssl pkcs12 -export -out ~/yo-dev-id.p12 \
+  -inkey ~/yo-dev-id.key \
+  -in ~/path/to/developerID_application.cer \
+  -legacy
+```
+Then re-encode with `base64 -i ~/yo-dev-id.p12 | pbcopy` and update the `CSC_LINK` GitHub secret.

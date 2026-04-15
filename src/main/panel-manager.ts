@@ -490,6 +490,7 @@ export class PanelManager {
 
     // Intercept Cmd/Ctrl shortcuts so they work even when a panel has focus
     view.webContents.on("before-input-event", (e, input) => {
+      if (view.webContents.isDestroyed() || parent.isDestroyed()) return;
       if (!input.meta && !input.control) return;
       if (input.type !== "keyDown") return;
       if (input.key === "=" || input.key === "+") {
@@ -518,6 +519,7 @@ export class PanelManager {
 
     view.webContents.loadURL(config.url);
     view.webContents.on("did-finish-load", () => {
+      if (view.webContents.isDestroyed()) return;
       view.webContents.setZoomFactor(this.zoomFactor);
       // Inject thin scrollbar styles into all panels
       view.webContents.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});
