@@ -23,7 +23,7 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.19.17",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.0",
     "esbuild": "^0.25.0",

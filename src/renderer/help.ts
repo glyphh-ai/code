@@ -348,11 +348,39 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   picker.style.top = `${rect.bottom + 4}px`;
 
   picker.innerHTML = [
+    `<input class="cell-panel-search" placeholder="Search…" autocomplete="off" spellcheck="false" />`,
+    `<div class="cell-panel-options">`,
     `<div class="cell-panel-option empty" data-id="">Empty</div>`,
     ...apps.map((a) => `<div class="cell-panel-option" data-id="${a.id}">${a.name}</div>`),
+    `</div>`,
   ].join("");
 
   document.body.appendChild(picker);
+
+  const closePicker = (ev: MouseEvent) => {
+    if (!(ev.target as HTMLElement).closest(".cell-panel-picker")) {
+      picker.remove();
+      document.removeEventListener("click", closePicker);
+    }
+  };
+
+  const searchInput = picker.querySelector(".cell-panel-search") as HTMLInputElement;
+  searchInput.focus();
+
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.toLowerCase();
+    picker.querySelectorAll<HTMLElement>(".cell-panel-option:not(.empty)").forEach((opt) => {
+      opt.style.display = (opt.textContent || "").toLowerCase().includes(q) ? "" : "none";
+    });
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      picker.remove();
+      document.removeEventListener("click", closePicker);
+    }
+  });
 
   picker.querySelectorAll(".cell-panel-option").forEach((opt) => {
     opt.addEventListener("click", (ev) => {
@@ -363,12 +391,6 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
     });
   });
 
-  const closePicker = (ev: MouseEvent) => {
-    if (!(ev.target as HTMLElement).closest(".cell-panel-picker")) {
-      picker.remove();
-      document.removeEventListener("click", closePicker);
-    }
-  };
   setTimeout(() => document.addEventListener("click", closePicker), 0);
 }
 

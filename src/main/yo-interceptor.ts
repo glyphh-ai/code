@@ -31,7 +31,7 @@ const PREFIX = "__YO__";
 
 export class YoInterceptor {
   private active = new Map<number, () => void>();
-  private commandHandler: ((input: string) => Promise<string>) | null = null;
+  private commandHandler: ((input: string, sourcePanelId?: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
   private getVisiblePanelIds: (() => string[]) | null = null;
   private sessionNotifier: (() => void) | null = null;
@@ -43,7 +43,7 @@ export class YoInterceptor {
   ) {}
 
   setYoChat(chat: YoChat): void { this.yoChat = chat; }
-  setCommandHandler(handler: (input: string) => Promise<string>): void { this.commandHandler = handler; }
+  setCommandHandler(handler: (input: string, sourcePanelId?: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
 
@@ -210,7 +210,7 @@ document.addEventListener('keyup',function(e){
         await this.handleSup(wc, appId, data.instruction ?? undefined);
         break;
       case "dip":
-        await this.handleDip(wc, data.instruction ?? undefined);
+        await this.handleDip(wc, appId, data.instruction ?? undefined);
         break;
       case "wassup":
         await this.handleWassup(wc, appId, data.instruction ?? undefined);
@@ -242,10 +242,10 @@ document.addEventListener('keyup',function(e){
 
   // ── dip ───────────────────────────────────────────────
 
-  private async handleDip(wc: WebContents, args?: string): Promise<void> {
+  private async handleDip(wc: WebContents, sourcePanelId: string, args?: string): Promise<void> {
     const cmd = args ? `dip ${args}` : "dip back";
     if (this.commandHandler) {
-      const result = await this.commandHandler(cmd);
+      const result = await this.commandHandler(cmd, sourcePanelId);
       if (result) this.notify(wc, result, "success");
     }
   }

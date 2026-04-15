@@ -264,6 +264,77 @@ export class LayoutManager {
     this.applyGrid(win);
   }
 
+  /**
+   * Swap the panel currently occupying a cell (identified by its panel ID) with a new
+   * panel, animating only that cell — the rest of the layout stays untouched.
+   * Returns false when there is no active grid or the source panel isn't in it
+   * (caller should fall back to a full switchTo in that case).
+   */
+  swapCellAnimated(sourcePanelId: string, newPanelId: string, win: BrowserWindow): boolean {
+    const grid = this.activeGrid;
+    if (!grid) return false;
+
+    const cellIdx = grid.cells.findIndex((c) => c.panelId === sourcePanelId);
+    if (cellIdx < 0) return false;
+    if (sourcePanelId === newPanelId) return true;
+
+    const cell = grid.cells[cellIdx];
+    const [w, h] = win.getContentSize();
+    const contentHeight = h - CONTENT_TOP;
+
+    // Cumulative column / row positions (fractions → pixels)
+    const cumCol = [0];
+    for (const cw of grid.colWidths) cumCol.push(cumCol[cumCol.length - 1] + cw);
+    const cumRow = [0];
+    for (const rh of grid.rowHeights) cumRow.push(cumRow[cumRow.length - 1] + rh);
+
+    const halfGap = Math.floor(SPLIT_GAP / 2);
+    let x = Math.floor(cumCol[cell.col] * w);
+    let cellW = Math.floor(cumCol[cell.col + cell.colSpan] * w) - x;
+    let y = Math.floor(cumRow[cell.row] * contentHeight);
+    let cellH = Math.floor(cumRow[cell.row + cell.rowSpan] * contentHeight) - y;
+
+    if (cell.col > 0)                          { x += halfGap; cellW -= halfGap; }
+    if (cell.col + cell.colSpan < grid.cols)   { cellW -= halfGap; }
+    if (cell.row > 0)                          { y += halfGap; cellH -= halfGap; }
+    if (cell.row + cell.rowSpan < grid.rows)   { cellH -= halfGap; }
+
+    const finalBounds = {
+      x,
+      y: CONTENT_TOP + y,
+      width: Math.max(cellW, 1),
+      height: Math.max(cellH, 1),
+    };
+
+    const oldView = this.panelManager.getView(sourcePanelId);
+    if (!oldView) return false;
+
+    const newView = this.panelManager.getOrCreateView(newPanelId, win);
+    if (!newView) return false;
+
+    // Update grid state before animating
+    grid.cells[cellIdx].panelId = newPanelId;
+
+    // Slide new view in from the right edge of this cell
+    const oldBounds = { ...oldView.getBounds() };
+    newView.setBounds({ ...finalBounds, x: finalBounds.x + cellW });
+    newView.setAutoResize({ width: false, height: false });
+    win.addBrowserView(newView);
+
+    this.panelManager.slideViews(
+      win,
+      [{ view: oldView, bounds: oldBounds }],
+      [{ view: newView, finalBounds }],
+      cellW,
+      220,
+      () => {
+        newView.setAutoResize({ width: false, height: false });
+        newView.webContents.focus();
+      },
+    );
+    return true;
+  }
+
   /** Legacy-compatible split info (panelIds + first col ratio for old renderer) */
   getSplitInfo(): { panelIds: string[]; ratio: number } | null {
     if (!this.activeGrid) return null;

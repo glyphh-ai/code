@@ -633,8 +633,8 @@ async function boot() {
   };
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
-  const execCommand = async (cmd: string) => {
-    const result = await commandParser.execute(cmd);
+  const execCommand = async (cmd: string, sourcePanelId?: string) => {
+    const result = await commandParser.execute(cmd, sourcePanelId);
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     sendSessionState();
@@ -1237,9 +1237,9 @@ async function boot() {
     wc.executeJavaScript(pickerScript).catch(() => {});
   });
 
-  // IPC: command execution (used by interceptor routing, no UI)
+  // IPC: command execution (used by Cmd+K overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
-    return execCommand(cmd);
+    return execCommand(cmd, panelManager.activePanelId ?? undefined);
   });
 
   // IPC: session info (for context pill)

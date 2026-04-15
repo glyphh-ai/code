@@ -82,7 +82,7 @@ export class CommandParser {
   }
 
   /** Execute a single command segment. */
-  private async executeSingle(segment: string): Promise<string> {
+  private async executeSingle(segment: string, sourcePanelId?: string): Promise<string> {
     const parts = segment.trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
@@ -93,7 +93,7 @@ export class CommandParser {
       case "sup":
         return this.handleSup(args);
       case "dip":
-        return this.handleDip(args);
+        return this.handleDip(args, sourcePanelId);
       case "drip":
         return this.handleDrip(args);
       case "wassup":
@@ -104,7 +104,7 @@ export class CommandParser {
   }
 
   /** Parse and execute a command string (supports chaining). */
-  async execute(input: string): Promise<string> {
+  async execute(input: string, sourcePanelId?: string): Promise<string> {
     // Strip dot prefix from command keywords (.yo → yo, .dip → dip)
     const trimmed = input.trim().replace(/\.(yo|sup|dip|drip|wassup)\b/gi, "$1");
     if (!trimmed) return "";
@@ -112,12 +112,12 @@ export class CommandParser {
     const segments = this.splitChain(trimmed);
 
     // Single command — fast path
-    if (segments.length === 1) return this.executeSingle(segments[0]);
+    if (segments.length === 1) return this.executeSingle(segments[0], sourcePanelId);
 
     // Chain: execute sequentially, return last non-empty result
     let lastResult = "";
     for (const segment of segments) {
-      const result = await this.executeSingle(segment);
+      const result = await this.executeSingle(segment, sourcePanelId);
       if (result) lastResult = result;
     }
     return lastResult;
@@ -346,14 +346,28 @@ export class CommandParser {
 
   // ── dip: switch panels ──────────────────────────────────────
 
-  private handleDip(args: string[]): string {
+  private handleDip(args: string[], sourcePanelId?: string): string {
     if (args.length === 0) {
-      return "Usage: dip <panel> | dip split <a> <b> | dip grid <cells> | dip back | dip add <url>";
+      return "Usage: dip <panel> | dip . <panel> | dip split <a> <b> | dip grid <cells> | dip back | dip add <url>";
     }
 
     const sub = args[0].toLowerCase();
     const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
     if (!win || win.isDestroyed()) return "No active window";
+
+    // dip . <panel-id> — swap just the calling panel within the current layout
+    if (sub === "." && args.length >= 2) {
+      const targetId = args[1].toLowerCase();
+      const fromId = sourcePanelId ?? this.panels.activePanelId ?? "";
+      if (fromId && this.layouts.swapCellAnimated(fromId, targetId, win)) {
+        return `→ ${targetId}`;
+      }
+      // No active grid — fall through to a normal full switch
+      this.layouts.clearSplit();
+      const switched = this.panels.switchTo(targetId, win);
+      if (switched) setPreference("lastView", { type: "panel", id: targetId });
+      return switched ? `Switched to ${targetId}` : `Unknown panel: ${targetId}. Try: dip list`;
+    }
 
     if (sub === "back") {
       return this.panels.switchBack(win)

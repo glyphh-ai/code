@@ -210,15 +210,11 @@ export class PanelManager {
     const ses = session.fromPartition("persist:yo");
 
     // Grant all permissions — web apps need clipboard, file system, etc.
-    ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-      console.log("[perm-request]", permission, details);
+    ses.setPermissionRequestHandler((_wc, _permission, callback) => {
       callback(true);
     });
 
-    ses.setPermissionCheckHandler((_wc, permission, _origin, details) => {
-      console.log("[perm-check]", permission, details);
-      return true;
-    });
+    ses.setPermissionCheckHandler(() => true);
 
     // Handle file downloads — auto-save to ~/Downloads with progress UI
     const downloadsDir = path.join(os.homedir(), "Downloads");
@@ -308,6 +304,13 @@ export class PanelManager {
     return this.getOrCreate(id, parent);
   }
 
+  /** Get an existing panel's BrowserView without creating it */
+  getView(id: string): BrowserView | null {
+    const view = this.panels.get(id);
+    if (!view || view.webContents.isDestroyed()) return null;
+    return view;
+  }
+
   private getOrCreate(id: string, parent: BrowserWindow): BrowserView | null {
     // Store main window ref for download notifications
     if (!PanelManager.mainWebContents && !parent.isDestroyed()) {
@@ -388,9 +391,11 @@ export class PanelManager {
       },
     };
 
-    // Log webContents errors for debugging
+    // Log webContents errors for debugging (filter out Electron CSP noise)
     view.webContents.on("console-message", (_e, level, message) => {
-      if (level >= 2) console.log(`[panel:${id}:console]`, message.slice(0, 200));
+      if (level >= 2 && !message.includes("Content-Security-Policy")) {
+        console.log(`[panel:${id}:console]`, message.slice(0, 200));
+      }
     });
     let retrying = false;
     view.webContents.on("did-fail-load", (_e, code, desc, failUrl) => {
@@ -417,7 +422,10 @@ export class PanelManager {
         retry(1);
       }
     });
-    view.webContents.on("did-navigate", () => { retrying = false; });
+    view.webContents.on("did-navigate", (_e, navUrl) => {
+      // Only stop retrying when we successfully navigate to the real URL (not the loading page)
+      if (navUrl && !navUrl.startsWith("data:")) retrying = false;
+    });
 
     view.webContents.setWindowOpenHandler(({ url, features }) => {
       console.log(`[panel:${id}:popup]`, url.slice(0, 120), features?.slice(0, 80));
