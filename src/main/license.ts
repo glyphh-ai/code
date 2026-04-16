@@ -502,43 +502,6 @@ function serverGetAuthed<T>(endpoint: string): Promise<T> {
   });
 }
 
-// ── MCP API key management (server-side) ─────────────────
-
-export async function createMcpKey(label: string, duration: string): Promise<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }> {
-  try {
-    return await serverPostAuthed<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }>(
-      "/api/keys/create",
-      { label, duration },
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: msg };
-  }
-}
-
-export async function listMcpKeys(): Promise<{ ok: boolean; keys?: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }>; error?: string }> {
-  try {
-    return await serverGetAuthed<{ ok: boolean; keys: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }> }>(
-      "/api/keys",
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: msg };
-  }
-}
-
-export async function revokeMcpKey(token: string): Promise<{ ok: boolean; revoked?: boolean; error?: string }> {
-  try {
-    return await serverPostAuthed<{ ok: boolean; revoked?: boolean; error?: string }>(
-      "/api/keys/revoke",
-      { token },
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: msg };
-  }
-}
-
 // ── API key storage ──────────────────────────────────────────
 
 const API_KEY_FILE = path.join(CONFIG_DIR, ".apikey");

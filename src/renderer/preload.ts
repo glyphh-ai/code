@@ -80,14 +80,6 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.once("picker-result", (_event, result) => callback(result));
   },
 
-  // MCP API keys
-  mcpKeysCreate: (label: string, duration: string) =>
-    ipcRenderer.invoke("mcp-keys-create", label, duration) as Promise<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }>,
-  mcpKeysList: () =>
-    ipcRenderer.invoke("mcp-keys-list") as Promise<{ ok: boolean; keys?: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }>; error?: string }>,
-  mcpKeysRevoke: (token: string) =>
-    ipcRenderer.invoke("mcp-keys-revoke", token) as Promise<{ ok: boolean; revoked?: boolean; error?: string }>,
-
   // License + API key
   checkLicense: () => ipcRenderer.invoke("check-license"),
   activateLicense: (key: string) => ipcRenderer.invoke("activate-license", key) as Promise<boolean>,

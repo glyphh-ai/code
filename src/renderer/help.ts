@@ -56,7 +56,6 @@ function loadActiveSection() {
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
-  else if (sec === "apikeys") loadApiKeysSection();
   else if (sec === "support") loadSupport();
   else if (sec === "about") loadAbout();
 }
@@ -764,7 +763,6 @@ const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonEl
 const settingsStatus = document.getElementById("settings-status")!;
 
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
-const toggleMcpServer = document.getElementById("toggle-mcp-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
 
@@ -783,11 +781,6 @@ function initSettings() {
     window.yo.setPreference("enableVscodeServer", toggleVscodeServer.checked);
     showRelaunch();
   });
-  toggleMcpServer.addEventListener("change", () => {
-    window.yo.setPreference("enableMcpServer", toggleMcpServer.checked);
-    showRelaunch();
-  });
-
   settingsContextWindow.addEventListener("change", () => {
     const val = parseInt(settingsContextWindow.value, 10);
     if (val >= 10 && val <= 200) {
@@ -937,7 +930,6 @@ async function loadSettings() {
   // Load toggle states
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
-  toggleMcpServer.checked = await window.yo.getPreference("enableMcpServer", false) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
 }
 
@@ -1121,137 +1113,6 @@ async function generateSkillPrompt() {
 }
 
 // ── About ─────────────────────────────────────────────────
-
-// ── API Keys ──────────────────────────────────────────────
-
-let apikeysInitialized = false;
-
-async function loadApiKeysSection() {
-  const gate = document.getElementById("apikeys-gate")!;
-  const content = document.getElementById("apikeys-content")!;
-
-  // Check tier
-  const info = await window.yo.getLicenseInfo();
-  if (info.tier !== "advanced") {
-    gate.classList.remove("hidden");
-    content.classList.add("hidden");
-    document.getElementById("apikeys-upgrade-btn")!.onclick = async () => {
-      const url = await window.yo.getCheckoutUrlForPlan("advanced");
-      if (url) window.yo.openExternal(url);
-    };
-    return;
-  }
-
-  gate.classList.add("hidden");
-  content.classList.remove("hidden");
-
-  if (!apikeysInitialized) {
-    apikeysInitialized = true;
-
-    const createBtn = document.getElementById("apikey-create-btn") as HTMLButtonElement;
-    createBtn.addEventListener("click", async () => {
-      const labelInput = document.getElementById("apikey-label") as HTMLInputElement;
-      const durationSelect = document.getElementById("apikey-duration") as HTMLSelectElement;
-      const statusEl = document.getElementById("apikey-status")!;
-
-      const label = labelInput.value.trim() || "default";
-      const duration = durationSelect.value;
-
-      createBtn.disabled = true;
-      createBtn.textContent = "Creating...";
-      statusEl.textContent = "";
-      statusEl.className = "apikey-status";
-
-      const result = await window.yo.mcpKeysCreate(label, duration);
-
-      if (result.ok && result.token) {
-        statusEl.innerHTML = `<span class="apikey-new-token">New key: <code>${result.token}</code></span><br><span class="apikey-copy-hint">Copy now — this is the only time it will be shown in full.</span>`;
-        statusEl.className = "apikey-status success";
-        // Auto-select for easy copy
-        const codeEl = statusEl.querySelector("code");
-        if (codeEl) {
-          codeEl.style.cursor = "pointer";
-          codeEl.addEventListener("click", () => {
-            navigator.clipboard.writeText(result.token!);
-            codeEl.textContent = "Copied!";
-            setTimeout(() => { codeEl.textContent = result.token!; }, 1500);
-          });
-        }
-        labelInput.value = "";
-        refreshApiKeysList();
-      } else {
-        statusEl.textContent = result.error || "Failed to create key";
-        statusEl.className = "apikey-status error";
-      }
-
-      createBtn.disabled = false;
-      createBtn.textContent = "+ Create Key";
-    });
-
-    // MCP config copy buttons
-    document.querySelectorAll<HTMLButtonElement>(".mcp-copy-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const pre = document.getElementById(btn.dataset.target!);
-        if (!pre) return;
-        navigator.clipboard.writeText(pre.textContent!.trim());
-        const orig = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => { btn.textContent = orig; }, 1500);
-      });
-    });
-  }
-
-  refreshApiKeysList();
-}
-
-async function refreshApiKeysList() {
-  const listEl = document.getElementById("apikeys-list")!;
-  listEl.innerHTML = '<div class="apikeys-loading">Loading...</div>';
-
-  const result = await window.yo.mcpKeysList();
-
-  if (!result.ok || !result.keys) {
-    listEl.innerHTML = `<div class="apikeys-empty">${result.error || "Failed to load keys"}</div>`;
-    return;
-  }
-
-  if (result.keys.length === 0) {
-    listEl.innerHTML = '<div class="apikeys-empty">No API keys yet. Create one above.</div>';
-    return;
-  }
-
-  listEl.innerHTML = result.keys.map((k) => {
-    const created = new Date(k.createdAt).toLocaleDateString();
-    const expires = k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "Never";
-    return `
-      <div class="apikey-row">
-        <div class="apikey-info">
-          <span class="apikey-label-text">${escapeHtml(k.label)}</span>
-          <code class="apikey-token">${escapeHtml(k.token)}</code>
-        </div>
-        <div class="apikey-meta">
-          <span>Created ${created}</span>
-          <span>Expires ${expires}</span>
-        </div>
-        <button class="action-btn danger apikey-revoke-btn" data-token="${escapeHtml(k.tokenFull)}">Revoke</button>
-      </div>`;
-  }).join("");
-
-  // Revoke handlers
-  listEl.querySelectorAll(".apikey-revoke-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const token = (btn as HTMLElement).dataset.token!;
-      (btn as HTMLButtonElement).disabled = true;
-      (btn as HTMLButtonElement).textContent = "...";
-      await window.yo.mcpKeysRevoke(token);
-      refreshApiKeysList();
-    });
-  });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 // ── Support ───────────────────────────────────────────────
 const DISCORD_INVITE = "https://discord.gg/yo-community"; // placeholder — update with real invite

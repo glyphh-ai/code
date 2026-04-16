@@ -12,8 +12,7 @@ import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { MCPServer } from "./mcp-server";
-import { checkLicense, activateLicense, revalidateLicense, initSession, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket, createMcpKey, listMcpKeys, revokeMcpKey } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, initSession, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket } from "./license";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -35,7 +34,6 @@ let panelManager: PanelManager;
 let layoutManager: LayoutManager;
 let commandParser: CommandParser;
 let skillEngine: SkillEngine;
-let mcpServer: MCPServer;
 let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
@@ -912,10 +910,6 @@ async function boot() {
     wc.send("terminal:data", `\x1b[90m${lines}\x1b[0m\r\n`);
   });
 
-  // Local server — /sup push, /yo search, /sup/capture, /mcp tools
-  mcpServer = new MCPServer(noteStore);
-  await mcpServer.start();
-
   // Create window
   await createWindow();
   if (mainWindow) commandParser.setMainWindow(mainWindow);
@@ -1732,17 +1726,6 @@ async function boot() {
     });
   });
 
-  // IPC: MCP API key management
-  ipcMain.handle("mcp-keys-create", async (_e, label: string, duration: string) => {
-    return createMcpKey(label, duration);
-  });
-  ipcMain.handle("mcp-keys-list", async () => {
-    return listMcpKeys();
-  });
-  ipcMain.handle("mcp-keys-revoke", async (_e, token: string) => {
-    return revokeMcpKey(token);
-  });
-
   // IPC: preferences
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
     setPreference(key, value);
@@ -1780,7 +1763,6 @@ async function boot() {
 app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
-  mcpServer?.stop();
   terminalManager?.killAll();
   vscodeServer?.stop();
   if (process.platform !== "darwin") {
