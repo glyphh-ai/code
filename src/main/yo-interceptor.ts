@@ -99,9 +99,10 @@ export class YoInterceptor {
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
-var CMD_RE=/^\\.(yo|dip|drip)(?:\\s+(.+))?$/i;
+var CMD_RE=/^\\.(yo|dip|drip)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
+var firing=false;
 
 window.__yoLastEl=null;
 window.__yoInject=function(text){
@@ -140,22 +141,24 @@ function tx(el){
   return el.innerText||el.textContent||'';
 }
 function fire(text,srcEl){
-  if(handled)return;handled=true;
-  var m=text.match(CMD_RE);if(!m)return;
+  if(handled||firing)return;handled=true;firing=true;
+  var m=text.match(CMD_RE);if(!m){firing=false;return;}
   var cmd=m[1].toLowerCase();
   var arg=(m[2]||'').trim()||null;
   window.__yoLastEl=srcEl||ed();
   console.log('${PREFIX}'+JSON.stringify({type:cmd,instruction:arg}));
+  setTimeout(function(){firing=false;},500);
 }
 
 document.addEventListener('keydown',function(e){
-  if(e.key!=='Enter'||e.shiftKey)return;
+  if(e.key!=='Enter'||e.shiftKey||firing)return;
   var el=ed();if(!el)return;
   var t=tx(el).trim();
   if(!CMD_RE.test(t))return;
   handled=false;
-  e.preventDefault();e.stopImmediatePropagation();
+  e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();
   var srcEl=el;
+  // Clear input immediately so the app never sees the command text
   if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
     var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
     var s=Object.getOwnPropertyDescriptor(p,'value');
@@ -167,11 +170,13 @@ document.addEventListener('keydown',function(e){
     range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
     document.execCommand('delete',false);
   }
-  fire(t,srcEl);
+  // Fire after clearing — prevents any async app handlers from seeing the text
+  setTimeout(function(){fire(t,srcEl);},0);
 },true);
 
 var lastEl=null;
 document.addEventListener('input',function(){
+  if(firing)return;
   var el=ed();if(!el)return;
   var t=tx(el).trim();
   if(CMD_RE.test(t)){lastText=t;lastEl=el;handled=false;}
@@ -182,7 +187,7 @@ document.addEventListener('input',function(){
 },true);
 
 document.addEventListener('keyup',function(e){
-  if(e.key!=='Enter')return;
+  if(e.key!=='Enter'||firing)return;
   if(lastText&&!handled){var saved=lastText;var sEl=lastEl;lastText='';lastEl=null;fire(saved,sEl);}
 },true);
 })();`;
