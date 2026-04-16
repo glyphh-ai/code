@@ -1,30 +1,30 @@
 # YoSup Command Reference
 
-Three verbs: `.yo` (capture), `.sup` (retrieve/process), `.dip` (navigate).
+Three verbs: `.yo` (search/retrieve), `.sup` (capture), `.dip` (navigate).
 One effect: `.drip` (animations).
 
-## `.yo` — Capture (screen → memory)
+## `.yo` — Search & Retrieve (the brain)
 
 | Command | Action |
 |---|---|
-| `.yo .` | Capture active panel → context store + clipboard |
-| `.yo . <skill>` | Capture → process with skill → inject result |
-| `.yo . <prompt>` | Capture → process with prompt → inject result |
-| `.yo . .dip <panel>` | Capture, then navigate (chainable with .dip) |
-| `.yo` (bare) | No-op |
+| `.yo` (bare) | Open search widget / library browser |
+| `.yo <query>` | Search context store → open inline widget with results |
+| `.yo . <skill>` | Process **last capture** (from `.sup`) with skill → inject |
+| `.yo . <prompt>` | Process **last capture** with prompt → inject |
+| `.yo <query> . <skill>` | Search memory + process with skill → inject |
+| `.yo <query> . <prompt>` | Search memory + process with prompt → inject |
 
-## `.sup` — Retrieve / Process → inject into text area
+The `.` separates query from processor. No query + `.` = use the last `.sup` capture as input.
+
+## `.sup` — Capture (screen → memory)
 
 | Command | Action |
 |---|---|
-| `.sup` | Open library browser |
-| `.sup <query>` | Search context store → inject raw results |
-| `.sup . <skill>` | Process **last capture** (from `.yo .`) with skill → inject |
-| `.sup . <prompt>` | Process **last capture** with prompt → inject |
-| `.sup <query> . <skill>` | Search memory + process with skill → inject |
-| `.sup <query> . <prompt>` | Search memory + process with prompt → inject |
-
-The `.` separates query from processor. No query + `.` = use the last `.yo .` capture as input.
+| `.sup` | Capture active panel → context store + clipboard |
+| `.sup .` | Capture active panel (explicit dot modifier) |
+| `.sup . <skill>` | Capture → process with skill → inject result |
+| `.sup . <prompt>` | Capture → process with prompt → inject result |
+| `.sup . .dip <panel>` | Capture, then navigate (chainable with .dip) |
 
 ## `.dip` — Navigate
 
@@ -54,5 +54,5 @@ The `.` separates query from processor. No query + `.` = use the last `.yo .` ca
 | Command | Action |
 |---|---|
 | `.yo help` | Help overlay |
-| `.yo skills` | Skills manager |
+| `.yo skill` | Skills manager |
 | `.yo layout` | Layouts manager |

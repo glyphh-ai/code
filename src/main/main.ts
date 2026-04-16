@@ -679,9 +679,9 @@ async function boot() {
   };
   yoInterceptor.setCommandHandler(execCommand);
   yoInterceptor.setSessionNotifier(sendSessionState);
-  yoInterceptor.setSupSearcher((query) => commandParser.searchForWidget(query));
-  yoInterceptor.setSupRefiner((message) => commandParser.supRefine(message));
-  yoInterceptor.setSupClearer(() => commandParser.clearSupHistory());
+  yoInterceptor.setYoSearcher((query) => commandParser.searchForWidget(query));
+  yoInterceptor.setYoRefiner((message) => commandParser.yoRefine(message));
+  yoInterceptor.setYoClearer(() => commandParser.clearYoHistory());
   yoChat.setCommandCallback(execCommand);
 
   // Terminal yo/sup/dip — route through command parser, show result in terminal

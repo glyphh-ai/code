@@ -1,14 +1,15 @@
 /**
  * CommandParser — parses and executes yo/sup/dip/drip commands.
  *
- *   yo .            → force capture active panel into context store
- *   yo . <skill>    → capture + skill process → inject result
- *   yo . <prompt>   → capture + prompt process → inject result
+ *   yo              → open library browser
+ *   yo <query>      → search context store → inject raw results
+ *   yo . <skill>    → process last capture with skill → inject
+ *   yo <query> . <skill/prompt> → search + process → inject
  *   yo help/skills/layout → utilities
- *   sup             → open library browser
- *   sup <query>     → search context store → inject raw results
- *   sup . <skill>   → process last capture with skill → inject
- *   sup <query> . <skill/prompt> → search + process → inject
+ *   sup             → force capture active panel into context store
+ *   sup .           → force capture (explicit dot modifier)
+ *   sup . <skill>   → capture + skill process → inject result
+ *   sup . <prompt>  → capture + prompt process → inject result
  *   dip <panel>     → switch/split/grid
  *   drip <effect>   → visual effect
  */
@@ -23,7 +24,7 @@ import { ContextStore } from "./context-store";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
-export interface SupResult {
+export interface YoResult {
   panelId: string;
   title: string;
   age: string;
@@ -38,8 +39,8 @@ export class CommandParser {
   private onDrip: ((effect: string) => void) | null = null;
 
   // Sup conversation state
-  private supHistory: Array<{ role: string; content: string }> = [];
-  private supContext = ""; // assembled context from initial search
+  private yoHistory: Array<{ role: string; content: string }> = [];
+  private yoContext = ""; // assembled context from initial search
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
   private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
@@ -125,17 +126,18 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|dip|drip)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip)\b/gi, "$1");
 
-    // .yo <query> and .sup <query> NEVER chain — entire input is one command.
-    // Only .yo . (capture mode) allows chaining with .dip/.drip after it.
+    // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
-    const isYoCapture = yoMatch && /^\.?yo\s+\./i.test(trimmed);
-    if (yoMatch && !isYoCapture) {
+    if (yoMatch) {
       return this.executeSingle(clean(trimmed), sourcePanelId);
     }
+    // .sup (capture) can chain only when using dot modifier (.sup . .dip gmail).
+    // Bare .sup never chains.
     const supMatch = trimmed.match(/^\.?sup\b/i);
-    if (supMatch) {
+    const isSupCapture = supMatch && /^\.?sup\s+\./i.test(trimmed);
+    if (supMatch && !isSupCapture) {
       return this.executeSingle(clean(trimmed), sourcePanelId);
     }
 
@@ -154,11 +156,11 @@ export class CommandParser {
     return lastResult;
   }
 
-  // ── yo: capture, query, or help ─────────────────────────────
+  // ── yo: search/retrieve agent, utilities ─────────────────────
 
   private async handleYo(args: string[]): Promise<string> {
     // yo help
-    if (args.length === 0 || args[0]?.toLowerCase() === "help") {
+    if (args[0]?.toLowerCase() === "help") {
       this.onShowWelcome?.();
       return "";
     }
@@ -178,60 +180,9 @@ export class CommandParser {
       return "";
     }
 
-    // yo . → force capture active panel into context store
-    if (args[0] === ".") {
-      args = args.slice(1);
-      if (!this.grabber) return "No panel grabber available.";
-      const content = await this.grabber(true);
-      if (!content) return "Could not grab content from panels.";
-
-      // Store in context store immediately (makes it searchable via .yo <query>)
-      const panelId = this.panels.activePanelId || "command-bar";
-      const appConfig = this.appConnector.get(panelId);
-      await this.contextStore.insertCapture(
-        panelId,
-        appConfig?.url || "",
-        appConfig?.name || panelId,
-        content,
-      );
-
-      const instruction = args.join(" ").trim();
-
-      // Bare .yo . → just capture, no processing
-      if (!instruction) {
-        this.session.capture("command-bar", content, `${this.timestamp()}.md`, this.timestamp());
-        this.session.copyToClipboard();
-        return "";
-      }
-
-      // .yo . <skill/prompt> → capture + process → return result for injection into text area
-      let finalContent = content;
-      const matchedSkill = /^\S+$/.test(instruction)
-        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
-        : undefined;
-
-      if (matchedSkill) {
-        finalContent = await this.skillEngine.process(content, matchedSkill);
-      } else if (this.yoChat) {
-        finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
-      }
-
-      const label = matchedSkill || this.timestamp();
-      this.session.capture("command-bar", finalContent, `${label}.md`, label);
-      this.session.copyToClipboard();
-      return finalContent;
-    }
-
-    // Anything else after .yo that isn't a subcommand or dot-modifier is unknown
-    return `Unknown: yo ${args.join(" ")}. Try: yo . | yo help | yo skills | yo layout`;
-  }
-
-  // ── sup: retrieve from memory, optionally process ───────
-
-  private async handleSup(args: string[]): Promise<string> {
-    // Bare .sup → open library browser
+    // Bare .yo → open library browser
     if (args.length === 0) {
-      return "__SUP_BROWSE__";
+      return "__YO_BROWSE__";
     }
 
     // Parse: everything before a standalone "." is the query, everything after is the processor
@@ -245,12 +196,12 @@ export class CommandParser {
     let content: string;
 
     if (!query) {
-      // .sup . <skill/prompt> → use last capture from session cache
+      // .yo . <skill/prompt> → use last capture from session cache
       const lastCapture = this.session.get();
-      if (!lastCapture) return "Nothing captured yet. Use .yo . first.";
+      if (!lastCapture) return "Nothing captured yet. Use .sup first.";
       content = lastCapture;
     } else {
-      // .sup <query> → search context store
+      // .yo <query> → search context store
       content = await this.searchContext(query);
       if (!content) return "No matching context found.";
     }
@@ -274,13 +225,71 @@ export class CommandParser {
       return content;
     }
 
-    this.session.capture("command-bar", result, `sup-${this.timestamp()}.md`, this.timestamp());
+    this.session.capture("command-bar", result, `yo-${this.timestamp()}.md`, this.timestamp());
     this.session.copyToClipboard();
     return result;
   }
 
+  // ── sup: capture screen ─────────────────────────────────
+
+  private async handleSup(args: string[]): Promise<string> {
+    if (!this.grabber) return "No panel grabber available.";
+
+    // Parse dot modifier: everything after "." is the instruction
+    // Bare .sup or .sup . = just capture
+    // .sup . <skill/prompt> = capture + process
+    let instruction = "";
+    if (args[0] === ".") {
+      instruction = args.slice(1).join(" ").trim();
+    } else if (args.length === 0) {
+      // Bare .sup → capture active panel
+      instruction = "";
+    } else {
+      // .sup without dot modifier — treat as bare capture
+      // (all args are ignored unless after a dot)
+      instruction = "";
+    }
+
+    const content = await this.grabber(true);
+    if (!content) return "Could not grab content from panels.";
+
+    // Store in context store immediately (makes it searchable via .yo <query>)
+    const panelId = this.panels.activePanelId || "command-bar";
+    const appConfig = this.appConnector.get(panelId);
+    await this.contextStore.insertCapture(
+      panelId,
+      appConfig?.url || "",
+      appConfig?.name || panelId,
+      content,
+    );
+
+    // Bare capture — no processing
+    if (!instruction) {
+      this.session.capture("command-bar", content, `${this.timestamp()}.md`, this.timestamp());
+      this.session.copyToClipboard();
+      return "";
+    }
+
+    // .sup . <skill/prompt> → capture + process → return result for injection
+    let finalContent = content;
+    const matchedSkill = /^\S+$/.test(instruction)
+      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
+      : undefined;
+
+    if (matchedSkill) {
+      finalContent = await this.skillEngine.process(content, matchedSkill);
+    } else if (this.yoChat) {
+      finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
+    }
+
+    const label = matchedSkill || this.timestamp();
+    this.session.capture("command-bar", finalContent, `${label}.md`, label);
+    this.session.copyToClipboard();
+    return finalContent;
+  }
+
   /** Search context store and return structured results for the widget. */
-  async searchForWidget(query: string): Promise<SupResult[]> {
+  async searchForWidget(query: string): Promise<YoResult[]> {
     const hits = await this.contextStore.search(query, 15);
     if (hits.length === 0) return [];
 
@@ -293,7 +302,7 @@ export class CommandParser {
       .slice(0, 5)
       .map(([id]) => id);
 
-    const results: SupResult[] = [];
+    const results: YoResult[] = [];
     const contextSections: string[] = [];
     for (const panelId of topPanels) {
       const allChunks = this.contextStore.getPanelContent(panelId);
@@ -307,8 +316,8 @@ export class CommandParser {
     }
 
     // Store assembled context + reset history for new session
-    this.supContext = contextSections.join("\n\n---\n\n");
-    this.supHistory = [
+    this.yoContext = contextSections.join("\n\n---\n\n");
+    this.yoHistory = [
       { role: "user", content: `Search: ${query}` },
       { role: "assistant", content: `Found ${results.length} result(s) from: ${results.map((r) => r.title).join(", ")}` },
     ];
@@ -316,40 +325,40 @@ export class CommandParser {
     return results;
   }
 
-  /** Refine within the sup widget conversation. Returns the LLM response text. */
-  async supRefine(message: string): Promise<string> {
+  /** Refine within the yo widget conversation. Returns the LLM response text. */
+  async yoRefine(message: string): Promise<string> {
     if (!this.yoChat) return "No LLM configured.";
-    if (!this.supContext) return "No context to refine. Search first.";
+    if (!this.yoContext) return "No context to refine. Search first.";
 
-    this.supHistory.push({ role: "user", content: message });
+    this.yoHistory.push({ role: "user", content: message });
 
     // Keep history capped at 10 turns
-    if (this.supHistory.length > 20) {
-      this.supHistory = this.supHistory.slice(-20);
+    if (this.yoHistory.length > 20) {
+      this.yoHistory = this.yoHistory.slice(-20);
     }
 
-    const conversationText = this.supHistory
+    const conversationText = this.yoHistory
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
 
     const result = await this.yoChat.executeInline(
       "yo",
       `Conversation:\n${conversationText}\n\nBased on the context below, respond to the user's latest message. Return the relevant content verbatim — do not summarize.`,
-      "sup-refine",
-      this.supContext,
+      "yo-refine",
+      this.yoContext,
     );
 
-    this.supHistory.push({ role: "assistant", content: result });
+    this.yoHistory.push({ role: "assistant", content: result });
     return result;
   }
 
-  /** Clear sup conversation state. */
-  clearSupHistory(): void {
-    this.supHistory = [];
-    this.supContext = "";
+  /** Clear yo conversation state. */
+  clearYoHistory(): void {
+    this.yoHistory = [];
+    this.yoContext = "";
   }
 
-  /** Search context store and assemble as flat string (used by .sup . <processor>). */
+  /** Search context store and assemble as flat string (used by .yo <query> . <processor>). */
   private async searchContext(query: string): Promise<string> {
     const results = await this.searchForWidget(query);
     if (results.length === 0) return "";

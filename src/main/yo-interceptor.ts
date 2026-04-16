@@ -1,11 +1,11 @@
 /**
  * YoInterceptor — intercepts yo/sup/dip/drip typed inside app panels.
  *
- *   yo .           → capture active panel → context store + clipboard
- *   yo . <skill>   → capture + process with skill → inject result
+ *   yo <query>     → search context store → open inline widget
+ *   yo . <skill>   → process last capture with skill → inject result
  *   yo help        → open help overlay
- *   sup <query>    → search context store → inject results
- *   sup . <skill>  → process last capture with skill → inject
+ *   sup            → capture active panel → context store + clipboard
+ *   sup . <skill>  → capture + process with skill → inject result
  *   dip <args>     → panel navigation (via command parser)
  *   drip <effect>  → visual effect
  *
@@ -19,7 +19,7 @@ import { SkillEngine } from "./skill-engine";
 import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
-import type { SupResult } from "./command-parser";
+import type { YoResult } from "./command-parser";
 
 const PREFIX = "__YO__";
 
@@ -32,11 +32,11 @@ export class YoInterceptor {
   private sessionNotifier: (() => void) | null = null;
 
   // Sup widget callbacks
-  private supSearcher: ((query: string) => Promise<SupResult[]>) | null = null;
-  private supRefiner: ((message: string) => Promise<string>) | null = null;
-  private supClearer: (() => void) | null = null;
-  private supWidgetWc: WebContents | null = null; // track which wc has the widget open
-  private supResults: SupResult[] = []; // current search results
+  private yoSearcher: ((query: string) => Promise<YoResult[]>) | null = null;
+  private yoRefiner: ((message: string) => Promise<string>) | null = null;
+  private yoClearer: (() => void) | null = null;
+  private yoWidgetWc: WebContents | null = null; // track which wc has the widget open
+  private yoResults: YoResult[] = []; // current search results
 
   constructor(
     private appConnector: AppConnector,
@@ -48,9 +48,9 @@ export class YoInterceptor {
   setCommandHandler(handler: (input: string, sourcePanelId?: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
-  setSupSearcher(fn: (query: string) => Promise<SupResult[]>): void { this.supSearcher = fn; }
-  setSupRefiner(fn: (message: string) => Promise<string>): void { this.supRefiner = fn; }
-  setSupClearer(fn: () => void): void { this.supClearer = fn; }
+  setYoSearcher(fn: (query: string) => Promise<YoResult[]>): void { this.yoSearcher = fn; }
+  setYoRefiner(fn: (message: string) => Promise<string>): void { this.yoRefiner = fn; }
+  setYoClearer(fn: () => void): void { this.yoClearer = fn; }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -233,14 +233,14 @@ document.addEventListener('keyup',function(e){
         this.opId++; // invalidate any in-flight operation
         await this.clearNotify(wc);
         break;
-      case "sup-use":
-        await this.handleSupUse(wc, data as any);
+      case "yo-use":
+        await this.handleYoUse(wc, data as any);
         break;
-      case "sup-refine":
-        await this.handleSupRefine(wc, data as any);
+      case "yo-refine":
+        await this.handleYoRefine(wc, data as any);
         break;
-      case "sup-dismiss":
-        this.dismissSupWidget(wc);
+      case "yo-dismiss":
+        this.dismissYoWidget(wc);
         break;
     }
   }
@@ -255,29 +255,51 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── sup: retrieve from memory ─────────────────────────
+  // ── sup: capture screen ────────────────────────────────
 
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     if (!this.commandHandler) return;
 
-    // Bare .sup → open empty widget ready for input
+    // Bare .sup → just capture
     if (!instruction?.trim()) {
-      this.dismissSupWidget(wc);
-      this.supClearer?.();
-      await this.injectSupWidget(wc, "");
-      this.supWidgetWc = wc;
-      // Show empty state
-      await this.updateSupWidgetResults(wc, [], undefined);
+      const myOp = ++this.opId;
+      this.notify(wc, "", "loading");
+      const content = await this.grabPanels(wc, appId, false);
+      if (this.opId !== myOp) return;
+      if (!content) {
+        this.notify(wc, "Could not grab content.", "error");
+        return;
+      }
+      await this.commandHandler("sup", appId);
+      await this.clearNotify(wc);
+      this.notify(wc, "captured", "success");
       return;
     }
 
-    // .sup . <skill/prompt> → direct inject from last capture (no widget)
-    const dotMatch = instruction.match(/^\.\s*(.+)$/);
+    // .sup . or .sup . <skill/prompt> → capture + optional process
+    const dotMatch = instruction.match(/^\.\s*(.*)$/);
     if (dotMatch) {
       const myOp = ++this.opId;
       this.notify(wc, "", "loading");
+      const content = await this.grabPanels(wc, appId, false);
+      if (this.opId !== myOp) return;
+      if (!content) {
+        this.notify(wc, "Could not grab content.", "error");
+        return;
+      }
+
+      const skill = dotMatch[1]?.trim();
+      if (!skill) {
+        // Bare .sup . → just capture
+        await this.commandHandler("sup", appId);
+        await this.clearNotify(wc);
+        this.notify(wc, "captured", "success");
+        return;
+      }
+
+      // .sup . <skill/prompt> → capture + process
       try {
-        const result = await this.commandHandler(`sup ${instruction}`, appId);
+        const result = await this.commandHandler(`sup . ${skill}`, appId);
         if (this.opId !== myOp) return;
         await this.clearNotify(wc);
         if (result) this.notify(wc, result, "result");
@@ -288,180 +310,140 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // .sup <query> . <processor> → direct inject (user specified processor)
-    const parts = instruction.split(/\s+/);
-    const dotIdx = parts.indexOf(".");
-    if (dotIdx > 0 && dotIdx < parts.length - 1) {
+    // Check if chaining: .sup . .dip gmail — handled via command parser chaining
+    const isChain = instruction.split(/\s+/)[0]?.toLowerCase();
+    if (isChain && YoInterceptor.COMMAND_KEYWORDS.has(`.${isChain}`)) {
       const myOp = ++this.opId;
       this.notify(wc, "", "loading");
-      try {
-        const result = await this.commandHandler(`sup ${instruction}`, appId);
-        if (this.opId !== myOp) return;
-        await this.clearNotify(wc);
-        if (result) this.notify(wc, result, "result");
-      } catch (err) {
-        if (this.opId !== myOp) return;
-        this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
+      const content = await this.grabPanels(wc, appId, false);
+      if (this.opId !== myOp) return;
+      if (!content) {
+        this.notify(wc, "Could not grab content.", "error");
+        return;
       }
-      return;
-    }
-
-    // .sup <query> → open inline widget with search results
-    if (!this.supSearcher) {
-      this.notify(wc, "Search not available.", "error");
-      return;
-    }
-
-    this.dismissSupWidget(wc);
-    this.supClearer?.();
-
-    const query = instruction.trim();
-    await this.injectSupWidget(wc, query);
-    this.supWidgetWc = wc;
-
-    try {
-      const results = await this.supSearcher(query);
-      this.supResults = results;
-      if (results.length === 0) {
-        await this.updateSupWidgetResults(wc, [], "No matching context found.");
-      } else {
-        await this.updateSupWidgetResults(wc, results);
-      }
-    } catch (err) {
-      await this.updateSupWidgetResults(wc, [], `Search failed: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
-  /** Handle [use] click from widget — inject content into original text area. */
-  private async handleSupUse(wc: WebContents, data: { index?: number; text?: string }): Promise<void> {
-    let content = "";
-    if (data.text) {
-      content = data.text;
-    } else if (typeof data.index === "number" && this.supResults[data.index]) {
-      content = this.supResults[data.index].content;
-    }
-    if (content) {
-      this.dismissSupWidget(wc);
-      this.injectContent(wc, content);
-    }
-  }
-
-  /** Handle refinement message from widget input. */
-  private async handleSupRefine(wc: WebContents, data: { text?: string }): Promise<void> {
-    const message = data.text?.trim();
-    if (!message) return;
-
-    // If no results yet (bare .sup), treat as a fresh search
-    if (this.supResults.length === 0 && this.supSearcher) {
-      await this.appendSupMessage(wc, "user", message);
-      await this.setSupLoading(wc, true);
-      try {
-        const results = await this.supSearcher(message);
-        this.supResults = results;
-        await this.setSupLoading(wc, false);
-        // Update header to show the query
-        try {
-          await wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-sup');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.sup '+${JSON.stringify(message)};})()`);
-        } catch {}
-        if (results.length === 0) {
-          await this.appendSupMessage(wc, "error", "No matching context found.");
-        } else {
-          await this.updateSupWidgetResults(wc, results);
-        }
-      } catch (err) {
-        await this.setSupLoading(wc, false);
-        await this.appendSupMessage(wc, "error", `Search failed: ${err instanceof Error ? err.message : err}`);
-      }
-      return;
-    }
-
-    if (!this.supRefiner) return;
-
-    await this.appendSupMessage(wc, "user", message);
-    await this.setSupLoading(wc, true);
-
-    try {
-      const result = await this.supRefiner(message);
-      await this.setSupLoading(wc, false);
-      await this.appendSupMessage(wc, "assistant", result);
-    } catch (err) {
-      await this.setSupLoading(wc, false);
-      await this.appendSupMessage(wc, "error", `Failed: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
-  /** Remove the sup widget from the page. */
-  private dismissSupWidget(wc: WebContents): void {
-    this.supWidgetWc = null;
-    this.supResults = [];
-    try {
-      wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-sup');if(w)w.remove();if(window.__yoSupEsc){document.removeEventListener('keydown',window.__yoSupEsc,true);window.__yoSupEsc=null;}})()`);
-    } catch {}
-  }
-
-  // ── yo: capture or utilities ─────────────────────────
-
-  private static readonly COMMAND_KEYWORDS = new Set([".sup", ".dip", ".drip"]);
-
-  private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    // Subcommands routed through command parser
-    const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
-    if (sub === "help" || sub === "skill" || sub === "layout") {
-      if (this.commandHandler) {
-        const result = await this.commandHandler(`yo ${instruction}`);
-        if (result) this.notify(wc, result, "success");
-      }
-      return;
-    }
-
-    // Bare .yo (no instruction) — do nothing
-    if (!instruction?.trim()) return;
-
-    // Parse dot modifier: .yo . or .yo . <skill/prompt>
-    const rawFirstWord = instruction?.split(/\s+/)[0]?.toLowerCase();
-    const isDirectChain = rawFirstWord && YoInterceptor.COMMAND_KEYWORDS.has(rawFirstWord);
-    const dotMatch = !isDirectChain ? instruction?.match(/^\.\s*(.*)?$/) : null;
-    const currentOnly = !!dotMatch;
-    const realInstruction = isDirectChain
-      ? instruction
-      : currentOnly ? (dotMatch![1]?.trim() || undefined) : undefined;
-
-    // .yo without dot modifier and not a chain — not valid (queries moved to .sup)
-    if (!currentOnly && !isDirectChain) return;
-
-    // Check if what follows is a chained command
-    const chainWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
-    const isChainedCommand = isDirectChain || !!(currentOnly && chainWord && YoInterceptor.COMMAND_KEYWORDS.has(chainWord));
-
-    // ── Capture path — grab panel content first
-    const myOp = ++this.opId;
-    this.notify(wc, "", "loading");
-    const content = await this.grabPanels(wc, appId, !currentOnly);
-    if (this.opId !== myOp) return; // cancelled
-    if (!content) {
-      this.notify(wc, "Could not grab content.", "error");
-      return;
-    }
-
-    // Chained command: capture then run the chain
-    if (isChainedCommand && this.commandHandler) {
+      // Capture first, then run the chained command
+      await this.commandHandler("sup", appId);
       const ts = this.timestamp();
       this.session.capture(appId, content, `${ts}.md`, ts);
       this.session.copyToClipboard();
       this.sessionNotifier?.();
       await this.clearNotify(wc);
-      this.notify(wc, `yo${currentOnly ? " ." : ""} \u2014 captured`, "success");
-      const chainResult = await this.commandHandler(realInstruction!);
+      this.notify(wc, "sup — captured", "success");
+      const chainResult = await this.commandHandler(instruction);
       if (this.opId !== myOp) return;
       if (chainResult) this.notify(wc, chainResult, "success");
       return;
     }
 
-    // Dot modifier with instruction: capture + skill/LLM process → inject result into text area
-    if (realInstruction && currentOnly && this.commandHandler) {
+    // Anything else: bare capture (ignore unrecognized args)
+    const myOp = ++this.opId;
+    this.notify(wc, "", "loading");
+    await this.commandHandler("sup", appId);
+    if (this.opId !== myOp) return;
+    await this.clearNotify(wc);
+    this.notify(wc, "captured", "success");
+  }
+
+  /** Handle [use] click from widget — inject content into original text area. */
+  private async handleYoUse(wc: WebContents, data: { index?: number; text?: string }): Promise<void> {
+    let content = "";
+    if (data.text) {
+      content = data.text;
+    } else if (typeof data.index === "number" && this.yoResults[data.index]) {
+      content = this.yoResults[data.index].content;
+    }
+    if (content) {
+      this.dismissYoWidget(wc);
+      this.injectContent(wc, content);
+    }
+  }
+
+  /** Handle refinement message from widget input. */
+  private async handleYoRefine(wc: WebContents, data: { text?: string }): Promise<void> {
+    const message = data.text?.trim();
+    if (!message) return;
+
+    // If no results yet (bare .yo), treat as a fresh search
+    if (this.yoResults.length === 0 && this.yoSearcher) {
+      await this.appendYoMessage(wc, "user", message);
+      await this.setYoLoading(wc, true);
       try {
-        const result = await this.commandHandler(`yo . ${realInstruction}`, appId);
-        if (this.opId !== myOp) return; // cancelled
+        const results = await this.yoSearcher(message);
+        this.yoResults = results;
+        await this.setYoLoading(wc, false);
+        // Update header to show the query
+        try {
+          await wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-widget');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.yo '+${JSON.stringify(message)};})()`);
+        } catch {}
+        if (results.length === 0) {
+          await this.appendYoMessage(wc, "error", "No matching context found.");
+        } else {
+          await this.updateYoWidgetResults(wc, results);
+        }
+      } catch (err) {
+        await this.setYoLoading(wc, false);
+        await this.appendYoMessage(wc, "error", `Search failed: ${err instanceof Error ? err.message : err}`);
+      }
+      return;
+    }
+
+    if (!this.yoRefiner) return;
+
+    await this.appendYoMessage(wc, "user", message);
+    await this.setYoLoading(wc, true);
+
+    try {
+      const result = await this.yoRefiner(message);
+      await this.setYoLoading(wc, false);
+      await this.appendYoMessage(wc, "assistant", result);
+    } catch (err) {
+      await this.setYoLoading(wc, false);
+      await this.appendYoMessage(wc, "error", `Failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** Remove the yo widget from the page. */
+  private dismissYoWidget(wc: WebContents): void {
+    this.yoWidgetWc = null;
+    this.yoResults = [];
+    try {
+      wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-widget');if(w)w.remove();if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}})()`);
+    } catch {}
+  }
+
+  // ── yo: search agent, retrieve, utilities ──────────────
+
+  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip"]);
+
+  private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
+    if (!this.commandHandler) return;
+
+    // Subcommands routed through command parser
+    const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
+    if (sub === "help" || sub === "skill" || sub === "layout") {
+      const result = await this.commandHandler(`yo ${instruction}`);
+      if (result) this.notify(wc, result, "success");
+      return;
+    }
+
+    // Bare .yo → open empty widget ready for input
+    if (!instruction?.trim()) {
+      this.dismissYoWidget(wc);
+      this.yoClearer?.();
+      await this.injectYoWidget(wc, "");
+      this.yoWidgetWc = wc;
+      await this.updateYoWidgetResults(wc, [], undefined);
+      return;
+    }
+
+    // .yo . <skill/prompt> → process last capture with skill (no widget)
+    const dotMatch = instruction.match(/^\.\s*(.+)$/);
+    if (dotMatch) {
+      const myOp = ++this.opId;
+      this.notify(wc, "", "loading");
+      try {
+        const result = await this.commandHandler(`yo ${instruction}`, appId);
+        if (this.opId !== myOp) return;
         await this.clearNotify(wc);
         if (result) this.notify(wc, result, "result");
       } catch (err) {
@@ -471,12 +453,48 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Bare .yo . — force capture into context store
-    if (currentOnly && this.commandHandler) {
-      await this.commandHandler("yo .", appId);
+    // .yo <query> . <processor> → search + process, direct inject (no widget)
+    const parts = instruction.split(/\s+/);
+    const dotIdx = parts.indexOf(".");
+    if (dotIdx > 0 && dotIdx < parts.length - 1) {
+      const myOp = ++this.opId;
+      this.notify(wc, "", "loading");
+      try {
+        const result = await this.commandHandler(`yo ${instruction}`, appId);
+        if (this.opId !== myOp) return;
+        await this.clearNotify(wc);
+        if (result) this.notify(wc, result, "result");
+      } catch (err) {
+        if (this.opId !== myOp) return;
+        this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
+      }
+      return;
     }
-    await this.clearNotify(wc);
-    this.notify(wc, "captured", "success");
+
+    // .yo <query> → open inline widget with search results
+    if (!this.yoSearcher) {
+      this.notify(wc, "Search not available.", "error");
+      return;
+    }
+
+    this.dismissYoWidget(wc);
+    this.yoClearer?.();
+
+    const query = instruction.trim();
+    await this.injectYoWidget(wc, query);
+    this.yoWidgetWc = wc;
+
+    try {
+      const results = await this.yoSearcher(query);
+      this.yoResults = results;
+      if (results.length === 0) {
+        await this.updateYoWidgetResults(wc, [], "No matching context found.");
+      } else {
+        await this.updateYoWidgetResults(wc, results);
+      }
+    } catch (err) {
+      await this.updateYoWidgetResults(wc, [], `Search failed: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
 
@@ -550,34 +568,34 @@ document.addEventListener('keyup',function(e){
     return content;
   }
 
-  // ── Sup widget injection ───────────────────────────────
+  // ── Yo widget injection ────────────────────────────────
 
-  private async injectSupWidget(wc: WebContents, query: string): Promise<void> {
+  private async injectYoWidget(wc: WebContents, query: string): Promise<void> {
     const escaped = JSON.stringify(query);
     try {
       await wc.executeJavaScript(`
 (function(){
-var old=document.getElementById('__yo-sup');if(old)old.remove();
-var w=document.createElement('div');w.id='__yo-sup';
+var old=document.getElementById('__yo-widget');if(old)old.remove();
+var w=document.createElement('div');w.id='__yo-widget';
 w.style.cssText='position:fixed;z-index:999999;bottom:60px;right:16px;width:380px;max-height:560px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#ccc;overflow:hidden;';
 
 // Header
 var hdr=document.createElement('div');
 hdr.style.cssText='padding:10px 14px;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;';
 var title=document.createElement('span');title.style.cssText='color:#25C75E;font-weight:600;font-size:12px;';
-title.textContent=${escaped}?'.sup '+${escaped}:'.sup';
+title.textContent=${escaped}?'.yo '+${escaped}:'.yo';
 var closeBtn=document.createElement('div');closeBtn.textContent='\\u00d7';
 closeBtn.style.cssText='width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-size:16px;border-radius:4px;';
 closeBtn.onmouseenter=function(){closeBtn.style.color='#fff';closeBtn.style.background='#333';};
 closeBtn.onmouseleave=function(){closeBtn.style.color='#666';closeBtn.style.background='none';};
-closeBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));};
+closeBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));};
 hdr.appendChild(title);hdr.appendChild(closeBtn);
 
 // Body (results + messages)
-var body=document.createElement('div');body.id='__yo-sup-body';
+var body=document.createElement('div');body.id='__yo-widget-body';
 body.style.cssText='flex:1;overflow-y:auto;padding:8px 14px;min-height:60px;max-height:400px;';
 // Loading indicator
-var loading=document.createElement('div');loading.id='__yo-sup-loading';
+var loading=document.createElement('div');loading.id='__yo-widget-loading';
 loading.style.cssText='color:#666;font-size:12px;padding:12px 0;text-align:center;';
 loading.textContent='searching...';
 body.appendChild(loading);
@@ -587,17 +605,17 @@ var inputWrap=document.createElement('div');
 inputWrap.style.cssText='padding:8px 10px;border-top:1px solid #333;flex-shrink:0;';
 var inputRow=document.createElement('div');
 inputRow.style.cssText='display:flex;align-items:flex-end;gap:6px;background:#111;border:1px solid #333;border-radius:8px;padding:6px 8px;transition:border-color 0.15s;';
-var input=document.createElement('textarea');input.id='__yo-sup-input';input.rows=1;
+var input=document.createElement('textarea');input.id='__yo-widget-input';input.rows=1;
 input.placeholder=${escaped}?'ask about results...':'search your memory...';
 input.style.cssText='flex:1;background:none;border:none;color:#ccc;font-size:12px;outline:none;resize:none;font-family:inherit;line-height:1.4;max-height:72px;overflow-y:auto;padding:0;';
-var sendBtn=document.createElement('div');sendBtn.id='__yo-sup-send';
+var sendBtn=document.createElement('div');sendBtn.id='__yo-widget-send';
 sendBtn.innerHTML='\\u2191';
 sendBtn.style.cssText='width:22px;height:22px;border-radius:6px;background:#25C75E;color:#000;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:opacity 0.15s;opacity:0.4;';
 function updateSend(){sendBtn.style.opacity=input.value.trim()?'1':'0.4';}
 function doSend(){
   var msg=input.value.trim();if(!msg)return;
   input.value='';input.style.height='auto';updateSend();
-  console.log('${PREFIX}'+JSON.stringify({type:'sup-refine',text:msg}));
+  console.log('${PREFIX}'+JSON.stringify({type:'yo-refine',text:msg}));
 }
 sendBtn.onclick=function(e){e.preventDefault();doSend();input.focus();};
 input.addEventListener('input',function(){
@@ -610,7 +628,7 @@ input.addEventListener('keydown',function(e){
   }
   if(e.key==='Escape'){
     e.preventDefault();e.stopPropagation();
-    console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
   }
 },true);
 input.onfocus=function(){inputRow.style.borderColor='#25C75E';};
@@ -624,19 +642,19 @@ document.body.appendChild(w);
 setTimeout(function(){input.focus();},50);
 
 // Escape key listener (global)
-window.__yoSupEsc=function(e){
-  if(e.key==='Escape'&&document.getElementById('__yo-sup')){
+window.__yoWidgetEsc=function(e){
+  if(e.key==='Escape'&&document.getElementById('__yo-widget')){
     e.preventDefault();e.stopPropagation();
-    console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
   }
 };
-document.addEventListener('keydown',window.__yoSupEsc,true);
+document.addEventListener('keydown',window.__yoWidgetEsc,true);
 })()`);
     } catch {}
   }
 
   /** Update widget body with search results or an error message. */
-  private async updateSupWidgetResults(wc: WebContents, results: SupResult[], errorMsg?: string): Promise<void> {
+  private async updateYoWidgetResults(wc: WebContents, results: YoResult[], errorMsg?: string): Promise<void> {
     const data = JSON.stringify(results.map((r, i) => ({
       i,
       title: r.title,
@@ -649,7 +667,7 @@ document.addEventListener('keydown',window.__yoSupEsc,true);
     try {
       await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-sup-body');if(!body)return;
+var body=document.getElementById('__yo-widget-body');if(!body)return;
 body.innerHTML='';
 var err=${err};
 if(err){
@@ -708,7 +726,7 @@ results.forEach(function(r){
   useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;transition:background 0.15s;';
   useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
   useBtn.onmouseleave=function(){useBtn.style.background='none';};
-  useBtn.onclick=function(e){e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'sup-use',index:0}).replace('"index":0','"index":'+r.i));};
+  useBtn.onclick=function(e){e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'yo-use',index:0}).replace('"index":0','"index":'+r.i));};
   top.appendChild(label);top.appendChild(useBtn);
 
   var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
@@ -737,7 +755,7 @@ body.scrollTop=0;
   }
 
   /** Append a message to the widget conversation area. */
-  private async appendSupMessage(wc: WebContents, role: "user" | "assistant" | "error", text: string): Promise<void> {
+  private async appendYoMessage(wc: WebContents, role: "user" | "assistant" | "error", text: string): Promise<void> {
     const escaped = JSON.stringify(text);
     const isUser = role === "user";
     const isError = role === "error";
@@ -745,7 +763,7 @@ body.scrollTop=0;
       if (isUser) {
         await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-sup-body');if(!body)return;
+var body=document.getElementById('__yo-widget-body');if(!body)return;
 var wrap=document.createElement('div');
 wrap.style.cssText='display:flex;justify-content:flex-end;margin-top:8px;';
 var bubble=document.createElement('div');
@@ -756,7 +774,7 @@ wrap.appendChild(bubble);body.appendChild(wrap);body.scrollTop=body.scrollHeight
       } else {
         await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-sup-body');if(!body)return;
+var body=document.getElementById('__yo-widget-body');if(!body)return;
 var msg=document.createElement('div');
 msg.style.cssText='margin-top:8px;';
 var row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;align-items:flex-start;';
@@ -769,7 +787,7 @@ var useBtn=document.createElement('div');useBtn.textContent='use';
 useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;margin-left:8px;flex-shrink:0;white-space:nowrap;transition:background 0.15s;';
 useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
 useBtn.onmouseleave=function(){useBtn.style.background='none';};
-useBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'sup-use',text:${escaped}}));};
+useBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'yo-use',text:${escaped}}));};
 row.appendChild(useBtn);
 ` : ""}
 msg.appendChild(row);body.appendChild(msg);body.scrollTop=body.scrollHeight;
@@ -779,18 +797,18 @@ msg.appendChild(row);body.appendChild(msg);body.scrollTop=body.scrollHeight;
   }
 
   /** Show/hide loading indicator in widget (braille spinner like standard notify). */
-  private async setSupLoading(wc: WebContents, loading: boolean): Promise<void> {
+  private async setYoLoading(wc: WebContents, loading: boolean): Promise<void> {
     try {
       await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-sup-body');if(!body)return;
-var existing=document.getElementById('__yo-sup-thinking');
+var body=document.getElementById('__yo-widget-body');if(!body)return;
+var existing=document.getElementById('__yo-widget-thinking');
 if(${loading}){
   if(existing)return;
-  var el=document.createElement('div');el.id='__yo-sup-thinking';
+  var el=document.createElement('div');el.id='__yo-widget-thinking';
   el.style.cssText='color:#666;font-size:12px;padding:8px 0;';
   var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
-  var words=['chilling...','vibing...','supping...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
+  var words=['chilling...','vibing...','yozing...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
   var fi=0;var curWord=words[Math.floor(Math.random()*words.length)];
   var nextWord='';var wipePos=-1;var lastSwap=Date.now();
   function pick(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
@@ -835,7 +853,7 @@ if(${loading}){
     type: "loading" | "success" | "error" | "result",
   ): Promise<void> {
     const loadingMessages = [
-      "chilling...", "vibing...", "supping...", "cooking...",
+      "chilling...", "vibing...", "yozing...", "cooking...",
       "thinking...", "brewing...", "manifesting...", "marinating...",
     ];
     const displayMsg = type === "loading"
@@ -863,7 +881,7 @@ function setText(val){
 }
 if(isLoading){
   var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
-  var words=['chilling...','vibing...','supping...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
+  var words=['chilling...','vibing...','yozing...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
   var fi=0;
   var curWord=text;
   var nextWord='';

@@ -97,44 +97,44 @@
           <h2>Just talk.</h2>
 
           <div class="help-group">
-            <h3>.yo <span class="cmd-desc">— capture</span></h3>
-            <p class="cmd-intro">Capture the active panel into memory.</p>
+            <h3>.yo <span class="cmd-desc">— search & retrieve</span></h3>
+            <p class="cmd-intro">Search memory and inject results into the current text area.</p>
             <div class="cmd-row">
-              <code>.yo .</code>
-              <span>Capture active panel to memory + clipboard</span>
+              <code>.yo marketing ideas</code>
+              <span>Search memory, open results widget</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo marketing ideas . formalize</code>
+              <span>Search + process with skill, inject result</span>
             </div>
             <div class="cmd-row">
               <code>.yo . formalize</code>
-              <span>Capture + process with a skill, inject result</span>
+              <span>Process last capture with skill, inject result</span>
             </div>
             <div class="cmd-row">
-              <code>.yo . rewrite as bullet points</code>
-              <span>Capture + process with a prompt, inject result</span>
-            </div>
-            <div class="cmd-row">
-              <code>.yo . .dip gmail</code>
-              <span>Capture, then switch to gmail</span>
+              <code>.yo</code>
+              <span>Open the search widget</span>
             </div>
           </div>
 
           <div class="help-group">
-            <h3>.sup <span class="cmd-desc">— retrieve</span></h3>
-            <p class="cmd-intro">Search memory and inject results into the current text area.</p>
+            <h3>.sup <span class="cmd-desc">— capture</span></h3>
+            <p class="cmd-intro">Capture the active panel into memory.</p>
             <div class="cmd-row">
-              <code>.sup marketing ideas</code>
-              <span>Search memory, inject matching content</span>
-            </div>
-            <div class="cmd-row">
-              <code>.sup marketing ideas . formalize</code>
-              <span>Search + process with skill, inject result</span>
+              <code>.sup</code>
+              <span>Capture active panel to memory + clipboard</span>
             </div>
             <div class="cmd-row">
               <code>.sup . formalize</code>
-              <span>Process last capture with skill, inject result</span>
+              <span>Capture + process with a skill, inject result</span>
             </div>
             <div class="cmd-row">
-              <code>.sup</code>
-              <span>Open the library browser</span>
+              <code>.sup . rewrite as bullet points</code>
+              <span>Capture + process with a prompt, inject result</span>
+            </div>
+            <div class="cmd-row">
+              <code>.sup . .dip gmail</code>
+              <span>Capture, then switch to gmail</span>
             </div>
           </div>
 
@@ -208,7 +208,7 @@
         <!-- Skills -->
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
-          <p class="section-desc">Prompt templates for .yo commands</p>
+          <p class="section-desc">Prompt templates for .yo and .sup commands</p>
           <div id="skills-toolbar" style="display:flex;justify-content:flex-end;margin-bottom:12px;">
             <button id="skill-new-btn" class="action-btn primary">+ New</button>
           </div>
