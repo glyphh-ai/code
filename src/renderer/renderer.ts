@@ -610,6 +610,8 @@ function openYoPanel(query: string) {
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
   yoToolsUsed = false;
+  yoToolGroupEl = null;
+  yoToolStepCount = 0;
   if (query) {
     addYoUserMessage(query);
     showYoStatus("");
@@ -631,6 +633,9 @@ function closeYoPanel() {
     yoResponseEl = null;
     yoStatusEl = null;
     yoLastAssistantText = "";
+    yoToolGroupEl = null;
+    yoActiveToolEl = null;
+    yoToolStepCount = 0;
   }, 200);
 }
 
@@ -648,25 +653,28 @@ function addYoUserMessage(text: string) {
 
 // ── Yo panel rendering: tool blocks + streaming text ──
 
-const TOOL_LABELS: Record<string, string> = {
-  search_notes: "Searching notes",
-  write_note: "Writing note",
-  search_files: "Searching files",
-  read_file: "Reading file",
-  list_files: "Listing files",
-  grab_panel: "Grabbing panel content",
-  list_panels: "Listing panels",
-  click_element: "Clicking element",
-  navigate_panel: "Navigating panel",
-  type_text: "Typing text",
-  run_command: "Running command",
-  manage_skill: "Managing skill",
-  manage_layout: "Managing layout",
-  manage_app: "Managing app",
+const TOOL_LABELS: Record<string, [string, string]> = {
+  search_notes:   ["Search notes",     "Searching your memory"],
+  write_note:     ["Write note",       "Saving to memory"],
+  search_files:   ["Search files",     "Scanning file system"],
+  read_file:      ["Read file",        "Reading contents"],
+  list_files:     ["List files",       "Browsing directory"],
+  grab_panel:     ["Grab panel",       "Extracting content"],
+  list_panels:    ["List panels",      "Checking workspace"],
+  click_element:  ["Click",            "Interacting with page"],
+  navigate_panel: ["Navigate",         "Opening page"],
+  type_text:      ["Type text",        "Typing into input"],
+  inject_text:    ["Inject text",      "Pasting into input"],
+  run_command:    ["Run command",      "Executing command"],
+  manage_skill:   ["Manage skill",     "Updating skills"],
+  manage_layout:  ["Manage layout",    "Updating layouts"],
+  manage_app:     ["Manage app",       "Updating apps"],
 };
 
 let yoActiveToolEl: HTMLElement | null = null;
+let yoToolGroupEl: HTMLElement | null = null;
 let yoSpinnerInterval: ReturnType<typeof setInterval> | null = null;
+let yoToolStepCount = 0;
 
 function yoScroll() {
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
@@ -675,12 +683,12 @@ function yoScroll() {
 function startToolSpinner(el: HTMLElement) {
   const frames = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
   let fi = 0;
-  const dot = el.querySelector(".yo-tool-spinner") as HTMLElement;
-  if (!dot) return;
+  const spinner = el.querySelector(".yo-tool-spinner") as HTMLElement;
+  if (!spinner) return;
   if (yoSpinnerInterval) clearInterval(yoSpinnerInterval);
   yoSpinnerInterval = setInterval(() => {
     fi = (fi + 1) % frames.length;
-    dot.textContent = frames[fi];
+    spinner.textContent = frames[fi];
   }, 100);
 }
 
@@ -688,21 +696,61 @@ function stopToolSpinner() {
   if (yoSpinnerInterval) { clearInterval(yoSpinnerInterval); yoSpinnerInterval = null; }
 }
 
-/** Show initial thinking spinner before first tool or text */
+/** Finalize a tool step — mark done, collapse content if long */
+function finishToolStep() {
+  if (!yoActiveToolEl) return;
+  yoActiveToolEl.classList.remove("active");
+  yoActiveToolEl.classList.add("done");
+
+  // Replace spinner with check
+  const spinner = yoActiveToolEl.querySelector(".yo-tool-spinner");
+  if (spinner) {
+    spinner.outerHTML = '<span class="yo-tool-check">\u2713</span>';
+  }
+  stopToolSpinner();
+
+  // Check content box — collapse if > 3 lines
+  const contentBox = yoActiveToolEl.querySelector(".yo-tool-content") as HTMLElement;
+  if (contentBox && contentBox.scrollHeight > contentBox.clientHeight + 2) {
+    contentBox.classList.add("collapsed");
+    const toggle = document.createElement("span");
+    toggle.className = "yo-tool-expand";
+    toggle.textContent = "show more";
+    toggle.addEventListener("click", () => {
+      const isCollapsed = contentBox.classList.contains("collapsed");
+      contentBox.classList.toggle("collapsed", !isCollapsed);
+      contentBox.classList.toggle("expanded", isCollapsed);
+      toggle.textContent = isCollapsed ? "show less" : "show more";
+    });
+    contentBox.parentElement?.insertBefore(toggle, contentBox.nextSibling);
+  }
+
+  yoActiveToolEl = null;
+}
+
+/** Show initial thinking indicator */
 function showYoStatus(_toolText: string) {
   if (yoStatusEl) return;
   yoStatusEl = document.createElement("div");
   yoStatusEl.className = "yo-msg yo-msg-status";
   yoPanelMessages.appendChild(yoStatusEl);
+
+  const dot = document.createElement("span");
+  dot.className = "yo-tool-spinner";
+  dot.style.fontSize = "14px";
+  yoStatusEl.appendChild(dot);
+
+  const label = document.createElement("span");
+  const words = ["thinking", "cooking", "vibing", "brewing"];
+  label.textContent = words[Math.floor(Math.random() * words.length)];
+  yoStatusEl.appendChild(label);
+
   const frames = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
-  const words = ["thinking...", "cooking...", "vibing...", "brewing..."];
   let fi = 0;
-  let curWord = words[Math.floor(Math.random() * words.length)];
   if (yoSpinnerInterval) clearInterval(yoSpinnerInterval);
   yoSpinnerInterval = setInterval(() => {
-    if (!yoStatusEl) return;
     fi = (fi + 1) % frames.length;
-    yoStatusEl.textContent = `${frames[fi]} ${curWord}`;
+    dot.textContent = frames[fi];
   }, 100);
 }
 
@@ -713,55 +761,66 @@ function clearYoStatus() {
 
 function showYoToolUse(tool: string) {
   yoToolsUsed = true;
-
-  // Remove initial status spinner
   if (yoStatusEl) clearYoStatus();
 
-  // Finalize any in-progress streaming text as a text section
+  // Finalize any in-progress streaming text
   if (yoResponseEl) {
     yoResponseEl = null;
     yoLastAssistantText = "";
   }
 
-  // Close previous tool block (mark as done)
-  if (yoActiveToolEl) {
-    yoActiveToolEl.classList.add("done");
-    const spinner = yoActiveToolEl.querySelector(".yo-tool-spinner");
-    if (spinner) spinner.textContent = "\u2713";
-    stopToolSpinner();
-    yoActiveToolEl = null;
+  // Finish previous tool step
+  finishToolStep();
+
+  // Create tool group container on first tool
+  if (!yoToolGroupEl) {
+    yoToolGroupEl = document.createElement("div");
+    yoToolGroupEl.className = "yo-tool-group active";
+    yoPanelMessages.appendChild(yoToolGroupEl);
+    yoToolStepCount = 0;
   }
 
-  // Create new collapsible tool block
-  const label = TOOL_LABELS[tool] || tool.replace(/_/g, " ");
-  const details = document.createElement("details");
-  details.className = "yo-tool-block";
-  details.open = true;
+  yoToolStepCount++;
+  const [name, desc] = TOOL_LABELS[tool] || [tool.replace(/_/g, " "), "Working"];
 
-  const summary = document.createElement("summary");
-  summary.innerHTML = `<span class="yo-tool-spinner">\u280B</span> ${label}`;
-  details.appendChild(summary);
+  // Build tool step
+  const step = document.createElement("div");
+  step.className = "yo-tool-step active";
 
-  yoPanelMessages.appendChild(details);
-  yoActiveToolEl = details;
-  startToolSpinner(details);
+  const dot = document.createElement("div");
+  dot.className = "yo-tool-dot";
+  step.appendChild(dot);
+
+  const header = document.createElement("div");
+  header.className = "yo-tool-header";
+  header.innerHTML =
+    `<span class="yo-tool-spinner">\u280B</span>` +
+    `<span class="yo-tool-name">${name}</span>` +
+    `<span class="yo-tool-desc">${desc}</span>`;
+  step.appendChild(header);
+
+  // Content box for tool results (initially collapsed style, filled by content if returned)
+  const content = document.createElement("div");
+  content.className = "yo-tool-content collapsed";
+  content.style.display = "none"; // hidden until content arrives
+  step.appendChild(content);
+
+  yoToolGroupEl.appendChild(step);
+  yoActiveToolEl = step;
+  startToolSpinner(step);
   yoScroll();
 }
 
 function appendYoToken(delta: string) {
-  // First text token — clear status, create response element
   if (!yoResponseEl) {
     if (yoStatusEl) clearYoStatus();
 
-    // Close any active tool block
-    if (yoActiveToolEl) {
-      yoActiveToolEl.classList.add("done");
-      const spinner = yoActiveToolEl.querySelector(".yo-tool-spinner");
-      if (spinner) spinner.textContent = "\u2713";
-      stopToolSpinner();
-      // Auto-collapse completed tool blocks
-      (yoActiveToolEl as HTMLDetailsElement).open = false;
-      yoActiveToolEl = null;
+    // Close tool timeline
+    finishToolStep();
+    if (yoToolGroupEl) {
+      yoToolGroupEl.classList.remove("active");
+      yoToolGroupEl.classList.add("complete");
+      yoToolGroupEl = null;
     }
 
     yoResponseEl = document.createElement("div");
@@ -778,14 +837,12 @@ function finalizeYoMessage(fullText: string) {
   clearYoStatus();
   setYoThinking(false);
 
-  // Close any remaining tool block
-  if (yoActiveToolEl) {
-    yoActiveToolEl.classList.add("done");
-    const spinner = yoActiveToolEl.querySelector(".yo-tool-spinner");
-    if (spinner) spinner.textContent = "\u2713";
-    stopToolSpinner();
-    (yoActiveToolEl as HTMLDetailsElement).open = false;
-    yoActiveToolEl = null;
+  // Close tool timeline
+  finishToolStep();
+  if (yoToolGroupEl) {
+    yoToolGroupEl.classList.remove("active");
+    yoToolGroupEl.classList.add("complete");
+    yoToolGroupEl = null;
   }
 
   const text = fullText || yoLastAssistantText;
@@ -804,20 +861,25 @@ function finalizeYoMessage(fullText: string) {
   yoScroll();
 }
 
-/** Format agent text — detect numbered lists as task items */
+/** Format agent text — numbered lists become task items */
 function formatYoText(text: string): string {
   if (!text) return "";
-  // Escape HTML
   let safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  // Convert numbered task patterns (1. xxx, 2. xxx) to checkable items
-  safe = safe.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="yo-task-item"><span class="yo-task-check">\u2713</span><span class="yo-task-text">$2</span></div>');
+  safe = safe.replace(
+    /^(\d+)\.\s+(.+)$/gm,
+    '<div class="yo-task-item"><span class="yo-task-check">\u2713</span><span class="yo-task-text">$2</span></div>'
+  );
   return safe;
 }
 
 function showYoError(err: string) {
   clearYoStatus();
   setYoThinking(false);
-  if (yoActiveToolEl) { yoActiveToolEl = null; }
+  finishToolStep();
+  if (yoToolGroupEl) {
+    yoToolGroupEl.classList.remove("active");
+    yoToolGroupEl = null;
+  }
   if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
   const el = document.createElement("div");
   el.className = "yo-msg yo-msg-error";
@@ -837,6 +899,8 @@ function sendYoPanelMessage() {
   yoPanelInput.value = "";
   autoGrowYoInput();
   yoToolsUsed = false;
+  yoToolGroupEl = null;
+  yoToolStepCount = 0;
   addYoUserMessage(text);
   showYoStatus("");
   setYoThinking(true);

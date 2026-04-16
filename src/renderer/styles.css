@@ -2233,90 +2233,220 @@ select.settings-input {
   gap: 10px;
 }
 
+/* ── Messages ─────────────────────────────────── */
+
 .yo-msg {
   max-width: 100%;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 
 .yo-msg-user {
   align-self: flex-end;
   max-width: 85%;
-  background: #242424;
-  color: #ccc;
-  padding: 8px 12px;
-  border-radius: 12px 12px 2px 12px;
+  background: #2a2a2a;
+  color: #e0e0e0;
+  padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  font-weight: 450;
 }
 
 .yo-msg-assistant {
   align-self: flex-start;
-  color: #bbb;
-  padding: 8px 0;
+  color: #c8c8c8;
+  padding: 4px 0;
 }
 
 .yo-msg-status {
-  font-size: 14px;
-  color: #999;
+  font-size: 13px;
+  color: #666;
   padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .yo-msg-error {
   color: #ff5f57;
   font-size: 12px;
-  padding: 4px 0;
+  padding: 6px 12px;
+  background: rgba(255, 95, 87, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 95, 87, 0.15);
 }
 
-/* Tool call blocks — collapsible like Claude */
-.yo-tool-block {
-  font-size: 12px;
-  color: #888;
-  margin: 4px 0;
-  border: 1px solid #252525;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #141414;
+/* ── Tool timeline ────────────────────────────── */
+
+.yo-tool-group {
+  position: relative;
+  padding-left: 22px;
+  margin: 6px 0;
 }
-.yo-tool-block summary {
-  cursor: pointer;
-  padding: 6px 10px;
-  user-select: none;
-  list-style: none;
+
+/* Vertical timeline line */
+.yo-tool-group::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #2a2a2a;
+}
+.yo-tool-group.active::before {
+  background: linear-gradient(180deg, #25C75E 0%, #1a8a3e 70%, #2a2a2a 100%);
+}
+.yo-tool-group.complete::before {
+  background: #25C75E20;
+}
+
+/* Individual tool step */
+.yo-tool-step {
+  position: relative;
+  margin-bottom: 2px;
+}
+
+/* Timeline dot */
+.yo-tool-dot {
+  position: absolute;
+  left: -19px;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #333;
+  border: 1.5px solid #444;
+  z-index: 1;
+  transition: all 0.3s ease;
+}
+.yo-tool-step.active .yo-tool-dot {
+  background: #25C75E;
+  border-color: #25C75E;
+  box-shadow: 0 0 6px rgba(37, 199, 94, 0.4);
+}
+.yo-tool-step.done .yo-tool-dot {
+  background: #25C75E;
+  border-color: #25C75E;
+}
+
+/* Tool header row */
+.yo-tool-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+  user-select: none;
 }
-.yo-tool-block summary::-webkit-details-marker { display: none; }
-.yo-tool-block .yo-tool-spinner {
-  display: inline-block;
-  width: 14px;
-  text-align: center;
-  color: #25C75E;
-  font-size: 13px;
+.yo-tool-header:hover { opacity: 0.85; }
+
+.yo-tool-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ccc;
+  transition: color 0.2s;
 }
-.yo-tool-block.done summary {
-  color: #555;
-}
-.yo-tool-block.done .yo-tool-spinner {
-  color: #25C75E;
+.yo-tool-step.done .yo-tool-name {
+  color: #777;
 }
 
-/* Task items in agent responses */
+.yo-tool-desc {
+  font-size: 11px;
+  color: #555;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yo-tool-spinner {
+  font-size: 11px;
+  color: #25C75E;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.yo-tool-check {
+  font-size: 10px;
+  color: #25C75E;
+  flex-shrink: 0;
+}
+
+/* Tool content box */
+.yo-tool-content {
+  margin: 2px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #151515;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #888;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+/* Collapsible content — 3 line clamp */
+.yo-tool-content.collapsed {
+  max-height: 4.5em; /* ~3 lines at 1.5 line-height */
+  position: relative;
+}
+.yo-tool-content.collapsed::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: linear-gradient(transparent, #151515);
+  pointer-events: none;
+}
+.yo-tool-content.expanded {
+  max-height: none;
+}
+
+.yo-tool-expand {
+  display: inline-block;
+  font-size: 11px;
+  color: #25C75E;
+  cursor: pointer;
+  padding: 2px 0 4px;
+  user-select: none;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+.yo-tool-expand:hover { opacity: 1; }
+
+/* ── Task items ───────────────────────────────── */
+
 .yo-task-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 3px 0;
+  gap: 10px;
+  padding: 5px 0;
 }
 .yo-task-check {
   color: #25C75E;
-  font-size: 12px;
+  font-size: 11px;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #25C75E;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
 }
 .yo-task-text {
   flex: 1;
+  color: #bbb;
 }
 
 
