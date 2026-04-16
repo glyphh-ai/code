@@ -95,6 +95,10 @@ declare global {
       getCheckoutUrlForPlan: (plan: string) => Promise<string | null>;
       getBillingPortalUrl: () => Promise<string | null>;
       openExternal: (url: string) => void;
+      // MCP API keys
+      mcpKeysCreate: (label: string, duration: string) => Promise<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }>;
+      mcpKeysList: () => Promise<{ ok: boolean; keys?: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }>; error?: string }>;
+      mcpKeysRevoke: (token: string) => Promise<{ ok: boolean; revoked?: boolean; error?: string }>;
       // Support
       submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
     };

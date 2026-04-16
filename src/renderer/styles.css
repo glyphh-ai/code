@@ -2089,6 +2089,161 @@ select.settings-input {
   border-top: 1px solid #1e1e1e;
 }
 
+/* ── API Keys ───────────────────────────────────────────── */
+
+.apikeys-gate {
+  padding: 32px 0;
+  text-align: center;
+  color: #999;
+}
+
+.apikeys-gate p {
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.apikey-status {
+  font-size: 13px;
+  min-height: 20px;
+  margin-top: 8px;
+}
+
+.apikey-status.success {
+  color: #25C75E;
+}
+
+.apikey-status.error {
+  color: #ff5f57;
+}
+
+.apikey-new-token code {
+  background: #1a1a1a;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #25C75E;
+  word-break: break-all;
+}
+
+.apikey-copy-hint {
+  font-size: 11px;
+  color: #999;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.apikeys-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apikeys-loading,
+.apikeys-empty {
+  color: #666;
+  font-size: 13px;
+  padding: 16px 0;
+}
+
+.apikey-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #111;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+}
+
+.apikey-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.apikey-label-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+}
+
+.apikey-token {
+  font-size: 11px;
+  color: #666;
+  font-family: monospace;
+}
+
+.apikey-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.mcp-config-guide {
+  margin-top: 28px;
+  border-top: 1px solid #1a1a1a;
+  padding-top: 20px;
+}
+
+.mcp-config-guide h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ccc;
+  margin-bottom: 6px;
+}
+
+.mcp-config-block {
+  margin-top: 14px;
+  background: #111;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mcp-config-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.mcp-config-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+}
+
+.mcp-config-path {
+  flex: 1;
+  font-size: 11px;
+  color: #555;
+  font-family: monospace;
+}
+
+.mcp-config-pre {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+  font-family: monospace;
+  color: #25C75E;
+  background: transparent;
+  white-space: pre;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.mcp-copy-btn {
+  font-size: 11px !important;
+  padding: 3px 10px !important;
+}
+
 /* ── Support ────────────────────────────────────────────── */
 
 .support-discord-btn {

@@ -83,6 +83,7 @@
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="settings">Settings</button>
+        <button class="help-nav-item" data-section="apikeys">API Keys</button>
         <button class="help-nav-item" data-section="support">Support</button>
         <button class="help-nav-item" data-section="about">About</button>
         <div class="help-nav-spacer"></div>
@@ -419,6 +420,68 @@
           <div id="settings-relaunch" class="settings-relaunch hidden">
             <span>Restart required for changes to take effect</span>
             <button id="settings-relaunch-btn" class="action-btn primary">Relaunch</button>
+          </div>
+        </div>
+
+        <!-- API Keys -->
+        <div class="help-section" data-section="apikeys">
+          <h2>API Keys</h2>
+          <p class="section-desc">MCP access tokens for external tool integrations. Requires Advanced plan.</p>
+
+          <div id="apikeys-gate" class="apikeys-gate hidden">
+            <p>API keys require an <strong>Advanced</strong> subscription.</p>
+            <button id="apikeys-upgrade-btn" class="action-btn primary">Upgrade</button>
+          </div>
+
+          <div id="apikeys-content" class="hidden">
+            <div class="tab-toolbar">
+              <input id="apikey-label" type="text" placeholder="key label (e.g. macbook)" spellcheck="false" autocomplete="off" />
+              <select id="apikey-duration">
+                <option value="90d">90 days</option>
+                <option value="30d">30 days</option>
+                <option value="1y">1 year</option>
+                <option value="never">Never expires</option>
+              </select>
+              <button id="apikey-create-btn" class="action-btn primary">+ Create Key</button>
+            </div>
+            <div id="apikey-status" class="apikey-status"></div>
+            <div id="apikeys-list" class="apikeys-list"></div>
+
+            <div class="mcp-config-guide">
+              <h3>MCP Configuration</h3>
+              <p class="section-desc">Add Yo as an MCP server in your AI tools. Make sure the MCP Server is enabled in Settings &gt; Services.</p>
+
+              <div class="mcp-config-block">
+                <div class="mcp-config-header">
+                  <span class="mcp-config-label">Claude Desktop</span>
+                  <span class="mcp-config-path">~/Library/Application Support/Claude/claude_desktop_config.json</span>
+                  <button class="action-btn mcp-copy-btn" data-target="mcp-json-desktop">Copy</button>
+                </div>
+                <pre id="mcp-json-desktop" class="mcp-config-pre">{
+  "mcpServers": {
+    "yo": {
+      "url": "http://127.0.0.1:3939/mcp"
+    }
+  }
+}</pre>
+              </div>
+
+              <div class="mcp-config-block">
+                <div class="mcp-config-header">
+                  <span class="mcp-config-label">Claude Code</span>
+                  <span class="mcp-config-path">.mcp.json in project root</span>
+                  <button class="action-btn mcp-copy-btn" data-target="mcp-json-code">Copy</button>
+                </div>
+                <pre id="mcp-json-code" class="mcp-config-pre">{
+  "mcpServers": {
+    "yo": {
+      "type": "url",
+      "url": "http://127.0.0.1:3939/mcp"
+    }
+  }
+}</pre>
+              </div>
+            </div>
           </div>
         </div>
 

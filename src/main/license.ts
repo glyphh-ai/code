@@ -317,6 +317,99 @@ function serverGet<T>(endpoint: string): Promise<T> {
   });
 }
 
+function serverPostAuthed<T>(endpoint: string, body: Record<string, unknown>, licenseKey: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const url = `${LICENSE_SERVER}${endpoint}`;
+    const data = JSON.stringify(body);
+    const request = net.request({ url, method: "POST" });
+    request.setHeader("Content-Type", "application/json");
+    request.setHeader("Authorization", `Bearer ${licenseKey}`);
+
+    let responseBody = "";
+    request.on("response", (response) => {
+      response.on("data", (chunk) => { responseBody += chunk.toString(); });
+      response.on("end", () => {
+        try {
+          resolve(JSON.parse(responseBody) as T);
+        } catch {
+          reject(new Error("Invalid server response"));
+        }
+      });
+    });
+    request.on("error", reject);
+    request.write(data);
+    request.end();
+  });
+}
+
+function serverGetAuthed<T>(endpoint: string, licenseKey: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const url = `${LICENSE_SERVER}${endpoint}`;
+    const request = net.request({ url, method: "GET" });
+    request.setHeader("Authorization", `Bearer ${licenseKey}`);
+
+    let responseBody = "";
+    request.on("response", (response) => {
+      response.on("data", (chunk) => { responseBody += chunk.toString(); });
+      response.on("end", () => {
+        try {
+          resolve(JSON.parse(responseBody) as T);
+        } catch {
+          reject(new Error("Invalid server response"));
+        }
+      });
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+// ── MCP API key management (server-side) ─────────────────
+
+export async function createMcpKey(label: string, duration: string): Promise<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }> {
+  try {
+    const data = readLicenseFile();
+    if (!data?.key) return { ok: false, error: "No license key" };
+    return await serverPostAuthed<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }>(
+      "/api/keys/create",
+      { label, duration },
+      data.key,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
+export async function listMcpKeys(): Promise<{ ok: boolean; keys?: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }>; error?: string }> {
+  try {
+    const data = readLicenseFile();
+    if (!data?.key) return { ok: false, error: "No license key" };
+    return await serverGetAuthed<{ ok: boolean; keys: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }> }>(
+      "/api/keys",
+      data.key,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
+export async function revokeMcpKey(token: string): Promise<{ ok: boolean; revoked?: boolean; error?: string }> {
+  try {
+    const data = readLicenseFile();
+    if (!data?.key) return { ok: false, error: "No license key" };
+    return await serverPostAuthed<{ ok: boolean; revoked?: boolean; error?: string }>(
+      "/api/keys/revoke",
+      { token },
+      data.key,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
 // ── API key storage ──────────────────────────────────────────
 
 const API_KEY_FILE = path.join(CONFIG_DIR, ".apikey");

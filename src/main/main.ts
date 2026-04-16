@@ -13,7 +13,7 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
-import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket, createMcpKey, listMcpKeys, revokeMcpKey } from "./license";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -1437,6 +1437,17 @@ async function boot() {
       appVersion: app.getVersion(),
       os: `${process.platform} ${process.arch}`,
     });
+  });
+
+  // IPC: MCP API key management
+  ipcMain.handle("mcp-keys-create", async (_e, label: string, duration: string) => {
+    return createMcpKey(label, duration);
+  });
+  ipcMain.handle("mcp-keys-list", async () => {
+    return listMcpKeys();
+  });
+  ipcMain.handle("mcp-keys-revoke", async (_e, token: string) => {
+    return revokeMcpKey(token);
   });
 
   // IPC: preferences
