@@ -484,6 +484,7 @@ async function boot() {
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
     connectorAgent?.setLLMConfig(config);
+    if (ambientCapture) ambientCapture.setLLMConfig(config);
   }
 
   // Core services

@@ -2,12 +2,14 @@
  * AmbientCapture — background content indexing for all open panels.
  *
  * Runs on a timer, silently extracts content from each panel's WebContents,
- * detects changes via MD5 hash, and stores chunks in the ContextStore.
+ * detects changes via MD5 hash, compacts via LLM, and stores clean chunks
+ * in the ContextStore.
  */
 
 import { PanelManager } from "./panel-manager";
 import { AppConnector } from "./app-connector";
 import { ContextStore } from "./context-store";
+import { LLMConfig, createCompletion } from "./llm-config";
 import { executeCommand } from "./dom-bridge";
 import crypto from "crypto";
 
@@ -15,10 +17,22 @@ const DEFAULT_INTERVAL_MS = 45_000; // 45 seconds
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50_000;
 
+const COMPACT_PROMPT = `You are a content extractor. Given raw text captured from a web page, extract only the meaningful content.
+
+Rules:
+- Remove UI chrome: navigation, menus, sidebars, buttons, labels, footers, ads
+- Remove repetitive UI text (e.g. "New chat", "Search", "Settings")
+- Keep conversation content, messages, emails, documents, code, articles
+- Keep names, dates, decisions, action items, questions asked
+- Preserve the actual words and data — do not summarize or paraphrase
+- Return the clean content as plain text, nothing else
+- If there is no meaningful content, return exactly: empty`;
+
 export class AmbientCapture {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastHashes = new Map<string, string>();
   private capturing = false;
+  private llmConfig: LLMConfig | null = null;
 
   constructor(
     private panels: PanelManager,
@@ -26,6 +40,8 @@ export class AmbientCapture {
     private contextStore: ContextStore,
     private intervalMs: number = DEFAULT_INTERVAL_MS,
   ) {}
+
+  setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
 
   start(): void {
     if (this.timer) return;
@@ -46,7 +62,6 @@ export class AmbientCapture {
   /** Force immediate capture of all panels. Returns number of panels captured. */
   async captureNow(panelId?: string): Promise<number> {
     if (panelId) {
-      // Capture a single panel
       const app = this.appConnector.get(panelId);
       if (!app || app.url.startsWith("yo://")) return 0;
       try {
@@ -56,7 +71,6 @@ export class AmbientCapture {
         return 0;
       }
     }
-    // Capture all panels
     return this.captureAll();
   }
 
@@ -86,17 +100,17 @@ export class AmbientCapture {
     const wc = this.panels.getWebContents(panelId);
     if (!wc || wc.isDestroyed() || wc.isLoading()) return;
 
-    // Extract text — prefer app-specific grab command, fall back to innerText
-    let text = "";
+    // Extract raw text — prefer app-specific grab command, fall back to innerText
+    let rawText = "";
     const appConfig = this.appConnector.get(panelId);
     if (appConfig?.commands.grab) {
       try {
-        text = await executeCommand(wc, appConfig.commands.grab);
+        rawText = await executeCommand(wc, appConfig.commands.grab);
       } catch {}
     }
-    if (!text || text.startsWith("[Element not found")) {
+    if (!rawText || rawText.startsWith("[Element not found")) {
       try {
-        text = await wc.executeJavaScript(
+        rawText = await wc.executeJavaScript(
           `document.body.innerText.slice(0, ${MAX_CONTENT_LENGTH})`
         );
       } catch {
@@ -104,12 +118,35 @@ export class AmbientCapture {
       }
     }
 
-    if (!text || text.trim().length < MIN_CONTENT_LENGTH) return;
+    if (!rawText || rawText.trim().length < MIN_CONTENT_LENGTH) return;
 
-    // Fast hash check — skip if content hasn't changed
-    const hash = crypto.createHash("md5").update(text).digest("hex");
+    // Fast hash check — skip if raw content hasn't changed
+    const hash = crypto.createHash("md5").update(rawText).digest("hex");
     if (this.lastHashes.get(panelId) === hash) return;
     this.lastHashes.set(panelId, hash);
+
+    // LLM compaction — clean the raw text before storing
+    let cleanText = rawText;
+    if (this.llmConfig?.apiKey) {
+      try {
+        const response = await createCompletion(this.llmConfig, {
+          system: COMPACT_PROMPT,
+          messages: [{ role: "user", content: rawText.slice(0, 12000) }],
+          maxTokens: 4096,
+        });
+        const block = response.content[0];
+        if (block.type === "text") {
+          const result = block.text.trim();
+          if (result && result !== "empty") {
+            cleanText = result;
+          }
+        }
+      } catch {
+        // LLM failed — store raw text as fallback
+      }
+    }
+
+    if (cleanText.trim().length < MIN_CONTENT_LENGTH) return;
 
     // Get page title and current URL
     let title = name;
@@ -124,9 +161,9 @@ export class AmbientCapture {
     } catch {}
 
     // Store in context store (handles chunking + FTS indexing)
-    const stored = this.contextStore.insertCapture(panelId, currentUrl, title, text);
+    const stored = this.contextStore.insertCapture(panelId, currentUrl, title, cleanText);
     if (stored) {
-      console.log(`[ambient] captured ${panelId} (${text.length} chars)`);
+      console.log(`[ambient] captured ${panelId} (${rawText.length} → ${cleanText.length} chars)`);
     }
   }
 }
