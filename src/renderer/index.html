@@ -414,6 +414,15 @@
             </label>
           </div>
 
+          <h3 class="settings-subheading">.yo Agent</h3>
+          <div class="settings-form">
+            <label class="settings-label">Context Window</label>
+            <div class="settings-inline">
+              <input id="settings-context-window" type="number" class="settings-input settings-input-sm" min="10" max="200" step="10" value="40" />
+              <span class="settings-hint">messages before compaction</span>
+            </div>
+          </div>
+
           <h3 class="settings-subheading">Services</h3>
           <p class="section-desc">Optional local servers. Changes take effect on next launch.</p>
           <div class="settings-toggles">
@@ -576,8 +585,13 @@
   <!-- Yo agent slide-out panel -->
   <div id="yo-panel" class="yo-panel hidden">
     <div class="yo-panel-header">
+      <button id="yo-history-toggle" class="yo-history-toggle" title="Chat history">&#9776;</button>
       <span class="yo-panel-title">.yo</span>
+      <button id="yo-chat-new" class="yo-chat-new" title="New chat">+</button>
       <button class="yo-panel-close">&times;</button>
+    </div>
+    <div id="yo-history" class="yo-history hidden">
+      <div id="yo-history-list" class="yo-history-list"></div>
     </div>
     <div class="yo-panel-messages" id="yo-panel-messages"></div>
     <div class="yo-panel-input-wrap">

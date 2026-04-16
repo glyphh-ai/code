@@ -19,7 +19,6 @@ import { SkillEngine } from "./skill-engine";
 import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
-import type { YoResult } from "./command-parser";
 
 const PREFIX = "__YO__";
 
@@ -32,15 +31,9 @@ export class YoInterceptor {
   private sessionNotifier: (() => void) | null = null;
 
   // Yo conversation callbacks
-  private yoSearcher: ((query: string) => Promise<YoResult[]>) | null = null;
-  private yoQuerier: ((query: string) => Promise<string>) | null = null;
-  private yoRefiner: ((message: string) => Promise<string>) | null = null;
   private yoClearer: (() => void) | null = null;
   private panelOpener: ((query: string) => void) | null = null;
-  private yoWidgetWc: WebContents | null = null; // track which wc has the widget open
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
-  private yoResults: YoResult[] = []; // current search results
-  private yoSessionActive = false; // true when in a .yo conversation
 
   constructor(
     private appConnector: AppConnector,
@@ -52,9 +45,6 @@ export class YoInterceptor {
   setCommandHandler(handler: (input: string, sourcePanelId?: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
-  setYoSearcher(fn: (query: string) => Promise<YoResult[]>): void { this.yoSearcher = fn; }
-  setYoQuerier(fn: (query: string) => Promise<string>): void { this.yoQuerier = fn; }
-  setYoRefiner(fn: (message: string) => Promise<string>): void { this.yoRefiner = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
   setPanelOpener(fn: (query: string) => void): void { this.panelOpener = fn; }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
@@ -251,15 +241,6 @@ window.addEventListener('beforeunload',function(e){
         this.opId++; // invalidate any in-flight operation
         await this.clearNotify(wc);
         break;
-      case "yo-use":
-        await this.handleYoUse(wc, data as any);
-        break;
-      case "yo-refine":
-        await this.handleYoRefine(wc, data as any);
-        break;
-      case "yo-dismiss":
-        this.dismissYoWidget(wc);
-        break;
     }
   }
 
@@ -362,175 +343,15 @@ window.addEventListener('beforeunload',function(e){
     this.notify(wc, "captured", "success");
   }
 
-  /** Handle [use] click from widget — inject content into original text area. */
-  private async handleYoUse(wc: WebContents, data: { index?: number; text?: string }): Promise<void> {
-    let content = "";
-    if (data.text) {
-      content = data.text;
-    } else if (typeof data.index === "number" && this.yoResults[data.index]) {
-      content = this.yoResults[data.index].content;
-    }
-    if (content) {
-      this.dismissYoWidget(wc);
-      this.injectContent(wc, content);
-    }
-  }
-
-  /** Handle refinement message from widget input. */
-  private async handleYoRefine(wc: WebContents, data: { text?: string }): Promise<void> {
-    const message = data.text?.trim();
-    if (!message) return;
-
-    // If no results yet (bare .yo), treat as a fresh search
-    if (this.yoResults.length === 0 && this.yoSearcher) {
-      await this.appendYoMessage(wc, "user", message);
-      await this.setYoLoading(wc, true);
-      try {
-        const results = await this.yoSearcher(message);
-        this.yoResults = results;
-        await this.setYoLoading(wc, false);
-        // Update header to show the query
-        try {
-          await wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-widget');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.yo '+${JSON.stringify(message)};})()`);
-        } catch {}
-        if (results.length === 0) {
-          await this.appendYoMessage(wc, "error", "No matching context found.");
-        } else {
-          await this.updateYoWidgetResults(wc, results);
-        }
-      } catch (err) {
-        await this.setYoLoading(wc, false);
-        await this.appendYoMessage(wc, "error", `Search failed: ${err instanceof Error ? err.message : err}`);
-      }
-      return;
-    }
-
-    if (!this.yoRefiner) return;
-
-    await this.appendYoMessage(wc, "user", message);
-    await this.setYoLoading(wc, true);
-
-    try {
-      const result = await this.yoRefiner(message);
-      await this.setYoLoading(wc, false);
-      await this.appendYoMessage(wc, "assistant", result);
-    } catch (err) {
-      await this.setYoLoading(wc, false);
-      await this.appendYoMessage(wc, "error", `Failed: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
-  /** Dismiss yo state — clears session, widget, and result Escape handler. */
-  private dismissYoWidget(wc: WebContents): void {
-    this.yoWidgetWc = null;
-    this.yoActiveWc = null;
-    this.yoResults = [];
-    this.yoSessionActive = false;
-    this.yoClearer?.();
-    try {
-      wc.executeJavaScript(`(function(){var s=document.getElementById('__yo-widget-thinking');if(s&&s.__tid)clearInterval(s.__tid);var h=document.getElementById('__yo-widget-host');if(h)h.remove();if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}})()`);
-    } catch {}
-  }
-
-  /** Add Escape handler to clear streamed result from input and end session. */
-  private addYoEscapeHandler(wc: WebContents): void {
-    try {
-      wc.executeJavaScript(`(function(){
-if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
-window.__yoResultEsc=function(e){
-  if(e.key==='Escape'){
-    e.preventDefault();e.stopPropagation();
-    var el=window.__yoLastEl;if(el){
-      if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
-        var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
-        var s=Object.getOwnPropertyDescriptor(p,'value');
-        if(s&&s.set)s.set.call(el,'');else el.value='';
-        el.dispatchEvent(new Event('input',{bubbles:true}));
-      }else{el.innerText='';}
-    }
-    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
-    document.removeEventListener('keydown',window.__yoResultEsc,true);
-    window.__yoResultEsc=null;
-  }
-};
-document.addEventListener('keydown',window.__yoResultEsc,true);
-})()`);
-    } catch {}
-  }
-
-  // ── yo: search agent, retrieve, utilities ──────────────
-
   private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip"]);
 
-  private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
-    if (!this.commandHandler) return;
+  // ── yo: always opens the agent side panel ──────────────
 
-    // Subcommands routed through command parser
-    const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
-    if (sub === "help" || sub === "skill" || sub === "layout") {
-      this.yoSessionActive = false;
-      // command parser handles side effects (e.g. opening help overlay)
-      await this.commandHandler(`yo ${instruction}`);
-      return;
-    }
-
-    // Bare .yo → open agent panel (empty query)
-    if (!instruction?.trim()) {
-      this.yoActiveWc = wc;
-      if (this.panelOpener) {
-        this.panelOpener("");
-      }
-      return;
-    }
-
-    // .yo . <skill/prompt> → process last capture with skill
-    const dotMatch = instruction.match(/^\.\s*(.+)$/);
-    if (dotMatch) {
-      this.yoSessionActive = false;
-      const myOp = ++this.opId;
-      this.notify(wc, "", "loading");
-      try {
-        const result = await this.commandHandler(`yo ${instruction}`, appId);
-        if (this.opId !== myOp) return;
-        await this.clearNotify(wc);
-        if (result) this.notify(wc, result, "result");
-      } catch (err) {
-        if (this.opId !== myOp) return;
-        this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
-      }
-      return;
-    }
-
-    // .yo <query> . <processor> → search + process, direct inject
-    const parts = instruction.split(/\s+/);
-    const dotIdx = parts.indexOf(".");
-    if (dotIdx > 0 && dotIdx < parts.length - 1) {
-      this.yoSessionActive = false;
-      const myOp = ++this.opId;
-      this.notify(wc, "", "loading");
-      try {
-        const result = await this.commandHandler(`yo ${instruction}`, appId);
-        if (this.opId !== myOp) return;
-        await this.clearNotify(wc);
-        if (result) this.notify(wc, result, "result");
-      } catch (err) {
-        if (this.opId !== myOp) return;
-        this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
-      }
-      return;
-    }
-
-    // ── Conversational .yo ─────────────────────────────────
-    // Opens the slide-out agent panel. The panel handles the full
-    // conversation loop — streaming, tool use, follow-ups, and "use" injection.
-
-    const query = instruction.trim();
+  private async handleYo(wc: WebContents, _appId: string, instruction?: string): Promise<void> {
     this.yoActiveWc = wc;
-
+    const query = instruction?.trim() || "";
     if (this.panelOpener) {
       this.panelOpener(query);
-    } else {
-      this.notify(wc, "Agent panel not available.", "error");
     }
   }
 
@@ -702,252 +523,6 @@ window.__yoWidgetEsc=function(e){
 document.addEventListener('keydown',window.__yoWidgetEsc,true);
 })()`);
     } catch {}
-  }
-
-  /** Update widget body with search results or an error message. */
-  private async updateYoWidgetResults(wc: WebContents, results: YoResult[], errorMsg?: string): Promise<void> {
-    const data = JSON.stringify(results.map((r, i) => ({
-      i,
-      title: r.title,
-      panelId: r.panelId,
-      age: r.age,
-      preview: r.preview,
-      content: r.content,
-    })));
-    const err = errorMsg ? JSON.stringify(errorMsg) : "null";
-    try {
-      await wc.executeJavaScript(`
-(function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
-var spinner=document.getElementById('__yo-widget-thinking');if(spinner&&spinner.__tid)clearInterval(spinner.__tid);
-body.innerHTML='';
-var err=${err};
-if(err){
-  var msg=document.createElement('div');msg.style.cssText='color:#999;font-size:12px;padding:12px 0;text-align:center;';
-  msg.textContent=err;body.appendChild(msg);return;
-}
-if(results.length===0){
-  var empty=document.createElement('div');empty.style.cssText='color:#555;font-size:12px;padding:20px 0;text-align:center;';
-  empty.textContent='search your memory';body.appendChild(empty);return;
-}
-
-// Lightweight markdown renderer
-function renderMd(text){
-  var lines=text.split('\\n');var html=[];var inCode=false;var inList=false;
-  for(var i=0;i<lines.length;i++){
-    var l=lines[i];
-    if(l.match(/^\`\`\`/)){
-      if(inCode){html.push('</pre>');inCode=false;}
-      else{html.push('<pre style="background:#111;border-radius:4px;padding:8px 10px;overflow-x:auto;font-size:11px;color:#ccc;margin:6px 0;">');inCode=true;}
-      continue;
-    }
-    if(inCode){html.push(l.replace(/</g,'&lt;')+'\\n');continue;}
-    if(l.match(/^### /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:12px;margin:8px 0 4px;">'+l.slice(4)+'</div>');continue;}
-    if(l.match(/^## /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:13px;margin:10px 0 4px;">'+l.slice(3)+'</div>');continue;}
-    if(l.match(/^# /)){html.push('<div style="color:#fff;font-weight:700;font-size:14px;margin:10px 0 4px;">'+l.slice(2)+'</div>');continue;}
-    if(l.match(/^[-*] /)){
-      if(!inList){html.push('<div style="margin:4px 0;">');inList=true;}
-      html.push('<div style="padding-left:12px;">\\u2022 '+l.slice(2)+'</div>');continue;
-    }
-    if(inList&&!l.trim()){inList=false;html.push('</div>');}
-    if(l.match(/^---+$/)){html.push('<hr style="border:none;border-top:1px solid #333;margin:8px 0;">');continue;}
-    var escaped=l.replace(/</g,'&lt;');
-    escaped=escaped.replace(/\`([^\`]+)\`/g,'<code style="background:#111;padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>');
-    escaped=escaped.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong style="color:#e0e0e0;">$1</strong>');
-    escaped=escaped.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');
-    if(escaped.trim())html.push('<div style="margin:2px 0;">'+escaped+'</div>');
-    else html.push('<div style="height:6px;"></div>');
-  }
-  if(inCode)html.push('</pre>');
-  if(inList)html.push('</div>');
-  return html.join('');
-}
-
-var results=${data};
-results.forEach(function(r){
-  var card=document.createElement('div');
-  card.style.cssText='background:#222;border:1px solid #333;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s;';
-  card.onmouseenter=function(){if(!card.__expanded)card.style.borderColor='#444';};
-  card.onmouseleave=function(){if(!card.__expanded)card.style.borderColor='#333';};
-  card.__expanded=false;
-
-  var top=document.createElement('div');top.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
-  var label=document.createElement('span');label.style.cssText='color:#25C75E;font-size:11px;font-weight:600;';
-  label.textContent=r.title+' \\u00b7 '+r.age;
-  var useBtn=document.createElement('div');useBtn.textContent='use';
-  useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;transition:background 0.15s;';
-  useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
-  useBtn.onmouseleave=function(){useBtn.style.background='none';};
-  useBtn.onclick=function(e){e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'yo-use',index:0}).replace('"index":0','"index":'+r.i));};
-  top.appendChild(label);top.appendChild(useBtn);
-
-  var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
-  preview.textContent=r.preview;
-
-  var full=document.createElement('div');full.style.cssText='display:none;color:#bbb;font-size:12px;line-height:1.5;margin-top:8px;';
-  full.innerHTML=renderMd(r.content);
-
-  card.onclick=function(){
-    if(card.__expanded){
-      card.__expanded=false;
-      card.style.borderColor='#333';card.style.cursor='pointer';
-      preview.style.display='';full.style.display='none';
-    }else{
-      card.__expanded=true;
-      card.style.borderColor='#25C75E44';card.style.cursor='default';
-      preview.style.display='none';full.style.display='block';
-    }
-  };
-
-  card.appendChild(top);card.appendChild(preview);card.appendChild(full);body.appendChild(card);
-});
-body.scrollTop=0;
-})()`);
-    } catch {}
-  }
-
-  /** Append a message to the widget conversation area. */
-  private async appendYoMessage(wc: WebContents, role: "user" | "assistant" | "error", text: string): Promise<void> {
-    const escaped = JSON.stringify(text);
-    const isUser = role === "user";
-    const isError = role === "error";
-    try {
-      if (isUser) {
-        await wc.executeJavaScript(`
-(function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
-var wrap=document.createElement('div');
-wrap.style.cssText='display:flex;justify-content:flex-end;margin-top:8px;';
-var bubble=document.createElement('div');
-bubble.style.cssText='background:#25C75E18;border:1px solid #25C75E33;border-radius:12px 12px 4px 12px;padding:8px 12px;max-width:80%;font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap;word-break:break-word;';
-bubble.textContent=${escaped};
-wrap.appendChild(bubble);body.appendChild(wrap);body.scrollTop=body.scrollHeight;
-})()`);
-      } else {
-        await wc.executeJavaScript(`
-(function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
-${isError ? `
-var msg=document.createElement('div');msg.style.cssText='margin-top:8px;padding:8px 12px;color:#ff5f57;font-size:12px;line-height:1.5;';
-msg.textContent=${escaped};body.appendChild(msg);body.scrollTop=body.scrollHeight;
-` : `
-function renderMd(text){
-  var lines=text.split('\\n');var html=[];var inCode=false;var inList=false;
-  for(var i=0;i<lines.length;i++){
-    var l=lines[i];
-    if(l.match(/^\`\`\`/)){
-      if(inCode){html.push('</pre>');inCode=false;}
-      else{html.push('<pre style="background:#111;border-radius:4px;padding:8px 10px;overflow-x:auto;font-size:11px;color:#ccc;margin:6px 0;">');inCode=true;}
-      continue;
-    }
-    if(inCode){html.push(l.replace(/</g,'&lt;')+'\\n');continue;}
-    if(l.match(/^### /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:12px;margin:8px 0 4px;">'+l.slice(4)+'</div>');continue;}
-    if(l.match(/^## /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:13px;margin:10px 0 4px;">'+l.slice(3)+'</div>');continue;}
-    if(l.match(/^# /)){html.push('<div style="color:#fff;font-weight:700;font-size:14px;margin:10px 0 4px;">'+l.slice(2)+'</div>');continue;}
-    if(l.match(/^[-*] /)){
-      if(!inList){html.push('<div style="margin:4px 0;">');inList=true;}
-      html.push('<div style="padding-left:12px;">\\u2022 '+l.slice(2)+'</div>');continue;
-    }
-    if(inList&&!l.trim()){inList=false;html.push('</div>');}
-    if(l.match(/^---+$/)){html.push('<hr style="border:none;border-top:1px solid #333;margin:8px 0;">');continue;}
-    var escaped=l.replace(/</g,'&lt;');
-    escaped=escaped.replace(/\`([^\`]+)\`/g,'<code style="background:#111;padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>');
-    escaped=escaped.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong style="color:#e0e0e0;">$1</strong>');
-    escaped=escaped.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');
-    if(escaped.trim())html.push('<div style="margin:2px 0;">'+escaped+'</div>');
-    else html.push('<div style="height:6px;"></div>');
-  }
-  if(inCode)html.push('</pre>');
-  if(inList)html.push('</div>');
-  return html.join('');
-}
-var card=document.createElement('div');
-card.style.cssText='background:#222;border:1px solid #333;border-radius:8px;padding:10px 12px;margin-top:8px;cursor:pointer;transition:border-color 0.15s;';
-card.onmouseenter=function(){if(!card.__expanded)card.style.borderColor='#444';};
-card.onmouseleave=function(){if(!card.__expanded)card.style.borderColor='#333';};
-card.__expanded=false;
-var top=document.createElement('div');top.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
-var label=document.createElement('span');label.style.cssText='color:#25C75E;font-size:11px;font-weight:600;';
-label.textContent='yo result';
-var useBtn=document.createElement('div');useBtn.textContent='use';
-useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;transition:background 0.15s;';
-useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
-useBtn.onmouseleave=function(){useBtn.style.background='none';};
-useBtn.onclick=function(e){e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'yo-use',text:${escaped}}));};
-top.appendChild(label);top.appendChild(useBtn);
-var text=${escaped};
-var previewText=text.split('\\n').slice(0,3).join(' ').substring(0,150);
-if(text.length>150)previewText+='...';
-var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
-preview.textContent=previewText;
-var full=document.createElement('div');full.style.cssText='display:none;color:#bbb;font-size:12px;line-height:1.5;margin-top:8px;';
-full.innerHTML=renderMd(text);
-card.onclick=function(){
-  if(card.__expanded){
-    card.__expanded=false;card.style.borderColor='#333';card.style.cursor='pointer';
-    preview.style.display='';full.style.display='none';
-  }else{
-    card.__expanded=true;card.style.borderColor='#25C75E44';card.style.cursor='default';
-    preview.style.display='none';full.style.display='block';
-  }
-};
-card.appendChild(top);card.appendChild(preview);card.appendChild(full);body.appendChild(card);
-body.scrollTop=body.scrollHeight;
-`}
-})()`);
-      }
-    } catch {}
-  }
-
-  /** Show/hide loading indicator in widget (braille spinner like standard notify). */
-  private async setYoLoading(wc: WebContents, loading: boolean): Promise<void> {
-    try {
-      await wc.executeJavaScript(`
-(function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
-var existing=document.getElementById('__yo-widget-thinking');
-if(${loading}){
-  if(existing)return;
-  var el=document.createElement('div');el.id='__yo-widget-thinking';
-  el.style.cssText='color:#666;font-size:12px;padding:8px 0;';
-  var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
-  var words=['chilling...','vibing...','yozing...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
-  var fi=0;var curWord=words[Math.floor(Math.random()*words.length)];
-  var nextWord='';var wipePos=-1;var lastSwap=Date.now();
-  function pick(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
-  el.textContent=frames[0]+' '+curWord;
-  el.__iv=setInterval(function(){
-    fi++;var now=Date.now();
-    if(wipePos>=0){
-      wipePos++;var display=curWord;
-      if(wipePos<=display.length){
-        display=nextWord.substring(0,wipePos)+display.substring(wipePos);
-        if(wipePos>=curWord.length){curWord=nextWord;wipePos=-1;lastSwap=now;}
-      }
-      el.textContent=frames[fi%frames.length]+' '+display;
-    }else{
-      el.textContent=frames[fi%frames.length]+' '+curWord;
-      if(now-lastSwap>3000){nextWord=pick();wipePos=0;}
-    }
-  },100);
-  body.appendChild(el);body.scrollTop=body.scrollHeight;
-}else{
-  if(existing){if(existing.__iv)clearInterval(existing.__iv);existing.remove();}
-}
-})()`);
-    } catch {}
-  }
-
-  // ── Injected UI helpers ───────────────────────────────
-
-  private async injectContent(wc: WebContents, text: string): Promise<boolean> {
-    try {
-      return await wc.executeJavaScript(
-        `(function(){ if(window.__yoInject){window.__yoInject(${JSON.stringify(text)});return true;} return false; })()`,
-      );
-    } catch {
-      return false;
-    }
   }
 
   private async notify(

@@ -1731,6 +1731,22 @@ select.settings-input {
   display: contents;
 }
 
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-input-sm {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.settings-hint {
+  color: #999;
+  font-size: 12px;
+}
+
 .settings-actions {
   display: flex;
   align-items: center;
@@ -2263,10 +2279,85 @@ select.settings-input {
 .yo-panel-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
+}
+
+.yo-history-toggle,
+.yo-chat-new {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.yo-history-toggle:hover,
+.yo-chat-new:hover { color: #fff; }
+
+.yo-panel-title { flex: 1; }
+.yo-panel-close { margin-left: auto; }
+
+.yo-history {
+  border-bottom: 1px solid #2a2a2a;
+  max-height: 240px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.yo-history.hidden { display: none; }
+
+.yo-history-list {
+  padding: 6px 0;
+}
+
+.yo-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.yo-history-item:hover { background: #1e1e1e; }
+
+.yo-history-title {
+  flex: 1;
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.yo-history-date {
+  font-size: 11px;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.yo-history-delete {
+  background: none;
+  border: none;
+  color: #444;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+.yo-history-item:hover .yo-history-delete { opacity: 1; }
+.yo-history-delete:hover { color: #ff5f57; }
+
+.yo-history-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: #555;
 }
 
 .yo-panel-title {
@@ -2339,61 +2430,6 @@ select.settings-input {
   padding: 4px 0;
 }
 
-.yo-use-block {
-  background: #141414;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.yo-use-block textarea {
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: #ccc;
-  font-size: 13px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.yo-use-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #2a2a2a;
-}
-
-.yo-use-btn {
-  background: #25C75E;
-  color: #000;
-  border: none;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-.yo-use-btn:hover { opacity: 0.8; }
-
-.yo-refine-btn {
-  background: none;
-  border: 1px solid #444;
-  color: #999;
-  font-size: 12px;
-  padding: 5px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-.yo-refine-btn:hover { border-color: #666; color: #ccc; }
 
 .yo-panel-input-wrap {
   display: flex;

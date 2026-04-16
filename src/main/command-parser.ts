@@ -1,15 +1,9 @@
 /**
  * CommandParser — parses and executes yo/sup/dip/drip commands.
  *
- *   yo              → open library browser
- *   yo <query>      → search context store → inject raw results
- *   yo . <skill>    → process last capture with skill → inject
- *   yo <query> . <skill/prompt> → search + process → inject
- *   yo help/skills/layout → utilities
- *   sup             → force capture active panel into context store
- *   sup .           → force capture (explicit dot modifier)
+ *   yo [query]      → open agent side panel (optionally with query)
+ *   sup             → capture active panel to clipboard + session
  *   sup . <skill>   → capture + skill process → inject result
- *   sup . <prompt>  → capture + prompt process → inject result
  *   dip <panel>     → switch/split/grid
  *   drip <effect>   → visual effect
  */
@@ -20,17 +14,8 @@ import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { SessionCache } from "./session-cache";
-import { ContextStore } from "./context-store";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
-
-export interface YoResult {
-  panelId: string;
-  title: string;
-  age: string;
-  content: string;
-  preview: string;
-}
 
 export class CommandParser {
   private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip"]);
@@ -44,14 +29,12 @@ export class CommandParser {
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
   private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
-
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
     private layouts: LayoutManager,
     private appConnector: AppConnector,
     private session: SessionCache,
-    private contextStore: ContextStore,
   ) {}
 
   /** Set the main window reference (used by dip commands). */
@@ -156,78 +139,11 @@ export class CommandParser {
     return lastResult;
   }
 
-  // ── yo: search/retrieve agent, utilities ─────────────────────
+  // ── yo: always opens the agent side panel ────────────────────
 
   private async handleYo(args: string[]): Promise<string> {
-    // yo help
-    if (args[0]?.toLowerCase() === "help") {
-      this.onShowWelcome?.();
-      return "";
-    }
-
-    // yo skill create/list
-    if (args[0]?.toLowerCase() === "skill") {
-      return this.handleYoSkill(args.slice(1));
-    }
-
-    // yo layout save/list/delete
-    if (args[0]?.toLowerCase() === "layout") {
-      return this.handleYoLayout(args.slice(1));
-    }
-
-    // yo - → open command palette
-    if (args.length === 1 && args[0] === "-") {
-      return "";
-    }
-
-    // Bare .yo → open library browser
-    if (args.length === 0) {
-      return "__YO_BROWSE__";
-    }
-
-    // Parse: everything before a standalone "." is the query, everything after is the processor
-    const dotIdx = args.indexOf(".");
-    const queryParts = dotIdx >= 0 ? args.slice(0, dotIdx) : args;
-    const processorParts = dotIdx >= 0 ? args.slice(dotIdx + 1) : [];
-    const query = queryParts.join(" ").trim();
-    const processor = processorParts.join(" ").trim();
-
-    // Determine source content
-    let content: string;
-
-    if (!query) {
-      // .yo . <skill/prompt> → use last capture from session cache
-      const lastCapture = this.session.get();
-      if (!lastCapture) return "Nothing captured yet. Use .sup first.";
-      content = lastCapture;
-    } else {
-      // .yo <query> → search context store
-      content = await this.searchContext(query);
-      if (!content) return "No matching context found.";
-    }
-
-    // No processor — return raw content
-    if (!processor) {
-      return content;
-    }
-
-    // Process with skill or freeform prompt
-    const matchedSkill = /^\S+$/.test(processor)
-      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === processor.toLowerCase())
-      : undefined;
-
-    let result: string;
-    if (matchedSkill) {
-      result = await this.skillEngine.process(content, matchedSkill);
-    } else if (this.yoChat) {
-      result = await this.yoChat.executeInline("yo", processor, "command-bar", content);
-    } else {
-      return content;
-    }
-
-    this.session.capture("command-bar", result, `yo-${this.timestamp()}.md`, this.timestamp());
-    this.session.copyToClipboard();
-    return result;
+    const query = args.join(" ").trim();
+    return `__YO_PANEL__${query ? `:${query}` : ""}`;
   }
 
   // ── sup: capture screen ─────────────────────────────────
@@ -252,16 +168,6 @@ export class CommandParser {
 
     const content = await this.grabber(true);
     if (!content) return "Could not grab content from panels.";
-
-    // Store in context store immediately (makes it searchable via .yo <query>)
-    const panelId = this.panels.activePanelId || "command-bar";
-    const appConfig = this.appConnector.get(panelId);
-    await this.contextStore.insertCapture(
-      panelId,
-      appConfig?.url || "",
-      appConfig?.name || panelId,
-      content,
-    );
 
     // Bare capture — no processing
     if (!instruction) {
@@ -288,130 +194,10 @@ export class CommandParser {
     return finalContent;
   }
 
-  /** Search context store and return structured results for the widget. */
-  async searchForWidget(query: string): Promise<YoResult[]> {
-    const hits = await this.contextStore.search(query, 15);
-    if (hits.length === 0) return [];
-
-    const panelHits = new Map<string, number>();
-    for (const h of hits) {
-      panelHits.set(h.panel_id, (panelHits.get(h.panel_id) || 0) + 1);
-    }
-    const topPanels = [...panelHits.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id]) => id);
-
-    const results: YoResult[] = [];
-    const contextSections: string[] = [];
-    for (const panelId of topPanels) {
-      const allChunks = this.contextStore.getPanelContent(panelId);
-      if (allChunks.length === 0) continue;
-      const age = this.formatAge(allChunks[0].timestamp);
-      const title = allChunks[0].title || panelId;
-      const fullContent = allChunks.map((c) => c.content).join("\n");
-      const preview = fullContent.slice(0, 200).replace(/\n+/g, " ").trim();
-      results.push({ panelId, title, age, content: fullContent, preview });
-      contextSections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
-    }
-
-    // Store assembled context + reset history for new session
-    this.yoContext = contextSections.join("\n\n---\n\n");
-    this.yoHistory = [
-      { role: "user", content: `Search: ${query}` },
-      { role: "assistant", content: `Found ${results.length} result(s) from: ${results.map((r) => r.title).join(", ")}` },
-    ];
-
-    return results;
-  }
-
-  /** Refine within the yo widget conversation. Returns the LLM response text. */
-  async yoRefine(message: string): Promise<string> {
-    if (!this.yoChat) return "No LLM configured.";
-    if (!this.yoContext) return "No context to refine. Search first.";
-
-    this.yoHistory.push({ role: "user", content: message });
-
-    // Keep history capped at 10 turns
-    if (this.yoHistory.length > 20) {
-      this.yoHistory = this.yoHistory.slice(-20);
-    }
-
-    const conversationText = this.yoHistory
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n");
-
-    const result = await this.yoChat.executeInline(
-      "yo",
-      `Conversation:\n${conversationText}\n\nBased on the context below, respond to the user's latest message. Return the relevant content verbatim — do not summarize.`,
-      "yo-refine",
-      this.yoContext,
-    );
-
-    this.yoHistory.push({ role: "assistant", content: result });
-    return result;
-  }
-
-  /**
-   * Conversational yo query — search context store, send to LLM as agent,
-   * return a natural-language response. Starts a session for follow-ups.
-   */
-  async yoQuery(query: string): Promise<string> {
-    if (!this.yoChat) return "No LLM configured.";
-
-    const hits = await this.contextStore.search(query, 15);
-
-    if (hits.length === 0) {
-      this.yoContext = "";
-      this.yoHistory = [{ role: "user", content: query }];
-      const noResult = "nothing found — try a different query";
-      this.yoHistory.push({ role: "assistant", content: noResult });
-      return noResult;
-    }
-
-    // Assemble context from top panels
-    const panelHits = new Map<string, number>();
-    for (const h of hits) panelHits.set(h.panel_id, (panelHits.get(h.panel_id) || 0) + 1);
-    const topPanels = [...panelHits.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id]) => id);
-
-    const contextSections: string[] = [];
-    for (const panelId of topPanels) {
-      const allChunks = this.contextStore.getPanelContent(panelId);
-      if (allChunks.length === 0) continue;
-      const title = allChunks[0].title || panelId;
-      const age = this.formatAge(allChunks[0].timestamp);
-      const fullContent = allChunks.map((c) => c.content).join("\n");
-      contextSections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
-    }
-
-    this.yoContext = contextSections.join("\n\n---\n\n");
-    this.yoHistory = [{ role: "user", content: query }];
-
-    const result = await this.yoChat.executeInline(
-      "yo",
-      query,
-      "yo-conversation",
-      this.yoContext,
-    );
-
-    this.yoHistory.push({ role: "assistant", content: result });
-    return result;
-  }
-
   /** Clear yo conversation state. */
   clearYoHistory(): void {
     this.yoHistory = [];
     this.yoContext = "";
-  }
-
-  /** Search context store and assemble as flat string (used by .yo <query> . <processor>). */
-  private async searchContext(query: string): Promise<string> {
-    const results = await this.searchForWidget(query);
-    if (results.length === 0) return "";
-    return results.map((r) => `[${r.panelId} | ${r.title} | ${r.age}]\n${r.content}`).join("\n\n---\n\n");
   }
 
   private timestamp(): string {
@@ -425,134 +211,6 @@ export class CommandParser {
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     return `${Math.floor(seconds / 86400)}d ago`;
-  }
-
-  private async handleYoSkill(args: string[]): Promise<string> {
-    if (args.length === 0 || args[0] === "list") {
-      const skills = this.skillEngine.listSkills();
-      if (skills.length === 0) return "No skills yet. Create one: yo skill create <description>";
-      return skills.map((s) => `  ${s}`).join("\n");
-    }
-
-    if (args[0] === "create" && args.length >= 2) {
-      const rest = args.slice(1).join(" ");
-
-      // Extract -n <name> flag if present
-      const nameMatch = rest.match(/(?:^|\s)-n\s+(\S+)/);
-      let skillName = nameMatch ? nameMatch[1] : "";
-      const description = rest.replace(/(?:^|\s)-n\s+\S+/, "").trim();
-
-      if (!description) {
-        return "Usage: yo skill create <description> [-n name]";
-      }
-
-      if (skillName && CommandParser.COMMAND_KEYWORDS.has(skillName.toLowerCase())) {
-        return `Cannot use "${skillName}" as a skill name \u2014 it\u2019s a reserved command.`;
-      }
-
-      // LLM-assisted: generate name + prompt from description
-      if (!this.yoChat) {
-        if (!skillName) skillName = description.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9_-]/g, "");
-        this.skillEngine.createSkill(skillName, description);
-        return `Skill created: ${skillName}`;
-      }
-
-      try {
-        if (!skillName) {
-          const result = await this.yoChat.executeInline(
-            "yo",
-            `You are a skill creator. Given a description, respond with ONLY valid JSON (no markdown fences):\n{"name": "<one-word-lowercase-name>", "prompt": "<system prompt for the skill>"}\nThe name should be a single meaningful word that captures what the skill does.\n\nDescription: ${description}`,
-            "skill-create",
-          );
-          try {
-            const parsed = JSON.parse(result.trim());
-            skillName = parsed.name.replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
-            this.skillEngine.createSkill(skillName, parsed.prompt.trim());
-          } catch {
-            skillName = description.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9_-]/g, "");
-            this.skillEngine.createSkill(skillName, result.trim());
-          }
-        } else {
-          const result = await this.yoChat.executeInline(
-            "yo",
-            `Write a system prompt for an AI skill called "${skillName}". What it should do: ${description}\n\nRespond with ONLY the prompt text, nothing else.`,
-            "skill-create",
-          );
-          this.skillEngine.createSkill(skillName, result.trim());
-        }
-        return `Skill created: ${skillName}`;
-      } catch (err) {
-        return `Failed to create skill: ${err instanceof Error ? err.message : err}`;
-      }
-    }
-
-    if (args[0] === "show" && args.length >= 2) {
-      const prompt = this.skillEngine.readSkill(args[1]);
-      if (prompt) return `${args[1]}: ${prompt.slice(0, 300)}`;
-      return `Skill "${args[1]}" not found`;
-    }
-
-    return "Usage: yo skill create <description> [-n name] | yo skill list | yo skill show <name>";
-  }
-
-  private handleYoLayout(args: string[]): string {
-    if (args.length === 0 || args[0] === "list") {
-      const layouts = this.layouts.listLayouts();
-      if (layouts.length === 0) return "No layouts saved. Create one: yo layout save <name> <panel1> <panel2> ...";
-      return layouts
-        .map((l) => `  ${l.name} — ${l.cells.map((c) => c.panelId).join(" | ")}`)
-        .join("\n");
-    }
-
-    if (args[0] === "save" && args.length >= 4) {
-      const name = args[1];
-      const allArgs = args.slice(2);
-
-      // Parse rows: panels separated by "/" for multi-row grids
-      const rows: string[][] = [];
-      let current: string[] = [];
-      for (const a of allArgs) {
-        if (a === "/") {
-          if (current.length > 0) rows.push(current);
-          current = [];
-        } else {
-          current.push(a);
-        }
-      }
-      if (current.length > 0) rows.push(current);
-
-      const numRows = rows.length;
-      const numCols = Math.max(...rows.map((r) => r.length));
-
-      const cells = rows.flatMap((row, r) =>
-        row.map((id, c) => ({
-          panelId: id,
-          col: c,
-          row: r,
-          colSpan: c === row.length - 1 ? numCols - c : 1,
-          rowSpan: 1,
-        })),
-      );
-
-      this.layouts.saveLayout({
-        name,
-        version: 2,
-        cols: numCols,
-        rows: numRows,
-        colWidths: Array(numCols).fill(1 / numCols),
-        rowHeights: Array(numRows).fill(1 / numRows),
-        cells,
-      });
-      return `Layout saved: ${name} → dip ${name}`;
-    }
-
-    if (args[0] === "delete" && args.length >= 2) {
-      return this.layouts.deleteLayout(args[1])
-        ? `Deleted layout: ${args[1]}`
-        : `Layout not found: ${args[1]}`;
-    }
-
-    return "Usage: yo layout save <name> <panel1> <panel2> ... | yo layout list | yo layout delete <name>";
   }
 
   // ── dip: switch panels ──────────────────────────────────────

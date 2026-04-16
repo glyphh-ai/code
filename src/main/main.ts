@@ -26,8 +26,7 @@ import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
 import { SessionCache } from "./session-cache";
-import { ContextStore } from "./context-store";
-import { AmbientCapture } from "./ambient-capture";
+import { NoteStore } from "./note-store";
 import { Embedder } from "./embedder";
 import { VSCodeServer } from "./vscode-server";
 
@@ -41,8 +40,7 @@ let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
-let contextStore: ContextStore;
-let ambientCapture: AmbientCapture;
+let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
 
 // ── Drip effects ────────────────────────────────────────────
@@ -501,7 +499,6 @@ async function boot() {
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
     connectorAgent?.setLLMConfig(config);
-    if (ambientCapture) ambientCapture.setLLMConfig(config);
     yoAgent?.setLLMConfig(config);
   }
 
@@ -596,25 +593,22 @@ async function boot() {
     });
   }
 
-  // Context store + embedder + ambient capture
-  contextStore = new ContextStore();
+  // Note store + embedder (flat files with vector search)
+  noteStore = new NoteStore();
   const embedder = new Embedder();
-  contextStore.setEmbedder(embedder);
+  noteStore.setEmbedder(embedder);
   // Load embedding model in background — doesn't block app startup
   embedder.init()
-    .then(() => contextStore.backfillEmbeddings())
     .catch((err) => {
       console.error("[main] embedder init failed:", err);
-      // Notify renderer so splash doesn't hang
       mainWindow?.webContents.send("embedder-status", {
         state: "error",
         message: "model unavailable — search disabled",
       });
     });
-  ambientCapture = new AmbientCapture(panelManager, appConnector, contextStore);
 
   layoutManager = new LayoutManager(panelManager);
-  commandParser = new CommandParser(panelManager, skillEngine, layoutManager, appConnector, session, contextStore);
+  commandParser = new CommandParser(panelManager, skillEngine, layoutManager, appConnector, session);
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
@@ -666,8 +660,18 @@ async function boot() {
   };
 
   // Wire command callbacks for interceptor + chat (both need dip routing)
+  const callbacks = { openYoPanel: null as ((query: string) => void) | null };
+
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
     const result = await commandParser.execute(cmd, sourcePanelId);
+
+    // .yo always opens the agent side panel
+    if (result.startsWith("__YO_PANEL__")) {
+      const query = result.replace(/^__YO_PANEL__:?/, "");
+      callbacks.openYoPanel?.(query);
+      return "";
+    }
+
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     sendSessionState();
@@ -682,12 +686,11 @@ async function boot() {
   };
   yoInterceptor.setCommandHandler(execCommand);
   yoInterceptor.setSessionNotifier(sendSessionState);
-  yoInterceptor.setYoSearcher((query) => commandParser.searchForWidget(query));
   yoInterceptor.setYoClearer(() => { commandParser.clearYoHistory(); yoAgent?.clear(); });
 
   // YoAgent — full agentic retrieval with tools and streaming
   yoAgent = new YoAgent();
-  yoAgent.setContextStore(contextStore);
+  yoAgent.setNoteStore(noteStore);
   yoAgent.setAppConnector(appConnector);
   yoAgent.setPanelGrabber(async (panelId) => {
     const wc = panelManager.getWebContents(panelId);
@@ -746,7 +749,83 @@ async function boot() {
     }
   });
 
+  yoAgent.setPanelTyper(async (panelId, text, opts) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+    const shouldClear = opts.clear !== false; // default true
+    try {
+      // Find and focus the target input element
+      const focused = await wc.executeJavaScript(`(function(){
+        var el = null;
+        ${opts.selector ? `el = document.querySelector(${JSON.stringify(opts.selector)});` : ''}
+        ${opts.label && !opts.selector ? `
+        if (!el) {
+          // Find input near a label with matching text
+          var labels = document.querySelectorAll('label, [aria-label]');
+          for (var i = 0; i < labels.length; i++) {
+            var lbl = labels[i];
+            var lt = (lbl.getAttribute('aria-label') || lbl.textContent || '').trim().toLowerCase();
+            if (lt.includes(${JSON.stringify(opts.label.toLowerCase())})) {
+              var forId = lbl.getAttribute('for');
+              if (forId) { el = document.getElementById(forId); break; }
+              el = lbl.querySelector('input,textarea,[contenteditable]');
+              if (el) break;
+              el = lbl.nextElementSibling;
+              if (el && (el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable)) break;
+              el = null;
+            }
+          }
+        }` : ''}
+        ${opts.placeholder && !opts.selector ? `
+        if (!el) {
+          var inputs = document.querySelectorAll('input[placeholder],textarea[placeholder]');
+          for (var i = 0; i < inputs.length; i++) {
+            if (inputs[i].placeholder.toLowerCase().includes(${JSON.stringify(opts.placeholder.toLowerCase())})) {
+              el = inputs[i]; break;
+            }
+          }
+        }` : ''}
+        if (!el) {
+          // Fallback: find the focused element or first visible input
+          if (document.activeElement && (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA'||document.activeElement.isContentEditable)) {
+            el = document.activeElement;
+          }
+        }
+        if (!el) return 'not_found';
+        el.focus();
+        if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.select(); }
+        else if (el.isContentEditable) {
+          var range = document.createRange();
+          range.selectNodeContents(el);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        return 'focused';
+      })()`);
+      if (focused === 'not_found') return 'Input field not found.';
+
+      // Clear existing content if requested
+      if (shouldClear) {
+        await wc.executeJavaScript(`(function(){
+          var el = document.activeElement;
+          if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); }
+          else if (el.isContentEditable) { el.textContent=''; }
+        })()`);
+      }
+
+      // Type the text using insertText (triggers proper framework events)
+      wc.insertText(text);
+      await new Promise((r) => setTimeout(r, 200));
+      return 'Typed successfully.';
+    } catch (err) {
+      return `Type failed: ${err instanceof Error ? err.message : err}`;
+    }
+  });
+
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
+  const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
+  yoAgent.setMaxMessages(yoMaxMessages);
 
   // Wire .yo conversational agent — slide-out panel
   const YO_PANEL_WIDTH = 380;
@@ -761,12 +840,14 @@ async function boot() {
     }
   });
 
-  // Panel opener — called by interceptor when user types .yo <query>
+  // Panel opener — called by interceptor or Cmd+K when user types .yo <query>
   const openYoPanel = (query: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     yoAgent?.clear();
     mainWindow.webContents.send("yo-panel-open", query);
     panelManager.setRightInset(YO_PANEL_WIDTH);
+    // Focus the main window's webContents so the panel input can receive focus
+    mainWindow.webContents.focus();
     // Start the agent only if there's an actual query
     if (query) {
       yoAgent?.send(query, {
@@ -778,6 +859,7 @@ async function boot() {
     }
   };
   yoInterceptor.setPanelOpener(openYoPanel);
+  callbacks.openYoPanel = openYoPanel;
   yoChat.setCommandCallback(execCommand);
 
   // Terminal yo/sup/dip — route through command parser, show result in terminal
@@ -791,7 +873,7 @@ async function boot() {
   });
 
   // Local server — /sup push, /yo search, /sup/capture, /mcp tools
-  mcpServer = new MCPServer(contextStore, ambientCapture);
+  mcpServer = new MCPServer(noteStore);
   await mcpServer.start();
 
   // Create window
@@ -928,7 +1010,6 @@ async function boot() {
     panelsReady = true;
     // Hide panels during splash — renderer will show them after splash dismisses
     if (mainWindow) panelManager.hideActive(mainWindow);
-    ambientCapture.start();
   }
 
   // Revalidate license on boot (async, non-blocking)
@@ -949,9 +1030,6 @@ async function boot() {
     const cloudSync = new CloudSync(library);
     cloudSync.start();
   }
-
-  // Daily prune of old context chunks (every 24h)
-  setInterval(() => contextStore.prune(), 24 * 60 * 60 * 1000);
 
   // Revalidate license every 24h
   setInterval(async () => {
@@ -1063,11 +1141,6 @@ async function boot() {
   });
 
   // IPC: force ambient context capture
-  ipcMain.handle("capture-context", async (_e, panelId?: string) => {
-    if (!ambientCapture) return 0;
-    return ambientCapture.captureNow(panelId);
-  });
-
   // IPC: reveal downloaded file in Finder/Explorer
   ipcMain.on("download:show", (_e, filePath: string) => {
     shell.showItemInFolder(filePath);
@@ -1114,29 +1187,24 @@ async function boot() {
     });
   });
 
-  ipcMain.on("yo-panel-use", (_e, text: string) => {
-    const wc = yoInterceptor.getActiveYoWc();
-    if (wc && !wc.isDestroyed()) {
-      wc.executeJavaScript(`(function(){
-        var el=window.__yoLastEl;if(!el)return;
-        var val=${JSON.stringify(text)};
-        if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
-          var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
-          var s=Object.getOwnPropertyDescriptor(p,'value');
-          if(s&&s.set)s.set.call(el,val);else el.value=val;
-          el.dispatchEvent(new Event('input',{bubbles:true}));
-        }else{el.innerText=val;}
-      })()`).catch(() => {});
-    }
-    mainWindow?.webContents.send("yo-panel-close");
-    panelManager.setRightInset(0);
-    yoAgent?.clear();
-  });
 
   ipcMain.on("yo-panel-dismiss", () => {
     mainWindow?.webContents.send("yo-panel-close");
     panelManager.setRightInset(0);
     yoAgent?.clear();
+  });
+
+  // IPC: Yo chat history
+  ipcMain.handle("yo-chats-list", () => yoAgent?.listChats() || []);
+  ipcMain.handle("yo-chats-load", (_e, id: string) => {
+    if (!yoAgent) return false;
+    const ok = yoAgent.loadChat(id);
+    return ok;
+  });
+  ipcMain.handle("yo-chats-delete", (_e, id: string) => yoAgent?.deleteChat(id) || false);
+  ipcMain.handle("yo-chat-new", () => {
+    yoAgent?.clear();
+    return true;
   });
 
   // IPC: skills CRUD
@@ -1649,7 +1717,6 @@ async function boot() {
   ipcMain.handle("onboarding-complete", () => {
     restorePanels();
     panelsReady = true;
-    ambientCapture.start();
     sendSplitState();
   });
 
@@ -1669,8 +1736,6 @@ async function boot() {
 app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
-  if (ambientCapture) ambientCapture.stop();
-  if (contextStore) contextStore.close();
   mcpServer?.stop();
   terminalManager?.killAll();
   vscodeServer?.stop();

@@ -766,6 +766,7 @@ const settingsStatus = document.getElementById("settings-status")!;
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleMcpServer = document.getElementById("toggle-mcp-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
+const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
 
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
 
@@ -785,6 +786,13 @@ function initSettings() {
   toggleMcpServer.addEventListener("change", () => {
     window.yo.setPreference("enableMcpServer", toggleMcpServer.checked);
     showRelaunch();
+  });
+
+  settingsContextWindow.addEventListener("change", () => {
+    const val = parseInt(settingsContextWindow.value, 10);
+    if (val >= 10 && val <= 200) {
+      window.yo.setPreference("yoContextWindow", val);
+    }
   });
 
   toggleShowTabs.addEventListener("change", () => {
@@ -930,6 +938,7 @@ async function loadSettings() {
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleMcpServer.checked = await window.yo.getPreference("enableMcpServer", false) as boolean;
+  settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
 }
 
 async function saveSettings() {

@@ -106,13 +106,17 @@ declare global {
       // Yo agent panel
       yoPanelSend: (message: string) => void;
       yoPanelDismiss: () => void;
-      yoPanelUse: (text: string) => void;
       onYoPanelOpen: (cb: (query: string) => void) => void;
       onYoPanelToken: (cb: (delta: string) => void) => void;
       onYoPanelToolUse: (cb: (tool: string) => void) => void;
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
+      // Yo chat history
+      yoChatsList: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
+      yoChatsLoad: (id: string) => Promise<boolean>;
+      yoChatsDelete: (id: string) => Promise<boolean>;
+      yoChatNew: () => Promise<boolean>;
     };
   }
 }
@@ -586,15 +590,21 @@ const yoPanelMessages = document.getElementById("yo-panel-messages")!;
 const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
 const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
 const yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
+const yoHistoryToggle = document.getElementById("yo-history-toggle")!;
+const yoHistoryPanel = document.getElementById("yo-history")!;
+const yoHistoryList = document.getElementById("yo-history-list")!;
+const yoChatNewBtn = document.getElementById("yo-chat-new")!;
 
 let yoResponseEl: HTMLElement | null = null;  // the single assistant response element
 let yoStatusEl: HTMLElement | null = null;    // spinner + tool status line (persists until response)
 let yoLastAssistantText = "";
+let yoToolsUsed = false;  // once a tool fires, suppress streamed text until done
 
 function openYoPanel(query: string) {
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
+  yoToolsUsed = false;
   if (query) {
     addYoUserMessage(query);
     showYoStatus("");
@@ -681,6 +691,10 @@ function clearYoStatus() {
 }
 
 function appendYoToken(delta: string) {
+  // Once tools have fired, suppress streamed text — the agent is "thinking out loud"
+  // between tool calls. Only the spinner should be visible. Final text comes via onDone.
+  if (yoToolsUsed) return;
+
   // First token — remove spinner, create response element
   if (!yoResponseEl) {
     clearYoStatus();
@@ -695,6 +709,7 @@ function appendYoToken(delta: string) {
 }
 
 function showYoToolUse(tool: string) {
+  yoToolsUsed = true;
   // If there was streamed text before this tool call, discard it (pre-tool thinking)
   if (yoResponseEl) {
     yoResponseEl.remove();
@@ -724,45 +739,6 @@ function finalizeYoMessage(fullText: string) {
     yoPanelMessages.appendChild(yoResponseEl);
   }
 
-  // Check if this looks like actionable content the user would "use"
-  // (multi-line structured content, not a short conversational reply)
-  const lines = text.trim().split("\n");
-  const isActionable = lines.length > 2 || text.length > 200;
-
-  if (isActionable) {
-    const block = document.createElement("div");
-    block.className = "yo-use-block";
-
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.rows = Math.min(lines.length + 1, 20);
-    block.appendChild(ta);
-
-    const actions = document.createElement("div");
-    actions.className = "yo-use-actions";
-
-    const refineBtn = document.createElement("button");
-    refineBtn.className = "yo-refine-btn";
-    refineBtn.textContent = "refine";
-    refineBtn.addEventListener("click", () => {
-      // Focus the panel input so user can type a refinement message
-      yoPanelInput.focus();
-      yoPanelInput.placeholder = "tell the agent how to refine...";
-    });
-
-    const useBtn = document.createElement("button");
-    useBtn.className = "yo-use-btn";
-    useBtn.textContent = "use";
-    useBtn.addEventListener("click", () => {
-      window.yo.yoPanelUse(ta.value);
-    });
-
-    actions.appendChild(refineBtn);
-    actions.appendChild(useBtn);
-    block.appendChild(actions);
-    yoPanelMessages.appendChild(block);
-  }
-
   yoLastAssistantText = text;
   yoResponseEl = null;
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
@@ -788,6 +764,7 @@ function sendYoPanelMessage() {
   if (!text) return;
   yoPanelInput.value = "";
   autoGrowYoInput();
+  yoToolsUsed = false;
   addYoUserMessage(text);
   showYoStatus("");
   window.yo.yoPanelSend(text);
@@ -815,6 +792,91 @@ yoPanelInput.addEventListener("keydown", (e) => {
 
 yoPanelCloseBtn.addEventListener("click", () => {
   window.yo.yoPanelDismiss();
+});
+
+// -- Yo chat history --
+
+async function loadYoHistory() {
+  const chats = await window.yo.yoChatsList();
+  yoHistoryList.innerHTML = "";
+  if (chats.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "yo-history-empty";
+    empty.textContent = "no conversations yet";
+    yoHistoryList.appendChild(empty);
+    return;
+  }
+  for (const chat of chats) {
+    const item = document.createElement("div");
+    item.className = "yo-history-item";
+
+    const title = document.createElement("span");
+    title.className = "yo-history-title";
+    title.textContent = chat.title || chat.id;
+
+    const date = document.createElement("span");
+    date.className = "yo-history-date";
+    if (chat.created) {
+      const d = new Date(chat.created);
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) {
+        date.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      } else {
+        date.textContent = d.toLocaleDateString([], { month: "short", day: "numeric" });
+      }
+    }
+
+    const del = document.createElement("button");
+    del.className = "yo-history-delete";
+    del.textContent = "\u00d7";
+    del.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await window.yo.yoChatsDelete(chat.id);
+      loadYoHistory();
+    });
+
+    item.appendChild(title);
+    item.appendChild(date);
+    item.appendChild(del);
+    item.addEventListener("click", async () => {
+      const ok = await window.yo.yoChatsLoad(chat.id);
+      if (ok) {
+        yoPanelMessages.innerHTML = "";
+        yoResponseEl = null;
+        yoStatusEl = null;
+        yoLastAssistantText = "";
+        yoHistoryPanel.classList.add("hidden");
+        // Show a loaded indicator
+        const loaded = document.createElement("div");
+        loaded.className = "yo-msg yo-msg-assistant";
+        loaded.textContent = `loaded: ${chat.title}`;
+        loaded.style.color = "#555";
+        loaded.style.fontStyle = "italic";
+        yoPanelMessages.appendChild(loaded);
+      }
+    });
+    yoHistoryList.appendChild(item);
+  }
+}
+
+yoHistoryToggle.addEventListener("click", () => {
+  const isHidden = yoHistoryPanel.classList.contains("hidden");
+  if (isHidden) {
+    loadYoHistory();
+    yoHistoryPanel.classList.remove("hidden");
+  } else {
+    yoHistoryPanel.classList.add("hidden");
+  }
+});
+
+yoChatNewBtn.addEventListener("click", async () => {
+  await window.yo.yoChatNew();
+  yoPanelMessages.innerHTML = "";
+  yoResponseEl = null;
+  yoStatusEl = null;
+  yoLastAssistantText = "";
+  yoHistoryPanel.classList.add("hidden");
+  yoPanelInput.focus();
 });
 
 // -- Boot gate --

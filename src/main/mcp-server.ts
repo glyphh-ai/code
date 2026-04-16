@@ -1,12 +1,11 @@
 /**
- * Local server — HTTP endpoints + MCP tools for context push/pull.
+ * Local server — HTTP endpoints + MCP tools for note push/search.
  *
  * Runs on http://127.0.0.1:3939
  *
- * HTTP endpoints (simple, no protocol overhead):
- *   POST /sup          — push context into the store
- *   GET  /yo?q=...     — search the context store
- *   POST /sup/capture  — force immediate panel capture
+ * HTTP endpoints:
+ *   POST /sup          — write a note to ~/yo/notes/
+ *   GET  /yo?q=...     — search notes (vector + keyword)
  *   GET  /health       — status check
  *
  * MCP endpoint (for Claude Desktop / Claude Code):
@@ -17,8 +16,7 @@ import http from "http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { ContextStore } from "./context-store";
-import type { AmbientCapture } from "./ambient-capture";
+import { NoteStore } from "./note-store";
 
 const MCP_PORT = 3939;
 
@@ -26,43 +24,28 @@ export class MCPServer {
   private running = false;
   private httpServer: http.Server | null = null;
 
-  constructor(
-    private contextStore: ContextStore,
-    private ambientCapture: AmbientCapture | null = null,
-  ) {}
-
-  setAmbientCapture(capture: AmbientCapture): void {
-    this.ambientCapture = capture;
-  }
+  constructor(private noteStore: NoteStore) {}
 
   private createMcpServer(): McpServer {
     const mcp = new McpServer({
       name: "yo-local",
-      version: "0.2.0",
+      version: "0.3.0",
     });
 
     mcp.tool(
       "sup",
-      "Push context into the local yo context store. Use this to share content, notes, or summaries that the user can later retrieve with .yo queries.",
+      "Push a note into the user's local yo notes. Use this to share content, notes, or summaries that the user can later retrieve with .yo queries.",
       {
-        panel_id: z.string().describe("Source identifier (e.g. 'claude', 'server', 'agent')"),
+        title: z.string().describe("Title for the note"),
         content: z.string().describe("Text content to store"),
-        title: z.string().optional().describe("Title for the content"),
-        url: z.string().optional().describe("Source URL"),
+        source: z.string().optional().describe("Source identifier (e.g. 'claude-code', 'agent')"),
       },
-      async ({ panel_id, content, title, url }) => {
-        const stored = await this.contextStore.insertCapture(
-          panel_id,
-          url || "",
-          title || panel_id,
-          content,
-        );
+      async ({ title, content, source }) => {
+        const filepath = await this.noteStore.write(title, content, source || "mcp");
         return {
           content: [{
             type: "text" as const,
-            text: stored
-              ? `Stored ${content.length} chars from ${panel_id}`
-              : `Content unchanged for ${panel_id} (skipped)`,
+            text: `Saved note: ${filepath} (${content.length} chars)`,
           }],
         };
       }
@@ -70,40 +53,22 @@ export class MCPServer {
 
     mcp.tool(
       "yo",
-      "Search the user's ambient context store. Returns relevant chunks from all captured panels.",
+      "Search the user's notes. Returns relevant notes ranked by similarity.",
       {
         query: z.string().describe("Search query"),
         limit: z.number().optional().describe("Max results (default 10)"),
       },
       async ({ query, limit }) => {
-        const results = await this.contextStore.search(query, limit || 10);
+        const results = await this.noteStore.search(query, limit || 10);
         if (results.length === 0) {
           return {
             content: [{ type: "text" as const, text: `No results for "${query}"` }],
           };
         }
         const text = results.map((r) =>
-          `[${r.panel_id} | ${r.title} | ${this.formatAge(r.timestamp)}]\n${r.content}`
+          `[${r.title} | ${r.file} | ${this.formatAge(r.timestamp)}]\n${r.content}`
         ).join("\n\n---\n\n");
         return { content: [{ type: "text" as const, text }] };
-      }
-    );
-
-    mcp.tool(
-      "sup_capture",
-      "Force an immediate capture of all open panels into the context store (normally runs every 45s).",
-      {},
-      async () => {
-        if (!this.ambientCapture) {
-          return {
-            content: [{ type: "text" as const, text: "Ambient capture not available" }],
-            isError: true,
-          };
-        }
-        const count = await this.ambientCapture.captureNow();
-        return {
-          content: [{ type: "text" as const, text: `Captured ${count} panels` }],
-        };
       }
     );
 
@@ -121,31 +86,27 @@ export class MCPServer {
         return;
       }
 
-      // ── POST /sup — push context
+      // ── POST /sup — write a note
       if (req.method === "POST" && req.url === "/sup") {
         try {
           const body = await this.parseBody(req) as any;
-          if (!body?.panel_id || !body?.content) {
+          if (!body?.content) {
             res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Missing panel_id or content" }));
+            res.end(JSON.stringify({ error: "Missing content" }));
             return;
           }
-          const stored = await this.contextStore.insertCapture(
-            body.panel_id,
-            body.url || "",
-            body.title || body.panel_id,
-            body.content,
-          );
+          const title = body.title || body.panel_id || "push";
+          const filepath = await this.noteStore.write(title, body.content, body.source || "http");
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true, stored, chars: body.content.length }));
+          res.end(JSON.stringify({ ok: true, file: filepath, chars: body.content.length }));
         } catch (err) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Failed to store context" }));
+          res.end(JSON.stringify({ error: "Failed to write note" }));
         }
         return;
       }
 
-      // ── GET /yo?q=... — search context
+      // ── GET /yo?q=... — search notes
       if (req.method === "GET" && req.url?.startsWith("/yo")) {
         try {
           const url = new URL(req.url, `http://127.0.0.1:${MCP_PORT}`);
@@ -156,15 +117,14 @@ export class MCPServer {
             res.end(JSON.stringify({ error: "Missing q parameter" }));
             return;
           }
-          const results = await this.contextStore.search(query, limit);
+          const results = await this.noteStore.search(query, limit);
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
             query,
             count: results.length,
             results: results.map((r) => ({
-              panel_id: r.panel_id,
+              file: r.file,
               title: r.title,
-              url: r.url,
               content: r.content,
               age: this.formatAge(r.timestamp),
               rank: r.rank,
@@ -173,24 +133,6 @@ export class MCPServer {
         } catch {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "Search failed" }));
-        }
-        return;
-      }
-
-      // ── POST /sup/capture — force immediate capture
-      if (req.method === "POST" && req.url === "/sup/capture") {
-        if (!this.ambientCapture) {
-          res.writeHead(503, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Ambient capture not available" }));
-          return;
-        }
-        try {
-          const count = await this.ambientCapture.captureNow();
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true, captured: count }));
-        } catch {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Capture failed" }));
         }
         return;
       }
@@ -220,7 +162,7 @@ export class MCPServer {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           ok: true,
-          endpoints: ["POST /sup", "GET /yo?q=", "POST /sup/capture", "POST /mcp"],
+          endpoints: ["POST /sup", "GET /yo?q=", "POST /mcp"],
         }));
         return;
       }

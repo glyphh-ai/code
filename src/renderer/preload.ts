@@ -17,9 +17,6 @@ contextBridge.exposeInMainWorld("yo", {
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
   panelsGetZoom: () => ipcRenderer.invoke("panels-get-zoom") as Promise<number>,
 
-  // Ambient context capture
-  captureContext: (panelId?: string) => ipcRenderer.invoke("capture-context", panelId) as Promise<number>,
-
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
   skillsRead: (name: string) => ipcRenderer.invoke("skills-read", name) as Promise<string | null>,
@@ -162,7 +159,6 @@ contextBridge.exposeInMainWorld("yo", {
   // Yo agent panel
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
   yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
-  yoPanelUse: (text: string) => ipcRenderer.send("yo-panel-use", text),
   onYoPanelOpen: (cb: (query: string) => void) => {
     ipcRenderer.on("yo-panel-open", (_e, query) => cb(query));
   },
@@ -181,4 +177,10 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
+
+  // Yo chat history
+  yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
+  yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<boolean>,
+  yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
+  yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
 });
