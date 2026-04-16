@@ -260,12 +260,14 @@ document.addEventListener('keyup',function(e){
   private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     if (!this.commandHandler) return;
 
-    // Bare .sup → library browser
+    // Bare .sup → open empty widget ready for input
     if (!instruction?.trim()) {
-      const result = await this.commandHandler("sup", appId);
-      if (result === "__SUP_BROWSE__") {
-        wc.executeJavaScript(`window.postMessage({type:'open-library'},'*')`).catch(() => {});
-      }
+      this.dismissSupWidget(wc);
+      this.supClearer?.();
+      await this.injectSupWidget(wc, "");
+      this.supWidgetWc = wc;
+      // Show empty state
+      await this.updateSupWidgetResults(wc, [], undefined);
       return;
     }
 
@@ -347,7 +349,33 @@ document.addEventListener('keyup',function(e){
   /** Handle refinement message from widget input. */
   private async handleSupRefine(wc: WebContents, data: { text?: string }): Promise<void> {
     const message = data.text?.trim();
-    if (!message || !this.supRefiner) return;
+    if (!message) return;
+
+    // If no results yet (bare .sup), treat as a fresh search
+    if (this.supResults.length === 0 && this.supSearcher) {
+      await this.appendSupMessage(wc, "user", message);
+      await this.setSupLoading(wc, true);
+      try {
+        const results = await this.supSearcher(message);
+        this.supResults = results;
+        await this.setSupLoading(wc, false);
+        // Update header to show the query
+        try {
+          await wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-sup');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.sup '+${JSON.stringify(message)};})()`);
+        } catch {}
+        if (results.length === 0) {
+          await this.appendSupMessage(wc, "error", "No matching context found.");
+        } else {
+          await this.updateSupWidgetResults(wc, results);
+        }
+      } catch (err) {
+        await this.setSupLoading(wc, false);
+        await this.appendSupMessage(wc, "error", `Search failed: ${err instanceof Error ? err.message : err}`);
+      }
+      return;
+    }
+
+    if (!this.supRefiner) return;
 
     await this.appendSupMessage(wc, "user", message);
     await this.setSupLoading(wc, true);
@@ -531,13 +559,13 @@ document.addEventListener('keyup',function(e){
 (function(){
 var old=document.getElementById('__yo-sup');if(old)old.remove();
 var w=document.createElement('div');w.id='__yo-sup';
-w.style.cssText='position:fixed;z-index:999999;bottom:60px;right:16px;width:380px;max-height:480px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#ccc;overflow:hidden;';
+w.style.cssText='position:fixed;z-index:999999;bottom:60px;right:16px;width:380px;max-height:560px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#ccc;overflow:hidden;';
 
 // Header
 var hdr=document.createElement('div');
 hdr.style.cssText='padding:10px 14px;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;';
 var title=document.createElement('span');title.style.cssText='color:#25C75E;font-weight:600;font-size:12px;';
-title.textContent='.sup '+${escaped};
+title.textContent=${escaped}?'.sup '+${escaped}:'.sup';
 var closeBtn=document.createElement('div');closeBtn.textContent='\\u00d7';
 closeBtn.style.cssText='width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-size:16px;border-radius:4px;';
 closeBtn.onmouseenter=function(){closeBtn.style.color='#fff';closeBtn.style.background='#333';};
@@ -547,34 +575,48 @@ hdr.appendChild(title);hdr.appendChild(closeBtn);
 
 // Body (results + messages)
 var body=document.createElement('div');body.id='__yo-sup-body';
-body.style.cssText='flex:1;overflow-y:auto;padding:8px 14px;min-height:60px;max-height:320px;';
+body.style.cssText='flex:1;overflow-y:auto;padding:8px 14px;min-height:60px;max-height:400px;';
 // Loading indicator
 var loading=document.createElement('div');loading.id='__yo-sup-loading';
 loading.style.cssText='color:#666;font-size:12px;padding:12px 0;text-align:center;';
 loading.textContent='searching...';
 body.appendChild(loading);
 
-// Input
+// Input area with textarea + send button
 var inputWrap=document.createElement('div');
 inputWrap.style.cssText='padding:8px 10px;border-top:1px solid #333;flex-shrink:0;';
-var input=document.createElement('input');input.id='__yo-sup-input';input.type='text';
-input.placeholder='refine or ask about results...';
-input.style.cssText='width:100%;background:#111;border:1px solid #333;border-radius:6px;padding:8px 10px;color:#ccc;font-size:12px;outline:none;box-sizing:border-box;';
-input.onfocus=function(){input.style.borderColor='#25C75E';};
-input.onblur=function(){input.style.borderColor='#333';};
+var inputRow=document.createElement('div');
+inputRow.style.cssText='display:flex;align-items:flex-end;gap:6px;background:#111;border:1px solid #333;border-radius:8px;padding:6px 8px;transition:border-color 0.15s;';
+var input=document.createElement('textarea');input.id='__yo-sup-input';input.rows=1;
+input.placeholder=${escaped}?'ask about results...':'search your memory...';
+input.style.cssText='flex:1;background:none;border:none;color:#ccc;font-size:12px;outline:none;resize:none;font-family:inherit;line-height:1.4;max-height:72px;overflow-y:auto;padding:0;';
+var sendBtn=document.createElement('div');sendBtn.id='__yo-sup-send';
+sendBtn.innerHTML='\\u2191';
+sendBtn.style.cssText='width:22px;height:22px;border-radius:6px;background:#25C75E;color:#000;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:opacity 0.15s;opacity:0.4;';
+function updateSend(){sendBtn.style.opacity=input.value.trim()?'1':'0.4';}
+function doSend(){
+  var msg=input.value.trim();if(!msg)return;
+  input.value='';input.style.height='auto';updateSend();
+  console.log('${PREFIX}'+JSON.stringify({type:'sup-refine',text:msg}));
+}
+sendBtn.onclick=function(e){e.preventDefault();doSend();input.focus();};
+input.addEventListener('input',function(){
+  input.style.height='auto';input.style.height=Math.min(input.scrollHeight,72)+'px';
+  updateSend();
+});
 input.addEventListener('keydown',function(e){
-  if(e.key==='Enter'&&input.value.trim()){
-    e.preventDefault();e.stopPropagation();
-    var msg=input.value.trim();input.value='';
-    console.log('${PREFIX}'+JSON.stringify({type:'sup-refine',text:msg}));
+  if(e.key==='Enter'&&!e.shiftKey&&input.value.trim()){
+    e.preventDefault();e.stopPropagation();doSend();
   }
   if(e.key==='Escape'){
     e.preventDefault();e.stopPropagation();
     console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));
   }
 },true);
-
-inputWrap.appendChild(input);
+input.onfocus=function(){inputRow.style.borderColor='#25C75E';};
+input.onblur=function(){inputRow.style.borderColor='#333';};
+inputRow.appendChild(input);inputRow.appendChild(sendBtn);
+inputWrap.appendChild(inputRow);
 w.appendChild(hdr);w.appendChild(body);w.appendChild(inputWrap);
 document.body.appendChild(w);
 
@@ -613,6 +655,10 @@ var err=${err};
 if(err){
   var msg=document.createElement('div');msg.style.cssText='color:#999;font-size:12px;padding:12px 0;text-align:center;';
   msg.textContent=err;body.appendChild(msg);return;
+}
+if(results.length===0){
+  var empty=document.createElement('div');empty.style.cssText='color:#555;font-size:12px;padding:20px 0;text-align:center;';
+  empty.textContent='search your memory';body.appendChild(empty);return;
 }
 
 // Lightweight markdown renderer
@@ -696,17 +742,29 @@ body.scrollTop=0;
     const isUser = role === "user";
     const isError = role === "error";
     try {
-      await wc.executeJavaScript(`
+      if (isUser) {
+        await wc.executeJavaScript(`
+(function(){
+var body=document.getElementById('__yo-sup-body');if(!body)return;
+var wrap=document.createElement('div');
+wrap.style.cssText='display:flex;justify-content:flex-end;margin-top:8px;';
+var bubble=document.createElement('div');
+bubble.style.cssText='background:#25C75E18;border:1px solid #25C75E33;border-radius:12px 12px 4px 12px;padding:8px 12px;max-width:80%;font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap;word-break:break-word;';
+bubble.textContent=${escaped};
+wrap.appendChild(bubble);body.appendChild(wrap);body.scrollTop=body.scrollHeight;
+})()`);
+      } else {
+        await wc.executeJavaScript(`
 (function(){
 var body=document.getElementById('__yo-sup-body');if(!body)return;
 var msg=document.createElement('div');
-msg.style.cssText='padding:8px 0;border-top:1px solid #2a2a2a;margin-top:4px;';
+msg.style.cssText='margin-top:8px;';
 var row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;align-items:flex-start;';
 var txt=document.createElement('div');
-txt.style.cssText='font-size:12px;line-height:1.5;color:${isUser ? "#ccc" : isError ? "#ff5f57" : "#e0e0e0"};white-space:pre-wrap;word-break:break-word;flex:1;';
+txt.style.cssText='font-size:12px;line-height:1.5;color:${isError ? "#ff5f57" : "#e0e0e0"};white-space:pre-wrap;word-break:break-word;flex:1;';
 txt.textContent=${escaped};
 row.appendChild(txt);
-${!isUser && !isError ? `
+${!isError ? `
 var useBtn=document.createElement('div');useBtn.textContent='use';
 useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;margin-left:8px;flex-shrink:0;white-space:nowrap;transition:background 0.15s;';
 useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
@@ -714,17 +772,13 @@ useBtn.onmouseleave=function(){useBtn.style.background='none';};
 useBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'sup-use',text:${escaped}}));};
 row.appendChild(useBtn);
 ` : ""}
-msg.appendChild(row);
-${isUser ? `
-var label=document.createElement('div');label.style.cssText='color:#666;font-size:10px;margin-bottom:2px;';
-label.textContent='you';msg.insertBefore(label,row);
-` : ""}
-body.appendChild(msg);body.scrollTop=body.scrollHeight;
+msg.appendChild(row);body.appendChild(msg);body.scrollTop=body.scrollHeight;
 })()`);
+      }
     } catch {}
   }
 
-  /** Show/hide loading indicator in widget. */
+  /** Show/hide loading indicator in widget (braille spinner like standard notify). */
   private async setSupLoading(wc: WebContents, loading: boolean): Promise<void> {
     try {
       await wc.executeJavaScript(`
@@ -734,10 +788,30 @@ var existing=document.getElementById('__yo-sup-thinking');
 if(${loading}){
   if(existing)return;
   var el=document.createElement('div');el.id='__yo-sup-thinking';
-  el.style.cssText='color:#666;font-size:11px;padding:6px 0;';el.textContent='thinking...';
+  el.style.cssText='color:#666;font-size:12px;padding:8px 0;';
+  var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
+  var words=['chilling...','vibing...','supping...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
+  var fi=0;var curWord=words[Math.floor(Math.random()*words.length)];
+  var nextWord='';var wipePos=-1;var lastSwap=Date.now();
+  function pick(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
+  el.textContent=frames[0]+' '+curWord;
+  el.__iv=setInterval(function(){
+    fi++;var now=Date.now();
+    if(wipePos>=0){
+      wipePos++;var display=curWord;
+      if(wipePos<=display.length){
+        display=nextWord.substring(0,wipePos)+display.substring(wipePos);
+        if(wipePos>=curWord.length){curWord=nextWord;wipePos=-1;lastSwap=now;}
+      }
+      el.textContent=frames[fi%frames.length]+' '+display;
+    }else{
+      el.textContent=frames[fi%frames.length]+' '+curWord;
+      if(now-lastSwap>3000){nextWord=pick();wipePos=0;}
+    }
+  },100);
   body.appendChild(el);body.scrollTop=body.scrollHeight;
 }else{
-  if(existing)existing.remove();
+  if(existing){if(existing.__iv)clearInterval(existing.__iv);existing.remove();}
 }
 })()`);
     } catch {}
