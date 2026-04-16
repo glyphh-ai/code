@@ -14,7 +14,9 @@ import { net } from "electron";
 
 const CONFIG_DIR = path.join(os.homedir(), "yo");
 const LICENSE_FILE = path.join(CONFIG_DIR, ".license");
+const SESSION_FILE = path.join(CONFIG_DIR, ".session");
 const TRIAL_DAYS = 14;
+const REFRESH_MARGIN = 3 * 60 * 1000; // refresh 3 min before expiry
 
 const LICENSE_SERVER =
   process.env.YO_LICENSE_SERVER || "https://yo.yo.dev";
@@ -31,6 +33,134 @@ interface LicenseFileData {
   activated: number;
   serverValidated?: boolean;
   tier?: string;
+}
+
+// ── Session (JWT) management ─────────────────────────────────
+
+interface SessionData {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // ms timestamp
+}
+
+let currentSession: SessionData | null = null;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function readSessionFile(): SessionData | null {
+  if (!fs.existsSync(SESSION_FILE)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function saveSessionFile(session: SessionData): void {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(SESSION_FILE, JSON.stringify(session), "utf-8");
+  currentSession = session;
+  scheduleRefresh(session);
+}
+
+function clearSessionFile(): void {
+  currentSession = null;
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+  try { fs.unlinkSync(SESSION_FILE); } catch { /* ignore */ }
+}
+
+function scheduleRefresh(session: SessionData): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  const delay = Math.max(0, session.expiresAt - Date.now() - REFRESH_MARGIN);
+  refreshTimer = setTimeout(() => { void refreshSessionTokens(); }, delay);
+}
+
+async function refreshSessionTokens(): Promise<boolean> {
+  const session = currentSession || readSessionFile();
+  if (!session?.refreshToken) return false;
+
+  try {
+    const result = await serverPost<{
+      ok: boolean;
+      accessToken?: string;
+      refreshToken?: string;
+      expiresIn?: number;
+      error?: string;
+    }>("/api/session/refresh", { refreshToken: session.refreshToken });
+
+    if (result.ok && result.accessToken && result.refreshToken && result.expiresIn) {
+      saveSessionFile({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + result.expiresIn * 1000,
+      });
+      return true;
+    }
+    clearSessionFile();
+    return false;
+  } catch {
+    // Network error — keep existing session if still valid, retry soon
+    if (currentSession && currentSession.expiresAt > Date.now()) {
+      setTimeout(() => { void refreshSessionTokens(); }, 30_000);
+      return true;
+    }
+    clearSessionFile();
+    return false;
+  }
+}
+
+async function createSessionTokens(): Promise<boolean> {
+  const data = readLicenseFile();
+  if (!data?.key) return false;
+  if (validateDevKey(data.key)) return false; // dev keys don't use sessions
+
+  const machineId = getMachineFingerprint();
+
+  try {
+    const result = await serverPost<{
+      ok: boolean;
+      accessToken?: string;
+      refreshToken?: string;
+      expiresIn?: number;
+      error?: string;
+    }>("/api/session", { key: data.key, machineId });
+
+    if (result.ok && result.accessToken && result.refreshToken && result.expiresIn) {
+      saveSessionFile({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + result.expiresIn * 1000,
+      });
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** Get current auth token — prefers JWT session, falls back to license key. */
+function getAuthToken(): string | null {
+  if (currentSession && currentSession.expiresAt > Date.now()) {
+    return currentSession.accessToken;
+  }
+  // Fallback to license key (server still accepts it)
+  const data = readLicenseFile();
+  return data?.key || null;
+}
+
+/** Initialize session — call on app startup after license check. */
+export async function initSession(): Promise<void> {
+  const saved = readSessionFile();
+  if (saved) {
+    currentSession = saved;
+    if (saved.expiresAt - Date.now() < REFRESH_MARGIN) {
+      await refreshSessionTokens();
+    } else {
+      scheduleRefresh(saved);
+    }
+  } else {
+    await createSessionTokens();
+  }
 }
 
 // ── Machine fingerprint ──────────────────────────────────────
@@ -146,6 +276,8 @@ export async function activateLicense(key: string): Promise<boolean> {
         const { setPreference } = await import("./preferences.js");
         setPreference("cloudToken", key);
       }
+      // Swap license key for a machine-bound JWT session
+      await createSessionTokens();
       return true;
     }
     console.error("License activation failed:", result.error);
@@ -317,13 +449,16 @@ function serverGet<T>(endpoint: string): Promise<T> {
   });
 }
 
-function serverPostAuthed<T>(endpoint: string, body: Record<string, unknown>, licenseKey: string): Promise<T> {
+function serverPostAuthed<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
+  const token = getAuthToken();
+  if (!token) return Promise.reject(new Error("Not authenticated"));
+
   return new Promise((resolve, reject) => {
     const url = `${LICENSE_SERVER}${endpoint}`;
     const data = JSON.stringify(body);
     const request = net.request({ url, method: "POST" });
     request.setHeader("Content-Type", "application/json");
-    request.setHeader("Authorization", `Bearer ${licenseKey}`);
+    request.setHeader("Authorization", `Bearer ${token}`);
 
     let responseBody = "";
     request.on("response", (response) => {
@@ -342,11 +477,14 @@ function serverPostAuthed<T>(endpoint: string, body: Record<string, unknown>, li
   });
 }
 
-function serverGetAuthed<T>(endpoint: string, licenseKey: string): Promise<T> {
+function serverGetAuthed<T>(endpoint: string): Promise<T> {
+  const token = getAuthToken();
+  if (!token) return Promise.reject(new Error("Not authenticated"));
+
   return new Promise((resolve, reject) => {
     const url = `${LICENSE_SERVER}${endpoint}`;
     const request = net.request({ url, method: "GET" });
-    request.setHeader("Authorization", `Bearer ${licenseKey}`);
+    request.setHeader("Authorization", `Bearer ${token}`);
 
     let responseBody = "";
     request.on("response", (response) => {
@@ -368,12 +506,9 @@ function serverGetAuthed<T>(endpoint: string, licenseKey: string): Promise<T> {
 
 export async function createMcpKey(label: string, duration: string): Promise<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }> {
   try {
-    const data = readLicenseFile();
-    if (!data?.key) return { ok: false, error: "No license key" };
     return await serverPostAuthed<{ ok: boolean; token?: string; label?: string; expiresAt?: string | null; error?: string }>(
       "/api/keys/create",
       { label, duration },
-      data.key,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -383,11 +518,8 @@ export async function createMcpKey(label: string, duration: string): Promise<{ o
 
 export async function listMcpKeys(): Promise<{ ok: boolean; keys?: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }>; error?: string }> {
   try {
-    const data = readLicenseFile();
-    if (!data?.key) return { ok: false, error: "No license key" };
     return await serverGetAuthed<{ ok: boolean; keys: Array<{ token: string; tokenFull: string; label: string; createdAt: string; expiresAt: string | null }> }>(
       "/api/keys",
-      data.key,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -397,12 +529,9 @@ export async function listMcpKeys(): Promise<{ ok: boolean; keys?: Array<{ token
 
 export async function revokeMcpKey(token: string): Promise<{ ok: boolean; revoked?: boolean; error?: string }> {
   try {
-    const data = readLicenseFile();
-    if (!data?.key) return { ok: false, error: "No license key" };
     return await serverPostAuthed<{ ok: boolean; revoked?: boolean; error?: string }>(
       "/api/keys/revoke",
       { token },
-      data.key,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -13,7 +13,7 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
-import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket, createMcpKey, listMcpKeys, revokeMcpKey } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, initSession, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket, createMcpKey, listMcpKeys, revokeMcpKey } from "./license";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -813,6 +813,8 @@ async function boot() {
         mainWindow?.webContents.send("license-expired");
       }
     });
+    // Initialize JWT session (swap license key for short-lived token)
+    initSession().catch(() => { /* non-blocking — falls back to license key */ });
   }
 
   // Start cloud sync if licensed with a cloud token
