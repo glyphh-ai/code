@@ -164,26 +164,41 @@ export class CommandParser {
       const content = await this.grabber(true);
       if (!content) return "Could not grab content from panels.";
 
+      // Store in context store immediately (makes it searchable via .yo <query>)
+      const panelId = this.panels.activePanelId || "command-bar";
+      const appConfig = this.appConnector.get(panelId);
+      await this.contextStore.insertCapture(
+        panelId,
+        appConfig?.url || "",
+        appConfig?.name || panelId,
+        content,
+      );
+
       const instruction = args.join(" ").trim();
+
+      // Bare .yo . → just capture, no processing
+      if (!instruction) {
+        this.session.capture("command-bar", content, `${this.timestamp()}.md`, this.timestamp());
+        this.session.copyToClipboard();
+        return "";
+      }
+
+      // .yo . <skill/prompt> → capture + process → return result for injection into text area
       let finalContent = content;
-      let matchedSkill: string | undefined;
+      const matchedSkill = /^\S+$/.test(instruction)
+        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
+        : undefined;
 
-      if (instruction) {
-        matchedSkill = /^\S+$/.test(instruction)
-          ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === instruction.toLowerCase())
-          : undefined;
-
-        if (matchedSkill) {
-          finalContent = await this.skillEngine.process(content, matchedSkill);
-        } else if (this.yoChat) {
-          finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
-        }
+      if (matchedSkill) {
+        finalContent = await this.skillEngine.process(content, matchedSkill);
+      } else if (this.yoChat) {
+        finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
       }
 
       const label = matchedSkill || this.timestamp();
       this.session.capture("command-bar", finalContent, `${label}.md`, label);
       this.session.copyToClipboard();
-      return `yo .${instruction ? " " + instruction : ""} \u2014 captured`;
+      return finalContent;
     }
 
     // yo <query> → search context store + LLM answer

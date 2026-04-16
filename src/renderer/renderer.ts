@@ -169,6 +169,8 @@ window.yo.onTabState((state: { tabs: Array<{ id: string; name: string }>; active
   renderTabs(state.tabs, state.activeId);
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
+  // Close help overlay whenever panels switch — help should never stay open over panels
+  if (isHelpOpen()) closeHelp();
 });
 
 // Load initial tab state
@@ -585,6 +587,8 @@ function dismissSplash(): void {
       splash.classList.add("fade-out");
       setTimeout(() => splash.remove(), 600);
     }
+    // Show panels now that splash is gone
+    window.yo.panelsShow();
   }, remaining);
   if (bootData?.needsOnboarding) {
     showOnboarding(bootData.license.daysRemaining);

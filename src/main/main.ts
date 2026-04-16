@@ -829,6 +829,8 @@ async function boot() {
   if (!needsOnboarding) {
     restorePanels();
     panelsReady = true;
+    // Hide panels during splash — renderer will show them after splash dismisses
+    if (mainWindow) panelManager.hideActive(mainWindow);
     ambientCapture.start();
   }
 

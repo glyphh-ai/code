@@ -200,7 +200,7 @@ body {
   background: linear-gradient(135deg, #25C75E, #1da34d);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: #000;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -1012,7 +1012,7 @@ body {
 .action-btn:disabled { opacity: 0.3; cursor: default; }
 .action-btn.danger { color: #885; border-color: #2a1a1a; }
 .action-btn.danger:hover { color: #ff5f57; background: #1f0f0f; border-color: #5a2020; }
-.action-btn.primary { background: #25C75E; border-color: #25C75E; color: #fff; }
+.action-btn.primary { background: #25C75E; border-color: #25C75E; color: #000; }
 .action-btn.primary:hover { opacity: 0.85; }
 
 .empty-state {
@@ -1575,7 +1575,7 @@ body {
   background: #25C75E;
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: #000;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -1753,6 +1753,9 @@ select.settings-input {
   font-weight: 600;
   color: #ddd;
   margin: 28px 0 4px;
+}
+.settings-subheading + .section-desc {
+  margin-top: 0;
 }
 
 .settings-toggles {

@@ -28,6 +28,7 @@ export class YoInterceptor {
   private commandHandler: ((input: string, sourcePanelId?: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
   private getVisiblePanelIds: (() => string[]) | null = null;
+  private opId = 0; // incremented per operation; cancel bumps it to invalidate in-flight results
   private sessionNotifier: (() => void) | null = null;
   constructor(
     private appConnector: AppConnector,
@@ -214,6 +215,10 @@ document.addEventListener('keyup',function(e){
           await this.commandHandler(cmd);
         }
         break;
+      case "cancel":
+        this.opId++; // invalidate any in-flight operation
+        await this.clearNotify(wc);
+        break;
     }
   }
 
@@ -261,12 +266,15 @@ document.addEventListener('keyup',function(e){
     // ── Query path (no dot, no chain) — skip panel grab, search context store
     if (realInstruction && !currentOnly && !isChainedCommand) {
       if (this.commandHandler) {
+        const myOp = ++this.opId;
         this.notify(wc, "", "loading");
         try {
           const result = await this.commandHandler(`yo ${realInstruction}`, appId);
+          if (this.opId !== myOp) return; // cancelled
           await this.clearNotify(wc);
           if (result) this.notify(wc, result, "result");
         } catch (err) {
+          if (this.opId !== myOp) return;
           this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
         }
       }
@@ -274,8 +282,10 @@ document.addEventListener('keyup',function(e){
     }
 
     // ── Capture path — grab panel content first
+    const myOp = ++this.opId;
     this.notify(wc, "", "loading");
     const content = await this.grabPanels(wc, appId, !currentOnly);
+    if (this.opId !== myOp) return; // cancelled
     if (!content) {
       this.notify(wc, "Could not grab content.", "error");
       return;
@@ -290,29 +300,31 @@ document.addEventListener('keyup',function(e){
       await this.clearNotify(wc);
       this.notify(wc, `yo${currentOnly ? " ." : ""} \u2014 captured`, "success");
       const chainResult = await this.commandHandler(realInstruction!);
+      if (this.opId !== myOp) return;
       if (chainResult) this.notify(wc, chainResult, "success");
       return;
     }
 
-    // Dot modifier with instruction: capture + skill/LLM process
+    // Dot modifier with instruction: capture + skill/LLM process → inject result into text area
     if (realInstruction && currentOnly && this.commandHandler) {
       try {
         const result = await this.commandHandler(`yo . ${realInstruction}`, appId);
+        if (this.opId !== myOp) return; // cancelled
         await this.clearNotify(wc);
-        if (result) this.notify(wc, result, "success");
+        if (result) this.notify(wc, result, "result");
       } catch (err) {
+        if (this.opId !== myOp) return;
         this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
       }
       return;
     }
 
-    // Bare yo (no args) — capture all visible panels
-    const ts = this.timestamp();
-    this.session.capture(appId, content, `${ts}.md`, ts);
-    this.sessionNotifier?.();
+    // Bare .yo . — force capture into context store
+    if (currentOnly && this.commandHandler) {
+      await this.commandHandler("yo .", appId);
+    }
     await this.clearNotify(wc);
-    this.session.copyToClipboard();
-    this.notify(wc, "yo \u2014 captured", "success");
+    this.notify(wc, "captured", "success");
   }
 
 
@@ -442,6 +454,22 @@ if(isLoading){
   function cursorHome(){try{if(el.setSelectionRange)el.setSelectionRange(0,0);else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}}
   setText(frames[0]+' '+curWord+'   ');
   cursorHome();
+  // Stop button
+  var stopBtn=document.createElement('div');
+  stopBtn.id='__yo-stop';
+  stopBtn.innerHTML='\\u25A0';
+  stopBtn.title='Stop';
+  stopBtn.style.cssText='position:fixed;z-index:999999;width:24px;height:24px;border-radius:6px;background:#333;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;';
+  stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';};
+  stopBtn.onmouseleave=function(){stopBtn.style.background='#333';};
+  stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel'}));};
+  // Position next to input
+  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-12)+'px';stopBtn.style.right='12px';}catch(e){}
+  var old=document.getElementById('__yo-stop');if(old)old.remove();
+  document.body.appendChild(stopBtn);
+  // Escape key also cancels
+  window.__yoStopEsc=function(e){if(e.key==='Escape'){console.log('${PREFIX}'+JSON.stringify({type:'cancel'}));}};
+  document.addEventListener('keydown',window.__yoStopEsc,true);
   window.__yoNoteIv=setInterval(function(){
     fi++;
     var now=Date.now();
@@ -472,6 +500,8 @@ if(isLoading){
       await wc.executeJavaScript(`
 (function(){
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
+var stop=document.getElementById('__yo-stop');if(stop)stop.remove();
+if(window.__yoStopEsc){document.removeEventListener('keydown',window.__yoStopEsc,true);window.__yoStopEsc=null;}
 var el=window.__yoLastEl;if(!el)return;
 if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
   var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
