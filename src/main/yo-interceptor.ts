@@ -601,6 +601,7 @@ document.addEventListener('keydown',window.__yoSupEsc,true);
       panelId: r.panelId,
       age: r.age,
       preview: r.preview,
+      content: r.content,
     })));
     const err = errorMsg ? JSON.stringify(errorMsg) : "null";
     try {
@@ -613,12 +614,46 @@ if(err){
   var msg=document.createElement('div');msg.style.cssText='color:#999;font-size:12px;padding:12px 0;text-align:center;';
   msg.textContent=err;body.appendChild(msg);return;
 }
+
+// Lightweight markdown renderer
+function renderMd(text){
+  var lines=text.split('\\n');var html=[];var inCode=false;var inList=false;
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i];
+    if(l.match(/^\`\`\`/)){
+      if(inCode){html.push('</pre>');inCode=false;}
+      else{html.push('<pre style="background:#111;border-radius:4px;padding:8px 10px;overflow-x:auto;font-size:11px;color:#ccc;margin:6px 0;">');inCode=true;}
+      continue;
+    }
+    if(inCode){html.push(l.replace(/</g,'&lt;')+'\\n');continue;}
+    if(l.match(/^### /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:12px;margin:8px 0 4px;">'+l.slice(4)+'</div>');continue;}
+    if(l.match(/^## /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:13px;margin:10px 0 4px;">'+l.slice(3)+'</div>');continue;}
+    if(l.match(/^# /)){html.push('<div style="color:#fff;font-weight:700;font-size:14px;margin:10px 0 4px;">'+l.slice(2)+'</div>');continue;}
+    if(l.match(/^[-*] /)){
+      if(!inList){html.push('<div style="margin:4px 0;">');inList=true;}
+      html.push('<div style="padding-left:12px;">\\u2022 '+l.slice(2)+'</div>');continue;
+    }
+    if(inList&&!l.trim()){inList=false;html.push('</div>');}
+    if(l.match(/^---+$/)){html.push('<hr style="border:none;border-top:1px solid #333;margin:8px 0;">');continue;}
+    var escaped=l.replace(/</g,'&lt;');
+    escaped=escaped.replace(/\`([^\`]+)\`/g,'<code style="background:#111;padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>');
+    escaped=escaped.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong style="color:#e0e0e0;">$1</strong>');
+    escaped=escaped.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');
+    if(escaped.trim())html.push('<div style="margin:2px 0;">'+escaped+'</div>');
+    else html.push('<div style="height:6px;"></div>');
+  }
+  if(inCode)html.push('</pre>');
+  if(inList)html.push('</div>');
+  return html.join('');
+}
+
 var results=${data};
 results.forEach(function(r){
   var card=document.createElement('div');
-  card.style.cssText='background:#222;border:1px solid #333;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:default;transition:border-color 0.15s;';
-  card.onmouseenter=function(){card.style.borderColor='#444';};
-  card.onmouseleave=function(){card.style.borderColor='#333';};
+  card.style.cssText='background:#222;border:1px solid #333;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s;';
+  card.onmouseenter=function(){if(!card.__expanded)card.style.borderColor='#444';};
+  card.onmouseleave=function(){if(!card.__expanded)card.style.borderColor='#333';};
+  card.__expanded=false;
 
   var top=document.createElement('div');top.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
   var label=document.createElement('span');label.style.cssText='color:#25C75E;font-size:11px;font-weight:600;';
@@ -633,7 +668,22 @@ results.forEach(function(r){
   var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
   preview.textContent=r.preview;
 
-  card.appendChild(top);card.appendChild(preview);body.appendChild(card);
+  var full=document.createElement('div');full.style.cssText='display:none;color:#bbb;font-size:12px;line-height:1.5;margin-top:8px;max-height:280px;overflow-y:auto;padding-right:4px;';
+  full.innerHTML=renderMd(r.content);
+
+  card.onclick=function(){
+    if(card.__expanded){
+      card.__expanded=false;
+      card.style.borderColor='#333';card.style.cursor='pointer';
+      preview.style.display='';full.style.display='none';
+    }else{
+      card.__expanded=true;
+      card.style.borderColor='#25C75E44';card.style.cursor='default';
+      preview.style.display='none';full.style.display='block';
+    }
+  };
+
+  card.appendChild(top);card.appendChild(preview);card.appendChild(full);body.appendChild(card);
 });
 body.scrollTop=0;
 })()`);
