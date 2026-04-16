@@ -11,7 +11,9 @@
   <div id="splash">
     <div class="splash-content">
       <div class="splash-logo"><span class="splash-dot">.</span>Yo</div>
-      <div class="splash-powered">powered by Glyphh AI</div>
+      <div class="splash-tagline"><span class="splash-dot">.</span>Yo &nbsp;<span class="splash-dot">.</span>Sup &nbsp;<span class="splash-dot">.</span>Dip</div>
+      <div class="splash-subtitle">Work across every AI. Never lose the thread.</div>
+      <div id="splash-status" class="splash-status"></div>
     </div>
   </div>
 
@@ -186,38 +188,33 @@
         <!-- Skills -->
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
-          <p class="section-desc">Reusable prompt templates. Use with <code>.yo &lt;skill&gt;</code> or <code>.yo . &lt;skill&gt;</code>.</p>
-          <div class="tab-toolbar">
-            <input id="skill-new-name" type="text" placeholder="skill name" spellcheck="false" autocomplete="off" />
-            <button id="skill-create-btn" class="action-btn primary">+ New Skill</button>
+          <p class="section-desc">Prompt templates for .yo commands</p>
+          <div id="skills-toolbar" style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+            <button id="skill-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="skills-list" class="help-item-list"></div>
 
-          <!-- Skill detail (split: editor + LLM prompt) -->
-          <div id="skill-detail" class="detail-view hidden">
-            <div class="detail-header">
-              <div class="detail-info">
-                <input id="skill-detail-name" class="detail-title-input" spellcheck="false" placeholder="skill name" />
-              </div>
-              <div class="action-btns detail-actions">
-                <button id="skill-detail-save" class="action-btn primary">Save</button>
-                <button id="skill-detail-delete" class="action-btn danger">Delete</button>
-                <button id="skill-detail-close" class="action-btn">Back</button>
+          <!-- Skill editor (hidden by default) -->
+          <div id="skill-editor" class="hidden">
+            <div class="skill-field">
+              <label class="skill-label">Name</label>
+              <input type="text" id="skill-name" class="skill-input" placeholder="skill name" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="skill-field">
+              <label class="skill-label">Describe what this skill should do</label>
+              <div style="display:flex;gap:8px;">
+                <input type="text" id="skill-desc" class="skill-input" placeholder="e.g. rewrite text as formal business email" spellcheck="false" autocomplete="off" />
+                <button id="skill-generate" class="action-btn primary" title="Generate prompt with AI">Generate</button>
               </div>
             </div>
-            <div class="detail-split">
-              <div class="detail-editor">
-                <div class="detail-editor-label">Prompt Template</div>
-                <textarea id="skill-detail-content" placeholder="Write the prompt template..." spellcheck="false"></textarea>
-              </div>
-              <div class="detail-llm">
-                <div class="detail-llm-label">Refine with AI</div>
-                <div id="skill-llm-log" class="detail-llm-log"></div>
-                <div class="detail-llm-input-wrap">
-                  <textarea id="skill-llm-input" rows="2" placeholder="Ask AI to refine this skill..." spellcheck="false"></textarea>
-                  <button id="skill-llm-send" class="detail-llm-send">↑</button>
-                </div>
-              </div>
+            <div class="skill-field">
+              <label class="skill-label">Prompt</label>
+              <textarea id="skill-prompt" class="skill-prompt-area" placeholder="System prompt for this skill..." spellcheck="false"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button id="skill-save" class="action-btn primary">Save</button>
+              <button id="skill-cancel" class="action-btn">Cancel</button>
+              <button id="skill-delete" class="action-btn danger" style="margin-left:auto;">Delete</button>
             </div>
           </div>
         </div>

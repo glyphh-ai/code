@@ -103,20 +103,12 @@ export function initHelp() {
     }
   });
 
-  // Skills — inline creation
-  document.getElementById("skill-create-btn")!.addEventListener("click", createNewSkill);
-  skillNewName.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") createNewSkill();
-  });
-
-  // Skill detail
-  document.getElementById("skill-detail-save")!.addEventListener("click", saveSkillDetail);
-  document.getElementById("skill-detail-delete")!.addEventListener("click", deleteSkillDetail);
-  document.getElementById("skill-detail-close")!.addEventListener("click", closeSkillDetail);
-  document.getElementById("skill-llm-send")!.addEventListener("click", sendSkillLlm);
-  skillLlmInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSkillLlm(); }
-  });
+  // Skills
+  document.getElementById("skill-new-btn")!.addEventListener("click", () => openSkillEditor("", ""));
+  document.getElementById("skill-save")!.addEventListener("click", saveSkill);
+  document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
+  document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
+  document.getElementById("skill-generate")!.addEventListener("click", generateSkillPrompt);
 
   // Apps
   document.getElementById("app-add-btn")!.addEventListener("click", addApp);
@@ -1013,27 +1005,25 @@ async function saveMapping() {
 
 // ── Skills ────────────────────────────────────────────────
 
-const skillsList = document.getElementById("skills-list")!;
-const skillSection = skillsList.closest(".help-section") as HTMLElement;
-const skillToolbar = skillsList.previousElementSibling as HTMLElement; // .tab-toolbar
-const skillDetail = document.getElementById("skill-detail")!;
-const skillDetailName = document.getElementById("skill-detail-name") as HTMLInputElement;
-const skillDetailContent = document.getElementById("skill-detail-content") as HTMLTextAreaElement;
-const skillLlmLog = document.getElementById("skill-llm-log")!;
-const skillLlmInput = document.getElementById("skill-llm-input") as HTMLTextAreaElement;
-const skillNewName = document.getElementById("skill-new-name") as HTMLInputElement;
-let currentSkillFile = "";  // file name of skill being viewed in detail
+const skillsListEl = document.getElementById("skills-list")!;
+const skillsToolbar = document.getElementById("skills-toolbar")!;
+const skillEditor = document.getElementById("skill-editor")!;
+const skillNameInput = document.getElementById("skill-name") as HTMLInputElement;
+const skillDescInput = document.getElementById("skill-desc") as HTMLInputElement;
+const skillPromptArea = document.getElementById("skill-prompt") as HTMLTextAreaElement;
+const skillDeleteBtn = document.getElementById("skill-delete") as HTMLButtonElement;
+let editingSkillName: string | null = null;
 
 async function loadSkills() {
-  skillDetail.classList.add("hidden");
-  skillsList.classList.remove("hidden");
-  skillToolbar.classList.remove("hidden");
+  skillEditor.classList.add("hidden");
+  skillsListEl.classList.remove("hidden");
+  skillsToolbar.classList.remove("hidden");
   const skills = await window.yo.skillsList();
   if (skills.length === 0) {
-    skillsList.innerHTML = `<div class="help-item-empty">No skills yet. Click "Create with AI" to make one.</div>`;
+    skillsListEl.innerHTML = `<div class="help-item-empty">No skills yet. Click "+ New" to create one.</div>`;
     return;
   }
-  skillsList.innerHTML = "";
+  skillsListEl.innerHTML = "";
   for (const name of skills) {
     const row = document.createElement("div");
     row.className = "help-item-row";
@@ -1044,131 +1034,81 @@ async function loadSkills() {
       </div>
       <span class="help-item-name">${cleanName}</span>
       <div class="help-item-actions">
-        <button class="help-item-action danger skill-delete" title="Delete">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
+        <button class="action-btn skill-edit" title="Edit">Edit</button>
       </div>`;
 
-    row.addEventListener("click", () => openSkillDetail(name));
-
-    row.querySelector(".skill-delete")!.addEventListener("click", async (e) => {
+    row.querySelector(".skill-edit")!.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await window.yo.skillsRemove(name);
-      loadSkills();
+      const prompt = await window.yo.skillsRead(name);
+      openSkillEditor(cleanName, prompt || "");
     });
 
-    skillsList.appendChild(row);
+    skillsListEl.appendChild(row);
   }
 }
 
-function toggleSectionChrome(section: HTMLElement, show: boolean) {
-  const h2 = section.querySelector("h2");
-  const desc = section.querySelector(".section-desc");
-  if (h2) h2.style.display = show ? "" : "none";
-  if (desc) (desc as HTMLElement).style.display = show ? "" : "none";
+function openSkillEditor(name: string, prompt: string) {
+  editingSkillName = name || null;
+  skillNameInput.value = name;
+  skillDescInput.value = "";
+  skillPromptArea.value = prompt;
+  skillDeleteBtn.style.display = name ? "block" : "none";
+
+  skillsListEl.classList.add("hidden");
+  skillsToolbar.classList.add("hidden");
+  skillEditor.classList.remove("hidden");
+  skillNameInput.focus();
 }
 
-async function openSkillDetail(fileName: string) {
-  currentSkillFile = fileName;
-  const prompt = await window.yo.skillsRead(fileName);
-  if (prompt === null) return;
-
-  skillDetailName.value = fileName.replace(/\.md$/i, "");
-  skillDetailContent.value = prompt;
-  skillLlmLog.innerHTML = `<div class="llm-empty">Ask AI to refine, expand, or rewrite the prompt.</div>`;
-
-  skillsList.classList.add("hidden");
-  skillToolbar.classList.add("hidden");
-  toggleSectionChrome(skillSection, false);
-  skillDetail.classList.remove("hidden");
-}
-
-function closeSkillDetail() {
-  skillDetail.classList.add("hidden");
-  skillsList.classList.remove("hidden");
-  skillToolbar.classList.remove("hidden");
-  toggleSectionChrome(skillSection, true);
-  currentSkillFile = "";
+function closeSkillEditor() {
+  skillEditor.classList.add("hidden");
+  skillsListEl.classList.remove("hidden");
+  skillsToolbar.classList.remove("hidden");
+  editingSkillName = null;
   loadSkills();
 }
 
-async function saveSkillDetail() {
-  const name = skillDetailName.value.trim();
-  const content = skillDetailContent.value.trim();
-  if (!name) { skillDetailName.focus(); return; }
-  if (!content) { skillDetailContent.focus(); return; }
+async function saveSkill() {
+  const name = skillNameInput.value.trim();
+  const prompt = skillPromptArea.value.trim();
+  if (!name || !prompt) return;
 
-  const newFile = name.endsWith(".md") ? name : `${name}.md`;
-  if (currentSkillFile && currentSkillFile !== name && currentSkillFile !== newFile) {
-    await window.yo.skillsRemove(currentSkillFile);
+  const fileName = name.endsWith(".md") ? name : `${name}.md`;
+  // If renaming, delete old
+  if (editingSkillName && editingSkillName !== name) {
+    const oldFile = editingSkillName.endsWith(".md") ? editingSkillName : `${editingSkillName}.md`;
+    await window.yo.skillsRemove(oldFile);
   }
-  await window.yo.skillsWrite(newFile, content);
-  currentSkillFile = newFile;
+  await window.yo.skillsWrite(fileName, prompt);
+  closeSkillEditor();
 }
 
-async function deleteSkillDetail() {
-  if (currentSkillFile) {
-    await window.yo.skillsRemove(currentSkillFile);
+async function deleteSkill() {
+  if (editingSkillName) {
+    const fileName = editingSkillName.endsWith(".md") ? editingSkillName : `${editingSkillName}.md`;
+    await window.yo.skillsRemove(fileName);
   }
-  closeSkillDetail();
+  closeSkillEditor();
 }
 
-async function sendSkillLlm() {
-  const userMsg = skillLlmInput.value.trim();
-  if (!userMsg) return;
+async function generateSkillPrompt() {
+  const name = skillNameInput.value.trim();
+  const desc = skillDescInput.value.trim();
+  if (!desc) { skillDescInput.focus(); return; }
 
-  const currentContent = skillDetailContent.value;
-  skillLlmInput.value = "";
-  const sendBtn = document.getElementById("skill-llm-send") as HTMLButtonElement;
-  sendBtn.disabled = true;
-
-  // Clear empty state
-  const emptyEl = skillLlmLog.querySelector(".llm-empty");
-  if (emptyEl) emptyEl.remove();
-
-  // Show user message
-  const userDiv = document.createElement("div");
-  userDiv.className = "llm-msg user";
-  userDiv.textContent = userMsg;
-  skillLlmLog.appendChild(userDiv);
-
-  // Show loading
-  const loadingDiv = document.createElement("div");
-  loadingDiv.className = "llm-msg ai loading";
-  loadingDiv.textContent = "Thinking...";
-  skillLlmLog.appendChild(loadingDiv);
-  skillLlmLog.scrollTop = skillLlmLog.scrollHeight;
+  const btn = document.getElementById("skill-generate") as HTMLButtonElement;
+  btn.textContent = "Working...";
+  btn.disabled = true;
 
   try {
-    const result = await window.yo.execCommand(
-      `yo . Refine this skill prompt based on the user's request.\n\nCurrent prompt:\n${currentContent}\n\nUser request: ${userMsg}\n\nIMPORTANT: The skill prompt MUST include an explicit instruction to output plain text without markdown formatting. Skill output gets pasted into real apps (email, chat, docs) where markdown syntax looks broken. Always include a line like: "Output plain text only. Do not use markdown formatting."\n\nRespond with ONLY the updated prompt text, nothing else.`
-    );
-    loadingDiv.remove();
-    const aiDiv = document.createElement("div");
-    aiDiv.className = "llm-msg ai";
-    aiDiv.textContent = "Updated the prompt.";
-    skillLlmLog.appendChild(aiDiv);
-
+    const result = await window.yo.skillsGenerate(name || "unnamed", desc);
     if (result) {
-      skillDetailContent.value = result;
+      skillPromptArea.value = result;
     }
-  } catch {
-    loadingDiv.textContent = "Failed — try again.";
-    loadingDiv.classList.remove("loading");
-  } finally {
-    sendBtn.disabled = false;
-    skillLlmLog.scrollTop = skillLlmLog.scrollHeight;
-  }
-}
+  } catch {}
 
-async function createNewSkill() {
-  const name = skillNewName.value.trim();
-  if (!name) { skillNewName.focus(); return; }
-  const fileName = name.endsWith(".md") ? name : `${name}.md`;
-  // Create with empty prompt, then open detail for editing
-  await window.yo.skillsWrite(fileName, "");
-  skillNewName.value = "";
-  openSkillDetail(fileName);
+  btn.textContent = "Generate";
+  btn.disabled = false;
 }
 
 // ── About ─────────────────────────────────────────────────

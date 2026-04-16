@@ -95,6 +95,24 @@ export class SkillEngine {
     return true;
   }
 
+  /** AI-generate a skill prompt from a name and description */
+  async generatePrompt(name: string, description: string): Promise<string> {
+    if (!this.llmConfig?.apiKey) return "";
+    const system = "You are a skill prompt writer. Given a skill name and description, write a system prompt that an AI assistant should follow when processing content with this skill. Output ONLY the system prompt text, nothing else. Make it clear, specific, and actionable. Include an instruction to output plain text only (no markdown formatting) since output gets pasted into real apps.";
+    try {
+      const response = await createCompletion(this.llmConfig, {
+        system,
+        messages: [{ role: "user", content: `Skill name: ${name}\nDescription: ${description}` }],
+        maxTokens: 2048,
+      });
+      const block = response.content[0];
+      if (block.type === "text") return block.text;
+      return "";
+    } catch {
+      return "";
+    }
+  }
+
   private async callLLM(systemPrompt: string, content: string): Promise<string> {
     try {
       const response = await createCompletion(this.llmConfig!, {

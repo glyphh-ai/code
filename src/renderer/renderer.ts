@@ -26,6 +26,7 @@ declare global {
       skillsRead: (name: string) => Promise<string | null>;
       skillsWrite: (name: string, prompt: string) => Promise<boolean>;
       skillsRemove: (name: string) => Promise<boolean>;
+      skillsGenerate: (name: string, description: string) => Promise<string>;
       // Apps
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
@@ -60,6 +61,7 @@ declare global {
       getApiKey: () => Promise<string | null>;
       buyLicense: () => Promise<string | null>;
       onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
+      onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
@@ -566,12 +568,15 @@ window.yo.onDripEffect(playDrip);
 
 // -- Boot gate --
 
-// Splash minimum display time
+// Splash — waits for embedder to be ready before dismissing
 const splashShownAt = Date.now();
 const SPLASH_MIN_MS = 2000;
+let booted = false;
+let bootData: any = null;
+let embedderReady = false;
 
-window.yo.onBoot((data) => {
-  // Dismiss splash after minimum display time
+function dismissSplash(): void {
+  if (!booted || !embedderReady) return;
   const elapsed = Date.now() - splashShownAt;
   const remaining = Math.max(0, SPLASH_MIN_MS - elapsed);
   setTimeout(() => {
@@ -581,8 +586,46 @@ window.yo.onBoot((data) => {
       setTimeout(() => splash.remove(), 600);
     }
   }, remaining);
-
-  if (data.needsOnboarding) {
-    showOnboarding(data.license.daysRemaining);
+  if (bootData?.needsOnboarding) {
+    showOnboarding(bootData.license.daysRemaining);
   }
+}
+
+// Embedder status updates drive the splash status text
+(window as any).yo.onEmbedderStatus?.((status: { state: string; progress?: number; message?: string }) => {
+  const el = document.getElementById("splash-status");
+  if (!el) return;
+  if (status.state === "downloading") {
+    const pct = status.progress != null ? ` ${Math.round(status.progress)}%` : "";
+    el.textContent = `downloading brain${pct}`;
+    el.classList.remove("done");
+  } else if (status.state === "loading") {
+    el.textContent = "loading model...";
+    el.classList.remove("done");
+  } else if (status.state === "ready") {
+    el.textContent = "ready";
+    el.classList.add("done");
+    embedderReady = true;
+    dismissSplash();
+  } else if (status.state === "error") {
+    el.textContent = status.message || "model failed — continuing without embeddings";
+    embedderReady = true; // Don't block the app
+    dismissSplash();
+  }
+});
+
+// If embedder is already cached, status might arrive before boot — or vice versa.
+// Also set a timeout so the app isn't stuck if embedder never reports.
+setTimeout(() => {
+  if (!embedderReady) {
+    embedderReady = true;
+    dismissSplash();
+  }
+}, 60_000); // 60s max splash
+
+window.yo.onBoot((data) => {
+  booted = true;
+  bootData = data;
+  // If embedder already signaled ready (fast cached load), dismiss now
+  dismissSplash();
 });

@@ -80,14 +80,22 @@ export class AmbientCapture {
     let count = 0;
 
     try {
-      const apps = this.appConnector.list();
-      for (const app of apps) {
-        if (app.url.startsWith("yo://")) continue;
+      // Only iterate panels that actually have webContents loaded
+      const loadedIds = this.panels.getLoadedPanelIds();
+      console.log(`[ambient] loaded panels: [${loadedIds.join(", ")}]`);
+      for (const id of loadedIds) {
+        const app = this.appConnector.get(id);
+        const url = app?.url || "";
+        if (url.startsWith("yo://")) continue;
+        const wc = this.panels.getWebContents(id);
+        if (!wc) { console.log(`[ambient] skip ${id}: no webContents`); continue; }
+        if (wc.isDestroyed()) { console.log(`[ambient] skip ${id}: destroyed`); continue; }
+        if (wc.isLoading()) { console.log(`[ambient] skip ${id}: loading`); continue; }
         try {
-          await this.capturePanel(app.id, app.url, app.name);
+          await this.capturePanel(id, url, app?.name || id);
           count++;
-        } catch {
-          // Silently skip panels that fail
+        } catch (err) {
+          console.log(`[ambient] skip ${id}: capture error`, err);
         }
       }
     } finally {
@@ -160,8 +168,8 @@ export class AmbientCapture {
       currentUrl = wc.getURL() || configUrl;
     } catch {}
 
-    // Store in context store (handles chunking + FTS indexing)
-    const stored = this.contextStore.insertCapture(panelId, currentUrl, title, cleanText);
+    // Store in context store (handles chunking + embedding)
+    const stored = await this.contextStore.insertCapture(panelId, currentUrl, title, cleanText);
     if (stored) {
       console.log(`[ambient] captured ${panelId} (${rawText.length} → ${cleanText.length} chars)`);
     }

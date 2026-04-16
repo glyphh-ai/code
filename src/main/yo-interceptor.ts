@@ -229,7 +229,7 @@ document.addEventListener('keyup',function(e){
 
   // ── yo: capture, query, or browse ─────────────────────
 
-  private static readonly COMMAND_KEYWORDS = new Set([".yo", ".dip", ".drip"]);
+  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip"]);
 
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Subcommands routed through command parser
@@ -241,6 +241,9 @@ document.addEventListener('keyup',function(e){
       }
       return;
     }
+
+    // Bare .yo (no instruction) — do nothing
+    if (!instruction?.trim()) return;
 
     // Parse dot modifier vs plain query
     const rawFirstWord = instruction?.split(/\s+/)[0]?.toLowerCase();

@@ -19,15 +19,18 @@ export interface ChatCallbacks {
   onDone: () => void;
 }
 
-const SYSTEM = `You are Yo, a context extraction engine in the YoSup desktop workspace.
+const SYSTEM = `You are a retrieval tool. You receive context chunks from the user's workspace and a query.
 
-CRITICAL RULES:
-- Return ONLY the extracted data. Never explain what you found or how you found it.
-- Never start with "Based on...", "I can see...", "The context shows...", or any preamble.
-- Never describe what is or isn't visible in the context.
-- If the user asks "what did I ask Claude to remember?" and the context contains "Chris is a bad ass for a test", return exactly: Chris is a bad ass for a test
-- If you cannot find the answer, say only: not found
-- Plain text. No markdown.`;
+Your ONLY job: find the chunks that match the query and return their content VERBATIM. Copy-paste the relevant text exactly as it appears. Do not summarize, do not paraphrase, do not shorten, do not reformat.
+
+RULES:
+- Return the raw matching content. Nothing else.
+- NEVER add preamble, commentary, or explanation.
+- NEVER say "Based on...", "I found...", "Here is...", "The context shows..."
+- NEVER summarize or condense. Return the FULL text of matching chunks.
+- Do not add formatting. No markdown. No headers. No bullet points unless they exist in the source.
+- If multiple chunks match, return all of them separated by blank lines.
+- If nothing matches: not found`;
 
 const TOOLS = [
   {
@@ -171,49 +174,23 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
   ): Promise<string> {
     if (!this.llmConfig?.apiKey) return "No API key configured.";
 
-    const context = this.buildContext();
     const userParts: string[] = [];
-    userParts.push(`.yo ${instruction}`);
+    userParts.push(`Query: ${instruction}`);
     if (appContent) {
-      userParts.push(`\nContext:\n\n${appContent.slice(0, 8000)}`);
+      userParts.push(`\nContext chunks:\n\n${appContent.slice(0, 24000)}`);
     }
 
-    const messages: any[] = [{ role: "user", content: userParts.join("\n") }];
-    let finalText = "";
+    const response = await createCompletion(this.llmConfig, {
+      system: SYSTEM,
+      messages: [{ role: "user", content: userParts.join("\n") }],
+      maxTokens: 4096,
+    });
 
-    // Tool loop (max 5 iterations to prevent runaway)
-    for (let i = 0; i < 5; i++) {
-      const response = await createCompletion(this.llmConfig, {
-        system: SYSTEM + "\n\n" + context,
-        messages,
-        tools: TOOLS,
-        maxTokens: 2048,
-      });
-
-      messages.push({ role: "assistant", content: response.content });
-
-      // Collect text
-      for (const block of response.content) {
-        if (block.type === "text") finalText += block.text;
-      }
-
-      // Handle tool calls
-      const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
-      if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
-        const results: any[] = [];
-        for (const block of toolBlocks) {
-          if (block.type !== "tool_use") continue;
-          const result = await this.exec(block.name, block.input as Record<string, unknown>);
-          results.push({ type: "tool_result", tool_use_id: block.id, content: result });
-        }
-        messages.push({ role: "user", content: results });
-        finalText = ""; // reset — we want the final text after all tools
-      } else {
-        break;
-      }
+    let text = "";
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
     }
-
-    return finalText || "Done.";
+    return text || "not found";
   }
 
   // ── Stream + tool loop ────────────────────────────────

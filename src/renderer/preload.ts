@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("yo", {
   skillsRead: (name: string) => ipcRenderer.invoke("skills-read", name) as Promise<string | null>,
   skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean>,
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
+  skillsGenerate: (name: string, description: string) => ipcRenderer.invoke("skills-generate", name, description) as Promise<string>,
 
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>,
@@ -98,6 +99,9 @@ contextBridge.exposeInMainWorld("yo", {
   buyLicense: () => ipcRenderer.invoke("get-checkout-url") as Promise<string | null>,
   onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
+  },
+  onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => {
+    ipcRenderer.on("embedder-status", (_event, status) => callback(status));
   },
   onSplitState: (callback: (info: {
     panelIds: string[];

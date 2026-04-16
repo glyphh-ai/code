@@ -51,7 +51,7 @@ export class MCPServer {
         url: z.string().optional().describe("Source URL"),
       },
       async ({ panel_id, content, title, url }) => {
-        const stored = this.contextStore.insertCapture(
+        const stored = await this.contextStore.insertCapture(
           panel_id,
           url || "",
           title || panel_id,
@@ -76,7 +76,7 @@ export class MCPServer {
         limit: z.number().optional().describe("Max results (default 10)"),
       },
       async ({ query, limit }) => {
-        const results = this.contextStore.search(query, limit || 10);
+        const results = await this.contextStore.search(query, limit || 10);
         if (results.length === 0) {
           return {
             content: [{ type: "text" as const, text: `No results for "${query}"` }],
@@ -130,7 +130,7 @@ export class MCPServer {
             res.end(JSON.stringify({ error: "Missing panel_id or content" }));
             return;
           }
-          const stored = this.contextStore.insertCapture(
+          const stored = await this.contextStore.insertCapture(
             body.panel_id,
             body.url || "",
             body.title || body.panel_id,
@@ -156,7 +156,7 @@ export class MCPServer {
             res.end(JSON.stringify({ error: "Missing q parameter" }));
             return;
           }
-          const results = this.contextStore.search(query, limit);
+          const results = await this.contextStore.search(query, limit);
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
             query,

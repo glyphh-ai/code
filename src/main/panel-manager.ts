@@ -809,6 +809,11 @@ export class PanelManager {
     return this.panels.get(id)?.webContents ?? null;
   }
 
+  /** List IDs of panels that have loaded webContents. */
+  getLoadedPanelIds(): string[] {
+    return [...this.panels.keys()];
+  }
+
   /** Check if a panel config exists */
   hasPanel(id: string): boolean {
     return this.configs.has(id);

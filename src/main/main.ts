@@ -27,6 +27,7 @@ import { YoChat } from "./yo-chat";
 import { SessionCache } from "./session-cache";
 import { ContextStore } from "./context-store";
 import { AmbientCapture } from "./ambient-capture";
+import { Embedder } from "./embedder";
 import { VSCodeServer } from "./vscode-server";
 
 let mainWindow: BrowserWindow | null = null;
@@ -472,6 +473,18 @@ async function createWindow() {
 }
 
 async function boot() {
+  // Clear stale IndexedDB locks from previous crashes
+  try {
+    const idbDir = path.join(app.getPath("userData"), "Partitions", "yo", "IndexedDB");
+    const fs = require("fs");
+    if (fs.existsSync(idbDir)) {
+      for (const entry of fs.readdirSync(idbDir)) {
+        const lockPath = path.join(idbDir, entry, "LOCK");
+        if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+      }
+    }
+  } catch { /* non-critical */ }
+
   // Load LLM config (auto-migrates from legacy .apikey if needed)
   let llmConfig = loadLLMConfig();
   if (llmConfig.provider === "anthropic" && llmConfig.apiKey) {
@@ -580,8 +593,21 @@ async function boot() {
     });
   }
 
-  // Context store + ambient capture
+  // Context store + embedder + ambient capture
   contextStore = new ContextStore();
+  const embedder = new Embedder();
+  contextStore.setEmbedder(embedder);
+  // Load embedding model in background — doesn't block app startup
+  embedder.init()
+    .then(() => contextStore.backfillEmbeddings())
+    .catch((err) => {
+      console.error("[main] embedder init failed:", err);
+      // Notify renderer so splash doesn't hang
+      mainWindow?.webContents.send("embedder-status", {
+        state: "error",
+        message: "model unavailable — search disabled",
+      });
+    });
   ambientCapture = new AmbientCapture(panelManager, appConnector, contextStore);
 
   layoutManager = new LayoutManager(panelManager);
@@ -974,6 +1000,9 @@ async function boot() {
     return true;
   });
   ipcMain.handle("skills-remove", (_e, name: string) => skillEngine.deleteSkill(name));
+  ipcMain.handle("skills-generate", (_e, name: string, description: string) =>
+    skillEngine.generatePrompt(name, description),
+  );
 
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>

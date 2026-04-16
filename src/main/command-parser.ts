@@ -21,7 +21,7 @@ import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["yo", "dip", "drip"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["dip", "drip"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -63,14 +63,18 @@ export class CommandParser {
     this.grabber = fn;
   }
 
-  /** Split input at command keyword boundaries for chaining. */
+  /** Split input at dot-prefixed command keyword boundaries for chaining.
+   *  Only .yo / .dip / .drip trigger a split — bare keywords like "yo"
+   *  appearing in natural language (e.g. "marketing yo") are left alone. */
   private splitChain(input: string): string[] {
     const tokens = input.split(/\s+/);
     const segments: string[] = [];
     let current: string[] = [];
 
     for (const token of tokens) {
-      if (CommandParser.COMMAND_KEYWORDS.has(token.toLowerCase()) && current.length > 0) {
+      const bare = token.replace(/^\./, "").toLowerCase();
+      const isDotCommand = token.startsWith(".") && CommandParser.COMMAND_KEYWORDS.has(bare);
+      if (isDotCommand && current.length > 0) {
         segments.push(current.join(" "));
         current = [token];
       } else {
@@ -101,19 +105,29 @@ export class CommandParser {
 
   /** Parse and execute a command string (supports chaining). */
   async execute(input: string, sourcePanelId?: string): Promise<string> {
-    // Strip dot prefix from command keywords (.yo → yo, .dip → dip)
-    const trimmed = input.trim().replace(/\.(yo|dip|drip)\b/gi, "$1");
+    const trimmed = input.trim();
     if (!trimmed) return "";
 
+    const clean = (s: string) => s.replace(/\.(yo|dip|drip)\b/gi, "$1");
+
+    // .yo <query> NEVER chains — everything after .yo is the query.
+    // Only .yo . (capture mode) allows chaining with .dip/.drip after it.
+    const yoMatch = trimmed.match(/^\.?yo\b/i);
+    const isYoCapture = yoMatch && /^\.?yo\s+\./i.test(trimmed);
+    if (yoMatch && !isYoCapture) {
+      return this.executeSingle(clean(trimmed), sourcePanelId);
+    }
+
+    // Split on dot-prefixed keywords for chaining (.dip, .drip)
     const segments = this.splitChain(trimmed);
 
     // Single command — fast path
-    if (segments.length === 1) return this.executeSingle(segments[0], sourcePanelId);
+    if (segments.length === 1) return this.executeSingle(clean(segments[0]), sourcePanelId);
 
     // Chain: execute sequentially, return last non-empty result
     let lastResult = "";
     for (const segment of segments) {
-      const result = await this.executeSingle(segment, sourcePanelId);
+      const result = await this.executeSingle(clean(segment), sourcePanelId);
       if (result) lastResult = result;
     }
     return lastResult;
@@ -196,11 +210,11 @@ export class CommandParser {
       return `yo ${matchedSkill} \u2014 captured`;
     }
 
-    // Search context store for relevant chunks
-    const chunks = this.contextStore.search(query, 15);
+    // Search context store — vector similarity finds matching fragments
+    const hits = await this.contextStore.search(query, 15);
 
     // If no ambient context, fall back to grabbing current visible panels
-    if (chunks.length === 0) {
+    if (hits.length === 0) {
       if (!this.grabber) return "No context available.";
       const content = await this.grabber(false);
       if (!content) return "No context available. Ambient capture may still be loading.";
@@ -211,13 +225,30 @@ export class CommandParser {
       return "No context found.";
     }
 
-    // Assemble retrieved context with metadata
-    const assembledContext = chunks.map((c) => {
-      const age = this.formatAge(c.timestamp);
-      return `[${c.panel_id} | ${c.title} | ${age}]\n${c.content}`;
-    }).join("\n\n---\n\n");
+    // Identify the top panel(s) by hit count — then get FULL content for each
+    const panelHits = new Map<string, number>();
+    for (const h of hits) {
+      panelHits.set(h.panel_id, (panelHits.get(h.panel_id) || 0) + 1);
+    }
+    const topPanels = [...panelHits.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([id]) => id);
 
-    // LLM extracts the relevant data from chunks
+    // Fetch ALL chunks for the top panels (full captured content, not fragments)
+    const sections: string[] = [];
+    for (const panelId of topPanels) {
+      const allChunks = this.contextStore.getPanelContent(panelId);
+      if (allChunks.length === 0) continue;
+      const age = this.formatAge(allChunks[0].timestamp);
+      const title = allChunks[0].title || panelId;
+      const fullContent = allChunks.map((c) => c.content).join("\n");
+      sections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
+    }
+
+    const assembledContext = sections.join("\n\n---\n\n");
+
+    // LLM extracts the answer from the full panel content
     if (!this.yoChat) return assembledContext;
 
     return this.yoChat.executeInline("yo", query, "command-bar", assembledContext);
