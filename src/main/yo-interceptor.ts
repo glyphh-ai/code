@@ -202,6 +202,17 @@ document.addEventListener('keyup',function(e){
   if(e.key!=='Enter'||firing)return;
   if(lastText&&!handled){var saved=lastText;var sEl=lastEl;lastText='';lastEl=null;fire(saved,sEl);}
 },true);
+
+// Block form submission when a command is being fired (fixes Google, etc.)
+document.addEventListener('submit',function(e){
+  if(!firing)return;
+  e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();
+},true);
+// Also block via beforeunload during firing — last resort for sites that navigate
+window.addEventListener('beforeunload',function(e){
+  if(!firing)return;
+  e.preventDefault();
+},true);
 })();`;
   }
 
@@ -373,7 +384,7 @@ document.addEventListener('keyup',function(e){
         await this.setYoLoading(wc, false);
         // Update header to show the query
         try {
-          await wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-widget');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.yo '+${JSON.stringify(message)};})()`);
+          await wc.executeJavaScript(`(function(){var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;var w=h.shadowRoot.getElementById('__yo-widget');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.yo '+${JSON.stringify(message)};})()`);
         } catch {}
         if (results.length === 0) {
           await this.appendYoMessage(wc, "error", "No matching context found.");
@@ -407,7 +418,7 @@ document.addEventListener('keyup',function(e){
     this.yoWidgetWc = null;
     this.yoResults = [];
     try {
-      wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-widget');if(w)w.remove();if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}})()`);
+      wc.executeJavaScript(`(function(){var h=document.getElementById('__yo-widget-host');if(h){var sr=h.shadowRoot;if(sr){var s=sr.getElementById('__yo-widget-thinking');if(s&&s.__tid)clearInterval(s.__tid);}h.remove();}if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}})()`);
     } catch {}
   }
 
@@ -575,9 +586,15 @@ document.addEventListener('keyup',function(e){
     try {
       await wc.executeJavaScript(`
 (function(){
-var old=document.getElementById('__yo-widget');if(old)old.remove();
+// Shadow DOM host — isolates widget from site CSS
+var oldHost=document.getElementById('__yo-widget-host');if(oldHost)oldHost.remove();
+var host=document.createElement('div');host.id='__yo-widget-host';
+host.style.cssText='position:fixed !important;z-index:2147483647 !important;bottom:60px !important;right:16px !important;width:380px !important;max-height:700px !important;pointer-events:auto !important;';
+document.documentElement.appendChild(host);
+var shadow=host.attachShadow({mode:'open'});
+
 var w=document.createElement('div');w.id='__yo-widget';
-w.style.cssText='position:fixed;z-index:999999;bottom:60px;right:16px;width:380px;max-height:560px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#ccc;overflow:hidden;';
+w.style.cssText='width:100%;max-height:700px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:13px;color:#ccc;overflow:hidden;line-height:normal;box-sizing:border-box;';
 
 // Header
 var hdr=document.createElement('div');
@@ -593,12 +610,22 @@ hdr.appendChild(title);hdr.appendChild(closeBtn);
 
 // Body (results + messages)
 var body=document.createElement('div');body.id='__yo-widget-body';
-body.style.cssText='flex:1;overflow-y:auto;padding:8px 14px;min-height:60px;max-height:400px;';
-// Loading indicator
-var loading=document.createElement('div');loading.id='__yo-widget-loading';
-loading.style.cssText='color:#666;font-size:12px;padding:12px 0;text-align:center;';
-loading.textContent='searching...';
-body.appendChild(loading);
+body.style.cssText='flex:1;overflow-y:auto;padding:8px 14px;min-height:120px;max-height:540px;';
+// Show animated spinner when query provided, empty state otherwise
+if(${escaped}){
+  var loading=document.createElement('div');loading.id='__yo-widget-thinking';
+  loading.style.cssText='color:#666;font-size:12px;padding:12px 0;';
+  var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
+  var words=['chilling...','vibing...','yozing...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
+  var fi=0;var curWord=words[Math.floor(Math.random()*words.length)];
+  loading.textContent=frames[0]+' '+curWord;
+  var tid=setInterval(function(){fi=(fi+1)%frames.length;loading.textContent=frames[fi]+' '+curWord;},120);
+  loading.__tid=tid;
+  body.appendChild(loading);
+}else{
+  var empty=document.createElement('div');empty.style.cssText='color:#555;font-size:12px;padding:20px 0;text-align:center;';
+  empty.textContent='search your memory';body.appendChild(empty);
+}
 
 // Input area with textarea + send button
 var inputWrap=document.createElement('div');
@@ -607,7 +634,7 @@ var inputRow=document.createElement('div');
 inputRow.style.cssText='display:flex;align-items:flex-end;gap:6px;background:#111;border:1px solid #333;border-radius:8px;padding:6px 8px;transition:border-color 0.15s;';
 var input=document.createElement('textarea');input.id='__yo-widget-input';input.rows=1;
 input.placeholder=${escaped}?'ask about results...':'search your memory...';
-input.style.cssText='flex:1;background:none;border:none;color:#ccc;font-size:12px;outline:none;resize:none;font-family:inherit;line-height:1.4;max-height:72px;overflow-y:auto;padding:0;';
+input.style.cssText='flex:1;background:none;border:none;color:#ccc;font-size:12px;outline:none;resize:none;font-family:inherit;line-height:1.4;max-height:72px;overflow-y:auto;padding:0;margin:0;';
 var sendBtn=document.createElement('div');sendBtn.id='__yo-widget-send';
 sendBtn.innerHTML='\\u2191';
 sendBtn.style.cssText='width:22px;height:22px;border-radius:6px;background:#25C75E;color:#000;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:opacity 0.15s;opacity:0.4;';
@@ -636,14 +663,14 @@ input.onblur=function(){inputRow.style.borderColor='#333';};
 inputRow.appendChild(input);inputRow.appendChild(sendBtn);
 inputWrap.appendChild(inputRow);
 w.appendChild(hdr);w.appendChild(body);w.appendChild(inputWrap);
-document.body.appendChild(w);
+shadow.appendChild(w);
 
 // Focus input after a tick
 setTimeout(function(){input.focus();},50);
 
-// Escape key listener (global)
+// Escape key listener (global — on document, not shadow)
 window.__yoWidgetEsc=function(e){
-  if(e.key==='Escape'&&document.getElementById('__yo-widget')){
+  if(e.key==='Escape'&&document.getElementById('__yo-widget-host')){
     e.preventDefault();e.stopPropagation();
     console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
   }
@@ -667,7 +694,10 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
     try {
       await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
+var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
+var sr=h.shadowRoot;
+var body=sr.getElementById('__yo-widget-body');if(!body)return;
+var spinner=sr.getElementById('__yo-widget-thinking');if(spinner&&spinner.__tid)clearInterval(spinner.__tid);
 body.innerHTML='';
 var err=${err};
 if(err){
@@ -763,7 +793,8 @@ body.scrollTop=0;
       if (isUser) {
         await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
+var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
+var body=h.shadowRoot.getElementById('__yo-widget-body');if(!body)return;
 var wrap=document.createElement('div');
 wrap.style.cssText='display:flex;justify-content:flex-end;margin-top:8px;';
 var bubble=document.createElement('div');
@@ -774,7 +805,8 @@ wrap.appendChild(bubble);body.appendChild(wrap);body.scrollTop=body.scrollHeight
       } else {
         await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
+var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
+var body=h.shadowRoot.getElementById('__yo-widget-body');if(!body)return;
 var msg=document.createElement('div');
 msg.style.cssText='margin-top:8px;';
 var row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;align-items:flex-start;';
@@ -801,8 +833,10 @@ msg.appendChild(row);body.appendChild(msg);body.scrollTop=body.scrollHeight;
     try {
       await wc.executeJavaScript(`
 (function(){
-var body=document.getElementById('__yo-widget-body');if(!body)return;
-var existing=document.getElementById('__yo-widget-thinking');
+var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
+var sr=h.shadowRoot;
+var body=sr.getElementById('__yo-widget-body');if(!body)return;
+var existing=sr.getElementById('__yo-widget-thinking');
 if(${loading}){
   if(existing)return;
   var el=document.createElement('div');el.id='__yo-widget-thinking';
@@ -859,7 +893,8 @@ if(${loading}){
     const displayMsg = type === "loading"
       ? loadingMessages[Math.floor(Math.random() * loadingMessages.length)]
       : msg;
-    const icon = type === "success" ? "\u2713 " : type === "error" ? "\u2717 " : type === "result" ? "\u2713 " : "";
+    const isNegativeResult = type === "result" && /not found|nothing captured|no matching/i.test(msg);
+    const icon = type === "success" ? "\u2713 " : type === "error" || isNegativeResult ? "\u2717 " : type === "result" ? "\u2713 " : "";
     const text = icon + displayMsg;
     const autoRemove = type === "success" || type === "error";
     try {
