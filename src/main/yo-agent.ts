@@ -161,6 +161,17 @@ const TOOLS = [
       required: ["panel_id", "text"],
     },
   },
+  {
+    name: "run_command",
+    description: "Run a .dip or .drip command. Use .dip to switch panels, create splits/grids, apply layouts. Use .drip for visual effects. Examples: 'dip claude', 'dip split claude gpt', 'dip grid claude,gpt / gemini,code', 'dip back', 'dip list', 'drip fireworks'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        command: { type: "string" as const, description: "The command to run (e.g. 'dip claude', 'dip split claude gpt', 'drip confetti')" },
+      },
+      required: ["command"],
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -184,6 +195,8 @@ export class YoAgent {
   private panelClicker: ((panelId: string, text?: string, selector?: string) => Promise<string>) | null = null;
   private panelNavigator: ((panelId: string, url: string) => Promise<string>) | null = null;
   private panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean }) => Promise<string>) | null = null;
+  private commandRunner: ((cmd: string) => Promise<string>) | null = null;
+  private aborted = false;
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
@@ -195,6 +208,8 @@ export class YoAgent {
 
   /** Set the context window size (max messages before compaction). */
   setMaxMessages(n: number): void { this.maxMessages = n; }
+  abort(): void { this.aborted = true; }
+  setCommandRunner(fn: (cmd: string) => Promise<string>): void { this.commandRunner = fn; }
 
   /** Start a new conversation (saves current, clears history). */
   clear(): void {
@@ -269,6 +284,7 @@ export class YoAgent {
       return;
     }
 
+    this.aborted = false;
     this.history.push({ role: "user", content: message });
 
     // Auto-title from first user message
@@ -329,6 +345,7 @@ export class YoAgent {
     );
 
     this.history.push({ role: "assistant", content: response.content });
+    if (this.aborted) return;
 
     // Handle tool calls
     const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
@@ -336,10 +353,12 @@ export class YoAgent {
       const results: any[] = [];
       for (const block of toolBlocks) {
         if (block.type !== "tool_use") continue;
+        if (this.aborted) return;
         cb.onToolUse(block.name);
         const result = await this.execTool(block.name, block.input as Record<string, unknown>);
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }
+      if (this.aborted) return;
       this.history.push({ role: "user", content: results });
       // Continue the loop — agent may want to use more tools or respond
       fullText = "";
@@ -364,6 +383,7 @@ export class YoAgent {
         case "click_element": return await this.toolClickElement(input);
         case "navigate_panel": return await this.toolNavigatePanel(input);
         case "type_text": return await this.toolTypeText(input);
+        case "run_command": return await this.toolRunCommand(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -561,6 +581,16 @@ export class YoAgent {
       selector: input.selector as string | undefined,
       clear: input.clear as boolean | undefined,
     });
+  }
+
+  private async toolRunCommand(input: Record<string, unknown>): Promise<string> {
+    const cmd = (input.command as string || "").trim();
+    if (!cmd) return "No command provided.";
+    // Only allow dip and drip commands
+    const first = cmd.split(/\s+/)[0].toLowerCase().replace(/^\./, "");
+    if (first !== "dip" && first !== "drip") return `Only dip and drip commands are allowed. Got: ${first}`;
+    if (!this.commandRunner) return "Command runner not available.";
+    return this.commandRunner(cmd);
   }
 
   private formatAge(timestamp: number): string {

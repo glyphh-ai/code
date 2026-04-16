@@ -106,6 +106,7 @@ declare global {
       // Yo agent panel
       yoPanelSend: (message: string) => void;
       yoPanelDismiss: () => void;
+      yoPanelStop: () => void;
       onYoPanelOpen: (cb: (query: string) => void) => void;
       onYoPanelToken: (cb: (delta: string) => void) => void;
       onYoPanelToolUse: (cb: (tool: string) => void) => void;
@@ -599,6 +600,13 @@ let yoResponseEl: HTMLElement | null = null;  // the single assistant response e
 let yoStatusEl: HTMLElement | null = null;    // spinner + tool status line (persists until response)
 let yoLastAssistantText = "";
 let yoToolsUsed = false;  // once a tool fires, suppress streamed text until done
+let yoThinking = false;   // true while agent is processing
+
+function setYoThinking(thinking: boolean) {
+  yoThinking = thinking;
+  yoPanelSendBtn.textContent = thinking ? "\u25A0" : "\u2191";
+  yoPanelSendBtn.classList.toggle("yo-stop", thinking);
+}
 
 function openYoPanel(query: string) {
   yoPanel.classList.remove("hidden");
@@ -608,6 +616,7 @@ function openYoPanel(query: string) {
   if (query) {
     addYoUserMessage(query);
     showYoStatus("");
+    setYoThinking(true);
   }
   yoPanelInput.value = "";
   autoGrowYoInput();
@@ -726,6 +735,7 @@ function showYoToolUse(tool: string) {
 
 function finalizeYoMessage(fullText: string) {
   clearYoStatus();
+  setYoThinking(false);
   const text = fullText || yoLastAssistantText;
 
   // If there's already a streaming element showing the text, just keep it
@@ -746,6 +756,7 @@ function finalizeYoMessage(fullText: string) {
 
 function showYoError(err: string) {
   clearYoStatus();
+  setYoThinking(false);
   if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
   const el = document.createElement("div");
   el.className = "yo-msg yo-msg-error";
@@ -767,6 +778,7 @@ function sendYoPanelMessage() {
   yoToolsUsed = false;
   addYoUserMessage(text);
   showYoStatus("");
+  setYoThinking(true);
   window.yo.yoPanelSend(text);
 }
 
@@ -782,7 +794,15 @@ window.yo.onYoPanelError((err) => showYoError(err));
 window.yo.onYoPanelClose(() => closeYoPanel());
 
 // Input handlers
-yoPanelSendBtn.addEventListener("click", sendYoPanelMessage);
+yoPanelSendBtn.addEventListener("click", () => {
+  if (yoThinking) {
+    window.yo.yoPanelStop();
+    clearYoStatus();
+    setYoThinking(false);
+  } else {
+    sendYoPanelMessage();
+  }
+});
 yoPanelInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();

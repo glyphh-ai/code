@@ -159,6 +159,7 @@ contextBridge.exposeInMainWorld("yo", {
   // Yo agent panel
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
   yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
+  yoPanelStop: () => ipcRenderer.send("yo-panel-stop"),
   onYoPanelOpen: (cb: (query: string) => void) => {
     ipcRenderer.on("yo-panel-open", (_e, query) => cb(query));
   },

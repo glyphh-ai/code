@@ -2475,6 +2475,10 @@ select.settings-input {
   transition: opacity 0.15s;
 }
 #yo-panel-send:hover { opacity: 0.8; }
+#yo-panel-send.yo-stop {
+  background: #ff5f57;
+  font-size: 12px;
+}
 
 /* ── Wassup admin modal ─────────────────────────────────── */
 

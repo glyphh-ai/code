@@ -823,6 +823,12 @@ async function boot() {
     }
   });
 
+  yoAgent.setCommandRunner(async (cmd: string) => {
+    // Strip leading dot if present
+    const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
+    return execCommand(clean);
+  });
+
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
   yoAgent.setMaxMessages(yoMaxMessages);
@@ -1187,6 +1193,10 @@ async function boot() {
     });
   });
 
+
+  ipcMain.on("yo-panel-stop", () => {
+    yoAgent?.abort();
+  });
 
   ipcMain.on("yo-panel-dismiss", () => {
     mainWindow?.webContents.send("yo-panel-close");
