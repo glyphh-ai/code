@@ -1630,13 +1630,16 @@ async function boot() {
   }));
   ipcMain.handle("get-llm-presets", () => PROVIDER_PRESETS);
   ipcMain.handle("save-llm-config", async (_e, config: LLMConfig) => {
-    const result = await validateLLMConfig(config);
-    if (result.valid) {
-      saveLLMConfig(config);
-      applyLLMConfig(config);
-      return { ok: true };
+    // Skip validation if only model/provider changed (same key)
+    const existing = loadLLMConfig();
+    const keyChanged = config.apiKey !== existing.apiKey;
+    if (keyChanged) {
+      const result = await validateLLMConfig(config);
+      if (!result.valid) return { ok: false, error: result.error };
     }
-    return { ok: false, error: result.error };
+    saveLLMConfig(config);
+    applyLLMConfig(config);
+    return { ok: true };
   });
 
   ipcMain.handle("get-checkout-url", async (_e, plan?: string) => {

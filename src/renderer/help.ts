@@ -939,7 +939,9 @@ async function saveSettings() {
   const model = (preset && preset.models.length > 0)
     ? settingsModelSelect.value
     : settingsModelCustom.value.trim();
-  const apiKey = settingsApiKey.value.trim();
+  // Use existing key if the field wasn't changed
+  const currentConfig = await window.yo.getLLMConfig();
+  const apiKey = settingsApiKey.value.trim() || currentConfig.apiKey;
 
   if (!apiKey) {
     settingsStatus.textContent = "API key is required";
@@ -948,7 +950,7 @@ async function saveSettings() {
   }
 
   settingsSaveBtn.disabled = true;
-  settingsSaveBtn.textContent = "Validating...";
+  settingsSaveBtn.textContent = "Saving...";
   settingsStatus.textContent = "";
 
   const config: { provider: string; model: string; apiKey: string; baseUrl?: string } = {

@@ -32,7 +32,7 @@ export const PROVIDER_PRESETS: Record<string, {
 }> = {
   anthropic: {
     name: "Anthropic",
-    models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
+    models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-opus-4-6-20250626", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
     defaultModel: "claude-sonnet-4-20250514",
     keyPlaceholder: "sk-ant-...",
   },
