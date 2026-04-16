@@ -109,6 +109,10 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
+      // Yo panel resize
+      yoPanelResize: (width: number) => void;
+      yoPanelWidthSave: (width: number) => void;
+      yoPanelGetWidth: () => Promise<number>;
       // Yo chat history
       yoChatsList: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
       yoChatsLoad: (id: string) => Promise<Array<{ role: string; text: string }> | null>;
@@ -588,6 +592,7 @@ const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaEl
 const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
 const yoPanelMicBtn = document.getElementById("yo-panel-mic")!;
 const yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
+const yoPanelResize = document.getElementById("yo-panel-resize")!;
 const yoHistoryToggle = document.getElementById("yo-history-toggle")!;
 const yoHistoryPanel = document.getElementById("yo-history")!;
 const yoHistoryList = document.getElementById("yo-history-list")!;
@@ -605,7 +610,9 @@ function setYoThinking(thinking: boolean) {
   yoPanelSendBtn.classList.toggle("yo-stop", thinking);
 }
 
-function openYoPanel(query: string) {
+async function openYoPanel(query: string) {
+  const savedWidth = await window.yo.yoPanelGetWidth();
+  yoPanel.style.width = `${savedWidth}px`;
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
@@ -937,6 +944,34 @@ yoPanelInput.addEventListener("keydown", (e) => {
 
 yoPanelCloseBtn.addEventListener("click", () => {
   window.yo.yoPanelDismiss();
+});
+
+// -- Yo panel resize --
+
+let yoPanelDragging = false;
+
+yoPanelResize.addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  yoPanelDragging = true;
+  yoPanelResize.classList.add("dragging");
+  yoPanel.style.transition = "none"; // disable slide animation during drag
+});
+
+document.addEventListener("mousemove", (e) => {
+  if (!yoPanelDragging) return;
+  const newWidth = Math.max(280, Math.min(window.innerWidth * 0.6, window.innerWidth - e.clientX));
+  yoPanel.style.width = `${newWidth}px`;
+  window.yo.yoPanelResize(newWidth);
+});
+
+document.addEventListener("mouseup", () => {
+  if (!yoPanelDragging) return;
+  yoPanelDragging = false;
+  yoPanelResize.classList.remove("dragging");
+  yoPanel.style.transition = "";
+  // Persist width
+  const width = parseInt(yoPanel.style.width, 10);
+  if (width) window.yo.yoPanelWidthSave(width);
 });
 
 // -- Voice input (Advanced tier) --

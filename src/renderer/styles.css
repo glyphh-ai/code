@@ -644,61 +644,128 @@ body {
   position: absolute;
   top: 38px;
   bottom: 0;
-  width: 6px;
+  width: 8px;
   cursor: col-resize;
   transform: translateX(-50%);
   pointer-events: auto;
+  background: #1a1a1a;
 }
 
+/* Thin vertical line the full height */
+.grid-col-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: #2a2a2a;
+  transform: translateX(-50%);
+  transition: background 0.15s;
+}
+
+/* Grip dots at center */
 .grid-col-handle::after {
   content: "";
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 2px;
+  width: 3px;
   height: 32px;
-  background: #333;
-  border-radius: 1px;
-  transition: all 0.15s;
+  background: #444;
+  border-radius: 2px;
+  transition: all 0.2s ease;
 }
 
-.grid-col-handle:hover::after,
-.grid-col-handle.dragging::after {
+.grid-col-handle:hover::before {
+  background: #25C75E30;
+  width: 2px;
+}
+
+.grid-col-handle.dragging::before {
+  background: #25C75E;
+  width: 2px;
+  box-shadow: 0 0 12px rgba(37, 199, 94, 0.5);
+}
+
+.grid-col-handle:hover::after {
   background: #25C75E;
   height: 48px;
-  width: 3px;
-  box-shadow: 0 0 8px rgba(37, 199, 94, 0.4);
+  width: 4px;
+  box-shadow: 0 0 10px rgba(37, 199, 94, 0.4);
+}
+
+.grid-col-handle.dragging::after {
+  background: #25C75E;
+  height: 100%;
+  width: 2px;
+  border-radius: 0;
+  box-shadow: 0 0 12px rgba(37, 199, 94, 0.5);
 }
 
 .grid-row-handle {
   position: absolute;
   left: 0;
   right: 0;
-  height: 6px;
+  height: 8px;
   cursor: row-resize;
   transform: translateY(-50%);
   pointer-events: auto;
+  background: #1a1a1a;
 }
 
-.grid-row-handle::after {
+/* Thin horizontal line the full width */
+.grid-row-handle::before {
   content: "";
   position: absolute;
   top: 50%;
   left: 0;
   right: 0;
+  height: 1px;
+  background: #2a2a2a;
   transform: translateY(-50%);
-  height: 2px;
-  background: #333;
-  border-radius: 1px;
-  transition: all 0.15s;
+  transition: background 0.15s;
 }
 
-.grid-row-handle:hover::after,
+/* Grip bar at center */
+.grid-row-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 3px;
+  background: #444;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+.grid-row-handle:hover::before {
+  background: #25C75E30;
+  height: 2px;
+}
+
+.grid-row-handle.dragging::before {
+  background: #25C75E;
+  height: 2px;
+  box-shadow: 0 0 12px rgba(37, 199, 94, 0.5);
+}
+
+.grid-row-handle:hover::after {
+  background: #25C75E;
+  width: 48px;
+  height: 4px;
+  box-shadow: 0 0 10px rgba(37, 199, 94, 0.4);
+}
+
 .grid-row-handle.dragging::after {
   background: #25C75E;
-  height: 3px;
-  box-shadow: 0 0 8px rgba(37, 199, 94, 0.4);
+  width: 100%;
+  height: 2px;
+  border-radius: 0;
+  box-shadow: 0 0 12px rgba(37, 199, 94, 0.5);
 }
 
 #drag-overlay {
@@ -2115,6 +2182,38 @@ select.settings-input {
   z-index: 60;
   transform: translateX(100%);
   transition: transform 0.2s ease;
+}
+
+.yo-panel-resize {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.yo-panel-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 32px;
+  background: transparent;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+.yo-panel-resize:hover::after {
+  background: #444;
+}
+.yo-panel-resize.dragging::after {
+  background: #25C75E;
+  height: 100%;
+  width: 2px;
+  border-radius: 0;
+  box-shadow: 0 0 10px rgba(37, 199, 94, 0.4);
 }
 .yo-panel.open {
   transform: translateX(0);

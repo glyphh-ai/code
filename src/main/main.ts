@@ -900,7 +900,7 @@ async function boot() {
   yoAgent.setMaxMessages(yoMaxMessages);
 
   // Wire .yo conversational agent — slide-out panel
-  const YO_PANEL_WIDTH = 380;
+  const yoPanelWidth = () => getPreference<number>("yoPanelWidth", 380);
 
   // When inset changes (panel open/close), re-apply current layout
   panelManager.setOnInsetChange(() => {
@@ -917,7 +917,7 @@ async function boot() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     yoAgent?.clear();
     mainWindow.webContents.send("yo-panel-open", query);
-    panelManager.setRightInset(YO_PANEL_WIDTH);
+    panelManager.setRightInset(yoPanelWidth());
     // Focus the main window's webContents so the panel input can receive focus
     mainWindow.webContents.focus();
     // Start the agent only if there's an actual query
@@ -1264,6 +1264,17 @@ async function boot() {
     mainWindow?.webContents.send("yo-panel-close");
     panelManager.setRightInset(0);
     yoAgent?.clear();
+  });
+
+  // IPC: Yo panel resize
+  ipcMain.on("yo-panel-resize", (_e, width: number) => {
+    panelManager.setRightInset(width);
+  });
+  ipcMain.on("yo-panel-width-save", (_e, width: number) => {
+    setPreference("yoPanelWidth", width);
+  });
+  ipcMain.handle("yo-panel-get-width", () => {
+    return getPreference<number>("yoPanelWidth", 380);
   });
 
   // IPC: Yo chat history

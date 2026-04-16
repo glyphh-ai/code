@@ -171,6 +171,11 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
 
+  // Yo panel resize
+  yoPanelResize: (width: number) => ipcRenderer.send("yo-panel-resize", width),
+  yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
+  yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
+
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string }> | null>,
