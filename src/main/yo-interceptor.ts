@@ -237,59 +237,25 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
-    // Check if instruction starts with a command keyword BEFORE dot modifier parsing.
-    // ".dip gmail" is a chained command, not a dot modifier — don't strip its dot.
+    // Parse dot modifier vs plain query
     const rawFirstWord = instruction?.split(/\s+/)[0]?.toLowerCase();
     const isDirectChain = rawFirstWord && YoInterceptor.COMMAND_KEYWORDS.has(rawFirstWord);
+    const dotMatch = !isDirectChain ? instruction?.match(/^\.\s*(.*)?$/) : null;
+    const currentOnly = !!dotMatch;
+    const realInstruction = isDirectChain
+      ? instruction
+      : currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
 
-    let currentOnly = false;
-    let realInstruction = instruction;
-    let isChainedCommand = isDirectChain;
+    // Check if what follows is a chained command
+    const chainWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
+    const isChainedCommand = isDirectChain || !!(currentOnly && chainWord && YoInterceptor.COMMAND_KEYWORDS.has(chainWord));
 
-    if (isDirectChain) {
-      // e.g. ".yo .dip gmail" → capture all panels, then run ".dip gmail"
-      currentOnly = false;
-      realInstruction = instruction;
-    } else {
-      // Parse dot modifier: "yo ." or "yo . <skill>" or "yo . .dip gmail"
-      const dotMatch = instruction?.match(/^\.\s*(.*)?$/);
-      currentOnly = !!dotMatch;
-      realInstruction = currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
-
-      // Check if what follows the dot modifier is a chained command
-      // e.g. "yo . .dip gmail" → capture active panel, then run ".dip gmail"
-      const firstWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
-      isChainedCommand = !!(firstWord && YoInterceptor.COMMAND_KEYWORDS.has(firstWord));
-    }
-
-    // Grab content
-    this.notify(wc, "", "loading");
-    const content = await this.grabPanels(wc, appId, !currentOnly);
-    if (!content) {
-      this.notify(wc, "Could not grab content.", "error");
-      return;
-    }
-
-    // If chained command, do bare capture then delegate rest to command handler
-    if (isChainedCommand && this.commandHandler) {
-      const now = new Date();
-      const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
-      this.session.capture(appId, content, `${ts}.md`, ts);
-      this.session.copyToClipboard();
-      this.sessionNotifier?.();
-      await this.clearNotify(wc);
-      this.notify(wc, `yo${currentOnly ? " ." : ""} — captured`, "success");
-      // Execute the chained command
-      const chainResult = await this.commandHandler(realInstruction!);
-      if (chainResult) this.notify(wc, chainResult, "success");
-      return;
-    }
-
-    // If instruction given, delegate to command parser (which searches context store + LLM)
-    if (realInstruction) {
+    // ── Query path (no dot, no chain) — skip panel grab, search context store
+    if (realInstruction && !currentOnly && !isChainedCommand) {
       if (this.commandHandler) {
+        this.notify(wc, "", "loading");
         try {
-          const result = await this.commandHandler(`yo . ${realInstruction}`, appId);
+          const result = await this.commandHandler(`yo ${realInstruction}`, appId);
           await this.clearNotify(wc);
           if (result) this.notify(wc, result, "success");
         } catch (err) {
@@ -299,18 +265,54 @@ document.addEventListener('keyup',function(e){
       return;
     }
 
+    // ── Capture path — grab panel content first
+    this.notify(wc, "", "loading");
+    const content = await this.grabPanels(wc, appId, !currentOnly);
+    if (!content) {
+      this.notify(wc, "Could not grab content.", "error");
+      return;
+    }
+
+    // Chained command: capture then run the chain
+    if (isChainedCommand && this.commandHandler) {
+      const ts = this.timestamp();
+      this.session.capture(appId, content, `${ts}.md`, ts);
+      this.session.copyToClipboard();
+      this.sessionNotifier?.();
+      await this.clearNotify(wc);
+      this.notify(wc, `yo${currentOnly ? " ." : ""} \u2014 captured`, "success");
+      const chainResult = await this.commandHandler(realInstruction!);
+      if (chainResult) this.notify(wc, chainResult, "success");
+      return;
+    }
+
+    // Dot modifier with instruction: capture + skill/LLM process
+    if (realInstruction && currentOnly && this.commandHandler) {
+      try {
+        const result = await this.commandHandler(`yo . ${realInstruction}`, appId);
+        await this.clearNotify(wc);
+        if (result) this.notify(wc, result, "success");
+      } catch (err) {
+        this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
+      }
+      return;
+    }
+
     // Bare yo (no args) — capture all visible panels
-    const now = new Date();
-    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
+    const ts = this.timestamp();
     this.session.capture(appId, content, `${ts}.md`, ts);
     this.sessionNotifier?.();
-
     await this.clearNotify(wc);
     this.session.copyToClipboard();
     this.notify(wc, "yo \u2014 captured", "success");
   }
 
 
+
+  private timestamp(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
+  }
 
   // ── Content grabbing ──────────────────────────────────
 

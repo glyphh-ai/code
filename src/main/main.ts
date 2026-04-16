@@ -10,11 +10,9 @@ import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
-import { Library } from "./library";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
-import { CloudSync } from "./cloud-sync";
 import { checkLicense, activateLicense, getCheckoutUrl } from "./license";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
@@ -33,10 +31,8 @@ let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
 let layoutManager: LayoutManager;
 let commandParser: CommandParser;
-let library: Library;
 let skillEngine: SkillEngine;
 let mcpServer: MCPServer;
-let cloudSync: CloudSync;
 let appConnector: AppConnector;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
@@ -491,7 +487,6 @@ async function boot() {
   }
 
   // Core services
-  library = new Library();
   skillEngine = new SkillEngine();
   appConnector = new AppConnector();
   connectorAgent = new ConnectorAgent();
@@ -662,15 +657,9 @@ async function boot() {
     wc.send("terminal:data", `\x1b[90m${lines}\x1b[0m\r\n`);
   });
 
-  // Local MCP server (off by default — enable in preferences)
-  if (getPreference("enableMcpServer", false)) {
-    mcpServer = new MCPServer(library);
-    await mcpServer.start();
-  }
-
-  // Cloud sync (pulls from yo.yo.dev → ~/yo/library/)
-  cloudSync = new CloudSync(library);
-  cloudSync.start();
+  // Local server — /sup push, /yo search, /sup/capture, /mcp tools
+  mcpServer = new MCPServer(contextStore, ambientCapture);
+  await mcpServer.start();
 
   // Create window
   await createWindow();
@@ -868,6 +857,12 @@ async function boot() {
   ipcMain.handle("capture-panels", async () => {
     if (!mainWindow) return [];
     return panelManager.captureScreenshots(mainWindow);
+  });
+
+  // IPC: force ambient context capture
+  ipcMain.handle("capture-context", async (_e, panelId?: string) => {
+    if (!ambientCapture) return 0;
+    return ambientCapture.captureNow(panelId);
   });
 
   // IPC: reveal downloaded file in Finder/Explorer
@@ -1331,7 +1326,6 @@ app.on("window-all-closed", () => {
   if (ambientCapture) ambientCapture.stop();
   if (contextStore) contextStore.close();
   mcpServer?.stop();
-  cloudSync?.stop();
   terminalManager?.killAll();
   vscodeServer?.stop();
   if (process.platform !== "darwin") {

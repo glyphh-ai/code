@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld("yo", {
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
   panelsGetZoom: () => ipcRenderer.invoke("panels-get-zoom") as Promise<number>,
 
+  // Ambient context capture
+  captureContext: (panelId?: string) => ipcRenderer.invoke("capture-context", panelId) as Promise<number>,
+
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
   skillsRead: (name: string) => ipcRenderer.invoke("skills-read", name) as Promise<string | null>,

@@ -43,17 +43,35 @@ export class AmbientCapture {
     }
   }
 
-  private async captureAll(): Promise<void> {
-    if (this.capturing) return;
+  /** Force immediate capture of all panels. Returns number of panels captured. */
+  async captureNow(panelId?: string): Promise<number> {
+    if (panelId) {
+      // Capture a single panel
+      const app = this.appConnector.get(panelId);
+      if (!app || app.url.startsWith("yo://")) return 0;
+      try {
+        await this.capturePanel(app.id, app.url, app.name);
+        return 1;
+      } catch {
+        return 0;
+      }
+    }
+    // Capture all panels
+    return this.captureAll();
+  }
+
+  private async captureAll(): Promise<number> {
+    if (this.capturing) return 0;
     this.capturing = true;
+    let count = 0;
 
     try {
       const apps = this.appConnector.list();
       for (const app of apps) {
-        // Skip internal panels
         if (app.url.startsWith("yo://")) continue;
         try {
           await this.capturePanel(app.id, app.url, app.name);
+          count++;
         } catch {
           // Silently skip panels that fail
         }
@@ -61,6 +79,7 @@ export class AmbientCapture {
     } finally {
       this.capturing = false;
     }
+    return count;
   }
 
   private async capturePanel(panelId: string, configUrl: string, name: string): Promise<void> {
