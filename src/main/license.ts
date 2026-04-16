@@ -23,12 +23,14 @@ interface LicenseState {
   status: "trial" | "licensed" | "expired";
   daysRemaining?: number;
   key?: string;
+  tier?: string;
 }
 
 interface LicenseFileData {
   key: string;
   activated: number;
   serverValidated?: boolean;
+  tier?: string;
 }
 
 // ── Machine fingerprint ──────────────────────────────────────
@@ -74,13 +76,11 @@ function readLicenseFile(): LicenseFileData | null {
   }
 }
 
-function saveLicense(key: string, serverValidated: boolean = false): void {
+function saveLicense(key: string, serverValidated: boolean = false, tier?: string): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(
-    LICENSE_FILE,
-    JSON.stringify({ key, activated: Date.now(), serverValidated }),
-    "utf-8",
-  );
+  const data: LicenseFileData = { key, activated: Date.now(), serverValidated };
+  if (tier) data.tier = tier;
+  fs.writeFileSync(LICENSE_FILE, JSON.stringify(data), "utf-8");
 }
 
 // ── License check ────────────────────────────────────────────
@@ -93,7 +93,7 @@ export function checkLicense(): LicenseState {
   if (data?.key && validateKeyLocal(data.key)) {
     // Dev keys and server-validated keys are trusted
     if (validateDevKey(data.key) || data.serverValidated) {
-      return { status: "licensed", key: data.key };
+      return { status: "licensed", key: data.key, tier: data.tier || "basic" };
     }
     // Key exists but was never validated by server — treat as unlicensed
   }
@@ -140,7 +140,7 @@ export async function activateLicense(key: string): Promise<boolean> {
       { key, machineId },
     );
     if (result.ok) {
-      saveLicense(key, true);
+      saveLicense(key, true, result.tier);
       // Set cloudToken for cloud sync (basic+ tiers)
       if (result.tier && result.tier !== "free") {
         const { setPreference } = await import("./preferences.js");
@@ -176,8 +176,8 @@ export async function revalidateLicense(): Promise<boolean> {
       { key: data.key, machineId },
     );
     if (result.valid) {
-      // Refresh serverValidated flag
-      saveLicense(data.key, true);
+      // Refresh serverValidated flag + tier
+      saveLicense(data.key, true, result.tier);
       // Update cloudToken if tier supports sync
       if (result.tier && result.tier !== "free") {
         const { setPreference } = await import("./preferences.js");
@@ -186,7 +186,7 @@ export async function revalidateLicense(): Promise<boolean> {
       return true;
     }
     // Server says invalid — clear serverValidated
-    saveLicense(data.key, false);
+    saveLicense(data.key, false, data.tier);
     return false;
   } catch {
     // Offline — only trust if previously server-validated
@@ -201,6 +201,21 @@ export async function getCheckoutUrl(plan: string = "basic"): Promise<string | n
     const data = readLicenseFile();
     const keyParam = data?.key ? `&key=${encodeURIComponent(data.key)}` : "";
     const result = await serverGet<{ url: string }>(`/api/checkout/url?plan=${plan}${keyParam}`);
+    return result.url;
+  } catch {
+    return null;
+  }
+}
+
+// ── Billing portal (Stripe customer portal for manage/cancel) ──
+
+export async function getBillingPortalUrl(): Promise<string | null> {
+  try {
+    const data = readLicenseFile();
+    if (!data?.key) return null;
+    const result = await serverGet<{ url: string }>(
+      `/api/billing/portal?key=${encodeURIComponent(data.key)}`,
+    );
     return result.url;
   } catch {
     return null;

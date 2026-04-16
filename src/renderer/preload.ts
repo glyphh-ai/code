@@ -140,5 +140,6 @@ contextBridge.exposeInMainWorld("yo", {
   // License info
   getLicenseInfo: () => ipcRenderer.invoke("get-license-info") as Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>,
   getCheckoutUrlForPlan: (plan: string) => ipcRenderer.invoke("get-checkout-url", plan) as Promise<string | null>,
+  getBillingPortalUrl: () => ipcRenderer.invoke("get-billing-portal-url") as Promise<string | null>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
 });

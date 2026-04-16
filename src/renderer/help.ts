@@ -809,18 +809,47 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // License upgrade/cancel
+  // License upgrade — checkout for new users, billing portal for existing
   document.getElementById("license-upgrade-btn")?.addEventListener("click", async () => {
     const btn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
+    const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Opening...";
-    await window.yo.getCheckoutUrlForPlan("basic");
+    const info = await window.yo.getLicenseInfo();
+    if (info.status === "licensed") {
+      // Already licensed — open billing portal to change plan
+      const url = await window.yo.getBillingPortalUrl();
+      if (!url) {
+        const statusEl = document.getElementById("settings-status")!;
+        statusEl.textContent = "Could not reach billing server";
+        statusEl.className = "settings-error";
+      }
+    } else {
+      // Trial/expired — open Stripe Checkout
+      const url = await window.yo.getCheckoutUrlForPlan("basic");
+      if (!url) {
+        const statusEl = document.getElementById("settings-status")!;
+        statusEl.textContent = "Could not reach license server";
+        statusEl.className = "settings-error";
+      }
+    }
     btn.disabled = false;
-    btn.textContent = "Upgrade";
+    btn.textContent = origText;
   });
 
-  document.getElementById("license-cancel-btn")?.addEventListener("click", () => {
-    window.yo.openExternal("https://yo.ai/account");
+  // Cancel subscription — open Stripe billing portal
+  document.getElementById("license-cancel-btn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("license-cancel-btn") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Opening...";
+    const url = await window.yo.getBillingPortalUrl();
+    if (!url) {
+      const statusEl = document.getElementById("settings-status")!;
+      statusEl.textContent = "Could not reach billing server";
+      statusEl.className = "settings-error";
+    }
+    btn.disabled = false;
+    btn.textContent = "Cancel Subscription";
   });
 }
 
@@ -876,15 +905,31 @@ async function loadSettings() {
   const trialRow = document.getElementById("license-trial-row")!;
   const trialEl = document.getElementById("license-trial")!;
 
-  statusEl.textContent = licenseInfo.status === "licensed" ? "Active" : licenseInfo.status === "trial" ? "Trial" : "Expired";
-  statusEl.className = "license-value" + (licenseInfo.status === "licensed" ? " active" : licenseInfo.status === "expired" ? " expired" : "");
+  const isLicensed = licenseInfo.status === "licensed";
+  const isTrial = licenseInfo.status === "trial";
+
+  statusEl.textContent = isLicensed
+    ? `Active${licenseInfo.tier ? ` — ${licenseInfo.tier.charAt(0).toUpperCase() + licenseInfo.tier.slice(1)}` : ""}`
+    : isTrial ? "Trial" : "Expired";
+  statusEl.className = "license-value" + (isLicensed ? " active" : licenseInfo.status === "expired" ? " expired" : "");
   keyEl.textContent = licenseInfo.key || "None";
 
-  if (licenseInfo.status === "trial" && licenseInfo.daysRemaining !== undefined) {
+  if (isTrial && licenseInfo.daysRemaining !== undefined) {
     trialRow.style.display = "";
     trialEl.textContent = `${licenseInfo.daysRemaining} day${licenseInfo.daysRemaining === 1 ? "" : "s"} remaining`;
   } else {
     trialRow.style.display = "none";
+  }
+
+  // Context-aware button labels
+  const upgradeBtn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
+  const cancelBtn = document.getElementById("license-cancel-btn") as HTMLButtonElement;
+  if (isLicensed) {
+    upgradeBtn.textContent = "Change Plan";
+    cancelBtn.style.display = "";
+  } else {
+    upgradeBtn.textContent = "Get License";
+    cancelBtn.style.display = "none";
   }
 
   // Load toggle states

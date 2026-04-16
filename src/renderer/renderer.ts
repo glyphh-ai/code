@@ -93,6 +93,7 @@ declare global {
       // License info
       getLicenseInfo: () => Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>;
       getCheckoutUrlForPlan: (plan: string) => Promise<string | null>;
+      getBillingPortalUrl: () => Promise<string | null>;
       openExternal: (url: string) => void;
     };
   }
@@ -235,6 +236,12 @@ cmdkInput.addEventListener("keydown", async (e) => {
 // Click overlay background -> close
 cmdkOverlay.addEventListener("click", (e) => {
   if (e.target === cmdkOverlay) closeCmdK();
+});
+
+// .yo help link in Cmd+K
+document.getElementById("cmdk-help-link")!.addEventListener("click", () => {
+  closeCmdK();
+  openHelp();
 });
 
 // Cmd+K from panel -> open overlay

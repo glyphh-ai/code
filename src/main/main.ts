@@ -13,7 +13,7 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
-import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl, getBillingPortalUrl } from "./license";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -1416,8 +1416,18 @@ async function boot() {
     return {
       status: license.status,
       key: license.key ? license.key.slice(0, 4) + "..." + license.key.slice(-4) : undefined,
+      tier: license.tier,
       daysRemaining: license.daysRemaining,
     };
+  });
+
+  // IPC: billing portal (Stripe manage/cancel)
+  ipcMain.handle("get-billing-portal-url", async () => {
+    const url = await getBillingPortalUrl();
+    if (url) {
+      shell.openExternal(url);
+    }
+    return url;
   });
 
   // IPC: preferences
