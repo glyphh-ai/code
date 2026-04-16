@@ -70,6 +70,7 @@ export class PanelManager {
   private zoomFactor = 1.0;
   private _animating = false;
   private onZoomChange: ((factor: number) => void) | null = null;
+  private _rightInset = 0;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
@@ -600,7 +601,7 @@ export class PanelManager {
     this.activePanel = id;
 
     const [w, h] = parent.getContentSize();
-    const finalBounds = { x: 0, y: 38, width: w, height: h - 38 };
+    const finalBounds = { x: 0, y: 38, width: w - this._rightInset, height: h - 38 };
 
     // No animation if same panel, hidden, or already animating
     if (oldId === id || this._hidden || this._animating) {
@@ -719,6 +720,17 @@ export class PanelManager {
   /** Get the previously active panel ID */
   get previousPanelId(): string | null {
     return this.previousPanel;
+  }
+
+  /** Right inset (px) — used by yo panel to narrow BrowserViews */
+  get rightInset(): number { return this._rightInset; }
+
+  private onInsetChange: (() => void) | null = null;
+  setOnInsetChange(cb: () => void): void { this.onInsetChange = cb; }
+
+  setRightInset(px: number): void {
+    this._rightInset = px;
+    this.onInsetChange?.();
   }
 
   /** Whether panels are currently hidden for overlay */

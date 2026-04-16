@@ -103,6 +103,16 @@ declare global {
       mcpKeysRevoke: (token: string) => Promise<{ ok: boolean; revoked?: boolean; error?: string }>;
       // Support
       submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
+      // Yo agent panel
+      yoPanelSend: (message: string) => void;
+      yoPanelDismiss: () => void;
+      yoPanelUse: (text: string) => void;
+      onYoPanelOpen: (cb: (query: string) => void) => void;
+      onYoPanelToken: (cb: (delta: string) => void) => void;
+      onYoPanelToolUse: (cb: (tool: string) => void) => void;
+      onYoPanelDone: (cb: (fullText: string) => void) => void;
+      onYoPanelError: (cb: (err: string) => void) => void;
+      onYoPanelClose: (cb: () => void) => void;
     };
   }
 }
@@ -263,7 +273,8 @@ window.yo.onFocusInput(() => openCmdK());
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (isCmdKOpen()) closeCmdK();
+    if (isYoPanelOpen()) window.yo.yoPanelDismiss();
+    else if (isCmdKOpen()) closeCmdK();
     else if (isHelpOpen()) closeHelp();
   }
 
@@ -567,6 +578,206 @@ function playDrip(effect: string) {
 }
 
 window.yo.onDripEffect(playDrip);
+
+// -- Yo agent slide-out panel --
+
+const yoPanel = document.getElementById("yo-panel")!;
+const yoPanelMessages = document.getElementById("yo-panel-messages")!;
+const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
+const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
+const yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
+
+let yoResponseEl: HTMLElement | null = null;  // the single assistant response element
+let yoStatusEl: HTMLElement | null = null;    // spinner + tool status line (persists until response)
+let yoLastAssistantText = "";
+
+function openYoPanel(query: string) {
+  yoPanel.classList.remove("hidden");
+  void yoPanel.offsetHeight;
+  yoPanel.classList.add("open");
+  addYoUserMessage(query);
+  showYoStatus("");
+  yoPanelInput.value = "";
+  autoGrowYoInput();
+  setTimeout(() => yoPanelInput.focus(), 220);
+}
+
+function closeYoPanel() {
+  yoPanel.classList.remove("open");
+  setTimeout(() => {
+    yoPanel.classList.add("hidden");
+    yoPanelMessages.innerHTML = "";
+    yoResponseEl = null;
+    yoStatusEl = null;
+    yoLastAssistantText = "";
+  }, 200);
+}
+
+function isYoPanelOpen(): boolean {
+  return yoPanel.classList.contains("open");
+}
+
+function addYoUserMessage(text: string) {
+  const el = document.createElement("div");
+  el.className = "yo-msg yo-msg-user";
+  el.textContent = text;
+  yoPanelMessages.appendChild(el);
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+let yoSpinnerInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Show or update the single persistent braille spinner + status line */
+function showYoStatus(toolText: string) {
+  if (!yoStatusEl) {
+    yoStatusEl = document.createElement("div");
+    yoStatusEl.className = "yo-msg yo-msg-status";
+    yoPanelMessages.appendChild(yoStatusEl);
+  }
+  // Update label text, keep the same spinner running
+  (yoStatusEl as any).__label = toolText || "";
+  if (!yoSpinnerInterval) {
+    const frames = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
+    const words = ["chilling...", "vibing...", "yozing...", "cooking...", "thinking...", "brewing...", "manifesting...", "marinating..."];
+    let fi = 0;
+    let curWord = words[Math.floor(Math.random() * words.length)];
+    let lastSwap = Date.now();
+    const tick = () => {
+      if (!yoStatusEl) return;
+      fi = (fi + 1) % frames.length;
+      const label = (yoStatusEl as any).__label;
+      const display = label || curWord;
+      yoStatusEl.textContent = `${frames[fi]} ${display}`;
+      if (!label && Date.now() - lastSwap > 3000) {
+        let next = words[Math.floor(Math.random() * words.length)];
+        while (next === curWord && words.length > 1) next = words[Math.floor(Math.random() * words.length)];
+        curWord = next;
+        lastSwap = Date.now();
+      }
+      yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+    };
+    tick();
+    yoSpinnerInterval = setInterval(tick, 100);
+  } else {
+    // Spinner already running, just force an immediate label update
+    const frames = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
+    const label = (yoStatusEl as any).__label;
+    yoStatusEl.textContent = `${frames[0]} ${label}`;
+  }
+}
+
+/** Remove the status spinner (called when streaming text begins) */
+function clearYoStatus() {
+  if (yoSpinnerInterval) {
+    clearInterval(yoSpinnerInterval);
+    yoSpinnerInterval = null;
+  }
+  if (yoStatusEl) {
+    yoStatusEl.remove();
+    yoStatusEl = null;
+  }
+}
+
+function appendYoToken(delta: string) {
+  // First token — remove spinner, create response element
+  if (!yoResponseEl) {
+    clearYoStatus();
+    yoResponseEl = document.createElement("div");
+    yoResponseEl.className = "yo-msg yo-msg-assistant";
+    yoPanelMessages.appendChild(yoResponseEl);
+    yoLastAssistantText = "";
+  }
+  yoLastAssistantText += delta;
+  yoResponseEl.textContent = yoLastAssistantText;
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+function showYoToolUse(tool: string) {
+  // If there was streamed text before this tool call, discard it (pre-tool thinking)
+  if (yoResponseEl) {
+    yoResponseEl.remove();
+    yoResponseEl = null;
+    yoLastAssistantText = "";
+  }
+  const label = tool === "search_memory" ? "searching memory..." :
+                tool === "search_files" ? "searching files..." :
+                tool === "read_file" ? "reading file..." :
+                tool === "grab_panel" ? "grabbing panel..." :
+                `using ${tool}...`;
+  showYoStatus(label);
+}
+
+function finalizeYoMessage(fullText: string) {
+  clearYoStatus();
+  const text = fullText || yoLastAssistantText;
+  if (!yoResponseEl) {
+    yoResponseEl = document.createElement("div");
+    yoResponseEl.className = "yo-msg yo-msg-assistant";
+    yoPanelMessages.appendChild(yoResponseEl);
+  }
+  yoResponseEl.textContent = text;
+  yoLastAssistantText = text;
+
+  const btn = document.createElement("button");
+  btn.className = "yo-msg-use-btn";
+  btn.textContent = "use";
+  btn.addEventListener("click", () => {
+    window.yo.yoPanelUse(text);
+  });
+  yoResponseEl.appendChild(document.createElement("br"));
+  yoResponseEl.appendChild(btn);
+  yoResponseEl = null;
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+function showYoError(err: string) {
+  clearYoStatus();
+  if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
+  const el = document.createElement("div");
+  el.className = "yo-msg yo-msg-error";
+  el.textContent = err;
+  yoPanelMessages.appendChild(el);
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+function autoGrowYoInput() {
+  yoPanelInput.style.height = "44px";
+  yoPanelInput.style.height = Math.min(yoPanelInput.scrollHeight, 160) + "px";
+}
+
+function sendYoPanelMessage() {
+  const text = yoPanelInput.value.trim();
+  if (!text) return;
+  yoPanelInput.value = "";
+  autoGrowYoInput();
+  addYoUserMessage(text);
+  showYoStatus("");
+  window.yo.yoPanelSend(text);
+}
+
+// Auto-grow textarea as user types
+yoPanelInput.addEventListener("input", autoGrowYoInput);
+
+// IPC listeners
+window.yo.onYoPanelOpen((query) => openYoPanel(query));
+window.yo.onYoPanelToken((delta) => appendYoToken(delta));
+window.yo.onYoPanelToolUse((tool) => showYoToolUse(tool));
+window.yo.onYoPanelDone((fullText) => finalizeYoMessage(fullText));
+window.yo.onYoPanelError((err) => showYoError(err));
+window.yo.onYoPanelClose(() => closeYoPanel());
+
+// Input handlers
+yoPanelSendBtn.addEventListener("click", sendYoPanelMessage);
+yoPanelInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendYoPanelMessage();
+  }
+});
+
+yoPanelCloseBtn.addEventListener("click", () => {
+  window.yo.yoPanelDismiss();
+});
 
 // -- Boot gate --
 

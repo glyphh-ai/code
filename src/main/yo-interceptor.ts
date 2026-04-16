@@ -36,7 +36,9 @@ export class YoInterceptor {
   private yoQuerier: ((query: string) => Promise<string>) | null = null;
   private yoRefiner: ((message: string) => Promise<string>) | null = null;
   private yoClearer: (() => void) | null = null;
+  private panelOpener: ((query: string) => void) | null = null;
   private yoWidgetWc: WebContents | null = null; // track which wc has the widget open
+  private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
   private yoResults: YoResult[] = []; // current search results
   private yoSessionActive = false; // true when in a .yo conversation
 
@@ -54,6 +56,8 @@ export class YoInterceptor {
   setYoQuerier(fn: (query: string) => Promise<string>): void { this.yoQuerier = fn; }
   setYoRefiner(fn: (message: string) => Promise<string>): void { this.yoRefiner = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
+  setPanelOpener(fn: (query: string) => void): void { this.panelOpener = fn; }
+  getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -419,11 +423,38 @@ window.addEventListener('beforeunload',function(e){
   /** Dismiss yo state — clears session, widget, and result Escape handler. */
   private dismissYoWidget(wc: WebContents): void {
     this.yoWidgetWc = null;
+    this.yoActiveWc = null;
     this.yoResults = [];
     this.yoSessionActive = false;
     this.yoClearer?.();
     try {
       wc.executeJavaScript(`(function(){var s=document.getElementById('__yo-widget-thinking');if(s&&s.__tid)clearInterval(s.__tid);var h=document.getElementById('__yo-widget-host');if(h)h.remove();if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}})()`);
+    } catch {}
+  }
+
+  /** Add Escape handler to clear streamed result from input and end session. */
+  private addYoEscapeHandler(wc: WebContents): void {
+    try {
+      wc.executeJavaScript(`(function(){
+if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
+window.__yoResultEsc=function(e){
+  if(e.key==='Escape'){
+    e.preventDefault();e.stopPropagation();
+    var el=window.__yoLastEl;if(el){
+      if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+        var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+        var s=Object.getOwnPropertyDescriptor(p,'value');
+        if(s&&s.set)s.set.call(el,'');else el.value='';
+        el.dispatchEvent(new Event('input',{bubbles:true}));
+      }else{el.innerText='';}
+    }
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
+    document.removeEventListener('keydown',window.__yoResultEsc,true);
+    window.__yoResultEsc=null;
+  }
+};
+document.addEventListener('keydown',window.__yoResultEsc,true);
+})()`);
     } catch {}
   }
 
@@ -438,17 +469,17 @@ window.addEventListener('beforeunload',function(e){
     const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
     if (sub === "help" || sub === "skill" || sub === "layout") {
       this.yoSessionActive = false;
-      const result = await this.commandHandler(`yo ${instruction}`);
-      if (result) this.notify(wc, result, "success");
+      // command parser handles side effects (e.g. opening help overlay)
+      await this.commandHandler(`yo ${instruction}`);
       return;
     }
 
-    // Bare .yo → clear session, open library browser
+    // Bare .yo → clear session, open help
     if (!instruction?.trim()) {
       this.yoSessionActive = false;
       this.yoClearer?.();
-      const result = await this.commandHandler("yo");
-      if (result) this.notify(wc, result, "success");
+      // Open help overlay (same as .yo help)
+      await this.commandHandler("yo help");
       return;
     }
 
@@ -490,37 +521,16 @@ window.addEventListener('beforeunload',function(e){
     }
 
     // ── Conversational .yo ─────────────────────────────────
-    // Every .yo <text> is a turn in the conversation.
-    // First turn: search + LLM. Follow-ups: refine with context.
-    // Response goes right into the user's input field.
+    // Opens the slide-out agent panel. The panel handles the full
+    // conversation loop — streaming, tool use, follow-ups, and "use" injection.
 
     const query = instruction.trim();
-    const myOp = ++this.opId;
-    this.notify(wc, "", "loading");
+    this.yoActiveWc = wc;
 
-    try {
-      let result: string;
-      if (this.yoSessionActive && this.yoRefiner) {
-        // Follow-up turn — refine with existing context
-        result = await this.yoRefiner(query);
-      } else if (this.yoQuerier) {
-        // First turn — search context store + LLM
-        this.yoClearer?.();
-        result = await this.yoQuerier(query);
-        this.yoSessionActive = true;
-      } else {
-        await this.clearNotify(wc);
-        this.notify(wc, "Search not available.", "error");
-        return;
-      }
-
-      if (this.opId !== myOp) return;
-      await this.clearNotify(wc);
-      this.notify(wc, result, "yo");
-    } catch (err) {
-      if (this.opId !== myOp) return;
-      await this.clearNotify(wc);
-      this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
+    if (this.panelOpener) {
+      this.panelOpener(query);
+    } else {
+      this.notify(wc, "Agent panel not available.", "error");
     }
   }
 

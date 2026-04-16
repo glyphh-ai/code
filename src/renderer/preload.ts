@@ -158,4 +158,27 @@ contextBridge.exposeInMainWorld("yo", {
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>
     ipcRenderer.invoke("submit-support-ticket", ticket) as Promise<{ ok: boolean; error?: string }>,
+
+  // Yo agent panel
+  yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
+  yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
+  yoPanelUse: (text: string) => ipcRenderer.send("yo-panel-use", text),
+  onYoPanelOpen: (cb: (query: string) => void) => {
+    ipcRenderer.on("yo-panel-open", (_e, query) => cb(query));
+  },
+  onYoPanelToken: (cb: (delta: string) => void) => {
+    ipcRenderer.on("yo-panel-token", (_e, delta) => cb(delta));
+  },
+  onYoPanelToolUse: (cb: (tool: string) => void) => {
+    ipcRenderer.on("yo-panel-tool-use", (_e, tool) => cb(tool));
+  },
+  onYoPanelDone: (cb: (fullText: string) => void) => {
+    ipcRenderer.on("yo-panel-done", (_e, text) => cb(text));
+  },
+  onYoPanelError: (cb: (err: string) => void) => {
+    ipcRenderer.on("yo-panel-error", (_e, err) => cb(err));
+  },
+  onYoPanelClose: (cb: () => void) => {
+    ipcRenderer.on("yo-panel-close", () => cb());
+  },
 });

@@ -279,7 +279,8 @@ export class LayoutManager {
     if (sourcePanelId === newPanelId) return true;
 
     const cell = grid.cells[cellIdx];
-    const [w, h] = win.getContentSize();
+    const [rawW, h] = win.getContentSize();
+    const w = rawW - this.panelManager.rightInset;
     const contentHeight = h - CONTENT_TOP;
 
     // Cumulative column / row positions (fractions → pixels)
@@ -363,7 +364,8 @@ export class LayoutManager {
     const grid = this.activeGrid;
     if (!grid) return;
 
-    const [w, h] = win.getContentSize();
+    const [rawW, h] = win.getContentSize();
+    const w = rawW - this.panelManager.rightInset;
     const contentHeight = h - CONTENT_TOP;
 
     // Capture old views for animation

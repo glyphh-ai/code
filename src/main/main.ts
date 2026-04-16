@@ -24,6 +24,7 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
+import { YoAgent } from "./yo-agent";
 import { SessionCache } from "./session-cache";
 import { ContextStore } from "./context-store";
 import { AmbientCapture } from "./ambient-capture";
@@ -42,6 +43,7 @@ let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let contextStore: ContextStore;
 let ambientCapture: AmbientCapture;
+let yoAgent: YoAgent | undefined;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -500,6 +502,7 @@ async function boot() {
     skillEngine?.setLLMConfig(config);
     connectorAgent?.setLLMConfig(config);
     if (ambientCapture) ambientCapture.setLLMConfig(config);
+    yoAgent?.setLLMConfig(config);
   }
 
   // Core services
@@ -680,9 +683,51 @@ async function boot() {
   yoInterceptor.setCommandHandler(execCommand);
   yoInterceptor.setSessionNotifier(sendSessionState);
   yoInterceptor.setYoSearcher((query) => commandParser.searchForWidget(query));
-  yoInterceptor.setYoQuerier((query) => commandParser.yoQuery(query));
-  yoInterceptor.setYoRefiner((message) => commandParser.yoRefine(message));
-  yoInterceptor.setYoClearer(() => commandParser.clearYoHistory());
+  yoInterceptor.setYoClearer(() => { commandParser.clearYoHistory(); yoAgent?.clear(); });
+
+  // YoAgent — full agentic retrieval with tools and streaming
+  yoAgent = new YoAgent();
+  yoAgent.setContextStore(contextStore);
+  yoAgent.setAppConnector(appConnector);
+  yoAgent.setPanelGrabber(async (panelId) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return null;
+    const app = appConnector.get(panelId);
+    if (app?.commands.grab) {
+      try { return await executeCommand(wc, app.commands.grab); } catch { return null; }
+    }
+    try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch { return null; }
+  });
+  if (llmConfig) yoAgent.setLLMConfig(llmConfig);
+
+  // Wire .yo conversational agent — slide-out panel
+  const YO_PANEL_WIDTH = 380;
+
+  // When inset changes (panel open/close), re-apply current layout
+  panelManager.setOnInsetChange(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (layoutManager.hasSplit) {
+      layoutManager.restoreSplit(mainWindow);
+    } else if (panelManager.activePanelId) {
+      panelManager.switchTo(panelManager.activePanelId, mainWindow);
+    }
+  });
+
+  // Panel opener — called by interceptor when user types .yo <query>
+  const openYoPanel = (query: string) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    yoAgent?.clear();
+    mainWindow.webContents.send("yo-panel-open", query);
+    panelManager.setRightInset(YO_PANEL_WIDTH);
+    // Start the agent with the initial query
+    yoAgent?.send(query, {
+      onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
+      onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
+      onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
+      onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
+    });
+  };
+  yoInterceptor.setPanelOpener(openYoPanel);
   yoChat.setCommandCallback(execCommand);
 
   // Terminal yo/sup/dip — route through command parser, show result in terminal
@@ -991,6 +1036,41 @@ async function boot() {
       panelManager.showActive(mainWindow);
     }
     sendSplitState();
+  });
+
+  // IPC: Yo agent panel
+  ipcMain.on("yo-panel-send", (_e, message: string) => {
+    yoAgent?.send(message, {
+      onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
+      onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
+      onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
+      onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
+    });
+  });
+
+  ipcMain.on("yo-panel-use", (_e, text: string) => {
+    const wc = yoInterceptor.getActiveYoWc();
+    if (wc && !wc.isDestroyed()) {
+      wc.executeJavaScript(`(function(){
+        var el=window.__yoLastEl;if(!el)return;
+        var val=${JSON.stringify(text)};
+        if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+          var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+          var s=Object.getOwnPropertyDescriptor(p,'value');
+          if(s&&s.set)s.set.call(el,val);else el.value=val;
+          el.dispatchEvent(new Event('input',{bubbles:true}));
+        }else{el.innerText=val;}
+      })()`).catch(() => {});
+    }
+    mainWindow?.webContents.send("yo-panel-close");
+    panelManager.setRightInset(0);
+    yoAgent?.clear();
+  });
+
+  ipcMain.on("yo-panel-dismiss", () => {
+    mainWindow?.webContents.send("yo-panel-close");
+    panelManager.setRightInset(0);
+    yoAgent?.clear();
   });
 
   // IPC: skills CRUD
