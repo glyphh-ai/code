@@ -586,6 +586,7 @@ const yoPanel = document.getElementById("yo-panel")!;
 const yoPanelMessages = document.getElementById("yo-panel-messages")!;
 const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
 const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
+const yoPanelMicBtn = document.getElementById("yo-panel-mic")!;
 const yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
 const yoHistoryToggle = document.getElementById("yo-history-toggle")!;
 const yoHistoryPanel = document.getElementById("yo-history")!;
@@ -811,6 +812,68 @@ yoPanelInput.addEventListener("keydown", (e) => {
 
 yoPanelCloseBtn.addEventListener("click", () => {
   window.yo.yoPanelDismiss();
+});
+
+// -- Voice input (Advanced tier) --
+
+let voiceRecognition: any = null;
+let voiceListening = false;
+
+function initVoice(): boolean {
+  const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+  if (!SpeechRecognition) return false;
+
+  voiceRecognition = new SpeechRecognition();
+  voiceRecognition.continuous = false;
+  voiceRecognition.interimResults = true;
+  voiceRecognition.lang = "en-US";
+
+  voiceRecognition.onresult = (event: any) => {
+    let transcript = "";
+    for (let i = 0; i < event.results.length; i++) {
+      transcript += event.results[i][0].transcript;
+    }
+    yoPanelInput.value = transcript;
+    autoGrowYoInput();
+
+    // Auto-send on final result
+    if (event.results[event.results.length - 1].isFinal) {
+      stopVoice();
+      if (transcript.trim()) sendYoPanelMessage();
+    }
+  };
+
+  voiceRecognition.onend = () => stopVoice();
+  voiceRecognition.onerror = () => stopVoice();
+
+  return true;
+}
+
+function startVoice() {
+  if (!voiceRecognition && !initVoice()) return;
+  voiceListening = true;
+  yoPanelMicBtn.classList.add("listening");
+  voiceRecognition.start();
+}
+
+function stopVoice() {
+  voiceListening = false;
+  yoPanelMicBtn.classList.remove("listening");
+  try { voiceRecognition?.stop(); } catch {}
+}
+
+yoPanelMicBtn.addEventListener("click", async () => {
+  if (voiceListening) { stopVoice(); return; }
+
+  // Gate to advanced tier
+  const info = await window.yo.getLicenseInfo();
+  if (info.tier !== "advanced") {
+    yoPanelMicBtn.classList.add("disabled");
+    yoPanelMicBtn.title = "Voice input requires Advanced plan";
+    return;
+  }
+
+  startVoice();
 });
 
 // -- Yo chat history --

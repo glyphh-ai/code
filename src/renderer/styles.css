@@ -2305,6 +2305,31 @@ select.settings-input {
 #yo-panel-input:focus { border-color: #25C75E; }
 #yo-panel-input::placeholder { color: #555; }
 
+.yo-mic-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.yo-mic-btn:hover { color: #999; }
+.yo-mic-btn.listening {
+  color: #ff5f57;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+.yo-mic-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 #yo-panel-send {
   background: #25C75E;
   color: #000;
