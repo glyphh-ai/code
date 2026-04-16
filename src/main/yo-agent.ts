@@ -110,6 +110,31 @@ const TOOLS = [
       properties: {},
     },
   },
+  {
+    name: "click_element",
+    description: "Click an element on a workspace panel by its visible text or CSS selector. Use this to open emails, expand items, click links, navigate within apps. After clicking, use grab_panel to see the updated content.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        panel_id: { type: "string" as const, description: "Panel ID to click within" },
+        text: { type: "string" as const, description: "Visible text of the element to click (searches for closest match)" },
+        selector: { type: "string" as const, description: "CSS selector to click (used if text not provided)" },
+      },
+      required: ["panel_id"],
+    },
+  },
+  {
+    name: "navigate_panel",
+    description: "Navigate a workspace panel to a specific URL. Use this to open specific pages within an app.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        panel_id: { type: "string" as const, description: "Panel ID to navigate" },
+        url: { type: "string" as const, description: "URL to navigate to" },
+      },
+      required: ["panel_id", "url"],
+    },
+  },
 ];
 
 export class YoAgent {
@@ -118,11 +143,15 @@ export class YoAgent {
   private contextStore: ContextStore | null = null;
   private appConnector: AppConnector | null = null;
   private panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
+  private panelClicker: ((panelId: string, text?: string, selector?: string) => Promise<string>) | null = null;
+  private panelNavigator: ((panelId: string, url: string) => Promise<string>) | null = null;
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
   setContextStore(store: ContextStore): void { this.contextStore = store; }
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
   setPanelGrabber(fn: (panelId: string) => Promise<string | null>): void { this.panelGrabber = fn; }
+  setPanelClicker(fn: (panelId: string, text?: string, selector?: string) => Promise<string>): void { this.panelClicker = fn; }
+  setPanelNavigator(fn: (panelId: string, url: string) => Promise<string>): void { this.panelNavigator = fn; }
 
   /** Start a new conversation (clears history). */
   clear(): void {
@@ -216,6 +245,8 @@ export class YoAgent {
         case "list_files": return this.toolListFiles(input);
         case "grab_panel": return await this.toolGrabPanel(input);
         case "list_panels": return this.toolListPanels();
+        case "click_element": return await this.toolClickElement(input);
+        case "navigate_panel": return await this.toolNavigatePanel(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -391,6 +422,22 @@ export class YoAgent {
     const apps = this.appConnector.list();
     if (apps.length === 0) return "No panels configured.";
     return apps.map((a) => `${a.id} — ${a.name} (${a.url})`).join("\n");
+  }
+
+  private async toolClickElement(input: Record<string, unknown>): Promise<string> {
+    const panelId = input.panel_id as string;
+    const text = input.text as string | undefined;
+    const selector = input.selector as string | undefined;
+    if (!this.panelClicker) return "Click not available.";
+    if (!text && !selector) return "Provide either text or selector to click.";
+    return this.panelClicker(panelId, text, selector);
+  }
+
+  private async toolNavigatePanel(input: Record<string, unknown>): Promise<string> {
+    const panelId = input.panel_id as string;
+    const url = input.url as string;
+    if (!this.panelNavigator) return "Navigation not available.";
+    return this.panelNavigator(panelId, url);
   }
 
   private formatAge(timestamp: number): string {

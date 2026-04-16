@@ -698,6 +698,54 @@ async function boot() {
     }
     try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch { return null; }
   });
+  yoAgent.setPanelClicker(async (panelId, text, selector) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+    try {
+      const result = await wc.executeJavaScript(`(function(){
+        var clicked = false;
+        ${text ? `
+        // Search by visible text
+        var target = ${JSON.stringify(text)};
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+        var best = null, bestLen = Infinity;
+        while (walker.nextNode()) {
+          var el = walker.currentNode;
+          var t = (el.innerText || el.textContent || '').trim();
+          if (t && t.length < 500) {
+            // Exact match
+            if (t === target) { best = el; bestLen = 0; break; }
+            // Contains match — prefer shortest containing element
+            if (t.includes(target) && t.length < bestLen) { best = el; bestLen = t.length; }
+          }
+        }
+        if (best) { best.click(); clicked = true; }
+        ` : ''}
+        ${selector && !text ? `
+        var el = document.querySelector(${JSON.stringify(selector)});
+        if (el) { el.click(); clicked = true; }
+        ` : ''}
+        return clicked ? 'Clicked successfully.' : 'Element not found.';
+      })()`);
+      // Wait a moment for the page to update after click
+      await new Promise((r) => setTimeout(r, 500));
+      return result;
+    } catch (err) {
+      return `Click failed: ${err instanceof Error ? err.message : err}`;
+    }
+  });
+
+  yoAgent.setPanelNavigator(async (panelId, url) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+    try {
+      wc.loadURL(url);
+      return `Navigating to ${url}`;
+    } catch (err) {
+      return `Navigation failed: ${err instanceof Error ? err.message : err}`;
+    }
+  });
+
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
 
   // Wire .yo conversational agent — slide-out panel
@@ -719,13 +767,15 @@ async function boot() {
     yoAgent?.clear();
     mainWindow.webContents.send("yo-panel-open", query);
     panelManager.setRightInset(YO_PANEL_WIDTH);
-    // Start the agent with the initial query
-    yoAgent?.send(query, {
-      onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
-      onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
-      onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
-      onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
-    });
+    // Start the agent only if there's an actual query
+    if (query) {
+      yoAgent?.send(query, {
+        onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
+        onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
+        onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
+        onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
+      });
+    }
   };
   yoInterceptor.setPanelOpener(openYoPanel);
   yoChat.setCommandCallback(execCommand);
@@ -1039,7 +1089,23 @@ async function boot() {
   });
 
   // IPC: Yo agent panel
-  ipcMain.on("yo-panel-send", (_e, message: string) => {
+  ipcMain.on("yo-panel-send", async (_e, message: string) => {
+    const trimmed = message.trim();
+    const firstWord = trimmed.split(/\s+/)[0]?.toLowerCase();
+
+    // Route .dip, .drip, .sup through the command parser instead of the agent
+    if (firstWord === ".dip" || firstWord === ".drip" || firstWord === ".sup"
+      || firstWord === "dip" || firstWord === "drip" || firstWord === "sup") {
+      try {
+        const cmd = trimmed.startsWith(".") ? trimmed.slice(1) : trimmed;
+        const result = await execCommand(cmd);
+        mainWindow?.webContents.send("yo-panel-done", result || `${firstWord} done.`);
+      } catch (err: any) {
+        mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
+      }
+      return;
+    }
+
     yoAgent?.send(message, {
       onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
       onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),

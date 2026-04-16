@@ -595,8 +595,10 @@ function openYoPanel(query: string) {
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
-  addYoUserMessage(query);
-  showYoStatus("");
+  if (query) {
+    addYoUserMessage(query);
+    showYoStatus("");
+  }
   yoPanelInput.value = "";
   autoGrowYoInput();
   setTimeout(() => yoPanelInput.focus(), 220);
@@ -710,22 +712,58 @@ function showYoToolUse(tool: string) {
 function finalizeYoMessage(fullText: string) {
   clearYoStatus();
   const text = fullText || yoLastAssistantText;
-  if (!yoResponseEl) {
+
+  // If there's already a streaming element showing the text, just keep it
+  if (yoResponseEl) {
+    yoResponseEl.textContent = text;
+  } else {
+    // No streaming element — create one for the final text
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant";
+    yoResponseEl.textContent = text;
     yoPanelMessages.appendChild(yoResponseEl);
   }
-  yoResponseEl.textContent = text;
-  yoLastAssistantText = text;
 
-  const btn = document.createElement("button");
-  btn.className = "yo-msg-use-btn";
-  btn.textContent = "use";
-  btn.addEventListener("click", () => {
-    window.yo.yoPanelUse(text);
-  });
-  yoResponseEl.appendChild(document.createElement("br"));
-  yoResponseEl.appendChild(btn);
+  // Check if this looks like actionable content the user would "use"
+  // (multi-line structured content, not a short conversational reply)
+  const lines = text.trim().split("\n");
+  const isActionable = lines.length > 2 || text.length > 200;
+
+  if (isActionable) {
+    const block = document.createElement("div");
+    block.className = "yo-use-block";
+
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.rows = Math.min(lines.length + 1, 20);
+    block.appendChild(ta);
+
+    const actions = document.createElement("div");
+    actions.className = "yo-use-actions";
+
+    const refineBtn = document.createElement("button");
+    refineBtn.className = "yo-refine-btn";
+    refineBtn.textContent = "refine";
+    refineBtn.addEventListener("click", () => {
+      // Focus the panel input so user can type a refinement message
+      yoPanelInput.focus();
+      yoPanelInput.placeholder = "tell the agent how to refine...";
+    });
+
+    const useBtn = document.createElement("button");
+    useBtn.className = "yo-use-btn";
+    useBtn.textContent = "use";
+    useBtn.addEventListener("click", () => {
+      window.yo.yoPanelUse(ta.value);
+    });
+
+    actions.appendChild(refineBtn);
+    actions.appendChild(useBtn);
+    block.appendChild(actions);
+    yoPanelMessages.appendChild(block);
+  }
+
+  yoLastAssistantText = text;
   yoResponseEl = null;
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }

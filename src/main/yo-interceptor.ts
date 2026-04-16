@@ -474,12 +474,12 @@ document.addEventListener('keydown',window.__yoResultEsc,true);
       return;
     }
 
-    // Bare .yo → clear session, open help
+    // Bare .yo → open agent panel (empty query)
     if (!instruction?.trim()) {
-      this.yoSessionActive = false;
-      this.yoClearer?.();
-      // Open help overlay (same as .yo help)
-      await this.commandHandler("yo help");
+      this.yoActiveWc = wc;
+      if (this.panelOpener) {
+        this.panelOpener("");
+      }
       return;
     }
 
