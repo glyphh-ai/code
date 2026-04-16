@@ -236,24 +236,72 @@ export class CommandParser {
     return `${Math.floor(seconds / 86400)}d ago`;
   }
 
-  private handleYoSkill(args: string[]): string {
+  private async handleYoSkill(args: string[]): Promise<string> {
     if (args.length === 0 || args[0] === "list") {
       const skills = this.skillEngine.listSkills();
-      if (skills.length === 0) return "No skills yet. Create one: yo skill create <name>";
+      if (skills.length === 0) return "No skills yet. Create one: yo skill create <description>";
       return skills.map((s) => `  ${s}`).join("\n");
     }
 
     if (args[0] === "create" && args.length >= 2) {
-      const name = args[1];
-      if (CommandParser.COMMAND_KEYWORDS.has(name.toLowerCase())) {
-        return `Cannot use "${name}" as a skill name \u2014 it\u2019s a reserved command.`;
+      const rest = args.slice(1).join(" ");
+
+      // Extract -n <name> flag if present
+      const nameMatch = rest.match(/(?:^|\s)-n\s+(\S+)/);
+      let skillName = nameMatch ? nameMatch[1] : "";
+      const description = rest.replace(/(?:^|\s)-n\s+\S+/, "").trim();
+
+      if (!description) {
+        return "Usage: yo skill create <description> [-n name]";
       }
-      const prompt = args.slice(2).join(" ");
-      this.skillEngine.createSkill(name, prompt);
-      return `Skill created: ${name}`;
+
+      if (skillName && CommandParser.COMMAND_KEYWORDS.has(skillName.toLowerCase())) {
+        return `Cannot use "${skillName}" as a skill name \u2014 it\u2019s a reserved command.`;
+      }
+
+      // LLM-assisted: generate name + prompt from description
+      if (!this.yoChat) {
+        if (!skillName) skillName = description.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        this.skillEngine.createSkill(skillName, description);
+        return `Skill created: ${skillName}`;
+      }
+
+      try {
+        if (!skillName) {
+          const result = await this.yoChat.executeInline(
+            "yo",
+            `You are a skill creator. Given a description, respond with ONLY valid JSON (no markdown fences):\n{"name": "<one-word-lowercase-name>", "prompt": "<system prompt for the skill>"}\nThe name should be a single meaningful word that captures what the skill does.\n\nDescription: ${description}`,
+            "skill-create",
+          );
+          try {
+            const parsed = JSON.parse(result.trim());
+            skillName = parsed.name.replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
+            this.skillEngine.createSkill(skillName, parsed.prompt.trim());
+          } catch {
+            skillName = description.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9_-]/g, "");
+            this.skillEngine.createSkill(skillName, result.trim());
+          }
+        } else {
+          const result = await this.yoChat.executeInline(
+            "yo",
+            `Write a system prompt for an AI skill called "${skillName}". What it should do: ${description}\n\nRespond with ONLY the prompt text, nothing else.`,
+            "skill-create",
+          );
+          this.skillEngine.createSkill(skillName, result.trim());
+        }
+        return `Skill created: ${skillName}`;
+      } catch (err) {
+        return `Failed to create skill: ${err instanceof Error ? err.message : err}`;
+      }
     }
 
-    return "Usage: yo skill create <name> <prompt> | yo skill list";
+    if (args[0] === "show" && args.length >= 2) {
+      const prompt = this.skillEngine.readSkill(args[1]);
+      if (prompt) return `${args[1]}: ${prompt.slice(0, 300)}`;
+      return `Skill "${args[1]}" not found`;
+    }
+
+    return "Usage: yo skill create <description> [-n name] | yo skill list | yo skill show <name>";
   }
 
   private handleYoLayout(args: string[]): string {
