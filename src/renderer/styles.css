@@ -2089,6 +2089,85 @@ select.settings-input {
   border-top: 1px solid #1e1e1e;
 }
 
+/* ── Support ────────────────────────────────────────────── */
+
+.support-discord-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #5865F2;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-top: 16px;
+}
+
+.support-discord-btn:hover {
+  background: #4752C4;
+}
+
+.support-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 20px;
+  color: #555;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.support-divider::before,
+.support-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #222;
+}
+
+.support-form {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.support-textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.support-form-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.support-context {
+  font-size: 11px;
+  color: #555;
+}
+
+.support-status {
+  font-size: 13px;
+  min-height: 20px;
+}
+
+.support-status.success {
+  color: #25C75E;
+}
+
+.support-status.error {
+  color: #ff5f57;
+}
+
 /* ── Wassup admin modal ─────────────────────────────────── */
 
 

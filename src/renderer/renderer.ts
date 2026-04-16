@@ -95,6 +95,8 @@ declare global {
       getCheckoutUrlForPlan: (plan: string) => Promise<string | null>;
       getBillingPortalUrl: () => Promise<string | null>;
       openExternal: (url: string) => void;
+      // Support
+      submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
     };
   }
 }

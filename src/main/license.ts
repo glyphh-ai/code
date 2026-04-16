@@ -222,6 +222,28 @@ export async function getBillingPortalUrl(): Promise<string | null> {
   }
 }
 
+// ── Support ticket ───────────────────────────────────────────
+
+export async function submitSupportTicket(ticket: {
+  subject: string;
+  description: string;
+  appVersion: string;
+  os: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const data = readLicenseFile();
+    const licenseKey = data?.key || undefined;
+    const tier = data?.tier || undefined;
+    return await serverPost<{ ok: boolean; error?: string }>(
+      "/api/support/ticket",
+      { ...ticket, licenseKey, tier },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
 // ── Dev key ──────────────────────────────────────────────────
 
 const DEV_KEY_HASH = "4ca7e4e4";

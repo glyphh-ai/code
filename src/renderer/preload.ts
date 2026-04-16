@@ -142,4 +142,8 @@ contextBridge.exposeInMainWorld("yo", {
   getCheckoutUrlForPlan: (plan: string) => ipcRenderer.invoke("get-checkout-url", plan) as Promise<string | null>,
   getBillingPortalUrl: () => ipcRenderer.invoke("get-billing-portal-url") as Promise<string | null>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
+
+  // Support
+  submitSupportTicket: (ticket: { subject: string; description: string }) =>
+    ipcRenderer.invoke("submit-support-ticket", ticket) as Promise<{ ok: boolean; error?: string }>,
 });

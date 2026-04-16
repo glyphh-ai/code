@@ -13,7 +13,7 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
-import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl, getBillingPortalUrl } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket } from "./license";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -1428,6 +1428,15 @@ async function boot() {
       shell.openExternal(url);
     }
     return url;
+  });
+
+  // IPC: submit support ticket
+  ipcMain.handle("submit-support-ticket", async (_e, ticket: { subject: string; description: string }) => {
+    return submitSupportTicket({
+      ...ticket,
+      appVersion: app.getVersion(),
+      os: `${process.platform} ${process.arch}`,
+    });
   });
 
   // IPC: preferences

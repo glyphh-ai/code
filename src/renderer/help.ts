@@ -56,6 +56,7 @@ function loadActiveSection() {
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
+  else if (sec === "support") loadSupport();
   else if (sec === "about") loadAbout();
 }
 
@@ -1171,6 +1172,55 @@ async function createNewSkill() {
 
 // ── About ─────────────────────────────────────────────────
 
+// ── Support ───────────────────────────────────────────────
+const DISCORD_INVITE = "https://discord.gg/yo-community"; // placeholder — update with real invite
+
+let supportInitialized = false;
+
+function loadSupport() {
+  if (supportInitialized) return;
+  supportInitialized = true;
+
+  const discordLink = document.getElementById("support-discord-link")!;
+  discordLink.addEventListener("click", () => {
+    window.yo.openExternal(DISCORD_INVITE);
+  });
+
+  const form = document.getElementById("support-form") as HTMLFormElement;
+  const subjectInput = document.getElementById("support-subject") as HTMLInputElement;
+  const descInput = document.getElementById("support-description") as HTMLTextAreaElement;
+  const submitBtn = document.getElementById("support-submit-btn") as HTMLButtonElement;
+  const statusEl = document.getElementById("support-status")!;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const subject = subjectInput.value.trim();
+    const description = descInput.value.trim();
+    if (!subject || !description) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Sending...";
+    statusEl.textContent = "";
+    statusEl.className = "support-status";
+
+    const result = await window.yo.submitSupportTicket({ subject, description });
+
+    if (result.ok) {
+      statusEl.textContent = "Ticket submitted! We'll get back to you soon.";
+      statusEl.className = "support-status success";
+      subjectInput.value = "";
+      descInput.value = "";
+    } else {
+      statusEl.textContent = result.error || "Failed to submit ticket. Try Discord instead.";
+      statusEl.className = "support-status error";
+    }
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Submit";
+  });
+}
+
+// ── About ─────────────────────────────────────────────────
 function loadAbout() {
   // Terms of Use
   const termsEl = document.querySelector("#policy-terms .policy-content");
