@@ -1,17 +1,16 @@
 /**
- * YoInterceptor — intercepts yo/dip/drip typed inside app panels.
+ * YoInterceptor — intercepts yo/sup/dip/drip typed inside app panels.
  *
- *   yo             → grab all visible panels → session cache + clipboard
- *   yo .           → grab current panel only → session cache + clipboard
- *   yo . <skill>   → capture active + skill process
- *   yo <query>     → search context store → LLM answer (via command parser)
+ *   yo .           → capture active panel → context store + clipboard
+ *   yo . <skill>   → capture + process with skill → inject result
  *   yo help        → open help overlay
+ *   sup <query>    → search context store → inject results
+ *   sup . <skill>  → process last capture with skill → inject
  *   dip <args>     → panel navigation (via command parser)
  *   drip <effect>  → visual effect
  *
  * All UI (notifications, tool picker) is injected directly into the
- * app's DOM via executeJavaScript. Session content is also copied to
- * the system clipboard so users can paste into terminal/code/etc.
+ * app's DOM via executeJavaScript.
  */
 
 import { WebContents } from "electron";
@@ -100,7 +99,7 @@ export class YoInterceptor {
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
-var CMD_RE=/^\\.(yo|dip|drip)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -205,6 +204,9 @@ document.addEventListener('keyup',function(e){
       case "yo":
         await this.handleYo(wc, appId, data.instruction ?? undefined);
         break;
+      case "sup":
+        await this.handleSup(wc, appId, data.instruction ?? undefined);
+        break;
       case "dip":
         await this.handleDip(wc, appId, data.instruction ?? undefined);
         break;
@@ -232,9 +234,37 @@ document.addEventListener('keyup',function(e){
     }
   }
 
-  // ── yo: capture, query, or browse ─────────────────────
+  // ── sup: retrieve from memory ─────────────────────────
 
-  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip"]);
+  private async handleSup(wc: WebContents, appId: string, instruction?: string): Promise<void> {
+    if (!this.commandHandler) return;
+
+    // Bare .sup → library browser
+    if (!instruction?.trim()) {
+      const result = await this.commandHandler("sup", appId);
+      if (result === "__SUP_BROWSE__") {
+        // Trigger library browser open via renderer
+        wc.executeJavaScript(`window.postMessage({type:'open-library'},'*')`).catch(() => {});
+      }
+      return;
+    }
+
+    const myOp = ++this.opId;
+    this.notify(wc, "", "loading");
+    try {
+      const result = await this.commandHandler(`sup ${instruction}`, appId);
+      if (this.opId !== myOp) return; // cancelled
+      await this.clearNotify(wc);
+      if (result) this.notify(wc, result, "result");
+    } catch (err) {
+      if (this.opId !== myOp) return;
+      this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
+    }
+  }
+
+  // ── yo: capture or utilities ─────────────────────────
+
+  private static readonly COMMAND_KEYWORDS = new Set([".sup", ".dip", ".drip"]);
 
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     // Subcommands routed through command parser
@@ -250,36 +280,21 @@ document.addEventListener('keyup',function(e){
     // Bare .yo (no instruction) — do nothing
     if (!instruction?.trim()) return;
 
-    // Parse dot modifier vs plain query
+    // Parse dot modifier: .yo . or .yo . <skill/prompt>
     const rawFirstWord = instruction?.split(/\s+/)[0]?.toLowerCase();
     const isDirectChain = rawFirstWord && YoInterceptor.COMMAND_KEYWORDS.has(rawFirstWord);
     const dotMatch = !isDirectChain ? instruction?.match(/^\.\s*(.*)?$/) : null;
     const currentOnly = !!dotMatch;
     const realInstruction = isDirectChain
       ? instruction
-      : currentOnly ? (dotMatch![1]?.trim() || undefined) : instruction;
+      : currentOnly ? (dotMatch![1]?.trim() || undefined) : undefined;
+
+    // .yo without dot modifier and not a chain — not valid (queries moved to .sup)
+    if (!currentOnly && !isDirectChain) return;
 
     // Check if what follows is a chained command
     const chainWord = realInstruction?.split(/\s+/)[0]?.toLowerCase();
     const isChainedCommand = isDirectChain || !!(currentOnly && chainWord && YoInterceptor.COMMAND_KEYWORDS.has(chainWord));
-
-    // ── Query path (no dot, no chain) — skip panel grab, search context store
-    if (realInstruction && !currentOnly && !isChainedCommand) {
-      if (this.commandHandler) {
-        const myOp = ++this.opId;
-        this.notify(wc, "", "loading");
-        try {
-          const result = await this.commandHandler(`yo ${realInstruction}`, appId);
-          if (this.opId !== myOp) return; // cancelled
-          await this.clearNotify(wc);
-          if (result) this.notify(wc, result, "result");
-        } catch (err) {
-          if (this.opId !== myOp) return;
-          this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
-        }
-      }
-      return;
-    }
 
     // ── Capture path — grab panel content first
     const myOp = ++this.opId;

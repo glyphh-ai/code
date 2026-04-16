@@ -97,23 +97,44 @@
           <h2>Just talk.</h2>
 
           <div class="help-group">
-            <h3>.yo <span class="cmd-desc">— ask &amp; capture</span></h3>
-            <p class="cmd-intro">Query your ambient context or force-capture the active panel.</p>
-            <div class="cmd-row">
-              <code>.yo what was I looking at?</code>
-              <span>Search ambient context + AI response</span>
-            </div>
+            <h3>.yo <span class="cmd-desc">— capture</span></h3>
+            <p class="cmd-intro">Capture the active panel into memory.</p>
             <div class="cmd-row">
               <code>.yo .</code>
-              <span>Force-capture the active panel now</span>
+              <span>Capture active panel to memory + clipboard</span>
             </div>
             <div class="cmd-row">
-              <code>.yo . feature-spec</code>
-              <span>Capture active panel + apply a skill</span>
+              <code>.yo . formalize</code>
+              <span>Capture + process with a skill, inject result</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo . rewrite as bullet points</code>
+              <span>Capture + process with a prompt, inject result</span>
             </div>
             <div class="cmd-row">
               <code>.yo . .dip gmail</code>
-              <span>Chain: capture active panel, then switch to gmail</span>
+              <span>Capture, then switch to gmail</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>.sup <span class="cmd-desc">— retrieve</span></h3>
+            <p class="cmd-intro">Search memory and inject results into the current text area.</p>
+            <div class="cmd-row">
+              <code>.sup marketing ideas</code>
+              <span>Search memory, inject matching content</span>
+            </div>
+            <div class="cmd-row">
+              <code>.sup marketing ideas . formalize</code>
+              <span>Search + process with skill, inject result</span>
+            </div>
+            <div class="cmd-row">
+              <code>.sup . formalize</code>
+              <span>Process last capture with skill, inject result</span>
+            </div>
+            <div class="cmd-row">
+              <code>.sup</code>
+              <span>Open the library browser</span>
             </div>
           </div>
 

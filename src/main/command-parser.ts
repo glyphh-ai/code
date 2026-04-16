@@ -24,7 +24,7 @@ import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["dip", "drip"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -97,12 +97,14 @@ export class CommandParser {
     switch (cmd) {
       case "yo":
         return this.handleYo(args);
+      case "sup":
+        return this.handleSup(args);
       case "dip":
         return this.handleDip(args, sourcePanelId);
       case "drip":
         return this.handleDrip(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, dip, or drip.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, or drip.`;
     }
   }
 
@@ -113,11 +115,15 @@ export class CommandParser {
 
     const clean = (s: string) => s.replace(/\.(yo|dip|drip)\b/gi, "$1");
 
-    // .yo <query> NEVER chains — everything after .yo is the query.
+    // .yo <query> and .sup <query> NEVER chain — entire input is one command.
     // Only .yo . (capture mode) allows chaining with .dip/.drip after it.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
     const isYoCapture = yoMatch && /^\.?yo\s+\./i.test(trimmed);
     if (yoMatch && !isYoCapture) {
+      return this.executeSingle(clean(trimmed), sourcePanelId);
+    }
+    const supMatch = trimmed.match(/^\.?sup\b/i);
+    if (supMatch) {
       return this.executeSingle(clean(trimmed), sourcePanelId);
     }
 
@@ -204,46 +210,68 @@ export class CommandParser {
       return finalContent;
     }
 
-    // yo <query> → search context store + LLM answer
-    const query = args.join(" ").trim();
-    return this.handleYoQuery(query);
+    // Anything else after .yo that isn't a subcommand or dot-modifier is unknown
+    return `Unknown: yo ${args.join(" ")}. Try: yo . | yo help | yo skills | yo layout`;
   }
 
-  /** Search ambient context and answer with LLM. */
-  private async handleYoQuery(query: string): Promise<string> {
-    // Check if single-word query matches a skill → use existing capture + skill flow
-    const matchedSkill = /^\S+$/.test(query)
-      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === query.toLowerCase())
+  // ── sup: retrieve from memory, optionally process ───────
+
+  private async handleSup(args: string[]): Promise<string> {
+    // Bare .sup → open library browser
+    if (args.length === 0) {
+      return "__SUP_BROWSE__";
+    }
+
+    // Parse: everything before a standalone "." is the query, everything after is the processor
+    const dotIdx = args.indexOf(".");
+    const queryParts = dotIdx >= 0 ? args.slice(0, dotIdx) : args;
+    const processorParts = dotIdx >= 0 ? args.slice(dotIdx + 1) : [];
+    const query = queryParts.join(" ").trim();
+    const processor = processorParts.join(" ").trim();
+
+    // Determine source content
+    let content: string;
+
+    if (!query) {
+      // .sup . <skill/prompt> → use last capture from session cache
+      const lastCapture = this.session.get();
+      if (!lastCapture) return "Nothing captured yet. Use .yo . first.";
+      content = lastCapture;
+    } else {
+      // .sup <query> → search context store
+      content = await this.searchContext(query);
+      if (!content) return "No matching context found.";
+    }
+
+    // No processor — return raw content
+    if (!processor) {
+      return content;
+    }
+
+    // Process with skill or freeform prompt
+    const matchedSkill = /^\S+$/.test(processor)
+      ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === processor.toLowerCase())
       : undefined;
 
+    let result: string;
     if (matchedSkill) {
-      if (!this.grabber) return "No panel grabber available.";
-      const content = await this.grabber(false);
-      if (!content) return "Could not grab content from panels.";
-
-      const result = await this.skillEngine.process(content, matchedSkill);
-      const label = matchedSkill;
-      this.session.capture("command-bar", result, `${label}.md`, label);
-      this.session.copyToClipboard();
-      return `yo ${matchedSkill} \u2014 captured`;
+      result = await this.skillEngine.process(content, matchedSkill);
+    } else if (this.yoChat) {
+      result = await this.yoChat.executeInline("yo", processor, "command-bar", content);
+    } else {
+      return content;
     }
 
-    // Search context store — vector similarity finds matching fragments
+    this.session.capture("command-bar", result, `sup-${this.timestamp()}.md`, this.timestamp());
+    this.session.copyToClipboard();
+    return result;
+  }
+
+  /** Search context store and assemble full panel content for top hits. */
+  private async searchContext(query: string): Promise<string> {
     const hits = await this.contextStore.search(query, 15);
+    if (hits.length === 0) return "";
 
-    // If no ambient context, fall back to grabbing current visible panels
-    if (hits.length === 0) {
-      if (!this.grabber) return "No context available.";
-      const content = await this.grabber(false);
-      if (!content) return "No context available. Ambient capture may still be loading.";
-
-      if (this.yoChat) {
-        return this.yoChat.executeInline("yo", query, "command-bar", content);
-      }
-      return "No context found.";
-    }
-
-    // Identify the top panel(s) by hit count — then get FULL content for each
     const panelHits = new Map<string, number>();
     for (const h of hits) {
       panelHits.set(h.panel_id, (panelHits.get(h.panel_id) || 0) + 1);
@@ -253,7 +281,6 @@ export class CommandParser {
       .slice(0, 3)
       .map(([id]) => id);
 
-    // Fetch ALL chunks for the top panels (full captured content, not fragments)
     const sections: string[] = [];
     for (const panelId of topPanels) {
       const allChunks = this.contextStore.getPanelContent(panelId);
@@ -264,12 +291,7 @@ export class CommandParser {
       sections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
     }
 
-    const assembledContext = sections.join("\n\n---\n\n");
-
-    // LLM extracts the answer from the full panel content
-    if (!this.yoChat) return assembledContext;
-
-    return this.yoChat.executeInline("yo", query, "command-bar", assembledContext);
+    return sections.join("\n\n---\n\n");
   }
 
   private timestamp(): string {

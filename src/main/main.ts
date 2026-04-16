@@ -616,10 +616,8 @@ async function boot() {
     mainWindow?.webContents.send("show-welcome");
   });
 
-  // LLM engine for inline yo execution
+  // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
-  yoChat.setSkillEngine(skillEngine);
-  yoChat.setAppConnector(appConnector);
   applyLLMConfig(llmConfig);
   yoInterceptor.setYoChat(yoChat);
   commandParser.setYoChat(yoChat);
