@@ -19,6 +19,7 @@ import { SkillEngine } from "./skill-engine";
 import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
+import type { SupResult } from "./command-parser";
 
 const PREFIX = "__YO__";
 
@@ -29,6 +30,14 @@ export class YoInterceptor {
   private getVisiblePanelIds: (() => string[]) | null = null;
   private opId = 0; // incremented per operation; cancel bumps it to invalidate in-flight results
   private sessionNotifier: (() => void) | null = null;
+
+  // Sup widget callbacks
+  private supSearcher: ((query: string) => Promise<SupResult[]>) | null = null;
+  private supRefiner: ((message: string) => Promise<string>) | null = null;
+  private supClearer: (() => void) | null = null;
+  private supWidgetWc: WebContents | null = null; // track which wc has the widget open
+  private supResults: SupResult[] = []; // current search results
+
   constructor(
     private appConnector: AppConnector,
     private skillEngine: SkillEngine,
@@ -39,6 +48,9 @@ export class YoInterceptor {
   setCommandHandler(handler: (input: string, sourcePanelId?: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
+  setSupSearcher(fn: (query: string) => Promise<SupResult[]>): void { this.supSearcher = fn; }
+  setSupRefiner(fn: (message: string) => Promise<string>): void { this.supRefiner = fn; }
+  setSupClearer(fn: () => void): void { this.supClearer = fn; }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -221,6 +233,15 @@ document.addEventListener('keyup',function(e){
         this.opId++; // invalidate any in-flight operation
         await this.clearNotify(wc);
         break;
+      case "sup-use":
+        await this.handleSupUse(wc, data as any);
+        break;
+      case "sup-refine":
+        await this.handleSupRefine(wc, data as any);
+        break;
+      case "sup-dismiss":
+        this.dismissSupWidget(wc);
+        break;
     }
   }
 
@@ -243,23 +264,111 @@ document.addEventListener('keyup',function(e){
     if (!instruction?.trim()) {
       const result = await this.commandHandler("sup", appId);
       if (result === "__SUP_BROWSE__") {
-        // Trigger library browser open via renderer
         wc.executeJavaScript(`window.postMessage({type:'open-library'},'*')`).catch(() => {});
       }
       return;
     }
 
-    const myOp = ++this.opId;
-    this.notify(wc, "", "loading");
-    try {
-      const result = await this.commandHandler(`sup ${instruction}`, appId);
-      if (this.opId !== myOp) return; // cancelled
-      await this.clearNotify(wc);
-      if (result) this.notify(wc, result, "result");
-    } catch (err) {
-      if (this.opId !== myOp) return;
-      this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
+    // .sup . <skill/prompt> → direct inject from last capture (no widget)
+    const dotMatch = instruction.match(/^\.\s*(.+)$/);
+    if (dotMatch) {
+      const myOp = ++this.opId;
+      this.notify(wc, "", "loading");
+      try {
+        const result = await this.commandHandler(`sup ${instruction}`, appId);
+        if (this.opId !== myOp) return;
+        await this.clearNotify(wc);
+        if (result) this.notify(wc, result, "result");
+      } catch (err) {
+        if (this.opId !== myOp) return;
+        this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
+      }
+      return;
     }
+
+    // .sup <query> . <processor> → direct inject (user specified processor)
+    const parts = instruction.split(/\s+/);
+    const dotIdx = parts.indexOf(".");
+    if (dotIdx > 0 && dotIdx < parts.length - 1) {
+      const myOp = ++this.opId;
+      this.notify(wc, "", "loading");
+      try {
+        const result = await this.commandHandler(`sup ${instruction}`, appId);
+        if (this.opId !== myOp) return;
+        await this.clearNotify(wc);
+        if (result) this.notify(wc, result, "result");
+      } catch (err) {
+        if (this.opId !== myOp) return;
+        this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
+      }
+      return;
+    }
+
+    // .sup <query> → open inline widget with search results
+    if (!this.supSearcher) {
+      this.notify(wc, "Search not available.", "error");
+      return;
+    }
+
+    this.dismissSupWidget(wc);
+    this.supClearer?.();
+
+    const query = instruction.trim();
+    await this.injectSupWidget(wc, query);
+    this.supWidgetWc = wc;
+
+    try {
+      const results = await this.supSearcher(query);
+      this.supResults = results;
+      if (results.length === 0) {
+        await this.updateSupWidgetResults(wc, [], "No matching context found.");
+      } else {
+        await this.updateSupWidgetResults(wc, results);
+      }
+    } catch (err) {
+      await this.updateSupWidgetResults(wc, [], `Search failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** Handle [use] click from widget — inject content into original text area. */
+  private async handleSupUse(wc: WebContents, data: { index?: number; text?: string }): Promise<void> {
+    let content = "";
+    if (data.text) {
+      content = data.text;
+    } else if (typeof data.index === "number" && this.supResults[data.index]) {
+      content = this.supResults[data.index].content;
+    }
+    if (content) {
+      this.dismissSupWidget(wc);
+      this.injectContent(wc, content);
+    }
+  }
+
+  /** Handle refinement message from widget input. */
+  private async handleSupRefine(wc: WebContents, data: { text?: string }): Promise<void> {
+    const message = data.text?.trim();
+    if (!message || !this.supRefiner) return;
+
+    await this.appendSupMessage(wc, "user", message);
+    await this.setSupLoading(wc, true);
+
+    try {
+      const result = await this.supRefiner(message);
+      await this.setSupLoading(wc, false);
+      await this.appendSupMessage(wc, "assistant", result);
+    } catch (err) {
+      await this.setSupLoading(wc, false);
+      await this.appendSupMessage(wc, "error", `Failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** Remove the sup widget from the page. */
+  private dismissSupWidget(wc: WebContents): void {
+    this.supWidgetWc = null;
+    this.supResults = [];
+    try {
+      wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-sup');if(w)w.remove();if(window.__yoSupEsc){document.removeEventListener('keydown',window.__yoSupEsc,true);window.__yoSupEsc=null;}})()`);
+    } catch {}
   }
 
   // ── yo: capture or utilities ─────────────────────────
@@ -411,6 +520,177 @@ document.addEventListener('keyup',function(e){
     }
     if (!content || content.startsWith("[Element not found")) return null;
     return content;
+  }
+
+  // ── Sup widget injection ───────────────────────────────
+
+  private async injectSupWidget(wc: WebContents, query: string): Promise<void> {
+    const escaped = JSON.stringify(query);
+    try {
+      await wc.executeJavaScript(`
+(function(){
+var old=document.getElementById('__yo-sup');if(old)old.remove();
+var w=document.createElement('div');w.id='__yo-sup';
+w.style.cssText='position:fixed;z-index:999999;bottom:60px;right:16px;width:380px;max-height:480px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#ccc;overflow:hidden;';
+
+// Header
+var hdr=document.createElement('div');
+hdr.style.cssText='padding:10px 14px;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;';
+var title=document.createElement('span');title.style.cssText='color:#25C75E;font-weight:600;font-size:12px;';
+title.textContent='.sup '+${escaped};
+var closeBtn=document.createElement('div');closeBtn.textContent='\\u00d7';
+closeBtn.style.cssText='width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-size:16px;border-radius:4px;';
+closeBtn.onmouseenter=function(){closeBtn.style.color='#fff';closeBtn.style.background='#333';};
+closeBtn.onmouseleave=function(){closeBtn.style.color='#666';closeBtn.style.background='none';};
+closeBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));};
+hdr.appendChild(title);hdr.appendChild(closeBtn);
+
+// Body (results + messages)
+var body=document.createElement('div');body.id='__yo-sup-body';
+body.style.cssText='flex:1;overflow-y:auto;padding:8px 14px;min-height:60px;max-height:320px;';
+// Loading indicator
+var loading=document.createElement('div');loading.id='__yo-sup-loading';
+loading.style.cssText='color:#666;font-size:12px;padding:12px 0;text-align:center;';
+loading.textContent='searching...';
+body.appendChild(loading);
+
+// Input
+var inputWrap=document.createElement('div');
+inputWrap.style.cssText='padding:8px 10px;border-top:1px solid #333;flex-shrink:0;';
+var input=document.createElement('input');input.id='__yo-sup-input';input.type='text';
+input.placeholder='refine or ask about results...';
+input.style.cssText='width:100%;background:#111;border:1px solid #333;border-radius:6px;padding:8px 10px;color:#ccc;font-size:12px;outline:none;box-sizing:border-box;';
+input.onfocus=function(){input.style.borderColor='#25C75E';};
+input.onblur=function(){input.style.borderColor='#333';};
+input.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&input.value.trim()){
+    e.preventDefault();e.stopPropagation();
+    var msg=input.value.trim();input.value='';
+    console.log('${PREFIX}'+JSON.stringify({type:'sup-refine',text:msg}));
+  }
+  if(e.key==='Escape'){
+    e.preventDefault();e.stopPropagation();
+    console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));
+  }
+},true);
+
+inputWrap.appendChild(input);
+w.appendChild(hdr);w.appendChild(body);w.appendChild(inputWrap);
+document.body.appendChild(w);
+
+// Focus input after a tick
+setTimeout(function(){input.focus();},50);
+
+// Escape key listener (global)
+window.__yoSupEsc=function(e){
+  if(e.key==='Escape'&&document.getElementById('__yo-sup')){
+    e.preventDefault();e.stopPropagation();
+    console.log('${PREFIX}'+JSON.stringify({type:'sup-dismiss'}));
+  }
+};
+document.addEventListener('keydown',window.__yoSupEsc,true);
+})()`);
+    } catch {}
+  }
+
+  /** Update widget body with search results or an error message. */
+  private async updateSupWidgetResults(wc: WebContents, results: SupResult[], errorMsg?: string): Promise<void> {
+    const data = JSON.stringify(results.map((r, i) => ({
+      i,
+      title: r.title,
+      panelId: r.panelId,
+      age: r.age,
+      preview: r.preview,
+    })));
+    const err = errorMsg ? JSON.stringify(errorMsg) : "null";
+    try {
+      await wc.executeJavaScript(`
+(function(){
+var body=document.getElementById('__yo-sup-body');if(!body)return;
+body.innerHTML='';
+var err=${err};
+if(err){
+  var msg=document.createElement('div');msg.style.cssText='color:#999;font-size:12px;padding:12px 0;text-align:center;';
+  msg.textContent=err;body.appendChild(msg);return;
+}
+var results=${data};
+results.forEach(function(r){
+  var card=document.createElement('div');
+  card.style.cssText='background:#222;border:1px solid #333;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:default;transition:border-color 0.15s;';
+  card.onmouseenter=function(){card.style.borderColor='#444';};
+  card.onmouseleave=function(){card.style.borderColor='#333';};
+
+  var top=document.createElement('div');top.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
+  var label=document.createElement('span');label.style.cssText='color:#25C75E;font-size:11px;font-weight:600;';
+  label.textContent=r.title+' \\u00b7 '+r.age;
+  var useBtn=document.createElement('div');useBtn.textContent='use';
+  useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;transition:background 0.15s;';
+  useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
+  useBtn.onmouseleave=function(){useBtn.style.background='none';};
+  useBtn.onclick=function(e){e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'sup-use',index:0}).replace('"index":0','"index":'+r.i));};
+  top.appendChild(label);top.appendChild(useBtn);
+
+  var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
+  preview.textContent=r.preview;
+
+  card.appendChild(top);card.appendChild(preview);body.appendChild(card);
+});
+body.scrollTop=0;
+})()`);
+    } catch {}
+  }
+
+  /** Append a message to the widget conversation area. */
+  private async appendSupMessage(wc: WebContents, role: "user" | "assistant" | "error", text: string): Promise<void> {
+    const escaped = JSON.stringify(text);
+    const isUser = role === "user";
+    const isError = role === "error";
+    try {
+      await wc.executeJavaScript(`
+(function(){
+var body=document.getElementById('__yo-sup-body');if(!body)return;
+var msg=document.createElement('div');
+msg.style.cssText='padding:8px 0;border-top:1px solid #2a2a2a;margin-top:4px;';
+var row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;align-items:flex-start;';
+var txt=document.createElement('div');
+txt.style.cssText='font-size:12px;line-height:1.5;color:${isUser ? "#ccc" : isError ? "#ff5f57" : "#e0e0e0"};white-space:pre-wrap;word-break:break-word;flex:1;';
+txt.textContent=${escaped};
+row.appendChild(txt);
+${!isUser && !isError ? `
+var useBtn=document.createElement('div');useBtn.textContent='use';
+useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;margin-left:8px;flex-shrink:0;white-space:nowrap;transition:background 0.15s;';
+useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
+useBtn.onmouseleave=function(){useBtn.style.background='none';};
+useBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'sup-use',text:${escaped}}));};
+row.appendChild(useBtn);
+` : ""}
+msg.appendChild(row);
+${isUser ? `
+var label=document.createElement('div');label.style.cssText='color:#666;font-size:10px;margin-bottom:2px;';
+label.textContent='you';msg.insertBefore(label,row);
+` : ""}
+body.appendChild(msg);body.scrollTop=body.scrollHeight;
+})()`);
+    } catch {}
+  }
+
+  /** Show/hide loading indicator in widget. */
+  private async setSupLoading(wc: WebContents, loading: boolean): Promise<void> {
+    try {
+      await wc.executeJavaScript(`
+(function(){
+var body=document.getElementById('__yo-sup-body');if(!body)return;
+var existing=document.getElementById('__yo-sup-thinking');
+if(${loading}){
+  if(existing)return;
+  var el=document.createElement('div');el.id='__yo-sup-thinking';
+  el.style.cssText='color:#666;font-size:11px;padding:6px 0;';el.textContent='thinking...';
+  body.appendChild(el);body.scrollTop=body.scrollHeight;
+}else{
+  if(existing)existing.remove();
+}
+})()`);
+    } catch {}
   }
 
   // ── Injected UI helpers ───────────────────────────────

@@ -23,11 +23,23 @@ import { ContextStore } from "./context-store";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
+export interface SupResult {
+  panelId: string;
+  title: string;
+  age: string;
+  content: string;
+  preview: string;
+}
+
 export class CommandParser {
   private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
+
+  // Sup conversation state
+  private supHistory: Array<{ role: string; content: string }> = [];
+  private supContext = ""; // assembled context from initial search
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
   private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
@@ -267,10 +279,10 @@ export class CommandParser {
     return result;
   }
 
-  /** Search context store and assemble full panel content for top hits. */
-  private async searchContext(query: string): Promise<string> {
+  /** Search context store and return structured results for the widget. */
+  async searchForWidget(query: string): Promise<SupResult[]> {
     const hits = await this.contextStore.search(query, 15);
-    if (hits.length === 0) return "";
+    if (hits.length === 0) return [];
 
     const panelHits = new Map<string, number>();
     for (const h of hits) {
@@ -278,20 +290,70 @@ export class CommandParser {
     }
     const topPanels = [...panelHits.entries()]
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
+      .slice(0, 5)
       .map(([id]) => id);
 
-    const sections: string[] = [];
+    const results: SupResult[] = [];
+    const contextSections: string[] = [];
     for (const panelId of topPanels) {
       const allChunks = this.contextStore.getPanelContent(panelId);
       if (allChunks.length === 0) continue;
       const age = this.formatAge(allChunks[0].timestamp);
       const title = allChunks[0].title || panelId;
       const fullContent = allChunks.map((c) => c.content).join("\n");
-      sections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
+      const preview = fullContent.slice(0, 200).replace(/\n+/g, " ").trim();
+      results.push({ panelId, title, age, content: fullContent, preview });
+      contextSections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
     }
 
-    return sections.join("\n\n---\n\n");
+    // Store assembled context + reset history for new session
+    this.supContext = contextSections.join("\n\n---\n\n");
+    this.supHistory = [
+      { role: "user", content: `Search: ${query}` },
+      { role: "assistant", content: `Found ${results.length} result(s) from: ${results.map((r) => r.title).join(", ")}` },
+    ];
+
+    return results;
+  }
+
+  /** Refine within the sup widget conversation. Returns the LLM response text. */
+  async supRefine(message: string): Promise<string> {
+    if (!this.yoChat) return "No LLM configured.";
+    if (!this.supContext) return "No context to refine. Search first.";
+
+    this.supHistory.push({ role: "user", content: message });
+
+    // Keep history capped at 10 turns
+    if (this.supHistory.length > 20) {
+      this.supHistory = this.supHistory.slice(-20);
+    }
+
+    const conversationText = this.supHistory
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n");
+
+    const result = await this.yoChat.executeInline(
+      "yo",
+      `Conversation:\n${conversationText}\n\nBased on the context below, respond to the user's latest message. Return the relevant content verbatim — do not summarize.`,
+      "sup-refine",
+      this.supContext,
+    );
+
+    this.supHistory.push({ role: "assistant", content: result });
+    return result;
+  }
+
+  /** Clear sup conversation state. */
+  clearSupHistory(): void {
+    this.supHistory = [];
+    this.supContext = "";
+  }
+
+  /** Search context store and assemble as flat string (used by .sup . <processor>). */
+  private async searchContext(query: string): Promise<string> {
+    const results = await this.searchForWidget(query);
+    if (results.length === 0) return "";
+    return results.map((r) => `[${r.panelId} | ${r.title} | ${r.age}]\n${r.content}`).join("\n\n---\n\n");
   }
 
   private timestamp(): string {
