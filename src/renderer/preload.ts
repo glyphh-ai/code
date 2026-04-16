@@ -173,7 +173,7 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
-  yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<boolean>,
+  yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string }> | null>,
   yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
   yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
 });

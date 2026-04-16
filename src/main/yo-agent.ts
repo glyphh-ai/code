@@ -29,6 +29,7 @@ WORKFLOW:
 2. If you need to find content in an app: list_panels → grab_panel to see what's there → click_element to drill in → grab_panel again
 3. Chain multiple navigations and clicks to find what the user wants — don't stop after one step
 4. When you find what they want, return the actual content
+5. If the user says "paste it here", "put it here", "type it in", or similar → use inject_text to paste the result directly into the input where they typed .yo
 
 RESPONSE RULES:
 - Return the ACTUAL content. Not a summary. The real text.
@@ -205,6 +206,17 @@ const TOOLS = [
     },
   },
   {
+    name: "inject_text",
+    description: "Paste text into the input field where the user typed .yo. Use this when the user says 'paste it here', 'put it here', 'type it in', or similar. The text will replace the current content of the input.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        text: { type: "string" as const, description: "The text to inject into the source input" },
+      },
+      required: ["text"],
+    },
+  },
+  {
     name: "manage_app",
     description: "Add, list, or remove connected apps (web panels). Each app has an ID, name, and URL.",
     input_schema: {
@@ -250,8 +262,10 @@ export class YoAgent {
   } | null = null;
   private layoutCallbacks: {
     list: () => Array<{ name: string; cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
+    save: (name: string, panels: string) => boolean;
     delete: (name: string) => boolean;
   } | null = null;
+  private injector: ((text: string) => Promise<boolean>) | null = null;
   private aborted = false;
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
@@ -266,6 +280,7 @@ export class YoAgent {
   setMaxMessages(n: number): void { this.maxMessages = n; }
   abort(): void { this.aborted = true; }
   setCommandRunner(fn: (cmd: string) => Promise<string>): void { this.commandRunner = fn; }
+  setInjector(fn: (text: string) => Promise<boolean>): void { this.injector = fn; }
   setSkillCallbacks(cbs: typeof YoAgent.prototype.skillCallbacks): void { this.skillCallbacks = cbs; }
   setLayoutCallbacks(cbs: typeof YoAgent.prototype.layoutCallbacks): void { this.layoutCallbacks = cbs; }
 
@@ -277,19 +292,33 @@ export class YoAgent {
     this.chatTitle = "";
   }
 
-  /** Load an existing conversation by ID. */
-  loadChat(id: string): boolean {
+  /** Load an existing conversation by ID. Returns display messages or null. */
+  loadChat(id: string): Array<{ role: string; text: string }> | null {
     const filepath = path.join(CHATS_DIR, `${id}.md`);
-    if (!fs.existsSync(filepath)) return false;
+    if (!fs.existsSync(filepath)) return null;
     try {
       const raw = fs.readFileSync(filepath, "utf-8");
       const parsed = this.parseChatFile(raw);
       this.chatId = id;
       this.chatTitle = parsed.title;
       this.history = parsed.history;
-      return true;
+
+      // Extract displayable messages (user text + assistant text)
+      const display: Array<{ role: string; text: string }> = [];
+      for (const msg of parsed.history) {
+        if (msg.role === "user" && typeof msg.content === "string") {
+          display.push({ role: "user", text: msg.content });
+        } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+          const text = msg.content
+            .filter((b: any) => b.type === "text")
+            .map((b: any) => b.text)
+            .join("");
+          if (text) display.push({ role: "assistant", text });
+        }
+      }
+      return display;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -442,6 +471,7 @@ export class YoAgent {
         case "navigate_panel": return await this.toolNavigatePanel(input);
         case "type_text": return await this.toolTypeText(input);
         case "run_command": return await this.toolRunCommand(input);
+        case "inject_text": return await this.toolInjectText(input);
         case "manage_skill": return this.toolManageSkill(input);
         case "manage_layout": return this.toolManageLayout(input);
         case "manage_app": return this.toolManageApp(input);
@@ -644,6 +674,14 @@ export class YoAgent {
     });
   }
 
+  private async toolInjectText(input: Record<string, unknown>): Promise<string> {
+    const text = input.text as string;
+    if (!text) return "No text provided.";
+    if (!this.injector) return "No source input available — the user may not have typed .yo from an app panel.";
+    const ok = await this.injector(text);
+    return ok ? "Text injected into the input field." : "Could not inject — the source input is no longer available.";
+  }
+
   private async toolRunCommand(input: Record<string, unknown>): Promise<string> {
     const cmd = (input.command as string || "").trim();
     if (!cmd) return "No command provided.";
@@ -700,11 +738,7 @@ export class YoAgent {
         const name = input.name as string;
         const panels = input.panels as string;
         if (!name || !panels) return "Both name and panels required.";
-        // Use run_command to create the grid, then save via dip layout save
-        if (this.commandRunner) {
-          return `Use run_command with "dip split ${panels}" to create the layout, then it can be saved from the layouts panel. Or tell the user to save it from Settings > Layouts.`;
-        }
-        return "Use run_command to create the grid first.";
+        return this.layoutCallbacks.save(name, panels) ? `Layout "${name}" saved.` : `Failed to save layout "${name}".`;
       }
       case "delete": {
         const name = input.name as string;

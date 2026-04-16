@@ -111,7 +111,7 @@ declare global {
       onYoPanelClose: (cb: () => void) => void;
       // Yo chat history
       yoChatsList: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
-      yoChatsLoad: (id: string) => Promise<boolean>;
+      yoChatsLoad: (id: string) => Promise<Array<{ role: string; text: string }> | null>;
       yoChatsDelete: (id: string) => Promise<boolean>;
       yoChatNew: () => Promise<boolean>;
     };
@@ -982,20 +982,28 @@ async function loadYoHistory() {
     item.appendChild(date);
     item.appendChild(del);
     item.addEventListener("click", async () => {
-      const ok = await window.yo.yoChatsLoad(chat.id);
-      if (ok) {
+      const messages = await window.yo.yoChatsLoad(chat.id);
+      if (messages) {
         yoPanelMessages.innerHTML = "";
         yoResponseEl = null;
         yoStatusEl = null;
         yoLastAssistantText = "";
         yoHistoryPanel.classList.add("hidden");
-        // Show a loaded indicator
-        const loaded = document.createElement("div");
-        loaded.className = "yo-msg yo-msg-assistant";
-        loaded.textContent = `loaded: ${chat.title}`;
-        loaded.style.color = "#555";
-        loaded.style.fontStyle = "italic";
-        yoPanelMessages.appendChild(loaded);
+
+        // Render conversation messages
+        for (const msg of messages) {
+          const el = document.createElement("div");
+          if (msg.role === "user") {
+            el.className = "yo-msg yo-msg-user";
+            el.textContent = msg.text;
+          } else {
+            el.className = "yo-msg yo-msg-assistant";
+            el.innerHTML = formatYoText(msg.text);
+            yoLastAssistantText = msg.text;
+          }
+          yoPanelMessages.appendChild(el);
+        }
+        yoScroll();
       }
     });
     yoHistoryList.appendChild(item);

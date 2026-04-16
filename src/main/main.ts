@@ -717,6 +717,31 @@ async function boot() {
   });
   yoAgent.setLayoutCallbacks({
     list: () => layoutManager.listLayouts().map((l) => ({ name: l.name, cols: l.cols, rows: l.rows, cells: l.cells })),
+    save: (name, panels) => {
+      // Parse "claude gpt / gemini code" → rows of panel IDs
+      const rows = panels.split("/").map((r) => r.trim().split(/\s+/).filter(Boolean));
+      const numRows = rows.length;
+      const numCols = Math.max(...rows.map((r) => r.length));
+      const cells = rows.flatMap((row, rowIdx) =>
+        row.map((panelId, colIdx) => ({
+          panelId,
+          col: colIdx,
+          row: rowIdx,
+          colSpan: 1,
+          rowSpan: 1,
+        }))
+      );
+      layoutManager.saveLayout({
+        name,
+        version: 2,
+        cols: numCols,
+        rows: numRows,
+        colWidths: Array(numCols).fill(1 / numCols),
+        rowHeights: Array(numRows).fill(1 / numRows),
+        cells,
+      });
+      return true;
+    },
     delete: (name) => layoutManager.deleteLayout(name),
   });
   yoAgent.setPanelGrabber(async (panelId) => {
@@ -859,6 +884,15 @@ async function boot() {
       mainWindow.webContents.focus();
     }
     return result;
+  });
+
+  yoAgent.setInjector(async (text: string) => {
+    const wc = yoInterceptor.getActiveYoWc();
+    if (!wc || wc.isDestroyed()) return false;
+    try {
+      await wc.executeJavaScript(`(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(text)});}})()`);
+      return true;
+    } catch { return false; }
   });
 
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
@@ -1235,9 +1269,8 @@ async function boot() {
   // IPC: Yo chat history
   ipcMain.handle("yo-chats-list", () => yoAgent?.listChats() || []);
   ipcMain.handle("yo-chats-load", (_e, id: string) => {
-    if (!yoAgent) return false;
-    const ok = yoAgent.loadChat(id);
-    return ok;
+    if (!yoAgent) return null;
+    return yoAgent.loadChat(id);
   });
   ipcMain.handle("yo-chats-delete", (_e, id: string) => yoAgent?.deleteChat(id) || false);
   ipcMain.handle("yo-chat-new", () => {
