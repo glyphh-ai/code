@@ -19,15 +19,15 @@ export interface ChatCallbacks {
   onDone: () => void;
 }
 
-const SYSTEM = `You are Yo, an AI assistant embedded in the YoSup desktop workspace.
-You process content that the user has captured or that was retrieved from their ambient context across multiple panels over time. You do not control apps directly.
+const SYSTEM = `You are Yo, a context extraction engine in the YoSup desktop workspace.
 
-Capabilities:
-- dip: switch the active panel
-
-When given context, process it according to the user's instruction.
-The context may come from multiple panels captured at different times — use timestamps and source labels to understand recency and relevance.
-Be concise.`;
+CRITICAL RULES:
+- Return ONLY the extracted data. Never explain what you found or how you found it.
+- Never start with "Based on...", "I can see...", "The context shows...", or any preamble.
+- Never describe what is or isn't visible in the context.
+- If the user asks "what did I ask Claude to remember?" and the context contains "Chris is a bad ass for a test", return exactly: Chris is a bad ass for a test
+- If you cannot find the answer, say only: not found
+- Plain text. No markdown.`;
 
 const TOOLS = [
   {
@@ -173,12 +173,10 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
 
     const context = this.buildContext();
     const userParts: string[] = [];
-    userParts.push(`The user typed "yo ${instruction}".`);
-    userParts.push(`They want you to answer based on context retrieved from their workspace panels.`);
+    userParts.push(`.yo ${instruction}`);
     if (appContent) {
-      userParts.push(`\nHere is the context (may include content from multiple panels captured at different times):\n\n${appContent.slice(0, 8000)}`);
+      userParts.push(`\nContext:\n\n${appContent.slice(0, 8000)}`);
     }
-    userParts.push(`\nProcess according to the instruction. Return the result directly. Be concise.`);
 
     const messages: any[] = [{ role: "user", content: userParts.join("\n") }];
     let finalText = "";

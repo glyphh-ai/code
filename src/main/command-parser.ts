@@ -208,17 +208,16 @@ export class CommandParser {
       if (this.yoChat) {
         return this.yoChat.executeInline("yo", query, "command-bar", content);
       }
-      return "No AI engine available.";
+      return "No context found.";
     }
 
     // Assemble retrieved context with metadata
-    const contextParts = chunks.map((c) => {
+    const assembledContext = chunks.map((c) => {
       const age = this.formatAge(c.timestamp);
       return `[${c.panel_id} | ${c.title} | ${age}]\n${c.content}`;
-    });
-    const assembledContext = contextParts.join("\n\n---\n\n");
+    }).join("\n\n---\n\n");
 
-    // Send to LLM with retrieval-augmented prompt
+    // LLM extracts the relevant data from chunks
     if (!this.yoChat) return assembledContext;
 
     return this.yoChat.executeInline("yo", query, "command-bar", assembledContext);
