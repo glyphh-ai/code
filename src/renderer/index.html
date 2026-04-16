@@ -11,8 +11,7 @@
   <div id="splash">
     <div class="splash-content">
       <div class="splash-logo"><span class="splash-dot">.</span>Yo</div>
-      <div class="splash-commands"><span class="splash-dot">.</span>Yo <span class="splash-dot">.</span>Sup <span class="splash-dot">.</span>Dip</div>
-      <div class="splash-tagline">Work across every AI. Never lose the thread.</div>
+      <div class="splash-powered">powered by Glyphh AI</div>
     </div>
   </div>
 
@@ -38,6 +37,13 @@
       </div>
       <div id="onboarding-status"></div>
       <button id="onboarding-buy" class="onboarding-buy">Get License</button>
+      <div class="onboarding-policies">
+        By using .Yo you agree to our
+        <a id="onboarding-terms-link">Terms of Use</a>,
+        <a id="onboarding-privacy-link">Privacy Policy</a>, and
+        <a id="onboarding-refund-link">Refund Policy</a>.
+        <br>&copy; 2026 Glyphh AI LLC
+      </div>
     </div>
   </div>
 
@@ -48,13 +54,8 @@
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
     <div id="titlebar-label">Yo<span class="dot">.</span></div>
-    <span id="context-pill" class="hidden">
-      <span id="context-pill-name"></span>
-      <button id="context-pill-edit" class="context-pill-icon" title="Edit context">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      </button>
-      <button id="context-pill-clear" class="context-pill-icon" title="Clear context">&times;</button>
-    </span>
+    <div id="tab-bar"></div>
+    <button id="tab-new-btn" class="tab-new-btn" title="New tab">+</button>
   </div>
 
   <!-- Cmd+K command overlay -->
@@ -81,6 +82,7 @@
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="settings">Settings</button>
+        <button class="help-nav-item" data-section="about">About</button>
         <div class="help-nav-spacer"></div>
       </nav>
       <main id="help-content">
@@ -360,6 +362,38 @@
             </div>
           </div>
 
+          <h3 class="settings-subheading">Subscription</h3>
+          <div id="license-card" class="license-card">
+            <div class="license-row">
+              <span class="license-label">Status</span>
+              <span class="license-value" id="license-status">—</span>
+            </div>
+            <div class="license-row">
+              <span class="license-label">License Key</span>
+              <span class="license-value" id="license-key">—</span>
+            </div>
+            <div class="license-row" id="license-trial-row" style="display:none">
+              <span class="license-label">Trial</span>
+              <span class="license-value" id="license-trial">—</span>
+            </div>
+            <div class="license-actions">
+              <button id="license-upgrade-btn" class="action-btn primary">Upgrade</button>
+              <button id="license-cancel-btn" class="action-btn">Cancel Subscription</button>
+            </div>
+          </div>
+
+          <h3 class="settings-subheading">Appearance</h3>
+          <div class="settings-toggles">
+            <label class="settings-toggle">
+              <input type="checkbox" id="toggle-show-tabs" checked />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">Show Tabs</span>
+                <span class="toggle-desc">Show browser-style tabs in the app header</span>
+              </div>
+            </label>
+          </div>
+
           <h3 class="settings-subheading">Services</h3>
           <p class="section-desc">Optional local servers. Changes take effect on next launch.</p>
           <div class="settings-toggles">
@@ -383,6 +417,31 @@
           <div id="settings-relaunch" class="settings-relaunch hidden">
             <span>Restart required for changes to take effect</span>
             <button id="settings-relaunch-btn" class="action-btn primary">Relaunch</button>
+          </div>
+        </div>
+
+        <!-- About -->
+        <div class="help-section" data-section="about">
+          <h2>About</h2>
+          <div class="about-header">
+            <div class="about-logo"><span class="about-dot">.</span>Yo</div>
+            <div class="about-version" id="about-version">Version 0.1.0</div>
+            <div class="about-copyright">&copy; 2026 Glyphh AI LLC. All rights reserved.</div>
+          </div>
+
+          <div class="about-policies">
+            <div class="about-policy" id="policy-terms">
+              <h3>Terms of Use</h3>
+              <div class="policy-content"></div>
+            </div>
+            <div class="about-policy" id="policy-privacy">
+              <h3>Privacy Policy</h3>
+              <div class="policy-content"></div>
+            </div>
+            <div class="about-policy" id="policy-refund">
+              <h3>Refund Policy</h3>
+              <div class="policy-content"></div>
+            </div>
           </div>
         </div>
 

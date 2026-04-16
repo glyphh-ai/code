@@ -273,6 +273,22 @@ activateBtn.addEventListener("click", async () => {
   });
 });
 
+// Policy links — open about section in help
+function openAboutFromOnboarding() {
+  // Use a simple modal overlay for policies during onboarding
+  // (help overlay isn't accessible during onboarding since panels aren't loaded)
+}
+
+document.getElementById("onboarding-terms-link")?.addEventListener("click", () => {
+  window.yo.openExternal("https://yo.ai/terms");
+});
+document.getElementById("onboarding-privacy-link")?.addEventListener("click", () => {
+  window.yo.openExternal("https://yo.ai/privacy");
+});
+document.getElementById("onboarding-refund-link")?.addEventListener("click", () => {
+  window.yo.openExternal("https://yo.ai/refund");
+});
+
 // Buy license — opens Stripe Checkout in default browser
 const buyBtn = document.getElementById("onboarding-buy") as HTMLButtonElement;
 buyBtn.addEventListener("click", async () => {

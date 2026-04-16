@@ -66,6 +66,7 @@ export class PanelManager {
   private previousPanel: string | null = null;
   private onCreated: PanelCreatedCallback | null = null;
   private onReady: PanelReadyCallback | null = null;
+  private onPanelFocused: ((id: string) => void) | null = null;
   private zoomFactor = 1.0;
   private _animating = false;
   private onZoomChange: ((factor: number) => void) | null = null;
@@ -289,6 +290,10 @@ export class PanelManager {
   /** Register callback for when zoom changes (to persist preference). */
   setOnZoomChange(cb: (factor: number) => void): void {
     this.onZoomChange = cb;
+  }
+
+  setOnPanelFocused(cb: (id: string) => void): void {
+    this.onPanelFocused = cb;
   }
 
   /** Whether a slide animation is in progress */
@@ -525,6 +530,32 @@ export class PanelManager {
       }
     });
 
+    // Forward keyboard shortcuts from webviews nested inside this panel (e.g., browser panel)
+    view.webContents.on("did-attach-webview" as any, (_event: unknown, childWc: WebContents) => {
+      childWc.on("before-input-event", (e, input) => {
+        if (childWc.isDestroyed() || parent.isDestroyed()) return;
+        if (!input.meta && !input.control) return;
+        if (input.type !== "keyDown") return;
+        if (input.key === "k") {
+          e.preventDefault();
+          parent.webContents.send("focus-command-input");
+          parent.webContents.focus();
+        } else if (input.key === "=" || input.key === "+") {
+          e.preventDefault();
+          this.setZoom(this.zoomFactor + 0.1);
+        } else if (input.key === "-") {
+          e.preventDefault();
+          this.setZoom(this.zoomFactor - 0.1);
+        } else if (input.key === "0") {
+          e.preventDefault();
+          this.setZoom(1.0);
+        } else if (input.key === "r") {
+          e.preventDefault();
+          this.refresh(this.activePanel ?? undefined);
+        }
+      });
+    });
+
     view.webContents.loadURL(config.url);
     view.webContents.on("did-finish-load", () => {
       if (view.webContents.isDestroyed()) return;
@@ -551,6 +582,7 @@ export class PanelManager {
         this.previousPanel = this.activePanel;
       }
       this.activePanel = id;
+      this.onPanelFocused?.(id);
     });
 
     this.onCreated?.(id, view.webContents);
@@ -780,6 +812,24 @@ export class PanelManager {
   /** Check if a panel config exists */
   hasPanel(id: string): boolean {
     return this.configs.has(id);
+  }
+
+  /** Close and destroy a panel's BrowserView */
+  closePanel(id: string, parent: BrowserWindow): void {
+    const view = this.panels.get(id);
+    if (view) {
+      try {
+        parent.removeBrowserView(view);
+        if (!view.webContents.isDestroyed()) {
+          (view.webContents as any).destroy?.();
+        }
+      } catch { /* already destroyed */ }
+      this.panels.delete(id);
+    }
+    if (this.activePanel === id) {
+      this.activePanel = this.previousPanel;
+      this.previousPanel = null;
+    }
   }
 
   /** Clear cookies/storage/cache for a panel (or active panel) and reload */

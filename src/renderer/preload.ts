@@ -128,4 +128,17 @@ contextBridge.exposeInMainWorld("yo", {
   saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
     ipcRenderer.invoke("save-llm-config", config) as Promise<{ ok: boolean; error?: string }>,
 
+  // Tabs
+  tabList: () => ipcRenderer.invoke("tab-list") as Promise<{ tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }>,
+  tabSwitch: (id: string) => ipcRenderer.send("tab-switch", id),
+  tabClose: (id: string) => ipcRenderer.send("tab-close", id),
+  tabNew: () => ipcRenderer.send("tab-new"),
+  onTabState: (callback: (state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => void) => {
+    ipcRenderer.on("tab-state", (_event, state) => callback(state));
+  },
+
+  // License info
+  getLicenseInfo: () => ipcRenderer.invoke("get-license-info") as Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>,
+  getCheckoutUrlForPlan: (plan: string) => ipcRenderer.invoke("get-checkout-url", plan) as Promise<string | null>,
+  openExternal: (url: string) => ipcRenderer.send("open-external", url),
 });

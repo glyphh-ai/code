@@ -644,6 +644,13 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     sendSessionState();
+    // Sync tab state (dip commands change active panel / open grids)
+    if (gridInfo) {
+      for (const id of gridInfo.panelIds) ensureTab(id);
+    } else if (panelManager.activePanelId) {
+      ensureTab(panelManager.activePanelId);
+    }
+    sendTabState();
     return result;
   };
   yoInterceptor.setCommandHandler(execCommand);
@@ -736,6 +743,14 @@ async function boot() {
     } else if (mainWindow) {
       panelManager.switchTo("claude", mainWindow);
     }
+    // Seed tabs from restored panels
+    const gridInfo = layoutManager.getGridInfo();
+    if (gridInfo) {
+      for (const id of gridInfo.panelIds) ensureTab(id);
+    } else if (panelManager.activePanelId) {
+      ensureTab(panelManager.activePanelId);
+    }
+    sendTabState();
   }
 
   // Helper: push grid state to renderer (for drag handles + panel chips)
@@ -743,6 +758,36 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
   }
+
+  // ── Tab management ─────────────────────────────────────────
+  const openTabs: string[] = [];
+  let tabBrowserCounter = 0;
+
+  function getTabName(id: string): string {
+    const app = appConnector.get(id);
+    return app?.name || id;
+  }
+
+  function sendTabState() {
+    const visible = getPreference<boolean>("showTabs", true);
+    mainWindow?.webContents.send("tab-state", {
+      tabs: openTabs.map((id) => ({ id, name: getTabName(id) })),
+      activeId: panelManager.activePanelId || "",
+      visible,
+    });
+  }
+
+  function ensureTab(id: string) {
+    if (!openTabs.includes(id)) {
+      openTabs.push(id);
+    }
+  }
+
+  // Hook into panel focus events — add tab when panel becomes active
+  panelManager.setOnPanelFocused((id: string) => {
+    ensureTab(id);
+    sendTabState();
+  });
 
   // Check if onboarding is needed BEFORE restoring panels
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
@@ -1313,6 +1358,66 @@ async function boot() {
       shell.openExternal(url);
     }
     return url;
+  });
+
+  // IPC: tabs
+  ipcMain.handle("tab-list", () => {
+    const visible = getPreference<boolean>("showTabs", true);
+    return {
+      tabs: openTabs.map((id) => ({ id, name: getTabName(id) })),
+      activeId: panelManager.activePanelId || "",
+      visible,
+    };
+  });
+
+  ipcMain.on("tab-switch", (_e, id: string) => {
+    if (!mainWindow) return;
+    panelManager.switchTo(id, mainWindow);
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-close", (_e, id: string) => {
+    if (!mainWindow) return;
+    const idx = openTabs.indexOf(id);
+    if (idx < 0) return;
+    openTabs.splice(idx, 1);
+    panelManager.closePanel(id, mainWindow);
+    // Switch to adjacent tab if closing the active one
+    if (panelManager.activePanelId === id || panelManager.activePanelId === null) {
+      const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+      if (nextId) {
+        panelManager.switchTo(nextId, mainWindow);
+      }
+    }
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-new", () => {
+    if (!mainWindow) return;
+    tabBrowserCounter++;
+    const id = `browse-${tabBrowserCounter}`;
+    const browserHtmlPath = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
+    panelManager.addPanel(id, browserHtmlPath, undefined, undefined, true);
+    panelManager.switchTo(id, mainWindow);
+    ensureTab(id);
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("open-external", (_e, url: string) => {
+    shell.openExternal(url);
+  });
+
+  // IPC: license info (for settings display)
+  ipcMain.handle("get-license-info", () => {
+    const license = checkLicense();
+    return {
+      status: license.status,
+      key: license.key ? license.key.slice(0, 4) + "..." + license.key.slice(-4) : undefined,
+      daysRemaining: license.daysRemaining,
+    };
   });
 
   // IPC: preferences

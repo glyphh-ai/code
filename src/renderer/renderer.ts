@@ -84,6 +84,16 @@ declare global {
       getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
       saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; error?: string }>;
+      // Tabs
+      tabList: () => Promise<{ tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }>;
+      tabSwitch: (id: string) => void;
+      tabClose: (id: string) => void;
+      tabNew: () => void;
+      onTabState: (callback: (state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => void) => void;
+      // License info
+      getLicenseInfo: () => Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>;
+      getCheckoutUrlForPlan: (plan: string) => Promise<string | null>;
+      openExternal: (url: string) => void;
     };
   }
 }
@@ -121,39 +131,43 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
-// -- Context pill --
+// -- Tab bar --
 
-const contextPill = document.getElementById("context-pill")!;
-const contextPillName = document.getElementById("context-pill-name")!;
-const contextPillEdit = document.getElementById("context-pill-edit")!;
-function updateContextPill(info: { hasContent: boolean; label: string; fileName: string }) {
-  if (info.hasContent && info.label) {
-    const cleanName = info.label.replace(/\.md$/i, "");
-    contextPillName.textContent = cleanName;
-    contextPill.classList.remove("hidden");
-  } else {
-    contextPill.classList.add("hidden");
+const tabBar = document.getElementById("tab-bar")!;
+const tabNewBtn = document.getElementById("tab-new-btn")!;
+
+function renderTabs(tabs: Array<{ id: string; name: string }>, activeId: string) {
+  tabBar.innerHTML = "";
+  for (const tab of tabs) {
+    const el = document.createElement("div");
+    el.className = "tab" + (tab.id === activeId ? " tab-active" : "");
+    el.dataset.id = tab.id;
+    el.innerHTML = `<span class="tab-label">${tab.name}</span><button class="tab-close" title="Close tab">&times;</button>`;
+    el.querySelector(".tab-label")!.addEventListener("click", () => {
+      window.yo.tabSwitch(tab.id);
+    });
+    el.querySelector(".tab-close")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.yo.tabClose(tab.id);
+    });
+    tabBar.appendChild(el);
   }
 }
 
-window.yo.onSessionChanged(updateContextPill);
+tabNewBtn.addEventListener("click", () => window.yo.tabNew());
 
-// Click pill name or edit icon -> open command bar
-contextPillName.addEventListener("click", () => openCmdK());
-contextPillEdit.addEventListener("click", (e) => {
-  e.stopPropagation();
-  openCmdK();
+window.yo.onTabState((state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => {
+  renderTabs(state.tabs, state.activeId);
+  tabBar.style.display = state.visible ? "flex" : "none";
+  tabNewBtn.style.display = state.visible ? "" : "none";
 });
 
-// Click X -> clear context
-const contextPillClear = document.getElementById("context-pill-clear")!;
-contextPillClear.addEventListener("click", (e) => {
-  e.stopPropagation();
-  window.yo.sessionClear();
+// Load initial tab state
+window.yo.tabList().then((state) => {
+  renderTabs(state.tabs, state.activeId);
+  tabBar.style.display = state.visible ? "flex" : "none";
+  tabNewBtn.style.display = state.visible ? "" : "none";
 });
-
-// Load initial state
-window.yo.sessionInfo().then(updateContextPill);
 
 // -- Cmd+K command overlay --
 
