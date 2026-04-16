@@ -540,6 +540,13 @@ window.yo.onDripEffect(playDrip);
 // -- Boot gate --
 
 window.yo.onBoot((data) => {
+  // Dismiss splash screen
+  const splash = document.getElementById("splash");
+  if (splash) {
+    splash.classList.add("fade-out");
+    setTimeout(() => splash.remove(), 600);
+  }
+
   if (data.needsOnboarding) {
     showOnboarding(data.license.daysRemaining);
   } else if (!data.hideWelcome) {
