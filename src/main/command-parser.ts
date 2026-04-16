@@ -352,6 +352,55 @@ export class CommandParser {
     return result;
   }
 
+  /**
+   * Conversational yo query — search context store, send to LLM as agent,
+   * return a natural-language response. Starts a session for follow-ups.
+   */
+  async yoQuery(query: string): Promise<string> {
+    if (!this.yoChat) return "No LLM configured.";
+
+    const hits = await this.contextStore.search(query, 15);
+
+    if (hits.length === 0) {
+      this.yoContext = "";
+      this.yoHistory = [{ role: "user", content: query }];
+      const noResult = "nothing found — try a different query";
+      this.yoHistory.push({ role: "assistant", content: noResult });
+      return noResult;
+    }
+
+    // Assemble context from top panels
+    const panelHits = new Map<string, number>();
+    for (const h of hits) panelHits.set(h.panel_id, (panelHits.get(h.panel_id) || 0) + 1);
+    const topPanels = [...panelHits.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id]) => id);
+
+    const contextSections: string[] = [];
+    for (const panelId of topPanels) {
+      const allChunks = this.contextStore.getPanelContent(panelId);
+      if (allChunks.length === 0) continue;
+      const title = allChunks[0].title || panelId;
+      const age = this.formatAge(allChunks[0].timestamp);
+      const fullContent = allChunks.map((c) => c.content).join("\n");
+      contextSections.push(`[${panelId} | ${title} | ${age}]\n${fullContent}`);
+    }
+
+    this.yoContext = contextSections.join("\n\n---\n\n");
+    this.yoHistory = [{ role: "user", content: query }];
+
+    const result = await this.yoChat.executeInline(
+      "yo",
+      query,
+      "yo-conversation",
+      this.yoContext,
+    );
+
+    this.yoHistory.push({ role: "assistant", content: result });
+    return result;
+  }
+
   /** Clear yo conversation state. */
   clearYoHistory(): void {
     this.yoHistory = [];

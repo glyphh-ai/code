@@ -17,7 +17,7 @@ export interface ChatCallbacks {
   onDone: () => void;
 }
 
-const SYSTEM = `You are a retrieval tool. You receive context chunks from the user's workspace and a query.
+const SYSTEM_RETRIEVAL = `You are a retrieval tool. You receive context chunks from the user's workspace and a query.
 
 Your ONLY job: find the chunks that match the query and return their content VERBATIM. Copy-paste the relevant text exactly as it appears. Do not summarize, do not paraphrase, do not shorten, do not reformat.
 
@@ -29,6 +29,21 @@ RULES:
 - Do not add formatting. No markdown. No headers. No bullet points unless they exist in the source.
 - If multiple chunks match, return all of them separated by blank lines.
 - If nothing matches: not found`;
+
+const SYSTEM_CONVERSATION = `You are yo, a retrieval agent. The user talks to you by typing .yo <message>. Your response appears in their text input field.
+
+You have context chunks from the user's workspace below.
+
+RULES:
+- Return the ACTUAL content from the chunks. Not a summary. Not a description. The real text.
+- NEVER say "I found...", "Here's...", "It looks like...", "I see...". Just return the content.
+- If one chunk clearly matches: return its content verbatim. Copy-paste it.
+- If multiple chunks match and it's ambiguous: list them briefly so the user can pick. Keep each to one line. Example: "found two: (1) reddit post about launch timing (2) reddit post about pricing strategy — which one?"
+- When the user picks one: return that chunk's full content verbatim.
+- If the user asks to combine or summarize: do that, but still return actual text not commentary.
+- Plain text only. No markdown.
+- If nothing matches: "nothing found — try different words?"
+- Short disambiguation questions are OK. Descriptions of content are NOT OK. Return the content itself.`;
 
 const TOOLS = [
   {
@@ -126,7 +141,7 @@ The complete output — either the refined content OR the skill prompt template
 Return the FULL document between <document> tags. Do NOT abbreviate or summarize it.`;
 
     const response = await createCompletion(this.llmConfig!, {
-      system: SYSTEM + "\n\n" + context,
+      system: SYSTEM_RETRIEVAL + "\n\n" + context,
       messages: [{ role: "user", content: userPrompt }],
       maxTokens: 4096,
     });
@@ -167,16 +182,19 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
   ): Promise<string> {
     if (!this.llmConfig?.apiKey) return "No API key configured.";
 
+    const isConversation = appId === "yo-conversation" || appId === "yo-refine";
+    const system = isConversation ? SYSTEM_CONVERSATION : SYSTEM_RETRIEVAL;
+
     const userParts: string[] = [];
-    userParts.push(`Query: ${instruction}`);
+    userParts.push(isConversation ? instruction : `Query: ${instruction}`);
     if (appContent) {
       userParts.push(`\nContext chunks:\n\n${appContent.slice(0, 24000)}`);
     }
 
     const response = await createCompletion(this.llmConfig, {
-      system: SYSTEM,
+      system,
       messages: [{ role: "user", content: userParts.join("\n") }],
-      maxTokens: 4096,
+      maxTokens: isConversation ? 1024 : 4096,
     });
 
     let text = "";
@@ -193,7 +211,7 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
 
     const response = await createStream(
       this.llmConfig!,
-      { system: SYSTEM + "\n\n" + context, messages: this.history, tools: TOOLS, maxTokens: 4096 },
+      { system: SYSTEM_RETRIEVAL + "\n\n" + context, messages: this.history, tools: TOOLS, maxTokens: 4096 },
       (text) => cb.onText(text),
     );
 

@@ -31,12 +31,14 @@ export class YoInterceptor {
   private opId = 0; // incremented per operation; cancel bumps it to invalidate in-flight results
   private sessionNotifier: (() => void) | null = null;
 
-  // Sup widget callbacks
+  // Yo conversation callbacks
   private yoSearcher: ((query: string) => Promise<YoResult[]>) | null = null;
+  private yoQuerier: ((query: string) => Promise<string>) | null = null;
   private yoRefiner: ((message: string) => Promise<string>) | null = null;
   private yoClearer: (() => void) | null = null;
   private yoWidgetWc: WebContents | null = null; // track which wc has the widget open
   private yoResults: YoResult[] = []; // current search results
+  private yoSessionActive = false; // true when in a .yo conversation
 
   constructor(
     private appConnector: AppConnector,
@@ -49,6 +51,7 @@ export class YoInterceptor {
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
   setYoSearcher(fn: (query: string) => Promise<YoResult[]>): void { this.yoSearcher = fn; }
+  setYoQuerier(fn: (query: string) => Promise<string>): void { this.yoQuerier = fn; }
   setYoRefiner(fn: (message: string) => Promise<string>): void { this.yoRefiner = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
 
@@ -384,7 +387,7 @@ window.addEventListener('beforeunload',function(e){
         await this.setYoLoading(wc, false);
         // Update header to show the query
         try {
-          await wc.executeJavaScript(`(function(){var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;var w=h.shadowRoot.getElementById('__yo-widget');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.yo '+${JSON.stringify(message)};})()`);
+          await wc.executeJavaScript(`(function(){var w=document.getElementById('__yo-widget');if(!w)return;var t=w.querySelector('span');if(t)t.textContent='.yo '+${JSON.stringify(message)};})()`);
         } catch {}
         if (results.length === 0) {
           await this.appendYoMessage(wc, "error", "No matching context found.");
@@ -413,12 +416,14 @@ window.addEventListener('beforeunload',function(e){
     }
   }
 
-  /** Remove the yo widget from the page. */
+  /** Dismiss yo state — clears session, widget, and result Escape handler. */
   private dismissYoWidget(wc: WebContents): void {
     this.yoWidgetWc = null;
     this.yoResults = [];
+    this.yoSessionActive = false;
+    this.yoClearer?.();
     try {
-      wc.executeJavaScript(`(function(){var h=document.getElementById('__yo-widget-host');if(h){var sr=h.shadowRoot;if(sr){var s=sr.getElementById('__yo-widget-thinking');if(s&&s.__tid)clearInterval(s.__tid);}h.remove();}if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}})()`);
+      wc.executeJavaScript(`(function(){var s=document.getElementById('__yo-widget-thinking');if(s&&s.__tid)clearInterval(s.__tid);var h=document.getElementById('__yo-widget-host');if(h)h.remove();if(window.__yoWidgetEsc){document.removeEventListener('keydown',window.__yoWidgetEsc,true);window.__yoWidgetEsc=null;}if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}})()`);
     } catch {}
   }
 
@@ -432,24 +437,25 @@ window.addEventListener('beforeunload',function(e){
     // Subcommands routed through command parser
     const sub = instruction?.split(/\s+/)[0]?.toLowerCase();
     if (sub === "help" || sub === "skill" || sub === "layout") {
+      this.yoSessionActive = false;
       const result = await this.commandHandler(`yo ${instruction}`);
       if (result) this.notify(wc, result, "success");
       return;
     }
 
-    // Bare .yo → open empty widget ready for input
+    // Bare .yo → clear session, open library browser
     if (!instruction?.trim()) {
-      this.dismissYoWidget(wc);
+      this.yoSessionActive = false;
       this.yoClearer?.();
-      await this.injectYoWidget(wc, "");
-      this.yoWidgetWc = wc;
-      await this.updateYoWidgetResults(wc, [], undefined);
+      const result = await this.commandHandler("yo");
+      if (result) this.notify(wc, result, "success");
       return;
     }
 
-    // .yo . <skill/prompt> → process last capture with skill (no widget)
+    // .yo . <skill/prompt> → process last capture with skill
     const dotMatch = instruction.match(/^\.\s*(.+)$/);
     if (dotMatch) {
+      this.yoSessionActive = false;
       const myOp = ++this.opId;
       this.notify(wc, "", "loading");
       try {
@@ -464,10 +470,11 @@ window.addEventListener('beforeunload',function(e){
       return;
     }
 
-    // .yo <query> . <processor> → search + process, direct inject (no widget)
+    // .yo <query> . <processor> → search + process, direct inject
     const parts = instruction.split(/\s+/);
     const dotIdx = parts.indexOf(".");
     if (dotIdx > 0 && dotIdx < parts.length - 1) {
+      this.yoSessionActive = false;
       const myOp = ++this.opId;
       this.notify(wc, "", "loading");
       try {
@@ -482,29 +489,38 @@ window.addEventListener('beforeunload',function(e){
       return;
     }
 
-    // .yo <query> → open inline widget with search results
-    if (!this.yoSearcher) {
-      this.notify(wc, "Search not available.", "error");
-      return;
-    }
-
-    this.dismissYoWidget(wc);
-    this.yoClearer?.();
+    // ── Conversational .yo ─────────────────────────────────
+    // Every .yo <text> is a turn in the conversation.
+    // First turn: search + LLM. Follow-ups: refine with context.
+    // Response goes right into the user's input field.
 
     const query = instruction.trim();
-    await this.injectYoWidget(wc, query);
-    this.yoWidgetWc = wc;
+    const myOp = ++this.opId;
+    this.notify(wc, "", "loading");
 
     try {
-      const results = await this.yoSearcher(query);
-      this.yoResults = results;
-      if (results.length === 0) {
-        await this.updateYoWidgetResults(wc, [], "No matching context found.");
+      let result: string;
+      if (this.yoSessionActive && this.yoRefiner) {
+        // Follow-up turn — refine with existing context
+        result = await this.yoRefiner(query);
+      } else if (this.yoQuerier) {
+        // First turn — search context store + LLM
+        this.yoClearer?.();
+        result = await this.yoQuerier(query);
+        this.yoSessionActive = true;
       } else {
-        await this.updateYoWidgetResults(wc, results);
+        await this.clearNotify(wc);
+        this.notify(wc, "Search not available.", "error");
+        return;
       }
+
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+      this.notify(wc, result, "yo");
     } catch (err) {
-      await this.updateYoWidgetResults(wc, [], `Search failed: ${err instanceof Error ? err.message : err}`);
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+      this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
     }
   }
 
@@ -591,8 +607,6 @@ var oldHost=document.getElementById('__yo-widget-host');if(oldHost)oldHost.remov
 var host=document.createElement('div');host.id='__yo-widget-host';
 host.style.cssText='position:fixed !important;z-index:2147483647 !important;bottom:60px !important;right:16px !important;width:380px !important;max-height:700px !important;pointer-events:auto !important;';
 document.documentElement.appendChild(host);
-var shadow=host.attachShadow({mode:'open'});
-
 var w=document.createElement('div');w.id='__yo-widget';
 w.style.cssText='width:100%;max-height:700px;background:#1a1a1a;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:13px;color:#ccc;overflow:hidden;line-height:normal;box-sizing:border-box;';
 
@@ -663,7 +677,7 @@ input.onblur=function(){inputRow.style.borderColor='#333';};
 inputRow.appendChild(input);inputRow.appendChild(sendBtn);
 inputWrap.appendChild(inputRow);
 w.appendChild(hdr);w.appendChild(body);w.appendChild(inputWrap);
-shadow.appendChild(w);
+host.appendChild(w);
 
 // Focus input after a tick
 setTimeout(function(){input.focus();},50);
@@ -694,10 +708,8 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
     try {
       await wc.executeJavaScript(`
 (function(){
-var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
-var sr=h.shadowRoot;
-var body=sr.getElementById('__yo-widget-body');if(!body)return;
-var spinner=sr.getElementById('__yo-widget-thinking');if(spinner&&spinner.__tid)clearInterval(spinner.__tid);
+var body=document.getElementById('__yo-widget-body');if(!body)return;
+var spinner=document.getElementById('__yo-widget-thinking');if(spinner&&spinner.__tid)clearInterval(spinner.__tid);
 body.innerHTML='';
 var err=${err};
 if(err){
@@ -762,7 +774,7 @@ results.forEach(function(r){
   var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
   preview.textContent=r.preview;
 
-  var full=document.createElement('div');full.style.cssText='display:none;color:#bbb;font-size:12px;line-height:1.5;margin-top:8px;max-height:280px;overflow-y:auto;padding-right:4px;';
+  var full=document.createElement('div');full.style.cssText='display:none;color:#bbb;font-size:12px;line-height:1.5;margin-top:8px;';
   full.innerHTML=renderMd(r.content);
 
   card.onclick=function(){
@@ -793,8 +805,7 @@ body.scrollTop=0;
       if (isUser) {
         await wc.executeJavaScript(`
 (function(){
-var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
-var body=h.shadowRoot.getElementById('__yo-widget-body');if(!body)return;
+var body=document.getElementById('__yo-widget-body');if(!body)return;
 var wrap=document.createElement('div');
 wrap.style.cssText='display:flex;justify-content:flex-end;margin-top:8px;';
 var bubble=document.createElement('div');
@@ -805,24 +816,74 @@ wrap.appendChild(bubble);body.appendChild(wrap);body.scrollTop=body.scrollHeight
       } else {
         await wc.executeJavaScript(`
 (function(){
-var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
-var body=h.shadowRoot.getElementById('__yo-widget-body');if(!body)return;
-var msg=document.createElement('div');
-msg.style.cssText='margin-top:8px;';
-var row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;align-items:flex-start;';
-var txt=document.createElement('div');
-txt.style.cssText='font-size:12px;line-height:1.5;color:${isError ? "#ff5f57" : "#e0e0e0"};white-space:pre-wrap;word-break:break-word;flex:1;';
-txt.textContent=${escaped};
-row.appendChild(txt);
-${!isError ? `
+var body=document.getElementById('__yo-widget-body');if(!body)return;
+${isError ? `
+var msg=document.createElement('div');msg.style.cssText='margin-top:8px;padding:8px 12px;color:#ff5f57;font-size:12px;line-height:1.5;';
+msg.textContent=${escaped};body.appendChild(msg);body.scrollTop=body.scrollHeight;
+` : `
+function renderMd(text){
+  var lines=text.split('\\n');var html=[];var inCode=false;var inList=false;
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i];
+    if(l.match(/^\`\`\`/)){
+      if(inCode){html.push('</pre>');inCode=false;}
+      else{html.push('<pre style="background:#111;border-radius:4px;padding:8px 10px;overflow-x:auto;font-size:11px;color:#ccc;margin:6px 0;">');inCode=true;}
+      continue;
+    }
+    if(inCode){html.push(l.replace(/</g,'&lt;')+'\\n');continue;}
+    if(l.match(/^### /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:12px;margin:8px 0 4px;">'+l.slice(4)+'</div>');continue;}
+    if(l.match(/^## /)){html.push('<div style="color:#e0e0e0;font-weight:600;font-size:13px;margin:10px 0 4px;">'+l.slice(3)+'</div>');continue;}
+    if(l.match(/^# /)){html.push('<div style="color:#fff;font-weight:700;font-size:14px;margin:10px 0 4px;">'+l.slice(2)+'</div>');continue;}
+    if(l.match(/^[-*] /)){
+      if(!inList){html.push('<div style="margin:4px 0;">');inList=true;}
+      html.push('<div style="padding-left:12px;">\\u2022 '+l.slice(2)+'</div>');continue;
+    }
+    if(inList&&!l.trim()){inList=false;html.push('</div>');}
+    if(l.match(/^---+$/)){html.push('<hr style="border:none;border-top:1px solid #333;margin:8px 0;">');continue;}
+    var escaped=l.replace(/</g,'&lt;');
+    escaped=escaped.replace(/\`([^\`]+)\`/g,'<code style="background:#111;padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>');
+    escaped=escaped.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong style="color:#e0e0e0;">$1</strong>');
+    escaped=escaped.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');
+    if(escaped.trim())html.push('<div style="margin:2px 0;">'+escaped+'</div>');
+    else html.push('<div style="height:6px;"></div>');
+  }
+  if(inCode)html.push('</pre>');
+  if(inList)html.push('</div>');
+  return html.join('');
+}
+var card=document.createElement('div');
+card.style.cssText='background:#222;border:1px solid #333;border-radius:8px;padding:10px 12px;margin-top:8px;cursor:pointer;transition:border-color 0.15s;';
+card.onmouseenter=function(){if(!card.__expanded)card.style.borderColor='#444';};
+card.onmouseleave=function(){if(!card.__expanded)card.style.borderColor='#333';};
+card.__expanded=false;
+var top=document.createElement('div');top.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
+var label=document.createElement('span');label.style.cssText='color:#25C75E;font-size:11px;font-weight:600;';
+label.textContent='yo result';
 var useBtn=document.createElement('div');useBtn.textContent='use';
-useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;margin-left:8px;flex-shrink:0;white-space:nowrap;transition:background 0.15s;';
+useBtn.style.cssText='color:#25C75E;font-size:11px;font-weight:600;cursor:pointer;padding:2px 8px;border-radius:4px;transition:background 0.15s;';
 useBtn.onmouseenter=function(){useBtn.style.background='#25C75E22';};
 useBtn.onmouseleave=function(){useBtn.style.background='none';};
-useBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'yo-use',text:${escaped}}));};
-row.appendChild(useBtn);
-` : ""}
-msg.appendChild(row);body.appendChild(msg);body.scrollTop=body.scrollHeight;
+useBtn.onclick=function(e){e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'yo-use',text:${escaped}}));};
+top.appendChild(label);top.appendChild(useBtn);
+var text=${escaped};
+var previewText=text.split('\\n').slice(0,3).join(' ').substring(0,150);
+if(text.length>150)previewText+='...';
+var preview=document.createElement('div');preview.style.cssText='color:#999;font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;';
+preview.textContent=previewText;
+var full=document.createElement('div');full.style.cssText='display:none;color:#bbb;font-size:12px;line-height:1.5;margin-top:8px;';
+full.innerHTML=renderMd(text);
+card.onclick=function(){
+  if(card.__expanded){
+    card.__expanded=false;card.style.borderColor='#333';card.style.cursor='pointer';
+    preview.style.display='';full.style.display='none';
+  }else{
+    card.__expanded=true;card.style.borderColor='#25C75E44';card.style.cursor='default';
+    preview.style.display='none';full.style.display='block';
+  }
+};
+card.appendChild(top);card.appendChild(preview);card.appendChild(full);body.appendChild(card);
+body.scrollTop=body.scrollHeight;
+`}
 })()`);
       }
     } catch {}
@@ -833,10 +894,8 @@ msg.appendChild(row);body.appendChild(msg);body.scrollTop=body.scrollHeight;
     try {
       await wc.executeJavaScript(`
 (function(){
-var h=document.getElementById('__yo-widget-host');if(!h||!h.shadowRoot)return;
-var sr=h.shadowRoot;
-var body=sr.getElementById('__yo-widget-body');if(!body)return;
-var existing=sr.getElementById('__yo-widget-thinking');
+var body=document.getElementById('__yo-widget-body');if(!body)return;
+var existing=document.getElementById('__yo-widget-thinking');
 if(${loading}){
   if(existing)return;
   var el=document.createElement('div');el.id='__yo-widget-thinking';
@@ -884,7 +943,7 @@ if(${loading}){
   private async notify(
     wc: WebContents,
     msg: string,
-    type: "loading" | "success" | "error" | "result",
+    type: "loading" | "success" | "error" | "result" | "yo",
   ): Promise<void> {
     const loadingMessages = [
       "chilling...", "vibing...", "yozing...", "cooking...",
@@ -893,7 +952,7 @@ if(${loading}){
     const displayMsg = type === "loading"
       ? loadingMessages[Math.floor(Math.random() * loadingMessages.length)]
       : msg;
-    const isNegativeResult = type === "result" && /not found|nothing captured|no matching/i.test(msg);
+    const isNegativeResult = (type === "result" || type === "yo") && /not found|nothing/i.test(msg);
     const icon = type === "success" ? "\u2713 " : type === "error" || isNegativeResult ? "\u2717 " : type === "result" ? "\u2713 " : "";
     const text = icon + displayMsg;
     const autoRemove = type === "success" || type === "error";
@@ -961,7 +1020,20 @@ if(isLoading){
   },100);
 }else{
   setText(text);
-  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},2500);" : ""}
+  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},2500);" : `
+  // Escape clears result and ends yo session
+  if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
+  window.__yoResultEsc=function(e){
+    if(e.key==='Escape'){
+      e.preventDefault();e.stopPropagation();
+      try{setText('');}catch(ex){}
+      console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
+      document.removeEventListener('keydown',window.__yoResultEsc,true);
+      window.__yoResultEsc=null;
+    }
+  };
+  document.addEventListener('keydown',window.__yoResultEsc,true);
+  `}
 }
 })();`);
     } catch {}
@@ -974,6 +1046,7 @@ if(isLoading){
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
 var stop=document.getElementById('__yo-stop');if(stop)stop.remove();
 if(window.__yoStopEsc){document.removeEventListener('keydown',window.__yoStopEsc,true);window.__yoStopEsc=null;}
+if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
 var el=window.__yoLastEl;if(!el)return;
 if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
   var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;

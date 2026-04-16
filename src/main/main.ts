@@ -680,6 +680,7 @@ async function boot() {
   yoInterceptor.setCommandHandler(execCommand);
   yoInterceptor.setSessionNotifier(sendSessionState);
   yoInterceptor.setYoSearcher((query) => commandParser.searchForWidget(query));
+  yoInterceptor.setYoQuerier((query) => commandParser.yoQuery(query));
   yoInterceptor.setYoRefiner((message) => commandParser.yoRefine(message));
   yoInterceptor.setYoClearer(() => commandParser.clearYoHistory());
   yoChat.setCommandCallback(execCommand);
