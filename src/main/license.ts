@@ -25,6 +25,12 @@ interface LicenseState {
   key?: string;
 }
 
+interface LicenseFileData {
+  key: string;
+  activated: number;
+  serverValidated?: boolean;
+}
+
 // ── Machine fingerprint ──────────────────────────────────────
 
 function getMachineFingerprint(): string {
@@ -57,19 +63,39 @@ function getMachineFingerprint(): string {
   return crypto.createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 32);
 }
 
+// ── License file helpers ─────────────────────────────────────
+
+function readLicenseFile(): LicenseFileData | null {
+  if (!fs.existsSync(LICENSE_FILE)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(LICENSE_FILE, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function saveLicense(key: string, serverValidated: boolean = false): void {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(
+    LICENSE_FILE,
+    JSON.stringify({ key, activated: Date.now(), serverValidated }),
+    "utf-8",
+  );
+}
+
 // ── License check ────────────────────────────────────────────
 
 export function checkLicense(): LicenseState {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 
   // Check for license key
-  if (fs.existsSync(LICENSE_FILE)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(LICENSE_FILE, "utf-8"));
-      if (data.key && validateKeyLocal(data.key)) {
-        return { status: "licensed", key: data.key };
-      }
-    } catch { /* corrupted file, fall through to trial */ }
+  const data = readLicenseFile();
+  if (data?.key && validateKeyLocal(data.key)) {
+    // Dev keys and server-validated keys are trusted
+    if (validateDevKey(data.key) || data.serverValidated) {
+      return { status: "licensed", key: data.key };
+    }
+    // Key exists but was never validated by server — treat as unlicensed
   }
 
   // Check trial
@@ -99,7 +125,7 @@ export function checkLicense(): LicenseState {
 export async function activateLicense(key: string): Promise<boolean> {
   // Dev key — local-only fast path
   if (validateDevKey(key)) {
-    saveLicense(key);
+    saveLicense(key, true);
     return true;
   }
 
@@ -109,69 +135,81 @@ export async function activateLicense(key: string): Promise<boolean> {
   const machineId = getMachineFingerprint();
 
   try {
-    const result = await serverPost<{ ok: boolean; error?: string }>(
+    const result = await serverPost<{ ok: boolean; tier?: string; error?: string }>(
       "/api/license/activate",
       { key, machineId },
     );
     if (result.ok) {
-      saveLicense(key);
+      saveLicense(key, true);
+      // Set cloudToken for cloud sync (basic+ tiers)
+      if (result.tier && result.tier !== "free") {
+        const { setPreference } = await import("./preferences.js");
+        setPreference("cloudToken", key);
+      }
       return true;
     }
     console.error("License activation failed:", result.error);
     return false;
   } catch (err) {
-    console.error("License server unreachable, allowing offline activation");
-    // Offline fallback: accept key format if server is down
-    saveLicense(key);
-    return true;
+    console.error("License server unreachable");
+    // Only allow offline if this key was previously validated by the server
+    const existing = readLicenseFile();
+    if (existing && existing.key === key && existing.serverValidated) {
+      return true;
+    }
+    return false;
   }
 }
 
 // ── Periodic revalidation ────────────────────────────────────
 
 export async function revalidateLicense(): Promise<boolean> {
-  if (!fs.existsSync(LICENSE_FILE)) return false;
-  try {
-    const data = JSON.parse(fs.readFileSync(LICENSE_FILE, "utf-8"));
-    if (!data.key) return false;
-    if (validateDevKey(data.key)) return true;
+  const data = readLicenseFile();
+  if (!data?.key) return false;
+  if (validateDevKey(data.key)) return true;
 
-    const machineId = getMachineFingerprint();
-    const result = await serverPost<{ valid: boolean; error?: string }>(
+  const machineId = getMachineFingerprint();
+
+  try {
+    const result = await serverPost<{ valid: boolean; tier?: string; error?: string }>(
       "/api/license/validate",
       { key: data.key, machineId },
     );
-    return result.valid;
+    if (result.valid) {
+      // Refresh serverValidated flag
+      saveLicense(data.key, true);
+      // Update cloudToken if tier supports sync
+      if (result.tier && result.tier !== "free") {
+        const { setPreference } = await import("./preferences.js");
+        setPreference("cloudToken", data.key);
+      }
+      return true;
+    }
+    // Server says invalid — clear serverValidated
+    saveLicense(data.key, false);
+    return false;
   } catch {
-    // Offline — trust cached license
-    return true;
+    // Offline — only trust if previously server-validated
+    return data.serverValidated === true;
   }
 }
 
 // ── Checkout URL ─────────────────────────────────────────────
 
-export async function getCheckoutUrl(): Promise<string | null> {
+export async function getCheckoutUrl(plan: string = "basic"): Promise<string | null> {
   try {
-    const result = await serverGet<{ url: string }>("/api/checkout");
+    const data = readLicenseFile();
+    const keyParam = data?.key ? `&key=${encodeURIComponent(data.key)}` : "";
+    const result = await serverGet<{ url: string }>(`/api/checkout/url?plan=${plan}${keyParam}`);
     return result.url;
   } catch {
     return null;
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────
+// ── Dev key ──────────────────────────────────────────────────
 
-function saveLicense(key: string): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(
-    LICENSE_FILE,
-    JSON.stringify({ key, activated: Date.now() }),
-    "utf-8",
-  );
-}
-
-// Dev key — hash so it's not plaintext in the binary
-const DEV_KEY_HASH = "4ca7e4e4"; // hash of YO-DEV-GLYPHH-2026
+const DEV_KEY_HASH = "4ca7e4e4";
 
 function simpleHash(s: string): string {
   let h = 0;
@@ -182,6 +220,8 @@ function simpleHash(s: string): string {
 }
 
 function validateDevKey(key: string): boolean {
+  // Dev key only available in development builds
+  if (process.env.NODE_ENV === "production") return false;
   return simpleHash(key) === DEV_KEY_HASH;
 }
 

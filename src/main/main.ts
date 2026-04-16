@@ -13,7 +13,9 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { MCPServer } from "./mcp-server";
-import { checkLicense, activateLicense, getCheckoutUrl } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, getCheckoutUrl } from "./license";
+import { CloudSync } from "./cloud-sync";
+import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector, CommandMapping } from "./app-connector";
@@ -759,8 +761,36 @@ async function boot() {
     ambientCapture.start();
   }
 
+  // Revalidate license on boot (async, non-blocking)
+  if (bootLicense.status === "licensed") {
+    revalidateLicense().then((valid) => {
+      if (!valid) {
+        mainWindow?.webContents.send("license-expired");
+      }
+    });
+  }
+
+  // Start cloud sync if licensed with a cloud token
+  const cloudToken = getPreference<string>("cloudToken", null!);
+  if (bootLicense.status === "licensed" && cloudToken) {
+    const library = new Library();
+    const cloudSync = new CloudSync(library);
+    cloudSync.start();
+  }
+
   // Daily prune of old context chunks (every 24h)
   setInterval(() => contextStore.prune(), 24 * 60 * 60 * 1000);
+
+  // Revalidate license every 24h
+  setInterval(async () => {
+    const license = checkLicense();
+    if (license.status === "licensed") {
+      const valid = await revalidateLicense();
+      if (!valid) {
+        mainWindow?.webContents.send("license-expired");
+      }
+    }
+  }, 24 * 60 * 60 * 1000);
 
   // Global hotkey: Cmd+Y / Ctrl+Y
   registerHotkey(mainWindow!);
@@ -1277,10 +1307,9 @@ async function boot() {
     return { ok: false, error: result.error };
   });
 
-  ipcMain.handle("get-checkout-url", async () => {
-    const url = await getCheckoutUrl();
+  ipcMain.handle("get-checkout-url", async (_e, plan?: string) => {
+    const url = await getCheckoutUrl(plan || "basic");
     if (url) {
-      const { shell } = await import("electron");
       shell.openExternal(url);
     }
     return url;
