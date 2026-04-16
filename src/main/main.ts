@@ -826,7 +826,12 @@ async function boot() {
   yoAgent.setCommandRunner(async (cmd: string) => {
     // Strip leading dot if present
     const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
-    return execCommand(clean);
+    const result = await execCommand(clean);
+    // Keep focus on the yo panel input after dip switches panels
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.focus();
+    }
+    return result;
   });
 
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
