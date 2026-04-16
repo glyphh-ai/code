@@ -620,7 +620,10 @@ function openYoPanel(query: string) {
   }
   yoPanelInput.value = "";
   autoGrowYoInput();
-  setTimeout(() => yoPanelInput.focus(), 220);
+  // Close Cmd+K overlay if it's open (e.g. user typed .yo in Cmd+K)
+  if (isCmdKOpen()) closeCmdK();
+  // Focus after slide animation + any overlay teardown
+  setTimeout(() => yoPanelInput.focus(), 300);
 }
 
 function closeYoPanel() {

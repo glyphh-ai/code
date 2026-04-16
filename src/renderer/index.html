@@ -97,23 +97,23 @@
           <h2>Just talk.</h2>
 
           <div class="help-group">
-            <h3>.yo <span class="cmd-desc">— search & retrieve</span></h3>
-            <p class="cmd-intro">Search memory and inject results into the current text area.</p>
-            <div class="cmd-row">
-              <code>.yo marketing ideas</code>
-              <span>Search memory, open results widget</span>
-            </div>
-            <div class="cmd-row">
-              <code>.yo marketing ideas . formalize</code>
-              <span>Search + process with skill, inject result</span>
-            </div>
-            <div class="cmd-row">
-              <code>.yo . formalize</code>
-              <span>Process last capture with skill, inject result</span>
-            </div>
+            <h3>.yo <span class="cmd-desc">— agent</span></h3>
+            <p class="cmd-intro">Open the agent panel. Ask it anything — it can search notes, navigate panels, click through apps, manage skills, layouts, and more.</p>
             <div class="cmd-row">
               <code>.yo</code>
-              <span>Open the search widget</span>
+              <span>Open the agent panel</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo find that reddit thread</code>
+              <span>Open panel and start searching immediately</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo open gmail and claude side by side</code>
+              <span>Agent navigates and creates layouts for you</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo create a skill called summarize</code>
+              <span>Agent manages skills, layouts, and apps</span>
             </div>
           </div>
 
@@ -126,15 +126,7 @@
             </div>
             <div class="cmd-row">
               <code>.sup . formalize</code>
-              <span>Capture + process with a skill, inject result</span>
-            </div>
-            <div class="cmd-row">
-              <code>.sup . rewrite as bullet points</code>
-              <span>Capture + process with a prompt, inject result</span>
-            </div>
-            <div class="cmd-row">
-              <code>.sup . .dip gmail</code>
-              <span>Capture, then switch to gmail</span>
+              <span>Capture + process with a skill</span>
             </div>
           </div>
 
@@ -208,7 +200,7 @@
         <!-- Skills -->
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
-          <p class="section-desc">Prompt templates for .yo and .sup commands</p>
+          <p class="section-desc">Prompt templates for .sup processing. The .yo agent can also create and manage skills.</p>
           <div id="skills-toolbar" style="display:flex;justify-content:flex-end;margin-bottom:12px;">
             <button id="skill-new-btn" class="action-btn primary">+ New</button>
           </div>

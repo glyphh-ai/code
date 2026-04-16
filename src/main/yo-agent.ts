@@ -172,6 +172,46 @@ const TOOLS = [
       required: ["command"],
     },
   },
+  {
+    name: "manage_skill",
+    description: "Create, list, read, or delete prompt skills. Skills are reusable prompt templates for processing content.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: { type: "string" as const, enum: ["create", "list", "read", "delete"], description: "Action to perform" },
+        name: { type: "string" as const, description: "Skill name (required for create/read/delete)" },
+        prompt: { type: "string" as const, description: "System prompt for the skill (required for create)" },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "manage_layout",
+    description: "Save, list, or delete panel layouts. Layouts are named grid arrangements of panels.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: { type: "string" as const, enum: ["save", "list", "delete"], description: "Action to perform" },
+        name: { type: "string" as const, description: "Layout name (required for save/delete)" },
+        panels: { type: "string" as const, description: "Space-separated panel IDs, use / for rows. E.g. 'claude gpt / gemini code' (required for save)" },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "manage_app",
+    description: "Add, list, or remove connected apps (web panels). Each app has an ID, name, and URL.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: { type: "string" as const, enum: ["add", "list", "remove"], description: "Action to perform" },
+        id: { type: "string" as const, description: "App ID (required for add/remove)" },
+        name: { type: "string" as const, description: "Display name (for add, defaults to id)" },
+        url: { type: "string" as const, description: "URL (required for add)" },
+      },
+      required: ["action"],
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -196,6 +236,16 @@ export class YoAgent {
   private panelNavigator: ((panelId: string, url: string) => Promise<string>) | null = null;
   private panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean }) => Promise<string>) | null = null;
   private commandRunner: ((cmd: string) => Promise<string>) | null = null;
+  private skillCallbacks: {
+    list: () => string[];
+    read: (name: string) => string | null;
+    create: (name: string, prompt: string) => void;
+    remove: (name: string) => boolean;
+  } | null = null;
+  private layoutCallbacks: {
+    list: () => Array<{ name: string; cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
+    delete: (name: string) => boolean;
+  } | null = null;
   private aborted = false;
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
@@ -210,6 +260,8 @@ export class YoAgent {
   setMaxMessages(n: number): void { this.maxMessages = n; }
   abort(): void { this.aborted = true; }
   setCommandRunner(fn: (cmd: string) => Promise<string>): void { this.commandRunner = fn; }
+  setSkillCallbacks(cbs: typeof YoAgent.prototype.skillCallbacks): void { this.skillCallbacks = cbs; }
+  setLayoutCallbacks(cbs: typeof YoAgent.prototype.layoutCallbacks): void { this.layoutCallbacks = cbs; }
 
   /** Start a new conversation (saves current, clears history). */
   clear(): void {
@@ -384,6 +436,9 @@ export class YoAgent {
         case "navigate_panel": return await this.toolNavigatePanel(input);
         case "type_text": return await this.toolTypeText(input);
         case "run_command": return await this.toolRunCommand(input);
+        case "manage_skill": return this.toolManageSkill(input);
+        case "manage_layout": return this.toolManageLayout(input);
+        case "manage_app": return this.toolManageApp(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -591,6 +646,93 @@ export class YoAgent {
     if (first !== "dip" && first !== "drip") return `Only dip and drip commands are allowed. Got: ${first}`;
     if (!this.commandRunner) return "Command runner not available.";
     return this.commandRunner(cmd);
+  }
+
+  private toolManageSkill(input: Record<string, unknown>): string {
+    const action = input.action as string;
+    if (!this.skillCallbacks) return "Skill engine not available.";
+    switch (action) {
+      case "list": {
+        const names = this.skillCallbacks.list();
+        return names.length ? names.join("\n") : "No skills found.";
+      }
+      case "read": {
+        const name = input.name as string;
+        if (!name) return "Skill name required.";
+        const prompt = this.skillCallbacks.read(name);
+        return prompt ?? `Skill "${name}" not found.`;
+      }
+      case "create": {
+        const name = input.name as string;
+        const prompt = input.prompt as string;
+        if (!name || !prompt) return "Both name and prompt required.";
+        this.skillCallbacks.create(name, prompt);
+        return `Skill "${name}" created.`;
+      }
+      case "delete": {
+        const name = input.name as string;
+        if (!name) return "Skill name required.";
+        return this.skillCallbacks.remove(name) ? `Skill "${name}" deleted.` : `Skill "${name}" not found.`;
+      }
+      default: return `Unknown skill action: ${action}`;
+    }
+  }
+
+  private toolManageLayout(input: Record<string, unknown>): string {
+    const action = input.action as string;
+    if (!this.layoutCallbacks) return "Layout manager not available.";
+    switch (action) {
+      case "list": {
+        const layouts = this.layoutCallbacks.list();
+        if (!layouts.length) return "No saved layouts.";
+        return layouts.map((l) => {
+          const panels = l.cells.map((c) => c.panelId).join(", ");
+          return `${l.name} (${l.cols}x${l.rows}: ${panels})`;
+        }).join("\n");
+      }
+      case "save": {
+        const name = input.name as string;
+        const panels = input.panels as string;
+        if (!name || !panels) return "Both name and panels required.";
+        // Use run_command to create the grid, then save via dip layout save
+        if (this.commandRunner) {
+          return `Use run_command with "dip split ${panels}" to create the layout, then it can be saved from the layouts panel. Or tell the user to save it from Settings > Layouts.`;
+        }
+        return "Use run_command to create the grid first.";
+      }
+      case "delete": {
+        const name = input.name as string;
+        if (!name) return "Layout name required.";
+        return this.layoutCallbacks.delete(name) ? `Layout "${name}" deleted.` : `Layout "${name}" not found.`;
+      }
+      default: return `Unknown layout action: ${action}`;
+    }
+  }
+
+  private toolManageApp(input: Record<string, unknown>): string {
+    const action = input.action as string;
+    if (!this.appConnector) return "App connector not available.";
+    switch (action) {
+      case "list": {
+        const apps = this.appConnector.list();
+        if (!apps.length) return "No apps configured.";
+        return apps.map((a) => `${a.id} — ${a.name} (${a.url})`).join("\n");
+      }
+      case "add": {
+        const id = input.id as string;
+        const url = input.url as string;
+        if (!id || !url) return "Both id and url required.";
+        const name = (input.name as string) || id;
+        this.appConnector.add(id, name, url);
+        return `App "${id}" added (${url}).`;
+      }
+      case "remove": {
+        const id = input.id as string;
+        if (!id) return "App id required.";
+        return this.appConnector.remove(id) ? `App "${id}" removed.` : `App "${id}" not found.`;
+      }
+      default: return `Unknown app action: ${action}`;
+    }
   }
 
   private formatAge(timestamp: number): string {

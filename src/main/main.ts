@@ -550,6 +550,24 @@ async function boot() {
       // VS Code uses local `code serve-web` for full file access
       if (enableVscode && vscodeServer.available) {
         panelManager.addPanel(app.id, VSCodeServer.expectedUrl());
+        // Track the last opened folder so we can restore it on next launch
+        const vscWc = panelManager.getWebContents(app.id);
+        if (vscWc) {
+          vscWc.on("did-navigate", (_e, navUrl) => {
+            try {
+              const u = new URL(navUrl);
+              const folder = u.searchParams.get("folder");
+              if (folder) setPreference("vscodeLastFolder", folder);
+            } catch {}
+          });
+          vscWc.on("did-navigate-in-page", (_e, navUrl) => {
+            try {
+              const u = new URL(navUrl);
+              const folder = u.searchParams.get("folder");
+              if (folder) setPreference("vscodeLastFolder", folder);
+            } catch {}
+          });
+        }
       } else {
         // Show setup instructions instead of broken fallback
         const reason = !enableVscode
@@ -588,7 +606,8 @@ async function boot() {
 
   // Start VS Code server in the background if enabled and CLI is available
   if (enableVscode && vscodeServer.available) {
-    vscodeServer.start().catch((err) => {
+    const lastFolder = getPreference<string>("vscodeLastFolder", "");
+    vscodeServer.start(lastFolder || undefined).catch((err) => {
       console.log("[vscode-server] failed to start:", err.message);
     });
   }
@@ -692,6 +711,16 @@ async function boot() {
   yoAgent = new YoAgent();
   yoAgent.setNoteStore(noteStore);
   yoAgent.setAppConnector(appConnector);
+  yoAgent.setSkillCallbacks({
+    list: () => skillEngine.listSkills(),
+    read: (name) => skillEngine.readSkill(name),
+    create: (name, prompt) => skillEngine.createSkill(name, prompt),
+    remove: (name) => skillEngine.deleteSkill(name),
+  });
+  yoAgent.setLayoutCallbacks({
+    list: () => layoutManager.listLayouts().map((l) => ({ name: l.name, cols: l.cols, rows: l.rows, cells: l.cells })),
+    delete: (name) => layoutManager.deleteLayout(name),
+  });
   yoAgent.setPanelGrabber(async (panelId) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc) return null;
