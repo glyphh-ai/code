@@ -1,11 +1,14 @@
 /**
- * CommandParser — parses and executes yo/dip/drip commands.
+ * CommandParser — parses and executes yo/sup/dip/drip commands.
  *
- *   yo              → help
  *   yo .            → force capture active panel into context store
- *   yo . <skill>    → capture active + skill process → clipboard
- *   yo <skill>      → capture all + skill process → clipboard
- *   yo <query>      → search context store → LLM answer → clipboard
+ *   yo . <skill>    → capture + skill process → inject result
+ *   yo . <prompt>   → capture + prompt process → inject result
+ *   yo help/skills/layout → utilities
+ *   sup             → open library browser
+ *   sup <query>     → search context store → inject raw results
+ *   sup . <skill>   → process last capture with skill → inject
+ *   sup <query> . <skill/prompt> → search + process → inject
  *   dip <panel>     → switch/split/grid
  *   drip <effect>   → visual effect
  */
