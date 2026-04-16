@@ -539,17 +539,23 @@ window.yo.onDripEffect(playDrip);
 
 // -- Boot gate --
 
+// Splash minimum display time
+const splashShownAt = Date.now();
+const SPLASH_MIN_MS = 2000;
+
 window.yo.onBoot((data) => {
-  // Dismiss splash screen
-  const splash = document.getElementById("splash");
-  if (splash) {
-    splash.classList.add("fade-out");
-    setTimeout(() => splash.remove(), 600);
-  }
+  // Dismiss splash after minimum display time
+  const elapsed = Date.now() - splashShownAt;
+  const remaining = Math.max(0, SPLASH_MIN_MS - elapsed);
+  setTimeout(() => {
+    const splash = document.getElementById("splash");
+    if (splash) {
+      splash.classList.add("fade-out");
+      setTimeout(() => splash.remove(), 600);
+    }
+  }, remaining);
 
   if (data.needsOnboarding) {
     showOnboarding(data.license.daysRemaining);
-  } else if (!data.hideWelcome) {
-    openHelp();
   }
 });

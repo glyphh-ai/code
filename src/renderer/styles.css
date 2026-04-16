@@ -1627,25 +1627,6 @@ body {
   position: relative;
 }
 
-/* ── Dismiss checkbox (help overlay) ────────────────────── */
-
-.dismiss-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 20px;
-  font-size: 11px;
-  color: #888;
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.dismiss-label:hover { color: #bbb; }
-
-.dismiss-label input[type="checkbox"] {
-  accent-color: #25C75E;
-}
-
 /* ── Download toast ────────────────────────────────────── */
 
 .download-toast {

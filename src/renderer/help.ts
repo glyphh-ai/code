@@ -66,14 +66,6 @@ export function initHelp() {
   // Settings
   initSettings();
 
-  // Dismiss checkbox
-  const dismissCheck = document.getElementById("dismiss-check") as HTMLInputElement;
-  if (dismissCheck) {
-    dismissCheck.addEventListener("change", () => {
-      window.yo.setPreference("hideWelcome", dismissCheck.checked);
-    });
-  }
-
   // Layouts
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
   document.getElementById("layout-save-btn")!.addEventListener("click", saveLayout);
