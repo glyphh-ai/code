@@ -257,7 +257,7 @@ document.addEventListener('keyup',function(e){
         try {
           const result = await this.commandHandler(`yo ${realInstruction}`, appId);
           await this.clearNotify(wc);
-          if (result) this.notify(wc, result, "success");
+          if (result) this.notify(wc, result, "result");
         } catch (err) {
           this.notify(wc, `yo failed: ${err instanceof Error ? err.message : err}`, "error");
         }
@@ -393,7 +393,7 @@ document.addEventListener('keyup',function(e){
   private async notify(
     wc: WebContents,
     msg: string,
-    type: "loading" | "success" | "error",
+    type: "loading" | "success" | "error" | "result",
   ): Promise<void> {
     const loadingMessages = [
       "chilling...", "vibing...", "supping...", "cooking...",
@@ -402,9 +402,9 @@ document.addEventListener('keyup',function(e){
     const displayMsg = type === "loading"
       ? loadingMessages[Math.floor(Math.random() * loadingMessages.length)]
       : msg;
-    const icon = type === "success" ? "\u2713 " : type === "error" ? "\u2717 " : "";
+    const icon = type === "success" ? "\u2713 " : type === "error" ? "\u2717 " : type === "result" ? "\u2713 " : "";
     const text = icon + displayMsg;
-    const autoRemove = type !== "loading";
+    const autoRemove = type === "success" || type === "error";
     try {
       await wc.executeJavaScript(`
 (function(){
