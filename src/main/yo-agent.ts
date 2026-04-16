@@ -36,7 +36,13 @@ RESPONSE RULES:
 - If one thing clearly matches: return its content verbatim.
 - If multiple things match: list them briefly so the user can pick.
 - Plain text only. No ** no ## no - bullets.
-- Use conversation history for context. If the user says "the earlier one" or "that one", look at what you previously found.`;
+- Use conversation history for context. If the user says "the earlier one" or "that one", look at what you previously found.
+
+NOTES RULES:
+- ONLY use write_note when the user explicitly asks to save or remember something.
+- NEVER save your own summaries, status updates, or process logs as notes.
+- Notes are for user content: extracted text, research findings, things the user wants to keep.
+- If you used tools to find content, return it to the user — do not auto-save it.`;
 
 const TOOLS = [
   {
