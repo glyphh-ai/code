@@ -2256,13 +2256,6 @@ select.settings-input {
   padding: 8px 0;
 }
 
-.yo-msg-tool {
-  font-size: 11px;
-  color: #666;
-  font-style: italic;
-  padding: 2px 0;
-}
-
 .yo-msg-status {
   font-size: 14px;
   color: #999;
@@ -2273,6 +2266,57 @@ select.settings-input {
   color: #ff5f57;
   font-size: 12px;
   padding: 4px 0;
+}
+
+/* Tool call blocks — collapsible like Claude */
+.yo-tool-block {
+  font-size: 12px;
+  color: #888;
+  margin: 4px 0;
+  border: 1px solid #252525;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #141414;
+}
+.yo-tool-block summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.yo-tool-block summary::-webkit-details-marker { display: none; }
+.yo-tool-block .yo-tool-spinner {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  color: #25C75E;
+  font-size: 13px;
+}
+.yo-tool-block.done summary {
+  color: #555;
+}
+.yo-tool-block.done .yo-tool-spinner {
+  color: #25C75E;
+}
+
+/* Task items in agent responses */
+.yo-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+}
+.yo-task-check {
+  color: #25C75E;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.yo-task-text {
+  flex: 1;
 }
 
 
