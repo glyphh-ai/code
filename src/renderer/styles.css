@@ -2784,27 +2784,30 @@ select.settings-input {
   background: #25C75E15;
 }
 
-/* Completed timeline item */
-.yo-ag-item {
+/* ── Result block (Claude Code style tool result) ── */
+.yo-result-block {
   position: relative;
+  margin: 6px 0;
+  animation: yo-block-in 0.2s ease-out;
+}
+@keyframes yo-block-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.yo-result-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 0;
+  padding: 2px 0;
   font-size: 12px;
-  animation: yo-item-in 0.2s ease-out;
-}
-@keyframes yo-item-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Dot on the timeline */
 .yo-ag-dot {
   position: absolute;
   left: -18px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 10px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -2812,35 +2815,26 @@ select.settings-input {
   border: 1.5px solid #25C75E;
   z-index: 1;
 }
-.yo-ag-item.done .yo-ag-dot {
-  background: #25C75E60;
-  border-color: #25C75E40;
-}
 
-.yo-ag-check {
-  font-size: 10px;
-  color: #25C75E60;
-  flex-shrink: 0;
-  width: 14px;
-  text-align: center;
-}
-
-.yo-ag-label {
+.yo-result-label {
   color: #999;
-  font-weight: 500;
-}
-.yo-ag-item.done .yo-ag-label {
-  color: #999;
+  font-weight: 600;
+  font-size: 12px;
 }
 
-.yo-ag-detail {
-  color: #666;
-  font-size: 11px;
-  margin-left: 4px;
+.yo-result-content {
+  background: #141414;
+  border: 1px solid #1e1e1e;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #999;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
 }
 
 /* Active spinner row (always at bottom of group) */

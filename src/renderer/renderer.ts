@@ -932,18 +932,29 @@ function ensureTimeline() {
   yoPanelMessages.appendChild(yoTimelineEl);
 }
 
-/** Add a completed result item to the timeline */
-function addResultItem(label: string, detail: string) {
+/** Add a completed result block to the timeline (Claude Code style) */
+function addResultBlock(label: string, detail: string) {
   ensureTimeline();
-  const item = document.createElement("div");
-  item.className = "yo-ag-item done";
-  const detailSpan = detail ? `<span class="yo-ag-detail">${detail}</span>` : "";
-  item.innerHTML =
+  const block = document.createElement("div");
+  block.className = "yo-result-block";
+
+  // Header: green dot + label
+  const header = document.createElement("div");
+  header.className = "yo-result-header";
+  header.innerHTML =
     `<span class="yo-ag-dot"></span>` +
-    `<span class="yo-ag-check">\u2713</span>` +
-    `<span class="yo-ag-label">${label}</span>` +
-    detailSpan;
-  yoTimelineEl!.appendChild(item);
+    `<span class="yo-result-label">${label}</span>`;
+  block.appendChild(header);
+
+  // Content: dark block with result text
+  if (detail) {
+    const content = document.createElement("div");
+    content.className = "yo-result-content";
+    content.textContent = detail;
+    block.appendChild(content);
+  }
+
+  yoTimelineEl!.appendChild(block);
 }
 
 /** Close the timeline (done state) */
@@ -988,16 +999,15 @@ function showYoToolUse(tool: string) {
   yoScroll();
 }
 
-/** Handle delegation completion — add a compact result item */
+/** Handle delegation completion — add a Claude Code style result block */
 function showYoToolResult(label: string, detail: string) {
   removeSpinner();
 
-  // Map delegation tool name to a human-readable label
   const displayLabel = DELEGATION_DESC[label] || DIRECT_TOOL_DESC[label] || label.replace(/_/g, " ");
-  // Clean up detail — first line only, trim
-  const cleanDetail = detail.split("\n")[0].slice(0, 120).trim();
+  // Keep first ~3 lines of detail, trim to reasonable length
+  const cleanDetail = detail.split("\n").slice(0, 3).join("\n").slice(0, 300).trim();
 
-  addResultItem(displayLabel, cleanDetail);
+  addResultBlock(displayLabel, cleanDetail);
   yoScroll();
 }
 

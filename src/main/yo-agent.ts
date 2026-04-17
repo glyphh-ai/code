@@ -509,7 +509,7 @@ export class YoAgent {
             context,
           );
           // Emit compact result for the renderer
-          cb.onToolResult?.(block.name, result.slice(0, 200));
+          cb.onToolResult?.(block.name, result.slice(0, 500));
           return { type: "tool_result", tool_use_id: block.id, content: result };
         });
         const delegateResults = await Promise.all(delegatePromises);
