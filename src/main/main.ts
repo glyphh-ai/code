@@ -26,7 +26,9 @@ import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
+import { MemoryStore } from "./memory-store";
 import { Embedder } from "./embedder";
+import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
 
 let mainWindow: BrowserWindow | null = null;
@@ -698,10 +700,12 @@ async function boot() {
     });
   }
 
-  // Note store + embedder (flat files with vector search)
+  // Note store + memory store + embedder (flat files with vector search)
   noteStore = new NoteStore();
+  const memoryStore = new MemoryStore();
   const embedder = new Embedder();
   noteStore.setEmbedder(embedder);
+  memoryStore.setEmbedder(embedder);
   // Load embedding model in background — doesn't block app startup
   embedder.init()
     .catch((err) => {
@@ -796,6 +800,7 @@ async function boot() {
   // YoAgent — full agentic retrieval with tools and streaming
   yoAgent = new YoAgent();
   yoAgent.setNoteStore(noteStore);
+  yoAgent.setMemoryStore(memoryStore);
   yoAgent.setAppConnector(appConnector);
   yoAgent.setSkillCallbacks({
     list: () => skillEngine.listSkills(),
@@ -841,36 +846,104 @@ async function boot() {
     }
     try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch { return null; }
   });
+  yoAgent.setPanelScanner(async (panelId) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return null;
+    const scan = await scanPanel(wc);
+    if (!scan) return null;
+    return formatScan(scan);
+  });
   yoAgent.setPanelClicker(async (panelId, text, selector) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
     try {
       const result = await wc.executeJavaScript(`(function(){
-        var clicked = false;
-        ${text ? `
-        // Search by visible text
-        var target = ${JSON.stringify(text)};
-        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-        var best = null, bestLen = Infinity;
-        while (walker.nextNode()) {
-          var el = walker.currentNode;
-          var t = (el.innerText || el.textContent || '').trim();
-          if (t && t.length < 500) {
-            // Exact match
-            if (t === target) { best = el; bestLen = 0; break; }
-            // Contains match — prefer shortest containing element
-            if (t.includes(target) && t.length < bestLen) { best = el; bestLen = t.length; }
-          }
+        // Simulate real mouse events so React/Vue/Angular handlers fire
+        function realClick(el) {
+          var rect = el.getBoundingClientRect();
+          var x = rect.left + rect.width / 2;
+          var y = rect.top + rect.height / 2;
+          var opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+          el.dispatchEvent(new PointerEvent('pointerdown', opts));
+          el.dispatchEvent(new MouseEvent('mousedown', opts));
+          el.dispatchEvent(new PointerEvent('pointerup', opts));
+          el.dispatchEvent(new MouseEvent('mouseup', opts));
+          el.dispatchEvent(new MouseEvent('click', opts));
         }
-        if (best) { best.click(); clicked = true; }
-        ` : ''}
+
+        // Walk up to the nearest interactive ancestor (button, link, role=button)
+        function findClickable(el) {
+          var cur = el;
+          while (cur && cur !== document.body) {
+            var tag = cur.tagName.toLowerCase();
+            if (tag === 'button' || tag === 'a' || cur.getAttribute('role') === 'button' ||
+                cur.getAttribute('role') === 'tab' || cur.getAttribute('role') === 'menuitem' ||
+                cur.onclick || cur.getAttribute('tabindex') !== null) return cur;
+            cur = cur.parentElement;
+          }
+          return el; // fallback to original
+        }
+
         ${selector && !text ? `
         var el = document.querySelector(${JSON.stringify(selector)});
-        if (el) { el.click(); clicked = true; }
+        if (el) { realClick(findClickable(el)); return 'Clicked successfully.'; }
+        return 'Element not found: ' + ${JSON.stringify(selector)};
         ` : ''}
-        return clicked ? 'Clicked successfully.' : 'Element not found.';
+
+        ${text ? `
+        var target = ${JSON.stringify(text)};
+        var targetLower = target.toLowerCase();
+        var candidates = [];
+
+        // Phase 1: check aria-label, title, data-tooltip, placeholder, data-testid
+        var all = document.querySelectorAll('[aria-label],[title],[data-tooltip],[placeholder],[data-testid]');
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i];
+          var rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          var attrs = [
+            el.getAttribute('aria-label'),
+            el.getAttribute('title'),
+            el.getAttribute('data-tooltip'),
+            el.getAttribute('placeholder'),
+            el.getAttribute('data-testid'),
+          ];
+          for (var j = 0; j < attrs.length; j++) {
+            if (!attrs[j]) continue;
+            var val = attrs[j].toLowerCase();
+            if (val === targetLower) { candidates.push({ el: el, score: 0 }); break; }
+            if (val.includes(targetLower)) { candidates.push({ el: el, score: val.length }); break; }
+          }
+        }
+
+        // Phase 2: visible text (TreeWalker), only if no attr matches
+        if (candidates.length === 0) {
+          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+          while (walker.nextNode()) {
+            var el = walker.currentNode;
+            var rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            var t = (el.innerText || el.textContent || '').trim();
+            if (!t || t.length > 500) continue;
+            var tLower = t.toLowerCase();
+            if (tLower === targetLower) { candidates.push({ el: el, score: 0 }); break; }
+            if (tLower.includes(targetLower) && t.length < 200) {
+              candidates.push({ el: el, score: t.length });
+            }
+          }
+        }
+
+        // Sort by score (0 = exact, then shortest containing match)
+        candidates.sort(function(a, b) { return a.score - b.score; });
+
+        if (candidates.length > 0) {
+          var best = findClickable(candidates[0].el);
+          realClick(best);
+          return 'Clicked successfully.';
+        }
+        return 'Element not found: ' + target;
+        ` : ''}
       })()`);
-      // Wait a moment for the page to update after click
       await new Promise((r) => setTimeout(r, 500));
       return result;
     } catch (err) {
@@ -957,6 +1030,14 @@ async function boot() {
       // Type the text using insertText (triggers proper framework events)
       wc.insertText(text);
       await new Promise((r) => setTimeout(r, 200));
+
+      // Submit by pressing Enter if requested
+      if (opts.submit) {
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+        await new Promise((r) => setTimeout(r, 300));
+        return 'Typed and submitted.';
+      }
       return 'Typed successfully.';
     } catch (err) {
       return `Type failed: ${err instanceof Error ? err.message : err}`;
@@ -1014,6 +1095,7 @@ async function boot() {
       yoAgent?.send(query, {
         onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
         onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
+        onToolResult: (label, detail) => mainWindow?.webContents.send("yo-panel-tool-result", label, detail),
         onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
         onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
       });
@@ -1412,6 +1494,7 @@ async function boot() {
     yoAgent?.send(message, {
       onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
       onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
+      onToolResult: (label, detail) => mainWindow?.webContents.send("yo-panel-tool-result", label, detail),
       onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
       onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
     });
@@ -2081,6 +2164,9 @@ async function boot() {
   ipcMain.handle("onboarding-complete", () => {
     restorePanels();
     panelsReady = true;
+    // Hide panels immediately — the tutorial will show next and it's HTML
+    // that gets painted under BrowserViews. panelsShow fires when tutorial closes.
+    if (mainWindow) panelManager.hideActive(mainWindow);
     sendSplitState();
   });
 

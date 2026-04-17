@@ -649,7 +649,7 @@ body {
   -webkit-app-region: no-drag;
   transition: all 0.12s;
   flex-shrink: 0;
-  margin-top: auto;
+  margin-left: 2px;
 }
 
 .tab-new-btn:hover { color: #ccc; background: #1a1a1a; border-color: #2a2a2a; }
@@ -2749,10 +2749,10 @@ select.settings-input {
 .yo-msg-status {
   font-size: 13px;
   color: #666;
-  padding: 8px 0;
+  padding: 6px 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .yo-msg-error {
@@ -2764,149 +2764,106 @@ select.settings-input {
   border: 1px solid rgba(255, 95, 87, 0.15);
 }
 
-/* ── Tool timeline ────────────────────────────── */
+/* ── Activity timeline (result items with connecting line) ── */
 
-.yo-tool-group {
+.yo-ag-timeline {
   position: relative;
-  padding-left: 22px;
-  margin: 6px 0;
+  padding-left: 20px;
+  margin: 4px 0;
 }
-
-/* Vertical timeline line */
-.yo-tool-group::before {
+.yo-ag-timeline::before {
   content: "";
   position: absolute;
-  left: 6px;
+  left: 5px;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #2a2a2a;
+  background: #25C75E30;
 }
-.yo-tool-group.active::before {
-  background: linear-gradient(180deg, #25C75E 0%, #1a8a3e 70%, #2a2a2a 100%);
-}
-.yo-tool-group.complete::before {
-  background: #25C75E20;
+.yo-ag-timeline.done::before {
+  background: #25C75E15;
 }
 
-/* Individual tool step */
-.yo-tool-step {
+/* Completed timeline item */
+.yo-ag-item {
   position: relative;
-  margin-bottom: 2px;
-}
-
-/* Timeline dot */
-.yo-tool-dot {
-  position: absolute;
-  left: -19px;
-  top: 9px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #333;
-  border: 1.5px solid #444;
-  z-index: 1;
-  transition: all 0.3s ease;
-}
-.yo-tool-step.active .yo-tool-dot {
-  background: #25C75E;
-  border-color: #25C75E;
-  box-shadow: 0 0 6px rgba(37, 199, 94, 0.4);
-}
-.yo-tool-step.done .yo-tool-dot {
-  background: #25C75E;
-  border-color: #25C75E;
-}
-
-/* Tool header row */
-.yo-tool-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  cursor: pointer;
-  user-select: none;
-}
-.yo-tool-header:hover { opacity: 0.85; }
-
-.yo-tool-name {
+  padding: 3px 0;
   font-size: 12px;
-  font-weight: 600;
-  color: #ccc;
-  transition: color 0.2s;
+  animation: yo-item-in 0.2s ease-out;
 }
-.yo-tool-step.done .yo-tool-name {
-  color: #777;
+@keyframes yo-item-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.yo-tool-desc {
+/* Dot on the timeline */
+.yo-ag-dot {
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #25C75E;
+  border: 1.5px solid #25C75E;
+  z-index: 1;
+}
+.yo-ag-item.done .yo-ag-dot {
+  background: #25C75E60;
+  border-color: #25C75E40;
+}
+
+.yo-ag-check {
+  font-size: 10px;
+  color: #25C75E60;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.yo-ag-label {
+  color: #999;
+  font-weight: 500;
+}
+.yo-ag-item.done .yo-ag-label {
+  color: #999;
+}
+
+.yo-ag-detail {
+  color: #666;
   font-size: 11px;
-  color: #555;
-  flex: 1;
-  white-space: nowrap;
+  margin-left: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
-.yo-tool-spinner {
-  font-size: 11px;
+/* Active spinner row (always at bottom of group) */
+.yo-ag-active {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.yo-ag-spinner {
+  font-size: 18px;
   color: #25C75E;
-  width: 12px;
+  width: 20px;
   text-align: center;
   flex-shrink: 0;
+  font-family: monospace;
 }
 
-.yo-tool-check {
-  font-size: 10px;
-  color: #25C75E;
-  flex-shrink: 0;
+.yo-ag-phrase {
+  font-size: 13px;
+  color: #999;
 }
-
-/* Tool content box */
-.yo-tool-content {
-  margin: 2px 0 8px;
-  padding: 8px 10px;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  background: #151515;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: #888;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow: hidden;
-}
-
-/* Collapsible content — 3 line clamp */
-.yo-tool-content.collapsed {
-  max-height: 4.5em; /* ~3 lines at 1.5 line-height */
-  position: relative;
-}
-.yo-tool-content.collapsed::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 24px;
-  background: linear-gradient(transparent, #151515);
-  pointer-events: none;
-}
-.yo-tool-content.expanded {
-  max-height: none;
-}
-
-.yo-tool-expand {
-  display: inline-block;
-  font-size: 11px;
-  color: #25C75E;
-  cursor: pointer;
-  padding: 2px 0 4px;
-  user-select: none;
-  opacity: 0.8;
-  transition: opacity 0.15s;
-}
-.yo-tool-expand:hover { opacity: 1; }
 
 /* ── Task items ───────────────────────────────── */
 

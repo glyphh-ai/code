@@ -38,10 +38,20 @@ export class PanelManager {
     .dot:nth-child(2){animation-delay:.2s}
     .dot:nth-child(3){animation-delay:.4s}
     @keyframes pulse{0%,80%,100%{transform:scale(.3);opacity:.3}40%{transform:scale(1);opacity:1}}
-    p{font-size:14px;letter-spacing:.5px}
+    .status{font-size:14px;letter-spacing:.5px;text-align:center}
+    .sub{font-size:12px;color:#555;margin-top:4px}
   </style></head><body>
     <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-    <p>Starting server...</p>
+    <div class="status" id="status">Starting server...</div>
+    <div class="sub" id="sub"></div>
+    <script>
+      var start = Date.now();
+      setInterval(function(){
+        var s = Math.floor((Date.now()-start)/1000);
+        document.getElementById("sub").textContent = s+"s";
+      }, 1000);
+      window.__setStatus = function(msg){ document.getElementById("status").textContent = msg; };
+    </script>
   </body></html>`;
 
   private static readonly SCROLLBAR_CSS = `
@@ -487,12 +497,25 @@ export class PanelManager {
         const retryUrl = failUrl;
         view.webContents.loadURL(`data:text/html,${encodeURIComponent(PanelManager.LOADING_HTML)}`);
         const retry = (attempt: number) => {
-          if (attempt > 15) { retrying = false; return; }
+          if (attempt > 30) {
+            retrying = false;
+            try {
+              if (!view.webContents.isDestroyed()) {
+                view.webContents.executeJavaScript(
+                  `window.__setStatus && window.__setStatus("Server did not respond — check Settings")`
+                ).catch(() => {});
+              }
+            } catch {}
+            return;
+          }
           setTimeout(() => {
             if (!retrying) return; // page loaded successfully, stop retrying
             try {
               if (!view.webContents.isDestroyed()) {
                 console.log(`[panel:${id}] retrying load (attempt ${attempt})...`);
+                view.webContents.executeJavaScript(
+                  `window.__setStatus && window.__setStatus("Waiting for server... (attempt ${attempt})")`
+                ).catch(() => {});
                 view.webContents.loadURL(retryUrl);
               }
             } catch {}

@@ -207,7 +207,11 @@ document.getElementById("onboarding-close")!.addEventListener("click", () => {
 export function showOnboarding(trialDays?: number) {
   overlay.classList.remove("hidden");
   inTrial = trialDays !== undefined && trialDays > 0;
-  trialInfo.textContent = "Work across every AI. Never lose the thread.";
+  if (inTrial && trialDays) {
+    trialInfo.textContent = `${trialDays} day trial — enter your API key to get started`;
+  } else {
+    trialInfo.textContent = "Enter your license key and API key to get started";
+  }
   stopAnimation = initAnimation(canvas);
 }
 

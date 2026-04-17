@@ -19,7 +19,7 @@ const TRIAL_DAYS = 14;
 const REFRESH_MARGIN = 3 * 60 * 1000; // refresh 3 min before expiry
 
 const LICENSE_SERVER =
-  process.env.YO_LICENSE_SERVER || "https://api.sup.dev";
+  process.env.YO_LICENSE_SERVER || "https://api.yosup.dev";
 
 interface LicenseState {
   status: "trial" | "licensed" | "expired";
@@ -276,11 +276,9 @@ export async function activateLicense(key: string): Promise<boolean> {
     );
     if (result.ok) {
       saveLicense(key, true, result.tier);
-      // Set cloudToken for cloud sync (basic+ tiers)
-      if (result.tier && result.tier !== "free") {
-        const { setPreference } = await import("./preferences.js");
-        setPreference("cloudToken", key);
-      }
+      // Set cloudToken for cloud sync
+      const { setPreference } = await import("./preferences.js");
+      setPreference("cloudToken", key);
       // Swap license key for a machine-bound JWT session
       await createSessionTokens();
       return true;
@@ -315,11 +313,9 @@ export async function revalidateLicense(): Promise<boolean> {
     if (result.valid) {
       // Refresh serverValidated flag + tier
       saveLicense(data.key, true, result.tier);
-      // Update cloudToken if tier supports sync
-      if (result.tier && result.tier !== "free") {
-        const { setPreference } = await import("./preferences.js");
-        setPreference("cloudToken", data.key);
-      }
+      // Update cloudToken for cloud sync
+      const { setPreference } = await import("./preferences.js");
+      setPreference("cloudToken", data.key);
       return true;
     }
     // Server says invalid — clear serverValidated

@@ -832,47 +832,26 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // License upgrade — checkout for new users, billing portal for existing
+  // License button — checkout for new users, billing portal for existing
   document.getElementById("license-upgrade-btn")?.addEventListener("click", async () => {
     const btn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
     const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Opening...";
     const info = await window.yo.getLicenseInfo();
+    let url: string | null = null;
     if (info.status === "licensed") {
-      // Already licensed — open billing portal to change plan
-      const url = await window.yo.getBillingPortalUrl();
-      if (!url) {
-        const statusEl = document.getElementById("settings-status")!;
-        statusEl.textContent = "Could not reach billing server";
-        statusEl.className = "settings-error";
-      }
+      url = await window.yo.getBillingPortalUrl();
     } else {
-      // Trial/expired — open Stripe Checkout
-      const url = await window.yo.getCheckoutUrlForPlan("pro");
-      if (!url) {
-        const statusEl = document.getElementById("settings-status")!;
-        statusEl.textContent = "Could not reach license server";
-        statusEl.className = "settings-error";
-      }
+      url = await window.yo.getCheckoutUrlForPlan("pro");
     }
-    btn.disabled = false;
-    btn.textContent = origText;
-  });
-
-  // Cancel subscription — open Stripe billing portal
-  document.getElementById("license-cancel-btn")?.addEventListener("click", async () => {
-    const btn = document.getElementById("license-cancel-btn") as HTMLButtonElement;
-    btn.disabled = true;
-    btn.textContent = "Opening...";
-    const url = await window.yo.getBillingPortalUrl();
     if (!url) {
       const statusEl = document.getElementById("settings-status")!;
-      statusEl.textContent = "Could not reach billing server";
+      statusEl.textContent = "Could not reach api.yosup.dev — check your connection";
       statusEl.className = "settings-error";
     }
     btn.disabled = false;
-    btn.textContent = "Cancel Subscription";
+    btn.textContent = origText;
   });
 }
 
@@ -929,12 +908,14 @@ async function loadSettings() {
   const isLicensed = licenseInfo.status === "licensed";
 
   if (isLicensed) {
-    const tierLabel = licenseInfo.tier ? licenseInfo.tier.charAt(0).toUpperCase() + licenseInfo.tier.slice(1) : "Pro";
-    statusEl.textContent = tierLabel;
+    statusEl.textContent = "Licensed";
     statusEl.className = "license-value active";
-  } else {
-    statusEl.textContent = "Free";
+  } else if (licenseInfo.status === "trial" && licenseInfo.daysRemaining) {
+    statusEl.textContent = `Trial (${licenseInfo.daysRemaining} days left)`;
     statusEl.className = "license-value";
+  } else {
+    statusEl.textContent = "Expired";
+    statusEl.className = "license-value expired";
   }
   keyEl.textContent = licenseInfo.key || "None";
 
@@ -956,12 +937,10 @@ async function loadSettings() {
       licenseKeyInput.value = "";
       // Refresh the display
       const updated = await window.yo.getLicenseInfo();
-      const tierLabel = updated.tier ? updated.tier.charAt(0).toUpperCase() + updated.tier.slice(1) : "Pro";
-      statusEl.textContent = tierLabel;
+      statusEl.textContent = "Licensed";
       statusEl.className = "license-value active";
       keyEl.textContent = updated.key || key.slice(0, 4) + "..." + key.slice(-4);
-      upgradeBtn.textContent = "Change Plan";
-      cancelBtn.style.display = "";
+      upgradeBtn.textContent = "Manage Subscription";
     } else {
       licenseActivateStatus.textContent = "Invalid key or could not reach server";
       licenseActivateStatus.className = "license-activate-status error";
@@ -974,8 +953,8 @@ async function loadSettings() {
   const upgradeBtn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
   const cancelBtn = document.getElementById("license-cancel-btn") as HTMLButtonElement;
   if (isLicensed) {
-    upgradeBtn.textContent = "Change Plan";
-    cancelBtn.style.display = "";
+    upgradeBtn.textContent = "Manage Subscription";
+    cancelBtn.style.display = "none";  // manage sub handles cancel too
   } else {
     upgradeBtn.textContent = "Get License";
     cancelBtn.style.display = "none";

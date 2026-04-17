@@ -141,13 +141,13 @@ export class VSCodeServer {
         }
       });
 
-      // Timeout — if no ready signal in 30s, give up
+      // Timeout — if no ready signal in 60s, give up
       setTimeout(() => {
         if (!resolved) {
           resolved = true;
           reject(new Error("code serve-web timed out waiting for ready signal"));
         }
-      }, 30000);
+      }, 60000);
     });
   }
 

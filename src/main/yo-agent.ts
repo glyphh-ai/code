@@ -1,9 +1,12 @@
 /**
- * YoAgent — retrieval agent for .yo commands.
+ * YoAgent — Orchestrator for .yo commands.
  *
- * A full conversational agent with tools for finding context across
- * the user's workspace: memory (context store), file system, and
- * live panel content. Streams responses token-by-token.
+ * Streams responses to the UI and delegates to specialist sub-agents:
+ *   - NavigatorAgent: panel interaction (grab, click, navigate, type)
+ *   - ResearcherAgent: notes and file search
+ *   - ManagerAgent: skills, layouts, apps CRUD
+ *
+ * Direct tools: inject_text, run_command (output actions stay on orchestrator).
  */
 
 import fs from "fs";
@@ -12,202 +15,102 @@ import os from "os";
 import { LLMConfig, createStream, createCompletion } from "./llm-config";
 import type { NoteStore } from "./note-store";
 import type { AppConnector } from "./app-connector";
+import type { MemoryStore } from "./memory-store";
+
+import { NavigatorAgent } from "./agents/navigator-agent";
+import { ResearcherAgent } from "./agents/researcher-agent";
+import { ManagerAgent } from "./agents/manager-agent";
+import { SkillRunnerAgent } from "./agents/skill-runner-agent";
 
 export interface YoAgentCallbacks {
   onText: (delta: string) => void;
   onToolUse: (name: string) => void;
+  onToolResult?: (label: string, detail: string) => void;
   onDone: (fullText: string) => void;
   onError: (error: string) => void;
 }
 
-const SYSTEM = `You are yo, a workspace agent. You can navigate apps, click through content, read live panels, search notes, and write notes. Plain text only, no markdown.
+const SYSTEM_BASE = `You are yo, a workspace orchestrator. You delegate tasks to specialist agents and handle text injection and commands directly. Plain text only, no markdown.
 
-CRITICAL: NEVER ask the user for clarification. Act immediately. If the user asks to find something, start by listing panels, grabbing content, navigating, and clicking through apps to find it. If they want something from their notes, search_notes. If they want to save something, write_note.
+CRITICAL: NEVER ask the user for clarification. Act immediately.
+
+DELEGATION:
+- delegate_navigator: for anything involving live app panels — viewing content, clicking, navigating, typing into apps. Use when the user wants to see what's in Gmail, click an email, search in an app, type into a chat, etc.
+- delegate_researcher: for finding information in notes or files. Use when the user asks to find, search, recall, or save notes/files. Notes are primary, files are fallback.
+- delegate_manager: for managing skills (prompt templates), layouts (panel arrangements), or apps (connected panels). Use for create/list/read/delete operations.
+- delegate_skill: run a skill workflow. Skills are reusable agent behaviours — they can navigate apps, search content, type into inputs, and produce output. When the user says /skillname or asks you to apply a skill, use this. Provide the skill name and the user's instruction.
+
+DIRECT TOOLS (don't delegate these):
+- inject_text: paste content into the input where the user typed .yo
+- run_command: execute .dip or .drip commands
+- save_memory: save something you learned about the user (preferences, patterns, facts). Do this proactively when you notice useful information.
+
+MEMORY:
+You have persistent memory. Relevant memories from past conversations are provided below (if any). Use them to personalise your responses and actions. When you learn something new about the user — preferences, workflows, how they use apps, facts about their work — use save_memory to remember it for next time. Don't save trivial or one-off things.
 
 WORKFLOW:
-1. User sends a message → immediately take action (list_panels, grab_panel, search_notes, navigate, click)
-2. If you need to find content in an app: list_panels → grab_panel to see what's there → click_element to drill in → grab_panel again
-3. Chain multiple navigations and clicks to find what the user wants — don't stop after one step
-4. When you find what they want, return the actual content
-5. If the user says "paste it here", "put it here", "type it in", or similar → use inject_text to paste the result directly into the input where they typed .yo
+1. Check memories for relevant context
+2. Delegate to the right specialist(s) — you can call multiple delegates in parallel for independent tasks
+3. Use the specialist's response to answer the user or take further action
+4. Chain multiple delegate calls for multi-step tasks — each delegate call is one focused action (e.g. "type X into gmail and submit", then separately "grab content from claude"). Don't try to do everything in one delegate call.
+5. If the user says "paste it here" or "put it here", use inject_text with the content
+6. If you learned something useful about the user, save_memory
 
 RESPONSE RULES:
-- Return the ACTUAL content. Not a summary. The real text.
+- Return the ACTUAL content from specialists, not a summary of what you did
 - NEVER say "I found...", "Here's...", "Based on...", "Let me search..."
-- If one thing clearly matches: return its content verbatim.
-- If multiple things match: list them briefly so the user can pick.
-- Plain text only. No ** no ## no - bullets.
-- Use conversation history for context. If the user says "the earlier one" or "that one", look at what you previously found.
-
-NOTES RULES:
-- ONLY use write_note when the user explicitly asks to save or remember something.
-- NEVER save your own summaries, status updates, or process logs as notes.
-- Notes are for user content: extracted text, research findings, things the user wants to keep.
-- If you used tools to find content, return it to the user — do not auto-save it.`;
+- Use conversation history for context. If the user says "the earlier one" or "that one", look at what you previously found
+- Plain text only. No ** no ## no - bullets.`;
 
 const TOOLS = [
   {
-    name: "search_notes",
-    description: "Search saved notes in ~/yo/notes/. Uses vector similarity when available, falls back to keyword search. Returns matching notes with title and content.",
+    name: "delegate_navigator",
+    description: "Delegate a navigation task to the panel specialist. Use for viewing, clicking, navigating, or typing in live app panels (Gmail, Claude, GPT, etc). Provide a clear instruction of what to find or do.",
     input_schema: {
       type: "object" as const,
       properties: {
-        query: { type: "string" as const, description: "Natural language search query" },
-        limit: { type: "number" as const, description: "Max results (default 10)" },
+        instruction: { type: "string" as const, description: "Clear instruction for the navigator, e.g. 'List panels and grab the content from gmail' or 'Click the first email in gmail and grab its content'" },
       },
-      required: ["query"],
+      required: ["instruction"],
     },
   },
   {
-    name: "write_note",
-    description: "Save a note to ~/yo/notes/ for future reference. Use this to remember information the user wants to keep — summaries, extracted content, research findings.",
+    name: "delegate_researcher",
+    description: "Delegate a research task to the notes/files specialist. Use for searching notes, reading files, saving notes. Provide a clear instruction of what to find or save.",
     input_schema: {
       type: "object" as const,
       properties: {
-        title: { type: "string" as const, description: "Short title for the note" },
-        content: { type: "string" as const, description: "Full text content of the note" },
+        instruction: { type: "string" as const, description: "Clear instruction for the researcher, e.g. 'Search notes for pricing information' or 'Save a note titled X with content Y'" },
       },
-      required: ["title", "content"],
+      required: ["instruction"],
     },
   },
   {
-    name: "search_files",
-    description: "Search file contents by text/regex pattern. Searches the user's home directory and common project locations. Returns matching file paths and line previews.",
+    name: "delegate_manager",
+    description: "Delegate a management task to the skills/layouts/apps specialist. Use for creating, listing, reading, or deleting skills, layouts, or apps.",
     input_schema: {
       type: "object" as const,
       properties: {
-        pattern: { type: "string" as const, description: "Text or regex pattern to search for" },
-        directory: { type: "string" as const, description: "Directory to search in (default: ~/). Use ~ for home." },
-        file_pattern: { type: "string" as const, description: "Glob to filter files, e.g. '*.md', '*.ts' (default: all text files)" },
+        instruction: { type: "string" as const, description: "Clear instruction for the manager, e.g. 'List all skills' or 'Create a skill named summarize with prompt: Summarize the following text concisely'" },
       },
-      required: ["pattern"],
+      required: ["instruction"],
     },
   },
   {
-    name: "read_file",
-    description: "Read the contents of a specific file. Returns the full text content.",
+    name: "delegate_skill",
+    description: "Run a skill workflow. Skills are reusable agent behaviours with full tool access — they can navigate apps, search content, type into inputs, and produce output. Use when the user invokes /skillname or when a skill fits the request.",
     input_schema: {
       type: "object" as const,
       properties: {
-        path: { type: "string" as const, description: "Absolute path or ~/relative path to the file" },
-        max_lines: { type: "number" as const, description: "Max lines to read (default: 200)" },
+        skill_name: { type: "string" as const, description: "Name of the skill to run (must exist in the skill engine)" },
+        instruction: { type: "string" as const, description: "Additional instruction or context for the skill, e.g. 'summarize the email from John' or 'draft a reply to the last message'" },
       },
-      required: ["path"],
-    },
-  },
-  {
-    name: "list_files",
-    description: "List files and directories at a path. Use to explore the file system structure before reading specific files.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        path: { type: "string" as const, description: "Directory path (default: ~/). Use ~ for home." },
-        pattern: { type: "string" as const, description: "Filter by name pattern, e.g. '*.md'" },
-        recursive: { type: "boolean" as const, description: "Search subdirectories (default: false, max depth 3)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "grab_panel",
-    description: "Grab the current live content from a workspace panel (e.g. claude, gmail, gpt). Returns the visible text content.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        panel_id: { type: "string" as const, description: "Panel ID to grab content from" },
-      },
-      required: ["panel_id"],
-    },
-  },
-  {
-    name: "list_panels",
-    description: "List all available workspace panels with their IDs and URLs.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-    },
-  },
-  {
-    name: "click_element",
-    description: "Click an element on a workspace panel by its visible text or CSS selector. Use this to open emails, expand items, click links, navigate within apps. After clicking, use grab_panel to see the updated content.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        panel_id: { type: "string" as const, description: "Panel ID to click within" },
-        text: { type: "string" as const, description: "Visible text of the element to click (searches for closest match)" },
-        selector: { type: "string" as const, description: "CSS selector to click (used if text not provided)" },
-      },
-      required: ["panel_id"],
-    },
-  },
-  {
-    name: "navigate_panel",
-    description: "Navigate a workspace panel to a specific URL. Use this to open specific pages within an app.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        panel_id: { type: "string" as const, description: "Panel ID to navigate" },
-        url: { type: "string" as const, description: "URL to navigate to" },
-      },
-      required: ["panel_id", "url"],
-    },
-  },
-  {
-    name: "type_text",
-    description: "Type text into an input field on a workspace panel. Finds the input by nearby label text, placeholder text, or CSS selector, focuses it, and types. Use clear=true to clear existing content first.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        panel_id: { type: "string" as const, description: "Panel ID to type in" },
-        text: { type: "string" as const, description: "Text to type into the input" },
-        label: { type: "string" as const, description: "Label text near the input (e.g. 'To', 'Subject', 'Search')" },
-        placeholder: { type: "string" as const, description: "Placeholder text of the input (e.g. 'Recipients', 'Type here')" },
-        selector: { type: "string" as const, description: "CSS selector for the input (used if label/placeholder not provided)" },
-        clear: { type: "boolean" as const, description: "Clear existing content before typing (default: true)" },
-      },
-      required: ["panel_id", "text"],
-    },
-  },
-  {
-    name: "run_command",
-    description: "Run a .dip or .drip command. Use .dip to switch panels, create splits/grids, apply layouts. Use .drip for visual effects. Examples: 'dip claude', 'dip split claude gpt', 'dip grid claude,gpt / gemini,code', 'dip back', 'dip list', 'drip fireworks'.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        command: { type: "string" as const, description: "The command to run (e.g. 'dip claude', 'dip split claude gpt', 'drip confetti')" },
-      },
-      required: ["command"],
-    },
-  },
-  {
-    name: "manage_skill",
-    description: "Create, list, read, or delete prompt skills. Skills are reusable prompt templates for processing content.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        action: { type: "string" as const, enum: ["create", "list", "read", "delete"], description: "Action to perform" },
-        name: { type: "string" as const, description: "Skill name (required for create/read/delete)" },
-        prompt: { type: "string" as const, description: "System prompt for the skill (required for create)" },
-      },
-      required: ["action"],
-    },
-  },
-  {
-    name: "manage_layout",
-    description: "Save, list, or delete panel layouts. Layouts are named grid arrangements of panels.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        action: { type: "string" as const, enum: ["save", "list", "delete"], description: "Action to perform" },
-        name: { type: "string" as const, description: "Layout name (required for save/delete)" },
-        panels: { type: "string" as const, description: "Space-separated panel IDs, use / for rows. E.g. 'claude gpt / gemini code' (required for save)" },
-      },
-      required: ["action"],
+      required: ["skill_name", "instruction"],
     },
   },
   {
     name: "inject_text",
-    description: "Paste text into the input field where the user typed .yo. Use this when the user says 'paste it here', 'put it here', 'type it in', or similar. The text will replace the current content of the input.",
+    description: "Paste text into the input field where the user typed .yo. Use when the user says 'paste it here', 'put it here', 'type it in', or similar.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -217,17 +120,30 @@ const TOOLS = [
     },
   },
   {
-    name: "manage_app",
-    description: "Add, list, or remove connected apps (web panels). Each app has an ID, name, and URL.",
+    name: "run_command",
+    description: "Run a .dip or .drip command. Examples: 'dip claude', 'dip split claude gpt', 'drip fireworks'.",
     input_schema: {
       type: "object" as const,
       properties: {
-        action: { type: "string" as const, enum: ["add", "list", "remove"], description: "Action to perform" },
-        id: { type: "string" as const, description: "App ID (required for add/remove)" },
-        name: { type: "string" as const, description: "Display name (for add, defaults to id)" },
-        url: { type: "string" as const, description: "URL (required for add)" },
+        command: { type: "string" as const, description: "The command to run" },
       },
-      required: ["action"],
+      required: ["command"],
+    },
+  },
+  {
+    name: "save_memory",
+    description: "Save something you learned about the user to persistent memory. Use for preferences, workflow patterns, app usage, facts about their work. Don't save trivial or one-off things.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        content: { type: "string" as const, description: "What to remember, e.g. 'User prefers Gmail over Outlook' or 'User's project Acme uses React + TypeScript'" },
+        category: {
+          type: "string" as const,
+          enum: ["preference", "fact", "workflow", "app_pattern", "context"],
+          description: "Category: preference (likes/dislikes), fact (about their work/projects), workflow (how they do things), app_pattern (app-specific behaviour), context (situational)",
+        },
+      },
+      required: ["content", "category"],
     },
   },
 ];
@@ -245,46 +161,121 @@ export class YoAgent {
   private history: any[] = [];
   private chatId: string | null = null;
   private chatTitle: string = "";
-  private maxMessages = 40;  // context window — configurable
+  private maxMessages = 40;
   private llmConfig: LLMConfig | null = null;
-  private noteStore: NoteStore | null = null;
-  private appConnector: AppConnector | null = null;
-  private panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
-  private panelClicker: ((panelId: string, text?: string, selector?: string) => Promise<string>) | null = null;
-  private panelNavigator: ((panelId: string, url: string) => Promise<string>) | null = null;
-  private panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean }) => Promise<string>) | null = null;
+  private memoryStore: MemoryStore | null = null;
+  private injector: ((text: string) => Promise<boolean>) | null = null;
   private commandRunner: ((cmd: string) => Promise<string>) | null = null;
-  private skillCallbacks: {
+  private aborted = false;
+  private activeMemories: string = "";  // recalled memories for current turn
+
+  // Sub-agents
+  private navigator = new NavigatorAgent();
+  private researcher = new ResearcherAgent();
+  private manager = new ManagerAgent();
+  private skillRunner = new SkillRunnerAgent();
+
+  // Skill engine access (for listing + reading skill prompts)
+  private skillList: (() => string[]) | null = null;
+  private skillRead: ((name: string) => string | null) | null = null;
+
+  // ── Setters (forward to sub-agents) ──────────────────
+
+  setLLMConfig(config: LLMConfig): void {
+    this.llmConfig = config;
+    this.navigator.setLLMConfig(config);
+    this.researcher.setLLMConfig(config);
+    this.manager.setLLMConfig(config);
+    this.skillRunner.setLLMConfig(config);
+  }
+
+  setMemoryStore(store: MemoryStore): void { this.memoryStore = store; }
+
+  setNoteStore(store: NoteStore): void {
+    this.researcher.setNoteStore(store);
+    this.skillRunner.setNoteStore(store);
+  }
+
+  setAppConnector(ac: AppConnector): void {
+    this.manager.setAppConnector(ac);
+    this.skillRunner.setAppConnector(ac);
+    // Navigator + SkillRunner need panel listing from the app connector
+    const lister = () => {
+      const apps = ac.list();
+      if (apps.length === 0) return "No panels configured.";
+      return apps.map((a) => `${a.id} — ${a.name} (${a.url})`).join("\n");
+    };
+    this.navigator.setPanelLister(lister);
+    this.skillRunner.setPanelLister(lister);
+  }
+
+  setPanelGrabber(fn: (panelId: string) => Promise<string | null>): void {
+    this.navigator.setPanelGrabber(fn);
+    this.skillRunner.setPanelGrabber(fn);
+  }
+
+  setPanelScanner(fn: (panelId: string) => Promise<string | null>): void {
+    this.navigator.setPanelScanner(fn);
+    this.skillRunner.setPanelScanner(fn);
+  }
+
+  setPanelClicker(fn: (panelId: string, text?: string, selector?: string) => Promise<string>): void {
+    this.navigator.setPanelClicker(fn);
+    this.skillRunner.setPanelClicker(fn);
+  }
+
+  setPanelNavigator(fn: (panelId: string, url: string) => Promise<string>): void {
+    this.navigator.setPanelNavigator(fn);
+    this.skillRunner.setPanelNavigator(fn);
+  }
+
+  setPanelTyper(fn: (panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>): void {
+    this.navigator.setPanelTyper(fn);
+    this.skillRunner.setPanelTyper(fn);
+  }
+
+  setMaxMessages(n: number): void { this.maxMessages = n; }
+  setCommandRunner(fn: (cmd: string) => Promise<string>): void {
+    this.commandRunner = fn;
+    this.skillRunner.setCommandRunner(fn);
+  }
+  setInjector(fn: (text: string) => Promise<boolean>): void {
+    this.injector = fn;
+    this.skillRunner.setInjector(fn);
+  }
+
+  setSkillCallbacks(cbs: {
     list: () => string[];
     read: (name: string) => string | null;
     create: (name: string, prompt: string) => void;
     remove: (name: string) => boolean;
-  } | null = null;
-  private layoutCallbacks: {
+  }): void {
+    this.manager.setSkillCallbacks(cbs);
+    this.skillRunner.setSkillCallbacks(cbs);
+    // Keep references for orchestrator skill awareness
+    this.skillList = cbs.list;
+    this.skillRead = cbs.read;
+  }
+
+  setLayoutCallbacks(cbs: {
     list: () => Array<{ name: string; cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
     save: (name: string, panels: string) => boolean;
     delete: (name: string) => boolean;
-  } | null = null;
-  private injector: ((text: string) => Promise<boolean>) | null = null;
-  private aborted = false;
+  }): void {
+    this.manager.setLayoutCallbacks(cbs);
+    this.skillRunner.setLayoutCallbacks(cbs);
+  }
 
-  setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
-  setNoteStore(store: NoteStore): void { this.noteStore = store; }
-  setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
-  setPanelGrabber(fn: (panelId: string) => Promise<string | null>): void { this.panelGrabber = fn; }
-  setPanelClicker(fn: (panelId: string, text?: string, selector?: string) => Promise<string>): void { this.panelClicker = fn; }
-  setPanelNavigator(fn: (panelId: string, url: string) => Promise<string>): void { this.panelNavigator = fn; }
-  setPanelTyper(fn: (panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean }) => Promise<string>): void { this.panelTyper = fn; }
+  abort(): void {
+    this.aborted = true;
+    this.navigator.abort();
+    this.researcher.abort();
+    this.manager.abort();
+    this.skillRunner.abort();
+  }
 
-  /** Set the context window size (max messages before compaction). */
-  setMaxMessages(n: number): void { this.maxMessages = n; }
-  abort(): void { this.aborted = true; }
-  setCommandRunner(fn: (cmd: string) => Promise<string>): void { this.commandRunner = fn; }
-  setInjector(fn: (text: string) => Promise<boolean>): void { this.injector = fn; }
-  setSkillCallbacks(cbs: typeof YoAgent.prototype.skillCallbacks): void { this.skillCallbacks = cbs; }
-  setLayoutCallbacks(cbs: typeof YoAgent.prototype.layoutCallbacks): void { this.layoutCallbacks = cbs; }
+  // ── Chat management (unchanged) ──────────────────────
 
-  /** Start a new conversation (saves current, clears history). */
   clear(): void {
     this.saveChat();
     this.history = [];
@@ -292,7 +283,6 @@ export class YoAgent {
     this.chatTitle = "";
   }
 
-  /** Load an existing conversation by ID. Returns display messages or null. */
   loadChat(id: string): Array<{ role: string; text: string }> | null {
     const filepath = path.join(CHATS_DIR, `${id}.md`);
     if (!fs.existsSync(filepath)) return null;
@@ -303,7 +293,6 @@ export class YoAgent {
       this.chatTitle = parsed.title;
       this.history = parsed.history;
 
-      // Extract displayable messages (user text + assistant text)
       const display: Array<{ role: string; text: string }> = [];
       for (const msg of parsed.history) {
         if (msg.role === "user" && typeof msg.content === "string") {
@@ -322,7 +311,6 @@ export class YoAgent {
     }
   }
 
-  /** List all saved conversations, newest first. */
   listChats(): ChatSummary[] {
     fs.mkdirSync(CHATS_DIR, { recursive: true });
     try {
@@ -356,7 +344,6 @@ export class YoAgent {
     }
   }
 
-  /** Delete a saved conversation. */
   deleteChat(id: string): boolean {
     try {
       fs.unlinkSync(path.join(CHATS_DIR, `${id}.md`));
@@ -364,7 +351,8 @@ export class YoAgent {
     } catch { return false; }
   }
 
-  /** Send a message and stream the response. Runs the full tool loop. */
+  // ── Send (public API — unchanged) ────────────────────
+
   async send(message: string, cb: YoAgentCallbacks): Promise<void> {
     if (!this.llmConfig?.apiKey) {
       cb.onError("No API key configured. Set your LLM provider in Settings.");
@@ -372,32 +360,41 @@ export class YoAgent {
     }
 
     this.aborted = false;
-    this.history.push({ role: "user", content: message });
 
-    // Auto-title from first user message
+    // If the last message is a user message with tool_results (from a prior abort),
+    // merge the new text into it rather than creating consecutive user messages
+    // (the API requires alternating user/assistant).
+    const lastMsg = this.history[this.history.length - 1];
+    if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
+      lastMsg.content.push({ type: "text", text: message });
+    } else {
+      this.history.push({ role: "user", content: message });
+    }
+
     if (!this.chatTitle) {
       this.chatTitle = message.slice(0, 80).replace(/\n/g, " ").trim();
     }
-
-    // Auto-create chat ID on first message
     if (!this.chatId) {
       this.chatId = `${Date.now()}`;
     }
 
-    // Compact if history exceeds context window
     if (this.history.length > this.maxMessages) {
       await this.compact();
     }
 
+    // ── Memory recall: search for relevant memories ──
+    await this.recallMemories(message);
+
     try {
       await this.agentLoop(cb);
-      this.saveChat(); // persist after each turn
+      this.saveChat();
+      // ── Memory extract: background pass to learn from this turn ──
+      this.extractMemories().catch(() => {});  // fire-and-forget
     } catch (err) {
       cb.onError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  /** Get the last assistant text response from history. */
   getLastResponse(): string {
     for (let i = this.history.length - 1; i >= 0; i--) {
       const msg = this.history[i];
@@ -412,15 +409,60 @@ export class YoAgent {
     return "";
   }
 
-  // ── Agent loop ────────────────────────────────────────
+  getChatId(): string | null { return this.chatId; }
+  getChatTitle(): string { return this.chatTitle; }
 
-  private async agentLoop(cb: YoAgentCallbacks): Promise<void> {
+  // ── System prompt builder ────────────────────────────
+
+  private buildSystemPrompt(): string {
+    let prompt = SYSTEM_BASE;
+
+    // Self-awareness: don't use your own app panel to answer questions
+    if (this.llmConfig) {
+      const model = this.llmConfig.model.toLowerCase();
+      const provider = this.llmConfig.provider;
+      // Map provider/model to app panel IDs the agent should avoid
+      const selfPanels: string[] = [];
+      if (provider === "anthropic" || model.includes("claude")) selfPanels.push("claude");
+      if (provider === "openai" || model.includes("gpt") || model.includes("o3") || model.includes("o4")) selfPanels.push("gpt", "chatgpt");
+      if (provider === "google" || model.includes("gemini")) selfPanels.push("gemini");
+
+      if (selfPanels.length > 0) {
+        prompt += `\n\nSELF-AWARENESS:\nYou are running on ${provider} (${this.llmConfig.model}). The panels [${selfPanels.join(", ")}] are YOUR OWN web interface. Do NOT navigate to or grab from these panels to answer questions — you already have that knowledge. Only interact with these panels if the user explicitly asks you to (e.g. "type this into Claude", "check my Claude chat history", "click send in GPT").`;
+      }
+    }
+
+    // Inject available skills so orchestrator knows what's available
+    if (this.skillList) {
+      const skills = this.skillList();
+      if (skills.length > 0) {
+        prompt += `\n\nAVAILABLE SKILLS:\n${skills.map((s) => `- /${s}`).join("\n")}\nWhen the user says /<skillname> or asks to apply a skill, use delegate_skill with that skill name.`;
+      }
+    }
+
+    if (this.activeMemories) {
+      prompt += `\n\nYOUR MEMORIES:\n${this.activeMemories}`;
+    }
+
+    return prompt;
+  }
+
+  // ── Agent loop (orchestrator) ───���─────────���──────────
+
+  private static readonly MAX_TOOL_ITERATIONS = 20;
+
+  private async agentLoop(cb: YoAgentCallbacks, iteration = 0): Promise<void> {
+    // Fix any structural issues before hitting the API
+    if (iteration === 0) this.sanitizeHistory();
+
     let fullText = "";
+
+    const systemPrompt = this.buildSystemPrompt();
 
     const response = await createStream(
       this.llmConfig!,
       {
-        system: SYSTEM,
+        system: systemPrompt,
         messages: this.history,
         tools: TOOLS,
         maxTokens: 4096,
@@ -432,246 +474,152 @@ export class YoAgent {
     );
 
     this.history.push({ role: "assistant", content: response.content });
-    if (this.aborted) return;
+    if (this.aborted) { this.patchDanglingToolUse(); return; }
 
-    // Handle tool calls
     const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
     if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
+      if (iteration >= YoAgent.MAX_TOOL_ITERATIONS) {
+        const results = toolBlocks.map((b: any) => ({
+          type: "tool_result",
+          tool_use_id: b.id,
+          content: "[tool limit reached — respond with what you have]",
+        }));
+        this.history.push({ role: "user", content: results });
+        await this.agentLoop(cb, iteration + 1);
+        return;
+      }
+
+      // Partition into delegate and direct tools
+      const delegateBlocks = toolBlocks.filter((b: any) =>
+        b.name.startsWith("delegate_"));
+      const directBlocks = toolBlocks.filter((b: any) =>
+        !b.name.startsWith("delegate_"));
+
       const results: any[] = [];
-      for (const block of toolBlocks) {
-        if (block.type !== "tool_use") continue;
-        if (this.aborted) return;
+
+      // Run all delegate calls in parallel (sub-agent tools are silent — no onToolUse forwarding)
+      if (delegateBlocks.length > 0 && !this.aborted) {
+        const context = this.buildSubAgentContext();
+        const delegatePromises = delegateBlocks.map(async (block: any) => {
+          if (this.aborted) return { type: "tool_result", tool_use_id: block.id, content: "[interrupted by user]" };
+          cb.onToolUse(block.name);
+          const result = await this.execDelegation(
+            block.name,
+            block.input as Record<string, unknown>,
+            context,
+          );
+          // Emit compact result for the renderer
+          cb.onToolResult?.(block.name, result.slice(0, 200));
+          return { type: "tool_result", tool_use_id: block.id, content: result };
+        });
+        const delegateResults = await Promise.all(delegatePromises);
+        results.push(...delegateResults);
+      }
+
+      // Run direct tools sequentially
+      for (const block of directBlocks) {
+        if (this.aborted) break;
         cb.onToolUse(block.name);
-        const result = await this.execTool(block.name, block.input as Record<string, unknown>);
+        const result = await this.execDirectTool(block.name, block.input as Record<string, unknown>);
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }
-      if (this.aborted) return;
+
+      if (this.aborted) {
+        if (results.length > 0) this.history.push({ role: "user", content: results });
+        this.patchDanglingToolUse();
+        return;
+      }
+
       this.history.push({ role: "user", content: results });
-      // Continue the loop — agent may want to use more tools or respond
       fullText = "";
-      await this.agentLoop(cb);
+      await this.agentLoop(cb, iteration + 1);
     } else {
       cb.onDone(fullText);
     }
   }
 
-  // ── Tool execution ────────────────────────────────────
+  // ── Sub-agent context ────────────────────────────────
 
-  private async execTool(name: string, input: Record<string, unknown>): Promise<string> {
+  private buildSubAgentContext() {
+    // Extract last 3-4 user/assistant text exchanges
+    const exchanges: string[] = [];
+    for (let i = Math.max(0, this.history.length - 8); i < this.history.length; i++) {
+      const msg = this.history[i];
+      if (msg.role === "user" && typeof msg.content === "string") {
+        exchanges.push(`User: ${msg.content.slice(0, 150)}`);
+      } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+        const text = msg.content
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("");
+        if (text) exchanges.push(`Assistant: ${text.slice(0, 150)}`);
+      }
+    }
+
+    const userMessage = typeof this.history[this.history.length - 2]?.content === "string"
+      ? this.history[this.history.length - 2].content
+      : exchanges[exchanges.length - 1] || "";
+
+    return {
+      conversationSummary: exchanges.length > 1 ? exchanges.slice(0, -1).join("\n") : undefined,
+      userMessage,
+    };
+  }
+
+  // ── Delegation execution ─────────────────────────────
+
+  private async execDelegation(
+    name: string,
+    input: Record<string, unknown>,
+    context: { conversationSummary?: string; userMessage: string },
+  ): Promise<string> {
+    const instruction = input.instruction as string;
+    if (!instruction) return "No instruction provided.";
+
+    try {
+      let result;
+      switch (name) {
+        case "delegate_navigator":
+          result = await this.navigator.execute(instruction, context);
+          break;
+        case "delegate_researcher":
+          result = await this.researcher.execute(instruction, context);
+          break;
+        case "delegate_manager":
+          result = await this.manager.execute(instruction, context);
+          break;
+        case "delegate_skill": {
+          const skillName = input.skill_name as string;
+          if (!skillName) return "No skill name provided.";
+          if (!this.skillRead) return "Skill engine not available.";
+          const prompt = this.skillRead(skillName);
+          if (!prompt) return `Skill "${skillName}" not found. Use delegate_manager to list available skills.`;
+          this.skillRunner.setSkillPrompt(prompt);
+          result = await this.skillRunner.execute(instruction, context);
+          break;
+        }
+        default:
+          return `Unknown delegation: ${name}`;
+      }
+      return result.summary;
+    } catch (err) {
+      return `Delegation error: ${err instanceof Error ? err.message : err}`;
+    }
+  }
+
+  // ── Direct tool execution ────────────────────────────
+
+  private async execDirectTool(name: string, input: Record<string, unknown>): Promise<string> {
     try {
       switch (name) {
-        case "search_notes": return await this.toolSearchNotes(input);
-        case "write_note": return await this.toolWriteNote(input);
-        case "search_files": return this.toolSearchFiles(input);
-        case "read_file": return this.toolReadFile(input);
-        case "list_files": return this.toolListFiles(input);
-        case "grab_panel": return await this.toolGrabPanel(input);
-        case "list_panels": return this.toolListPanels();
-        case "click_element": return await this.toolClickElement(input);
-        case "navigate_panel": return await this.toolNavigatePanel(input);
-        case "type_text": return await this.toolTypeText(input);
-        case "run_command": return await this.toolRunCommand(input);
         case "inject_text": return await this.toolInjectText(input);
-        case "manage_skill": return this.toolManageSkill(input);
-        case "manage_layout": return this.toolManageLayout(input);
-        case "manage_app": return this.toolManageApp(input);
+        case "run_command": return await this.toolRunCommand(input);
+        case "save_memory": return await this.toolSaveMemory(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
       return `Error: ${err instanceof Error ? err.message : err}`;
     }
-  }
-
-  private async toolSearchNotes(input: Record<string, unknown>): Promise<string> {
-    if (!this.noteStore) return "Note store not available.";
-    const query = input.query as string;
-    const limit = (input.limit as number) || 10;
-
-    const hits = await this.noteStore.search(query, limit);
-    if (hits.length === 0) return "No matching notes found.";
-
-    const sections = hits.map((h) =>
-      `[${h.title} | ${h.file} | ${this.formatAge(h.timestamp)}]\n${h.content}`
-    );
-
-    return sections.join("\n\n---\n\n");
-  }
-
-  private async toolWriteNote(input: Record<string, unknown>): Promise<string> {
-    if (!this.noteStore) return "Note store not available.";
-    const title = input.title as string;
-    const content = input.content as string;
-    const filepath = await this.noteStore.write(title, content, "agent");
-    return `Note saved: ${filepath}`;
-  }
-
-  private toolSearchFiles(input: Record<string, unknown>): string {
-    const pattern = input.pattern as string;
-    let dir = (input.directory as string) || "~";
-    const filePattern = (input.file_pattern as string) || "";
-
-    dir = dir.replace(/^~/, os.homedir());
-    if (!fs.existsSync(dir)) return `Directory not found: ${dir}`;
-
-    // Use a simple recursive search (capped for safety)
-    const results: string[] = [];
-    const maxResults = 20;
-    const maxDepth = 4;
-    const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv"]);
-
-    const textExts = new Set([
-      ".txt", ".md", ".ts", ".tsx", ".js", ".jsx", ".py", ".json",
-      ".yaml", ".yml", ".toml", ".cfg", ".ini", ".sh", ".zsh",
-      ".html", ".css", ".scss", ".sql", ".rs", ".go", ".java",
-      ".rb", ".php", ".swift", ".kt", ".c", ".cpp", ".h",
-    ]);
-
-    const search = (dir: string, depth: number) => {
-      if (depth > maxDepth || results.length >= maxResults) return;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-
-      for (const entry of entries) {
-        if (results.length >= maxResults) break;
-        const full = path.join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          if (!entry.name.startsWith(".") && !skipDirs.has(entry.name)) {
-            search(full, depth + 1);
-          }
-          continue;
-        }
-
-        if (!entry.isFile()) continue;
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!textExts.has(ext)) continue;
-        if (filePattern && !entry.name.match(new RegExp(filePattern.replace(/\*/g, ".*")))) continue;
-
-        try {
-          const content = fs.readFileSync(full, "utf-8").slice(0, 50000);
-          const lines = content.split("\n");
-          const regex = new RegExp(pattern, "gi");
-          for (let i = 0; i < lines.length; i++) {
-            if (regex.test(lines[i])) {
-              const preview = lines.slice(Math.max(0, i - 1), i + 3).join("\n");
-              results.push(`[${full}:${i + 1}]\n${preview}`);
-              if (results.length >= maxResults) break;
-            }
-            regex.lastIndex = 0;
-          }
-        } catch { /* skip unreadable files */ }
-      }
-    };
-
-    search(dir, 0);
-    if (results.length === 0) return `No files matching "${pattern}" found in ${dir}`;
-    return results.join("\n\n");
-  }
-
-  private toolReadFile(input: Record<string, unknown>): string {
-    let filePath = input.path as string;
-    const maxLines = (input.max_lines as number) || 200;
-
-    filePath = filePath.replace(/^~/, os.homedir());
-    if (!fs.existsSync(filePath)) return `File not found: ${filePath}`;
-
-    try {
-      const stat = fs.statSync(filePath);
-      if (stat.isDirectory()) return `${filePath} is a directory, not a file. Use list_files instead.`;
-      if (stat.size > 1_000_000) return `File too large (${Math.round(stat.size / 1024)}KB). Try search_files with a pattern instead.`;
-
-      const content = fs.readFileSync(filePath, "utf-8");
-      const lines = content.split("\n");
-      if (lines.length > maxLines) {
-        return lines.slice(0, maxLines).join("\n") + `\n\n[... truncated at ${maxLines} lines, ${lines.length} total]`;
-      }
-      return content;
-    } catch (err) {
-      return `Error reading file: ${err instanceof Error ? err.message : err}`;
-    }
-  }
-
-  private toolListFiles(input: Record<string, unknown>): string {
-    let dir = (input.path as string) || "~";
-    const pattern = input.pattern as string;
-    const recursive = input.recursive as boolean;
-
-    dir = dir.replace(/^~/, os.homedir());
-    if (!fs.existsSync(dir)) return `Directory not found: ${dir}`;
-
-    const results: string[] = [];
-    const maxResults = 50;
-    const maxDepth = recursive ? 3 : 0;
-    const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__"]);
-
-    const list = (d: string, depth: number) => {
-      if (depth > maxDepth || results.length >= maxResults) return;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-
-      for (const entry of entries) {
-        if (results.length >= maxResults) break;
-        if (entry.name.startsWith(".")) continue;
-
-        const full = path.join(d, entry.name);
-        const relative = path.relative(dir, full);
-        const isDir = entry.isDirectory();
-
-        if (pattern && !entry.name.match(new RegExp(pattern.replace(/\*/g, ".*")))) {
-          if (isDir && recursive && !skipDirs.has(entry.name)) list(full, depth + 1);
-          continue;
-        }
-
-        results.push(`${isDir ? "[dir] " : ""}${relative}`);
-        if (isDir && recursive && !skipDirs.has(entry.name)) list(full, depth + 1);
-      }
-    };
-
-    list(dir, 0);
-    if (results.length === 0) return `No files found in ${dir}`;
-    return results.join("\n");
-  }
-
-  private async toolGrabPanel(input: Record<string, unknown>): Promise<string> {
-    const panelId = input.panel_id as string;
-    if (!this.panelGrabber) return "Panel grabbing not available.";
-    const content = await this.panelGrabber(panelId);
-    return content || `Could not grab content from panel: ${panelId}`;
-  }
-
-  private toolListPanels(): string {
-    if (!this.appConnector) return "App connector not available.";
-    const apps = this.appConnector.list();
-    if (apps.length === 0) return "No panels configured.";
-    return apps.map((a) => `${a.id} — ${a.name} (${a.url})`).join("\n");
-  }
-
-  private async toolClickElement(input: Record<string, unknown>): Promise<string> {
-    const panelId = input.panel_id as string;
-    const text = input.text as string | undefined;
-    const selector = input.selector as string | undefined;
-    if (!this.panelClicker) return "Click not available.";
-    if (!text && !selector) return "Provide either text or selector to click.";
-    return this.panelClicker(panelId, text, selector);
-  }
-
-  private async toolNavigatePanel(input: Record<string, unknown>): Promise<string> {
-    const panelId = input.panel_id as string;
-    const url = input.url as string;
-    if (!this.panelNavigator) return "Navigation not available.";
-    return this.panelNavigator(panelId, url);
-  }
-
-  private async toolTypeText(input: Record<string, unknown>): Promise<string> {
-    const panelId = input.panel_id as string;
-    const text = input.text as string;
-    if (!this.panelTyper) return "Typing not available.";
-    return this.panelTyper(panelId, text, {
-      label: input.label as string | undefined,
-      placeholder: input.placeholder as string | undefined,
-      selector: input.selector as string | undefined,
-      clear: input.clear as boolean | undefined,
-    });
   }
 
   private async toolInjectText(input: Record<string, unknown>): Promise<string> {
@@ -685,111 +633,259 @@ export class YoAgent {
   private async toolRunCommand(input: Record<string, unknown>): Promise<string> {
     const cmd = (input.command as string || "").trim();
     if (!cmd) return "No command provided.";
-    // Only allow dip and drip commands
     const first = cmd.split(/\s+/)[0].toLowerCase().replace(/^\./, "");
     if (first !== "dip" && first !== "drip") return `Only dip and drip commands are allowed. Got: ${first}`;
     if (!this.commandRunner) return "Command runner not available.";
     return this.commandRunner(cmd);
   }
 
-  private toolManageSkill(input: Record<string, unknown>): string {
-    const action = input.action as string;
-    if (!this.skillCallbacks) return "Skill engine not available.";
-    switch (action) {
-      case "list": {
-        const names = this.skillCallbacks.list();
-        return names.length ? names.join("\n") : "No skills found.";
+  private async toolSaveMemory(input: Record<string, unknown>): Promise<string> {
+    const content = input.content as string;
+    const category = input.category as "preference" | "fact" | "workflow" | "app_pattern" | "context";
+    if (!content) return "No content provided.";
+    if (!this.memoryStore) return "Memory not available.";
+    const id = await this.memoryStore.save(content, category || "context");
+    return `Memory saved (${id}).`;
+  }
+
+  // ── Memory loop ──────────────────────────────────────
+
+  /**
+   * Recall: search memories relevant to the user's message.
+   * Injects them into activeMemories for the system prompt.
+   */
+  private async recallMemories(message: string): Promise<void> {
+    if (!this.memoryStore || this.memoryStore.count === 0) {
+      this.activeMemories = "";
+      return;
+    }
+    try {
+      const memories = await this.memoryStore.search(message, 5);
+      if (memories.length === 0) {
+        this.activeMemories = "";
+        return;
       }
-      case "read": {
-        const name = input.name as string;
-        if (!name) return "Skill name required.";
-        const prompt = this.skillCallbacks.read(name);
-        return prompt ?? `Skill "${name}" not found.`;
-      }
-      case "create": {
-        const name = input.name as string;
-        const prompt = input.prompt as string;
-        if (!name || !prompt) return "Both name and prompt required.";
-        this.skillCallbacks.create(name, prompt);
-        return `Skill "${name}" created.`;
-      }
-      case "delete": {
-        const name = input.name as string;
-        if (!name) return "Skill name required.";
-        return this.skillCallbacks.remove(name) ? `Skill "${name}" deleted.` : `Skill "${name}" not found.`;
-      }
-      default: return `Unknown skill action: ${action}`;
+      this.activeMemories = memories
+        .map((m) => `- [${m.category}] ${m.content}`)
+        .join("\n");
+    } catch {
+      this.activeMemories = "";
     }
   }
 
-  private toolManageLayout(input: Record<string, unknown>): string {
-    const action = input.action as string;
-    if (!this.layoutCallbacks) return "Layout manager not available.";
-    switch (action) {
-      case "list": {
-        const layouts = this.layoutCallbacks.list();
-        if (!layouts.length) return "No saved layouts.";
-        return layouts.map((l) => {
-          const panels = l.cells.map((c) => c.panelId).join(", ");
-          return `${l.name} (${l.cols}x${l.rows}: ${panels})`;
-        }).join("\n");
+  /**
+   * Extract: after each turn, run a cheap background LLM call to
+   * pull out any new memories from the conversation. Fire-and-forget.
+   */
+  private async extractMemories(): Promise<void> {
+    if (!this.memoryStore || !this.llmConfig?.apiKey) return;
+
+    // Get last user message + assistant response
+    const lastUser = this.getLastUserMessage();
+    const lastAssistant = this.getLastResponse();
+    if (!lastUser || !lastAssistant) return;
+
+    // Skip trivial exchanges (very short responses)
+    if (lastAssistant.length < 50 && lastUser.length < 30) return;
+
+    try {
+      const response = await createCompletion(this.llmConfig, {
+        system: `You extract useful memories from conversations. A memory is something worth remembering about the user for future conversations: their preferences, how they work, what apps they use, facts about their projects, patterns in their behaviour.
+
+Rules:
+- Only extract genuinely useful, reusable information
+- Skip trivial or one-off things (greetings, simple commands)
+- Skip things that are just about the current task with no future value
+- Each memory should be a single clear sentence
+- Return a JSON array of objects: [{"content": "...", "category": "preference|fact|workflow|app_pattern|context"}]
+- Return [] if nothing worth remembering`,
+        messages: [{
+          role: "user",
+          content: `User said: ${lastUser.slice(0, 500)}\n\nAssistant responded: ${lastAssistant.slice(0, 1000)}\n\nExtract memories (JSON array):`,
+        }],
+        maxTokens: 500,
+        model: this.getCheapModel(),
+      });
+
+      const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+      // Parse JSON from response (may be wrapped in markdown code block)
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return;
+
+      const memories: Array<{ content: string; category: string }> = JSON.parse(jsonMatch[0]);
+      for (const mem of memories) {
+        if (mem.content && mem.content.length > 10) {
+          await this.memoryStore.save(
+            mem.content,
+            (mem.category as any) || "context",
+          );
+        }
       }
-      case "save": {
-        const name = input.name as string;
-        const panels = input.panels as string;
-        if (!name || !panels) return "Both name and panels required.";
-        return this.layoutCallbacks.save(name, panels) ? `Layout "${name}" saved.` : `Failed to save layout "${name}".`;
-      }
-      case "delete": {
-        const name = input.name as string;
-        if (!name) return "Layout name required.";
-        return this.layoutCallbacks.delete(name) ? `Layout "${name}" deleted.` : `Layout "${name}" not found.`;
-      }
-      default: return `Unknown layout action: ${action}`;
+    } catch {
+      // Non-fatal — extraction is best-effort
     }
   }
 
-  private toolManageApp(input: Record<string, unknown>): string {
-    const action = input.action as string;
-    if (!this.appConnector) return "App connector not available.";
-    switch (action) {
-      case "list": {
-        const apps = this.appConnector.list();
-        if (!apps.length) return "No apps configured.";
-        return apps.map((a) => `${a.id} — ${a.name} (${a.url})`).join("\n");
+  private getLastUserMessage(): string {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].role === "user" && typeof this.history[i].content === "string") {
+        return this.history[i].content;
       }
-      case "add": {
-        const id = input.id as string;
-        const url = input.url as string;
-        if (!id || !url) return "Both id and url required.";
-        const name = (input.name as string) || id;
-        this.appConnector.add(id, name, url);
-        return `App "${id}" added (${url}).`;
+    }
+    return "";
+  }
+
+  private getCheapModel(): string {
+    if (!this.llmConfig) return "";
+    const cheap: Record<string, string> = {
+      anthropic: "claude-haiku-4-5-20251001",
+      openai: "gpt-4o-mini",
+      google: "gemini-2.0-flash",
+    };
+    return cheap[this.llmConfig.provider] || this.llmConfig.model;
+  }
+
+  // ── History safety ────────────────────────────────────
+
+  /**
+   * Sanitize history before API calls. Fixes structural issues that
+   * can accumulate from aborts, compaction edge cases, or loaded chats.
+   */
+  private sanitizeHistory(): void {
+    // 1. Ensure history starts with a user message (not tool_results)
+    while (this.history.length > 0) {
+      const first = this.history[0];
+      if (first.role === "user") {
+        // If it's a user message with only tool_results (no text), remove it
+        if (Array.isArray(first.content) &&
+            first.content.every((b: any) => b.type === "tool_result")) {
+          this.history.shift();
+          // Also remove the next message if it's the orphaned assistant response
+          if (this.history[0]?.role === "assistant") this.history.shift();
+          continue;
+        }
+        break;
       }
-      case "remove": {
-        const id = input.id as string;
-        if (!id) return "App id required.";
-        return this.appConnector.remove(id) ? `App "${id}" removed.` : `App "${id}" not found.`;
+      // History shouldn't start with assistant — remove it
+      if (first.role === "assistant") {
+        this.history.shift();
+        continue;
       }
-      default: return `Unknown app action: ${action}`;
+      break;
+    }
+
+    // 2. Ensure alternating user/assistant (merge consecutive same-role messages)
+    for (let i = 1; i < this.history.length; i++) {
+      if (this.history[i].role === this.history[i - 1].role) {
+        const prev = this.history[i - 1];
+        const curr = this.history[i];
+        if (prev.role === "user") {
+          // Merge user messages: combine content into array form
+          const prevContent = Array.isArray(prev.content)
+            ? prev.content
+            : [{ type: "text", text: prev.content }];
+          const currContent = Array.isArray(curr.content)
+            ? curr.content
+            : [{ type: "text", text: curr.content }];
+          this.history[i - 1] = { role: "user", content: [...prevContent, ...currContent] };
+        } else {
+          // Merge assistant messages: combine content arrays
+          const prevContent = Array.isArray(prev.content) ? prev.content : [{ type: "text", text: prev.content }];
+          const currContent = Array.isArray(curr.content) ? curr.content : [{ type: "text", text: curr.content }];
+          this.history[i - 1] = { role: "assistant", content: [...prevContent, ...currContent] };
+        }
+        this.history.splice(i, 1);
+        i--; // re-check same index
+      }
+    }
+
+    // 3. Ensure every tool_result references a tool_use in the preceding assistant message
+    for (let i = 0; i < this.history.length; i++) {
+      const msg = this.history[i];
+      if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+
+      const toolResults = msg.content.filter((b: any) => b.type === "tool_result");
+      if (toolResults.length === 0) continue;
+
+      // Find preceding assistant message
+      const prevAssistant = i > 0 && this.history[i - 1].role === "assistant"
+        ? this.history[i - 1]
+        : null;
+
+      if (!prevAssistant || !Array.isArray(prevAssistant.content)) {
+        // No preceding assistant — strip tool_results, keep text
+        msg.content = msg.content.filter((b: any) => b.type !== "tool_result");
+        if (msg.content.length === 0) {
+          this.history.splice(i, 1);
+          i--;
+        }
+        continue;
+      }
+
+      // Get valid tool_use IDs from preceding assistant
+      const validIds = new Set(
+        prevAssistant.content
+          .filter((b: any) => b.type === "tool_use")
+          .map((b: any) => b.id)
+      );
+
+      // Remove tool_results that reference non-existent tool_use IDs
+      msg.content = msg.content.filter((b: any) =>
+        b.type !== "tool_result" || validIds.has(b.tool_use_id)
+      );
+
+      if (msg.content.length === 0) {
+        this.history.splice(i, 1);
+        i--;
+      }
     }
   }
 
-  private formatAge(timestamp: number): string {
-    const seconds = Math.floor((Date.now() - timestamp) / 1000);
-    if (seconds < 60) return "just now";
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
+  private patchDanglingToolUse(): void {
+    let lastAssistantIdx = -1;
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].role === "assistant") { lastAssistantIdx = i; break; }
+    }
+    if (lastAssistantIdx < 0) return;
+
+    const assistantContent = this.history[lastAssistantIdx].content;
+    if (!Array.isArray(assistantContent)) return;
+
+    const toolUseIds = assistantContent
+      .filter((b: any) => b.type === "tool_use")
+      .map((b: any) => b.id);
+    if (toolUseIds.length === 0) return;
+
+    const nextMsg = this.history[lastAssistantIdx + 1];
+    const existingIds = new Set<string>();
+    if (nextMsg?.role === "user" && Array.isArray(nextMsg.content)) {
+      for (const b of nextMsg.content) {
+        if ((b as any).type === "tool_result") existingIds.add((b as any).tool_use_id);
+      }
+    }
+
+    const missing = toolUseIds.filter((id: string) => !existingIds.has(id));
+    if (missing.length === 0) return;
+
+    const patchResults = missing.map((id: string) => ({
+      type: "tool_result" as const,
+      tool_use_id: id,
+      content: "[interrupted by user]",
+    }));
+
+    if (nextMsg?.role === "user" && Array.isArray(nextMsg.content)) {
+      nextMsg.content.push(...patchResults);
+    } else {
+      this.history.splice(lastAssistantIdx + 1, 0, { role: "user", content: patchResults });
+    }
   }
 
-  // ── Chat persistence ─────────────────────────────────
+  // ── Chat persistence (unchanged) ─────────────────────
 
   private saveChat(): void {
     if (!this.chatId || this.history.length === 0) return;
     fs.mkdirSync(CHATS_DIR, { recursive: true });
 
-    // Count user messages for the summary
     const userMsgs = this.history.filter((m) => m.role === "user" && typeof m.content === "string").length;
 
     const lines = [
@@ -801,7 +897,6 @@ export class YoAgent {
       "",
     ];
 
-    // Serialize history as JSON block
     lines.push("```json");
     lines.push(JSON.stringify(this.history, null, 2));
     lines.push("```");
@@ -817,7 +912,6 @@ export class YoAgent {
       if (t) title = t[1].trim();
     }
 
-    // Extract JSON from code block
     const jsonMatch = raw.match(/```json\n([\s\S]*?)\n```/);
     let history: any[] = [];
     if (jsonMatch) {
@@ -827,17 +921,14 @@ export class YoAgent {
     return { title, history };
   }
 
-  /** Compact history — summarize older turns, keep recent ones. */
   private async compact(): Promise<void> {
     if (!this.llmConfig?.apiKey) return;
     if (this.history.length <= 6) return;
 
-    // Split: older messages to summarize, recent to keep
     const keepCount = Math.min(6, Math.floor(this.history.length / 3));
     const oldMessages = this.history.slice(0, -keepCount);
     const recentMessages = this.history.slice(-keepCount);
 
-    // Build a summary of the older conversation
     const summaryParts: string[] = [];
     for (const msg of oldMessages) {
       if (msg.role === "user" && typeof msg.content === "string") {
@@ -865,19 +956,13 @@ export class YoAgent {
       const block = response.content[0];
       const summaryText = block.type === "text" ? block.text : "";
 
-      // Replace history: summary as first user message, then recent messages
       this.history = [
         { role: "user", content: `[Earlier conversation summary: ${summaryText}]` },
         { role: "assistant", content: [{ type: "text", text: "Understood, I have the context from our earlier conversation." }] },
         ...recentMessages,
       ];
     } catch {
-      // If compaction fails, just do a hard trim
       this.history = recentMessages;
     }
   }
-
-  /** Get current chat ID (for renderer to track). */
-  getChatId(): string | null { return this.chatId; }
-  getChatTitle(): string { return this.chatTitle; }
 }

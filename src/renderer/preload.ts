@@ -162,6 +162,9 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelToolUse: (cb: (tool: string) => void) => {
     ipcRenderer.on("yo-panel-tool-use", (_e, tool) => cb(tool));
   },
+  onYoPanelToolResult: (cb: (label: string, detail: string) => void) => {
+    ipcRenderer.on("yo-panel-tool-result", (_e, label, detail) => cb(label, detail));
+  },
   onYoPanelDone: (cb: (fullText: string) => void) => {
     ipcRenderer.on("yo-panel-done", (_e, text) => cb(text));
   },
