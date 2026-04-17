@@ -2507,6 +2507,218 @@ select.settings-input {
   gap: 10px;
 }
 
+/* ── Yo panel welcome ────────────────────────── */
+
+.yo-panel-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px;
+  animation: yo-welcome-in 0.4s ease-out;
+}
+.yo-welcome-logo {
+  font-size: 48px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -2px;
+  margin-bottom: 2px;
+}
+.yo-welcome-dot { color: #25C75E; }
+.yo-welcome-tagline {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 18px;
+}
+.yo-welcome-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+}
+.yo-welcome-hint {
+  font-size: 12.5px;
+  color: #888;
+  padding: 10px 14px;
+  background: #222;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.yo-welcome-hint:hover {
+  background: #2a2a2a;
+  border-color: #25C75E40;
+  color: #ccc;
+}
+@keyframes yo-welcome-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Tutorial modal ──────────────────────────── */
+
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: tut-fade-in 0.3s ease;
+}
+.tutorial-overlay.hidden { display: none !important; }
+
+@keyframes tut-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tutorial-card {
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 16px;
+  width: 440px;
+  max-width: 90vw;
+  padding: 36px 32px 28px;
+  position: relative;
+  animation: tut-card-in 0.4s ease-out;
+}
+@keyframes tut-card-in {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.tutorial-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.tutorial-close:hover { color: #fff; }
+
+.tutorial-logo {
+  font-size: 56px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -2px;
+  text-align: center;
+  margin-bottom: 4px;
+}
+.tutorial-dot { color: #25C75E; }
+.tutorial-dot-sm { color: #25C75E; }
+
+.tutorial-sub {
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 28px;
+}
+
+.tutorial-steps {
+  position: relative;
+  min-height: 180px;
+}
+
+.tutorial-step {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+  animation: tut-step-in 0.35s ease-out;
+}
+.tutorial-step.active { display: flex; }
+
+@keyframes tut-step-in {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.tutorial-demo {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 16px 18px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+
+.tutorial-input-mock {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 14px;
+  color: #ccc;
+  display: flex;
+  align-items: center;
+}
+
+.tutorial-cursor {
+  color: #25C75E;
+  animation: tut-blink 0.8s step-end infinite;
+  margin-right: 0;
+  font-weight: 300;
+}
+@keyframes tut-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.tutorial-cmd {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.tutorial-desc {
+  font-size: 14px;
+  color: #999;
+  line-height: 1.6;
+}
+
+.tutorial-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24px;
+}
+
+.tutorial-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.tutorial-nav-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #333;
+  transition: background 0.2s;
+}
+.tutorial-nav-dot.active { background: #25C75E; }
+
+.tutorial-next-btn {
+  background: #25C75E;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tutorial-next-btn:hover { background: #2ed96a; }
+
 /* ── Messages ─────────────────────────────────── */
 
 .yo-msg {

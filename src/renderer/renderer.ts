@@ -778,6 +778,37 @@ function setYoThinking(thinking: boolean) {
   yoPanelSendBtn.classList.toggle("yo-stop", thinking);
 }
 
+function hideYoWelcome() {
+  const w = document.getElementById("yo-panel-welcome");
+  if (w) w.remove();
+}
+
+function showYoWelcome() {
+  hideYoWelcome();
+  const w = document.createElement("div");
+  w.id = "yo-panel-welcome";
+  w.className = "yo-panel-welcome";
+  w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo</div>
+    <div class="yo-welcome-tagline">Your AI workspace agent</div>
+    <div class="yo-welcome-hints">
+      <div class="yo-welcome-hint">find that reddit thread about pricing</div>
+      <div class="yo-welcome-hint">open gmail and claude side by side</div>
+      <div class="yo-welcome-hint">create a skill called summarize</div>
+      <div class="yo-welcome-hint">what did I capture yesterday?</div>
+    </div>`;
+  yoPanelMessages.appendChild(w);
+  w.querySelectorAll(".yo-welcome-hint").forEach((hint) => {
+    hint.addEventListener("click", () => {
+      const text = hint.textContent || "";
+      hideYoWelcome();
+      addYoUserMessage(text);
+      showYoStatus("");
+      setYoThinking(true);
+      window.yo.yoPanelSend(text);
+    });
+  });
+}
+
 async function openYoPanel(query: string) {
   const savedWidth = await window.yo.yoPanelGetWidth();
   yoPanel.style.width = `${savedWidth}px`;
@@ -788,9 +819,12 @@ async function openYoPanel(query: string) {
   yoToolGroupEl = null;
   yoToolStepCount = 0;
   if (query) {
+    hideYoWelcome();
     addYoUserMessage(query);
     showYoStatus("");
     setYoThinking(true);
+  } else {
+    showYoWelcome();
   }
   yoPanelInput.value = "";
   autoGrowYoInput();
@@ -1070,6 +1104,7 @@ function autoGrowYoInput() {
 function sendYoPanelMessage() {
   const text = yoPanelInput.value.trim();
   if (!text) return;
+  hideYoWelcome();
   yoPanelInput.value = "";
   autoGrowYoInput();
   yoToolsUsed = false;
@@ -1346,4 +1381,90 @@ window.yo.onBoot((data) => {
   booted = true;
   bootData = data;
   dismissSplash();
+
+  // Show tutorial on first launch (skip if going through onboarding — handled by yo-onboarding-done)
+  if (!data.needsOnboarding) {
+    window.yo.getPreference("hasSeenTutorial", false).then((seen) => {
+      if (!seen) showTutorial();
+    });
+  }
 });
+
+// After onboarding activation, show tutorial
+window.addEventListener("yo-onboarding-done", () => {
+  showTutorial();
+});
+
+// ── First-time tutorial ──────────────────────────────────
+
+const TUTORIAL_SEQUENCES = [
+  ".yo find that reddit thread about pricing",
+  ".sup . formalize",
+  ".dip split claude gpt",
+];
+
+function showTutorial() {
+  const overlay = document.getElementById("tutorial-overlay")!;
+  overlay.classList.remove("hidden");
+  let step = 0;
+  let typeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function typeText(stepIdx: number) {
+    const el = document.getElementById(`tutorial-typed-${stepIdx}`)!;
+    if (!el) return;
+    const text = TUTORIAL_SEQUENCES[stepIdx];
+    let i = 0;
+    el.textContent = "";
+    function tick() {
+      if (i < text.length) {
+        el!.textContent = text.slice(0, i + 1);
+        i++;
+        typeTimer = setTimeout(tick, 40 + Math.random() * 30);
+      }
+    }
+    typeTimer = setTimeout(tick, 400);
+  }
+
+  function goToStep(idx: number) {
+    if (typeTimer) clearTimeout(typeTimer);
+    step = idx;
+    overlay.querySelectorAll(".tutorial-step").forEach((s, i) => {
+      s.classList.toggle("active", i === idx);
+    });
+    overlay.querySelectorAll(".tutorial-nav-dot").forEach((d, i) => {
+      d.classList.toggle("active", i === idx);
+    });
+
+    // Clear previous typed text
+    const typed = document.getElementById(`tutorial-typed-${idx}`);
+    if (typed) typed.textContent = "";
+
+    const nextBtn = document.getElementById("tutorial-next") as HTMLButtonElement;
+    nextBtn.textContent = idx === TUTORIAL_SEQUENCES.length - 1 ? "Get Started" : "Next";
+
+    typeText(idx);
+  }
+
+  document.getElementById("tutorial-next")!.addEventListener("click", () => {
+    if (step < TUTORIAL_SEQUENCES.length - 1) {
+      goToStep(step + 1);
+    } else {
+      closeTutorial();
+    }
+  });
+
+  document.getElementById("tutorial-close")!.addEventListener("click", closeTutorial);
+
+  overlay.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeTutorial();
+  });
+
+  function closeTutorial() {
+    if (typeTimer) clearTimeout(typeTimer);
+    window.yo.setPreference("hasSeenTutorial", true);
+    overlay.classList.add("hidden");
+  }
+
+  // Start first step
+  goToStep(0);
+}

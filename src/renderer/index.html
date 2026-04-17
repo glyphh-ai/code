@@ -544,6 +544,59 @@
     </div>
   </div>
 
+  <!-- First-time tutorial -->
+  <div id="tutorial-overlay" class="tutorial-overlay hidden">
+    <div class="tutorial-card">
+      <button id="tutorial-close" class="tutorial-close">&times;</button>
+      <div class="tutorial-logo"><span class="tutorial-dot">.</span>Yo</div>
+      <div class="tutorial-sub">Work across every AI. Never lose the thread.</div>
+
+      <div id="tutorial-steps" class="tutorial-steps">
+        <div class="tutorial-step active" data-step="0">
+          <div class="tutorial-demo" id="tutorial-demo-0">
+            <div class="tutorial-input-mock">
+              <span class="tutorial-cursor">|</span>
+              <span class="tutorial-typed" id="tutorial-typed-0"></span>
+            </div>
+          </div>
+          <div class="tutorial-cmd"><span class="tutorial-dot-sm">.</span>yo</div>
+          <div class="tutorial-desc">Ask the agent anything. It can search your notes, navigate apps, manage skills and layouts — all by talking.</div>
+        </div>
+
+        <div class="tutorial-step" data-step="1">
+          <div class="tutorial-demo" id="tutorial-demo-1">
+            <div class="tutorial-input-mock">
+              <span class="tutorial-cursor">|</span>
+              <span class="tutorial-typed" id="tutorial-typed-1"></span>
+            </div>
+          </div>
+          <div class="tutorial-cmd"><span class="tutorial-dot-sm">.</span>sup</div>
+          <div class="tutorial-desc">Capture what's on screen into memory. Process it through skills — formalize, translate, summarize, anything.</div>
+        </div>
+
+        <div class="tutorial-step" data-step="2">
+          <div class="tutorial-demo" id="tutorial-demo-2">
+            <div class="tutorial-input-mock">
+              <span class="tutorial-cursor">|</span>
+              <span class="tutorial-typed" id="tutorial-typed-2"></span>
+            </div>
+          </div>
+          <div class="tutorial-cmd"><span class="tutorial-dot-sm">.</span>dip</div>
+          <div class="tutorial-desc">Switch between panels, create layouts, and navigate your workspace. Split your screen any way you want.</div>
+        </div>
+      </div>
+
+      <div class="tutorial-nav">
+        <div class="tutorial-dots" id="tutorial-dots">
+          <span class="tutorial-nav-dot active"></span>
+          <span class="tutorial-nav-dot"></span>
+          <span class="tutorial-nav-dot"></span>
+        </div>
+        <button id="tutorial-next" class="tutorial-next-btn">Next</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Yo agent slide-out panel -->
   <div id="yo-panel" class="yo-panel hidden">
     <div id="yo-panel-resize" class="yo-panel-resize"></div>

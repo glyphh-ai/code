@@ -274,6 +274,8 @@ activateBtn.addEventListener("click", async () => {
   setTimeout(() => {
     hideOnboarding();
     window.yo.onboardingComplete();
+    // Dispatch event so renderer can show the tutorial
+    window.dispatchEvent(new Event("yo-onboarding-done"));
   }, 600);
 });
 
