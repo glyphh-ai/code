@@ -925,24 +925,50 @@ async function loadSettings() {
   // License info
   const statusEl = document.getElementById("license-status")!;
   const keyEl = document.getElementById("license-key")!;
-  const trialRow = document.getElementById("license-trial-row")!;
-  const trialEl = document.getElementById("license-trial")!;
 
   const isLicensed = licenseInfo.status === "licensed";
-  const isTrial = licenseInfo.status === "trial";
 
-  statusEl.textContent = isLicensed
-    ? `Active${licenseInfo.tier ? ` — ${licenseInfo.tier.charAt(0).toUpperCase() + licenseInfo.tier.slice(1)}` : ""}`
-    : isTrial ? "Trial" : "Expired";
-  statusEl.className = "license-value" + (isLicensed ? " active" : licenseInfo.status === "expired" ? " expired" : "");
+  if (isLicensed) {
+    const tierLabel = licenseInfo.tier ? licenseInfo.tier.charAt(0).toUpperCase() + licenseInfo.tier.slice(1) : "Pro";
+    statusEl.textContent = tierLabel;
+    statusEl.className = "license-value active";
+  } else {
+    statusEl.textContent = "Free";
+    statusEl.className = "license-value";
+  }
   keyEl.textContent = licenseInfo.key || "None";
 
-  if (isTrial && licenseInfo.daysRemaining !== undefined) {
-    trialRow.style.display = "";
-    trialEl.textContent = `${licenseInfo.daysRemaining} day${licenseInfo.daysRemaining === 1 ? "" : "s"} remaining`;
-  } else {
-    trialRow.style.display = "none";
-  }
+  // License key input
+  const licenseKeyInput = document.getElementById("license-key-input") as HTMLInputElement;
+  const licenseActivateBtn = document.getElementById("license-activate-btn") as HTMLButtonElement;
+  const licenseActivateStatus = document.getElementById("license-activate-status")!;
+
+  licenseActivateBtn.addEventListener("click", async () => {
+    const key = licenseKeyInput.value.trim();
+    if (!key) return;
+    licenseActivateBtn.disabled = true;
+    licenseActivateBtn.textContent = "Activating...";
+    licenseActivateStatus.textContent = "";
+    const ok = await window.yo.activateLicense(key);
+    if (ok) {
+      licenseActivateStatus.textContent = "License activated!";
+      licenseActivateStatus.className = "license-activate-status success";
+      licenseKeyInput.value = "";
+      // Refresh the display
+      const updated = await window.yo.getLicenseInfo();
+      const tierLabel = updated.tier ? updated.tier.charAt(0).toUpperCase() + updated.tier.slice(1) : "Pro";
+      statusEl.textContent = tierLabel;
+      statusEl.className = "license-value active";
+      keyEl.textContent = updated.key || key.slice(0, 4) + "..." + key.slice(-4);
+      upgradeBtn.textContent = "Change Plan";
+      cancelBtn.style.display = "";
+    } else {
+      licenseActivateStatus.textContent = "Invalid key or could not reach server";
+      licenseActivateStatus.className = "license-activate-status error";
+    }
+    licenseActivateBtn.disabled = false;
+    licenseActivateBtn.textContent = "Activate";
+  });
 
   // Context-aware button labels
   const upgradeBtn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;

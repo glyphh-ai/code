@@ -2234,6 +2234,27 @@ select.settings-input {
 .license-value.active { color: #25C75E; }
 .license-value.expired { color: #ff5f57; }
 
+.license-input-row {
+  gap: 8px;
+  margin-top: 4px;
+}
+.license-input-row .settings-input {
+  flex: 1;
+  height: 32px;
+  font-size: 13px;
+}
+.license-input-row .action-btn {
+  flex-shrink: 0;
+}
+
+.license-activate-status {
+  font-size: 12px;
+  min-height: 18px;
+  padding: 2px 0;
+}
+.license-activate-status.success { color: #25C75E; }
+.license-activate-status.error { color: #ff5f57; }
+
 .license-actions {
   display: flex;
   gap: 8px;

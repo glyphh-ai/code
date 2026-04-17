@@ -392,17 +392,18 @@
           <h3 class="settings-subheading">Subscription</h3>
           <div id="license-card" class="license-card">
             <div class="license-row">
-              <span class="license-label">Status</span>
+              <span class="license-label">Plan</span>
               <span class="license-value" id="license-status">—</span>
             </div>
             <div class="license-row">
               <span class="license-label">License Key</span>
               <span class="license-value" id="license-key">—</span>
             </div>
-            <div class="license-row" id="license-trial-row" style="display:none">
-              <span class="license-label">Trial</span>
-              <span class="license-value" id="license-trial">—</span>
+            <div class="license-row license-input-row">
+              <input id="license-key-input" type="text" placeholder="Paste license key (YO-...)" spellcheck="false" autocomplete="off" class="settings-input" />
+              <button id="license-activate-btn" class="action-btn primary">Activate</button>
             </div>
+            <div id="license-activate-status" class="license-activate-status"></div>
             <div class="license-actions">
               <button id="license-upgrade-btn" class="action-btn primary">Upgrade</button>
               <button id="license-cancel-btn" class="action-btn">Cancel Subscription</button>

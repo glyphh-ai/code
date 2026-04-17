@@ -6,22 +6,43 @@
 
 // ── Matrix animation ─────────────────────────────────────
 
-interface Particle {
-  x: number;
-  y: number;
-  speed: number;
-  brightness: number;
-  flickerRate: number;
-  tOffset: number;
-  size: number;
-  side: number; // -1 left wall, 1 right wall, 0 center stream
-  col: number;
-  direction: number;
+// ── 3D→2D projection matching web hero (Three.js camera: pos=[0,0,6], fov=60) ──
+
+const CAM_Z = 6;
+const FOV_RAD = (60 / 2) * Math.PI / 180; // half-fov in radians
+
+// Wall params (matching web MatrixParticles exactly)
+const W_ROWS = 32;
+const W_COLS = 20;
+const WALL_HEIGHT = 10;
+const WALL_DEPTH = 16;
+const CORRIDOR_OUTER = 9;
+const CORRIDOR_INNER = 1.2;
+
+// Stream params
+const S_COLS = 7;
+const S_PER_COL = 40;
+const S_SPACING = 0.75;
+const S_HEIGHT = 14;
+const S_Z = -8;
+
+interface WallParticle {
+  row: number; col: number; tOffset: number; speed: number;
+  brightness: number; flickerRate: number; side: number;
+}
+interface StreamParticle {
+  col: number; yOffset: number; speed: number; direction: number;
+  brightness: number; flickerRate: number; size: number;
+}
+
+function project(x3: number, y3: number, z3: number, hw: number, hh: number) {
+  const d = CAM_Z - z3;
+  const scale = 1 / (d * Math.tan(FOV_RAD));
+  return { sx: hw + x3 * hw * scale, sy: hh - y3 * hh * scale, scale: hw * scale };
 }
 
 function initAnimation(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d")!;
-  const particles: Particle[] = [];
 
   function resize() {
     canvas.width = canvas.offsetWidth * devicePixelRatio;
@@ -30,39 +51,34 @@ function initAnimation(canvas: HTMLCanvasElement) {
   resize();
   window.addEventListener("resize", resize);
 
-  // Wall particles (left + right)
+  // Build wall particles (left + right)
+  const walls: WallParticle[] = [];
   for (const side of [-1, 1]) {
-    for (let r = 0; r < 24; r++) {
-      for (let c = 0; c < 14; c++) {
-        particles.push({
-          x: 0, y: 0,
+    for (let r = 0; r < W_ROWS; r++) {
+      for (let c = 0; c < W_COLS; c++) {
+        walls.push({
+          row: r, col: c, side,
+          tOffset: Math.random() * 20,
           speed: 0.6 + Math.random() * 0.8,
           brightness: 0.4 + Math.random() * 0.6,
           flickerRate: 1.5 + Math.random() * 3,
-          tOffset: Math.random() * 20,
-          size: 2 + Math.random() * 2,
-          side,
-          col: c,
-          direction: 1,
         });
       }
     }
   }
 
-  // Center stream particles
-  const STREAM_COLS = 7;
-  for (let c = 0; c < STREAM_COLS; c++) {
-    for (let p = 0; p < 30; p++) {
-      particles.push({
-        x: 0, y: 0,
+  // Build stream particles
+  const streams: StreamParticle[] = [];
+  for (let c = 0; c < S_COLS; c++) {
+    const dir = c % 2 === 0 ? 1 : -1;
+    for (let p = 0; p < S_PER_COL; p++) {
+      streams.push({
+        col: c, direction: dir,
+        yOffset: Math.random() * S_HEIGHT,
         speed: 0.4 + Math.random() * 0.6,
-        brightness: 0.03 + Math.random() * 0.06,
+        brightness: 0.02 + Math.random() * 0.06,
         flickerRate: 1 + Math.random() * 3,
-        tOffset: Math.random() * 14,
-        size: 2 + Math.random(),
-        side: 0,
-        col: c,
-        direction: c % 2 === 0 ? 1 : -1,
+        size: 0.12 + Math.random() * 0.05,
       });
     }
   }
@@ -75,72 +91,73 @@ function initAnimation(canvas: HTMLCanvasElement) {
     const t = (performance.now() - start) / 1000;
     const w = canvas.width;
     const h = canvas.height;
-    const cx = w / 2;
-    const cy = h / 2;
+    const hw = w / 2;
+    const hh = h / 2;
 
     ctx.clearRect(0, 0, w, h);
 
-    for (const p of particles) {
-      if (p.side !== 0) {
-        // Wall particles
-        const cycle = ((t * p.speed + p.tOffset) % 4) / 4;
-        const edgeX = p.side * (w * 0.48);
-        const innerX = p.side * (w * 0.05);
-        const px = cx + edgeX - cycle * (edgeX - innerX);
-        const rowNorm = particles.indexOf(p) % 24 / 23;
-        const py = cy + (rowNorm - 0.5) * h * 0.8;
-        const jy = Math.sin(t * 1.5 + p.tOffset * 3) * 2;
-        const depthNorm = p.col / 13;
-        const depthDim = 0.25 + (1 - depthNorm) * 0.75;
-        const headBright = 1 - cycle;
-        const flicker = Math.sin(t * p.flickerRate * 2 + p.tOffset * 5) * 0.5 + 0.5;
-        const b = headBright * p.brightness * depthDim;
-        const isHead = cycle < 0.15;
+    // Draw walls
+    for (const wp of walls) {
+      const yNorm = wp.row / (W_ROWS - 1);
+      const y3 = (yNorm - 0.5) * WALL_HEIGHT;
+      const cycle = ((t * wp.speed + wp.tOffset) % 4) / 4;
+      const x3 = wp.side * (CORRIDOR_OUTER - cycle * (CORRIDOR_OUTER - CORRIDOR_INNER));
+      const zNorm = wp.col / (W_COLS - 1);
+      const z3 = -zNorm * WALL_DEPTH + 3;
+      const jy = Math.sin(t * 1.5 + wp.tOffset * 3) * 0.03;
 
-        let r: number, g: number, bl: number;
-        if (isHead) {
-          r = Math.min(255, (0.8 * b + 0.2) * 255);
-          g = Math.min(255, (0.6 * b + 0.15) * 255);
-          bl = Math.min(255, (1.0 * b + 0.2) * 255);
-        } else if (flicker > 0.7 && b > 0.3) {
-          r = Math.min(255, 0.6 * b * 255);
-          g = Math.min(255, 0.2 * b * 255);
-          bl = Math.min(255, 1.0 * b * 255);
-        } else {
-          r = Math.min(255, 0.35 * b * 255);
-          g = Math.min(255, 0.08 * b * 255);
-          bl = Math.min(255, 0.75 * b * 255);
-        }
+      const { sx, sy, scale } = project(x3, y3 + jy, z3, hw, hh);
+      const depthScale = 0.4 + (1 - zNorm) * 0.6;
+      const pulse = 1 + Math.sin(t * wp.flickerRate + wp.tOffset) * 0.1;
+      const sz = 0.15 * depthScale * pulse * scale;
 
-        const sz = p.size * (0.4 + (1 - depthNorm) * 0.6);
-        ctx.fillStyle = `rgba(${r | 0},${g | 0},${bl | 0},0.8)`;
-        ctx.fillRect(px - sz / 2, py + jy - sz / 2, sz * 1.2, sz * 1.8);
+      const headBright = 1 - cycle;
+      const depthDim = 0.25 + (1 - zNorm) * 0.75;
+      const b = headBright * wp.brightness * depthDim;
+      const flicker = Math.sin(t * wp.flickerRate * 2 + wp.tOffset * 5) * 0.5 + 0.5;
+      const isHead = cycle < 0.15;
+      const isBright = flicker > 0.7 && b > 0.3;
+
+      let r: number, g: number, bl: number;
+      if (isHead) {
+        r = (0.7 * b + 0.15) * 255; g = (0.75 * b + 0.17) * 255; bl = (0.7 * b + 0.15) * 255;
+      } else if (isBright) {
+        r = 0.45 * b * 255; g = 0.5 * b * 255; bl = 0.45 * b * 255;
       } else {
-        // Center stream particles
-        const colX = cx + (p.col - 3) * w * 0.04;
-        const rawY = (p.tOffset + t * p.speed * p.direction) % h;
-        const py = ((rawY % h) + h) % h;
-        const flicker = Math.sin(t * p.flickerRate + p.tOffset * 2) * 0.5 + 0.5;
-        const b = p.brightness * (0.6 + flicker * 0.4);
-
-        let r: number, g: number, bl: number;
-        if (flicker > 0.85 && b > 0.035) {
-          r = Math.min(255, b * 0.8 * 255);
-          g = Math.min(255, b * 0.6 * 255);
-          bl = Math.min(255, b * 255);
-        } else if (p.col % 3 === 0) {
-          r = Math.min(255, b * 0.6 * 255);
-          g = Math.min(255, b * 0.2 * 255);
-          bl = Math.min(255, b * 255);
-        } else {
-          r = Math.min(255, b * 0.35 * 255);
-          g = Math.min(255, b * 0.08 * 255);
-          bl = Math.min(255, b * 0.75 * 255);
-        }
-
-        ctx.fillStyle = `rgba(${r | 0},${g | 0},${bl | 0},0.15)`;
-        ctx.fillRect(colX - p.size / 2, py - p.size / 2, p.size, p.size);
+        r = 0.25 * b * 255; g = 0.28 * b * 255; bl = 0.25 * b * 255;
       }
+
+      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.8)`;
+      ctx.fillRect(sx - sz * 0.6, sy - sz * 0.9, sz * 1.2, sz * 1.8);
+    }
+
+    // Draw streams
+    for (const sp of streams) {
+      const x3 = (sp.col - (S_COLS - 1) / 2) * S_SPACING;
+      const rawY = (sp.yOffset + t * sp.speed * sp.direction) % S_HEIGHT;
+      const y3 = ((rawY + S_HEIGHT) % S_HEIGHT) - S_HEIGHT / 2;
+
+      const { sx, sy, scale } = project(x3, y3, S_Z, hw, hh);
+      const sz = sp.size * scale;
+
+      const flicker = Math.sin(t * sp.flickerRate + sp.yOffset * 2) * 0.5 + 0.5;
+      const b = sp.brightness * (0.6 + flicker * 0.4);
+      const normY = ((rawY + S_HEIGHT) % S_HEIGHT) / S_HEIGHT;
+      const headGlow = normY < 0.1 ? 1.5 : 1;
+      const finalB = Math.min(b * headGlow, 0.7);
+
+      let r: number, g: number, bl: number;
+      const whiteChance = flicker > 0.85 && finalB > 0.35;
+      if (whiteChance) {
+        r = finalB * 0.8 * 255; g = finalB * 0.85 * 255; bl = finalB * 0.8 * 255;
+      } else if (sp.col % 3 === 0) {
+        r = finalB * 0.4 * 255; g = finalB * 0.45 * 255; bl = finalB * 0.4 * 255;
+      } else {
+        r = finalB * 0.2 * 255; g = finalB * 0.22 * 255; bl = finalB * 0.2 * 255;
+      }
+
+      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.15)`;
+      ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
     }
 
     requestAnimationFrame(draw);
@@ -190,13 +207,7 @@ document.getElementById("onboarding-close")!.addEventListener("click", () => {
 export function showOnboarding(trialDays?: number) {
   overlay.classList.remove("hidden");
   inTrial = trialDays !== undefined && trialDays > 0;
-  if (inTrial) {
-    trialInfo.textContent = `${trialDays} day${trialDays === 1 ? "" : "s"} remaining in trial`;
-    licenseInput.placeholder = "License key (YO-...)";
-  } else if (trialDays === 0) {
-    trialInfo.textContent = "Trial expired — enter a license key";
-    trialInfo.classList.add("expired");
-  }
+  trialInfo.textContent = "Work across every AI. Never lose the thread.";
   stopAnimation = initAnimation(canvas);
 }
 
@@ -280,13 +291,13 @@ function openAboutFromOnboarding() {
 }
 
 document.getElementById("onboarding-terms-link")?.addEventListener("click", () => {
-  window.yo.openExternal("https://yo.ai/terms");
+  window.yo.openExternal("https://yosup.dev/terms");
 });
 document.getElementById("onboarding-privacy-link")?.addEventListener("click", () => {
-  window.yo.openExternal("https://yo.ai/privacy");
+  window.yo.openExternal("https://yosup.dev/privacy");
 });
 document.getElementById("onboarding-refund-link")?.addEventListener("click", () => {
-  window.yo.openExternal("https://yo.ai/refund");
+  window.yo.openExternal("https://yosup.dev/refund");
 });
 
 // Buy license — opens Stripe Checkout in default browser
