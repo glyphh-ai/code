@@ -1521,8 +1521,8 @@ async function boot() {
 
     yoAgent?.send(message, {
       onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
-      onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
-      onToolResult: (label, detail) => mainWindow?.webContents.send("yo-panel-tool-result", label, detail),
+      onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
+      onToolResult: (id, detail) => mainWindow?.webContents.send("yo-panel-tool-result", id, detail),
       onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
       onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
     });
@@ -2134,6 +2134,24 @@ async function boot() {
   ipcMain.on("panel-nav-refresh", (_e, panelId: string) => {
     const nwc = panelNavWc[panelId];
     if (nwc && !nwc.isDestroyed()) nwc.reload();
+  });
+  ipcMain.on("panel-nav-to", (_e, panelId: string, url: string) => {
+    let target = url.trim();
+    if (!target) return;
+    if (!/^https?:\/\//i.test(target)) target = "https://" + target;
+    const isBrowser = panelId === "browser" || panelId.startsWith("browse-");
+    const nwc = panelNavWc[panelId];
+    if (!nwc || nwc.isDestroyed()) return;
+    if (isBrowser) {
+      nwc.executeJavaScript(`(function(){
+        const wv = document.querySelector("webview");
+        if (wv) { wv.loadURL(${JSON.stringify(target)}); }
+        const bar = document.getElementById("url");
+        if (bar) bar.value = ${JSON.stringify(target)};
+      })()`).catch(() => {});
+    } else {
+      nwc.loadURL(target).catch(() => {});
+    }
   });
 
   ipcMain.on("url-bar-toggle", (_e, show: boolean) => {

@@ -159,11 +159,11 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelToken: (cb: (delta: string) => void) => {
     ipcRenderer.on("yo-panel-token", (_e, delta) => cb(delta));
   },
-  onYoPanelToolUse: (cb: (tool: string) => void) => {
-    ipcRenderer.on("yo-panel-tool-use", (_e, tool) => cb(tool));
+  onYoPanelToolUse: (cb: (id: string, name: string, input: unknown) => void) => {
+    ipcRenderer.on("yo-panel-tool-use", (_e, id, name, input) => cb(id, name, input));
   },
-  onYoPanelToolResult: (cb: (label: string, detail: string) => void) => {
-    ipcRenderer.on("yo-panel-tool-result", (_e, label, detail) => cb(label, detail));
+  onYoPanelToolResult: (cb: (id: string, detail: string) => void) => {
+    ipcRenderer.on("yo-panel-tool-result", (_e, id, detail) => cb(id, detail));
   },
   onYoPanelDone: (cb: (fullText: string) => void) => {
     ipcRenderer.on("yo-panel-done", (_e, text) => cb(text));
@@ -183,6 +183,7 @@ contextBridge.exposeInMainWorld("yo", {
   panelNavBack: (panelId: string) => ipcRenderer.send("panel-nav-back", panelId),
   panelNavForward: (panelId: string) => ipcRenderer.send("panel-nav-forward", panelId),
   panelNavRefresh: (panelId: string) => ipcRenderer.send("panel-nav-refresh", panelId),
+  panelNavTo: (panelId: string, url: string) => ipcRenderer.send("panel-nav-to", panelId, url),
   urlBarToggle: (show: boolean) => ipcRenderer.send("url-bar-toggle", show),
   onUrlUpdate: (cb: (info: { url: string; favicon: string }) => void) => {
     ipcRenderer.on("url-update", (_e, info) => cb(info));

@@ -503,10 +503,20 @@ body {
   background: none;
   border: none;
   outline: none;
-  padding: 0;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: text;
+  transition: background 0.15s, color 0.15s;
+}
+.cell-url-bar-text:hover {
+  color: #999;
+  background: rgba(255, 255, 255, 0.04);
 }
 .cell-url-bar-text:focus {
   color: #ccc;
+  background: rgba(255, 255, 255, 0.08);
+  text-overflow: clip;
+  overflow: visible;
 }
 
 .cell-nav-btn {
@@ -2784,10 +2794,10 @@ select.settings-input {
   background: #25C75E15;
 }
 
-/* ── Result block (Claude Code style tool result) ── */
+/* ── Tool row (per-call: dot + bold name + subtitle) ── */
 .yo-result-block {
   position: relative;
-  margin: 6px 0;
+  margin: 10px 0;
   animation: yo-block-in 0.2s ease-out;
 }
 @keyframes yo-block-in {
@@ -2797,32 +2807,64 @@ select.settings-input {
 
 .yo-result-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 2px 0;
   font-size: 12px;
 }
 
-/* Dot on the timeline */
+/* Dot on the timeline — filled when active/done; pulses while running */
 .yo-ag-dot {
   position: absolute;
   left: -18px;
-  top: 10px;
-  width: 7px;
-  height: 7px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #25C75E;
   border: 1.5px solid #25C75E;
   z-index: 1;
 }
-
-.yo-result-label {
-  color: #999;
-  font-weight: 600;
-  font-size: 12px;
+.yo-result-block.yo-active .yo-ag-dot {
+  animation: yo-dot-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(37, 199, 94, 0.6);
+}
+@keyframes yo-dot-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 199, 94, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(37, 199, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 199, 94, 0); }
 }
 
+.yo-result-headings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.yo-result-name {
+  color: #e6e6e6;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.yo-result-subtitle {
+  color: #888;
+  font-weight: 400;
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.yo-result-block.yo-has-detail { cursor: pointer; }
+.yo-result-block.yo-has-detail:hover .yo-result-name { color: #fff; }
+
 .yo-result-content {
+  position: relative;
   background: #141414;
   border: 1px solid #1e1e1e;
   border-radius: 6px;
@@ -2835,6 +2877,54 @@ select.settings-input {
   word-break: break-word;
   max-height: 120px;
   overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.yo-result-content::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  background: linear-gradient(to bottom, rgba(20,20,20,0), #141414);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.yo-result-block.yo-has-detail .yo-result-content.yo-overflow::after {
+  opacity: 1;
+}
+.yo-result-block.yo-expanded .yo-result-content {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.yo-result-block.yo-expanded .yo-result-content::after {
+  opacity: 0;
+}
+
+/* Show less button — visible only when expanded. Inherits app scrollbar
+   styles from the global rules (thin, green accent). */
+.yo-result-show-less {
+  display: none;
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid #25C75E44;
+  border-radius: 6px;
+  color: #25C75E;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.yo-result-show-less:hover {
+  background: #25C75E18;
+  border-color: #25C75E;
+  color: #fff;
+}
+.yo-result-block.yo-expanded .yo-result-show-less {
+  display: inline-block;
 }
 
 /* Active spinner row (always at bottom of group) */
@@ -2944,7 +3034,8 @@ select.settings-input {
 #yo-panel-send {
   background: #25C75E;
   color: #000;
-  border: none;
+  border: 2px solid transparent;
+  box-sizing: border-box;
   width: 30px;
   height: 30px;
   border-radius: 8px;
@@ -2953,15 +3044,26 @@ select.settings-input {
   cursor: pointer;
   flex-shrink: 0;
   margin-bottom: 7px;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 #yo-panel-send:hover { opacity: 0.8; }
 #yo-panel-send.yo-stop {
-  background: #ff5f57;
-  font-size: 13px;
+  background: transparent;
+  border-color: #25C75E;
+  color: transparent;
+  position: relative;
+  font-size: 0;
+}
+#yo-panel-send.yo-stop::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: #25C75E;
+  border-radius: 2px;
 }
 
 /* ── Wassup admin modal ─────────────────────────────────── */

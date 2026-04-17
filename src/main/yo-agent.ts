@@ -21,11 +21,13 @@ import { NavigatorAgent } from "./agents/navigator-agent";
 import { ResearcherAgent } from "./agents/researcher-agent";
 import { ManagerAgent } from "./agents/manager-agent";
 import { SkillRunnerAgent } from "./agents/skill-runner-agent";
+import { scanForInjection, scanWithLLM } from "./firewall";
+import { webSearch, fetchPage } from "./web-search";
 
 export interface YoAgentCallbacks {
   onText: (delta: string) => void;
-  onToolUse: (name: string) => void;
-  onToolResult?: (label: string, detail: string) => void;
+  onToolUse: (id: string, name: string, input: unknown) => void;
+  onToolResult?: (id: string, detail: string) => void;
   onDone: (fullText: string) => void;
   onError: (error: string) => void;
 }
@@ -41,6 +43,8 @@ DELEGATION:
 - delegate_skill: run a skill workflow. Skills are reusable agent behaviours — they can navigate apps, search content, type into inputs, and produce output. When the user says /skillname or asks you to apply a skill, use this. Provide the skill name and the user's instruction.
 
 DIRECT TOOLS (don't delegate these):
+- web_search: search the web for current information, docs, facts. Fast, no panel needed. Use this instead of opening Google in a panel.
+- fetch_page: read a web page as plain text. Use after web_search to read a specific result, or when the user gives you a URL.
 - inject_text: paste content into the input where the user typed .yo
 - run_command: execute .dip or .drip commands
 - save_memory: save something you learned about the user (preferences, patterns, facts). Do this proactively when you notice useful information.
@@ -144,6 +148,28 @@ const TOOLS = [
         },
       },
       required: ["content", "category"],
+    },
+  },
+  {
+    name: "web_search",
+    description: "Search the web and return results (titles, URLs, snippets). Use for any question that needs current information, fact-checking, looking up docs, finding resources. No panel needed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string" as const, description: "Search query" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "fetch_page",
+    description: "Fetch and read a web page as plain text. Use after web_search to read a specific result, or when the user gives you a URL to read. No panel needed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string" as const, description: "URL to fetch" },
+      },
+      required: ["url"],
     },
   },
 ];
@@ -392,6 +418,15 @@ export class YoAgent {
       await this.compact();
     }
 
+    // ── Firewall: scan user message for injection attempts ──
+    const userScan = scanForInjection(message);
+    if (userScan.blocked) {
+      cb.onError(`Blocked: ${userScan.reason}`);
+      // Remove the message we just pushed so history stays clean
+      this.history.pop();
+      return;
+    }
+
     // ── Memory recall: search for relevant memories ──
     await this.recallMemories(message);
 
@@ -462,8 +497,10 @@ export class YoAgent {
   private static readonly MAX_TOOL_ITERATIONS = 20;
 
   private async agentLoop(cb: YoAgentCallbacks, iteration = 0): Promise<void> {
-    // Fix any structural issues before hitting the API
-    if (iteration === 0) this.sanitizeHistory();
+    // Fix any structural issues before hitting the API. Idempotent, so safe
+    // to run every iteration as a guard against unpaired tool_use/tool_result
+    // blocks (e.g. from aborts, compaction, or loaded-chat corruption).
+    this.sanitizeHistory();
 
     let fullText = "";
 
@@ -512,14 +549,14 @@ export class YoAgent {
         const context = this.buildSubAgentContext();
         const delegatePromises = delegateBlocks.map(async (block: any) => {
           if (this.aborted) return { type: "tool_result", tool_use_id: block.id, content: "[interrupted by user]" };
-          cb.onToolUse(block.name);
+          cb.onToolUse(block.id, block.name, block.input);
           const result = await this.execDelegation(
             block.name,
             block.input as Record<string, unknown>,
             context,
           );
           // Emit compact result for the renderer
-          cb.onToolResult?.(block.name, result.slice(0, 500));
+          cb.onToolResult?.(block.id, result.slice(0, 500));
           return { type: "tool_result", tool_use_id: block.id, content: result };
         });
         const delegateResults = await Promise.all(delegatePromises);
@@ -529,8 +566,9 @@ export class YoAgent {
       // Run direct tools sequentially
       for (const block of directBlocks) {
         if (this.aborted) break;
-        cb.onToolUse(block.name);
+        cb.onToolUse(block.id, block.name, block.input);
         const result = await this.execDirectTool(block.name, block.input as Record<string, unknown>);
+        cb.onToolResult?.(block.id, result.slice(0, 500));
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }
 
@@ -611,6 +649,18 @@ export class YoAgent {
         default:
           return `Unknown delegation: ${name}`;
       }
+      // ── Firewall: scan delegation output for indirect injection ──
+      const contentScan = scanForInjection(result.summary);
+      if (contentScan.blocked) {
+        return `[content blocked by firewall: ${contentScan.reason}]`;
+      }
+      // Layer 2: borderline content → LLM judge
+      if (contentScan.borderline && contentScan.analysis && this.llmConfig) {
+        const llmScan = await scanWithLLM(result.summary, contentScan.analysis, this.llmConfig);
+        if (llmScan.blocked) {
+          return `[content blocked by firewall: ${llmScan.reason}]`;
+        }
+      }
       return result.summary;
     } catch (err) {
       return `Delegation error: ${err instanceof Error ? err.message : err}`;
@@ -625,6 +675,8 @@ export class YoAgent {
         case "inject_text": return await this.toolInjectText(input);
         case "run_command": return await this.toolRunCommand(input);
         case "save_memory": return await this.toolSaveMemory(input);
+        case "web_search": return await this.toolWebSearch(input);
+        case "fetch_page": return await this.toolFetchPage(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -656,6 +708,31 @@ export class YoAgent {
     if (!this.memoryStore) return "Memory not available.";
     const id = await this.memoryStore.save(content, category || "context");
     return `Memory saved (${id}).`;
+  }
+
+  private async toolWebSearch(input: Record<string, unknown>): Promise<string> {
+    const query = input.query as string;
+    if (!query) return "No query provided.";
+    const results = await webSearch(query);
+    if (results.length === 0) return "No results found.";
+    return results
+      .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)
+      .join("\n\n");
+  }
+
+  private async toolFetchPage(input: Record<string, unknown>): Promise<string> {
+    const url = input.url as string;
+    if (!url) return "No URL provided.";
+    const content = await fetchPage(url);
+    // Firewall: Layer 1 regex scan
+    const scan = scanForInjection(content);
+    if (scan.blocked) return `[content blocked by firewall: ${scan.reason}]`;
+    // Firewall: Layer 2 LLM judge for borderline content
+    if (scan.borderline && scan.analysis && this.llmConfig) {
+      const llmScan = await scanWithLLM(content, scan.analysis, this.llmConfig);
+      if (llmScan.blocked) return `[content blocked by firewall: ${llmScan.reason}]`;
+    }
+    return content;
   }
 
   // ── Memory loop ──────────────────────────────────────
@@ -935,7 +1012,20 @@ Rules:
     if (!this.llmConfig?.apiKey) return;
     if (this.history.length <= 6) return;
 
-    const keepCount = Math.min(6, Math.floor(this.history.length / 3));
+    let keepCount = Math.min(6, Math.floor(this.history.length / 3));
+    // Don't split a tool_use/tool_result pair: if the first kept message is a
+    // user message containing tool_results, pull in the preceding assistant
+    // message (which holds the matching tool_use). Otherwise the Anthropic
+    // API rejects the request with "unexpected tool_use_id".
+    while (keepCount < this.history.length) {
+      const firstRecent = this.history[this.history.length - keepCount];
+      const hasToolResult =
+        firstRecent?.role === "user" &&
+        Array.isArray(firstRecent.content) &&
+        firstRecent.content.some((b: any) => b.type === "tool_result");
+      if (!hasToolResult) break;
+      keepCount++;
+    }
     const oldMessages = this.history.slice(0, -keepCount);
     const recentMessages = this.history.slice(-keepCount);
 

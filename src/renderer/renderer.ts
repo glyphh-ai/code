@@ -102,6 +102,7 @@ declare global {
       panelNavBack: (panelId: string) => void;
       panelNavForward: (panelId: string) => void;
       panelNavRefresh: (panelId: string) => void;
+      panelNavTo: (panelId: string, url: string) => void;
       urlBarToggle: (show: boolean) => void;
       onUrlUpdate: (cb: (info: { url: string; favicon: string; canGoBack?: boolean; canGoForward?: boolean }) => void) => void;
       onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => void;
@@ -120,8 +121,8 @@ declare global {
       yoPanelStop: () => void;
       onYoPanelOpen: (cb: (query: string) => void) => void;
       onYoPanelToken: (cb: (delta: string) => void) => void;
-      onYoPanelToolUse: (cb: (tool: string) => void) => void;
-      onYoPanelToolResult: (cb: (label: string, detail: string) => void) => void;
+      onYoPanelToolUse: (cb: (id: string, name: string, input: unknown) => void) => void;
+      onYoPanelToolResult: (cb: (id: string, detail: string) => void) => void;
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
@@ -467,8 +468,23 @@ function renderCellUrlBars() {
     input.className = "cell-url-bar-text";
     input.type = "text";
     input.value = panelUrlCache[cb.panelId] || "";
-    input.readOnly = true;
     input.title = panelUrlCache[cb.panelId] || cb.panelId;
+    input.spellcheck = false;
+    input.addEventListener("focus", () => input.select());
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const url = input.value.trim();
+        if (url) {
+          window.yo.panelNavTo(pid, url);
+          input.blur();
+        }
+      }
+      if (e.key === "Escape") {
+        input.value = panelUrlCache[cb.panelId] || "";
+        input.blur();
+      }
+    });
     bar.appendChild(input);
 
     cellUrlContainer.appendChild(bar);
@@ -932,29 +948,112 @@ function ensureTimeline() {
   yoPanelMessages.appendChild(yoTimelineEl);
 }
 
-/** Add a completed result block to the timeline (Claude Code style) */
-function addResultBlock(label: string, detail: string) {
+// Per-tool rows: map tool_use id → row element so onToolResult can finalize it
+const yoToolRows = new Map<string, HTMLElement>();
+
+/** Human-readable summary of what a tool is doing, derived from its input. */
+function toolInputSummary(name: string, input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const obj = input as Record<string, unknown>;
+  if (name === "delegate_skill") {
+    const parts: string[] = [];
+    if (typeof obj.skill_name === "string") parts.push(obj.skill_name);
+    if (typeof obj.instruction === "string") parts.push(obj.instruction);
+    return parts.join(": ");
+  }
+  if (name.startsWith("delegate_") && typeof obj.instruction === "string") {
+    return obj.instruction;
+  }
+  if (name === "inject_text" && typeof obj.text === "string") return obj.text;
+  if (name === "run_command" && typeof obj.command === "string") return obj.command;
+  if (name === "save_memory") {
+    if (typeof obj.content === "string") return obj.content;
+    if (typeof obj.text === "string") return obj.text;
+  }
+  const firstStr = Object.values(obj).find((v) => typeof v === "string");
+  return typeof firstStr === "string" ? firstStr : "";
+}
+
+/** Start a per-tool row: dot (pulsing), bold name, subtitle describing the action. */
+function startToolRow(id: string, name: string, input: unknown) {
   ensureTimeline();
   const block = document.createElement("div");
-  block.className = "yo-result-block";
+  block.className = "yo-result-block yo-active";
 
-  // Header: green dot + label
   const header = document.createElement("div");
   header.className = "yo-result-header";
-  header.innerHTML =
-    `<span class="yo-ag-dot"></span>` +
-    `<span class="yo-result-label">${label}</span>`;
+
+  const dot = document.createElement("span");
+  dot.className = "yo-ag-dot";
+  header.appendChild(dot);
+
+  const headings = document.createElement("div");
+  headings.className = "yo-result-headings";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "yo-result-name";
+  nameEl.textContent = DELEGATION_DESC[name] || DIRECT_TOOL_DESC[name] || name.replace(/_/g, " ");
+  headings.appendChild(nameEl);
+
+  const subtitleText = toolInputSummary(name, input);
+  if (subtitleText) {
+    const sub = document.createElement("span");
+    sub.className = "yo-result-subtitle";
+    sub.textContent = subtitleText;
+    headings.appendChild(sub);
+  }
+  header.appendChild(headings);
   block.appendChild(header);
 
-  // Content: dark block with result text
-  if (detail) {
+  yoTimelineEl!.appendChild(block);
+  yoToolRows.set(id, block);
+  yoScroll();
+}
+
+/** Finalize a tool row: stop pulsing and attach expandable detail if present. */
+function finishToolRow(id: string, detail: string) {
+  const block = yoToolRows.get(id);
+  yoToolRows.delete(id);
+  if (!block) return;
+  block.classList.remove("yo-active");
+  block.classList.add("yo-done");
+
+  const trimmed = detail.trim();
+  if (trimmed) {
     const content = document.createElement("div");
     content.className = "yo-result-content";
-    content.textContent = detail;
+    content.textContent = trimmed;
     block.appendChild(content);
-  }
 
-  yoTimelineEl!.appendChild(block);
+    const showLess = document.createElement("button");
+    showLess.type = "button";
+    showLess.className = "yo-result-show-less";
+    showLess.textContent = "Show less";
+    block.appendChild(showLess);
+
+    block.classList.add("yo-has-detail");
+
+    requestAnimationFrame(() => {
+      if (content.scrollHeight > content.clientHeight + 1) {
+        content.classList.add("yo-overflow");
+      }
+    });
+
+    // Collapsed → click anywhere on the row expands.
+    // Expanded → only the Show less button collapses (so scrolling/selecting
+    // text inside the panel doesn't accidentally close it).
+    block.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (block.classList.contains("yo-expanded")) {
+        if (target.closest(".yo-result-show-less")) {
+          block.classList.remove("yo-expanded");
+        }
+      } else {
+        block.classList.add("yo-expanded");
+      }
+    });
+  }
+  yoScroll();
 }
 
 /** Close the timeline (done state) */
@@ -984,9 +1083,12 @@ function clearYoStatus() {
   if (yoStatusEl) { yoStatusEl.remove(); yoStatusEl = null; }
 }
 
-function showYoToolUse(tool: string) {
+function showYoToolUse(id: string, name: string, input: unknown) {
   yoToolsUsed = true;
-  if (yoStatusEl) clearYoStatus();
+
+  // Keep the spinner alive through tool execution — create it if it isn't
+  // already showing. It only clears when text streaming starts or the run ends.
+  if (!yoStatusEl) showYoStatus("");
 
   // Finalize any in-progress streaming text
   if (yoResponseEl) {
@@ -994,21 +1096,14 @@ function showYoToolUse(tool: string) {
     yoLastAssistantText = "";
   }
 
-  // Both delegations and direct tools just show a spinner
-  ensureSpinner();
-  yoScroll();
+  startToolRow(id, name, input);
+
+  // Keep the spinner pinned below the latest tool row.
+  if (yoStatusEl) yoPanelMessages.appendChild(yoStatusEl);
 }
 
-/** Handle delegation completion — add a Claude Code style result block */
-function showYoToolResult(label: string, detail: string) {
-  removeSpinner();
-
-  const displayLabel = DELEGATION_DESC[label] || DIRECT_TOOL_DESC[label] || label.replace(/_/g, " ");
-  // Keep first ~3 lines of detail, trim to reasonable length
-  const cleanDetail = detail.split("\n").slice(0, 3).join("\n").slice(0, 300).trim();
-
-  addResultBlock(displayLabel, cleanDetail);
-  yoScroll();
+function showYoToolResult(id: string, detail: string) {
+  finishToolRow(id, detail);
 }
 
 function appendYoToken(delta: string) {
@@ -1096,8 +1191,8 @@ yoPanelInput.addEventListener("input", autoGrowYoInput);
 // IPC listeners
 window.yo.onYoPanelOpen((query) => openYoPanel(query));
 window.yo.onYoPanelToken((delta) => appendYoToken(delta));
-window.yo.onYoPanelToolUse((tool) => showYoToolUse(tool));
-window.yo.onYoPanelToolResult((label, detail) => showYoToolResult(label, detail));
+window.yo.onYoPanelToolUse((id, name, input) => showYoToolUse(id, name, input));
+window.yo.onYoPanelToolResult((id, detail) => showYoToolResult(id, detail));
 window.yo.onYoPanelDone((fullText) => finalizeYoMessage(fullText));
 window.yo.onYoPanelError((err) => showYoError(err));
 window.yo.onYoPanelClose(() => closeYoPanel());
