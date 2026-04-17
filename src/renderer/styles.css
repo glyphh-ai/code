@@ -10,6 +10,7 @@ body {
   color: #e0e0e0;
   overflow: hidden;
   height: 100vh;
+  --content-top: 72px;  /* 38px titlebar + 34px URL bar (default: shown) */
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -110,7 +111,7 @@ body {
 
 .empty-state {
   position: fixed;
-  top: 38px;
+  top: var(--content-top);
   left: 0;
   right: 0;
   bottom: 0;
@@ -348,6 +349,8 @@ body {
 /* ── Titlebar ────────────────────────────────────────────── */
 
 #titlebar {
+  position: relative;
+  z-index: 55;
   height: 38px;
   display: flex;
   align-items: center;
@@ -377,6 +380,152 @@ body {
 }
 
 /* ── Cmd+K overlay ─────────────────────────────────────── */
+
+/* ── URL bar ──────────────────────────────────────────── */
+
+.url-bar {
+  position: fixed;
+  top: 38px;
+  left: 0;
+  right: 0;
+  height: 34px;
+  background: #111;
+  border-bottom: 1px solid #222;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  z-index: 50;
+  -webkit-app-region: no-drag;
+}
+
+.url-bar.hidden { display: none !important; }
+
+.url-bar-nav {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.url-bar-nav:hover { background: #222; color: #ccc; }
+.url-bar-nav:active { background: #333; }
+.url-bar-nav:disabled { opacity: 0.3; cursor: default; }
+.url-bar-nav:disabled:hover { background: transparent; color: #888; }
+
+.url-bar-favicon {
+  flex-shrink: 0;
+  border-radius: 2px;
+  opacity: 0.8;
+}
+.url-bar-favicon[src=""],
+.url-bar-favicon:not([src]) {
+  display: none;
+}
+
+.url-bar-input {
+  flex: 1;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  outline: none;
+  font-family: "SF Mono", "Fira Code", Menlo, monospace;
+}
+.url-bar-input:focus {
+  border-color: #25C75E;
+  box-shadow: 0 0 0 2px rgba(37, 199, 94, 0.15);
+}
+.url-bar-input::placeholder {
+  color: #555;
+  -webkit-text-fill-color: #555;
+}
+.url-bar-input::selection {
+  background: rgba(37, 199, 94, 0.3);
+}
+
+/* ── Cell URL bars (grid mode) ─────────────────────────── */
+
+#cell-url-bars {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 49;
+}
+
+.cell-url-bar {
+  position: absolute;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  background: #111;
+  border-bottom: 1px solid #222;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.cell-url-bar-favicon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  opacity: 0.7;
+}
+.cell-url-bar-favicon[src=""],
+.cell-url-bar-favicon:not([src]) { display: none; }
+
+.cell-url-bar-text {
+  flex: 1;
+  font-size: 10px;
+  font-family: "SF Mono", "Fira Code", Menlo, monospace;
+  color: #777;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+.cell-url-bar-text:focus {
+  color: #ccc;
+}
+
+.cell-nav-btn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.cell-nav-btn:hover { background: #222; color: #ccc; }
+.cell-nav-btn:active { background: #333; }
 
 /* ── Tab bar ───────────────────────────────────────────── */
 
@@ -423,6 +572,36 @@ body {
   color: #000;
 }
 .tab-active:hover { background: #2dd36f; color: #000; }
+
+.tab-favicon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  object-fit: contain;
+}
+.tab-favicon[src=""],
+.tab-favicon:not([src]) {
+  display: none;
+}
+
+.tab-favicon-stack {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tab-favicon-stacked {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid #1a1a1a;
+  object-fit: contain;
+  position: relative;
+}
+.tab-active .tab-favicon-stacked {
+  border-color: #25C75E;
+}
 
 .tab-label {
   overflow: hidden;
@@ -612,7 +791,7 @@ body {
 
 .grid-col-handle {
   position: absolute;
-  top: 38px;
+  top: var(--content-top);
   bottom: 0;
   width: 8px;
   cursor: col-resize;
@@ -752,7 +931,7 @@ body {
 
 #help-overlay {
   position: fixed;
-  top: 38px;
+  top: var(--content-top);
   left: 0;
   right: 0;
   bottom: 0;
@@ -1052,7 +1231,7 @@ body {
 .action-btn.primary { background: #25C75E; border-color: #25C75E; color: #000; }
 .action-btn.primary:hover { opacity: 0.85; }
 
-.empty-state {
+.inline-empty {
   padding: 32px 16px;
   text-align: center;
   color: #777;
@@ -2146,7 +2325,7 @@ select.settings-input {
 
 .yo-panel {
   position: fixed;
-  top: 38px;
+  top: var(--content-top);
   right: 0;
   bottom: 0;
   width: 380px;

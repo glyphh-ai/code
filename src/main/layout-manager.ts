@@ -31,14 +31,24 @@ export interface GridLayout {
   cells: GridCell[];
 }
 
+/** Per-cell bounds for renderer overlays (URL bars in grid) */
+export interface CellBounds {
+  panelId: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
 /** Full grid state sent to renderer for handles + chips */
 export interface GridSplitInfo {
   panelIds: string[];
+  name: string;
   cols: number;
   rows: number;
   colWidths: number[];
   rowHeights: number[];
   cells: GridCell[];
+  cellBounds?: CellBounds[];
 }
 
 // ── Legacy types (migration only) ───────────────────────────
@@ -59,8 +69,9 @@ interface LegacyLayout {
 // ── Constants ───────────────────────────────────────────────
 
 const LAYOUTS_FILE = path.join(os.homedir(), "yo", ".layouts");
-const CONTENT_TOP = 38;
+const TITLEBAR_HEIGHT = 38;
 const SPLIT_GAP = 8;
+const CELL_URL_HEIGHT = 22;
 
 // ── LayoutManager ───────────────────────────────────────────
 
@@ -68,9 +79,20 @@ export class LayoutManager {
   private layouts: Map<string, GridLayout> = new Map();
   private activeGrid: GridLayout | null = null;
   private boundWindow: BrowserWindow | null = null;
+  private lastCellBounds: CellBounds[] = [];
 
   constructor(private panelManager: PanelManager) {
     this.load();
+  }
+
+  /** Grid always starts below titlebar (global URL bar is hidden in grid mode) */
+  private get gridTop(): number {
+    return TITLEBAR_HEIGHT;
+  }
+
+  /** Whether per-cell URL bars should be shown in grid mode */
+  private get cellUrlBars(): boolean {
+    return this.panelManager.topInset > 0;
   }
 
   // ── Split commands ──────────────────────────────────────
@@ -178,6 +200,7 @@ export class LayoutManager {
     grid.colWidths[index + 1] = rightEdge - clamped;
 
     this.applyGrid(win);
+    this.persistActiveIfNamed();
   }
 
   /** Update row border position (fraction = cumulative y position of border) */
@@ -195,6 +218,18 @@ export class LayoutManager {
     grid.rowHeights[index + 1] = bottomEdge - clamped;
 
     this.applyGrid(win);
+    this.persistActiveIfNamed();
+  }
+
+  /** If the active grid is a named layout, persist updated widths/heights back */
+  private persistActiveIfNamed(): void {
+    const grid = this.activeGrid;
+    if (!grid || !grid.name) return;
+    const saved = this.layouts.get(grid.name);
+    if (!saved) return;
+    saved.colWidths = [...grid.colWidths];
+    saved.rowHeights = [...grid.rowHeights];
+    this.persist();
   }
 
   /** Backward-compat: update ratio for a 2-column split */
@@ -281,7 +316,7 @@ export class LayoutManager {
     const cell = grid.cells[cellIdx];
     const [rawW, h] = win.getContentSize();
     const w = rawW - this.panelManager.rightInset;
-    const contentHeight = h - CONTENT_TOP;
+    const contentHeight = h - this.gridTop;
 
     // Cumulative column / row positions (fractions → pixels)
     const cumCol = [0];
@@ -300,11 +335,12 @@ export class LayoutManager {
     if (cell.row > 0)                          { y += halfGap; cellH -= halfGap; }
     if (cell.row + cell.rowSpan < grid.rows)   { cellH -= halfGap; }
 
+    const urlOffset = this.cellUrlBars ? CELL_URL_HEIGHT : 0;
     const finalBounds = {
       x,
-      y: CONTENT_TOP + y,
+      y: this.gridTop + y + urlOffset,
       width: Math.max(cellW, 1),
-      height: Math.max(cellH, 1),
+      height: Math.max(cellH - urlOffset, 1),
     };
 
     const oldView = this.panelManager.getView(sourcePanelId);
@@ -350,11 +386,13 @@ export class LayoutManager {
     if (!this.activeGrid) return null;
     return {
       panelIds: this.activeGrid.cells.map((c) => c.panelId),
+      name: this.activeGrid.name || "",
       cols: this.activeGrid.cols,
       rows: this.activeGrid.rows,
       colWidths: [...this.activeGrid.colWidths],
       rowHeights: [...this.activeGrid.rowHeights],
       cells: this.activeGrid.cells.map((c) => ({ ...c })),
+      cellBounds: this.lastCellBounds.length > 0 ? [...this.lastCellBounds] : undefined,
     };
   }
 
@@ -366,7 +404,7 @@ export class LayoutManager {
 
     const [rawW, h] = win.getContentSize();
     const w = rawW - this.panelManager.rightInset;
-    const contentHeight = h - CONTENT_TOP;
+    const contentHeight = h - this.gridTop;
 
     // Capture old views for animation
     const oldViews = animate && !this.panelManager.isAnimating
@@ -393,6 +431,8 @@ export class LayoutManager {
     // Compute final bounds for each cell
     const newViews: Array<{ view: import("electron").BrowserView; finalBounds: Electron.Rectangle }> = [];
     let firstView: import("electron").BrowserView | null = null;
+    const urlOffset = this.cellUrlBars ? CELL_URL_HEIGHT : 0;
+    this.lastCellBounds = [];
 
     for (const cell of grid.cells) {
       const view = this.panelManager.getOrCreateView(cell.panelId, win);
@@ -411,11 +451,19 @@ export class LayoutManager {
       if (cell.row > 0) { y += halfGap; cellH -= halfGap; }
       if (cell.row + cell.rowSpan < grid.rows) { cellH -= halfGap; }
 
+      // Record cell top-left for renderer URL bar overlay (before URL offset)
+      this.lastCellBounds.push({
+        panelId: cell.panelId,
+        x,
+        y: this.gridTop + y,
+        width: Math.max(cellW, 1),
+      });
+
       const finalBounds = {
         x,
-        y: CONTENT_TOP + y,
+        y: this.gridTop + y + urlOffset,
         width: Math.max(cellW, 1),
-        height: Math.max(cellH, 1),
+        height: Math.max(cellH - urlOffset, 1),
       };
 
       if (animate && oldViews.length > 0) {

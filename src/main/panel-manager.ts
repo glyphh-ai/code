@@ -71,6 +71,7 @@ export class PanelManager {
   private _animating = false;
   private onZoomChange: ((factor: number) => void) | null = null;
   private _rightInset = 0;
+  private _topInset = 0;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
@@ -676,7 +677,8 @@ export class PanelManager {
     this.activePanel = id;
 
     const [w, h] = parent.getContentSize();
-    const finalBounds = { x: 0, y: 38, width: w - this._rightInset, height: h - 38 };
+    const yTop = 38 + this._topInset;
+    const finalBounds = { x: 0, y: yTop, width: w - this._rightInset, height: h - yTop };
 
     // No animation if same panel, hidden, or already animating
     if (oldId === id || this._hidden || this._animating) {
@@ -800,11 +802,19 @@ export class PanelManager {
   /** Right inset (px) — used by yo panel to narrow BrowserViews */
   get rightInset(): number { return this._rightInset; }
 
+  /** Top inset (px) — used by URL bar to push BrowserViews down */
+  get topInset(): number { return this._topInset; }
+
   private onInsetChange: (() => void) | null = null;
   setOnInsetChange(cb: () => void): void { this.onInsetChange = cb; }
 
   setRightInset(px: number): void {
     this._rightInset = px;
+    this.onInsetChange?.();
+  }
+
+  setTopInset(px: number): void {
+    this._topInset = px;
     this.onInsetChange?.();
   }
 

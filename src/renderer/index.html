@@ -59,7 +59,20 @@
     <button id="tab-new-btn" class="tab-new-btn" title="New tab">+</button>
   </div>
 
-  <!-- Cmd+K command overlay -->
+  <!-- URL bar — shown below titlebar for all panels -->
+  <div id="url-bar" class="url-bar">
+    <button id="url-bar-back" class="url-bar-nav" title="Back" disabled>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <button id="url-bar-forward" class="url-bar-nav" title="Forward" disabled>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+    <button id="url-bar-refresh" class="url-bar-nav" title="Refresh">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    </button>
+    <img id="url-bar-favicon" class="url-bar-favicon" width="14" height="14" />
+    <input id="url-bar-input" class="url-bar-input" type="text" placeholder="Enter URL..." spellcheck="false" autocomplete="off" />
+  </div>
 
   <!-- Empty state — shown when no panels are open -->
   <div id="empty-state" class="empty-state hidden">
@@ -69,6 +82,9 @@
 
   <!-- Panel screenshots (freeze-frame when panels are hidden) -->
   <div id="panel-screenshots"></div>
+
+  <!-- Per-cell URL bars (grid mode) -->
+  <div id="cell-url-bars"></div>
 
   <!-- Grid drag handles + overlay -->
   <div id="grid-handles"></div>
@@ -401,6 +417,14 @@
               <div class="toggle-info">
                 <span class="toggle-title">Show Tabs</span>
                 <span class="toggle-desc">Show browser-style tabs in the app header</span>
+              </div>
+            </label>
+            <label class="settings-toggle">
+              <input type="checkbox" id="toggle-show-url-bar" checked />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">Show URL Bar</span>
+                <span class="toggle-desc">Show a URL bar below the titlebar for all panels</span>
               </div>
             </label>
           </div>

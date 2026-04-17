@@ -529,6 +529,56 @@ async function boot() {
       // Track VS Code folder for persistence across restarts
       if (id === "vscode") trackVscodeFolder(wc);
     }
+
+    // Track URL + favicon for URL bar and tab favicons
+    const isBrowserPanel = id === "browser" || id.startsWith("browse-");
+    if (isBrowserPanel) {
+      // Browser panels use <webview> — track the guest's URL/favicon
+      (wc as any).on("did-attach-webview", (_event: unknown, childWc: Electron.WebContents) => {
+        panelNavWc[id] = childWc;
+        const trackChild = (url: string) => {
+          if (url && url !== "about:blank") {
+            panelUrls[id] = url;
+            if (panelManager.activePanelId === id) sendUrlUpdate();
+            sendPanelUrl(id);
+          }
+        };
+        childWc.on("did-navigate", (_e: unknown, url: string) => trackChild(url));
+        childWc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
+          if (isMainFrame) trackChild(url);
+        });
+        childWc.on("page-favicon-updated" as any, (_e: unknown, favicons: string[]) => {
+          if (favicons?.length) {
+            panelFavicons[id] = favicons[0];
+            if (panelManager.activePanelId === id) sendUrlUpdate();
+            sendPanelUrl(id);
+            sendTabState();
+          }
+        });
+      });
+    } else {
+      // Direct BrowserView — track its own URL/favicon
+      panelNavWc[id] = wc;
+      const trackDirect = (url: string) => {
+        if (url && !url.startsWith("file://")) {
+          panelUrls[id] = url;
+          if (panelManager.activePanelId === id) sendUrlUpdate();
+          sendPanelUrl(id);
+        }
+      };
+      wc.on("did-navigate", (_e: unknown, url: string) => trackDirect(url));
+      wc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
+        if (isMainFrame) trackDirect(url);
+      });
+      wc.on("page-favicon-updated" as any, (_e: unknown, favicons: string[]) => {
+        if (favicons?.length) {
+          panelFavicons[id] = favicons[0];
+          if (panelManager.activePanelId === id) sendUrlUpdate();
+          sendPanelUrl(id);
+          sendTabState();
+        }
+      });
+    }
   });
 
   // Persist zoom when changed via keyboard shortcut in panels
@@ -943,6 +993,7 @@ async function boot() {
   // When inset changes (panel open/close), re-apply current layout
   panelManager.setOnInsetChange(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (panelManager.isHidden) return; // don't re-show during splash/overlay
     if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
     } else if (panelManager.activePanelId) {
@@ -1089,21 +1140,74 @@ async function boot() {
     mainWindow?.webContents.send("split-state", gridInfo);
   }
 
-  // ── Tab management ─────────────────────────────────────────
+  // ── Tab management ─────────���───────────────────────────────
   const openTabs: string[] = [];
   let tabBrowserCounter = 0;
+
+  // Per-panel URL + favicon tracking
+  const panelUrls: Record<string, string> = {};
+  const panelFavicons: Record<string, string> = {};
+  const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
 
   function getTabName(id: string): string {
     const app = appConnector.get(id);
     return app?.name || id;
   }
 
-  function sendTabState() {
+  function buildTabState() {
     const visible = getPreference<boolean>("showTabs", true);
-    mainWindow?.webContents.send("tab-state", {
-      tabs: openTabs.map((id) => ({ id, name: getTabName(id) })),
-      activeId: panelManager.activePanelId || "",
+    const gridInfo = layoutManager.getGridInfo();
+    const isLayout = gridInfo && gridInfo.panelIds.length > 1;
+
+    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>;
+    if (isLayout) {
+      const layoutName = gridInfo.name || gridInfo.panelIds.map((id) => getTabName(id)).join(" + ");
+      const layoutFavicons = gridInfo.panelIds.map((id) => panelFavicons[id] || "").filter(Boolean);
+      const layoutTabId = "__layout__";
+      const gridSet = new Set(gridInfo.panelIds);
+      tabs = [
+        { id: layoutTabId, name: layoutName, layoutFavicons },
+        ...openTabs.filter((id) => !gridSet.has(id)).map((id) => ({
+          id, name: getTabName(id), favicon: panelFavicons[id] || "",
+        })),
+      ];
+    } else {
+      tabs = openTabs.map((id) => ({ id, name: getTabName(id), favicon: panelFavicons[id] || "" }));
+    }
+
+    return {
+      tabs,
+      activeId: isLayout ? "__layout__" : (panelManager.activePanelId || ""),
       visible,
+    };
+  }
+
+  function sendTabState() {
+    mainWindow?.webContents.send("tab-state", buildTabState());
+  }
+
+  /** Push the active panel's URL + favicon + nav state to the renderer URL bar */
+  function sendUrlUpdate() {
+    const id = panelManager.activePanelId;
+    if (!id || !mainWindow || mainWindow.isDestroyed()) return;
+    const nwc = panelNavWc[id];
+    const canGoBack = nwc && !nwc.isDestroyed() ? nwc.canGoBack() : false;
+    const canGoForward = nwc && !nwc.isDestroyed() ? nwc.canGoForward() : false;
+    mainWindow.webContents.send("url-update", {
+      url: panelUrls[id] || "",
+      favicon: panelFavicons[id] || "",
+      canGoBack,
+      canGoForward,
+    });
+  }
+
+  /** Notify renderer of a specific panel's URL (for cell URL bars in grid mode) */
+  function sendPanelUrl(panelId: string) {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("panel-url-update", {
+      id: panelId,
+      url: panelUrls[panelId] || "",
+      favicon: panelFavicons[panelId] || "",
     });
   }
 
@@ -1117,6 +1221,7 @@ async function boot() {
   panelManager.setOnPanelFocused((id: string) => {
     ensureTab(id);
     sendTabState();
+    sendUrlUpdate();
   });
 
   // Check if onboarding is needed BEFORE restoring panels
@@ -1766,23 +1871,46 @@ async function boot() {
 
   // IPC: tabs
   ipcMain.handle("tab-list", () => {
-    const visible = getPreference<boolean>("showTabs", true);
-    return {
-      tabs: openTabs.map((id) => ({ id, name: getTabName(id) })),
-      activeId: panelManager.activePanelId || "",
-      visible,
-    };
+    return buildTabState();
   });
 
   ipcMain.on("tab-switch", (_e, id: string) => {
     if (!mainWindow) return;
-    panelManager.switchTo(id, mainWindow);
+    if (id === "__layout__") {
+      // Clicking the layout tab restores the grid
+      layoutManager.restoreSplit(mainWindow);
+    } else {
+      // Switching to a non-layout tab exits the grid
+      layoutManager.clearSplit();
+      panelManager.switchTo(id, mainWindow);
+    }
     sendSplitState();
     sendTabState();
   });
 
   ipcMain.on("tab-close", (_e, id: string) => {
     if (!mainWindow) return;
+
+    // Closing the layout tab closes all panels in the grid
+    if (id === "__layout__") {
+      const gridInfo = layoutManager.getGridInfo();
+      if (gridInfo) {
+        for (const panelId of gridInfo.panelIds) {
+          const idx = openTabs.indexOf(panelId);
+          if (idx >= 0) openTabs.splice(idx, 1);
+          panelManager.closePanel(panelId, mainWindow);
+        }
+      }
+      layoutManager.clearSplit();
+      // Switch to first remaining tab
+      if (openTabs.length > 0) {
+        panelManager.switchTo(openTabs[0], mainWindow);
+      }
+      sendSplitState();
+      sendTabState();
+      return;
+    }
+
     const idx = openTabs.indexOf(id);
     if (idx < 0) return;
     openTabs.splice(idx, 1);
@@ -1814,6 +1942,92 @@ async function boot() {
     ensureTab(id);
     sendSplitState();
     sendTabState();
+  });
+
+  // IPC: URL bar
+  const URL_BAR_HEIGHT = 34;
+
+  // Apply initial URL bar state
+  if (getPreference<boolean>("showUrlBar", true)) {
+    panelManager.setTopInset(URL_BAR_HEIGHT);
+  }
+
+  ipcMain.on("url-bar-navigate", (_e, url: string) => {
+    if (!mainWindow) return;
+    const id = panelManager.activePanelId;
+    if (!id) return;
+
+    // Normalize: add https:// if no protocol
+    let target = url.trim();
+    if (target && !/^https?:\/\//i.test(target)) {
+      target = "https://" + target;
+    }
+
+    const isBrowser = id === "browser" || id.startsWith("browse-");
+    if (isBrowser) {
+      // Navigate the webview guest inside browser.html
+      const wc = panelManager.activeWebContents;
+      if (wc && !wc.isDestroyed()) {
+        wc.executeJavaScript(`(function(){
+          const wv = document.querySelector("webview");
+          if (wv) { wv.loadURL(${JSON.stringify(target)}); }
+          const bar = document.getElementById("url");
+          if (bar) bar.value = ${JSON.stringify(target)};
+        })()`).catch(() => {});
+      }
+    } else {
+      // Navigate the BrowserView directly
+      const wc = panelManager.activeWebContents;
+      if (wc && !wc.isDestroyed()) {
+        wc.loadURL(target).catch(() => {});
+      }
+    }
+  });
+
+  ipcMain.on("url-bar-back", () => {
+    const id = panelManager.activePanelId;
+    if (!id) return;
+    const nwc = panelNavWc[id];
+    if (nwc && !nwc.isDestroyed()) {
+      nwc.goBack();
+    }
+  });
+
+  ipcMain.on("url-bar-forward", () => {
+    const id = panelManager.activePanelId;
+    if (!id) return;
+    const nwc = panelNavWc[id];
+    if (nwc && !nwc.isDestroyed()) {
+      nwc.goForward();
+    }
+  });
+
+  ipcMain.on("url-bar-refresh", () => {
+    const id = panelManager.activePanelId;
+    if (!id) return;
+    const nwc = panelNavWc[id];
+    if (nwc && !nwc.isDestroyed()) {
+      nwc.reload();
+    }
+  });
+
+  // Per-panel nav (for cell URL bars in grid mode)
+  ipcMain.on("panel-nav-back", (_e, panelId: string) => {
+    const nwc = panelNavWc[panelId];
+    if (nwc && !nwc.isDestroyed()) nwc.goBack();
+  });
+  ipcMain.on("panel-nav-forward", (_e, panelId: string) => {
+    const nwc = panelNavWc[panelId];
+    if (nwc && !nwc.isDestroyed()) nwc.goForward();
+  });
+  ipcMain.on("panel-nav-refresh", (_e, panelId: string) => {
+    const nwc = panelNavWc[panelId];
+    if (nwc && !nwc.isDestroyed()) nwc.reload();
+  });
+
+  ipcMain.on("url-bar-toggle", (_e, show: boolean) => {
+    setPreference("showUrlBar", show);
+    panelManager.setTopInset(show ? URL_BAR_HEIGHT : 0);
   });
 
   ipcMain.on("open-external", (_e, url: string) => {

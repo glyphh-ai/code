@@ -130,11 +130,11 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("save-llm-config", config) as Promise<{ ok: boolean; error?: string }>,
 
   // Tabs
-  tabList: () => ipcRenderer.invoke("tab-list") as Promise<{ tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }>,
+  tabList: () => ipcRenderer.invoke("tab-list") as Promise<{ tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>; activeId: string; visible: boolean }>,
   tabSwitch: (id: string) => ipcRenderer.send("tab-switch", id),
   tabClose: (id: string) => ipcRenderer.send("tab-close", id),
   tabNew: () => ipcRenderer.send("tab-new"),
-  onTabState: (callback: (state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => void) => {
+  onTabState: (callback: (state: { tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>; activeId: string; visible: boolean }) => void) => {
     ipcRenderer.on("tab-state", (_event, state) => callback(state));
   },
 
@@ -170,6 +170,25 @@ contextBridge.exposeInMainWorld("yo", {
   },
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
+  },
+
+  // URL bar
+  urlBarNavigate: (url: string) => ipcRenderer.send("url-bar-navigate", url),
+  urlBarBack: () => ipcRenderer.send("url-bar-back"),
+  urlBarForward: () => ipcRenderer.send("url-bar-forward"),
+  urlBarRefresh: () => ipcRenderer.send("url-bar-refresh"),
+  panelNavBack: (panelId: string) => ipcRenderer.send("panel-nav-back", panelId),
+  panelNavForward: (panelId: string) => ipcRenderer.send("panel-nav-forward", panelId),
+  panelNavRefresh: (panelId: string) => ipcRenderer.send("panel-nav-refresh", panelId),
+  urlBarToggle: (show: boolean) => ipcRenderer.send("url-bar-toggle", show),
+  onUrlUpdate: (cb: (info: { url: string; favicon: string }) => void) => {
+    ipcRenderer.on("url-update", (_e, info) => cb(info));
+  },
+  onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => {
+    ipcRenderer.on("tab-favicon", (_e, info) => cb(info));
+  },
+  onPanelUrlUpdate: (cb: (info: { id: string; url: string; favicon: string }) => void) => {
+    ipcRenderer.on("panel-url-update", (_e, info) => cb(info));
   },
 
   // Yo panel resize

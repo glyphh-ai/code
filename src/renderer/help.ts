@@ -373,7 +373,7 @@ async function loadLayouts() {
   layoutEditor.classList.add("hidden");
   const items = await window.yo.layoutsList();
   if (items.length === 0) {
-    layoutsList.innerHTML = `<div class="empty-state">No layouts yet. Create one to arrange panels your way.</div>`;
+    layoutsList.innerHTML = `<div class="inline-empty">No layouts yet. Create one to arrange panels your way.</div>`;
     return;
   }
   layoutsList.innerHTML = items
@@ -515,11 +515,11 @@ function renderAppsList() {
     ? allApps.filter((a) => a.id.includes(query) || a.name.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
     : allApps;
   if (allApps.length === 0) {
-    appsList.innerHTML = `<div class="empty-state">No apps yet. Add a web app to connect it to yo/dip.</div>`;
+    appsList.innerHTML = `<div class="inline-empty">No apps yet. Add a web app to connect it to yo/dip.</div>`;
     return;
   }
   if (apps.length === 0) {
-    appsList.innerHTML = `<div class="empty-state">No apps matching "${query}"</div>`;
+    appsList.innerHTML = `<div class="inline-empty">No apps matching "${query}"</div>`;
     return;
   }
   appsList.innerHTML = apps.map((app) => `
@@ -764,6 +764,7 @@ const settingsStatus = document.getElementById("settings-status")!;
 
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
+const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
@@ -800,6 +801,14 @@ function initSettings() {
       if (tabBar) tabBar.style.display = toggleShowTabs.checked ? "flex" : "none";
       if (tabNewBtn) tabNewBtn.style.display = toggleShowTabs.checked ? "" : "none";
     });
+  });
+
+  toggleShowUrlBar.addEventListener("change", () => {
+    const show = toggleShowUrlBar.checked;
+    window.yo.urlBarToggle(show);
+    const urlBar = document.getElementById("url-bar");
+    if (urlBar) urlBar.classList.toggle("hidden", !show);
+    document.body.style.setProperty("--content-top", show ? "72px" : "38px");
   });
 
   // Browser homepage
@@ -948,6 +957,7 @@ async function loadSettings() {
 
   // Load toggle states
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
+  toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
 

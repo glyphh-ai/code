@@ -9,6 +9,8 @@
 import { initHelp, openHelp, openSettings, closeHelp, isHelpOpen } from "./help.js";
 import { showOnboarding } from "./onboarding.js";
 
+type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[] };
+
 declare global {
   interface Window {
     yo: {
@@ -87,11 +89,23 @@ declare global {
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
       saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; error?: string }>;
       // Tabs
-      tabList: () => Promise<{ tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }>;
+      tabList: () => Promise<{ tabs: TabInfo[]; activeId: string; visible: boolean }>;
       tabSwitch: (id: string) => void;
       tabClose: (id: string) => void;
       tabNew: () => void;
-      onTabState: (callback: (state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => void) => void;
+      onTabState: (callback: (state: { tabs: TabInfo[]; activeId: string; visible: boolean }) => void) => void;
+      // URL bar
+      urlBarNavigate: (url: string) => void;
+      urlBarBack: () => void;
+      urlBarForward: () => void;
+      urlBarRefresh: () => void;
+      panelNavBack: (panelId: string) => void;
+      panelNavForward: (panelId: string) => void;
+      panelNavRefresh: (panelId: string) => void;
+      urlBarToggle: (show: boolean) => void;
+      onUrlUpdate: (cb: (info: { url: string; favicon: string; canGoBack?: boolean; canGoForward?: boolean }) => void) => void;
+      onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => void;
+      onPanelUrlUpdate: (cb: (info: { id: string; url: string; favicon: string }) => void) => void;
       // License info
       getLicenseInfo: () => Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>;
       getCheckoutUrlForPlan: (plan: string) => Promise<string | null>;
@@ -161,20 +175,57 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => openH
 const tabBar = document.getElementById("tab-bar")!;
 const tabNewBtn = document.getElementById("tab-new-btn")!;
 
-function renderTabs(tabs: Array<{ id: string; name: string }>, activeId: string) {
+function renderTabs(tabs: TabInfo[], activeId: string) {
   tabBar.innerHTML = "";
   for (const tab of tabs) {
     const el = document.createElement("div");
     el.className = "tab" + (tab.id === activeId ? " tab-active" : "");
     el.dataset.id = tab.id;
-    el.innerHTML = `<span class="tab-label">${tab.name}</span><button class="tab-close" title="Close tab">&times;</button>`;
-    el.querySelector(".tab-label")!.addEventListener("click", () => {
-      window.yo.tabSwitch(tab.id);
-    });
-    el.querySelector(".tab-close")!.addEventListener("click", (e) => {
+
+    // Stacked favicons for layout tabs, single favicon otherwise
+    if (tab.layoutFavicons && tab.layoutFavicons.length > 0) {
+      const stack = document.createElement("span");
+      stack.className = "tab-favicon-stack";
+      for (let i = 0; i < Math.min(tab.layoutFavicons.length, 4); i++) {
+        const img = document.createElement("img");
+        img.className = "tab-favicon-stacked";
+        img.width = 12;
+        img.height = 12;
+        img.src = tab.layoutFavicons[i];
+        img.onerror = () => { img.style.display = "none"; };
+        img.style.marginLeft = i > 0 ? "-6px" : "0";
+        img.style.zIndex = String(10 - i);
+        stack.appendChild(img);
+      }
+      el.appendChild(stack);
+    } else {
+      const favicon = document.createElement("img");
+      favicon.className = "tab-favicon";
+      favicon.width = 14;
+      favicon.height = 14;
+      favicon.src = tab.favicon || "";
+      favicon.onerror = () => { favicon.src = ""; };
+      el.appendChild(favicon);
+    }
+
+    // Label
+    const label = document.createElement("span");
+    label.className = "tab-label";
+    label.textContent = tab.name;
+    label.addEventListener("click", () => window.yo.tabSwitch(tab.id));
+    el.appendChild(label);
+
+    // Close
+    const close = document.createElement("button");
+    close.className = "tab-close";
+    close.title = "Close tab";
+    close.innerHTML = "&times;";
+    close.addEventListener("click", (e) => {
       e.stopPropagation();
       window.yo.tabClose(tab.id);
     });
+    el.appendChild(close);
+
     tabBar.appendChild(el);
   }
 }
@@ -183,7 +234,7 @@ tabNewBtn.addEventListener("click", () => window.yo.tabNew());
 
 const emptyState = document.getElementById("empty-state")!;
 
-function updateEmptyState(tabs: Array<{ id: string; name: string }>) {
+function updateEmptyState(tabs: TabInfo[]) {
   if (tabs.length === 0) {
     emptyState.classList.remove("hidden");
   } else {
@@ -191,7 +242,7 @@ function updateEmptyState(tabs: Array<{ id: string; name: string }>) {
   }
 }
 
-window.yo.onTabState((state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => {
+window.yo.onTabState((state: { tabs: TabInfo[]; activeId: string; visible: boolean }) => {
   renderTabs(state.tabs, state.activeId);
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
@@ -206,6 +257,60 @@ window.yo.tabList().then((state) => {
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
   updateEmptyState(state.tabs);
+});
+
+// -- URL bar --
+
+const urlBar = document.getElementById("url-bar")!;
+const urlBarInput = document.getElementById("url-bar-input") as HTMLInputElement;
+const urlBarFavicon = document.getElementById("url-bar-favicon") as HTMLImageElement;
+
+function setUrlBarVisible(show: boolean) {
+  urlBar.classList.toggle("hidden", !show);
+  document.body.style.setProperty("--content-top", show ? "72px" : "38px");
+}
+
+// Load initial URL bar visibility
+window.yo.getPreference("showUrlBar", true).then((show) => {
+  setUrlBarVisible(show as boolean);
+});
+
+// Nav buttons
+const urlBarBack = document.getElementById("url-bar-back") as HTMLButtonElement;
+const urlBarForward = document.getElementById("url-bar-forward") as HTMLButtonElement;
+const urlBarRefresh = document.getElementById("url-bar-refresh") as HTMLButtonElement;
+
+urlBarBack.addEventListener("click", () => window.yo.urlBarBack());
+urlBarForward.addEventListener("click", () => window.yo.urlBarForward());
+urlBarRefresh.addEventListener("click", () => window.yo.urlBarRefresh());
+
+// Navigate on Enter
+urlBarInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const url = urlBarInput.value.trim();
+    if (url) {
+      window.yo.urlBarNavigate(url);
+      urlBarInput.blur();
+    }
+  }
+  if (e.key === "Escape") {
+    urlBarInput.blur();
+  }
+});
+
+// Select all on focus for easy replacement
+urlBarInput.addEventListener("focus", () => {
+  urlBarInput.select();
+});
+
+// Receive URL updates from main (active panel navigated)
+window.yo.onUrlUpdate((info: { url: string; favicon: string; canGoBack?: boolean; canGoForward?: boolean }) => {
+  urlBarInput.value = info.url;
+  urlBarFavicon.src = info.favicon || "";
+  urlBarFavicon.onerror = () => { urlBarFavicon.src = ""; };
+  urlBarBack.disabled = !info.canGoBack;
+  urlBarForward.disabled = !info.canGoForward;
 });
 
 // -- Cmd+K command overlay --
@@ -280,17 +385,112 @@ type GridInfo = {
   colWidths: number[];
   rowHeights: number[];
   cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>;
+  cellBounds?: Array<{ panelId: string; x: number; y: number; width: number }>;
 };
 
-const CONTENT_TOP = 38;
+function getContentTop(): number {
+  if (urlBar.classList.contains("hidden")) return 38;
+  // In grid mode, global URL bar is visibility:hidden — grid starts at titlebar
+  if (currentGrid && currentGrid.panelIds.length > 1) return 38;
+  return 72;
+}
+
+/** Available width for panels (accounts for yo panel inset) */
+function getAvailableWidth(): number {
+  if (isYoPanelOpen()) {
+    return window.innerWidth - yoPanel.offsetWidth;
+  }
+  return window.innerWidth;
+}
+
 let currentGrid: GridInfo | null = null;
 let isDragging = false;
 let dragType: "col" | "row" = "col";
 let dragIndex = 0;
 
+// Per-panel URL tracking for cell URL bars
+const panelUrlCache: Record<string, string> = {};
+const panelFaviconCache: Record<string, string> = {};
+
+const cellUrlContainer = document.getElementById("cell-url-bars")!;
+
+function renderCellUrlBars() {
+  cellUrlContainer.innerHTML = "";
+  if (!currentGrid || !currentGrid.cellBounds || currentGrid.cellBounds.length < 2) return;
+  if (urlBar.classList.contains("hidden")) return; // only when URL bars enabled
+
+  for (const cb of currentGrid.cellBounds) {
+    const bar = document.createElement("div");
+    bar.className = "cell-url-bar";
+    bar.style.left = `${cb.x}px`;
+    bar.style.top = `${cb.y}px`;
+    bar.style.width = `${cb.width}px`;
+
+    const pid = cb.panelId;
+
+    // Back button
+    const backBtn = document.createElement("button");
+    backBtn.className = "cell-nav-btn";
+    backBtn.title = "Back";
+    backBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>';
+    backBtn.addEventListener("click", () => window.yo.panelNavBack(pid));
+    bar.appendChild(backBtn);
+
+    // Forward button
+    const fwdBtn = document.createElement("button");
+    fwdBtn.className = "cell-nav-btn";
+    fwdBtn.title = "Forward";
+    fwdBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
+    fwdBtn.addEventListener("click", () => window.yo.panelNavForward(pid));
+    bar.appendChild(fwdBtn);
+
+    // Refresh button
+    const refreshBtn = document.createElement("button");
+    refreshBtn.className = "cell-nav-btn";
+    refreshBtn.title = "Refresh";
+    refreshBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+    refreshBtn.addEventListener("click", () => window.yo.panelNavRefresh(pid));
+    bar.appendChild(refreshBtn);
+
+    const fav = document.createElement("img");
+    fav.className = "cell-url-bar-favicon";
+    fav.width = 12;
+    fav.height = 12;
+    fav.src = panelFaviconCache[cb.panelId] || "";
+    fav.onerror = () => { fav.src = ""; };
+    bar.appendChild(fav);
+
+    const input = document.createElement("input");
+    input.className = "cell-url-bar-text";
+    input.type = "text";
+    input.value = panelUrlCache[cb.panelId] || "";
+    input.readOnly = true;
+    input.title = panelUrlCache[cb.panelId] || cb.panelId;
+    bar.appendChild(input);
+
+    cellUrlContainer.appendChild(bar);
+  }
+}
+
+// Listen for per-panel URL + favicon updates (for cell URL bars)
+window.yo.onPanelUrlUpdate((info) => {
+  panelUrlCache[info.id] = info.url;
+  panelFaviconCache[info.id] = info.favicon;
+  renderCellUrlBars();
+});
+
 window.yo.onSplitState((info) => {
   currentGrid = info;
   renderGridHandles();
+
+  const isGrid = info && info.panelIds.length > 1;
+  if (isGrid && !urlBar.classList.contains("hidden")) {
+    // In grid mode: hide global URL bar, show per-cell URL bars
+    urlBar.style.visibility = "hidden";
+  } else {
+    urlBar.style.visibility = "";
+  }
+  renderCellUrlBars();
 });
 
 function renderGridHandles() {
@@ -299,13 +499,14 @@ function renderGridHandles() {
 
   const grid = currentGrid;
 
-  // Column border handles
+  // Column border handles — use available width (accounts for yo panel)
+  const availW = getAvailableWidth();
   let cumCol = 0;
   for (let i = 0; i < grid.cols - 1; i++) {
     cumCol += grid.colWidths[i];
     const handle = document.createElement("div");
     handle.className = "grid-col-handle";
-    handle.style.left = `${cumCol * 100}%`;
+    handle.style.left = `${Math.round(cumCol * availW)}px`;
     handle.dataset.type = "col";
     handle.dataset.index = String(i);
     gridHandles.appendChild(handle);
@@ -318,7 +519,7 @@ function renderGridHandles() {
     cumRow += grid.rowHeights[i];
     const handle = document.createElement("div");
     handle.className = "grid-row-handle";
-    handle.style.top = `${CONTENT_TOP + cumRow * (window.innerHeight - CONTENT_TOP)}px`;
+    handle.style.top = `${getContentTop() + cumRow * (window.innerHeight - getContentTop())}px`;
     handle.dataset.type = "row";
     handle.dataset.index = String(i);
     gridHandles.appendChild(handle);
@@ -326,15 +527,28 @@ function renderGridHandles() {
   }
 }
 
-// Reposition row handles on window resize
+// Reposition handles on window resize
 window.addEventListener("resize", () => {
-  if (!currentGrid || currentGrid.rows <= 1) return;
-  let cumRow = 0;
-  const rowHandles = gridHandles.querySelectorAll(".grid-row-handle");
-  for (let i = 0; i < rowHandles.length; i++) {
-    cumRow += currentGrid.rowHeights[i];
-    (rowHandles[i] as HTMLElement).style.top =
-      `${CONTENT_TOP + cumRow * (window.innerHeight - CONTENT_TOP)}px`;
+  if (!currentGrid) return;
+  const aw = getAvailableWidth();
+  // Column handles
+  if (currentGrid.cols > 1) {
+    let cc = 0;
+    const colHandles = gridHandles.querySelectorAll(".grid-col-handle");
+    for (let i = 0; i < colHandles.length; i++) {
+      cc += currentGrid.colWidths[i];
+      (colHandles[i] as HTMLElement).style.left = `${Math.round(cc * aw)}px`;
+    }
+  }
+  // Row handles
+  if (currentGrid.rows > 1) {
+    let cr = 0;
+    const rowHandles = gridHandles.querySelectorAll(".grid-row-handle");
+    for (let i = 0; i < rowHandles.length; i++) {
+      cr += currentGrid.rowHeights[i];
+      (rowHandles[i] as HTMLElement).style.top =
+        `${getContentTop() + cr * (window.innerHeight - getContentTop())}px`;
+    }
   }
 });
 
@@ -362,20 +576,21 @@ document.addEventListener("mousemove", (e) => {
   if (!isDragging || !currentGrid) return;
 
   if (dragType === "col") {
-    const fraction = e.clientX / window.innerWidth;
+    const aw = getAvailableWidth();
+    const fraction = e.clientX / aw;
     const clamped = Math.max(0.05, Math.min(0.95, fraction));
     const handles = gridHandles.querySelectorAll(".grid-col-handle");
     if (handles[dragIndex]) {
-      (handles[dragIndex] as HTMLElement).style.left = `${clamped * 100}%`;
+      (handles[dragIndex] as HTMLElement).style.left = `${Math.round(clamped * aw)}px`;
     }
   } else {
-    const contentHeight = window.innerHeight - CONTENT_TOP;
-    const fraction = (e.clientY - CONTENT_TOP) / contentHeight;
+    const contentHeight = window.innerHeight - getContentTop();
+    const fraction = (e.clientY - getContentTop()) / contentHeight;
     const clamped = Math.max(0.05, Math.min(0.95, fraction));
     const handles = gridHandles.querySelectorAll(".grid-row-handle");
     if (handles[dragIndex]) {
       (handles[dragIndex] as HTMLElement).style.top =
-        `${CONTENT_TOP + clamped * contentHeight}px`;
+        `${getContentTop() + clamped * contentHeight}px`;
     }
   }
 });
@@ -396,14 +611,14 @@ document.addEventListener("mouseup", () => {
   if (dragType === "col") {
     const handle = gridHandles.querySelectorAll(".grid-col-handle")[dragIndex] as HTMLElement;
     if (handle) {
-      const fraction = parseFloat(handle.style.left) / 100;
+      const fraction = parseFloat(handle.style.left) / getAvailableWidth();
       window.yo.gridDragEnd("col", dragIndex, fraction);
     }
   } else {
     const handle = gridHandles.querySelectorAll(".grid-row-handle")[dragIndex] as HTMLElement;
     if (handle) {
-      const contentHeight = window.innerHeight - CONTENT_TOP;
-      const top = parseFloat(handle.style.top) - CONTENT_TOP;
+      const contentHeight = window.innerHeight - getContentTop();
+      const top = parseFloat(handle.style.top) - getContentTop();
       const fraction = top / contentHeight;
       window.yo.gridDragEnd("row", dragIndex, fraction);
     }
@@ -579,8 +794,8 @@ async function openYoPanel(query: string) {
   }
   yoPanelInput.value = "";
   autoGrowYoInput();
-  // Focus after slide animation
-  setTimeout(() => { yoPanelInput.focus(); yoPanelInput.select(); }, 220);
+  // Focus after slide animation; re-render grid handles (available width changed)
+  setTimeout(() => { yoPanelInput.focus(); yoPanelInput.select(); renderGridHandles(); }, 220);
 }
 
 function closeYoPanel() {
@@ -594,6 +809,7 @@ function closeYoPanel() {
     yoToolGroupEl = null;
     yoActiveToolEl = null;
     yoToolStepCount = 0;
+    renderGridHandles(); // available width restored
   }, 200);
 }
 
@@ -1087,27 +1303,27 @@ const splashShownAt = Date.now();
 const SPLASH_MIN_MS = 2000;
 let booted = false;
 let bootData: any = null;
-let embedderReady = false;
+
 
 function dismissSplash(): void {
-  if (!booted || !embedderReady) return;
+  if (!booted) return;
   const elapsed = Date.now() - splashShownAt;
   const remaining = Math.max(0, SPLASH_MIN_MS - elapsed);
   setTimeout(() => {
+    // Show panels first (behind splash z-index:9999) so they're ready when splash fades
+    window.yo.panelsShow();
     const splash = document.getElementById("splash");
     if (splash) {
       splash.classList.add("fade-out");
       setTimeout(() => splash.remove(), 600);
     }
-    // Show panels now that splash is gone
-    window.yo.panelsShow();
   }, remaining);
   if (bootData?.needsOnboarding) {
     showOnboarding(bootData.license.daysRemaining);
   }
 }
 
-// Embedder status updates drive the splash status text
+// Embedder status updates drive the splash status text (cosmetic only, doesn't gate splash)
 (window as any).yo.onEmbedderStatus?.((status: { state: string; progress?: number; message?: string }) => {
   const el = document.getElementById("splash-status");
   if (!el) return;
@@ -1121,27 +1337,13 @@ function dismissSplash(): void {
   } else if (status.state === "ready") {
     el.textContent = "ready";
     el.classList.add("done");
-    embedderReady = true;
-    dismissSplash();
   } else if (status.state === "error") {
     el.textContent = status.message || "model failed — continuing without embeddings";
-    embedderReady = true; // Don't block the app
-    dismissSplash();
   }
 });
-
-// If embedder is already cached, status might arrive before boot — or vice versa.
-// Also set a timeout so the app isn't stuck if embedder never reports.
-setTimeout(() => {
-  if (!embedderReady) {
-    embedderReady = true;
-    dismissSplash();
-  }
-}, 60_000); // 60s max splash
 
 window.yo.onBoot((data) => {
   booted = true;
   bootData = data;
-  // If embedder already signaled ready (fast cached load), dismiss now
   dismissSplash();
 });
