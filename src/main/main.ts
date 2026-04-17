@@ -523,7 +523,7 @@ async function boot() {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
       // Track URL changes in browser tabs for persistence
-      if (id.startsWith("browse-")) trackBrowserUrl(id, wc);
+      if (id === "browser" || id.startsWith("browse-")) trackBrowserUrl(id, wc);
     }
   });
 
@@ -532,11 +532,45 @@ async function boot() {
     setPreference("zoom", factor);
   });
 
+  // Browser panel helpers (must be before app connector loop)
+  const BROWSER_HOMES: Record<string, string> = {
+    claude: "https://claude.ai",
+    chatgpt: "https://chatgpt.com",
+    gemini: "https://gemini.google.com",
+  };
+
+  function resolveBrowserHome(): string {
+    const pref = getPreference<string>("browserHomepage", "claude");
+    if (pref === "custom") return getPreference<string>("browserHomepageUrl", "");
+    return BROWSER_HOMES[pref] || BROWSER_HOMES.claude;
+  }
+
+  function browserHtmlUrl(initialUrl?: string): string {
+    const base = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
+    if (initialUrl) return `${base}?url=${encodeURIComponent(initialUrl)}`;
+    return base;
+  }
+
+  function trackBrowserUrl(panelId: string, wc: Electron.WebContents): void {
+    (wc as any).on("did-attach-webview", (_event: unknown, childWc: Electron.WebContents) => {
+      const saveUrl = (url: string) => {
+        if (url && url !== "about:blank") {
+          const saved = getPreference<Record<string, string>>("browserTabUrls", {});
+          saved[panelId] = url;
+          setPreference("browserTabUrls", saved);
+        }
+      };
+      childWc.on("did-navigate", (_e: unknown, url: string) => saveUrl(url));
+      childWc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
+        if (isMainFrame) saveUrl(url);
+      });
+    });
+  }
+
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
-  const browserHtml = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
   for (const app of appConnector.list()) {
@@ -545,7 +579,9 @@ async function boot() {
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
-      panelManager.addPanel(app.id, browserHtml, undefined, undefined, true);
+      const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
+      const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
+      panelManager.addPanel(app.id, browserHtmlUrl(browserUrl), undefined, undefined, true);
     } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
       // VS Code uses local `code serve-web` for full file access
       if (enableVscode && vscodeServer.available) {
@@ -1281,9 +1317,13 @@ async function boot() {
     yoAgent?.abort();
   });
 
-  // Renderer-initiated panel open (Cmd+K) — resize BrowserViews
+  // Renderer-initiated panel open (Cmd+K) — resize BrowserViews and focus renderer
   ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
     panelManager.setRightInset(yoPanelWidth());
+    // Pull focus from BrowserView to the main renderer so yo panel input can receive it
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.focus();
+    }
     if (query) {
       yoAgent?.clear();
       openYoPanel(query);
@@ -1748,7 +1788,7 @@ async function boot() {
     openTabs.splice(idx, 1);
     panelManager.closePanel(id, mainWindow);
     // Clean up saved browser URL
-    if (id.startsWith("browse-")) {
+    if (id === "browser" || id.startsWith("browse-")) {
       const saved = getPreference<Record<string, string>>("browserTabUrls", {});
       delete saved[id];
       setPreference("browserTabUrls", saved);
@@ -1763,42 +1803,6 @@ async function boot() {
     sendSplitState();
     sendTabState();
   });
-
-  // Homepage URL map for the browser panel
-  const BROWSER_HOMES: Record<string, string> = {
-    claude: "https://claude.ai",
-    chatgpt: "https://chatgpt.com",
-    gemini: "https://gemini.google.com",
-  };
-
-  function resolveBrowserHome(): string {
-    const pref = getPreference<string>("browserHomepage", "claude");
-    if (pref === "custom") return getPreference<string>("browserHomepageUrl", "");
-    return BROWSER_HOMES[pref] || BROWSER_HOMES.claude;
-  }
-
-  function browserHtmlUrl(initialUrl?: string): string {
-    const base = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
-    if (initialUrl) return `${base}?url=${encodeURIComponent(initialUrl)}`;
-    return base;
-  }
-
-  // Track webview URLs inside browser panels for state persistence
-  function trackBrowserUrl(panelId: string, wc: Electron.WebContents): void {
-    (wc as any).on("did-attach-webview", (_event: unknown, childWc: Electron.WebContents) => {
-      const saveUrl = (url: string) => {
-        if (url && url !== "about:blank") {
-          const saved = getPreference<Record<string, string>>("browserTabUrls", {});
-          saved[panelId] = url;
-          setPreference("browserTabUrls", saved);
-        }
-      };
-      childWc.on("did-navigate", (_e: unknown, url: string) => saveUrl(url));
-      childWc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
-        if (isMainFrame) saveUrl(url);
-      });
-    });
-  }
 
   ipcMain.on("tab-new", () => {
     if (!mainWindow) return;

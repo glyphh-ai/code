@@ -6,7 +6,7 @@
  * dip commands route through here.
  */
 
-import { BrowserWindow, BrowserView, WebContents, session, shell } from "electron";
+import { BrowserWindow, BrowserView, WebContents, Menu, session, shell } from "electron";
 import * as path from "path";
 import * as os from "os";
 import * as http from "http";
@@ -100,6 +100,50 @@ export class PanelManager {
     });
     wc.on("destroyed", () => {
       try { wc.debugger.detach(); } catch { /* already detached */ }
+    });
+  }
+
+  /** Attach a right-click context menu with Inspect Element + View Source. */
+  static attachContextMenu(wc: WebContents): void {
+    wc.on("context-menu", (_event, params) => {
+      const items: Electron.MenuItemConstructorOptions[] = [];
+
+      // Standard edit actions when right-clicking editable fields
+      if (params.isEditable) {
+        items.push(
+          { label: "Cut", role: "cut" },
+          { label: "Copy", role: "copy" },
+          { label: "Paste", role: "paste" },
+          { type: "separator" },
+        );
+      } else if (params.selectionText) {
+        items.push(
+          { label: "Copy", role: "copy" },
+          { type: "separator" },
+        );
+      }
+
+      // Link actions
+      if (params.linkURL) {
+        items.push(
+          { label: "Copy Link", click: () => { const { clipboard } = require("electron"); clipboard.writeText(params.linkURL); } },
+          { type: "separator" },
+        );
+      }
+
+      items.push(
+        { label: "View Page Source", click: () => {
+          wc.executeJavaScript("document.documentElement.outerHTML").then((html: string) => {
+            const sourceWin = new BrowserWindow({ width: 800, height: 600, title: `Source: ${wc.getURL()}` });
+            sourceWin.loadURL(`data:text/plain;charset=utf-8,${encodeURIComponent(html)}`);
+          }).catch(() => {});
+        }},
+        { label: "Inspect Element", click: () => {
+          wc.inspectElement(params.x, params.y);
+        }},
+      );
+
+      Menu.buildFromTemplate(items).popup();
     });
   }
 
@@ -226,6 +270,15 @@ export class PanelManager {
     PanelManager.permissionsConfigured = true;
 
     const ses = session.fromPartition("persist:yo");
+
+    // Strip Electron/app identifiers from the session user agent so webview
+    // guests (e.g., browser panel) inherit a clean Chrome-like UA string.
+    ses.setUserAgent(
+      ses.getUserAgent()
+        .replace(/Electron\/\S+\s*/g, "")
+        .replace(/\S+-client\/\S+\s*/g, "")
+        .replace(/\s+/g, " ").trim()
+    );
 
     // Grant all permissions — web apps need clipboard, file system, etc.
     ses.setPermissionRequestHandler((_wc, _permission, callback) => {
@@ -379,6 +432,7 @@ export class PanelManager {
       // Auto-dismiss JS dialogs (alert/confirm/prompt) via Chrome DevTools Protocol.
       // This intercepts at the Chromium IPC level, before the renderer blocks.
       PanelManager.attachDialogHandler(view.webContents);
+      PanelManager.attachContextMenu(view.webContents);
     }
 
     // Block native app protocol redirects (slack://, zoommtg://, etc.)
@@ -543,17 +597,22 @@ export class PanelManager {
         e.preventDefault();
         this.toggleDevTools();
       } else if (input.key === "k") {
-        // Cmd+K — focus command input in the titlebar
+        // Cmd+K — open yo agent panel
         e.preventDefault();
         parent.webContents.send("focus-command-input");
-        parent.webContents.focus();
       }
     });
 
     // Forward keyboard shortcuts from webviews nested inside this panel (e.g., browser panel)
     view.webContents.on("did-attach-webview" as any, (_event: unknown, childWc: WebContents) => {
-      // Auto-dismiss JS dialogs in guest webviews too
+      // Auto-dismiss JS dialogs, context menu, and themed scrollbars in guest webviews
       PanelManager.attachDialogHandler(childWc);
+      PanelManager.attachContextMenu(childWc);
+      childWc.on("did-finish-load", () => {
+        if (!childWc.isDestroyed()) {
+          childWc.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});
+        }
+      });
       childWc.on("before-input-event", (e, input) => {
         if (childWc.isDestroyed() || parent.isDestroyed()) return;
         if (!input.meta && !input.control) return;
@@ -561,7 +620,6 @@ export class PanelManager {
         if (input.key === "k") {
           e.preventDefault();
           parent.webContents.send("focus-command-input");
-          parent.webContents.focus();
         } else if (input.key === "=" || input.key === "+") {
           e.preventDefault();
           this.setZoom(this.zoomFactor + 0.1);

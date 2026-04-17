@@ -160,7 +160,7 @@
   <div class="loading-bar" id="loading-bar"></div>
 
   <div class="content">
-    <webview id="webview" src="about:blank" partition="persist:yo" allowpopups></webview>
+    <webview id="webview" partition="persist:yo" allowpopups></webview>
     <div class="empty-state" id="empty-state">
       <div class="logo"><span class="dot">.</span>Browse</div>
       <div class="hint">Enter a URL or search above</div>
@@ -176,29 +176,17 @@
     const loadBar  = document.getElementById("loading-bar");
     const empty    = document.getElementById("empty-state");
 
-    let ready = false;
-    let pendingUrl = null;
-
     // Check for initial URL from query parameter (?url=...)
     const params = new URLSearchParams(location.search);
     const initialUrl = params.get("url");
 
-    // If we have an initial URL, set src immediately — don't wait for dom-ready
-    // (about:blank dom-ready can fire before the listener is attached)
+    // Navigate the webview. Setting src always works — the webview queues
+    // the load internally if its guest process hasn't attached yet.
     if (initialUrl) {
-      webview.src = initialUrl;
-      urlBar.value = initialUrl;
       empty.classList.add("hidden");
+      urlBar.value = initialUrl;
+      webview.setAttribute("src", initialUrl);
     }
-
-    // Mark ready once webview is attached; handle any user-typed pending URL
-    webview.addEventListener("dom-ready", () => {
-      ready = true;
-      if (pendingUrl) {
-        doNavigate(pendingUrl);
-        pendingUrl = null;
-      }
-    });
 
     function normalizeUrl(input) {
       input = input.trim();
@@ -213,23 +201,12 @@
       webview.src = url;
     }
 
-    function navigate(url) {
-      const normalized = normalizeUrl(url);
-      if (!normalized) return;
-      if (ready) {
-        doNavigate(normalized);
-      } else {
-        // Webview not ready yet — queue the URL
-        pendingUrl = normalized;
-        empty.classList.add("hidden");
-      }
-    }
-
     // URL bar: Enter to navigate
     urlBar.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        navigate(urlBar.value);
+        const normalized = normalizeUrl(urlBar.value);
+        if (normalized) doNavigate(normalized);
         urlBar.blur();
       }
     });
@@ -240,9 +217,9 @@
     });
 
     // Nav buttons
-    btnBack.addEventListener("click", () => { if (ready) webview.goBack(); });
-    btnFwd.addEventListener("click",  () => { if (ready) webview.goForward(); });
-    btnRef.addEventListener("click",  () => { if (ready) webview.reload(); });
+    btnBack.addEventListener("click", () => webview.goBack());
+    btnFwd.addEventListener("click",  () => webview.goForward());
+    btnRef.addEventListener("click",  () => webview.reload());
 
     // Webview events
     webview.addEventListener("did-start-loading", () => {
@@ -288,11 +265,11 @@
       }
       if (e.altKey && e.key === "ArrowLeft") {
         e.preventDefault();
-        if (ready) webview.goBack();
+        webview.goBack();
       }
       if (e.altKey && e.key === "ArrowRight") {
         e.preventDefault();
-        if (ready) webview.goForward();
+        webview.goForward();
       }
     });
 
