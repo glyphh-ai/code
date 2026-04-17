@@ -51,7 +51,7 @@ body {
   margin-bottom: 24px;
 }
 
-.splash-logo .splash-dot:first-child {
+.splash-logo .splash-dot {
   display: inline-block;
   animation: dot-dance 3s ease-in-out infinite;
 }
