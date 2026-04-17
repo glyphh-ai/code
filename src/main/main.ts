@@ -12,7 +12,7 @@ import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { checkLicense, activateLicense, revalidateLicense, initSession, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket } from "./license";
+import { checkLicense, activateLicense, revalidateLicense, initSession, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket, cleanupLicenseTimers } from "./license";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -40,6 +40,8 @@ let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
+let cloudSyncInstance: CloudSync | null = null;
+let licenseCheckTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -524,6 +526,8 @@ async function boot() {
       yoInterceptor.activate(wc, id);
       // Track URL changes in browser tabs for persistence
       if (id === "browser" || id.startsWith("browse-")) trackBrowserUrl(id, wc);
+      // Track VS Code folder for persistence across restarts
+      if (id === "vscode") trackVscodeFolder(wc);
     }
   });
 
@@ -567,6 +571,20 @@ async function boot() {
     });
   }
 
+  function trackVscodeFolder(wc: Electron.WebContents): void {
+    const saveFolder = (navUrl: string) => {
+      try {
+        const u = new URL(navUrl);
+        const folder = u.searchParams.get("folder");
+        if (folder) setPreference("vscodeLastFolder", folder);
+      } catch {}
+    };
+    wc.on("did-navigate", (_e: unknown, url: string) => saveFolder(url));
+    wc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
+      if (isMainFrame) saveFolder(url);
+    });
+  }
+
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
@@ -586,24 +604,6 @@ async function boot() {
       // VS Code uses local `code serve-web` for full file access
       if (enableVscode && vscodeServer.available) {
         panelManager.addPanel(app.id, VSCodeServer.expectedUrl());
-        // Track the last opened folder so we can restore it on next launch
-        const vscWc = panelManager.getWebContents(app.id);
-        if (vscWc) {
-          vscWc.on("did-navigate", (_e, navUrl) => {
-            try {
-              const u = new URL(navUrl);
-              const folder = u.searchParams.get("folder");
-              if (folder) setPreference("vscodeLastFolder", folder);
-            } catch {}
-          });
-          vscWc.on("did-navigate-in-page", (_e, navUrl) => {
-            try {
-              const u = new URL(navUrl);
-              const folder = u.searchParams.get("folder");
-              if (folder) setPreference("vscodeLastFolder", folder);
-            } catch {}
-          });
-        }
       } else {
         // Show setup instructions instead of broken fallback
         const reason = !enableVscode
@@ -1152,12 +1152,12 @@ async function boot() {
   const cloudToken = getPreference<string>("cloudToken", null!);
   if (bootLicense.status === "licensed" && cloudToken) {
     const library = new Library();
-    const cloudSync = new CloudSync(library);
-    cloudSync.start();
+    cloudSyncInstance = new CloudSync(library);
+    cloudSyncInstance.start();
   }
 
   // Revalidate license every 24h
-  setInterval(async () => {
+  licenseCheckTimer = setInterval(async () => {
     const license = checkLicense();
     if (license.status === "licensed") {
       const valid = await revalidateLicense();
@@ -1757,7 +1757,7 @@ async function boot() {
   });
 
   ipcMain.handle("get-checkout-url", async (_e, plan?: string) => {
-    const url = await getCheckoutUrl(plan || "basic");
+    const url = await getCheckoutUrl(plan || "pro");
     if (url) {
       shell.openExternal(url);
     }
@@ -1947,11 +1947,8 @@ app.on("login", (event, _wc, _details, authInfo, callback) => {
 });
 
 app.on("window-all-closed", () => {
-  terminalManager?.killAll();
-  vscodeServer?.stop();
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  cleanupAll();
+  app.quit();
 });
 
 app.on("activate", () => {
@@ -1961,6 +1958,20 @@ app.on("activate", () => {
 });
 
 app.on("will-quit", () => {
-  globalShortcut.unregisterAll();
-  vscodeServer?.stop();
+  cleanupAll();
 });
+
+let cleanedUp = false;
+function cleanupAll() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  globalShortcut.unregisterAll();
+  if (licenseCheckTimer) { clearInterval(licenseCheckTimer); licenseCheckTimer = null; }
+  cleanupLicenseTimers();
+  cloudSyncInstance?.stop();
+  cloudSyncInstance = null;
+  terminalManager?.killAll();
+  vscodeServer?.stop();
+  // Hard exit if anything keeps the process alive
+  setTimeout(() => process.exit(0), 5000).unref();
+}

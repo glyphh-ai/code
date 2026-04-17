@@ -978,9 +978,9 @@ yoPanelMicBtn.addEventListener("click", async () => {
 
   // Gate to advanced tier
   const info = await window.yo.getLicenseInfo();
-  if (info.tier !== "advanced") {
+  if (info.tier !== "pro") {
     yoPanelMicBtn.classList.add("disabled");
-    yoPanelMicBtn.title = "Voice input requires Advanced plan";
+    yoPanelMicBtn.title = "Voice input requires Pro plan";
     return;
   }
 

@@ -5,7 +5,7 @@
  * full local file access without the File System Access API.
  */
 
-import { spawn, ChildProcess } from "child_process";
+import { spawn, execSync, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 
@@ -71,6 +71,15 @@ export class VSCodeServer {
         ));
         return;
       }
+
+      // Kill any stale process holding our port from a previous crash
+      try {
+        const pid = execSync(`lsof -ti :${PORT}`, { encoding: "utf-8" }).trim();
+        if (pid) {
+          console.log(`[vscode-server] killing stale process ${pid} on port ${PORT}`);
+          process.kill(Number(pid), "SIGKILL");
+        }
+      } catch { /* no process on port — expected */ }
 
       // Ensure data dirs exist for state persistence
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -142,11 +151,17 @@ export class VSCodeServer {
     });
   }
 
-  /** Stop the server */
+  /** Stop the server — SIGTERM first, SIGKILL after 3s if still alive */
   stop(): void {
     if (this.proc) {
       console.log("[vscode-server] stopping");
-      this.proc.kill();
+      const p = this.proc;
+      p.kill("SIGTERM");
+      // Force kill if SIGTERM doesn't work within 3 seconds
+      const forceKill = setTimeout(() => {
+        try { if (!p.killed) p.kill("SIGKILL"); } catch {}
+      }, 3000);
+      p.on("exit", () => clearTimeout(forceKill));
       this.proc = null;
       this._url = null;
       this.readyPromise = null;

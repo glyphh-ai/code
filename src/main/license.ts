@@ -68,6 +68,11 @@ function clearSessionFile(): void {
   try { fs.unlinkSync(SESSION_FILE); } catch { /* ignore */ }
 }
 
+/** Clear all pending timers — call on app shutdown. */
+export function cleanupLicenseTimers(): void {
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+}
+
 function scheduleRefresh(session: SessionData): void {
   if (refreshTimer) clearTimeout(refreshTimer);
   const delay = Math.max(0, session.expiresAt - Date.now() - REFRESH_MARGIN);
@@ -223,7 +228,7 @@ export function checkLicense(): LicenseState {
   if (data?.key && validateKeyLocal(data.key)) {
     // Dev keys and server-validated keys are trusted
     if (validateDevKey(data.key) || data.serverValidated) {
-      return { status: "licensed", key: data.key, tier: data.tier || "basic" };
+      return { status: "licensed", key: data.key, tier: data.tier || "pro" };
     }
     // Key exists but was never validated by server — treat as unlicensed
   }
@@ -328,7 +333,7 @@ export async function revalidateLicense(): Promise<boolean> {
 
 // ── Checkout URL ─────────────────────────────────────────────
 
-export async function getCheckoutUrl(plan: string = "basic"): Promise<string | null> {
+export async function getCheckoutUrl(plan: string = "pro"): Promise<string | null> {
   try {
     const data = readLicenseFile();
     const keyParam = data?.key ? `&key=${encodeURIComponent(data.key)}` : "";

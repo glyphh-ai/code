@@ -840,7 +840,7 @@ function initSettings() {
       }
     } else {
       // Trial/expired — open Stripe Checkout
-      const url = await window.yo.getCheckoutUrlForPlan("basic");
+      const url = await window.yo.getCheckoutUrlForPlan("pro");
       if (!url) {
         const statusEl = document.getElementById("settings-status")!;
         statusEl.textContent = "Could not reach license server";
