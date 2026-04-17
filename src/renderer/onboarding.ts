@@ -12,18 +12,18 @@ const CAM_Z = 6;
 const FOV_RAD = (60 / 2) * Math.PI / 180; // half-fov in radians
 
 // Wall params (matching web MatrixParticles exactly)
-const W_ROWS = 32;
-const W_COLS = 20;
-const WALL_HEIGHT = 10;
-const WALL_DEPTH = 16;
-const CORRIDOR_OUTER = 9;
-const CORRIDOR_INNER = 1.2;
+const W_ROWS = 28;
+const W_COLS = 18;
+const WALL_HEIGHT = 8;
+const WALL_DEPTH = 14;
+const CORRIDOR_OUTER = 6;
+const CORRIDOR_INNER = 1.0;
 
 // Stream params
 const S_COLS = 7;
-const S_PER_COL = 40;
-const S_SPACING = 0.75;
-const S_HEIGHT = 14;
+const S_PER_COL = 30;
+const S_SPACING = 0.6;
+const S_HEIGHT = 12;
 const S_Z = -8;
 
 interface WallParticle {
@@ -76,9 +76,9 @@ function initAnimation(canvas: HTMLCanvasElement) {
         col: c, direction: dir,
         yOffset: Math.random() * S_HEIGHT,
         speed: 0.4 + Math.random() * 0.6,
-        brightness: 0.02 + Math.random() * 0.06,
+        brightness: 0.15 + Math.random() * 0.2,
         flickerRate: 1 + Math.random() * 3,
-        size: 0.12 + Math.random() * 0.05,
+        size: 0.08 + Math.random() * 0.04,
       });
     }
   }
@@ -109,10 +109,10 @@ function initAnimation(canvas: HTMLCanvasElement) {
       const { sx, sy, scale } = project(x3, y3 + jy, z3, hw, hh);
       const depthScale = 0.4 + (1 - zNorm) * 0.6;
       const pulse = 1 + Math.sin(t * wp.flickerRate + wp.tOffset) * 0.1;
-      const sz = 0.15 * depthScale * pulse * scale;
+      const sz = 0.07 * depthScale * pulse * scale;
 
-      const headBright = 1 - cycle;
-      const depthDim = 0.25 + (1 - zNorm) * 0.75;
+      const headBright = 0.2 + (1 - cycle) * 0.8;  // floor at 0.2, never fully dark
+      const depthDim = 0.35 + (1 - zNorm) * 0.65;
       const b = headBright * wp.brightness * depthDim;
       const flicker = Math.sin(t * wp.flickerRate * 2 + wp.tOffset * 5) * 0.5 + 0.5;
       const isHead = cycle < 0.15;
@@ -120,15 +120,15 @@ function initAnimation(canvas: HTMLCanvasElement) {
 
       let r: number, g: number, bl: number;
       if (isHead) {
-        r = (0.7 * b + 0.15) * 255; g = (0.75 * b + 0.17) * 255; bl = (0.7 * b + 0.15) * 255;
+        r = (0.8 * b + 0.2) * 255; g = (0.85 * b + 0.22) * 255; bl = (0.8 * b + 0.2) * 255;
       } else if (isBright) {
-        r = 0.45 * b * 255; g = 0.5 * b * 255; bl = 0.45 * b * 255;
+        r = 0.55 * b * 255; g = 0.65 * b * 255; bl = 0.55 * b * 255;
       } else {
-        r = 0.25 * b * 255; g = 0.28 * b * 255; bl = 0.25 * b * 255;
+        r = 0.4 * b * 255; g = 0.48 * b * 255; bl = 0.4 * b * 255;
       }
 
-      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.8)`;
-      ctx.fillRect(sx - sz * 0.6, sy - sz * 0.9, sz * 1.2, sz * 1.8);
+      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.85)`;
+      ctx.fillRect(sx - sz * 0.5, sy - sz * 0.75, sz, sz * 1.5);
     }
 
     // Draw streams
@@ -147,16 +147,16 @@ function initAnimation(canvas: HTMLCanvasElement) {
       const finalB = Math.min(b * headGlow, 0.7);
 
       let r: number, g: number, bl: number;
-      const whiteChance = flicker > 0.85 && finalB > 0.35;
+      const whiteChance = flicker > 0.85 && finalB > 0.25;
       if (whiteChance) {
-        r = finalB * 0.8 * 255; g = finalB * 0.85 * 255; bl = finalB * 0.8 * 255;
+        r = finalB * 1.2 * 255; g = finalB * 1.3 * 255; bl = finalB * 1.2 * 255;
       } else if (sp.col % 3 === 0) {
-        r = finalB * 0.4 * 255; g = finalB * 0.45 * 255; bl = finalB * 0.4 * 255;
+        r = finalB * 0.7 * 255; g = finalB * 0.85 * 255; bl = finalB * 0.7 * 255;
       } else {
-        r = finalB * 0.2 * 255; g = finalB * 0.22 * 255; bl = finalB * 0.2 * 255;
+        r = finalB * 0.5 * 255; g = finalB * 0.6 * 255; bl = finalB * 0.5 * 255;
       }
 
-      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.15)`;
+      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.35)`;
       ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
     }
 
