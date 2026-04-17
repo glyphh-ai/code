@@ -13,11 +13,13 @@ mac:
   entitlements: entitlements.mac.plist
   entitlementsInherit: entitlements.mac.plist
   notarize: true
+  artifactName: "Yo.${ext}"
 
 win:
   target:
     - nsis
   icon: assets/icon.png
+  artifactName: "Yo-Setup.${ext}"
 
 directories:
   output: release

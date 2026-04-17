@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session as electronSession, shell, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
@@ -508,6 +508,14 @@ async function boot() {
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
   terminalManager.init();
+
+  // Register dialog preload on the shared partition so JS dialogs
+  // (alert/confirm/prompt) are overridden before page scripts run.
+  electronSession.fromPartition("persist:yo").registerPreloadScript({
+    id: "dialog-fix",
+    type: "frame",
+    filePath: path.join(__dirname, "dialog-preload.js"),
+  });
 
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
@@ -1258,6 +1266,15 @@ async function boot() {
 
   ipcMain.on("yo-panel-stop", () => {
     yoAgent?.abort();
+  });
+
+  // Renderer-initiated panel open (Cmd+K) — resize BrowserViews
+  ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
+    panelManager.setRightInset(yoPanelWidth());
+    if (query) {
+      yoAgent?.clear();
+      openYoPanel(query);
+    }
   });
 
   ipcMain.on("yo-panel-dismiss", () => {

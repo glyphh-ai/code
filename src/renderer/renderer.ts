@@ -100,6 +100,7 @@ declare global {
       // Support
       submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
       // Yo agent panel
+      yoPanelOpen: (query: string) => void;
       yoPanelSend: (message: string) => void;
       yoPanelDismiss: () => void;
       yoPanelStop: () => void;
@@ -180,10 +181,21 @@ function renderTabs(tabs: Array<{ id: string; name: string }>, activeId: string)
 
 tabNewBtn.addEventListener("click", () => window.yo.tabNew());
 
+const emptyState = document.getElementById("empty-state")!;
+
+function updateEmptyState(tabs: Array<{ id: string; name: string }>) {
+  if (tabs.length === 0) {
+    emptyState.classList.remove("hidden");
+  } else {
+    emptyState.classList.add("hidden");
+  }
+}
+
 window.yo.onTabState((state: { tabs: Array<{ id: string; name: string }>; activeId: string; visible: boolean }) => {
   renderTabs(state.tabs, state.activeId);
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
+  updateEmptyState(state.tabs);
   // Close help overlay whenever panels switch — help should never stay open over panels
   if (isHelpOpen()) closeHelp();
 });
@@ -193,14 +205,19 @@ window.yo.tabList().then((state) => {
   renderTabs(state.tabs, state.activeId);
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
+  updateEmptyState(state.tabs);
 });
 
 // -- Cmd+K command overlay --
 
 // Cmd+K from panel -> open yo agent panel
 window.yo.onFocusInput(() => {
-  if (!isYoPanelOpen()) openYoPanel("");
-  else yoPanelInput.focus();
+  if (!isYoPanelOpen()) {
+    window.yo.yoPanelOpen("");
+    openYoPanel("");
+  } else {
+    yoPanelInput.focus();
+  }
 });
 
 
@@ -213,12 +230,13 @@ document.addEventListener("keydown", (e) => {
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+K to open command overlay
+  // Cmd+K to open yo agent panel
   if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (isYoPanelOpen()) {
       yoPanelInput.focus();
     } else {
+      window.yo.yoPanelOpen("");
       openYoPanel("");
     }
   }

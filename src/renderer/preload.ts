@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("submit-support-ticket", ticket) as Promise<{ ok: boolean; error?: string }>,
 
   // Yo agent panel
+  yoPanelOpen: (query: string) => ipcRenderer.send("yo-panel-open-from-renderer", query),
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
   yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
   yoPanelStop: () => ipcRenderer.send("yo-panel-stop"),

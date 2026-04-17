@@ -117,15 +117,23 @@
       transition: opacity 0.3s ease;
     }
     .empty-state .logo {
-      font-size: 32px;
+      font-size: 48px;
       font-weight: 700;
-      color: #333;
-      letter-spacing: -1px;
+      color: #fff;
+      letter-spacing: -1.5px;
     }
-    .empty-state .logo .dot { color: #25C75E; }
+    .empty-state .logo .dot {
+      color: #25C75E;
+      display: inline-block;
+      animation: dot-pulse 3s ease-in-out infinite;
+    }
     .empty-state .hint {
-      color: #444;
-      font-size: 12px;
+      color: #555;
+      font-size: 13px;
+    }
+    @keyframes dot-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
     }
     .empty-state.hidden { opacity: 0; pointer-events: none; }
 
@@ -154,7 +162,7 @@
   <div class="content">
     <webview id="webview" src="about:blank" partition="persist:yo" allowpopups></webview>
     <div class="empty-state" id="empty-state">
-      <div class="logo">browse<span class="dot">.</span></div>
+      <div class="logo"><span class="dot">.</span>Browse</div>
       <div class="hint">Enter a URL or search above</div>
     </div>
   </div>

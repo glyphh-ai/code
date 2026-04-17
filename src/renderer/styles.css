@@ -106,6 +106,54 @@ body {
   100% { transform: translate(0, 0) scale(1); }
 }
 
+/* ── Empty state (no panels) ────────────────────────────── */
+
+.empty-state {
+  position: fixed;
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  background: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  transition: opacity 0.3s ease;
+}
+.empty-state.hidden { display: none; }
+
+.empty-state-logo {
+  font-size: 72px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -2px;
+}
+
+.empty-state-dot {
+  color: #25C75E;
+  display: inline-block;
+  animation: dot-dance 3s ease-in-out infinite;
+}
+
+.empty-state-hint {
+  font-size: 13px;
+  color: #555;
+}
+
+.empty-state-hint kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", Menlo, monospace;
+  color: #888;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
 /* ── Onboarding ─────────────────────────────────────────── */
 
 #onboarding-overlay {

@@ -147,15 +147,6 @@ export class PanelManager {
     })();
   `;
 
-  private static readonly JS_DIALOG_FIX = `
-    (function() {
-      if (window.__yoDialogFixed) return;
-      window.__yoDialogFixed = true;
-      window.alert = function(msg) { console.log('[alert]', msg); };
-      window.confirm = function(msg) { console.log('[confirm]', msg); return true; };
-      window.prompt = function(msg, def) { console.log('[prompt]', msg); return def || ''; };
-    })();
-  `;
 
   /**
    * Map a native protocol URL to the corresponding web client URL.
@@ -347,6 +338,10 @@ export class PanelManager {
         contextIsolation: true,
         nodeIntegration: false,
         partition: isLocal ? undefined : "persist:yo",
+        // Prevent JS dialogs (alert/confirm/prompt) from blocking page load.
+        // The session preload (dialog-preload) overrides them with sensible
+        // return values; disableDialogs is the Chromium-level fallback.
+        ...(!isLocal ? { disableDialogs: true } : {}),
         ...(config.preload ? { preload: config.preload } : {}),
         ...(config.webviewTag ? { webviewTag: true } : {}),
       },
@@ -531,8 +526,26 @@ export class PanelManager {
       }
     });
 
+    // Disable JS dialogs in <webview> guests before they load (e.g., browser panel)
+    (view.webContents as any).on("will-attach-webview", (_event: unknown, webPrefs: Record<string, unknown>) => {
+      webPrefs.disableDialogs = true;
+    });
+
     // Forward keyboard shortcuts from webviews nested inside this panel (e.g., browser panel)
     view.webContents.on("did-attach-webview" as any, (_event: unknown, childWc: WebContents) => {
+      // Override JS dialogs with sensible defaults once guest page loads
+      childWc.on("dom-ready", () => {
+        if (childWc.isDestroyed()) return;
+        childWc.executeJavaScript(`
+          (function() {
+            if (window.__yoDialogFixed) return;
+            window.__yoDialogFixed = true;
+            window.alert = function(msg) { console.log('[yo-alert]', msg); };
+            window.confirm = function(msg) { console.log('[yo-confirm]', msg); return true; };
+            window.prompt = function(msg, def) { console.log('[yo-prompt]', msg); return def || ''; };
+          })();
+        `).catch(() => {});
+      });
       childWc.on("before-input-event", (e, input) => {
         if (childWc.isDestroyed() || parent.isDestroyed()) return;
         if (!input.meta && !input.control) return;
@@ -563,10 +576,6 @@ export class PanelManager {
       view.webContents.setZoomFactor(this.zoomFactor);
       // Inject thin scrollbar styles into all panels
       view.webContents.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});
-      // Fix JS dialogs (alert/confirm/prompt) that don't render in BrowserView
-      if (!isLocal) {
-        view.webContents.executeJavaScript(PanelManager.JS_DIALOG_FIX).catch(() => {});
-      }
       // Suppress desktop-app banners and protocol redirects
       if (config.forceWeb) {
         view.webContents.executeJavaScript(PanelManager.FORCE_WEB_JS).catch(() => {});
