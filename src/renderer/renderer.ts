@@ -197,80 +197,11 @@ window.yo.tabList().then((state) => {
 
 // -- Cmd+K command overlay --
 
-const cmdkOverlay = document.getElementById("cmdk-overlay")!;
-const cmdkInput = document.getElementById("cmdk-input") as HTMLInputElement;
-let resultTimer: ReturnType<typeof setTimeout> | null = null;
-
-async function openCmdK() {
-  if (!cmdkOverlay.classList.contains("hidden")) return;
-  await showPanelScreenshots();
-  window.yo.panelsHide();
-  cmdkOverlay.classList.remove("hidden");
-  cmdkInput.value = "";
-  cmdkInput.classList.remove("result");
-  cmdkInput.focus();
-}
-
-function closeCmdK() {
-  if (resultTimer) { clearTimeout(resultTimer); resultTimer = null; }
-  cmdkOverlay.classList.add("hidden");
-  cmdkInput.value = "";
-  cmdkInput.classList.remove("result");
-  clearPanelScreenshots();
-  window.yo.panelsShow();
-}
-
-function isCmdKOpen(): boolean {
-  return !cmdkOverlay.classList.contains("hidden");
-}
-
-function showResult(text: string) {
-  if (resultTimer) clearTimeout(resultTimer);
-  cmdkInput.value = text;
-  cmdkInput.classList.add("result");
-  resultTimer = setTimeout(() => {
-    closeCmdK();
-  }, 2000);
-}
-
-cmdkInput.addEventListener("keydown", async (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    const value = cmdkInput.value.trim();
-    if (!value) return;
-
-    cmdkInput.value = "";
-
-    try {
-      const result = await window.yo.execCommand(value);
-      if (result) {
-        showResult(result);
-      } else {
-        closeCmdK();
-      }
-    } catch (err) {
-      showResult(`Error: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-  if (e.key === "Escape") {
-    e.preventDefault();
-    closeCmdK();
-  }
+// Cmd+K from panel -> open yo agent panel
+window.yo.onFocusInput(() => {
+  if (!isYoPanelOpen()) openYoPanel("");
+  else yoPanelInput.focus();
 });
-
-// Click overlay background -> close
-cmdkOverlay.addEventListener("click", (e) => {
-  if (e.target === cmdkOverlay) closeCmdK();
-});
-
-// .yo help link in Cmd+K
-document.getElementById("cmdk-help-link")!.addEventListener("click", () => {
-  closeCmdK();
-  openHelp();
-});
-
-// Cmd+K from panel -> open overlay
-window.yo.onFocusInput(() => openCmdK());
 
 
 
@@ -279,14 +210,17 @@ window.yo.onFocusInput(() => openCmdK());
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (isYoPanelOpen()) window.yo.yoPanelDismiss();
-    else if (isCmdKOpen()) closeCmdK();
     else if (isHelpOpen()) closeHelp();
   }
 
   // Cmd+K to open command overlay
   if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
-    openCmdK();
+    if (isYoPanelOpen()) {
+      yoPanelInput.focus();
+    } else {
+      openYoPanel("");
+    }
   }
 
   // Cmd+R / Ctrl+R to refresh panels
@@ -626,9 +560,7 @@ async function openYoPanel(query: string) {
   }
   yoPanelInput.value = "";
   autoGrowYoInput();
-  // Close Cmd+K overlay if it's open (e.g. user typed .yo in Cmd+K)
-  if (isCmdKOpen()) closeCmdK();
-  // Focus after slide animation + any overlay teardown
+  // Focus after slide animation
   setTimeout(() => yoPanelInput.focus(), 300);
 }
 
