@@ -15,6 +15,8 @@ export class NavigatorAgent extends BaseSubAgent {
   private panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>) | null = null;
   private panelLister: (() => string) | null = null;
   private panelScanner: ((panelId: string) => Promise<string | null>) | null = null;
+  private panelOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
+  private backgroundOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
 
   setPanelGrabber(fn: typeof this.panelGrabber): void { this.panelGrabber = fn; }
   setPanelClicker(fn: typeof this.panelClicker): void { this.panelClicker = fn; }
@@ -22,16 +24,20 @@ export class NavigatorAgent extends BaseSubAgent {
   setPanelTyper(fn: typeof this.panelTyper): void { this.panelTyper = fn; }
   setPanelLister(fn: typeof this.panelLister): void { this.panelLister = fn; }
   setPanelScanner(fn: typeof this.panelScanner): void { this.panelScanner = fn; }
+  setPanelOpener(fn: typeof this.panelOpener): void { this.panelOpener = fn; }
+  setBackgroundOpener(fn: typeof this.backgroundOpener): void { this.backgroundOpener = fn; }
 
   get systemPrompt(): string {
     return `You are a navigation specialist. You interact with workspace panels (browser tabs showing apps like Gmail, Claude, GPT, etc).
 
 WORKFLOW:
 1. Start with list_panels to see what's available
-2. Use scan_panel FIRST to get a structured map of inputs, buttons, content areas, and nav items — this is instant and gives you exact selectors
-3. Use the scan results to make surgical tool calls: click_element with exact selectors, type_text with exact selectors
-4. Use grab_panel only when you need full text content (not for discovering what to click)
-5. Chain click → scan cycles to navigate deep into apps (max 4 cycles)
+2. If the panel you need isn't listed, use open_panel to open it (e.g. open_panel with url "https://mail.google.com" for Gmail)
+3. Use open_background to load a page in the background without showing it — useful for fetching data without disrupting the user's view
+4. Use scan_panel FIRST to get a structured map of inputs, buttons, content areas, and nav items — this is instant and gives you exact selectors
+5. Use the scan results to make surgical tool calls: click_element with exact selectors, type_text with exact selectors
+6. Use grab_panel only when you need full text content (not for discovering what to click)
+7. Chain click → scan cycles to navigate deep into apps (max 4 cycles)
 
 SCAN-FIRST PRINCIPLE:
 - ALWAYS scan_panel before clicking or typing — it gives you exact selectors, no guessing
@@ -122,6 +128,30 @@ RESPONSE:
           required: ["panel_id", "text"],
         },
       },
+      {
+        name: "open_panel",
+        description: "Open a URL in a visible workspace panel. Use when the panel you need isn't in list_panels. Returns the panel ID you can use with other tools.",
+        input_schema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL to open (e.g. https://mail.google.com)" },
+            panel_id: { type: "string", description: "Optional panel ID. If omitted, one is generated from the URL domain." },
+          },
+          required: ["url"],
+        },
+      },
+      {
+        name: "open_background",
+        description: "Open a URL in a hidden background panel. The page loads and is fully interactable (scan, grab, click, type) but is NOT shown to the user. Use for fetching data without disrupting the user's current view.",
+        input_schema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL to open in the background" },
+            panel_id: { type: "string", description: "Optional panel ID. If omitted, one is generated from the URL domain." },
+          },
+          required: ["url"],
+        },
+      },
     ];
   }
 
@@ -171,6 +201,20 @@ RESPONSE:
           clear: input.clear as boolean | undefined,
           submit: input.submit as boolean | undefined,
         });
+      }
+
+      case "open_panel": {
+        const url = input.url as string;
+        const panelId = input.panel_id as string | undefined;
+        if (!this.panelOpener) return "Panel opening not available.";
+        return this.panelOpener(url, panelId);
+      }
+
+      case "open_background": {
+        const url = input.url as string;
+        const panelId = input.panel_id as string | undefined;
+        if (!this.backgroundOpener) return "Background panel opening not available.";
+        return this.backgroundOpener(url, panelId);
       }
 
       default:

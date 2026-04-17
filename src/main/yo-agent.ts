@@ -234,6 +234,16 @@ export class YoAgent {
     this.skillRunner.setPanelTyper(fn);
   }
 
+  setPanelOpener(fn: (url: string, panelId?: string) => Promise<string>): void {
+    this.navigator.setPanelOpener(fn);
+    this.skillRunner.setPanelOpener(fn);
+  }
+
+  setBackgroundOpener(fn: (url: string, panelId?: string) => Promise<string>): void {
+    this.navigator.setBackgroundOpener(fn);
+    this.skillRunner.setBackgroundOpener(fn);
+  }
+
   setMaxMessages(n: number): void { this.maxMessages = n; }
   setCommandRunner(fn: (cmd: string) => Promise<string>): void {
     this.commandRunner = fn;

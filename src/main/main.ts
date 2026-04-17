@@ -1064,6 +1064,34 @@ async function boot() {
     } catch { return false; }
   });
 
+  // Open a panel visibly — registers config, creates view, switches to it
+  yoAgent.setPanelOpener(async (url, panelId) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
+    const id = panelId || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+    if (!panelManager.hasPanel(id)) {
+      panelManager.addPanel(id, url);
+    }
+    const ok = panelManager.switchTo(id, mainWindow);
+    if (!ok) return `Failed to open panel "${id}".`;
+    // Wait a moment for the page to start loading
+    await new Promise((r) => setTimeout(r, 2000));
+    return `Opened panel "${id}" at ${url}. You can now use scan_panel, grab_panel, etc. with panel_id "${id}".`;
+  });
+
+  // Open a panel in the background — registers + creates view but does NOT show it
+  yoAgent.setBackgroundOpener(async (url, panelId) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
+    const id = panelId || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+    if (!panelManager.hasPanel(id)) {
+      panelManager.addPanel(id, url);
+    }
+    const view = panelManager.getOrCreateView(id, mainWindow);
+    if (!view) return `Failed to create background panel "${id}".`;
+    // Don't call switchTo — the view loads but stays hidden
+    await new Promise((r) => setTimeout(r, 2000));
+    return `Background panel "${id}" loaded at ${url}. You can use scan_panel, grab_panel, click_element, type_text with panel_id "${id}". It is NOT visible to the user.`;
+  });
+
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
   yoAgent.setMaxMessages(yoMaxMessages);

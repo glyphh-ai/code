@@ -29,6 +29,8 @@ export class SkillRunnerAgent extends BaseSubAgent {
   private panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>) | null = null;
   private panelLister: (() => string) | null = null;
   private panelScanner: ((panelId: string) => Promise<string | null>) | null = null;
+  private panelOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
+  private backgroundOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
 
   // Research callbacks
   private noteStore: NoteStore | null = null;
@@ -63,6 +65,8 @@ export class SkillRunnerAgent extends BaseSubAgent {
   setPanelTyper(fn: typeof this.panelTyper): void { this.panelTyper = fn; }
   setPanelLister(fn: typeof this.panelLister): void { this.panelLister = fn; }
   setPanelScanner(fn: typeof this.panelScanner): void { this.panelScanner = fn; }
+  setPanelOpener(fn: typeof this.panelOpener): void { this.panelOpener = fn; }
+  setBackgroundOpener(fn: typeof this.backgroundOpener): void { this.backgroundOpener = fn; }
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
   setSkillCallbacks(cbs: typeof this.skillCallbacks): void { this.skillCallbacks = cbs; }
@@ -103,6 +107,8 @@ RULES:
       { name: "click_element", description: "Click an element by text or selector.", input_schema: { type: "object", properties: { panel_id: { type: "string", description: "Panel ID" }, text: { type: "string", description: "Visible text to click" }, selector: { type: "string", description: "CSS selector fallback" } }, required: ["panel_id"] } },
       { name: "navigate_panel", description: "Navigate a panel to a URL.", input_schema: { type: "object", properties: { panel_id: { type: "string", description: "Panel ID" }, url: { type: "string", description: "URL" } }, required: ["panel_id", "url"] } },
       { name: "type_text", description: "Type text into an input. Use submit=true to press Enter.", input_schema: { type: "object", properties: { panel_id: { type: "string", description: "Panel ID" }, text: { type: "string", description: "Text to type" }, label: { type: "string" }, placeholder: { type: "string" }, selector: { type: "string" }, clear: { type: "boolean" }, submit: { type: "boolean", description: "Press Enter after typing" } }, required: ["panel_id", "text"] } },
+      { name: "open_panel", description: "Open a URL in a visible workspace panel.", input_schema: { type: "object", properties: { url: { type: "string", description: "URL to open" }, panel_id: { type: "string", description: "Optional panel ID" } }, required: ["url"] } },
+      { name: "open_background", description: "Open a URL in a hidden background panel — interactable but not shown.", input_schema: { type: "object", properties: { url: { type: "string", description: "URL to open" }, panel_id: { type: "string", description: "Optional panel ID" } }, required: ["url"] } },
       // Research
       { name: "search_notes", description: "Search saved notes.", input_schema: { type: "object", properties: { query: { type: "string", description: "Search query" }, limit: { type: "number" } }, required: ["query"] } },
       { name: "write_note", description: "Save a note.", input_schema: { type: "object", properties: { title: { type: "string" }, content: { type: "string" } }, required: ["title", "content"] } },
@@ -137,6 +143,8 @@ RULES:
         }
         case "navigate_panel": return this.panelNavigator ? this.panelNavigator(input.panel_id as string, input.url as string) : "Not available.";
         case "type_text": return this.panelTyper ? this.panelTyper(input.panel_id as string, input.text as string, { label: input.label as string | undefined, placeholder: input.placeholder as string | undefined, selector: input.selector as string | undefined, clear: input.clear as boolean | undefined, submit: input.submit as boolean | undefined }) : "Not available.";
+        case "open_panel": return this.panelOpener ? this.panelOpener(input.url as string, input.panel_id as string | undefined) : "Not available.";
+        case "open_background": return this.backgroundOpener ? this.backgroundOpener(input.url as string, input.panel_id as string | undefined) : "Not available.";
 
         // Research
         case "search_notes": return this.execSearchNotes(input);
