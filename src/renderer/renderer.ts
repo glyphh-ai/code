@@ -235,6 +235,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     if (isYoPanelOpen()) {
       yoPanelInput.focus();
+      yoPanelInput.select();
     } else {
       window.yo.yoPanelOpen("");
       openYoPanel("");
@@ -579,7 +580,7 @@ async function openYoPanel(query: string) {
   yoPanelInput.value = "";
   autoGrowYoInput();
   // Focus after slide animation
-  setTimeout(() => yoPanelInput.focus(), 300);
+  setTimeout(() => { yoPanelInput.focus(); yoPanelInput.select(); }, 220);
 }
 
 function closeYoPanel() {

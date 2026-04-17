@@ -405,6 +405,22 @@
             </label>
           </div>
 
+          <h3 class="settings-subheading">Browser</h3>
+          <div class="settings-form">
+            <label class="settings-label">Default Homepage</label>
+            <div class="settings-inline">
+              <select id="settings-browser-home" class="settings-input settings-input-md">
+                <option value="claude">Claude</option>
+                <option value="chatgpt">ChatGPT</option>
+                <option value="gemini">Gemini</option>
+                <option value="custom">Custom URL</option>
+              </select>
+            </div>
+            <div id="browser-home-custom-row" class="settings-inline hidden" style="margin-top:6px">
+              <input id="settings-browser-home-url" type="text" class="settings-input" placeholder="https://..." spellcheck="false" />
+            </div>
+          </div>
+
           <h3 class="settings-subheading">.yo Agent</h3>
           <div class="settings-form">
             <label class="settings-label">Context Window</label>

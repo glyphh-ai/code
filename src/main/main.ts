@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session as electronSession, shell, webContents } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
@@ -509,14 +509,6 @@ async function boot() {
   terminalManager = new TerminalManager();
   terminalManager.init();
 
-  // Register dialog preload on the shared partition so JS dialogs
-  // (alert/confirm/prompt) are overridden before page scripts run.
-  electronSession.fromPartition("persist:yo").registerPreloadScript({
-    id: "dialog-fix",
-    type: "frame",
-    filePath: path.join(__dirname, "dialog-preload.js"),
-  });
-
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
 
@@ -530,6 +522,8 @@ async function boot() {
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
+      // Track URL changes in browser tabs for persistence
+      if (id.startsWith("browse-")) trackBrowserUrl(id, wc);
     }
   });
 
@@ -992,6 +986,25 @@ async function boot() {
   // Restore panels from last view (or default to claude)
   function restorePanels() {
     const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
+
+    // Re-register any browse-* panels from the saved view so they exist for restore
+    const savedUrls = getPreference<Record<string, string>>("browserTabUrls", {});
+    const allPanelIds: string[] = [];
+    if (lastView) {
+      if (lastView.grid?.cells) allPanelIds.push(...lastView.grid.cells.map(c => c.panelId));
+      if (lastView.panels) allPanelIds.push(...lastView.panels);
+      if (lastView.rows) lastView.rows.forEach(row => allPanelIds.push(...row));
+      if (lastView.id) allPanelIds.push(lastView.id);
+    }
+    for (const id of allPanelIds) {
+      if (id.startsWith("browse-") && !panelManager.hasPanel(id)) {
+        const num = parseInt(id.split("-")[1], 10);
+        if (num > tabBrowserCounter) tabBrowserCounter = num;
+        const url = savedUrls[id] || resolveBrowserHome();
+        panelManager.addPanel(id, browserHtmlUrl(url), undefined, undefined, true);
+      }
+    }
+
     if (lastView && mainWindow) {
       if (lastView.type === "grid-full" && lastView.grid) {
         layoutManager.applyGridLayout(lastView.grid, mainWindow);
@@ -1734,6 +1747,12 @@ async function boot() {
     if (idx < 0) return;
     openTabs.splice(idx, 1);
     panelManager.closePanel(id, mainWindow);
+    // Clean up saved browser URL
+    if (id.startsWith("browse-")) {
+      const saved = getPreference<Record<string, string>>("browserTabUrls", {});
+      delete saved[id];
+      setPreference("browserTabUrls", saved);
+    }
     // Switch to adjacent tab if closing the active one
     if (panelManager.activePanelId === id || panelManager.activePanelId === null) {
       const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
@@ -1745,12 +1764,48 @@ async function boot() {
     sendTabState();
   });
 
+  // Homepage URL map for the browser panel
+  const BROWSER_HOMES: Record<string, string> = {
+    claude: "https://claude.ai",
+    chatgpt: "https://chatgpt.com",
+    gemini: "https://gemini.google.com",
+  };
+
+  function resolveBrowserHome(): string {
+    const pref = getPreference<string>("browserHomepage", "claude");
+    if (pref === "custom") return getPreference<string>("browserHomepageUrl", "");
+    return BROWSER_HOMES[pref] || BROWSER_HOMES.claude;
+  }
+
+  function browserHtmlUrl(initialUrl?: string): string {
+    const base = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
+    if (initialUrl) return `${base}?url=${encodeURIComponent(initialUrl)}`;
+    return base;
+  }
+
+  // Track webview URLs inside browser panels for state persistence
+  function trackBrowserUrl(panelId: string, wc: Electron.WebContents): void {
+    (wc as any).on("did-attach-webview", (_event: unknown, childWc: Electron.WebContents) => {
+      const saveUrl = (url: string) => {
+        if (url && url !== "about:blank") {
+          const saved = getPreference<Record<string, string>>("browserTabUrls", {});
+          saved[panelId] = url;
+          setPreference("browserTabUrls", saved);
+        }
+      };
+      childWc.on("did-navigate", (_e: unknown, url: string) => saveUrl(url));
+      childWc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
+        if (isMainFrame) saveUrl(url);
+      });
+    });
+  }
+
   ipcMain.on("tab-new", () => {
     if (!mainWindow) return;
     tabBrowserCounter++;
     const id = `browse-${tabBrowserCounter}`;
-    const browserHtmlPath = `file://${path.join(__dirname, "..", "renderer", "browser.html")}`;
-    panelManager.addPanel(id, browserHtmlPath, undefined, undefined, true);
+    const homeUrl = resolveBrowserHome();
+    panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
     panelManager.switchTo(id, mainWindow);
     ensureTab(id);
     sendSplitState();
@@ -1825,6 +1880,67 @@ async function boot() {
 }
 
 app.whenReady().then(boot);
+
+// Handle HTTP Basic Auth prompts (401 WWW-Authenticate) from any webContents
+app.on("login", (event, _wc, _details, authInfo, callback) => {
+  event.preventDefault();
+  const authWin = new BrowserWindow({
+    width: 360, height: 260,
+    parent: mainWindow || undefined,
+    modal: true,
+    show: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    titleBarStyle: "hidden",
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  });
+  const host = authInfo.host || "This site";
+  const realm = authInfo.realm ? ` (${authInfo.realm})` : "";
+  const html = `data:text/html,${encodeURIComponent(`<!DOCTYPE html><html><head><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#1a1a1a;color:#e0e0e0;font-family:-apple-system,system-ui,sans-serif;padding:24px;display:flex;flex-direction:column;gap:12px}
+    h3{font-size:14px;font-weight:600;color:#fff}
+    p{font-size:12px;color:#888}
+    input{width:100%;padding:8px 10px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;outline:none}
+    input:focus{border-color:#25C75E}
+    .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+    button{padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer}
+    .cancel{background:#333;color:#ccc}
+    .login{background:#25C75E;color:#000;font-weight:600}
+  </style></head><body>
+    <h3>Authentication Required</h3>
+    <p>${host}${realm} requires credentials.</p>
+    <input id="u" type="text" placeholder="Username" autofocus />
+    <input id="p" type="password" placeholder="Password" />
+    <div class="btns">
+      <button class="cancel" onclick="window.close()">Cancel</button>
+      <button class="login" id="go">Log In</button>
+    </div>
+    <script>
+      document.getElementById('go').onclick=()=>{
+        document.title='AUTH:'+encodeURIComponent(document.getElementById('u').value)+'|'+encodeURIComponent(document.getElementById('p').value);
+      };
+      document.getElementById('p').onkeydown=(e)=>{if(e.key==='Enter')document.getElementById('go').click()};
+      document.getElementById('u').onkeydown=(e)=>{if(e.key==='Enter')document.getElementById('p').focus()};
+    </script>
+  </body></html>`)}`;
+  authWin.loadURL(html);
+  authWin.once("ready-to-show", () => authWin.show());
+  let answered = false;
+  authWin.webContents.on("page-title-updated", (_e, title) => {
+    if (!title.startsWith("AUTH:")) return;
+    answered = true;
+    const parts = title.slice(5).split("|", 2);
+    const username = decodeURIComponent(parts[0]);
+    const password = decodeURIComponent(parts[1] || "");
+    callback(username, password);
+    authWin.close();
+  });
+  authWin.on("closed", () => {
+    if (!answered) callback(); // cancel
+  });
+});
 
 app.on("window-all-closed", () => {
   terminalManager?.killAll();

@@ -1779,6 +1779,11 @@ select.settings-input {
   flex-shrink: 0;
 }
 
+.settings-input-md {
+  width: 200px;
+  flex-shrink: 0;
+}
+
 .settings-hint {
   color: #999;
   font-size: 12px;
@@ -2577,20 +2582,23 @@ select.settings-input {
   background: #25C75E;
   color: #000;
   border: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  font-size: 16px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 18px;
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
-  margin-bottom: 4px;
+  margin-bottom: 7px;
   transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 #yo-panel-send:hover { opacity: 0.8; }
 #yo-panel-send.yo-stop {
   background: #ff5f57;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* ── Wassup admin modal ─────────────────────────────────── */

@@ -765,6 +765,9 @@ const settingsStatus = document.getElementById("settings-status")!;
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
+const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
+const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
+const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
 
@@ -797,6 +800,22 @@ function initSettings() {
       if (tabBar) tabBar.style.display = toggleShowTabs.checked ? "flex" : "none";
       if (tabNewBtn) tabNewBtn.style.display = toggleShowTabs.checked ? "" : "none";
     });
+  });
+
+  // Browser homepage
+  settingsBrowserHome.addEventListener("change", () => {
+    const val = settingsBrowserHome.value;
+    browserHomeCustomRow.classList.toggle("hidden", val !== "custom");
+    if (val !== "custom") {
+      window.yo.setPreference("browserHomepage", val);
+    }
+  });
+  settingsBrowserHomeUrl.addEventListener("change", () => {
+    const url = settingsBrowserHomeUrl.value.trim();
+    if (url) {
+      window.yo.setPreference("browserHomepage", "custom");
+      window.yo.setPreference("browserHomepageUrl", url);
+    }
   });
 
   // Relaunch button
@@ -931,6 +950,14 @@ async function loadSettings() {
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
+
+  // Browser homepage
+  const homePref = await window.yo.getPreference("browserHomepage", "claude") as string;
+  settingsBrowserHome.value = homePref === "custom" ? "custom" : homePref;
+  browserHomeCustomRow.classList.toggle("hidden", homePref !== "custom");
+  if (homePref === "custom") {
+    settingsBrowserHomeUrl.value = await window.yo.getPreference("browserHomepageUrl", "") as string;
+  }
 }
 
 async function saveSettings() {

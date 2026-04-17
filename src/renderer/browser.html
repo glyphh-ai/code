@@ -177,18 +177,28 @@
     const empty    = document.getElementById("empty-state");
 
     let ready = false;
+    let pendingUrl = null;
 
-    // Wait for webview to be fully attached before allowing navigation
+    // Check for initial URL from query parameter (?url=...)
+    const params = new URLSearchParams(location.search);
+    const initialUrl = params.get("url");
+
+    // If we have an initial URL, set src immediately — don't wait for dom-ready
+    // (about:blank dom-ready can fire before the listener is attached)
+    if (initialUrl) {
+      webview.src = initialUrl;
+      urlBar.value = initialUrl;
+      empty.classList.add("hidden");
+    }
+
+    // Mark ready once webview is attached; handle any user-typed pending URL
     webview.addEventListener("dom-ready", () => {
       ready = true;
-      // If user typed a URL before dom-ready, navigate now
       if (pendingUrl) {
         doNavigate(pendingUrl);
         pendingUrl = null;
       }
     });
-
-    let pendingUrl = null;
 
     function normalizeUrl(input) {
       input = input.trim();

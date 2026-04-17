@@ -77,7 +77,32 @@ export class PanelManager {
     PanelManager.setupPermissions();
   }
 
-  /** Script injected into panels to fix JS dialogs that don't render in BrowserView */
+  /**
+   * Attach a CDP (Chrome DevTools Protocol) handler to auto-dismiss JS dialogs.
+   * This intercepts alert/confirm/prompt at the Chromium IPC level — before the
+   * renderer process blocks — so pages with inline dialogs can still load.
+   */
+  static attachDialogHandler(wc: WebContents): void {
+    try {
+      wc.debugger.attach("1.3");
+    } catch {
+      return; // already attached or destroyed
+    }
+    wc.debugger.sendCommand("Page.enable").catch(() => {});
+    wc.debugger.on("message", (_event, method, params) => {
+      if (method === "Page.javascriptDialogOpening") {
+        const accept = params.type !== "beforeunload"; // accept alert/confirm/prompt, dismiss beforeunload
+        wc.debugger.sendCommand("Page.handleJavaScriptDialog", {
+          accept,
+          promptText: params.defaultPrompt || "",
+        }).catch(() => {});
+      }
+    });
+    wc.on("destroyed", () => {
+      try { wc.debugger.detach(); } catch { /* already detached */ }
+    });
+  }
+
   /** JS injected into forceWeb panels to suppress desktop-app redirects */
   private static readonly FORCE_WEB_JS = `
     (function() {
@@ -338,10 +363,6 @@ export class PanelManager {
         contextIsolation: true,
         nodeIntegration: false,
         partition: isLocal ? undefined : "persist:yo",
-        // Prevent JS dialogs (alert/confirm/prompt) from blocking page load.
-        // The session preload (dialog-preload) overrides them with sensible
-        // return values; disableDialogs is the Chromium-level fallback.
-        ...(!isLocal ? { disableDialogs: true } : {}),
         ...(config.preload ? { preload: config.preload } : {}),
         ...(config.webviewTag ? { webviewTag: true } : {}),
       },
@@ -355,6 +376,9 @@ export class PanelManager {
           .replace(/\S+-client\/\S+\s*/g, "")  // strip app name (yo-client/1.0.0)
           .replace(/\s+/g, " ").trim()
       );
+      // Auto-dismiss JS dialogs (alert/confirm/prompt) via Chrome DevTools Protocol.
+      // This intercepts at the Chromium IPC level, before the renderer blocks.
+      PanelManager.attachDialogHandler(view.webContents);
     }
 
     // Block native app protocol redirects (slack://, zoommtg://, etc.)
@@ -526,26 +550,10 @@ export class PanelManager {
       }
     });
 
-    // Disable JS dialogs in <webview> guests before they load (e.g., browser panel)
-    (view.webContents as any).on("will-attach-webview", (_event: unknown, webPrefs: Record<string, unknown>) => {
-      webPrefs.disableDialogs = true;
-    });
-
     // Forward keyboard shortcuts from webviews nested inside this panel (e.g., browser panel)
     view.webContents.on("did-attach-webview" as any, (_event: unknown, childWc: WebContents) => {
-      // Override JS dialogs with sensible defaults once guest page loads
-      childWc.on("dom-ready", () => {
-        if (childWc.isDestroyed()) return;
-        childWc.executeJavaScript(`
-          (function() {
-            if (window.__yoDialogFixed) return;
-            window.__yoDialogFixed = true;
-            window.alert = function(msg) { console.log('[yo-alert]', msg); };
-            window.confirm = function(msg) { console.log('[yo-confirm]', msg); return true; };
-            window.prompt = function(msg, def) { console.log('[yo-prompt]', msg); return def || ''; };
-          })();
-        `).catch(() => {});
-      });
+      // Auto-dismiss JS dialogs in guest webviews too
+      PanelManager.attachDialogHandler(childWc);
       childWc.on("before-input-event", (e, input) => {
         if (childWc.isDestroyed() || parent.isDestroyed()) return;
         if (!input.meta && !input.control) return;
