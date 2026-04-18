@@ -1118,12 +1118,93 @@ async function boot() {
     if (!app) return `No app config for panel "${panelId}".`;
     const mapping = app.commands[command];
     if (!mapping) return `No command "${command}" mapped for ${app.name}. Available: ${Object.keys(app.commands).join(", ") || "none"}`;
+
+    // Try the mapped selector first
     try {
-      return await executeCommand(wc, mapping, value);
-    } catch (err: unknown) {
-      return `Command "${command}" failed: ${err instanceof Error ? err.message : String(err)}`;
+      const result = await executeCommand(wc, mapping, value);
+      // Detect selector failures from dom-bridge primitives
+      if (typeof result === "string" && (result.startsWith("Element not found:") || result.startsWith("[Element not found:"))) {
+        // Self-heal: scan the DOM and try to find a matching element
+        const healed = await selfHealCommand(wc, app.id, command, mapping, value);
+        if (healed) return healed;
+      }
+      return result;
+    } catch {
+      // executeCommand threw — try self-healing
+      const healed = await selfHealCommand(wc, app.id, command, mapping, value);
+      if (healed) return healed;
+      return `Command "${command}" failed and self-heal could not find a replacement.`;
     }
   });
+
+  /** Try to find a replacement selector by scanning the DOM and matching by description/action. */
+  async function selfHealCommand(
+    wc: WebContents,
+    appId: string,
+    command: string,
+    mapping: import("./app-connector").CommandMapping,
+    value?: string,
+  ): Promise<string | null> {
+    const scan = await scanPanel(wc);
+    if (!scan) return null;
+
+    const desc = (mapping.description || command).toLowerCase();
+    let newSelector: string | null = null;
+
+    if (mapping.action === "click") {
+      // Match buttons by description text
+      for (const btn of scan.buttons) {
+        const btnText = (btn.text || "").toLowerCase();
+        const btnAria = (btn.ariaLabel || "").toLowerCase();
+        if (btnText.includes(desc) || desc.includes(btnText) || btnAria.includes(desc) || desc.includes(btnAria)) {
+          newSelector = btn.selector;
+          break;
+        }
+      }
+      // Also check nav items
+      if (!newSelector) {
+        for (const nav of scan.nav) {
+          if (nav.text.toLowerCase().includes(desc) || desc.includes(nav.text.toLowerCase())) {
+            newSelector = nav.selector;
+            break;
+          }
+        }
+      }
+    } else if (mapping.action === "setValue") {
+      // Match inputs by description/placeholder/label
+      for (const inp of scan.inputs) {
+        const ph = (inp.placeholder || "").toLowerCase();
+        const lbl = (inp.label || "").toLowerCase();
+        const tp = (inp.type || "").toLowerCase();
+        if (ph.includes(desc) || desc.includes(ph) || lbl.includes(desc) || desc.includes(lbl) || desc.includes(tp)) {
+          newSelector = inp.selector;
+          break;
+        }
+      }
+    } else if (mapping.action === "extractText" || mapping.action === "extractHTML") {
+      // Match content areas by role
+      for (const c of scan.content) {
+        if (c.role.toLowerCase().includes(desc) || desc.includes(c.role.toLowerCase())) {
+          newSelector = c.selector;
+          break;
+        }
+      }
+    }
+
+    if (!newSelector) return null;
+
+    // Update the mapping with the healed selector
+    const healedMapping = { ...mapping, selector: newSelector };
+    appConnector.setCommand(appId, command, healedMapping);
+    console.log(`[self-heal] ${appId}.${command}: ${mapping.selector} → ${newSelector}`);
+
+    // Retry with the new selector
+    try {
+      return await executeCommand(wc, healedMapping, value);
+    } catch {
+      return null;
+    }
+  }
 
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
@@ -1477,8 +1558,15 @@ async function boot() {
     setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
   }
 
-  // ── Hot config sync ───────────────────────────────────────
+  // ── Hot config sync (blocking fetch on boot, then periodic) ─
   configSync = new ConfigSync();
+  await configSync.fetchAll((msg) => {
+    mainWindow?.webContents.send("splash-status", msg);
+  });
+  // Apply fetched configs immediately
+  reloadRemotePatterns();
+  appConnector.mergeRemoteApps();
+  // Start periodic checks for future updates
   configSync.start(() => {
     reloadRemotePatterns();
     appConnector.mergeRemoteApps();

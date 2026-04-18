@@ -1517,6 +1517,16 @@ function dismissSplash(): void {
   }
 }
 
+// Config sync status during boot
+(window as any).yo.onSplashStatus?.((msg: string) => {
+  const el = document.getElementById("splash-status");
+  if (el) {
+    el.textContent = msg;
+    if (msg === "ready") el.classList.add("done");
+    else el.classList.remove("done");
+  }
+});
+
 // Embedder status updates drive the splash status text (cosmetic only, doesn't gate splash)
 (window as any).yo.onEmbedderStatus?.((status: { state: string; progress?: number; message?: string }) => {
   const el = document.getElementById("splash-status");

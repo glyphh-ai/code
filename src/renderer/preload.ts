@@ -96,6 +96,9 @@ contextBridge.exposeInMainWorld("yo", {
   onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => {
     ipcRenderer.on("embedder-status", (_event, status) => callback(status));
   },
+  onSplashStatus: (callback: (msg: string) => void) => {
+    ipcRenderer.on("splash-status", (_event, msg) => callback(msg));
+  },
   onSplitState: (callback: (info: {
     panelIds: string[];
     cols: number;

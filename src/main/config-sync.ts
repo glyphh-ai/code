@@ -33,6 +33,34 @@ export class ConfigSync {
     fs.mkdirSync(CONFIG_CACHE_DIR, { recursive: true });
   }
 
+  /** Blocking fetch of all configs. Call during boot before splash dismisses. */
+  async fetchAll(onProgress?: (msg: string) => void): Promise<boolean> {
+    try {
+      onProgress?.("checking for updates...");
+      const res = await fetch(`${SERVER_BASE}/api/config/manifest`);
+      if (!res.ok) return false;
+      const remote: ConfigManifest = await res.json() as ConfigManifest;
+
+      let local: ConfigManifest | null = null;
+      try { local = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf-8")); } catch { /* first run */ }
+
+      for (const key of ["firewall", "apps", "guardrails"] as const) {
+        const localVersion = local?.[key]?.version;
+        if (localVersion !== remote[key].version) {
+          onProgress?.(`updating ${key}...`);
+          await this.download(key);
+        }
+      }
+
+      fs.writeFileSync(MANIFEST_PATH, JSON.stringify(remote, null, 2), "utf-8");
+      onProgress?.("ready");
+      return true;
+    } catch (err: unknown) {
+      console.error("[config-sync] fetchAll failed:", err instanceof Error ? err.message : err);
+      return false;
+    }
+  }
+
   /** Start periodic checks. Also checks immediately. */
   start(onUpdate?: () => void): void {
     this.onUpdate = onUpdate || null;
