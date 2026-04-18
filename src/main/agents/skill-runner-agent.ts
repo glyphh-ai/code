@@ -10,13 +10,24 @@
  * inputs, run commands, and compose results.
  */
 
-import fs from "fs";
-import path from "path";
 import os from "os";
+import { exec } from "child_process";
 import { BaseSubAgent } from "./base-agent";
 import type { ToolDef } from "./types";
 import type { NoteStore } from "../note-store";
 import type { AppConnector } from "../app-connector";
+import {
+  readFileContents,
+  searchFileContents,
+  listFilesAt,
+  writeFileContents,
+  editFileContents,
+  moveFile,
+  copyFile,
+  deleteFile,
+  createDirectory,
+  resolvePath,
+} from "./file-utils";
 
 export class SkillRunnerAgent extends BaseSubAgent {
   // Skill prompt — set dynamically before each execute()
@@ -53,8 +64,16 @@ export class SkillRunnerAgent extends BaseSubAgent {
   private injector: ((text: string) => Promise<boolean>) | null = null;
   private commandRunner: ((cmd: string) => Promise<string>) | null = null;
 
+  // New tool callbacks
+  private panelScreenshotter: ((panelId: string) => Promise<string | null>) | null = null;
+  private panelRefresher: ((panelId?: string) => Promise<string>) | null = null;
+  private tabManager: { list: () => Array<{ id: string; title: string; url?: string }>; switch: (id: string) => void; close: (id: string) => void; create: () => string } | null = null;
+  private clipboardRead: (() => string) | null = null;
+  private clipboardWrite: ((text: string) => void) | null = null;
+  private reminderCallback: ((message: string, delayMs: number) => void) | null = null;
+
   // Allow more iterations since skills can be complex workflows
-  protected maxIterations = 10;
+  protected maxIterations = 15;
 
   // ── Setters ───────────────────────────────────────────
 
@@ -73,6 +92,11 @@ export class SkillRunnerAgent extends BaseSubAgent {
   setLayoutCallbacks(cbs: typeof this.layoutCallbacks): void { this.layoutCallbacks = cbs; }
   setInjector(fn: typeof this.injector): void { this.injector = fn; }
   setCommandRunner(fn: typeof this.commandRunner): void { this.commandRunner = fn; }
+  setPanelScreenshotter(fn: typeof this.panelScreenshotter): void { this.panelScreenshotter = fn; }
+  setPanelRefresher(fn: typeof this.panelRefresher): void { this.panelRefresher = fn; }
+  setTabManager(tm: typeof this.tabManager): void { this.tabManager = tm; }
+  setClipboard(read: () => string, write: (text: string) => void): void { this.clipboardRead = read; this.clipboardWrite = write; }
+  setReminderCallback(fn: typeof this.reminderCallback): void { this.reminderCallback = fn; }
 
   // ── System prompt (dynamic from skill) ────────────────
 
@@ -83,10 +107,13 @@ SKILL INSTRUCTIONS:
 ${this.skillPrompt || "No skill prompt provided — act as a general assistant."}
 
 AVAILABLE CAPABILITIES:
-- Navigate apps: list_panels, grab_panel, click_element, navigate_panel, type_text
+- Navigate apps: list_panels, scan_panel, grab_panel, click_element, navigate_panel, type_text, open_panel, open_background, screenshot_panel, refresh_panel, manage_tabs
 - Search/save: search_notes, write_note, search_files, read_file, list_files
+- File ops: write_file, edit_file, move_file, copy_file, delete_file, create_directory
+- Shell: run_shell (sandboxed, with timeout)
 - Manage: manage_skill, manage_layout, manage_app
-- Output: inject_text (paste into user's input field), run_command (dip/drip)
+- Clipboard: clipboard_read, clipboard_write
+- Output: inject_text (paste into user's input field), run_command (dip/drip), set_reminder
 
 RULES:
 - Execute the skill's instructions completely
@@ -119,9 +146,26 @@ RULES:
       { name: "manage_skill", description: "CRUD for skills.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["create", "list", "read", "delete"] }, name: { type: "string" }, prompt: { type: "string" } }, required: ["action"] } },
       { name: "manage_layout", description: "CRUD for layouts.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["save", "list", "delete"] }, name: { type: "string" }, panels: { type: "string" } }, required: ["action"] } },
       { name: "manage_app", description: "CRUD for apps.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["add", "list", "remove"] }, id: { type: "string" }, name: { type: "string" }, url: { type: "string" } }, required: ["action"] } },
+      // New navigation tools
+      { name: "screenshot_panel", description: "Capture a panel as a base64 PNG for visual analysis.", input_schema: { type: "object", properties: { panel_id: { type: "string" } }, required: ["panel_id"] } },
+      { name: "refresh_panel", description: "Reload a panel's page.", input_schema: { type: "object", properties: { panel_id: { type: "string" } } } },
+      { name: "manage_tabs", description: "Manage workspace tabs: list, switch, close, new.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "switch", "close", "new"] }, tab_id: { type: "string" } }, required: ["action"] } },
+      // File write tools
+      { name: "write_file", description: "Create or overwrite a file.", input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } },
+      { name: "edit_file", description: "Find and replace text in a file.", input_schema: { type: "object", properties: { path: { type: "string" }, search: { type: "string" }, replace: { type: "string" }, all: { type: "boolean" } }, required: ["path", "search", "replace"] } },
+      { name: "move_file", description: "Move or rename a file.", input_schema: { type: "object", properties: { source: { type: "string" }, destination: { type: "string" } }, required: ["source", "destination"] } },
+      { name: "copy_file", description: "Copy a file.", input_schema: { type: "object", properties: { source: { type: "string" }, destination: { type: "string" } }, required: ["source", "destination"] } },
+      { name: "delete_file", description: "Delete a file or empty directory.", input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+      { name: "create_directory", description: "Create a directory.", input_schema: { type: "object", properties: { path: { type: "string" }, recursive: { type: "boolean" } }, required: ["path"] } },
+      // Shell
+      { name: "run_shell", description: "Execute a shell command.", input_schema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, timeout: { type: "number" } }, required: ["command"] } },
+      // Clipboard
+      { name: "clipboard_read", description: "Read text from the system clipboard.", input_schema: { type: "object", properties: {} } },
+      { name: "clipboard_write", description: "Write text to the system clipboard.", input_schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
       // Output
       { name: "inject_text", description: "Paste text into the user's input field.", input_schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
       { name: "run_command", description: "Run a .dip or .drip command.", input_schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } },
+      { name: "set_reminder", description: "Set a timed reminder.", input_schema: { type: "object", properties: { message: { type: "string" }, delay_seconds: { type: "number" } }, required: ["message", "delay_seconds"] } },
     ];
   }
 
@@ -149,9 +193,33 @@ RULES:
         // Research
         case "search_notes": return this.execSearchNotes(input);
         case "write_note": return this.execWriteNote(input);
-        case "search_files": return this.execSearchFiles(input);
-        case "read_file": return this.execReadFile(input);
-        case "list_files": return this.execListFiles(input);
+        case "search_files": return searchFileContents(input.pattern as string, { directory: input.directory as string, filePattern: input.file_pattern as string });
+        case "read_file": return readFileContents(input.path as string, { maxLines: input.max_lines as number, offset: input.offset as number });
+        case "list_files": return listFilesAt(input.path as string || "~", { pattern: input.pattern as string, recursive: input.recursive as boolean });
+
+        // New navigation tools
+        case "screenshot_panel": return this.panelScreenshotter ? (await this.panelScreenshotter(input.panel_id as string) || "No screenshot.") : "Not available.";
+        case "refresh_panel": return this.panelRefresher ? this.panelRefresher(input.panel_id as string | undefined) : "Not available.";
+        case "manage_tabs": return this.execManageTabs(input);
+
+        // File write tools
+        case "write_file": return writeFileContents(input.path as string, input.content as string);
+        case "edit_file": return editFileContents(input.path as string, input.search as string, input.replace as string, input.all as boolean);
+        case "move_file": return moveFile(input.source as string, input.destination as string);
+        case "copy_file": return copyFile(input.source as string, input.destination as string);
+        case "delete_file": return deleteFile(input.path as string);
+        case "create_directory": return createDirectory(input.path as string, input.recursive as boolean ?? true);
+
+        // Shell
+        case "run_shell": return this.execRunShell(input);
+
+        // Clipboard
+        case "clipboard_read": return this.clipboardRead ? (this.clipboardRead() || "(clipboard is empty)") : "Not available.";
+        case "clipboard_write": {
+          if (!this.clipboardWrite) return "Not available.";
+          this.clipboardWrite(input.text as string);
+          return "Text copied to clipboard.";
+        }
 
         // Management
         case "manage_skill": return this.execManageSkill(input);
@@ -169,6 +237,14 @@ RULES:
           const first = cmd.split(/\s+/)[0].toLowerCase().replace(/^\./, "");
           if (first !== "dip" && first !== "drip") return `Only dip/drip allowed. Got: ${first}`;
           return this.commandRunner ? this.commandRunner(cmd) : "Not available.";
+        }
+        case "set_reminder": {
+          const msg = input.message as string;
+          const sec = input.delay_seconds as number;
+          if (!msg || !sec || sec < 1 || sec > 86400) return "Invalid reminder params.";
+          if (!this.reminderCallback) return "Not available.";
+          this.reminderCallback(msg, sec * 1000);
+          return `Reminder set: "${msg}" in ${sec}s.`;
         }
 
         default: return `Unknown tool: ${name}`;
@@ -193,101 +269,43 @@ RULES:
     return `Note saved: ${fp}`;
   }
 
-  private execSearchFiles(input: Record<string, unknown>): string {
-    const pattern = input.pattern as string;
-    let dir = (input.directory as string) || "~";
-    const filePattern = (input.file_pattern as string) || "";
-    dir = dir.replace(/^~/, os.homedir());
-    if (!fs.existsSync(dir)) return `Directory not found: ${dir}`;
+  // ── New tool implementations ─────────────────────────
 
-    const results: string[] = [];
-    const maxResults = 15;
-    const isHome = dir === os.homedir();
-    const maxDepth = isHome ? 2 : 4;
-    const deadline = Date.now() + 5000;
-    const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv", "Library", ".Trash", "Pictures", "Movies", "Music"]);
-    const textExts = new Set([".txt", ".md", ".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini", ".sh", ".zsh", ".html", ".css", ".scss", ".sql", ".rs", ".go", ".java", ".rb", ".php", ".swift", ".kt", ".c", ".cpp", ".h"]);
-
-    const search = (d: string, depth: number) => {
-      if (depth > maxDepth || results.length >= maxResults || Date.now() > deadline) return;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-      for (const entry of entries) {
-        if (results.length >= maxResults || Date.now() > deadline) break;
-        const full = path.join(d, entry.name);
-        if (entry.isDirectory()) {
-          if (!entry.name.startsWith(".") && !skipDirs.has(entry.name)) search(full, depth + 1);
-          continue;
-        }
-        if (!entry.isFile()) continue;
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!textExts.has(ext)) continue;
-        if (filePattern && !entry.name.match(new RegExp(filePattern.replace(/\*/g, ".*")))) continue;
-        try {
-          const content = fs.readFileSync(full, "utf-8").slice(0, 50000);
-          const lines = content.split("\n");
-          const regex = new RegExp(pattern, "gi");
-          for (let i = 0; i < lines.length; i++) {
-            if (regex.test(lines[i])) {
-              results.push(`[${full}:${i + 1}]\n${lines.slice(Math.max(0, i - 1), i + 3).join("\n")}`);
-              if (results.length >= maxResults) break;
-            }
-            regex.lastIndex = 0;
-          }
-        } catch {}
+  private execManageTabs(input: Record<string, unknown>): string {
+    if (!this.tabManager) return "Tab management not available.";
+    const action = input.action as string;
+    switch (action) {
+      case "list": {
+        const tabs = this.tabManager.list();
+        return tabs.length ? tabs.map((t) => `${t.id} — ${t.title}${t.url ? ` (${t.url})` : ""}`).join("\n") : "No tabs open.";
       }
-    };
-    search(dir, 0);
-    return results.length ? results.join("\n\n") : `No files matching "${pattern}" in ${dir}`;
+      case "switch": { this.tabManager.switch(input.tab_id as string); return `Switched to tab: ${input.tab_id}`; }
+      case "close": { this.tabManager.close(input.tab_id as string); return `Closed tab: ${input.tab_id}`; }
+      case "new": { const id = this.tabManager.create(); return `Created new tab: ${id}`; }
+      default: return `Unknown tab action: ${action}`;
+    }
   }
 
-  private execReadFile(input: Record<string, unknown>): string {
-    let filePath = (input.path as string).replace(/^~/, os.homedir());
-    const maxLines = (input.max_lines as number) || 200;
-    if (!fs.existsSync(filePath)) return `File not found: ${filePath}`;
-    try {
-      const stat = fs.statSync(filePath);
-      if (stat.isDirectory()) return `${filePath} is a directory.`;
-      if (stat.size > 1_000_000) return `File too large (${Math.round(stat.size / 1024)}KB).`;
-      const content = fs.readFileSync(filePath, "utf-8");
-      const lines = content.split("\n");
-      if (lines.length > maxLines) return lines.slice(0, maxLines).join("\n") + `\n[truncated at ${maxLines}/${lines.length} lines]`;
-      return content;
-    } catch (err) { return `Error: ${err instanceof Error ? err.message : err}`; }
-  }
+  private async execRunShell(input: Record<string, unknown>): Promise<string> {
+    const command = (input.command as string || "").trim();
+    if (!command) return "No command provided.";
+    const cwd = resolvePath(input.cwd as string || "~");
+    const timeout = Math.min((input.timeout as number) || 30, 120) * 1000;
+    const blocked = [/\brm\s+-rf\s+\/\b/, /\bsudo\b/, /\bmkfs\b/, /\bdd\s+if=/, /\bshutdown\b/, /\breboot\b/];
+    for (const p of blocked) { if (p.test(command)) return `Command blocked: ${command}`; }
+    const interactive = new Set(["vim", "vi", "nano", "less", "more", "top", "htop", "ssh", "python", "node"]);
+    const prog = command.split(/\s+/)[0].replace(/^.*\//, "");
+    if (interactive.has(prog)) return `Interactive command not supported: ${prog}`;
 
-  private execListFiles(input: Record<string, unknown>): string {
-    let dir = (input.path as string) || "~";
-    const pattern = input.pattern as string;
-    const recursive = input.recursive as boolean;
-    dir = dir.replace(/^~/, os.homedir());
-    if (!fs.existsSync(dir)) return `Directory not found: ${dir}`;
-
-    const results: string[] = [];
-    const maxDepth = recursive ? 3 : 0;
-    const deadline = Date.now() + 3000;
-    const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", "Library", ".Trash"]);
-
-    const list = (d: string, depth: number) => {
-      if (depth > maxDepth || results.length >= 50 || Date.now() > deadline) return;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-      for (const entry of entries) {
-        if (results.length >= 50) break;
-        if (entry.name.startsWith(".")) continue;
-        const full = path.join(d, entry.name);
-        const relative = path.relative(dir, full);
-        const isDir = entry.isDirectory();
-        if (pattern && !entry.name.match(new RegExp(pattern.replace(/\*/g, ".*")))) {
-          if (isDir && recursive && !skipDirs.has(entry.name)) list(full, depth + 1);
-          continue;
-        }
-        results.push(`${isDir ? "[dir] " : ""}${relative}`);
-        if (isDir && recursive && !skipDirs.has(entry.name)) list(full, depth + 1);
-      }
-    };
-    list(dir, 0);
-    return results.length ? results.join("\n") : `No files in ${dir}`;
+    return new Promise((resolve) => {
+      exec(command, { cwd, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, HOME: os.homedir() } }, (err, stdout, stderr) => {
+        let result = "";
+        if (stdout) result += stdout.slice(0, 10000);
+        if (stderr) result += (result ? "\n\n[stderr]\n" : "") + stderr.slice(0, 5000);
+        if (err && !stdout && !stderr) result = `Error: ${err.message}`;
+        resolve(result || "(no output)");
+      });
+    });
   }
 
   // ── Management tool implementations ───────────────────

@@ -18,6 +18,14 @@ export class NavigatorAgent extends BaseSubAgent {
   private panelOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
   private backgroundOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
   private commandRunner: ((panelId: string, command: string, value?: string) => Promise<string>) | null = null;
+  private panelScreenshotter: ((panelId: string) => Promise<string | null>) | null = null;
+  private panelRefresher: ((panelId?: string) => Promise<string>) | null = null;
+  private tabManager: {
+    list: () => Array<{ id: string; title: string; url?: string }>;
+    switch: (id: string) => void;
+    close: (id: string) => void;
+    create: () => string;
+  } | null = null;
 
   setPanelGrabber(fn: typeof this.panelGrabber): void { this.panelGrabber = fn; }
   setPanelClicker(fn: typeof this.panelClicker): void { this.panelClicker = fn; }
@@ -28,6 +36,9 @@ export class NavigatorAgent extends BaseSubAgent {
   setPanelOpener(fn: typeof this.panelOpener): void { this.panelOpener = fn; }
   setBackgroundOpener(fn: typeof this.backgroundOpener): void { this.backgroundOpener = fn; }
   setCommandRunner(fn: typeof this.commandRunner): void { this.commandRunner = fn; }
+  setPanelScreenshotter(fn: typeof this.panelScreenshotter): void { this.panelScreenshotter = fn; }
+  setPanelRefresher(fn: typeof this.panelRefresher): void { this.panelRefresher = fn; }
+  setTabManager(tm: typeof this.tabManager): void { this.tabManager = tm; }
 
   get systemPrompt(): string {
     return `You are a navigation specialist. You interact with workspace panels (browser tabs showing apps like Gmail, Claude, GPT, etc).
@@ -175,6 +186,39 @@ RESPONSE:
           required: ["panel_id", "command"],
         },
       },
+      {
+        name: "screenshot_panel",
+        description: "Capture a panel as a base64 PNG image for visual analysis. Returns a data URL string. Use when you need to see the visual layout, charts, images, or verify rendering.",
+        input_schema: {
+          type: "object",
+          properties: {
+            panel_id: { type: "string", description: "Panel ID to screenshot" },
+          },
+          required: ["panel_id"],
+        },
+      },
+      {
+        name: "refresh_panel",
+        description: "Reload a panel's page. Use after editing a local HTML file to see changes.",
+        input_schema: {
+          type: "object",
+          properties: {
+            panel_id: { type: "string", description: "Panel ID to refresh. If omitted, refreshes the active panel." },
+          },
+        },
+      },
+      {
+        name: "manage_tabs",
+        description: "Manage workspace tabs: list all tabs, switch to a tab, close a tab, or create a new empty tab.",
+        input_schema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["list", "switch", "close", "new"], description: "Action to perform" },
+            tab_id: { type: "string", description: "Tab ID (required for switch/close)" },
+          },
+          required: ["action"],
+        },
+      },
     ];
   }
 
@@ -246,6 +290,47 @@ RESPONSE:
         const value = input.value as string | undefined;
         if (!this.commandRunner) return "Command execution not available.";
         return this.commandRunner(panelId, command, value);
+      }
+
+      case "screenshot_panel": {
+        const panelId = input.panel_id as string;
+        if (!this.panelScreenshotter) return "Screenshot not available.";
+        const dataUrl = await this.panelScreenshotter(panelId);
+        return dataUrl || `Could not screenshot panel: ${panelId}`;
+      }
+
+      case "refresh_panel": {
+        if (!this.panelRefresher) return "Refresh not available.";
+        return this.panelRefresher(input.panel_id as string | undefined);
+      }
+
+      case "manage_tabs": {
+        if (!this.tabManager) return "Tab management not available.";
+        const action = input.action as string;
+        switch (action) {
+          case "list": {
+            const tabs = this.tabManager.list();
+            if (tabs.length === 0) return "No tabs open.";
+            return tabs.map((t) => `${t.id} — ${t.title}${t.url ? ` (${t.url})` : ""}`).join("\n");
+          }
+          case "switch": {
+            const id = input.tab_id as string;
+            if (!id) return "Provide tab_id to switch to.";
+            this.tabManager.switch(id);
+            return `Switched to tab: ${id}`;
+          }
+          case "close": {
+            const id = input.tab_id as string;
+            if (!id) return "Provide tab_id to close.";
+            this.tabManager.close(id);
+            return `Closed tab: ${id}`;
+          }
+          case "new": {
+            const id = this.tabManager.create();
+            return `Created new tab: ${id}`;
+          }
+          default: return `Unknown tab action: ${action}`;
+        }
       }
 
       default:

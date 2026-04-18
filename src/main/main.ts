@@ -5,7 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
@@ -1111,7 +1111,7 @@ async function boot() {
     return `Background panel "${id}" loaded at ${url}. You can use scan_panel, grab_panel, click_element, type_text with panel_id "${id}". It is NOT visible to the user.`;
   });
 
-  yoAgent.setCommandRunner(async (panelId, command, value) => {
+  yoAgent.setPanelCommandRunner(async (panelId, command, value) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
     const app = appConnector.get(panelId);
@@ -1139,7 +1139,7 @@ async function boot() {
 
   /** Try to find a replacement selector by scanning the DOM and matching by description/action. */
   async function selfHealCommand(
-    wc: WebContents,
+    wc: Electron.WebContents,
     appId: string,
     command: string,
     mapping: import("./app-connector").CommandMapping,
@@ -1205,6 +1205,39 @@ async function boot() {
       return null;
     }
   }
+
+  // ── New tool wiring ──────────────────────────────────
+
+  // Screenshot panel
+  yoAgent.setPanelScreenshotter(async (panelId) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc || wc.isDestroyed()) return null;
+    try {
+      const image = await wc.capturePage();
+      return image.toDataURL();
+    } catch {
+      return null;
+    }
+  });
+
+  // Refresh panel
+  yoAgent.setPanelRefresher(async (panelId?: string) => {
+    panelManager.refresh(panelId);
+    return panelId ? `Refreshed panel: ${panelId}` : "Refreshed active panel.";
+  });
+
+  // Clipboard
+  yoAgent.setClipboard(
+    () => { try { return clipboard.readText(); } catch { return ""; } },
+    (text: string) => { try { clipboard.writeText(text); } catch {} },
+  );
+
+  // Reminder — sends a message into the yo panel chat
+  yoAgent.setReminderCallback((message: string, delayMs: number) => {
+    setTimeout(() => {
+      mainWindow?.webContents.send("yo-reminder", message);
+    }, delayMs);
+  });
 
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
@@ -1471,6 +1504,42 @@ async function boot() {
     ensureTab(id);
     sendTabState();
     sendUrlUpdate();
+  });
+
+  // Wire tab manager to yo agent (must be after tab system is set up)
+  yoAgent.setTabManager({
+    list: () => {
+      const state = buildTabState();
+      return state.tabs.map((t: { id: string; name: string }) => ({
+        id: t.id,
+        title: t.name,
+      }));
+    },
+    switch: (id: string) => {
+      if (!mainWindow) return;
+      layoutManager.clearSplit();
+      panelManager.switchTo(id, mainWindow);
+      sendSplitState();
+      sendTabState();
+    },
+    close: (id: string) => {
+      if (!mainWindow) return;
+      const idx = openTabs.indexOf(id);
+      if (idx >= 0) openTabs.splice(idx, 1);
+      panelManager.closePanel(id, mainWindow);
+      sendTabState();
+    },
+    create: () => {
+      if (!mainWindow) return "no-window";
+      tabBrowserCounter++;
+      const id = `browse-${tabBrowserCounter}`;
+      const homeUrl = resolveBrowserHome();
+      panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
+      if (mainWindow) panelManager.switchTo(id, mainWindow);
+      openTabs.push(id);
+      sendTabState();
+      return id;
+    },
   });
 
   // Check if onboarding is needed BEFORE restoring panels

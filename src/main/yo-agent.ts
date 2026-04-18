@@ -21,6 +21,7 @@ import { NavigatorAgent } from "./agents/navigator-agent";
 import { ResearcherAgent } from "./agents/researcher-agent";
 import { ManagerAgent } from "./agents/manager-agent";
 import { SkillRunnerAgent } from "./agents/skill-runner-agent";
+import { CodingAgent } from "./agents/coding-agent";
 import { scanForInjection, scanWithLLM } from "./firewall";
 import { webSearch, fetchPage } from "./web-search";
 import { gate, getAgentMode } from "./action-gate";
@@ -44,6 +45,7 @@ DELEGATION:
 - delegate_researcher: for finding information in notes or files. Use when the user asks to find, search, recall, or save notes/files. Notes are primary, files are fallback.
 - delegate_manager: for managing skills (prompt templates), layouts (panel arrangements), or apps (connected panels). Use for create/list/read/delete operations.
 - delegate_skill: run a skill workflow. Skills are reusable agent behaviours — they can navigate apps, search content, type into inputs, and produce output. When the user says /skillname or asks you to apply a skill, use this. Provide the skill name and the user's instruction.
+- delegate_coder: for writing code, building apps, editing files, running shell commands. Use when the user wants to create an app, edit a file, run a command, or do any coding task. The coder can build HTML/JS apps and open them instantly in workspace panels.
 
 DIRECT TOOLS (don't delegate these):
 - web_search: search the web for current information, docs, facts. Fast, no panel needed. Use this instead of opening Google in a panel.
@@ -51,6 +53,10 @@ DIRECT TOOLS (don't delegate these):
 - inject_text: paste content into the input where the user typed .yo
 - run_command: execute .dip or .drip commands
 - save_memory: save something you learned about the user (preferences, patterns, facts). Do this proactively when you notice useful information.
+- clipboard_read: read text from the system clipboard
+- clipboard_write: write text to the system clipboard
+- set_reminder: set a timed reminder that appears to the user after a delay
+- pipe: grab content from one panel, optionally transform it, and push it into another panel — cross-panel data flow in one tool call.
 
 MEMORY:
 You have persistent memory. Relevant memories from past conversations are provided below (if any). Use them to personalise your responses and actions. When you learn something new about the user — preferences, workflows, how they use apps, facts about their work — use save_memory to remember it for next time. Don't save trivial or one-off things.
@@ -175,6 +181,63 @@ const TOOLS = [
       required: ["url"],
     },
   },
+  {
+    name: "delegate_coder",
+    description: "Delegate a coding task to the file/shell specialist. Use for writing code, building apps, editing files, running shell commands (git, npm, tests). The coder can create HTML/JS apps and open them instantly in workspace panels.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        instruction: { type: "string" as const, description: "Clear instruction for the coder, e.g. 'Build a pomodoro timer app' or 'Edit ~/project/index.ts and fix the import'" },
+      },
+      required: ["instruction"],
+    },
+  },
+  {
+    name: "clipboard_read",
+    description: "Read text from the system clipboard.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "clipboard_write",
+    description: "Write text to the system clipboard.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        text: { type: "string" as const, description: "Text to copy to clipboard" },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "set_reminder",
+    description: "Set a timed reminder for the user. The message appears in the yo panel after the delay.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        message: { type: "string" as const, description: "Reminder message" },
+        delay_seconds: { type: "number" as const, description: "Delay in seconds (min 1, max 86400)" },
+      },
+      required: ["message", "delay_seconds"],
+    },
+  },
+  {
+    name: "pipe",
+    description: "Cross-panel data flow. Grab content from one panel, optionally transform it, and push it into another panel. Chains grab → transform → type in one call.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        source_panel: { type: "string" as const, description: "Panel ID to grab content from" },
+        target_panel: { type: "string" as const, description: "Panel ID to push content to" },
+        transform: { type: "string" as const, description: "Optional instruction for transforming content (e.g. 'summarize', 'translate to French', 'extract emails')" },
+        target_selector: { type: "string" as const, description: "Optional CSS selector for target input field" },
+        submit: { type: "boolean" as const, description: "Press Enter after typing (default: false)" },
+      },
+      required: ["source_panel", "target_panel"],
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -205,10 +268,18 @@ export class YoAgent {
   private researcher = new ResearcherAgent();
   private manager = new ManagerAgent();
   private skillRunner = new SkillRunnerAgent();
+  private coder = new CodingAgent();
 
   // Skill engine access (for listing + reading skill prompts)
   private skillList: (() => string[]) | null = null;
   private skillRead: ((name: string) => string | null) | null = null;
+
+  // Direct tool callbacks — new tools
+  private _panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
+  private _panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>) | null = null;
+  private clipboardRead: (() => string) | null = null;
+  private clipboardWrite: ((text: string) => void) | null = null;
+  private reminderCallback: ((message: string, delayMs: number) => void) | null = null;
 
   // ── Setters (forward to sub-agents) ──────────────────
 
@@ -218,6 +289,7 @@ export class YoAgent {
     this.researcher.setLLMConfig(config);
     this.manager.setLLMConfig(config);
     this.skillRunner.setLLMConfig(config);
+    this.coder.setLLMConfig(config);
   }
 
   setMemoryStore(store: MemoryStore): void { this.memoryStore = store; }
@@ -241,13 +313,16 @@ export class YoAgent {
   }
 
   setPanelGrabber(fn: (panelId: string) => Promise<string | null>): void {
+    this._panelGrabber = fn;
     this.navigator.setPanelGrabber(fn);
     this.skillRunner.setPanelGrabber(fn);
+    this.coder.setPanelGrabber(fn);
   }
 
   setPanelScanner(fn: (panelId: string) => Promise<string | null>): void {
     this.navigator.setPanelScanner(fn);
     this.skillRunner.setPanelScanner(fn);
+    this.coder.setPanelScanner(fn);
   }
 
   setPanelClicker(fn: (panelId: string, text?: string, selector?: string) => Promise<string>): void {
@@ -261,6 +336,7 @@ export class YoAgent {
   }
 
   setPanelTyper(fn: (panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>): void {
+    this._panelTyper = fn;
     this.navigator.setPanelTyper(fn);
     this.skillRunner.setPanelTyper(fn);
   }
@@ -268,6 +344,7 @@ export class YoAgent {
   setPanelOpener(fn: (url: string, panelId?: string) => Promise<string>): void {
     this.navigator.setPanelOpener(fn);
     this.skillRunner.setPanelOpener(fn);
+    this.coder.setPanelOpener(fn);
   }
 
   setBackgroundOpener(fn: (url: string, panelId?: string) => Promise<string>): void {
@@ -275,8 +352,35 @@ export class YoAgent {
     this.skillRunner.setBackgroundOpener(fn);
   }
 
-  setCommandRunner(fn: (panelId: string, command: string, value?: string) => Promise<string>): void {
+  setPanelCommandRunner(fn: (panelId: string, command: string, value?: string) => Promise<string>): void {
     this.navigator.setCommandRunner(fn);
+  }
+
+  setPanelScreenshotter(fn: (panelId: string) => Promise<string | null>): void {
+    this.navigator.setPanelScreenshotter(fn);
+    this.skillRunner.setPanelScreenshotter(fn);
+  }
+
+  setPanelRefresher(fn: (panelId?: string) => Promise<string>): void {
+    this.navigator.setPanelRefresher(fn);
+    this.skillRunner.setPanelRefresher(fn);
+    this.coder.setPanelRefresher(fn);
+  }
+
+  setTabManager(tm: { list: () => Array<{ id: string; title: string; url?: string }>; switch: (id: string) => void; close: (id: string) => void; create: () => string }): void {
+    this.navigator.setTabManager(tm);
+    this.skillRunner.setTabManager(tm);
+  }
+
+  setClipboard(read: () => string, write: (text: string) => void): void {
+    this.clipboardRead = read;
+    this.clipboardWrite = write;
+    this.skillRunner.setClipboard(read, write);
+  }
+
+  setReminderCallback(fn: (message: string, delayMs: number) => void): void {
+    this.reminderCallback = fn;
+    this.skillRunner.setReminderCallback(fn);
   }
 
   setMaxMessages(n: number): void { this.maxMessages = n; }
@@ -288,6 +392,7 @@ export class YoAgent {
     this.researcher.setMode(mode);
     this.manager.setMode(mode);
     this.skillRunner.setMode(mode);
+    this.coder.setMode(mode);
   }
   setApprovalCallback(cb: ApprovalCallback | null): void {
     this._approvalCallback = cb;
@@ -296,6 +401,7 @@ export class YoAgent {
     this.researcher.setApprovalCallback(cb);
     this.manager.setApprovalCallback(cb);
     this.skillRunner.setApprovalCallback(cb);
+    this.coder.setApprovalCallback(cb);
   }
   setCommandRunner(fn: (cmd: string) => Promise<string>): void {
     this.commandRunner = fn;
@@ -334,6 +440,7 @@ export class YoAgent {
     this.researcher.abort();
     this.manager.abort();
     this.skillRunner.abort();
+    this.coder.abort();
   }
 
   // ── Chat management (unchanged) ──────────────────────
@@ -707,6 +814,9 @@ You are in plan mode. DO NOT call any tools or delegates. Instead, describe step
           result = await this.skillRunner.execute(instruction, context);
           break;
         }
+        case "delegate_coder":
+          result = await this.coder.execute(instruction, context);
+          break;
         default:
           return `Unknown delegation: ${name}`;
       }
@@ -738,6 +848,10 @@ You are in plan mode. DO NOT call any tools or delegates. Instead, describe step
         case "save_memory": return await this.toolSaveMemory(input);
         case "web_search": return await this.toolWebSearch(input);
         case "fetch_page": return await this.toolFetchPage(input);
+        case "clipboard_read": return this.toolClipboardRead();
+        case "clipboard_write": return this.toolClipboardWrite(input);
+        case "set_reminder": return this.toolSetReminder(input);
+        case "pipe": return await this.toolPipe(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -794,6 +908,73 @@ You are in plan mode. DO NOT call any tools or delegates. Instead, describe step
       if (llmScan.blocked) return `[content blocked by firewall: ${llmScan.reason}]`;
     }
     return content;
+  }
+
+  private toolClipboardRead(): string {
+    if (!this.clipboardRead) return "Clipboard access not available.";
+    const text = this.clipboardRead();
+    return text || "(clipboard is empty)";
+  }
+
+  private toolClipboardWrite(input: Record<string, unknown>): string {
+    const text = input.text as string;
+    if (!text) return "No text provided.";
+    if (!this.clipboardWrite) return "Clipboard access not available.";
+    this.clipboardWrite(text);
+    return "Text copied to clipboard.";
+  }
+
+  private toolSetReminder(input: Record<string, unknown>): string {
+    const message = input.message as string;
+    const delaySec = input.delay_seconds as number;
+    if (!message) return "No message provided.";
+    if (!delaySec || delaySec < 1) return "Delay must be at least 1 second.";
+    if (delaySec > 86400) return "Delay cannot exceed 24 hours (86400 seconds).";
+    if (!this.reminderCallback) return "Reminders not available.";
+    this.reminderCallback(message, delaySec * 1000);
+    const unit = delaySec >= 3600 ? `${Math.round(delaySec / 3600)}h` : delaySec >= 60 ? `${Math.round(delaySec / 60)}m` : `${delaySec}s`;
+    return `Reminder set: "${message}" in ${unit}.`;
+  }
+
+  private async toolPipe(input: Record<string, unknown>): Promise<string> {
+    const sourcePanel = input.source_panel as string;
+    const targetPanel = input.target_panel as string;
+    const transform = input.transform as string | undefined;
+    const targetSelector = input.target_selector as string | undefined;
+    const submit = input.submit as boolean | undefined;
+
+    if (!this._panelGrabber) return "Panel grabber not available.";
+    if (!this._panelTyper) return "Panel typer not available.";
+
+    // Step 1: Grab content from source
+    const content = await this._panelGrabber(sourcePanel);
+    if (!content) return `Could not grab content from panel: ${sourcePanel}`;
+
+    // Step 2: Transform (optional)
+    let output = content;
+    if (transform && this.llmConfig) {
+      try {
+        const response = await createCompletion(this.llmConfig, {
+          system: "You transform text exactly as instructed. Return only the transformed text, nothing else.",
+          messages: [{ role: "user", content: `Transform this content. Instruction: ${transform}\n\nContent:\n${content.slice(0, 5000)}` }],
+          maxTokens: 4000,
+          model: this.getCheapModel(),
+        });
+        const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+        if (text) output = text;
+      } catch {
+        // If transform fails, use raw content
+      }
+    }
+
+    // Step 3: Push to target
+    const result = await this._panelTyper(targetPanel, output, {
+      selector: targetSelector,
+      clear: true,
+      submit: submit,
+    });
+
+    return `Piped ${content.length} chars from ${sourcePanel} → ${targetPanel}${transform ? ` (transformed: ${transform})` : ""}. ${result}`;
   }
 
   // ── Memory loop ──────────────────────────────────────

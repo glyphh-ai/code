@@ -40,18 +40,37 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   manage_layout:    "mutate",
   manage_app:       "mutate",
 
+  // Navigator — new tools
+  screenshot_panel: "observe",
+  refresh_panel:    "mutate",
+  manage_tabs:      "mutate",
+
+  // Coding agent (sub-agent)
+  write_file:       "mutate",
+  edit_file:        "mutate",
+  move_file:        "mutate",
+  copy_file:        "mutate",
+  delete_file:      "mutate",
+  create_directory: "mutate",
+  run_shell:        "mutate",
+
   // Orchestrator direct tools
   inject_text:      "mutate",
   run_command:      "mutate",
   save_memory:      "observe",
   web_search:       "observe",
   fetch_page:       "observe",
+  clipboard_read:   "observe",
+  clipboard_write:  "mutate",
+  set_reminder:     "observe",
+  pipe:             "mutate",
 
   // Orchestrator delegations (gated at sub-agent level, but listed for plan mode)
   delegate_navigator:  "mutate",
   delegate_researcher: "observe",
   delegate_manager:    "mutate",
   delegate_skill:      "mutate",
+  delegate_coder:      "mutate",
 };
 
 /** Human-readable labels for each tool (used in approval UI and settings). */
@@ -72,11 +91,26 @@ export const TOOL_LABELS: Record<string, string> = {
   manage_skill:     "Manage skills",
   manage_layout:    "Manage layouts",
   manage_app:       "Manage apps",
+  screenshot_panel: "Screenshot panel",
+  refresh_panel:    "Refresh panel",
+  manage_tabs:      "Manage tabs",
+  write_file:       "Write file",
+  edit_file:        "Edit file",
+  move_file:        "Move file",
+  copy_file:        "Copy file",
+  delete_file:      "Delete file",
+  create_directory: "Create directory",
+  run_shell:        "Run shell command",
   inject_text:      "Inject text",
   run_command:      "Run command",
   save_memory:      "Save memory",
   web_search:       "Web search",
   fetch_page:       "Fetch page",
+  clipboard_read:   "Read clipboard",
+  clipboard_write:  "Write clipboard",
+  set_reminder:     "Set reminder",
+  pipe:             "Pipe cross-panel",
+  delegate_coder:   "Delegate coder",
 };
 
 /** Get the tier for a tool. Checks remote config first, falls back to hardcoded, defaults to "mutate". */

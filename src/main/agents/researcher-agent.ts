@@ -5,12 +5,10 @@
  * Notes are the primary knowledge base; files are a fallback.
  */
 
-import fs from "fs";
-import path from "path";
-import os from "os";
 import { BaseSubAgent } from "./base-agent";
 import type { ToolDef } from "./types";
 import type { NoteStore } from "../note-store";
+import { readFileContents, searchFileContents, listFilesAt } from "./file-utils";
 
 export class ResearcherAgent extends BaseSubAgent {
   private noteStore: NoteStore | null = null;
@@ -80,12 +78,13 @@ RESPONSE:
       },
       {
         name: "read_file",
-        description: "Read the contents of a specific file.",
+        description: "Read the contents of a specific file. Supports pagination with offset.",
         input_schema: {
           type: "object",
           properties: {
             path: { type: "string", description: "Absolute path or ~/relative path to the file" },
-            max_lines: { type: "number", description: "Max lines to read (default: 200)" },
+            max_lines: { type: "number", description: "Max lines to read (default: 500)" },
+            offset: { type: "number", description: "Line offset to start reading from (default: 0)" },
           },
           required: ["path"],
         },
@@ -98,7 +97,7 @@ RESPONSE:
           properties: {
             path: { type: "string", description: "Directory path (default: ~/). Use ~ for home." },
             pattern: { type: "string", description: "Filter by name pattern, e.g. '*.md'" },
-            recursive: { type: "boolean", description: "Search subdirectories (default: false, max depth 3)" },
+            recursive: { type: "boolean", description: "Search subdirectories (default: false, max depth 5)" },
           },
           required: [],
         },
@@ -142,132 +141,24 @@ RESPONSE:
   }
 
   private toolSearchFiles(input: Record<string, unknown>): string {
-    const pattern = input.pattern as string;
-    let dir = (input.directory as string) || "~";
-    const filePattern = (input.file_pattern as string) || "";
-
-    dir = dir.replace(/^~/, os.homedir());
-    if (!fs.existsSync(dir)) return `Directory not found: ${dir}`;
-
-    const results: string[] = [];
-    const maxResults = 15;
-    const isHome = dir === os.homedir();
-    const maxDepth = isHome ? 2 : 4;
-    const deadline = Date.now() + 5000;
-    const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv", "Library", ".Trash", "Pictures", "Movies", "Music"]);
-
-    const textExts = new Set([
-      ".txt", ".md", ".ts", ".tsx", ".js", ".jsx", ".py", ".json",
-      ".yaml", ".yml", ".toml", ".cfg", ".ini", ".sh", ".zsh",
-      ".html", ".css", ".scss", ".sql", ".rs", ".go", ".java",
-      ".rb", ".php", ".swift", ".kt", ".c", ".cpp", ".h",
-    ]);
-
-    const search = (d: string, depth: number) => {
-      if (depth > maxDepth || results.length >= maxResults || Date.now() > deadline) return;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-
-      for (const entry of entries) {
-        if (results.length >= maxResults || Date.now() > deadline) break;
-        const full = path.join(d, entry.name);
-
-        if (entry.isDirectory()) {
-          if (!entry.name.startsWith(".") && !skipDirs.has(entry.name)) {
-            search(full, depth + 1);
-          }
-          continue;
-        }
-
-        if (!entry.isFile()) continue;
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!textExts.has(ext)) continue;
-        if (filePattern && !entry.name.match(new RegExp(filePattern.replace(/\*/g, ".*")))) continue;
-
-        try {
-          const content = fs.readFileSync(full, "utf-8").slice(0, 50000);
-          const lines = content.split("\n");
-          const regex = new RegExp(pattern, "gi");
-          for (let i = 0; i < lines.length; i++) {
-            if (regex.test(lines[i])) {
-              const preview = lines.slice(Math.max(0, i - 1), i + 3).join("\n");
-              results.push(`[${full}:${i + 1}]\n${preview}`);
-              if (results.length >= maxResults) break;
-            }
-            regex.lastIndex = 0;
-          }
-        } catch { /* skip unreadable */ }
-      }
-    };
-
-    search(dir, 0);
-    if (results.length === 0) return `No files matching "${pattern}" found in ${dir}`;
-    return results.join("\n\n");
+    return searchFileContents(input.pattern as string, {
+      directory: input.directory as string,
+      filePattern: input.file_pattern as string,
+    });
   }
 
   private toolReadFile(input: Record<string, unknown>): string {
-    let filePath = input.path as string;
-    const maxLines = (input.max_lines as number) || 200;
-
-    filePath = filePath.replace(/^~/, os.homedir());
-    if (!fs.existsSync(filePath)) return `File not found: ${filePath}`;
-
-    try {
-      const stat = fs.statSync(filePath);
-      if (stat.isDirectory()) return `${filePath} is a directory, not a file. Use list_files instead.`;
-      if (stat.size > 1_000_000) return `File too large (${Math.round(stat.size / 1024)}KB). Try search_files instead.`;
-
-      const content = fs.readFileSync(filePath, "utf-8");
-      const lines = content.split("\n");
-      if (lines.length > maxLines) {
-        return lines.slice(0, maxLines).join("\n") + `\n\n[... truncated at ${maxLines} lines, ${lines.length} total]`;
-      }
-      return content;
-    } catch (err) {
-      return `Error reading file: ${err instanceof Error ? err.message : err}`;
-    }
+    return readFileContents(input.path as string, {
+      maxLines: input.max_lines as number,
+      offset: input.offset as number,
+    });
   }
 
   private toolListFiles(input: Record<string, unknown>): string {
-    let dir = (input.path as string) || "~";
-    const pattern = input.pattern as string;
-    const recursive = input.recursive as boolean;
-
-    dir = dir.replace(/^~/, os.homedir());
-    if (!fs.existsSync(dir)) return `Directory not found: ${dir}`;
-
-    const results: string[] = [];
-    const maxResults = 50;
-    const maxDepth = recursive ? 3 : 0;
-    const deadline = Date.now() + 3000;
-    const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", "Library", ".Trash"]);
-
-    const list = (d: string, depth: number) => {
-      if (depth > maxDepth || results.length >= maxResults || Date.now() > deadline) return;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-
-      for (const entry of entries) {
-        if (results.length >= maxResults) break;
-        if (entry.name.startsWith(".")) continue;
-
-        const full = path.join(d, entry.name);
-        const relative = path.relative(dir, full);
-        const isDir = entry.isDirectory();
-
-        if (pattern && !entry.name.match(new RegExp(pattern.replace(/\*/g, ".*")))) {
-          if (isDir && recursive && !skipDirs.has(entry.name)) list(full, depth + 1);
-          continue;
-        }
-
-        results.push(`${isDir ? "[dir] " : ""}${relative}`);
-        if (isDir && recursive && !skipDirs.has(entry.name)) list(full, depth + 1);
-      }
-    };
-
-    list(dir, 0);
-    if (results.length === 0) return `No files found in ${dir}`;
-    return results.join("\n");
+    return listFilesAt(input.path as string || "~", {
+      pattern: input.pattern as string,
+      recursive: input.recursive as boolean,
+    });
   }
 
   private formatAge(timestamp: number): string {
