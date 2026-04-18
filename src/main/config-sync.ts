@@ -1,8 +1,8 @@
 /**
  * Config Sync — hot config updates from yo-server.
  *
- * Periodically checks for updated firewall patterns, app catalog,
- * and guardrail configs. Caches in ~/yo/.config-cache/.
+ * Periodically checks for updated firewall patterns and app catalog.
+ * Caches in ~/yo/.config-cache/.
  */
 
 import fs from "fs";
@@ -22,7 +22,6 @@ interface ConfigVersion {
 interface ConfigManifest {
   firewall: ConfigVersion;
   apps: ConfigVersion;
-  guardrails: ConfigVersion;
 }
 
 export class ConfigSync {
@@ -44,7 +43,7 @@ export class ConfigSync {
       let local: ConfigManifest | null = null;
       try { local = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf-8")); } catch { /* first run */ }
 
-      for (const key of ["firewall", "apps", "guardrails"] as const) {
+      for (const key of ["firewall", "apps"] as const) {
         const localVersion = local?.[key]?.version;
         if (localVersion !== remote[key].version) {
           onProgress?.(`updating ${key}...`);
@@ -102,7 +101,7 @@ export class ConfigSync {
 
     let updated = false;
 
-    for (const key of ["firewall", "apps", "guardrails"] as const) {
+    for (const key of ["firewall", "apps"] as const) {
       const localVersion = local?.[key]?.version;
       const remoteVersion = remote[key].version;
       if (localVersion !== remoteVersion) {

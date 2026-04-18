@@ -7,7 +7,6 @@
  */
 
 import { getPreference } from "./preferences";
-import { ConfigSync } from "./config-sync";
 
 export type AgentMode = "plan" | "ask" | "auto";
 export type ToolTier = "observe" | "mutate";
@@ -110,13 +109,15 @@ export const TOOL_LABELS: Record<string, string> = {
   clipboard_write:  "Write clipboard",
   set_reminder:     "Set reminder",
   pipe:             "Pipe cross-panel",
-  delegate_coder:   "Delegate coder",
+  delegate_navigator:  "Delegate navigator",
+  delegate_researcher: "Delegate researcher",
+  delegate_manager:    "Delegate manager",
+  delegate_skill:      "Delegate skill runner",
+  delegate_coder:      "Delegate coder",
 };
 
-/** Get the tier for a tool. Checks remote config first, falls back to hardcoded, defaults to "mutate". */
+/** Get the tier for a tool. Hardcoded only — never remote. Defaults to "mutate" for unknown tools. */
 export function getToolTier(toolName: string): ToolTier {
-  const remote = ConfigSync.load<{ toolTiers: Record<string, ToolTier> }>("guardrails");
-  if (remote?.toolTiers?.[toolName]) return remote.toolTiers[toolName];
   return TOOL_TIERS[toolName] || "mutate";
 }
 
