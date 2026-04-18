@@ -8,17 +8,18 @@
  *   drip <effect>   → visual effect
  */
 
-import { BrowserWindow } from "electron";
+import { BrowserWindow, WebContents } from "electron";
 import { PanelManager } from "./panel-manager";
 import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { SessionCache } from "./session-cache";
+import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -29,6 +30,7 @@ export class CommandParser {
   private mainWindow: BrowserWindow | null = null;
   private yoChat: YoChat | null = null;
   private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
+  private wcGetter: ((panelId: string) => WebContents | null) | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -60,6 +62,11 @@ export class CommandParser {
   /** Set the grabber callback — grabs content from visible panels. */
   setGrabber(fn: (activeOnly?: boolean) => Promise<string | null>): void {
     this.grabber = fn;
+  }
+
+  /** Set the WebContents getter — resolves panel ID to live WebContents. */
+  setWebContentsGetter(fn: (panelId: string) => WebContents | null): void {
+    this.wcGetter = fn;
   }
 
   /** Split input at dot-prefixed command keyword boundaries for chaining.
@@ -99,8 +106,10 @@ export class CommandParser {
         return this.handleDip(args, sourcePanelId);
       case "drip":
         return this.handleDrip(args);
+      case "waz":
+        return this.handleWaz(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, or drip.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or waz.`;
     }
   }
 
@@ -109,7 +118,7 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|waz)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
@@ -458,6 +467,72 @@ export class CommandParser {
       }).join(","),
     ).join(" / ");
     return `Grid: ${label}`;
+  }
+
+  // ── waz: execute app commands + save layouts ─────────────────
+
+  private async handleWaz(args: string[]): Promise<string> {
+    if (args.length === 0) return "Usage: waz <command> | waz <app> <command> | waz layout <name>";
+
+    const first = args[0].toLowerCase();
+
+    // .waz layout <name> — save current layout
+    if (first === "layout") {
+      const name = args[1]?.trim();
+      if (!name) return "Usage: waz layout <name>";
+      const grid = this.layouts.getGridInfo();
+      if (!grid) return "No active layout to save. Use .dip split first.";
+      this.layouts.saveLayout({
+        name,
+        version: 2,
+        cols: grid.cols,
+        rows: grid.rows,
+        colWidths: grid.colWidths,
+        rowHeights: grid.rowHeights,
+        cells: grid.cells.map((c) => ({
+          panelId: c.panelId,
+          col: c.col,
+          row: c.row,
+          colSpan: c.colSpan,
+          rowSpan: c.rowSpan,
+        })),
+      });
+      return `Layout saved: ${name}`;
+    }
+
+    // Determine target app + command
+    let appId: string;
+    let commandKey: string;
+
+    if (args.length >= 2 && this.appConnector.get(first)) {
+      // .waz <app> <command> — targeted
+      appId = first;
+      commandKey = args.slice(1).join(" ").toLowerCase();
+    } else {
+      // .waz <command> — run on active panel
+      appId = this.panels.activePanelId || "";
+      commandKey = args.join(" ").toLowerCase();
+    }
+
+    if (!appId) return "No active panel.";
+
+    const app = this.appConnector.get(appId);
+    if (!app) return `Unknown app: ${appId}. Try: dip list`;
+
+    const mapping = app.commands[commandKey];
+    if (!mapping) {
+      const available = Object.keys(app.commands);
+      if (available.length === 0) return `${app.name} has no mapped commands. Connect it in Settings > Apps.`;
+      return `Unknown command "${commandKey}" for ${app.name}. Available: ${available.join(", ")}`;
+    }
+
+    const wc = this.wcGetter?.(appId);
+    if (!wc || wc.isDestroyed()) return `Panel "${appId}" is not loaded.`;
+
+    const result = await executeCommand(wc, mapping);
+    if (mapping.action === "click") return `Clicked: ${mapping.description || commandKey}`;
+    if (mapping.action === "setValue") return `Set: ${mapping.description || commandKey}`;
+    return result || `Done: ${commandKey}`;
   }
 
   // ── drip: CSS visual effects ────────────────────────────────

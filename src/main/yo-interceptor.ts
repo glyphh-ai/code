@@ -108,7 +108,7 @@ export class YoInterceptor {
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
-var CMD_RE=/^\\.(yo|sup|dip|drip)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|waz)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -237,6 +237,14 @@ window.addEventListener('beforeunload',function(e){
           await this.commandHandler(cmd);
         }
         break;
+      case "waz":
+        // Delegate to command parser for app command execution
+        if (this.commandHandler) {
+          const cmd = data.instruction ? `waz ${data.instruction}` : "waz";
+          const result = await this.commandHandler(cmd, appId);
+          if (result) this.notify(wc, result, "success");
+        }
+        break;
       case "cancel":
         this.opId++; // invalidate any in-flight operation
         await this.clearNotify(wc);
@@ -287,12 +295,13 @@ window.addEventListener('beforeunload',function(e){
         return;
       }
 
-      const skill = dotMatch[1]?.trim();
+      const [skill, chain] = YoInterceptor.splitChain(dotMatch[1]?.trim() || "");
       if (!skill) {
         // Bare .sup . → just capture
         await this.commandHandler("sup", appId);
         await this.clearNotify(wc);
         this.notify(wc, "captured", "success");
+        await this.runChain(chain);
         return;
       }
 
@@ -306,10 +315,11 @@ window.addEventListener('beforeunload',function(e){
         if (this.opId !== myOp) return;
         this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
       }
+      await this.runChain(chain);
       return;
     }
 
-    // Check if chaining: .sup . .dip gmail — handled via command parser chaining
+    // Check if chaining: .sup .dip gmail — instruction starts with a command keyword
     const isChain = instruction.split(/\s+/)[0]?.toLowerCase();
     if (isChain && YoInterceptor.COMMAND_KEYWORDS.has(`.${isChain}`)) {
       const myOp = ++this.opId;
@@ -343,7 +353,26 @@ window.addEventListener('beforeunload',function(e){
     this.notify(wc, "captured", "success");
   }
 
-  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip"]);
+  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip", ".waz"]);
+
+  /**
+   * Split off chained commands (.dip, .drip, .waz) from the end of an instruction.
+   * Returns [ownArgs, chainedRemainder].
+   * e.g. "summarize .dip grok .drip =" → ["summarize", ".dip grok .drip ="]
+   */
+  private static splitChain(instruction: string): [string, string] {
+    const chainRe = /\s+(\.(dip|drip|waz)\b.*)$/i;
+    const m = instruction.match(chainRe);
+    if (!m) return [instruction, ""];
+    return [instruction.slice(0, m.index!).trim(), m[1].trim()];
+  }
+
+  /** Execute any chained commands via the command handler. */
+  private async runChain(chain: string): Promise<void> {
+    if (chain && this.commandHandler) {
+      await this.commandHandler(chain);
+    }
+  }
 
   // ── yo ─────────────────────────────────────────────────
 
@@ -353,12 +382,13 @@ window.addEventListener('beforeunload',function(e){
     // .yo . or .yo . <prompt> → inline LLM using last .sup capture
     const dotMatch = raw.match(/^\.\s*(.*)$/s);
     if (dotMatch !== null && raw.startsWith(".")) {
-      const prompt = dotMatch[1]?.trim();
+      const [prompt, chain] = YoInterceptor.splitChain(dotMatch[1]?.trim() || "");
       if (!prompt) {
         this.notify(wc, "Usage: .yo . <prompt>", "error");
         return;
       }
       await this.handleYoDot(wc, appId, prompt);
+      await this.runChain(chain);
       return;
     }
 

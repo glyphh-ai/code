@@ -206,6 +206,40 @@
           </div>
 
           <div class="help-group">
+            <h3>.waz <span class="cmd-desc">— execute</span></h3>
+            <p class="cmd-intro">Run mapped commands on apps or save layouts. Chain with <code>.dip</code> to switch + execute.</p>
+            <div class="cmd-row">
+              <code>.waz grab</code>
+              <span>Run "grab" command on the active panel</span>
+            </div>
+            <div class="cmd-row">
+              <code>.waz claude new</code>
+              <span>Run "new" on the claude app</span>
+            </div>
+            <div class="cmd-row">
+              <code>.dip claude .waz new</code>
+              <span>Switch to claude, then execute "new"</span>
+            </div>
+            <div class="cmd-row">
+              <code>.waz layout workspace</code>
+              <span>Save current layout as "workspace"</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>.drip <span class="cmd-desc">— effects</span></h3>
+            <p class="cmd-intro">Trigger visual effects. Celebrate a deploy, reward a milestone.</p>
+            <div class="cmd-row">
+              <code>.drip</code>
+              <span>Fireworks (default effect)</span>
+            </div>
+            <div class="cmd-row">
+              <code>.drip fireworks</code>
+              <span>Particle burst effect</span>
+            </div>
+          </div>
+
+          <div class="help-group">
             <h3>Shortcuts</h3>
             <div class="cmd-row">
               <code>&#8984;K</code>
@@ -678,7 +712,7 @@
             </div>
           </div>
           <div class="tutorial-cmd">&#8984;K</div>
-          <div class="tutorial-desc">Press <strong>Cmd+K</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip — or just start talking to the agent.</div>
+          <div class="tutorial-desc">Press <strong>Cmd+K</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip, .waz, .drip — or just start talking to the agent.</div>
         </div>
       </div>
 

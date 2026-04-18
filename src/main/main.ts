@@ -776,6 +776,9 @@ async function boot() {
     return sections.length > 0 ? sections.join("\n\n---\n\n") : null;
   });
 
+  // Give command parser access to panel WebContents for .waz
+  commandParser.setWebContentsGetter((id) => panelManager.getWebContents(id));
+
   // Push session state to renderer
   const sendSessionState = () => {
     mainWindow?.webContents.send("session-changed", session.getInfo());
