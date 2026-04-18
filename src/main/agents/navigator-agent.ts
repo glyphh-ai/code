@@ -79,6 +79,11 @@ TYPING & SUBMITTING:
 - For buttons that aren't Enter-triggered, use click_element after type_text.
 - Use the selector from scan_panel results for precise targeting.
 
+WAITING FOR AI RESPONSES:
+- After submitting a prompt to a chat panel (Claude, GPT, Gemini, etc.), use wait_for_response to wait for the model to finish generating.
+- wait_for_response polls the panel content until it stops changing, then returns the final content.
+- Always use this before grabbing content from a chat panel you just submitted to — otherwise you'll get partial/empty responses.
+
 RESPONSE:
 - Return the actual content you found, not a summary of actions taken.
 - Truncate very long content to ~2000 chars with "[truncated]" marker.
@@ -206,6 +211,18 @@ RESPONSE:
         },
       },
       {
+        name: "wait_for_response",
+        description: "Wait for an AI chat panel to finish generating a response. Polls the panel content until it stops changing. Use after type_text with submit=true on chat panels (Claude, GPT, Gemini, etc). Returns the final page content once stable.",
+        input_schema: {
+          type: "object",
+          properties: {
+            panel_id: { type: "string", description: "Panel ID to watch for response completion" },
+            timeout_seconds: { type: "number", description: "Max seconds to wait (default: 45, max: 120)" },
+          },
+          required: ["panel_id"],
+        },
+      },
+      {
         name: "refresh_panel",
         description: "Reload a panel's page. Use after editing a local HTML file to see changes.",
         input_schema: {
@@ -308,6 +325,42 @@ RESPONSE:
         // Screenshots are base64 images — too large for text context.
         // Return a short confirmation; the orchestrator handles visual analysis.
         return `Screenshot captured for panel: ${panelId} (${Math.round(dataUrl.length / 1024)}KB image). Use grab_panel or scan_panel to read the content as text.`;
+      }
+
+      case "wait_for_response": {
+        const panelId = input.panel_id as string;
+        const timeoutSec = Math.min(Math.max((input.timeout_seconds as number) || 45, 5), 120);
+        if (!this.panelGrabber) return "Panel grabbing not available.";
+        const startTime = Date.now();
+        const deadline = startTime + timeoutSec * 1000;
+        let prevContent = "";
+        let stableCount = 0;
+        const POLL_MS = 2500;
+        const STABLE_THRESHOLD = 2; // content must be unchanged for 2 consecutive polls (~5s)
+
+        while (Date.now() < deadline) {
+          if (this.isAborted) return "Aborted while waiting for response.";
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          const content = await this.panelGrabber(panelId);
+          if (!content) { stableCount = 0; prevContent = ""; continue; }
+          if (content === prevContent) {
+            stableCount++;
+            if (stableCount >= STABLE_THRESHOLD) {
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+              // Truncate for context efficiency
+              const trimmed = content.length > 3000 ? content.slice(-3000) + "\n[earlier content truncated]" : content;
+              return `Response complete (${elapsed}s):\n${trimmed}`;
+            }
+          } else {
+            stableCount = 0;
+            prevContent = content;
+          }
+        }
+        // Timed out — return whatever we have
+        const finalContent = await this.panelGrabber(panelId);
+        return finalContent
+          ? `Response may still be generating (timed out after ${timeoutSec}s):\n${finalContent.length > 3000 ? finalContent.slice(-3000) : finalContent}`
+          : `Timed out after ${timeoutSec}s — could not grab content from ${panelId}.`;
       }
 
       case "refresh_panel": {

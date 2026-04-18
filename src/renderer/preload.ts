@@ -210,7 +210,7 @@ contextBridge.exposeInMainWorld("yo", {
   // Agent mode + guardrails
   getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<string>,
   setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
-  getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; tier: string; override: string }>>,
+  getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>,
   setToolOverride: (toolName: string, override: string) => ipcRenderer.send("set-tool-override", toolName, override),
   onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => {
     ipcRenderer.on("approval-request", (_e, id, toolName, toolLabel, input) => cb(id, toolName, toolLabel, input));

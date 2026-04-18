@@ -831,7 +831,7 @@ const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-ur
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
 const settingsSubagentModel = document.getElementById("settings-subagent-model") as HTMLSelectElement;
-const toolOverridesList = document.getElementById("tool-overrides-list")!;
+const toolOverridesBody = document.getElementById("tool-overrides-body")!;
 
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
 
@@ -1080,29 +1080,32 @@ async function loadSettings() {
   const savedSubModel = await window.yo.getPreference("subAgentModel", "auto") as string;
   settingsSubagentModel.value = savedSubModel;
 
-  // Tool overrides
+  // Tool overrides table
   const tools = await window.yo.getToolRegistry();
-  toolOverridesList.innerHTML = "";
+  toolOverridesBody.innerHTML = "";
   for (const tool of tools) {
-    const row = document.createElement("div");
-    row.className = "tool-override-row";
+    const tr = document.createElement("tr");
+    tr.className = "tool-row";
 
-    const label = document.createElement("div");
-    label.className = "tool-override-label";
+    const tdName = document.createElement("td");
+    tdName.className = "tool-td-name";
+    tdName.textContent = tool.label;
 
-    const nameEl = document.createElement("span");
-    nameEl.className = "tool-override-name";
-    nameEl.textContent = tool.label;
+    const tdDesc = document.createElement("td");
+    tdDesc.className = "tool-td-desc";
+    tdDesc.textContent = tool.description;
 
-    const tierEl = document.createElement("span");
-    tierEl.className = `tool-override-tier tier-${tool.tier}`;
-    tierEl.textContent = tool.tier;
+    const tdTier = document.createElement("td");
+    tdTier.className = "tool-td-tier";
+    const tierBadge = document.createElement("span");
+    tierBadge.className = `tool-tier-badge tier-${tool.tier}`;
+    tierBadge.textContent = tool.tier;
+    tdTier.appendChild(tierBadge);
 
-    label.appendChild(nameEl);
-    label.appendChild(tierEl);
-
+    const tdPerm = document.createElement("td");
+    tdPerm.className = "tool-td-perm";
     const select = document.createElement("select");
-    select.className = "tool-override-select";
+    select.className = "tool-perm-select";
     select.innerHTML =
       `<option value="default"${tool.override === "default" ? " selected" : ""}>Default</option>` +
       `<option value="auto"${tool.override === "auto" ? " selected" : ""}>Auto</option>` +
@@ -1110,10 +1113,13 @@ async function loadSettings() {
     select.addEventListener("change", () => {
       window.yo.setToolOverride(tool.name, select.value);
     });
+    tdPerm.appendChild(select);
 
-    row.appendChild(label);
-    row.appendChild(select);
-    toolOverridesList.appendChild(row);
+    tr.appendChild(tdName);
+    tr.appendChild(tdDesc);
+    tr.appendChild(tdTier);
+    tr.appendChild(tdPerm);
+    toolOverridesBody.appendChild(tr);
   }
 
   // Browser homepage

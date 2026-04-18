@@ -3526,50 +3526,67 @@ select.settings-input {
 .yo-approval-status.allowed { color: #25C75E; }
 .yo-approval-status.denied { color: #888; }
 
-/* ── Tool overrides (settings page) ──────────────────────── */
+/* ── Tool permissions table (settings page) ──────────────── */
 
-.tool-overrides-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.tool-table {
+  width: 100%;
+  border-collapse: collapse;
   margin-top: 8px;
-}
-
-.tool-override-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border-radius: 6px;
-  transition: background 0.1s;
-}
-.tool-override-row:hover { background: #1e1e1e; }
-
-.tool-override-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tool-override-name {
   font-size: 12px;
-  color: #ccc;
 }
-.tool-override-tier {
+
+.tool-table thead th {
+  text-align: left;
+  color: #777;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.tool-th-name { width: 26%; }
+.tool-th-desc { width: 42%; }
+.tool-th-tier { width: 12%; }
+.tool-th-perm { width: 20%; }
+
+.tool-row td {
+  padding: 5px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid #1a1a1a;
+}
+.tool-row:hover td { background: #161616; }
+
+.tool-td-name {
+  color: #ccc;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tool-td-desc {
+  color: #777;
+  font-size: 11px;
+}
+
+.tool-td-tier { white-space: nowrap; }
+
+.tool-tier-badge {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 500;
 }
-.tool-override-tier.tier-observe {
+.tool-tier-badge.tier-observe {
   background: rgba(37, 199, 94, 0.15);
   color: #25C75E;
 }
-.tool-override-tier.tier-mutate {
+.tool-tier-badge.tier-mutate {
   background: rgba(240, 160, 48, 0.15);
   color: #f0a030;
 }
 
-.tool-override-select {
+.tool-perm-select {
   background: #141414;
   border: 1px solid #2a2a2a;
   border-radius: 6px;
@@ -3578,9 +3595,10 @@ select.settings-input {
   font-size: 11px;
   cursor: pointer;
   outline: none;
+  width: 100%;
 }
-.tool-override-select:hover { border-color: #444; }
-.tool-override-select:focus { border-color: #25C75E; }
+.tool-perm-select:hover { border-color: #444; }
+.tool-perm-select:focus { border-color: #25C75E; }
 
 /* ── Wassup admin modal ─────────────────────────────────── */
 

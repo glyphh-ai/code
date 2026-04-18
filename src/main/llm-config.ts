@@ -14,7 +14,7 @@ const CONFIG_DIR = path.join(os.homedir(), "yo");
 const LLM_CONFIG_FILE = path.join(CONFIG_DIR, ".llm");
 const LEGACY_API_KEY_FILE = path.join(CONFIG_DIR, ".apikey");
 
-export type LLMProvider = "anthropic" | "openai" | "google" | "custom";
+export type LLMProvider = "anthropic" | "openai" | "google" | "xai" | "deepseek" | "custom";
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -32,23 +32,65 @@ export const PROVIDER_PRESETS: Record<string, {
 }> = {
   anthropic: {
     name: "Anthropic",
-    models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-opus-4-6-20250626", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
+    models: [
+      "claude-sonnet-4-20250514",
+      "claude-opus-4-20250514",
+      "claude-opus-4-6-20250626",
+      "claude-haiku-4-5-20251001",
+    ],
     defaultModel: "claude-sonnet-4-20250514",
     keyPlaceholder: "sk-ant-...",
   },
   openai: {
     name: "OpenAI",
-    models: ["gpt-4o", "gpt-4o-mini", "o3-mini"],
-    defaultModel: "gpt-4o",
+    models: [
+      "gpt-4.1",
+      "gpt-4.1-mini",
+      "gpt-4.1-nano",
+      "gpt-4o",
+      "gpt-4o-mini",
+      "o3",
+      "o3-mini",
+      "o4-mini",
+      "o3-pro",
+    ],
+    defaultModel: "gpt-4.1",
     baseUrl: "https://api.openai.com/v1",
     keyPlaceholder: "sk-...",
   },
   google: {
     name: "Google AI",
-    models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+    models: [
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite",
+    ],
     defaultModel: "gemini-2.5-flash",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     keyPlaceholder: "AIza...",
+  },
+  xai: {
+    name: "xAI",
+    models: [
+      "grok-3",
+      "grok-3-fast",
+      "grok-3-mini",
+      "grok-3-mini-fast",
+    ],
+    defaultModel: "grok-3-fast",
+    baseUrl: "https://api.x.ai/v1",
+    keyPlaceholder: "xai-...",
+  },
+  deepseek: {
+    name: "DeepSeek",
+    models: [
+      "deepseek-chat",
+      "deepseek-reasoner",
+    ],
+    defaultModel: "deepseek-chat",
+    baseUrl: "https://api.deepseek.com/v1",
+    keyPlaceholder: "sk-...",
   },
   custom: {
     name: "Custom",
@@ -94,7 +136,7 @@ export function saveLLMConfig(config: LLMConfig): void {
 }
 
 function getBaseUrl(config: LLMConfig): string {
-  if (config.baseUrl) return config.baseUrl;
+  if (config.baseUrl && config.baseUrl.startsWith("http")) return config.baseUrl;
   return PROVIDER_PRESETS[config.provider]?.baseUrl || "https://api.openai.com/v1";
 }
 
@@ -284,6 +326,10 @@ function fromOpenAIResponse(choice: any): { content: any[]; stopReason: string; 
 
 function openaiRequest<T>(url: string, apiKey: string, body: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (!url || !url.startsWith("http")) {
+      reject(new Error(`Invalid API URL: "${url}". Check your provider's Base URL in Settings.`));
+      return;
+    }
     const request = net.request({ url, method: "POST" });
     request.setHeader("Content-Type", "application/json");
     request.setHeader("Authorization", `Bearer ${apiKey}`);
@@ -348,7 +394,13 @@ export async function validateLLMConfig(config: LLMConfig): Promise<{ valid: boo
     }
     // OpenAI-compatible validation
     const baseUrl = getBaseUrl(config);
-    const testModel = config.provider === "google" ? "gemini-2.0-flash" : (config.model || "gpt-4o-mini");
+    const cheapTest: Record<string, string> = {
+      openai: "gpt-4.1-nano",
+      google: "gemini-2.0-flash-lite",
+      xai: "grok-3-mini-fast",
+      deepseek: "deepseek-chat",
+    };
+    const testModel = cheapTest[config.provider] || config.model || "gpt-4o-mini";
     await openaiRequest<any>(`${baseUrl}/chat/completions`, config.apiKey, {
       model: testModel,
       messages: [{ role: "user", content: "Say ok" }],

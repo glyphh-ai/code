@@ -483,7 +483,17 @@
 
                 <h3 class="settings-subheading">Tool Permissions</h3>
                 <p class="section-desc">Override the mode for individual tools. "Default" uses the global mode above.</p>
-                <div id="tool-overrides-list" class="tool-overrides-list"></div>
+                <table class="tool-table" id="tool-overrides-table">
+                  <thead>
+                    <tr>
+                      <th class="tool-th-name">Tool</th>
+                      <th class="tool-th-desc">Description</th>
+                      <th class="tool-th-tier">Tier</th>
+                      <th class="tool-th-perm">Permission</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tool-overrides-body"></tbody>
+                </table>
               </div>
 
               <!-- Appearance: Tabs, URL bar, Browser home -->

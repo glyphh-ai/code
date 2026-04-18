@@ -32,7 +32,7 @@ export class YoInterceptor {
 
   // Yo conversation callbacks
   private yoClearer: (() => void) | null = null;
-  private panelOpener: ((query: string) => void) | null = null;
+  private panelOpener: ((query: string, sourcePanelId?: string) => void) | null = null;
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
 
   constructor(
@@ -46,7 +46,7 @@ export class YoInterceptor {
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
-  setPanelOpener(fn: (query: string) => void): void { this.panelOpener = fn; }
+  setPanelOpener(fn: (query: string, sourcePanelId?: string) => void): void { this.panelOpener = fn; }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
 
   /** Start watching a panel's webContents for commands. */
@@ -406,7 +406,7 @@ window.addEventListener('beforeunload',function(e){
     // Regular .yo → open the agent side panel
     this.yoActiveWc = wc;
     if (this.panelOpener) {
-      this.panelOpener(raw);
+      this.panelOpener(raw, appId);
     }
   }
 
@@ -513,10 +513,12 @@ window.addEventListener('beforeunload',function(e){
     let content = "";
     if (app?.commands.grab) {
       content = await executeCommand(wc, app.commands.grab);
-    } else {
+    }
+    // Fall back to body text if app-specific grab returned nothing useful
+    if (!content || content.startsWith("[Element not found")) {
       content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)");
     }
-    if (!content || content.startsWith("[Element not found")) return null;
+    if (!content) return null;
     return content;
   }
 

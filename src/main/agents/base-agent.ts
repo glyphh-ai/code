@@ -15,8 +15,10 @@ import { gate } from "../action-gate";
 /** Provider-specific cheap model overrides. */
 const CHEAP_MODELS: Record<string, string> = {
   anthropic: "claude-haiku-4-5-20251001",
-  openai: "gpt-4o-mini",
+  openai: "gpt-4.1-mini",
   google: "gemini-2.0-flash",
+  xai: "grok-3-mini-fast",
+  deepseek: "deepseek-chat",
 };
 
 /** Callback to request user approval for a mutate tool. Resolves true if approved. */

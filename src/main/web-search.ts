@@ -31,6 +31,10 @@ export async function fetchPage(url: string, maxChars = 8000): Promise<string> {
 
 function fetchHTML(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (!url || !url.startsWith("http")) {
+      reject(new Error(`Invalid URL: "${url}"`));
+      return;
+    }
     const request = net.request({ url, method: "GET" });
     request.setHeader(
       "User-Agent",

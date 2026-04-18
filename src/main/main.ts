@@ -859,10 +859,15 @@ async function boot() {
     const wc = panelManager.getWebContents(panelId);
     if (!wc) return null;
     const app = appConnector.get(panelId);
+    let content = "";
     if (app?.commands.grab) {
-      try { return await executeCommand(wc, app.commands.grab); } catch { return null; }
+      try { content = await executeCommand(wc, app.commands.grab); } catch {}
     }
-    try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch { return null; }
+    // Fall back to body text if app-specific grab returned nothing useful
+    if (!content || content.startsWith("[Element not found")) {
+      try { content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
+    }
+    return content || null;
   });
   yoAgent.setPanelScanner(async (panelId) => {
     const wc = panelManager.getWebContents(panelId);
@@ -1116,6 +1121,7 @@ async function boot() {
   // Open a panel visibly — registers config, creates view, switches to it
   yoAgent.setPanelOpener(async (url, panelId) => {
     if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
+    try { new URL(url); } catch { return `Invalid URL: "${url}". Provide a full URL starting with https://.`; }
     const id = panelId || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
     if (!panelManager.hasPanel(id)) {
       panelManager.addPanel(id, url);
@@ -1130,6 +1136,7 @@ async function boot() {
   // Open a panel in the background — registers + creates view but does NOT show it
   yoAgent.setBackgroundOpener(async (url, panelId) => {
     if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
+    try { new URL(url); } catch { return `Invalid URL: "${url}". Provide a full URL starting with https://.`; }
     const id = panelId || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
     if (!panelManager.hasPanel(id)) {
       panelManager.addPanel(id, url);
@@ -1324,9 +1331,10 @@ async function boot() {
   });
 
   // Panel opener — called by interceptor or Cmd+K when user types .yo <query>
-  const openYoPanel = (query: string) => {
+  const openYoPanel = (query: string, sourcePanelId?: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     yoAgent?.clear();
+    if (sourcePanelId) yoAgent?.setActivePanel(sourcePanelId);
     mainWindow.webContents.send("yo-panel-open", query);
     panelManager.setRightInset(yoPanelWidth());
     // Focus the main window's webContents so the panel input can receive focus
@@ -1903,6 +1911,9 @@ async function boot() {
     }
     if (query) {
       yoAgent?.clear();
+      // Set active panel from current view so agent knows context
+      const activeId = panelManager.activePanelId;
+      if (activeId) yoAgent?.setActivePanel(activeId);
       openYoPanel(query);
     }
   });

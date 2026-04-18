@@ -140,7 +140,7 @@ declare global {
       // Agent mode + guardrails
       getAgentMode: () => Promise<string>;
       setAgentMode: (mode: string) => void;
-      getToolRegistry: () => Promise<Array<{ name: string; label: string; tier: string; override: string }>>;
+      getToolRegistry: () => Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>;
       setToolOverride: (toolName: string, override: string) => void;
       onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
       approvalRespond: (id: string, approved: boolean) => void;

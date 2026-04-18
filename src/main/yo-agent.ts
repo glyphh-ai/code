@@ -62,6 +62,14 @@ DIRECT TOOLS (don't delegate these):
 MEMORY:
 You have persistent memory. Relevant memories from past conversations are provided below (if any). Use them to personalise your responses and actions. When you learn something new about the user — preferences, workflows, how they use apps, facts about their work — use save_memory to remember it for next time. Don't save trivial or one-off things.
 
+CROSS-MODEL TASKS:
+When the user asks to "ask [model] the same question", "compare answers", or debate between AI models:
+1. First grab the CURRENT panel to get the existing question and response
+2. Navigate to the other model's panel, type the ORIGINAL QUESTION (not the response), submit, and WAIT for the response using wait_for_response
+3. Grab the other model's response
+4. Present both responses with clear attribution, then compare
+The navigator has a wait_for_response tool — always use it after submitting a question to a chat panel.
+
 WORKFLOW:
 1. Check memories for relevant context
 2. Delegate to the right specialist(s) — you can call multiple delegates in parallel for independent tasks
@@ -261,6 +269,7 @@ export class YoAgent {
   private commandRunner: ((cmd: string) => Promise<string>) | null = null;
   private aborted = false;
   private activeMemories: string = "";  // recalled memories for current turn
+  private _activePanel: string | null = null; // panel the user typed .yo from
   private _mode: AgentMode = getAgentMode();
   private _approvalCallback: ApprovalCallback | null = null;
 
@@ -283,6 +292,8 @@ export class YoAgent {
   private reminderCallback: ((message: string, delayMs: number) => void) | null = null;
 
   // ── Setters (forward to sub-agents) ──────────────────
+
+  setActivePanel(panelId: string): void { this._activePanel = panelId; }
 
   setLLMConfig(config: LLMConfig): void {
     this.llmConfig = config;
@@ -604,6 +615,11 @@ export class YoAgent {
   private buildSystemPrompt(): string {
     let prompt = SYSTEM_BASE;
 
+    // Active panel context: tell the agent where the user is
+    if (this._activePanel) {
+      prompt += `\n\nACTIVE PANEL: The user is currently viewing the "${this._activePanel}" panel. When they say "the same question", "this conversation", "what's here", etc., they mean content on this panel. Grab it first.`;
+    }
+
     // Self-awareness: don't use your own app panel to answer questions
     if (this.llmConfig) {
       const model = this.llmConfig.model.toLowerCase();
@@ -613,9 +629,11 @@ export class YoAgent {
       if (provider === "anthropic" || model.includes("claude")) selfPanels.push("claude");
       if (provider === "openai" || model.includes("gpt") || model.includes("o3") || model.includes("o4")) selfPanels.push("gpt", "chatgpt");
       if (provider === "google" || model.includes("gemini")) selfPanels.push("gemini");
+      if (provider === "xai" || model.includes("grok")) selfPanels.push("grok");
+      if (provider === "deepseek" || model.includes("deepseek")) selfPanels.push("deepseek");
 
       if (selfPanels.length > 0) {
-        prompt += `\n\nSELF-AWARENESS:\nYou are running on ${provider} (${this.llmConfig.model}). The panels [${selfPanels.join(", ")}] are YOUR OWN web interface. Do NOT navigate to or grab from these panels to answer questions — you already have that knowledge. Only interact with these panels if the user explicitly asks you to (e.g. "type this into Claude", "check my Claude chat history", "click send in GPT").`;
+        prompt += `\n\nSELF-AWARENESS:\nYou are running on ${provider} (${this.llmConfig.model}). The panels [${selfPanels.join(", ")}] are YOUR OWN web interface. Do NOT navigate to these panels to answer general knowledge questions — you already have that knowledge. HOWEVER, you MUST grab from these panels when the user asks to compare answers, forward conversations, or reference what's currently on screen. The rule is: don't use your own panel as a knowledge source, but DO read it when the user explicitly references its content.`;
       }
     }
 
@@ -1085,8 +1103,10 @@ Rules:
     if (!this.llmConfig) return "";
     const cheap: Record<string, string> = {
       anthropic: "claude-haiku-4-5-20251001",
-      openai: "gpt-4o-mini",
+      openai: "gpt-4.1-mini",
       google: "gemini-2.0-flash",
+      xai: "grok-3-mini-fast",
+      deepseek: "deepseek-chat",
     };
     return cheap[this.llmConfig.provider] || this.llmConfig.model;
   }

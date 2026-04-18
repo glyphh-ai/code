@@ -40,6 +40,7 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   manage_app:       "mutate",
 
   // Navigator — new tools
+  wait_for_response: "observe",
   screenshot_panel: "observe",
   refresh_panel:    "mutate",
   manage_tabs:      "mutate",
@@ -90,6 +91,7 @@ export const TOOL_LABELS: Record<string, string> = {
   manage_skill:     "Manage skills",
   manage_layout:    "Manage layouts",
   manage_app:       "Manage apps",
+  wait_for_response: "Wait for response",
   screenshot_panel: "Screenshot panel",
   refresh_panel:    "Refresh panel",
   manage_tabs:      "Manage tabs",
@@ -114,6 +116,51 @@ export const TOOL_LABELS: Record<string, string> = {
   delegate_manager:    "Delegate manager",
   delegate_skill:      "Delegate skill runner",
   delegate_coder:      "Delegate coder",
+};
+
+/** Short descriptions for the settings table. */
+export const TOOL_DESCRIPTIONS: Record<string, string> = {
+  list_panels:      "See which workspace panels are open",
+  scan_panel:       "Scan a panel's DOM to find inputs, buttons, and content",
+  grab_panel:       "Read the full text content from a panel",
+  click_element:    "Click a button or link inside a panel",
+  navigate_panel:   "Load a URL in a panel",
+  type_text:        "Type into an input field on a panel",
+  open_panel:       "Open a new visible panel with a URL",
+  open_background:  "Open a hidden panel for background data fetching",
+  search_notes:     "Search your local .md notes",
+  write_note:       "Create or update a local .md note",
+  search_files:     "Search filenames on your machine",
+  read_file:        "Read the contents of a file",
+  list_files:       "List files in a directory",
+  manage_skill:     "Create, edit, or delete saved skills",
+  manage_layout:    "Save or restore panel layout presets",
+  manage_app:       "Add, edit, or remove app configs",
+  wait_for_response: "Wait for an AI chat panel to finish generating its response",
+  screenshot_panel: "Capture a panel as a PNG screenshot",
+  refresh_panel:    "Reload a panel's page",
+  manage_tabs:      "List, switch, close, or create workspace tabs",
+  write_file:       "Write content to a file on disk",
+  edit_file:        "Edit an existing file's content",
+  move_file:        "Move or rename a file",
+  copy_file:        "Copy a file to a new location",
+  delete_file:      "Delete a file from disk",
+  create_directory: "Create a new folder on disk",
+  run_shell:        "Execute a shell command in the terminal",
+  inject_text:      "Paste text into the active panel input",
+  run_command:      "Execute a pre-mapped app command by name",
+  save_memory:      "Save a note to agent long-term memory",
+  web_search:       "Search the web via API",
+  fetch_page:       "Fetch and extract content from a URL",
+  clipboard_read:   "Read the system clipboard contents",
+  clipboard_write:  "Write text to the system clipboard",
+  set_reminder:     "Schedule a delayed reminder message",
+  pipe:             "Pipe content between two panels",
+  delegate_navigator:  "Delegate a panel interaction task to the navigator",
+  delegate_researcher: "Delegate a note/file search to the researcher",
+  delegate_manager:    "Delegate a skill/layout/app task to the manager",
+  delegate_skill:      "Delegate execution to a saved skill",
+  delegate_coder:      "Delegate a code editing task to the coder",
 };
 
 /** Get the tier for a tool. Hardcoded only — never remote. Defaults to "mutate" for unknown tools. */
@@ -164,11 +211,12 @@ export function gate(toolName: string, mode: AgentMode): GateDecision {
 }
 
 /** Return the full tool registry for the settings UI. */
-export function getToolRegistry(): Array<{ name: string; label: string; tier: ToolTier; override: ToolOverride }> {
+export function getToolRegistry(): Array<{ name: string; label: string; description: string; tier: ToolTier; override: ToolOverride }> {
   const overrides = getToolOverrides();
   return Object.entries(TOOL_LABELS).map(([name, label]) => ({
     name,
     label,
+    description: TOOL_DESCRIPTIONS[name] || "",
     tier: getToolTier(name),
     override: (overrides[name] || "default") as ToolOverride,
   }));
