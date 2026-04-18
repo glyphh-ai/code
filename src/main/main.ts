@@ -1083,8 +1083,20 @@ async function boot() {
         // Fallback: if the above didn't submit (e.g. send button required), try clicking the send button
         const clicked = await wc.executeJavaScript(`(function(){
           // Common send button selectors across chat apps
-          var btn = document.querySelector('button[aria-label*="Send"],button[data-testid*="send"],button[class*="send" i],form button[type="submit"]');
-          if (btn && !btn.disabled) { btn.click(); return 'clicked'; }
+          var selectors = [
+            'button[aria-label*="Send" i]',
+            'button[aria-label*="Submit" i]',
+            'button[data-testid*="send"]',
+            'button[data-testid*="submit"]',
+            'button[class*="send" i]',
+            'button.mdc-icon-button[aria-label*="Send" i]',
+            'form button[type="submit"]',
+            'button[aria-label*="Message" i][type="submit"]',
+          ];
+          for (var i = 0; i < selectors.length; i++) {
+            var btn = document.querySelector(selectors[i]);
+            if (btn && !btn.disabled) { btn.click(); return 'clicked'; }
+          }
           return 'no-btn';
         })()`);
         if (clicked === 'clicked') {
