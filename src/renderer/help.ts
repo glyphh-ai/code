@@ -941,6 +941,9 @@ async function loadSettings() {
       statusEl.className = "license-value active";
       keyEl.textContent = updated.key || key.slice(0, 4) + "..." + key.slice(-4);
       upgradeBtn.textContent = "Manage Subscription";
+      // Hide the activate form
+      if (inputRow) inputRow.style.display = "none";
+      setTimeout(() => { licenseActivateStatus.style.display = "none"; }, 2000);
     } else {
       licenseActivateStatus.textContent = "Invalid key or could not reach server";
       licenseActivateStatus.className = "license-activate-status error";
@@ -948,6 +951,11 @@ async function loadSettings() {
     licenseActivateBtn.disabled = false;
     licenseActivateBtn.textContent = "Activate";
   });
+
+  // Hide activate form when already licensed
+  const inputRow = document.querySelector(".license-input-row") as HTMLElement | null;
+  if (inputRow) inputRow.style.display = isLicensed ? "none" : "";
+  licenseActivateStatus.style.display = isLicensed ? "none" : "";
 
   // Context-aware button labels
   const upgradeBtn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
@@ -1159,7 +1167,7 @@ async function generateSkillPrompt() {
 // ── About ─────────────────────────────────────────────────
 
 // ── Support ───────────────────────────────────────────────
-const DISCORD_INVITE = "https://discord.gg/yo-community"; // placeholder — update with real invite
+const DISCORD_INVITE = "https://discord.gg/7wR9amSs";
 
 let supportInitialized = false;
 
@@ -1207,7 +1215,14 @@ function loadSupport() {
 }
 
 // ── About ─────────────────────────────────────────────────
-function loadAbout() {
+async function loadAbout() {
+  // Version from package.json via main process
+  const versionEl = document.getElementById("about-version");
+  if (versionEl) {
+    const ver = await window.yo.getAppVersion();
+    versionEl.textContent = `Version ${ver}`;
+  }
+
   // Terms of Use
   const termsEl = document.querySelector("#policy-terms .policy-content");
   if (termsEl) termsEl.innerHTML = TERMS_OF_USE;

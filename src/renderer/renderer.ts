@@ -57,6 +57,7 @@ declare global {
       onboardingComplete: () => Promise<void>;
       startPicker: (webContentsId: number) => void;
       onPickerResult: (callback: (result: unknown) => void) => void;
+      getAppVersion: () => Promise<string>;
       checkLicense: () => Promise<{ status: string; daysRemaining?: number }>;
       activateLicense: (key: string) => Promise<boolean>;
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
@@ -1346,6 +1347,7 @@ const splashShownAt = Date.now();
 const SPLASH_MIN_MS = 2000;
 let booted = false;
 let bootData: any = null;
+let tutorialShowing = false;
 
 
 function dismissSplash(): void {
@@ -1354,7 +1356,8 @@ function dismissSplash(): void {
   const remaining = Math.max(0, SPLASH_MIN_MS - elapsed);
   setTimeout(() => {
     // Show panels first (behind splash z-index:9999) so they're ready when splash fades
-    window.yo.panelsShow();
+    // BUT not if tutorial is showing — BrowserViews paint over HTML overlays
+    if (!tutorialShowing) window.yo.panelsShow();
     const splash = document.getElementById("splash");
     if (splash) {
       splash.classList.add("fade-out");
@@ -1409,9 +1412,11 @@ const TUTORIAL_SEQUENCES = [
   ".yo find that reddit thread about pricing",
   ".sup . formalize",
   ".dip split claude gpt",
+  "", // Cmd+K step — no typing, shows keyboard shortcut
 ];
 
 function showTutorial() {
+  tutorialShowing = true;
   const overlay = document.getElementById("tutorial-overlay")!;
   overlay.classList.remove("hidden");
   // BrowserViews are native — they paint over HTML. Hide them so tutorial is visible.
@@ -1471,6 +1476,7 @@ function showTutorial() {
 
   function closeTutorial() {
     if (typeTimer) clearTimeout(typeTimer);
+    tutorialShowing = false;
     window.yo.setPreference("hasSeenTutorial", true);
     overlay.classList.add("hidden");
     // Restore panels now that tutorial is dismissed

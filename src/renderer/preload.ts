@@ -80,6 +80,9 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.once("picker-result", (_event, result) => callback(result));
   },
 
+  // App version
+  getAppVersion: () => ipcRenderer.invoke("get-app-version") as Promise<string>,
+
   // License + API key
   checkLicense: () => ipcRenderer.invoke("check-license"),
   activateLicense: (key: string) => ipcRenderer.invoke("activate-license", key) as Promise<boolean>,

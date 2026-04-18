@@ -54,7 +54,7 @@
       <button id="btn-minimize" class="wc wc-minimize"></button>
       <button id="btn-maximize" class="wc wc-maximize"></button>
     </div>
-    <div id="titlebar-label">Yo<span class="dot">.</span></div>
+    <div id="titlebar-label"><span class="dot">.</span>Yo</div>
     <div id="tab-bar">
       <button id="tab-new-btn" class="tab-new-btn" title="New tab">+</button>
     </div>
@@ -95,7 +95,7 @@
   <div id="help-overlay" class="hidden">
     <div id="help-layout">
       <nav id="help-nav">
-        <div class="help-brand">Yo<span class="dot">.</span></div>
+        <div class="help-brand"><span class="dot">.</span>Yo</div>
         <button class="help-nav-item active" data-section="guide">Guide</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
@@ -130,6 +130,19 @@
             <div class="cmd-row">
               <code>.yo create a skill called summarize</code>
               <span>Agent manages skills, layouts, and apps</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>.yo . <span class="cmd-desc">— capture + agent</span></h3>
+            <p class="cmd-intro">Capture the current screen and send it to the agent with a question or instruction.</p>
+            <div class="cmd-row">
+              <code>.yo . what is this?</code>
+              <span>Capture screen + ask the agent about it</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo . summarize this page</code>
+              <span>Capture + agent processes with context</span>
             </div>
           </div>
 
@@ -585,11 +598,22 @@
           <div class="tutorial-cmd"><span class="tutorial-dot-sm">.</span>dip</div>
           <div class="tutorial-desc">Switch between panels, create layouts, and navigate your workspace. Split your screen any way you want.</div>
         </div>
+
+        <div class="tutorial-step" data-step="3">
+          <div class="tutorial-demo" id="tutorial-demo-3">
+            <div class="tutorial-kbd-mock">
+              <kbd class="tutorial-key">&#8984;</kbd><kbd class="tutorial-key">K</kbd>
+            </div>
+          </div>
+          <div class="tutorial-cmd">&#8984;K</div>
+          <div class="tutorial-desc">Press <strong>Cmd+K</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip — or just start talking to the agent.</div>
+        </div>
       </div>
 
       <div class="tutorial-nav">
         <div class="tutorial-dots" id="tutorial-dots">
           <span class="tutorial-nav-dot active"></span>
+          <span class="tutorial-nav-dot"></span>
           <span class="tutorial-nav-dot"></span>
           <span class="tutorial-nav-dot"></span>
         </div>

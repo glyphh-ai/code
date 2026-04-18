@@ -1936,6 +1936,9 @@ async function boot() {
     return true;
   });
 
+  // IPC: app version
+  ipcMain.handle("get-app-version", () => app.getVersion());
+
   // IPC: license + API key
   ipcMain.handle("check-license", () => checkLicense());
   ipcMain.handle("activate-license", (_e, key: string) => activateLicense(key));
