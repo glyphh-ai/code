@@ -164,24 +164,24 @@ RESPONSE:
       },
       {
         name: "open_panel",
-        description: "Open a URL in a visible workspace panel. Use when the panel you need isn't in list_panels. Returns the panel ID you can use with other tools.",
+        description: "Open an app or URL in a visible workspace panel. Use when the panel you need isn't in list_panels. You can pass an app name (e.g. 'gemini', 'gmail', 'gpt') OR a full URL. App names are resolved to their correct URLs automatically.",
         input_schema: {
           type: "object",
           properties: {
-            url: { type: "string", description: "URL to open (e.g. https://mail.google.com)" },
-            panel_id: { type: "string", description: "Optional panel ID. If omitted, one is generated from the URL domain." },
+            url: { type: "string", description: "App name (e.g. 'gemini', 'gmail', 'slack') or full URL (e.g. https://mail.google.com)" },
+            panel_id: { type: "string", description: "Optional panel ID. If omitted, one is generated automatically." },
           },
           required: ["url"],
         },
       },
       {
         name: "open_background",
-        description: "Open a URL in a hidden background panel. The page loads and is fully interactable (scan, grab, click, type) but is NOT shown to the user. Use for fetching data without disrupting the user's current view.",
+        description: "Open an app or URL in a hidden background panel. The page loads and is fully interactable (scan, grab, click, type) but is NOT shown to the user. You can pass an app name or full URL.",
         input_schema: {
           type: "object",
           properties: {
-            url: { type: "string", description: "URL to open in the background" },
-            panel_id: { type: "string", description: "Optional panel ID. If omitted, one is generated from the URL domain." },
+            url: { type: "string", description: "App name (e.g. 'gemini', 'gmail') or full URL" },
+            panel_id: { type: "string", description: "Optional panel ID. If omitted, one is generated automatically." },
           },
           required: ["url"],
         },

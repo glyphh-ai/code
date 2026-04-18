@@ -1131,10 +1131,29 @@ async function boot() {
   });
 
   // Open a panel visibly — registers config, creates view, switches to it
-  yoAgent.setPanelOpener(async (url, panelId) => {
+  yoAgent.setPanelOpener(async (urlOrName, panelId) => {
     if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
-    try { new URL(url); } catch { return `Invalid URL: "${url}". Provide a full URL starting with https://.`; }
-    const id = panelId || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+    let url = urlOrName;
+    let id = panelId;
+    // Resolve app name to URL if not a valid URL
+    let isUrl = false;
+    try { new URL(urlOrName); isUrl = true; } catch {}
+    if (!isUrl) {
+      // Treat as app name/ID — look up from app connector or existing panels
+      const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
+      const app = appConnector.get(appName);
+      if (app) {
+        url = app.url;
+        id = id || app.id;
+      } else if (panelManager.hasPanel(appName)) {
+        // Already exists as a panel — just switch to it
+        const ok = panelManager.switchTo(appName, mainWindow);
+        return ok ? `Switched to panel "${appName}".` : `Failed to switch to "${appName}".`;
+      } else {
+        return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
+      }
+    }
+    id = id || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
     if (!panelManager.hasPanel(id)) {
       panelManager.addPanel(id, url);
     }
@@ -1146,10 +1165,24 @@ async function boot() {
   });
 
   // Open a panel in the background — registers + creates view but does NOT show it
-  yoAgent.setBackgroundOpener(async (url, panelId) => {
+  yoAgent.setBackgroundOpener(async (urlOrName, panelId) => {
     if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
-    try { new URL(url); } catch { return `Invalid URL: "${url}". Provide a full URL starting with https://.`; }
-    const id = panelId || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+    let url = urlOrName;
+    let id = panelId;
+    // Resolve app name to URL if not a valid URL
+    let isUrl = false;
+    try { new URL(urlOrName); isUrl = true; } catch {}
+    if (!isUrl) {
+      const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
+      const app = appConnector.get(appName);
+      if (app) {
+        url = app.url;
+        id = id || "bg-" + app.id;
+      } else {
+        return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
+      }
+    }
+    id = id || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
     if (!panelManager.hasPanel(id)) {
       panelManager.addPanel(id, url);
     }
