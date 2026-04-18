@@ -493,6 +493,14 @@
                 <span class="toggle-desc">Run local <code>code serve-web</code> for full file access</span>
               </div>
             </label>
+            <label class="settings-toggle">
+              <input type="checkbox" id="toggle-auto-update" checked />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">Auto Updates</span>
+                <span class="toggle-desc">Automatically download and install updates</span>
+              </div>
+            </label>
           </div>
           <div id="settings-relaunch" class="settings-relaunch hidden">
             <span>Restart required for changes to take effect</span>
@@ -569,6 +577,16 @@
       <button id="download-show" class="action-btn hidden">Show</button>
       <button id="download-dismiss" class="download-dismiss">&times;</button>
     </div>
+  </div>
+
+  <!-- Update notification bar -->
+  <div id="update-bar" class="update-bar hidden">
+    <span id="update-message" class="update-message">A new version is available</span>
+    <div id="update-progress" class="update-progress hidden">
+      <div id="update-progress-fill" class="update-progress-fill"></div>
+    </div>
+    <button id="update-action" class="action-btn primary update-action hidden">Restart</button>
+    <button id="update-dismiss" class="update-dismiss">&times;</button>
   </div>
 
   <!-- First-time tutorial -->

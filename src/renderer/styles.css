@@ -1904,6 +1904,63 @@ body {
 
 .download-dismiss:hover { color: #fff; }
 
+/* ── Update bar ───────────────────────────────────────── */
+
+.update-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: #1a1a2e;
+  border: 1px solid #25C75E44;
+  border-radius: 10px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.25s ease-out;
+}
+
+.update-message {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.update-progress {
+  width: 80px;
+  height: 3px;
+  background: #ffffff10;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.update-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #25C75E;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.update-action {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
+.update-dismiss {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.update-dismiss:hover { color: #fff; }
+
 /* ── Drip overlay ──────────────────────────────────────── */
 
 .drip-overlay {

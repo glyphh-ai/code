@@ -143,6 +143,9 @@ declare global {
       setToolOverride: (toolName: string, override: string) => void;
       onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
       approvalRespond: (id: string, approved: boolean) => void;
+      // Auto-update
+      onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
+      updateInstall: () => void;
     };
   }
 }
@@ -712,6 +715,39 @@ dlShowBtn.addEventListener("click", () => {
 dlDismiss.addEventListener("click", () => {
   dlToast.classList.add("hidden");
   if (dlDismissTimer) { clearTimeout(dlDismissTimer); dlDismissTimer = null; }
+});
+
+// -- Update bar --
+
+const updateBar = document.getElementById("update-bar")!;
+const updateMsg = document.getElementById("update-message")!;
+const updateProgress = document.getElementById("update-progress")!;
+const updateFill = document.getElementById("update-progress-fill")!;
+const updateAction = document.getElementById("update-action")!;
+const updateDismiss = document.getElementById("update-dismiss")!;
+
+window.yo.onUpdateStatus(({ status, version, percent }) => {
+  if (status === "available") {
+    updateMsg.textContent = `Downloading v${version}...`;
+    updateProgress.classList.remove("hidden");
+    updateAction.classList.add("hidden");
+    updateBar.classList.remove("hidden");
+  } else if (status === "downloading") {
+    updateFill.style.width = `${percent || 0}%`;
+  } else if (status === "ready") {
+    updateMsg.textContent = `v${version} ready — restart to update`;
+    updateProgress.classList.add("hidden");
+    updateAction.classList.remove("hidden");
+    updateBar.classList.remove("hidden");
+  }
+});
+
+updateAction.addEventListener("click", () => {
+  window.yo.updateInstall();
+});
+
+updateDismiss.addEventListener("click", () => {
+  updateBar.classList.add("hidden");
 });
 
 // -- Drip effects --

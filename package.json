@@ -37,6 +37,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^12.9.0",
+    "electron-updater": "^6.8.3",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.0.0",
     "onnxruntime-node": "^1.24.3",

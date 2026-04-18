@@ -218,4 +218,10 @@ contextBridge.exposeInMainWorld("yo", {
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string }> | null>,
   yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
   yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
+
+  // Auto-update
+  onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => {
+    ipcRenderer.on("update-status", (_e, info) => cb(info));
+  },
+  updateInstall: () => ipcRenderer.send("update-install"),
 });

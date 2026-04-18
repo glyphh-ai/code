@@ -765,6 +765,7 @@ const settingsStatus = document.getElementById("settings-status")!;
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
+const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
 const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
@@ -785,6 +786,10 @@ function initSettings() {
   };
   toggleVscodeServer.addEventListener("change", () => {
     window.yo.setPreference("enableVscodeServer", toggleVscodeServer.checked);
+    showRelaunch();
+  });
+  toggleAutoUpdate.addEventListener("change", () => {
+    window.yo.setPreference("autoUpdate", toggleAutoUpdate.checked);
     showRelaunch();
   });
   settingsContextWindow.addEventListener("change", () => {
@@ -982,6 +987,7 @@ async function loadSettings() {
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
   toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
+  toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
 
   // Agent mode

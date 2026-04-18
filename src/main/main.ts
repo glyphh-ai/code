@@ -32,6 +32,9 @@ import { MemoryStore } from "./memory-store";
 import { Embedder } from "./embedder";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
+import { autoUpdater } from "electron-updater";
+import { ConfigSync } from "./config-sync";
+import { reloadRemotePatterns } from "./firewall";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -45,6 +48,7 @@ let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
 let cloudSyncInstance: CloudSync | null = null;
+let configSync: ConfigSync | null = null;
 let licenseCheckTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
@@ -1409,6 +1413,50 @@ async function boot() {
     }
   }, 24 * 60 * 60 * 1000);
 
+  // ── Auto-updater ───────────────────────────────────────────
+  const autoUpdateEnabled = getPreference<boolean>("autoUpdate", true);
+
+  autoUpdater.autoDownload = autoUpdateEnabled;
+  autoUpdater.autoInstallOnAppQuit = autoUpdateEnabled;
+  autoUpdater.logger = null;
+
+  autoUpdater.on("update-available", (info: { version: string }) => {
+    mainWindow?.webContents.send("update-status", {
+      status: "available",
+      version: info.version,
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress: { percent: number }) => {
+    mainWindow?.webContents.send("update-status", {
+      status: "downloading",
+      percent: Math.round(progress.percent),
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info: { version: string }) => {
+    mainWindow?.webContents.send("update-status", {
+      status: "ready",
+      version: info.version,
+    });
+  });
+
+  autoUpdater.on("error", (err: Error) => {
+    console.error("[auto-update] error:", err.message);
+  });
+
+  if (autoUpdateEnabled) {
+    autoUpdater.checkForUpdates().catch(() => {});
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
+  }
+
+  // ── Hot config sync ───────────────────────────────────────
+  configSync = new ConfigSync();
+  configSync.start(() => {
+    reloadRemotePatterns();
+    appConnector.mergeRemoteApps();
+  });
+
   // Global hotkey: Cmd+Y / Ctrl+Y
   registerHotkey(mainWindow!);
 
@@ -1482,6 +1530,10 @@ async function boot() {
   );
 
   // IPC: window controls
+  ipcMain.on("update-install", () => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+
   ipcMain.on("window-close", () => mainWindow?.close());
   ipcMain.on("window-minimize", () => mainWindow?.minimize());
   ipcMain.on("window-maximize", () => {
@@ -2368,6 +2420,8 @@ function cleanupAll() {
   cleanupLicenseTimers();
   cloudSyncInstance?.stop();
   cloudSyncInstance = null;
+  configSync?.stop();
+  configSync = null;
   terminalManager?.killAll();
   vscodeServer?.stop();
   // Hard exit if anything keeps the process alive

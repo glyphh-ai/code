@@ -528,6 +528,30 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Remote pattern augmentation (hot config updates)
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { ConfigSync } from "./config-sync";
+
+let remotePatterns: Record<string, RegExp[]> | null = null;
+
+function getRemotePatterns(): Record<string, RegExp[]> {
+  if (remotePatterns) return remotePatterns;
+  const cached = ConfigSync.load<{ additionalPatterns: Record<string, string[]> }>("firewall");
+  if (!cached?.additionalPatterns) return (remotePatterns = {});
+  const compiled: Record<string, RegExp[]> = {};
+  for (const [family, patterns] of Object.entries(cached.additionalPatterns)) {
+    compiled[family] = patterns.map((p) => new RegExp(p, "i"));
+  }
+  return (remotePatterns = compiled);
+}
+
+/** Force reload of remote patterns (called when config-sync updates). */
+export function reloadRemotePatterns(): void {
+  remotePatterns = null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Detection functions
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -559,6 +583,24 @@ export function detectIntentType(text: string): IntentType {
   if (matchesAny(t, ROLE_ASSUMPTION_PATTERNS)) return "instruct";
   if (matchesAny(t, CONTEXT_MANIPULATION_PATTERNS)) return "override";
 
+  // Check remote patterns from hot config updates
+  const rp = getRemotePatterns();
+  if (rp.override && matchesAny(t, rp.override)) return "override";
+  if (rp.jailbreak && matchesAny(t, rp.jailbreak)) return "jailbreak";
+  if (rp.extraction && matchesAny(t, rp.extraction)) return "extract";
+  if (rp.harmful && matchesAny(t, rp.harmful)) return "harmful";
+  if (rp.social_engineering && matchesAny(t, rp.social_engineering)) return "manipulate";
+  if (rp.tool_abuse && matchesAny(t, rp.tool_abuse)) return "abuse";
+  if (rp.resource_abuse && matchesAny(t, rp.resource_abuse)) return "abuse";
+  if (rp.agentic_exploit && matchesAny(t, rp.agentic_exploit)) return "manipulate";
+  if (rp.output_manipulation && matchesAny(t, rp.output_manipulation)) return "manipulate";
+  if (rp.logic_exploitation && matchesAny(t, rp.logic_exploitation)) return "manipulate";
+  if (rp.compliance_violation && matchesAny(t, rp.compliance_violation)) return "abuse";
+  if (rp.multi_turn && matchesAny(t, rp.multi_turn)) return "manipulate";
+  if (rp.encoding_obfuscation && matchesAny(t, rp.encoding_obfuscation)) return "override";
+  if (rp.role_assumption && matchesAny(t, rp.role_assumption)) return "instruct";
+  if (rp.context_manipulation && matchesAny(t, rp.context_manipulation)) return "override";
+
   if (text.trimEnd().endsWith("?")) return "query";
 
   const instructSignals = [
@@ -588,6 +630,24 @@ export function detectAttackFamily(text: string): AttackFamily {
   if (matchesAny(t, LOGIC_EXPLOITATION_PATTERNS)) return "logic_exploitation";
   if (matchesAny(t, COMPLIANCE_VIOLATION_PATTERNS)) return "compliance_violation";
   if (matchesAny(t, MULTI_TURN_PATTERNS)) return "multi_turn";
+
+  // Check remote patterns from hot config updates
+  const rpf = getRemotePatterns();
+  if (rpf.harmful && matchesAny(t, rpf.harmful)) return "harmful_content";
+  if (rpf.social_engineering && matchesAny(t, rpf.social_engineering)) return "social_engineering";
+  if (rpf.jailbreak && matchesAny(t, rpf.jailbreak)) return "role_assumption";
+  if (rpf.role_assumption && matchesAny(t, rpf.role_assumption)) return "role_assumption";
+  if (rpf.encoding_obfuscation && matchesAny(t, rpf.encoding_obfuscation)) return "encoding_obfuscation";
+  if (rpf.override && matchesAny(t, rpf.override)) return "instruction_override";
+  if (rpf.context_manipulation && matchesAny(t, rpf.context_manipulation)) return "context_manipulation";
+  if (rpf.tool_abuse && matchesAny(t, rpf.tool_abuse)) return "tool_abuse";
+  if (rpf.resource_abuse && matchesAny(t, rpf.resource_abuse)) return "resource_abuse";
+  if (rpf.agentic_exploit && matchesAny(t, rpf.agentic_exploit)) return "agentic_exploit";
+  if (rpf.output_manipulation && matchesAny(t, rpf.output_manipulation)) return "output_manipulation";
+  if (rpf.logic_exploitation && matchesAny(t, rpf.logic_exploitation)) return "logic_exploitation";
+  if (rpf.compliance_violation && matchesAny(t, rpf.compliance_violation)) return "compliance_violation";
+  if (rpf.multi_turn && matchesAny(t, rpf.multi_turn)) return "multi_turn";
+  if (rpf.extraction && matchesAny(t, rpf.extraction)) return "extraction";
 
   // Delimiter injection — only if intent is also suspicious
   if (detectDelimiterType(text) !== "none") {

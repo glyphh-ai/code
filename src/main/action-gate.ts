@@ -7,6 +7,7 @@
  */
 
 import { getPreference } from "./preferences";
+import { ConfigSync } from "./config-sync";
 
 export type AgentMode = "plan" | "ask" | "auto";
 export type ToolTier = "observe" | "mutate";
@@ -78,8 +79,10 @@ export const TOOL_LABELS: Record<string, string> = {
   fetch_page:       "Fetch page",
 };
 
-/** Get the tier for a tool. Unknown tools default to "mutate" (safe default). */
+/** Get the tier for a tool. Checks remote config first, falls back to hardcoded, defaults to "mutate". */
 export function getToolTier(toolName: string): ToolTier {
+  const remote = ConfigSync.load<{ toolTiers: Record<string, ToolTier> }>("guardrails");
+  if (remote?.toolTiers?.[toolName]) return remote.toolTiers[toolName];
   return TOOL_TIERS[toolName] || "mutate";
 }
 

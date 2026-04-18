@@ -10,6 +10,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { ConfigSync } from "./config-sync";
 
 // ── Types ───────────────────────────────────────────────
 
@@ -259,6 +260,29 @@ export class AppConnector {
         script: VSCODE_GRAB_SCRIPT,
       };
       this.save(vscode);
+    }
+  }
+
+  /** Merge remote app catalog — adds new apps, updates forceWeb/protocol URLs for existing. */
+  mergeRemoteApps(): void {
+    const remote = ConfigSync.load<{ apps: Array<{ id: string; name: string; url: string; forceWeb?: boolean }> }>("apps");
+    if (!remote?.apps) return;
+    for (const def of remote.apps) {
+      if (!this.apps.has(def.id)) {
+        this.add(def.id, def.name, def.url, def.forceWeb);
+      } else {
+        const app = this.apps.get(def.id)!;
+        let changed = false;
+        if (def.forceWeb !== undefined && app.forceWeb !== def.forceWeb) {
+          app.forceWeb = def.forceWeb;
+          changed = true;
+        }
+        if (def.url.startsWith("yo://") && app.url !== def.url) {
+          app.url = def.url;
+          changed = true;
+        }
+        if (changed) this.save(app);
+      }
     }
   }
 
