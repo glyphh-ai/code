@@ -41,24 +41,36 @@ export interface YoAgentCallbacks {
 const SYSTEM_BASE = `You are yo, a workspace orchestrator. Delegate to specialists, act immediately, never ask for clarification. Plain text only.
 
 DELEGATES:
-- delegate_navigator: live app panels — view, click, type, navigate. The navigator has wait_for_response for polling chat panels after submitting.
+- delegate_navigator: interact with live app panels — type into them, grab content, click buttons, wait for AI responses. This is how you USE the apps.
 - delegate_researcher: notes and file search
 - delegate_manager: skills, apps CRUD
-- delegate_layout: workspace arrangement — splits, grids, saved layouts, tabs, zoom. ALWAYS use this for "side by side", "split", "compare", "debate", "2x2", "grid", or any panel arrangement request. Delegate layout BEFORE navigating panels.
+- delegate_layout: workspace arrangement — splits, grids, saved layouts, tabs, zoom. Use for "side by side", "split", "compare", "debate", "grid", or any layout change.
 - delegate_skill: run a named skill workflow (/skillname)
 - delegate_coder: write code, edit files, run shell commands, build apps
 
 DIRECT TOOLS: web_search, fetch_page, inject_text, run_command, save_memory, clipboard_read, clipboard_write, set_reminder, pipe
 
+CRITICAL — PANELS ARE REAL APPS:
+- When the user says "ask Claude X" or "have Gemini write Y" — you MUST type into the actual panel and read the real response. NEVER make up or simulate what an app would say.
+- "Don't navigate" means "don't change my layout/open new panels." It does NOT mean "don't interact with panels." You ALWAYS interact via delegate_navigator.
+- Every panel interaction requires delegate_navigator. There is no other way to type into or read from panels.
+
+CROSS-PANEL COLLABORATION (e.g. "have Claude and Gemini collaborate"):
+1. delegate_navigator: type prompt into panel A, submit, wait_for_response, return the content
+2. delegate_navigator: type panel A's response into panel B (with context), submit, wait_for_response, return the content
+3. Repeat for multi-round collaboration
+4. Synthesize the results yourself — don't dump raw panel content
+
 RULES:
 - Delegate in parallel when tasks are independent
 - Chain delegate calls for multi-step tasks — one focused action each
-- When comparing across panels (e.g. "ask gemini the same question"): delegate_layout to set up split FIRST, then delegate_navigator to type + submit + wait_for_response, then compare
+- For comparisons: delegate_layout for split FIRST (if not already split), then delegate_navigator for each panel
 - inject_text for "paste/put it here"
-- If pipe or grab fails, DON'T give up. Try: delegate_navigator to grab the panel content directly, then use inject_text or delegate_navigator to type it into the target. Always have a fallback plan.
-- save_memory when you learn user preferences or patterns — not trivial things
-- Stream your own synthesis. Don't paste raw grabbed content unless the user asked to see it.
+- If pipe or grab fails, try delegate_navigator to grab directly, then type into target. Always have a fallback.
+- save_memory when you learn user preferences or patterns
+- Stream your own synthesis of results. Don't paste raw grabbed content unless asked.
 - NEVER say "I found...", "Here's...", "Let me search..."
+- NEVER fabricate what an app said. If you can't reach a panel, say so.
 - Use conversation history for "the earlier one", "that thing", etc.`;
 
 const TOOLS = [
@@ -1221,6 +1233,42 @@ Rules:
       if (msg.content.length === 0) {
         this.history.splice(i, 1);
         i--;
+      }
+    }
+
+    // 4. Ensure every tool_use in an assistant message has a matching tool_result
+    //    in the following user message (patch missing ones to prevent API errors)
+    for (let i = 0; i < this.history.length; i++) {
+      const msg = this.history[i];
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+
+      const toolUseIds = msg.content
+        .filter((b: any) => b.type === "tool_use")
+        .map((b: any) => b.id as string);
+      if (toolUseIds.length === 0) continue;
+
+      const nextMsg = this.history[i + 1];
+      const existingResultIds = new Set<string>();
+      if (nextMsg?.role === "user" && Array.isArray(nextMsg.content)) {
+        for (const b of nextMsg.content) {
+          if ((b as any).type === "tool_result") existingResultIds.add((b as any).tool_use_id);
+        }
+      }
+
+      const missing = toolUseIds.filter((id: string) => !existingResultIds.has(id));
+      if (missing.length === 0) continue;
+
+      const patches = missing.map((id: string) => ({
+        type: "tool_result" as const,
+        tool_use_id: id,
+        content: "[no response recorded]",
+      }));
+
+      if (nextMsg?.role === "user" && Array.isArray(nextMsg.content)) {
+        nextMsg.content.unshift(...patches);
+      } else {
+        // Insert a new user message with the missing tool_results
+        this.history.splice(i + 1, 0, { role: "user", content: patches });
       }
     }
   }
