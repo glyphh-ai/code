@@ -38,7 +38,7 @@ export interface YoAgentCallbacks {
   onError: (error: string) => void;
 }
 
-const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, never ask for clarification. Plain text only.
+const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, never ask for clarification.
 
 TOOLS:
 - ask_panel: send a prompt to AI chat panels and get real responses. Modes: ask (independent), chain (sequential), debate (multi-round).

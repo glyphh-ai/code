@@ -1311,10 +1311,12 @@ function finalizeYoMessage(fullText: string) {
 
   if (yoResponseEl) {
     yoResponseEl.innerHTML = formatYoText(text);
+    attachCopyHandlers(yoResponseEl);
   } else {
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant";
     yoResponseEl.innerHTML = formatYoText(text);
+    attachCopyHandlers(yoResponseEl);
     yoPanelMessages.appendChild(yoResponseEl);
   }
 
@@ -1364,15 +1366,157 @@ function showPlanActions() {
   });
 }
 
-/** Format agent text — numbered lists become task items */
+/** Lightweight markdown → HTML renderer for LLM output.
+ *  Handles: code fences, headers, bold, italic, inline code, links,
+ *  unordered/ordered lists, blockquotes, horizontal rules, paragraphs. */
 function formatYoText(text: string): string {
   if (!text) return "";
-  let safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  safe = safe.replace(
-    /^(\d+)\.\s+(.+)$/gm,
-    '<div class="yo-task-item"><span class="yo-task-check">\u2713</span><span class="yo-task-text">$2</span></div>'
-  );
-  return safe;
+
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Inline formatting (applied within already-escaped text)
+  const inline = (s: string) =>
+    s
+      .replace(/`([^`]+)`/g, '<code class="yo-md-inline">$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="yo-md-link" href="$2" title="$2">$1</a>');
+
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block
+    const fenceMatch = line.match(/^```(\w*)/);
+    if (fenceMatch) {
+      const lang = fenceMatch[1] || "";
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        codeLines.push(esc(lines[i]));
+        i++;
+      }
+      if (i < lines.length) i++; // skip closing ```
+      const label = lang || "code";
+      const codeId = `yo-code-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      out.push(
+        `<div class="yo-md-codeblock" data-code-id="${codeId}">` +
+          `<div class="yo-md-codeblock-header">` +
+            `<span class="yo-md-codeblock-lang">${esc(label)}</span>` +
+            `<button class="yo-md-copy-btn" data-code-id="${codeId}">Copy</button>` +
+          `</div>` +
+          `<pre class="yo-md-pre"><code>${codeLines.join("\n")}</code></pre>` +
+        `</div>`
+      );
+      continue;
+    }
+
+    // Heading
+    const hMatch = line.match(/^(#{1,4})\s+(.+)/);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      out.push(`<h${level} class="yo-md-h${level}">${inline(esc(hMatch[2]))}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      out.push('<hr class="yo-md-hr">');
+      i++;
+      continue;
+    }
+
+    // Blockquote
+    if (line.startsWith("> ") || line === ">") {
+      const quoteLines: string[] = [];
+      while (i < lines.length && (lines[i].startsWith("> ") || lines[i] === ">")) {
+        quoteLines.push(lines[i].replace(/^>\s?/, ""));
+        i++;
+      }
+      out.push(`<blockquote class="yo-md-quote">${inline(esc(quoteLines.join("\n")))}</blockquote>`);
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*+]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i])) {
+        items.push(inline(esc(lines[i].replace(/^[-*+]\s+/, ""))));
+        i++;
+      }
+      out.push(`<ul class="yo-md-ul">${items.map((li) => `<li>${li}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(inline(esc(lines[i].replace(/^\d+\.\s+/, ""))));
+        i++;
+      }
+      out.push(`<ol class="yo-md-ol">${items.map((li) => `<li>${li}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    // Blank line
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    // Paragraph — collect consecutive non-blank, non-special lines
+    const paraLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].match(/^```/) &&
+      !lines[i].match(/^#{1,4}\s/) &&
+      !lines[i].match(/^[-*+]\s+/) &&
+      !lines[i].match(/^\d+\.\s+/) &&
+      !lines[i].startsWith("> ") &&
+      !/^(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])
+    ) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    out.push(`<p class="yo-md-p">${inline(esc(paraLines.join("\n")))}</p>`);
+  }
+
+  return out.join("");
+}
+
+/** Attach interactive handlers (copy buttons, links) inside a container.
+ *  Called after innerHTML is set with formatYoText output. */
+function attachCopyHandlers(container: HTMLElement) {
+  // Copy buttons on code blocks
+  container.querySelectorAll<HTMLButtonElement>(".yo-md-copy-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const codeId = btn.dataset.codeId;
+      if (!codeId) return;
+      const block = container.querySelector(`.yo-md-codeblock[data-code-id="${codeId}"] code`);
+      if (!block) return;
+      navigator.clipboard.writeText(block.textContent || "").then(() => {
+        btn.textContent = "Copied";
+        btn.classList.add("yo-copied");
+        setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("yo-copied"); }, 2000);
+      });
+    });
+  });
+  // Links open externally instead of navigating the panel
+  container.querySelectorAll<HTMLAnchorElement>(".yo-md-link").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      const href = a.getAttribute("href");
+      if (href) window.yo.openExternal(href);
+    });
+  });
 }
 
 function showYoError(err: string) {
@@ -1540,6 +1684,7 @@ async function loadYoHistory() {
           } else {
             el.className = "yo-msg yo-msg-assistant";
             el.innerHTML = formatYoText(msg.text);
+            attachCopyHandlers(el);
             yoLastAssistantText = msg.text;
           }
           yoPanelMessages.appendChild(el);
