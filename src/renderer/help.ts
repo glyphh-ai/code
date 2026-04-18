@@ -156,6 +156,34 @@ export function initHelp() {
     closeAppDetail();
   });
 
+  // Export from detail screen
+  document.getElementById("app-detail-export")!.addEventListener("click", () => {
+    const app = allApps.find((a) => a.id === currentAppId);
+    if (app) exportAppConfig(app);
+  });
+
+  // Import from toolbar
+  const importBtn = document.getElementById("app-import-btn")!;
+  const importFile = document.getElementById("app-import-file") as HTMLInputElement;
+  importBtn.addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", async () => {
+    const file = importFile.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const config = JSON.parse(text);
+      if (!config.id || !config.name || !config.url) {
+        appConnectStatus.textContent = "Invalid app config: missing id, name, or url";
+        return;
+      }
+      await window.yo.appsImport(config);
+      loadApps();
+    } catch {
+      appConnectStatus.textContent = "Failed to parse app config file";
+    }
+    importFile.value = "";
+  });
+
   document.getElementById("app-preview-refresh")!.addEventListener("click", () => {
     appPreview.reload();
   });
@@ -502,6 +530,16 @@ interface AppData {
 
 let allApps: AppData[] = [];
 
+function exportAppConfig(app: AppData): void {
+  const blob = new Blob([JSON.stringify(app, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${app.id}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function loadApps() {
   appDetail.classList.add("hidden");
   appsList.classList.remove("hidden");
@@ -536,6 +574,7 @@ function renderAppsList() {
       </div>
       <div class="action-btns">
         <button class="action-btn app-card-edit">Configure</button>
+        <button class="action-btn app-card-export">Export</button>
         <button class="action-btn danger app-card-delete">Delete</button>
       </div>
     </div>`).join("");
@@ -545,6 +584,11 @@ function renderAppsList() {
     card.querySelector(".app-card-edit")!.addEventListener("click", (e) => {
       e.stopPropagation();
       openAppDetail(id);
+    });
+    card.querySelector(".app-card-export")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const app = allApps.find((a) => a.id === id);
+      if (app) exportAppConfig(app);
     });
     card.querySelector(".app-card-delete")!.addEventListener("click", async (e) => {
       e.stopPropagation();

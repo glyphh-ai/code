@@ -286,6 +286,22 @@ export class AppConnector {
     }
   }
 
+  /** Import a full app config (from exported JSON). Overwrites if same id exists. */
+  importApp(config: AppConfig): AppConfig {
+    const app: AppConfig = {
+      id: config.id,
+      name: config.name,
+      url: config.url,
+      connected: Object.keys(config.commands || {}).length > 0,
+      commands: config.commands || {},
+      ...(config.forceWeb ? { forceWeb: config.forceWeb } : {}),
+      ...(config.meta ? { meta: config.meta } : {}),
+    };
+    this.apps.set(app.id, app);
+    this.save(app);
+    return app;
+  }
+
   /** Add a new app (unconnected) */
   add(id: string, name: string, url: string, forceWeb?: boolean): AppConfig {
     const app: AppConfig = {

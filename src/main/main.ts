@@ -1795,6 +1795,11 @@ async function boot() {
     return app;
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-import", (_e, config: { id: string; name: string; url: string; connected: boolean; commands: Record<string, unknown>; forceWeb?: boolean; meta?: unknown }) => {
+    const app = appConnector.importApp(config as import("./app-connector").AppConfig);
+    panelManager.addPanel(app.id, app.url);
+    return app;
+  });
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {
     const ok = appConnector.updateId(oldId, newId);

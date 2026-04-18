@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld("yo", {
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
+  appsImport: (config: Record<string, unknown>) => ipcRenderer.invoke("apps-import", config),
   appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
   appsUpdateId: (oldId: string, newId: string) => ipcRenderer.invoke("apps-update-id", oldId, newId) as Promise<boolean>,
   appsConnect: (id: string, webContentsId?: number) =>

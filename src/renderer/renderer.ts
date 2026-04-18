@@ -33,6 +33,7 @@ declare global {
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
       appsRemove: (id: string) => Promise<boolean>;
+      appsImport: (config: Record<string, unknown>) => Promise<unknown>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsUpdateId: (oldId: string, newId: string) => Promise<boolean>;
       appsConnect: (id: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string; commandCount?: number }>;

@@ -307,6 +307,8 @@
             <input id="app-new-name" type="text" placeholder="app name" spellcheck="false" />
             <input id="app-new-url" type="text" placeholder="https://..." spellcheck="false" />
             <button id="app-add-btn" class="action-btn primary">+ Add App</button>
+            <button id="app-import-btn" class="action-btn">Import</button>
+            <input id="app-import-file" type="file" accept=".json" class="hidden" />
           </div>
           <div id="apps-list"></div>
 
@@ -321,6 +323,7 @@
               <div class="action-btns app-detail-actions">
                 <button id="app-connect-btn" class="action-btn primary">Connect</button>
                 <button id="app-pick-btn" class="action-btn">Pick Element</button>
+                <button id="app-detail-export" class="action-btn">Export</button>
                 <button id="app-detail-delete" class="action-btn danger">Delete</button>
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
