@@ -297,7 +297,10 @@ RESPONSE:
         const panelId = input.panel_id as string;
         if (!this.panelScreenshotter) return "Screenshot not available.";
         const dataUrl = await this.panelScreenshotter(panelId);
-        return dataUrl || `Could not screenshot panel: ${panelId}`;
+        if (!dataUrl) return `Could not screenshot panel: ${panelId}`;
+        // Screenshots are base64 images — too large for text context.
+        // Return a short confirmation; the orchestrator handles visual analysis.
+        return `Screenshot captured for panel: ${panelId} (${Math.round(dataUrl.length / 1024)}KB image). Use grab_panel or scan_panel to read the content as text.`;
       }
 
       case "refresh_panel": {

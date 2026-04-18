@@ -27,6 +27,7 @@ export abstract class BaseSubAgent {
   private aborted = false;
   private _mode: AgentMode = "ask";
   private _approvalCallback: ApprovalCallback | null = null;
+  private _modelOverride: string | null = null;  // "auto" | specific model | "orchestrator" | null
 
   /** Name used for usage tracking. Override in subclasses. */
   protected agentName = "sub-agent";
@@ -36,6 +37,7 @@ export abstract class BaseSubAgent {
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
   setMode(mode: AgentMode): void { this._mode = mode; }
+  setModelOverride(model: string | null): void { this._modelOverride = model; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   abort(): void { this.aborted = true; }
   resetAbort(): void { this.aborted = false; }
@@ -143,7 +145,11 @@ export abstract class BaseSubAgent {
 
         if (onToolUse) onToolUse(block.name);
         toolsUsed.push(block.name);
-        const result = await this.execTool(block.name, block.input as Record<string, unknown>);
+        let result = await this.execTool(block.name, block.input as Record<string, unknown>);
+        // Cap tool results to prevent context overflow (200k token limit)
+        if (result.length > 12000) {
+          result = result.slice(0, 12000) + "\n\n[truncated — content too long]";
+        }
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }
 
@@ -188,9 +194,11 @@ export abstract class BaseSubAgent {
     return { summary: "(no response)", success: false, toolsUsed };
   }
 
-  /** Get the cheap model for the current provider. */
+  /** Get the model for sub-agent calls. Respects user override. */
   private getCheapModel(): string {
     if (!this.llmConfig) return "";
+    if (this._modelOverride === "orchestrator") return this.llmConfig.model;
+    if (this._modelOverride && this._modelOverride !== "auto") return this._modelOverride;
     return CHEAP_MODELS[this.llmConfig.provider] || this.llmConfig.model;
   }
 }

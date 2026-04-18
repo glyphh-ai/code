@@ -1042,7 +1042,8 @@ body {
 /* Sections with split detail views need full height */
 .help-section[data-section="apps"].active,
 .help-section[data-section="skills"].active,
-.help-section[data-section="library"].active {
+.help-section[data-section="library"].active,
+.help-section[data-section="settings"].active {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1971,6 +1972,73 @@ body {
 }
 
 /* ── Settings (help tab) ──────────────────────────────────── */
+
+.settings-layout {
+  display: flex;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 160px;
+  flex-shrink: 0;
+  padding: 8px 16px 8px 0;
+  border-right: 1px solid #222;
+}
+
+.settings-nav-item {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+
+.settings-nav-item:hover {
+  color: #ccc;
+  background: rgba(255,255,255,0.04);
+}
+
+.settings-nav-item.active {
+  color: #fff;
+  background: rgba(255,255,255,0.07);
+}
+
+.settings-panels {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0 8px 28px;
+  overflow-y: auto;
+}
+
+.settings-panel {
+  display: none;
+}
+
+.settings-panel.active {
+  display: block;
+}
+
+.settings-panel h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 4px;
+}
+
+.settings-panel .section-desc {
+  margin: 0 0 16px;
+}
 
 .settings-form {
   max-width: 420px;
@@ -3089,7 +3157,7 @@ select.settings-input {
   line-height: 1.5;
   overflow-y: auto;
 }
-#yo-panel-input:focus { border-color: #25C75E; }
+#yo-panel-input:focus { border-color: var(--yo-mode-color, #25C75E); }
 #yo-panel-input::placeholder { color: #555; }
 
 .yo-mic-btn {
@@ -3137,8 +3205,8 @@ select.settings-input {
 }
 #yo-panel-send:hover { opacity: 0.8; }
 #yo-panel-send.yo-stop {
-  background: transparent;
-  border-color: #25C75E;
+  background: transparent !important;
+  border-color: var(--yo-mode-color, #25C75E);
   color: transparent;
   position: relative;
   font-size: 0;
@@ -3148,7 +3216,7 @@ select.settings-input {
   display: block;
   width: 12px;
   height: 12px;
-  background: #25C75E;
+  background: var(--yo-mode-color, #25C75E);
   border-radius: 2px;
 }
 
@@ -3180,7 +3248,55 @@ select.settings-input {
   padding-right: 22px;
 }
 .yo-control-select:hover { border-color: #444; color: #ccc; }
-.yo-control-select:focus { border-color: #25C75E; }
+.yo-control-select:focus { border-color: var(--yo-mode-color, #25C75E); }
+
+/* ── Plan action buttons ───────────────────────────────── */
+
+.yo-plan-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.yo-plan-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #ccc;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.yo-plan-btn:hover {
+  border-color: #555;
+  color: #fff;
+}
+
+.yo-plan-proceed {
+  border-color: #25C75E;
+  color: #25C75E;
+}
+.yo-plan-proceed:hover {
+  background: #25C75E;
+  color: #000;
+}
+
+.yo-plan-auto {
+  border-color: #FF8C00;
+  color: #FF8C00;
+}
+.yo-plan-auto:hover {
+  background: #FF8C00;
+  color: #000;
+}
+
+.yo-plan-edit:hover {
+  background: #333;
+}
 
 /* ── Yo panel approval cards ─────────────────────────────── */
 

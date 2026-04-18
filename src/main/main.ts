@@ -1059,9 +1059,27 @@ async function boot() {
 
       // Submit by pressing Enter if requested
       if (opts.submit) {
-        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+        // Try dispatching a real DOM KeyboardEvent first (works with ProseMirror, React, etc.)
+        await wc.executeJavaScript(`(function(){
+          var el = document.activeElement;
+          if (!el) return;
+          var opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+          el.dispatchEvent(new KeyboardEvent('keydown', opts));
+          el.dispatchEvent(new KeyboardEvent('keypress', opts));
+          el.dispatchEvent(new KeyboardEvent('keyup', opts));
+        })()`);
         await new Promise((r) => setTimeout(r, 300));
+
+        // Fallback: if the above didn't submit (e.g. send button required), try clicking the send button
+        const clicked = await wc.executeJavaScript(`(function(){
+          // Common send button selectors across chat apps
+          var btn = document.querySelector('button[aria-label*="Send"],button[data-testid*="send"],button[class*="send" i],form button[type="submit"]');
+          if (btn && !btn.disabled) { btn.click(); return 'clicked'; }
+          return 'no-btn';
+        })()`);
+        if (clicked === 'clicked') {
+          await new Promise((r) => setTimeout(r, 200));
+        }
         return 'Typed and submitted.';
       }
       return 'Typed successfully.';
@@ -1256,6 +1274,10 @@ async function boot() {
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
   yoAgent.setMaxMessages(yoMaxMessages);
+
+  // Sub-agent model override
+  const subAgentModel = getPreference<string>("subAgentModel", "auto");
+  yoAgent.setSubAgentModel(subAgentModel);
 
   // Agent mode + approval callback
   yoAgent.setMode(getAgentMode());
@@ -1518,6 +1540,11 @@ async function boot() {
     ensureTab(id);
     sendTabState();
     sendUrlUpdate();
+    // Notify dashboard to refresh when it becomes visible
+    if (id === "dashboard") {
+      const wc = panelManager.getWebContents("dashboard");
+      if (wc && !wc.isDestroyed()) wc.send("dashboard:visible");
+    }
   });
 
   // Wire tab manager to yo agent (must be after tab system is set up)
@@ -1641,18 +1668,26 @@ async function boot() {
     setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
   }
 
-  // ── Hot config sync (blocking fetch on boot, then periodic) ─
-  configSync = new ConfigSync();
-  await configSync.fetchAll((msg) => {
-    mainWindow?.webContents.send("splash-status", msg);
-  });
-  // Apply fetched configs immediately
-  reloadRemotePatterns();
-  appConnector.mergeRemoteApps();
-  // Start periodic checks for future updates
-  configSync.start(() => {
+  // ── Hot config sync (non-blocking, then periodic) ─
+  function syncRemoteApps(): void {
     reloadRemotePatterns();
     appConnector.mergeRemoteApps();
+    // Register any new apps with the panel manager so dip can find them
+    for (const app of appConnector.list()) {
+      if (!panelManager.hasPanel(app.id)) {
+        panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
+      }
+    }
+  }
+  configSync = new ConfigSync();
+  configSync.fetchAll((msg) => {
+    mainWindow?.webContents.send("splash-status", msg);
+  }).then(() => {
+    syncRemoteApps();
+  }).catch(() => {});
+  // Start periodic checks for future updates
+  configSync.start(() => {
+    syncRemoteApps();
   });
 
   // Global hotkey: Cmd+Y / Ctrl+Y
@@ -2566,6 +2601,10 @@ async function boot() {
   // IPC: preferences
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
     setPreference(key, value);
+    // Live-apply sub-agent model changes
+    if (key === "subAgentModel") {
+      yoAgent?.setSubAgentModel(value as string);
+    }
   });
   ipcMain.handle("get-preference", (_e, key: string, defaultVal: unknown) => {
     return getPreference(key, defaultVal);

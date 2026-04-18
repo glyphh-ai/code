@@ -832,6 +832,7 @@ const yoChatNewBtn = document.getElementById("yo-chat-new")!;
 let yoResponseEl: HTMLElement | null = null;  // the single assistant response element
 let yoStatusEl: HTMLElement | null = null;    // spinner + tool status line (persists until response)
 let yoLastAssistantText = "";
+let yoLastUserText = "";                      // track last user message for plan re-execution
 let yoToolsUsed = false;  // once a tool fires, suppress streamed text until done
 let yoThinking = false;   // true while agent is processing
 
@@ -881,6 +882,7 @@ let yoControlsInited = false;
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
   yoModeSelect.value = mode;
+  applyModeColor();
 
   const [config, presets] = await Promise.all([
     window.yo.getLLMConfig(),
@@ -905,8 +907,25 @@ async function initYoControls() {
   }
 }
 
+const MODE_COLORS: Record<string, string> = {
+  ask: "#25C75E",    // green
+  plan: "#4A9EFF",   // blue
+  auto: "#FF8C00",   // orange
+};
+
+function applyModeColor() {
+  const color = MODE_COLORS[yoModeSelect.value] || MODE_COLORS.ask;
+  yoModeSelect.style.color = "#fff";
+  yoModeSelect.style.borderColor = color;
+  yoPanelInput.style.setProperty("--mode-color", color);
+  yoPanelSendBtn.style.background = color;
+  // Update CSS custom property for focus/stop states
+  document.documentElement.style.setProperty("--yo-mode-color", color);
+}
+
 yoModeSelect.addEventListener("change", () => {
   window.yo.setAgentMode(yoModeSelect.value);
+  applyModeColor();
 });
 
 yoModelSelect.addEventListener("change", async () => {
@@ -1235,7 +1254,50 @@ function finalizeYoMessage(fullText: string) {
 
   yoLastAssistantText = text;
   yoResponseEl = null;
+
+  // In plan mode, show action buttons
+  if (yoModeSelect.value === "plan" && yoLastUserText) {
+    showPlanActions();
+  }
+
   yoScroll();
+}
+
+function showPlanActions() {
+  const card = document.createElement("div");
+  card.className = "yo-plan-actions";
+  card.innerHTML =
+    `<button class="yo-plan-btn yo-plan-proceed">Proceed</button>` +
+    `<button class="yo-plan-btn yo-plan-auto">Proceed (auto)</button>` +
+    `<button class="yo-plan-btn yo-plan-edit">Edit</button>`;
+  yoPanelMessages.appendChild(card);
+
+  card.querySelector(".yo-plan-proceed")!.addEventListener("click", () => {
+    card.remove();
+    window.yo.setAgentMode("ask");
+    yoModeSelect.value = "ask";
+    applyModeColor();
+    showYoStatus("");
+    setYoThinking(true);
+    window.yo.yoPanelSend("Execute the plan above.");
+  });
+
+  card.querySelector(".yo-plan-auto")!.addEventListener("click", () => {
+    card.remove();
+    window.yo.setAgentMode("auto");
+    yoModeSelect.value = "auto";
+    applyModeColor();
+    showYoStatus("");
+    setYoThinking(true);
+    window.yo.yoPanelSend("Execute the plan above.");
+  });
+
+  card.querySelector(".yo-plan-edit")!.addEventListener("click", () => {
+    card.remove();
+    yoPanelInput.value = yoLastUserText;
+    yoPanelInput.focus();
+    autoGrowYoInput();
+  });
 }
 
 /** Format agent text — numbered lists become task items */
@@ -1275,6 +1337,7 @@ function sendYoPanelMessage() {
   yoToolsUsed = false;
   yoTimelineEl = null;
   yoSpinnerEl = null;
+  yoLastUserText = text;
   addYoUserMessage(text);
   showYoStatus("");
   setYoThinking(true);

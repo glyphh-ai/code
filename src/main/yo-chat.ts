@@ -204,6 +204,34 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
     return text || "not found";
   }
 
+  /**
+   * .yo . <prompt> — lightweight inline processing.
+   * Single LLM call: takes captured content + user prompt, returns processed text.
+   * No tools, no streaming, no agent loop.
+   */
+  async executeProcess(prompt: string, capturedContent: string): Promise<string> {
+    if (!this.llmConfig?.apiKey) return "No API key configured.";
+
+    const system = `You are yo, a lightweight processing assistant. The user captured content from their screen and wants you to process it with a specific instruction.
+
+Return ONLY the processed result. No preamble, no explanation, no meta-commentary. Just the output the user asked for, ready to paste directly.`;
+
+    const response = await createCompletion(this.llmConfig, {
+      system,
+      messages: [{
+        role: "user",
+        content: `Instruction: ${prompt}\n\nCaptured content:\n\n${capturedContent.slice(0, 24000)}`,
+      }],
+      maxTokens: 4096,
+    });
+
+    let text = "";
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
+    }
+    return text || "";
+  }
+
   // ── Stream + tool loop ────────────────────────────────
 
   private async streamLoop(cb: ChatCallbacks): Promise<void> {

@@ -32,4 +32,9 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   onUsageUpdate: (cb: () => void) => {
     ipcRenderer.on("dashboard:usage-updated", () => cb());
   },
+
+  /** Listen for panel becoming visible (triggers full refresh). */
+  onVisible: (cb: () => void) => {
+    ipcRenderer.on("dashboard:visible", () => cb());
+  },
 });

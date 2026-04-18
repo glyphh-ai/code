@@ -46,6 +46,21 @@ navItems.forEach((item) => {
   });
 });
 
+// ── Settings sub-navigation ─────────────────────────────
+
+const settingsSubNav = document.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+const settingsSubPanels = document.querySelectorAll<HTMLDivElement>(".settings-panel");
+
+settingsSubNav.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    settingsSubNav.forEach((n) => n.classList.remove("active"));
+    settingsSubPanels.forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    const target = document.querySelector(`.settings-panel[data-sub="${btn.dataset.sub}"]`);
+    if (target) target.classList.add("active");
+  });
+});
+
 function activeSection(): string {
   return (document.querySelector(".help-nav-item.active") as HTMLElement).dataset.section!;
 }
@@ -815,6 +830,7 @@ const settingsBrowserHome = document.getElementById("settings-browser-home") as 
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
+const settingsSubagentModel = document.getElementById("settings-subagent-model") as HTMLSelectElement;
 const toolOverridesList = document.getElementById("tool-overrides-list")!;
 
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
@@ -849,6 +865,11 @@ function initSettings() {
     // Sync the yo panel dropdown too
     const yoModeEl = document.getElementById("yo-mode-select") as HTMLSelectElement;
     if (yoModeEl) yoModeEl.value = settingsAgentMode.value;
+  });
+
+  // Sub-agent model
+  settingsSubagentModel.addEventListener("change", () => {
+    window.yo.setPreference("subAgentModel", settingsSubagentModel.value);
   });
 
   toggleShowTabs.addEventListener("change", () => {
@@ -1037,6 +1058,27 @@ async function loadSettings() {
   // Agent mode
   const currentMode = await window.yo.getAgentMode();
   settingsAgentMode.value = currentMode;
+
+  // Sub-agent model — populate from current provider's preset
+  const currentProvider = config.provider;
+  const currentPreset = presets[currentProvider];
+  settingsSubagentModel.innerHTML = '<option value="auto">Auto (cheapest)</option>';
+  if (currentPreset) {
+    for (const m of currentPreset.models) {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
+      settingsSubagentModel.appendChild(opt);
+    }
+  }
+  // Also allow "same as orchestrator"
+  const sameOpt = document.createElement("option");
+  sameOpt.value = "orchestrator";
+  sameOpt.textContent = "Same as orchestrator";
+  settingsSubagentModel.appendChild(sameOpt);
+
+  const savedSubModel = await window.yo.getPreference("subAgentModel", "auto") as string;
+  settingsSubagentModel.value = savedSubModel;
 
   // Tool overrides
   const tools = await window.yo.getToolRegistry();

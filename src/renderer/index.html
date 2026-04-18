@@ -134,28 +134,28 @@
           </div>
 
           <div class="help-group">
-            <h3>.yo . <span class="cmd-desc">— capture + agent</span></h3>
-            <p class="cmd-intro">Capture the current screen and send it to the agent with a question or instruction.</p>
-            <div class="cmd-row">
-              <code>.yo . what is this?</code>
-              <span>Capture screen + ask the agent about it</span>
-            </div>
-            <div class="cmd-row">
-              <code>.yo . summarize this page</code>
-              <span>Capture + agent processes with context</span>
-            </div>
-          </div>
-
-          <div class="help-group">
             <h3>.sup <span class="cmd-desc">— capture</span></h3>
-            <p class="cmd-intro">Capture the active panel into memory.</p>
+            <p class="cmd-intro">Capture the active panel into memory. Use <code>.sup .</code> to also process it with a skill or prompt.</p>
             <div class="cmd-row">
               <code>.sup</code>
               <span>Capture active panel to memory + clipboard</span>
             </div>
             <div class="cmd-row">
               <code>.sup . formalize</code>
-              <span>Capture + process with a skill</span>
+              <span>Capture + process with a skill inline</span>
+            </div>
+          </div>
+
+          <div class="help-group">
+            <h3>.yo . <span class="cmd-desc">— inline process</span></h3>
+            <p class="cmd-intro">Use the last <code>.sup</code> capture with a prompt. Result goes straight into the text field — no agent panel. Capture first with <code>.sup</code>, switch panels, then <code>.yo .</code></p>
+            <div class="cmd-row">
+              <code>.yo . summarize this</code>
+              <span>Process last capture + inject result into text field</span>
+            </div>
+            <div class="cmd-row">
+              <code>.yo . rewrite as bullet points</code>
+              <span>Transform captured content inline</span>
             </div>
           </div>
 
@@ -377,137 +377,175 @@
 
         <!-- Settings -->
         <div class="help-section" data-section="settings">
-          <h2>Settings</h2>
-          <p class="section-desc">Configure your LLM provider, model, and API key.</p>
-          <div class="settings-form">
-            <label class="settings-label">Provider</label>
-            <select id="settings-provider" class="settings-input">
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-              <option value="google">Google AI</option>
-              <option value="custom">Custom</option>
-            </select>
+          <div class="settings-layout">
+            <nav class="settings-nav">
+              <button class="settings-nav-item active" data-sub="general">General</button>
+              <button class="settings-nav-item" data-sub="agent">Agent</button>
+              <button class="settings-nav-item" data-sub="appearance">Appearance</button>
+              <button class="settings-nav-item" data-sub="license">License</button>
+              <button class="settings-nav-item" data-sub="advanced">Advanced</button>
+            </nav>
+            <div class="settings-panels">
 
-            <label class="settings-label">Model</label>
-            <div class="settings-model-wrap">
-              <select id="settings-model-select" class="settings-input"></select>
-              <input id="settings-model-custom" type="text" class="settings-input hidden" placeholder="model name" spellcheck="false" autocomplete="off" />
-            </div>
+              <!-- General: Provider, Model, API Key -->
+              <div class="settings-panel active" data-sub="general">
+                <h2>General</h2>
+                <p class="section-desc">LLM provider and credentials.</p>
+                <div class="settings-form">
+                  <label class="settings-label">Provider</label>
+                  <select id="settings-provider" class="settings-input">
+                    <option value="anthropic">Anthropic</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="google">Google AI</option>
+                    <option value="custom">Custom</option>
+                  </select>
 
-            <label class="settings-label">API Key</label>
-            <input id="settings-api-key" type="password" class="settings-input" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" />
+                  <label class="settings-label">Model</label>
+                  <div class="settings-model-wrap">
+                    <select id="settings-model-select" class="settings-input"></select>
+                    <input id="settings-model-custom" type="text" class="settings-input hidden" placeholder="model name" spellcheck="false" autocomplete="off" />
+                  </div>
 
-            <label id="settings-base-url-label" class="settings-label hidden">Base URL</label>
-            <input id="settings-base-url" type="text" class="settings-input hidden" placeholder="https://api.openai.com/v1" spellcheck="false" autocomplete="off" />
+                  <label class="settings-label">API Key</label>
+                  <input id="settings-api-key" type="password" class="settings-input" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" />
 
-            <div class="settings-actions">
-              <button id="settings-save" class="action-btn primary">Save</button>
-              <span id="settings-status"></span>
-            </div>
-          </div>
+                  <label id="settings-base-url-label" class="settings-label hidden">Base URL</label>
+                  <input id="settings-base-url" type="text" class="settings-input hidden" placeholder="https://api.openai.com/v1" spellcheck="false" autocomplete="off" />
 
-          <h3 class="settings-subheading">License</h3>
-          <div id="license-card" class="license-card">
-            <div class="license-row">
-              <span class="license-label">Status</span>
-              <span class="license-value" id="license-status">—</span>
-            </div>
-            <div class="license-row">
-              <span class="license-label">Key</span>
-              <span class="license-value" id="license-key">—</span>
-            </div>
-            <div class="license-row license-input-row">
-              <input id="license-key-input" type="text" placeholder="Paste license key (YO-...)" spellcheck="false" autocomplete="off" class="settings-input" />
-              <button id="license-activate-btn" class="action-btn primary">Activate</button>
-            </div>
-            <div id="license-activate-status" class="license-activate-status"></div>
-            <div class="license-actions">
-              <button id="license-upgrade-btn" class="action-btn primary">Get License</button>
-              <button id="license-cancel-btn" class="action-btn" style="display:none">Cancel Subscription</button>
-            </div>
-          </div>
-
-          <h3 class="settings-subheading">Appearance</h3>
-          <div class="settings-toggles">
-            <label class="settings-toggle">
-              <input type="checkbox" id="toggle-show-tabs" checked />
-              <span class="toggle-switch"></span>
-              <div class="toggle-info">
-                <span class="toggle-title">Show Tabs</span>
-                <span class="toggle-desc">Show browser-style tabs in the app header</span>
+                  <div class="settings-actions">
+                    <button id="settings-save" class="action-btn primary">Save</button>
+                    <span id="settings-status"></span>
+                  </div>
+                </div>
               </div>
-            </label>
-            <label class="settings-toggle">
-              <input type="checkbox" id="toggle-show-url-bar" checked />
-              <span class="toggle-switch"></span>
-              <div class="toggle-info">
-                <span class="toggle-title">Show URL Bar</span>
-                <span class="toggle-desc">Show a URL bar below the titlebar for all panels</span>
+
+              <!-- Agent: Mode, Sub-Agent Model, Context, Tool Permissions -->
+              <div class="settings-panel" data-sub="agent">
+                <h2>Agent</h2>
+                <p class="section-desc">Configure the .yo agent behavior.</p>
+                <div class="settings-form">
+                  <label class="settings-label">Default Mode</label>
+                  <div class="settings-inline">
+                    <select id="settings-agent-mode" class="settings-input settings-input-md">
+                      <option value="ask">Ask</option>
+                      <option value="plan">Plan</option>
+                      <option value="auto">Auto</option>
+                    </select>
+                    <span class="settings-hint">ask = approve actions, plan = preview first, auto = full trust</span>
+                  </div>
+                  <label class="settings-label">Sub-Agent Model</label>
+                  <div class="settings-inline">
+                    <select id="settings-subagent-model" class="settings-input settings-input-md">
+                      <option value="auto">Auto (cheapest)</option>
+                    </select>
+                    <span class="settings-hint">model for navigator, researcher, manager sub-agents</span>
+                  </div>
+                  <label class="settings-label">Context Window</label>
+                  <div class="settings-inline">
+                    <input id="settings-context-window" type="number" class="settings-input settings-input-sm" min="10" max="200" step="10" value="40" />
+                    <span class="settings-hint">messages before compaction</span>
+                  </div>
+                </div>
+
+                <h3 class="settings-subheading">Tool Permissions</h3>
+                <p class="section-desc">Override the mode for individual tools. "Default" uses the global mode above.</p>
+                <div id="tool-overrides-list" class="tool-overrides-list"></div>
               </div>
-            </label>
-          </div>
 
-          <h3 class="settings-subheading">Browser</h3>
-          <div class="settings-form">
-            <label class="settings-label">Default Homepage</label>
-            <div class="settings-inline">
-              <select id="settings-browser-home" class="settings-input settings-input-md">
-                <option value="claude">Claude</option>
-                <option value="chatgpt">ChatGPT</option>
-                <option value="gemini">Gemini</option>
-                <option value="custom">Custom URL</option>
-              </select>
-            </div>
-            <div id="browser-home-custom-row" class="settings-inline hidden" style="margin-top:6px">
-              <input id="settings-browser-home-url" type="text" class="settings-input" placeholder="https://..." spellcheck="false" />
-            </div>
-          </div>
+              <!-- Appearance: Tabs, URL bar, Browser home -->
+              <div class="settings-panel" data-sub="appearance">
+                <h2>Appearance</h2>
+                <p class="section-desc">Customize the workspace interface.</p>
+                <div class="settings-toggles">
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-show-tabs" checked />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Show Tabs</span>
+                      <span class="toggle-desc">Show browser-style tabs in the app header</span>
+                    </div>
+                  </label>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-show-url-bar" checked />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Show URL Bar</span>
+                      <span class="toggle-desc">Show a URL bar below the titlebar for all panels</span>
+                    </div>
+                  </label>
+                </div>
 
-          <h3 class="settings-subheading">.yo Agent</h3>
-          <div class="settings-form">
-            <label class="settings-label">Default Mode</label>
-            <div class="settings-inline">
-              <select id="settings-agent-mode" class="settings-input settings-input-md">
-                <option value="ask">Ask</option>
-                <option value="plan">Plan</option>
-                <option value="auto">Auto</option>
-              </select>
-              <span class="settings-hint">ask = approve actions, plan = preview first, auto = full trust</span>
-            </div>
-            <label class="settings-label">Context Window</label>
-            <div class="settings-inline">
-              <input id="settings-context-window" type="number" class="settings-input settings-input-sm" min="10" max="200" step="10" value="40" />
-              <span class="settings-hint">messages before compaction</span>
-            </div>
-          </div>
-
-          <h3 class="settings-subheading">Tool Permissions</h3>
-          <p class="section-desc">Override the mode for individual tools. "Default" uses the global mode above.</p>
-          <div id="tool-overrides-list" class="tool-overrides-list"></div>
-
-          <h3 class="settings-subheading">Services</h3>
-          <p class="section-desc">Optional local servers. Changes take effect on next launch.</p>
-          <div class="settings-toggles">
-            <label class="settings-toggle">
-              <input type="checkbox" id="toggle-vscode-server" />
-              <span class="toggle-switch"></span>
-              <div class="toggle-info">
-                <span class="toggle-title">VS Code Server</span>
-                <span class="toggle-desc">Run local <code>code serve-web</code> for full file access</span>
+                <h3 class="settings-subheading">Browser</h3>
+                <div class="settings-form">
+                  <label class="settings-label">Default Homepage</label>
+                  <div class="settings-inline">
+                    <select id="settings-browser-home" class="settings-input settings-input-md">
+                      <option value="claude">Claude</option>
+                      <option value="chatgpt">ChatGPT</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="custom">Custom URL</option>
+                    </select>
+                  </div>
+                  <div id="browser-home-custom-row" class="settings-inline hidden" style="margin-top:6px">
+                    <input id="settings-browser-home-url" type="text" class="settings-input" placeholder="https://..." spellcheck="false" />
+                  </div>
+                </div>
               </div>
-            </label>
-            <label class="settings-toggle">
-              <input type="checkbox" id="toggle-auto-update" checked />
-              <span class="toggle-switch"></span>
-              <div class="toggle-info">
-                <span class="toggle-title">Auto Updates</span>
-                <span class="toggle-desc">Automatically download and install updates</span>
+
+              <!-- License -->
+              <div class="settings-panel" data-sub="license">
+                <h2>License</h2>
+                <p class="section-desc">Manage your .Yo license.</p>
+                <div id="license-card" class="license-card">
+                  <div class="license-row">
+                    <span class="license-label">Status</span>
+                    <span class="license-value" id="license-status">—</span>
+                  </div>
+                  <div class="license-row">
+                    <span class="license-label">Key</span>
+                    <span class="license-value" id="license-key">—</span>
+                  </div>
+                  <div class="license-row license-input-row">
+                    <input id="license-key-input" type="text" placeholder="Paste license key (YO-...)" spellcheck="false" autocomplete="off" class="settings-input" />
+                    <button id="license-activate-btn" class="action-btn primary">Activate</button>
+                  </div>
+                  <div id="license-activate-status" class="license-activate-status"></div>
+                  <div class="license-actions">
+                    <button id="license-upgrade-btn" class="action-btn primary">Get License</button>
+                    <button id="license-cancel-btn" class="action-btn" style="display:none">Cancel Subscription</button>
+                  </div>
+                </div>
               </div>
-            </label>
-          </div>
-          <div id="settings-relaunch" class="settings-relaunch hidden">
-            <span>Restart required for changes to take effect</span>
-            <button id="settings-relaunch-btn" class="action-btn primary">Relaunch</button>
+
+              <!-- Advanced: Services, Relaunch -->
+              <div class="settings-panel" data-sub="advanced">
+                <h2>Advanced</h2>
+                <p class="section-desc">Optional services and system settings.</p>
+                <div class="settings-toggles">
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-vscode-server" />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">VS Code Server</span>
+                      <span class="toggle-desc">Run local <code>code serve-web</code> for full file access</span>
+                    </div>
+                  </label>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-auto-update" checked />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Auto Updates</span>
+                      <span class="toggle-desc">Automatically download and install updates</span>
+                    </div>
+                  </label>
+                </div>
+                <div id="settings-relaunch" class="settings-relaunch hidden">
+                  <span>Restart required for changes to take effect</span>
+                  <button id="settings-relaunch-btn" class="action-btn primary">Relaunch</button>
+                </div>
+              </div>
+
+            </div>
           </div>
         </div>
 

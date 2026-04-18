@@ -32,11 +32,13 @@ export class ConfigSync {
     fs.mkdirSync(CONFIG_CACHE_DIR, { recursive: true });
   }
 
-  /** Blocking fetch of all configs. Call during boot before splash dismisses. */
+  /** Fetch all configs with a timeout so boot is never blocked. */
   async fetchAll(onProgress?: (msg: string) => void): Promise<boolean> {
     try {
       onProgress?.("checking for updates...");
-      const res = await fetch(`${SERVER_BASE}/api/config/manifest`);
+      const res = await fetch(`${SERVER_BASE}/api/config/manifest`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!res.ok) return false;
       const remote: ConfigManifest = await res.json() as ConfigManifest;
 
@@ -87,7 +89,9 @@ export class ConfigSync {
   }
 
   private async check(): Promise<void> {
-    const res = await fetch(`${SERVER_BASE}/api/config/manifest`);
+    const res = await fetch(`${SERVER_BASE}/api/config/manifest`, {
+      signal: AbortSignal.timeout(10000),
+    });
     if (!res.ok) return;
     const remote: ConfigManifest = await res.json() as ConfigManifest;
 
@@ -117,7 +121,9 @@ export class ConfigSync {
   }
 
   private async download(name: string): Promise<void> {
-    const res = await fetch(`${SERVER_BASE}/api/config/${name}`);
+    const res = await fetch(`${SERVER_BASE}/api/config/${name}`, {
+      signal: AbortSignal.timeout(10000),
+    });
     if (!res.ok) return;
     const data = await res.json() as Record<string, unknown>;
     fs.writeFileSync(

@@ -345,13 +345,66 @@ window.addEventListener('beforeunload',function(e){
 
   private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip"]);
 
-  // ── yo: always opens the agent side panel ──────────────
+  // ── yo ─────────────────────────────────────────────────
 
-  private async handleYo(wc: WebContents, _appId: string, instruction?: string): Promise<void> {
+  private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
+    const raw = instruction?.trim() || "";
+
+    // .yo . or .yo . <prompt> → inline LLM using last .sup capture
+    const dotMatch = raw.match(/^\.\s*(.*)$/s);
+    if (dotMatch !== null && raw.startsWith(".")) {
+      const prompt = dotMatch[1]?.trim();
+      if (!prompt) {
+        this.notify(wc, "Usage: .yo . <prompt>", "error");
+        return;
+      }
+      await this.handleYoDot(wc, appId, prompt);
+      return;
+    }
+
+    // Regular .yo → open the agent side panel
     this.yoActiveWc = wc;
-    const query = instruction?.trim() || "";
     if (this.panelOpener) {
-      this.panelOpener(query);
+      this.panelOpener(raw);
+    }
+  }
+
+  /**
+   * .yo . <prompt> — lightweight inline processing.
+   * Takes the last .sup capture from session, sends a single LLM call
+   * with the user's prompt, and injects the result directly into the
+   * current text area. No agent panel, no tools, no streaming.
+   */
+  private async handleYoDot(wc: WebContents, _appId: string, prompt: string): Promise<void> {
+    if (!this.yoChat) {
+      this.notify(wc, "Agent not ready.", "error");
+      return;
+    }
+
+    const context = this.session.get();
+    if (!context) {
+      this.notify(wc, "Nothing captured. Use .sup first.", "error");
+      return;
+    }
+
+    const myOp = ++this.opId;
+    this.notify(wc, "", "loading");
+
+    try {
+      const result = await this.yoChat.executeProcess(prompt, context);
+      if (this.opId !== myOp) return; // cancelled
+      await this.clearNotify(wc);
+
+      // Inject the result directly into the text area
+      try {
+        await wc.executeJavaScript(
+          `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(result)});}})()`,
+        );
+      } catch {}
+    } catch (err) {
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+      this.notify(wc, `Failed: ${err instanceof Error ? err.message : err}`, "error");
     }
   }
 

@@ -103,6 +103,8 @@ function getBaseUrl(config: LLMConfig): string {
 export interface LLMUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheCreation?: number;
+  cacheRead?: number;
 }
 
 export async function createCompletion(
@@ -136,17 +138,24 @@ export async function createStream(
   if (config.provider === "anthropic") {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: config.apiKey });
+    const cached = withCacheControl(params.system, params.tools);
     const opts: any = {
       model: config.model,
       max_tokens: params.maxTokens,
-      system: params.system,
+      system: cached.system,
       messages: params.messages,
     };
-    if (params.tools && params.tools.length > 0) opts.tools = params.tools;
+    if (cached.tools && cached.tools.length > 0) opts.tools = cached.tools;
     const stream = client.messages.stream(opts);
     stream.on("text", (text: string) => onText(text));
     const response = await stream.finalMessage();
-    const usage: LLMUsage = { inputTokens: response.usage?.input_tokens || 0, outputTokens: response.usage?.output_tokens || 0 };
+    const u = response.usage as any;
+    const usage: LLMUsage = {
+      inputTokens: u?.input_tokens || 0,
+      outputTokens: u?.output_tokens || 0,
+      cacheCreation: u?.cache_creation_input_tokens || 0,
+      cacheRead: u?.cache_read_input_tokens || 0,
+    };
     return { content: response.content as any[], stopReason: response.stop_reason as string, usage };
   }
 
@@ -160,6 +169,24 @@ export async function createStream(
 
 // ── Anthropic path ────────────────────────────────────────
 
+/** Wrap system prompt and tools with cache_control breakpoints for Anthropic prompt caching. */
+function withCacheControl(system: string, tools?: any[]): { system: any; tools?: any[] } {
+  // System prompt as a cacheable block
+  const cachedSystem = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+
+  // Mark the last tool definition as a cache breakpoint
+  if (tools && tools.length > 0) {
+    const cachedTools = tools.map((t, i) =>
+      i === tools.length - 1
+        ? { ...t, cache_control: { type: "ephemeral" } }
+        : t
+    );
+    return { system: cachedSystem, tools: cachedTools };
+  }
+
+  return { system: cachedSystem };
+}
+
 async function anthropicCompletion(
   apiKey: string,
   model: string,
@@ -167,15 +194,22 @@ async function anthropicCompletion(
 ): Promise<{ content: any[]; stopReason: string; usage?: LLMUsage }> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic({ apiKey });
+  const cached = withCacheControl(params.system, params.tools);
   const opts: any = {
     model,
     max_tokens: params.maxTokens,
-    system: params.system,
+    system: cached.system,
     messages: params.messages,
   };
-  if (params.tools && params.tools.length > 0) opts.tools = params.tools;
+  if (cached.tools && cached.tools.length > 0) opts.tools = cached.tools;
   const response = await client.messages.create(opts);
-  const usage: LLMUsage = { inputTokens: response.usage?.input_tokens || 0, outputTokens: response.usage?.output_tokens || 0 };
+  const u = response.usage as any;
+  const usage: LLMUsage = {
+    inputTokens: u?.input_tokens || 0,
+    outputTokens: u?.output_tokens || 0,
+    cacheCreation: u?.cache_creation_input_tokens || 0,
+    cacheRead: u?.cache_read_input_tokens || 0,
+  };
   return { content: response.content as any[], stopReason: response.stop_reason as string, usage };
 }
 

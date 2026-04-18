@@ -21,6 +21,7 @@ declare global {
       cancelReminder: (id: string) => Promise<boolean>;
       getLLMInfo: () => Promise<{ provider: string; model: string }>;
       onUsageUpdate: (cb: () => void) => void;
+      onVisible: (cb: () => void) => void;
     };
   }
 }
@@ -330,6 +331,17 @@ async function init() {
   // Live updates
   window.dashboardAPI.onUsageUpdate(async () => {
     await Promise.all([renderStats(), renderAgentChart(), renderHistoryChart()]);
+  });
+
+  // Full refresh when dashboard panel becomes visible
+  window.dashboardAPI.onVisible(async () => {
+    await Promise.all([
+      renderStats(),
+      renderAgentChart(),
+      renderHistoryChart(),
+      renderApps(),
+      renderReminders(),
+    ]);
   });
 
   // Refresh reminders every 30s

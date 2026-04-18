@@ -293,6 +293,14 @@ export class YoAgent {
     this.coder.setLLMConfig(config);
   }
 
+  setSubAgentModel(model: string | null): void {
+    this.navigator.setModelOverride(model);
+    this.researcher.setModelOverride(model);
+    this.manager.setModelOverride(model);
+    this.skillRunner.setModelOverride(model);
+    this.coder.setModelOverride(model);
+  }
+
   setMemoryStore(store: MemoryStore): void { this.memoryStore = store; }
 
   setNoteStore(store: NoteStore): void {
@@ -626,7 +634,10 @@ export class YoAgent {
     // Plan mode: tell the agent to describe its plan without executing
     if (this._mode === "plan") {
       prompt += `\n\nMODE: PLAN
-You are in plan mode. DO NOT call any tools or delegates. Instead, describe step by step what you WOULD do to accomplish the user's request. List each action with the tool you would use and why. Be specific about which panels, selectors, or files you would target. The user will review your plan and may approve it for execution.`;
+You are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list. Each step should be ONE line: what you'd do and which tool/panel you'd use. No explanations, no sub-bullets, no elaboration — just the action. Keep it tight, max 8 steps. Example:
+1. Search notes for prior .yo research (delegate_researcher)
+2. Open claude + gemini side by side (run_command: dip split claude gemini)
+3. Brief Claude on findings (delegate_navigator)`;
     }
 
     return prompt;

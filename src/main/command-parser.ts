@@ -185,7 +185,7 @@ export class CommandParser {
     if (matchedSkill) {
       finalContent = await this.skillEngine.process(content, matchedSkill);
     } else if (this.yoChat) {
-      finalContent = await this.yoChat.executeInline("yo", instruction, "command-bar", content);
+      finalContent = await this.yoChat.executeProcess(instruction, content);
     }
 
     const label = matchedSkill || this.timestamp();
