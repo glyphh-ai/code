@@ -635,6 +635,12 @@ export class YoAgent {
       }
     }
 
+    // Inject available panels so orchestrator knows what's already loaded
+    const panelList = this.navigator.listPanels();
+    if (panelList) {
+      prompt += `\n\nAVAILABLE PANELS:\n${panelList}\nThese panels are already loaded and ready. Do NOT ask the navigator to "open" or "navigate to" any of these — just reference them by ID. Only open_panel for apps NOT in this list.`;
+    }
+
     // Inject available skills so orchestrator knows what's available
     if (this.skillList) {
       const skills = this.skillList();
