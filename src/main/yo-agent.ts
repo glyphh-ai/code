@@ -38,39 +38,25 @@ export interface YoAgentCallbacks {
   onError: (error: string) => void;
 }
 
-const SYSTEM_BASE = `You are yo, a workspace orchestrator. Delegate to specialists, act immediately, never ask for clarification. Plain text only.
+const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, never ask for clarification. Plain text only.
 
-DELEGATES:
-- delegate_navigator: interact with live app panels — type into them, grab content, click buttons, wait for AI responses. This is how you USE the apps.
+TOOLS:
+- ask_panel: send a prompt to AI chat panels and get real responses. Supports ask (independent), chain (sequential), debate (multi-round). Use this whenever the user wants to interact with AI apps.
+- delegate_navigator: click, type, scan, grab content from any panel. For non-AI interactions or precise DOM actions.
+- delegate_layout: splits, grids, saved layouts, tabs, zoom. Use for "side by side", "split", "compare", "debate layout", "grid".
 - delegate_researcher: notes and file search
 - delegate_manager: skills, apps CRUD
-- delegate_layout: workspace arrangement — splits, grids, saved layouts, tabs, zoom. Use for "side by side", "split", "compare", "debate", "grid", or any layout change.
-- delegate_skill: run a named skill workflow (/skillname)
-- delegate_coder: write code, edit files, run shell commands, build apps
-
-DIRECT TOOLS: web_search, fetch_page, inject_text, run_command, save_memory, clipboard_read, clipboard_write, set_reminder, pipe
-
-CRITICAL — PANELS ARE REAL APPS:
-- When the user says "ask Claude X" or "have Gemini write Y" — you MUST type into the actual panel and read the real response. NEVER make up or simulate what an app would say.
-- "Don't navigate" means "don't change my layout/open new panels." It does NOT mean "don't interact with panels." You ALWAYS interact via delegate_navigator.
-- Every panel interaction requires delegate_navigator. There is no other way to type into or read from panels.
-
-CROSS-PANEL COLLABORATION (e.g. "have Claude and Gemini collaborate"):
-1. delegate_navigator: type prompt into panel A, submit, wait_for_response, return the content
-2. delegate_navigator: type panel A's response into panel B (with context), submit, wait_for_response, return the content
-3. Repeat for multi-round collaboration
-4. Synthesize the results yourself — don't dump raw panel content
+- delegate_skill: run a named skill (/skillname)
+- delegate_coder: write code, edit files, run shell commands
+- pipe: grab from one panel → transform → push to another
+- inject_text: paste into the input where user typed .yo
+- web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
+- ask_panel for ANY request involving AI apps ("ask claude", "have gemini write", "compare", "debate")
+- delegate_layout FIRST when the user wants panels rearranged, THEN ask_panel
 - Delegate in parallel when tasks are independent
-- Chain delegate calls for multi-step tasks — one focused action each
-- For comparisons: delegate_layout for split FIRST (if not already split), then delegate_navigator for each panel
-- inject_text for "paste/put it here"
-- If pipe or grab fails, try delegate_navigator to grab directly, then type into target. Always have a fallback.
-- save_memory when you learn user preferences or patterns
-- Stream your own synthesis of results. Don't paste raw grabbed content unless asked.
-- NEVER say "I found...", "Here's...", "Let me search..."
-- NEVER fabricate what an app said. If you can't reach a panel, say so.
+- Synthesize results in your own words — don't dump raw panel content
 - Use conversation history for "the earlier one", "that thing", etc.`;
 
 const TOOLS = [
@@ -245,6 +231,28 @@ const TOOLS = [
         submit: { type: "boolean" as const, description: "Press Enter after typing (default: false)" },
       },
       required: ["source_panel", "target_panel"],
+    },
+  },
+  {
+    name: "ask_panel",
+    description: "Send a prompt to one or more AI chat panels and get real responses. Types the prompt, submits, waits for each AI to finish, returns actual content. Modes: 'ask' sends the same prompt to each panel independently. 'chain' feeds each panel's response to the next. 'debate' runs multiple rounds of back-and-forth between panels.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        panels: {
+          type: "array" as const,
+          items: { type: "string" as const },
+          description: "Panel IDs to interact with (e.g. ['claude'], ['claude', 'gemini'], ['claude', 'gemini', 'grok'])",
+        },
+        prompt: { type: "string" as const, description: "The prompt to send. For chain/debate mode with multiple panels, this goes to the first panel." },
+        mode: {
+          type: "string" as const,
+          enum: ["ask", "chain", "debate"],
+          description: "ask: same prompt to each panel (default). chain: feed each response to the next panel. debate: multi-round back-and-forth between panels.",
+        },
+        rounds: { type: "number" as const, description: "Number of rounds for debate mode (default: 1, max: 5). Each round = every panel responds once." },
+      },
+      required: ["panels", "prompt"],
     },
   },
 ];
@@ -911,6 +919,7 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "clipboard_write": return this.toolClipboardWrite(input);
         case "set_reminder": return this.toolSetReminder(input);
         case "pipe": return await this.toolPipe(input);
+        case "ask_panel": return await this.toolAskPanel(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -1040,6 +1049,99 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     });
 
     return `Piped ${content.length} chars from ${sourcePanel} → ${targetPanel}${transform ? ` (transformed: ${transform})` : ""}. ${result}`;
+  }
+
+  // ── Panel interaction helpers ─────────────────────────
+
+  /**
+   * Type a prompt into a panel, submit, wait for AI response, return the content.
+   * Self-contained: no LLM judgment involved.
+   */
+  private async sendAndWait(panelId: string, prompt: string, timeoutSec = 60): Promise<string> {
+    if (!this._panelTyper) return `[${panelId}] Panel typing not available.`;
+    if (!this._panelGrabber) return `[${panelId}] Panel grabbing not available.`;
+
+    // Type and submit
+    await this._panelTyper(panelId, prompt, { clear: true, submit: true });
+
+    // Wait for response (poll until content stabilises)
+    const deadline = Date.now() + Math.min(Math.max(timeoutSec, 5), 120) * 1000;
+    let prevContent = "";
+    let stableCount = 0;
+    const POLL_MS = 2500;
+    const STABLE_THRESHOLD = 2;
+
+    while (Date.now() < deadline) {
+      if (this.aborted) return `[${panelId}] Aborted while waiting.`;
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      const content = await this._panelGrabber(panelId);
+      if (!content) { stableCount = 0; prevContent = ""; continue; }
+      if (content === prevContent) {
+        stableCount++;
+        if (stableCount >= STABLE_THRESHOLD) {
+          return content.length > 3000
+            ? content.slice(-3000) + "\n[earlier content truncated]"
+            : content;
+        }
+      } else {
+        stableCount = 0;
+        prevContent = content;
+      }
+    }
+    // Timeout fallback
+    const final = await this._panelGrabber(panelId);
+    return final || `[${panelId}] Timed out after ${timeoutSec}s — no content.`;
+  }
+
+  private async toolAskPanel(input: Record<string, unknown>): Promise<string> {
+    const panels = input.panels as string[];
+    const prompt = input.prompt as string;
+    const mode = (input.mode as string) || "ask";
+    const rounds = Math.min(Math.max((input.rounds as number) || 1, 1), 5);
+
+    if (!panels?.length) return "No panels specified.";
+    if (!prompt) return "No prompt provided.";
+
+    const responses: Array<{ panel: string; content: string }> = [];
+
+    if (mode === "ask") {
+      // Send same prompt to each panel independently
+      for (const panel of panels) {
+        if (this.aborted) break;
+        const content = await this.sendAndWait(panel, prompt);
+        responses.push({ panel, content });
+      }
+    } else if (mode === "chain") {
+      // Feed each panel's response to the next
+      let currentPrompt = prompt;
+      for (const panel of panels) {
+        if (this.aborted) break;
+        const content = await this.sendAndWait(panel, currentPrompt);
+        responses.push({ panel, content });
+        // Next panel gets this panel's response as context
+        currentPrompt = content;
+      }
+    } else if (mode === "debate") {
+      // Multi-round: each round, every panel responds to the previous panel's output
+      let lastResponse = prompt;
+      for (let round = 0; round < rounds; round++) {
+        for (const panel of panels) {
+          if (this.aborted) break;
+          const roundPrompt = round === 0 && panel === panels[0]
+            ? prompt
+            : lastResponse;
+          const content = await this.sendAndWait(panel, roundPrompt);
+          responses.push({ panel, content });
+          lastResponse = content;
+        }
+      }
+    }
+
+    // Format results
+    if (responses.length === 1) return responses[0].content;
+    return responses
+      .map((r) => `── ${r.panel} ──\n${r.content}`)
+      .join("\n\n");
   }
 
   // ── Memory loop ──────────────────────────────────────

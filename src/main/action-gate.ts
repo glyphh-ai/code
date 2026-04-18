@@ -78,6 +78,7 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   clipboard_write:  "mutate",
   set_reminder:     "observe",
   pipe:             "mutate",
+  ask_panel:        "mutate",
 
   // Orchestrator delegations (gated at sub-agent level, but listed for plan mode)
   delegate_navigator:  "mutate",
@@ -138,6 +139,7 @@ export const TOOL_LABELS: Record<string, string> = {
   clipboard_write:  "Write clipboard",
   set_reminder:     "Set reminder",
   pipe:             "Pipe cross-panel",
+  ask_panel:        "Ask panel",
   delegate_navigator:  "Delegate navigator",
   delegate_researcher: "Delegate researcher",
   delegate_manager:    "Delegate manager",
@@ -196,6 +198,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   clipboard_write:  "Write text to the system clipboard",
   set_reminder:     "Schedule a delayed reminder message",
   pipe:             "Pipe content between two panels",
+  ask_panel:        "Send a prompt to AI chat panels and get real responses",
   delegate_navigator:  "Delegate a panel interaction task to the navigator",
   delegate_researcher: "Delegate a note/file search to the researcher",
   delegate_manager:    "Delegate a skill/layout/app task to the manager",
