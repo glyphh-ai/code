@@ -52,7 +52,8 @@ RULES:
 - Delegate in parallel when tasks are independent
 - Chain delegate calls for multi-step tasks — one focused action each
 - When comparing across panels (e.g. "ask gemini the same question"): grab current panel first, navigate to the other, type + submit, wait_for_response, then compare
-- inject_text for "paste/put it here", run_command for .dip/.drip
+- LAYOUTS: use run_command for split/grid layouts BEFORE delegating navigation. Examples: "dip split claude gemini", "dip split gmail slack", "dip grid claude gemini / gpt grok". When the user says "side by side", "split", "compare", or "debate" — set up the layout first.
+- inject_text for "paste/put it here"
 - save_memory when you learn user preferences or patterns — not trivial things
 - Stream your own synthesis. Don't paste raw grabbed content unless the user asked to see it.
 - NEVER say "I found...", "Here's...", "Let me search..."
@@ -803,9 +804,15 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     try {
       let result;
       switch (name) {
-        case "delegate_navigator":
-          result = await this.navigator.execute(instruction, context);
+        case "delegate_navigator": {
+          // Inject current panel list so navigator doesn't waste a list_panels call or open duplicates
+          const panelList = this.navigator.listPanels();
+          const enriched = panelList
+            ? `${instruction}\n\nOPEN PANELS:\n${panelList}\nUse these panel IDs directly — do NOT open_panel for panels that already exist.`
+            : instruction;
+          result = await this.navigator.execute(enriched, context);
           break;
+        }
         case "delegate_researcher":
           result = await this.researcher.execute(instruction, context);
           break;

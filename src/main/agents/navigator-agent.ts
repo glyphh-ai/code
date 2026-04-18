@@ -28,6 +28,9 @@ export class NavigatorAgent extends BaseSubAgent {
     create: () => string;
   } | null = null;
 
+  /** Expose panel list for orchestrator to inject into instructions. */
+  listPanels(): string | null { return this.panelLister ? this.panelLister() : null; }
+
   setPanelGrabber(fn: typeof this.panelGrabber): void { this.panelGrabber = fn; }
   setPanelClicker(fn: typeof this.panelClicker): void { this.panelClicker = fn; }
   setPanelNavigator(fn: typeof this.panelNavigator): void { this.panelNavigator = fn; }
