@@ -21,6 +21,8 @@ import { AppConnector, CommandMapping } from "./app-connector";
 import { ConnectorAgent } from "./connector-agent";
 import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
+import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS } from "./action-gate";
+import type { AgentMode, ToolOverride } from "./action-gate";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
@@ -1096,6 +1098,31 @@ async function boot() {
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
   yoAgent.setMaxMessages(yoMaxMessages);
 
+  // Agent mode + approval callback
+  yoAgent.setMode(getAgentMode());
+
+  // Pending approval requests: id → { resolve }
+  const pendingApprovals = new Map<string, { resolve: (approved: boolean) => void }>();
+  let approvalCounter = 0;
+
+  yoAgent.setApprovalCallback(async (toolName: string, input: Record<string, unknown>) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return true;
+    const id = `approval-${++approvalCounter}`;
+    const label = TOOL_LABELS[toolName] || toolName;
+    mainWindow.webContents.send("approval-request", id, toolName, label, input);
+    return new Promise<boolean>((resolve) => {
+      pendingApprovals.set(id, { resolve });
+    });
+  });
+
+  ipcMain.on("approval-respond", (_e, id: string, approved: boolean) => {
+    const pending = pendingApprovals.get(id);
+    if (pending) {
+      pendingApprovals.delete(id);
+      pending.resolve(approved);
+    }
+  });
+
   // Wire .yo conversational agent — slide-out panel
   const yoPanelWidth = () => getPreference<number>("yoPanelWidth", 380);
 
@@ -1531,6 +1558,28 @@ async function boot() {
 
   ipcMain.on("yo-panel-stop", () => {
     yoAgent?.abort();
+    // Reject any pending approvals so they don't hang
+    for (const [id, pending] of pendingApprovals) {
+      pending.resolve(false);
+    }
+    pendingApprovals.clear();
+  });
+
+  // Agent mode + guardrails IPC
+  ipcMain.handle("get-agent-mode", () => yoAgent?.getMode() || getAgentMode());
+  ipcMain.on("set-agent-mode", (_e, mode: string) => {
+    setPreference("agentMode", mode);
+    yoAgent?.setMode(mode as AgentMode);
+  });
+  ipcMain.handle("get-tool-registry", () => getToolRegistry());
+  ipcMain.on("set-tool-override", (_e, toolName: string, override: string) => {
+    const overrides = getPreference<Record<string, string>>("toolOverrides", {});
+    if (override === "default") {
+      delete overrides[toolName];
+    } else {
+      overrides[toolName] = override;
+    }
+    setPreference("toolOverrides", overrides);
   });
 
   // Renderer-initiated panel open (Cmd+K) — resize BrowserViews and focus renderer

@@ -3095,6 +3095,177 @@ select.settings-input {
   border-radius: 2px;
 }
 
+/* ── Yo panel controls (mode + model dropdowns) ──────────── */
+
+.yo-panel-controls {
+  display: flex;
+  gap: 6px;
+  padding: 0 14px 10px;
+  flex-shrink: 0;
+}
+
+.yo-control-select {
+  flex: 1;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: #999;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23666' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 22px;
+}
+.yo-control-select:hover { border-color: #444; color: #ccc; }
+.yo-control-select:focus { border-color: #25C75E; }
+
+/* ── Yo panel approval cards ─────────────────────────────── */
+
+.yo-approval-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-left: 3px solid #f0a030;
+  border-radius: 8px;
+  padding: 10px 12px;
+  animation: yo-approval-in 0.2s ease-out;
+}
+@keyframes yo-approval-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.yo-approval-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.yo-approval-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f0a030;
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.yo-approval-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+.yo-approval-detail {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 8px;
+  padding-left: 26px;
+  word-break: break-word;
+}
+.yo-approval-actions {
+  display: flex;
+  gap: 6px;
+  padding-left: 26px;
+}
+.yo-approval-btn {
+  padding: 4px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.yo-approval-btn:hover { opacity: 0.8; }
+.yo-approval-allow {
+  background: #25C75E;
+  color: #000;
+}
+.yo-approval-deny {
+  background: #333;
+  color: #ccc;
+}
+
+.yo-approval-resolved {
+  opacity: 0.6;
+}
+.yo-approval-resolved .yo-approval-detail { display: none; }
+.yo-approval-allowed { border-left-color: #25C75E; }
+.yo-approval-denied { border-left-color: #555; }
+
+.yo-approval-status {
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
+}
+.yo-approval-status.allowed { color: #25C75E; }
+.yo-approval-status.denied { color: #888; }
+
+/* ── Tool overrides (settings page) ──────────────────────── */
+
+.tool-overrides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.tool-override-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: background 0.1s;
+}
+.tool-override-row:hover { background: #1e1e1e; }
+
+.tool-override-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tool-override-name {
+  font-size: 12px;
+  color: #ccc;
+}
+.tool-override-tier {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+.tool-override-tier.tier-observe {
+  background: rgba(37, 199, 94, 0.15);
+  color: #25C75E;
+}
+.tool-override-tier.tier-mutate {
+  background: rgba(240, 160, 48, 0.15);
+  color: #f0a030;
+}
+
+.tool-override-select {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: #999;
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+}
+.tool-override-select:hover { border-color: #444; }
+.tool-override-select:focus { border-color: #25C75E; }
+
 /* ── Wassup admin modal ─────────────────────────────────── */
 
 

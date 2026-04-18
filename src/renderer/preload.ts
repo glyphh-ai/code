@@ -203,6 +203,16 @@ contextBridge.exposeInMainWorld("yo", {
   yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
   yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
 
+  // Agent mode + guardrails
+  getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<string>,
+  setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
+  getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; tier: string; override: string }>>,
+  setToolOverride: (toolName: string, override: string) => ipcRenderer.send("set-tool-override", toolName, override),
+  onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => {
+    ipcRenderer.on("approval-request", (_e, id, toolName, toolLabel, input) => cb(id, toolName, toolLabel, input));
+  },
+  approvalRespond: (id: string, approved: boolean) => ipcRenderer.send("approval-respond", id, approved),
+
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string }> | null>,

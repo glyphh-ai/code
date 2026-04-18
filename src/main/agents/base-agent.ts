@@ -8,7 +8,8 @@
 
 import type { LLMConfig } from "../llm-config";
 import { createCompletion } from "../llm-config";
-import type { SubAgentResult, SubAgentContext, ToolDef } from "./types";
+import type { SubAgentResult, SubAgentContext, ToolDef, AgentMode } from "./types";
+import { gate } from "../action-gate";
 
 /** Provider-specific cheap model overrides. */
 const CHEAP_MODELS: Record<string, string> = {
@@ -17,14 +18,21 @@ const CHEAP_MODELS: Record<string, string> = {
   google: "gemini-2.0-flash",
 };
 
+/** Callback to request user approval for a mutate tool. Resolves true if approved. */
+export type ApprovalCallback = (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
+
 export abstract class BaseSubAgent {
   protected llmConfig: LLMConfig | null = null;
   private aborted = false;
+  private _mode: AgentMode = "ask";
+  private _approvalCallback: ApprovalCallback | null = null;
 
   /** Max tool-loop iterations before forcing a response. */
   protected maxIterations = 10;
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
+  setMode(mode: AgentMode): void { this._mode = mode; }
+  setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   abort(): void { this.aborted = true; }
   resetAbort(): void { this.aborted = false; }
   get isAborted(): boolean { return this.aborted; }
@@ -107,6 +115,24 @@ export abstract class BaseSubAgent {
       const results: any[] = [];
       for (const block of toolBlocks) {
         if (this.aborted) break;
+
+        // Gate check: decide whether to execute, request approval, or skip
+        const decision = gate(block.name, this._mode);
+        if (decision === "skip") {
+          results.push({ type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" });
+          continue;
+        }
+        if (decision === "needs_approval") {
+          if (this._approvalCallback) {
+            const approved = await this._approvalCallback(block.name, block.input as Record<string, unknown>);
+            if (!approved) {
+              results.push({ type: "tool_result", tool_use_id: block.id, content: "[blocked by user]" });
+              continue;
+            }
+          }
+          // No callback set — fall through and execute (degraded mode)
+        }
+
         if (onToolUse) onToolUse(block.name);
         toolsUsed.push(block.name);
         const result = await this.execTool(block.name, block.input as Record<string, unknown>);

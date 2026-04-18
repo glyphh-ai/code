@@ -462,12 +462,25 @@
 
           <h3 class="settings-subheading">.yo Agent</h3>
           <div class="settings-form">
+            <label class="settings-label">Default Mode</label>
+            <div class="settings-inline">
+              <select id="settings-agent-mode" class="settings-input settings-input-md">
+                <option value="ask">Ask</option>
+                <option value="plan">Plan</option>
+                <option value="auto">Auto</option>
+              </select>
+              <span class="settings-hint">ask = approve actions, plan = preview first, auto = full trust</span>
+            </div>
             <label class="settings-label">Context Window</label>
             <div class="settings-inline">
               <input id="settings-context-window" type="number" class="settings-input settings-input-sm" min="10" max="200" step="10" value="40" />
               <span class="settings-hint">messages before compaction</span>
             </div>
           </div>
+
+          <h3 class="settings-subheading">Tool Permissions</h3>
+          <p class="section-desc">Override the mode for individual tools. "Default" uses the global mode above.</p>
+          <div id="tool-overrides-list" class="tool-overrides-list"></div>
 
           <h3 class="settings-subheading">Services</h3>
           <p class="section-desc">Optional local servers. Changes take effect on next launch.</p>
@@ -638,6 +651,14 @@
     <div class="yo-panel-input-wrap">
       <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
       <button id="yo-panel-send">&uarr;</button>
+    </div>
+    <div class="yo-panel-controls">
+      <select id="yo-mode-select" class="yo-control-select" title="Agent mode">
+        <option value="ask">ask</option>
+        <option value="plan">plan</option>
+        <option value="auto">auto</option>
+      </select>
+      <select id="yo-model-select" class="yo-control-select" title="Model"></select>
     </div>
   </div>
 

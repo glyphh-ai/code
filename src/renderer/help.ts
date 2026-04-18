@@ -769,6 +769,8 @@ const settingsContextWindow = document.getElementById("settings-context-window")
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
+const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
+const toolOverridesList = document.getElementById("tool-overrides-list")!;
 
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
 
@@ -790,6 +792,14 @@ function initSettings() {
     if (val >= 10 && val <= 200) {
       window.yo.setPreference("yoContextWindow", val);
     }
+  });
+
+  // Agent mode
+  settingsAgentMode.addEventListener("change", () => {
+    window.yo.setAgentMode(settingsAgentMode.value);
+    // Sync the yo panel dropdown too
+    const yoModeEl = document.getElementById("yo-mode-select") as HTMLSelectElement;
+    if (yoModeEl) yoModeEl.value = settingsAgentMode.value;
   });
 
   toggleShowTabs.addEventListener("change", () => {
@@ -973,6 +983,46 @@ async function loadSettings() {
   toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
+
+  // Agent mode
+  const currentMode = await window.yo.getAgentMode();
+  settingsAgentMode.value = currentMode;
+
+  // Tool overrides
+  const tools = await window.yo.getToolRegistry();
+  toolOverridesList.innerHTML = "";
+  for (const tool of tools) {
+    const row = document.createElement("div");
+    row.className = "tool-override-row";
+
+    const label = document.createElement("div");
+    label.className = "tool-override-label";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "tool-override-name";
+    nameEl.textContent = tool.label;
+
+    const tierEl = document.createElement("span");
+    tierEl.className = `tool-override-tier tier-${tool.tier}`;
+    tierEl.textContent = tool.tier;
+
+    label.appendChild(nameEl);
+    label.appendChild(tierEl);
+
+    const select = document.createElement("select");
+    select.className = "tool-override-select";
+    select.innerHTML =
+      `<option value="default"${tool.override === "default" ? " selected" : ""}>Default</option>` +
+      `<option value="auto"${tool.override === "auto" ? " selected" : ""}>Auto</option>` +
+      `<option value="ask"${tool.override === "ask" ? " selected" : ""}>Ask</option>`;
+    select.addEventListener("change", () => {
+      window.yo.setToolOverride(tool.name, select.value);
+    });
+
+    row.appendChild(label);
+    row.appendChild(select);
+    toolOverridesList.appendChild(row);
+  }
 
   // Browser homepage
   const homePref = await window.yo.getPreference("browserHomepage", "claude") as string;

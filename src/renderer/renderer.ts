@@ -136,6 +136,13 @@ declare global {
       yoChatsLoad: (id: string) => Promise<Array<{ role: string; text: string }> | null>;
       yoChatsDelete: (id: string) => Promise<boolean>;
       yoChatNew: () => Promise<boolean>;
+      // Agent mode + guardrails
+      getAgentMode: () => Promise<string>;
+      setAgentMode: (mode: string) => void;
+      getToolRegistry: () => Promise<Array<{ name: string; label: string; tier: string; override: string }>>;
+      setToolOverride: (toolName: string, override: string) => void;
+      onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
+      approvalRespond: (id: string, approved: boolean) => void;
     };
   }
 }
@@ -828,7 +835,58 @@ function showYoWelcome() {
   });
 }
 
+// -- Yo panel mode + model dropdowns --
+
+const yoModeSelect = document.getElementById("yo-mode-select") as HTMLSelectElement;
+const yoModelSelect = document.getElementById("yo-model-select") as HTMLSelectElement;
+let yoControlsInited = false;
+
+async function initYoControls() {
+  const mode = await window.yo.getAgentMode();
+  yoModeSelect.value = mode;
+
+  const [config, presets] = await Promise.all([
+    window.yo.getLLMConfig(),
+    window.yo.getLLMPresets(),
+  ]);
+  const preset = presets[config.provider];
+  yoModelSelect.innerHTML = "";
+  if (preset && preset.models.length > 0) {
+    for (const m of preset.models) {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
+      if (m === config.model) opt.selected = true;
+      yoModelSelect.appendChild(opt);
+    }
+  } else {
+    const opt = document.createElement("option");
+    opt.value = config.model;
+    opt.textContent = config.model;
+    opt.selected = true;
+    yoModelSelect.appendChild(opt);
+  }
+}
+
+yoModeSelect.addEventListener("change", () => {
+  window.yo.setAgentMode(yoModeSelect.value);
+});
+
+yoModelSelect.addEventListener("change", async () => {
+  const config = await window.yo.getLLMConfig();
+  await window.yo.saveLLMConfig({
+    provider: config.provider,
+    model: yoModelSelect.value,
+    apiKey: config.apiKey,
+    baseUrl: config.baseUrl || undefined,
+  });
+});
+
 async function openYoPanel(query: string) {
+  if (!yoControlsInited) {
+    yoControlsInited = true;
+    initYoControls();
+  }
   const savedWidth = await window.yo.yoPanelGetWidth();
   yoPanel.style.width = `${savedWidth}px`;
   yoPanel.classList.remove("hidden");
@@ -1338,6 +1396,59 @@ yoChatNewBtn.addEventListener("click", async () => {
   yoLastAssistantText = "";
   yoHistoryPanel.classList.add("hidden");
   yoPanelInput.focus();
+});
+
+// -- Yo panel approval UI --
+
+window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
+  // Build a summary of what the tool wants to do
+  const inputObj = input as Record<string, unknown>;
+  let detail = "";
+  if (typeof inputObj.instruction === "string") detail = inputObj.instruction;
+  else if (typeof inputObj.text === "string") detail = inputObj.text;
+  else if (typeof inputObj.command === "string") detail = inputObj.command;
+  else if (typeof inputObj.url === "string") detail = inputObj.url;
+  else if (typeof inputObj.panel_id === "string") detail = `panel: ${inputObj.panel_id}`;
+  else {
+    const first = Object.values(inputObj).find((v) => typeof v === "string");
+    if (typeof first === "string") detail = first;
+  }
+
+  const card = document.createElement("div");
+  card.className = "yo-approval-card";
+  card.innerHTML =
+    `<div class="yo-approval-header">` +
+      `<span class="yo-approval-icon">?</span>` +
+      `<span class="yo-approval-title">${toolLabel}</span>` +
+    `</div>` +
+    (detail ? `<div class="yo-approval-detail">${detail.replace(/&/g, "&amp;").replace(/</g, "&lt;").slice(0, 200)}</div>` : "") +
+    `<div class="yo-approval-actions">` +
+      `<button class="yo-approval-btn yo-approval-allow">Allow</button>` +
+      `<button class="yo-approval-btn yo-approval-deny">Deny</button>` +
+    `</div>`;
+
+  yoPanelMessages.appendChild(card);
+  yoScroll();
+
+  card.querySelector(".yo-approval-allow")!.addEventListener("click", () => {
+    window.yo.approvalRespond(id, true);
+    card.classList.add("yo-approval-resolved", "yo-approval-allowed");
+    card.querySelector(".yo-approval-actions")!.remove();
+    const status = document.createElement("span");
+    status.className = "yo-approval-status allowed";
+    status.textContent = "allowed";
+    card.querySelector(".yo-approval-header")!.appendChild(status);
+  });
+
+  card.querySelector(".yo-approval-deny")!.addEventListener("click", () => {
+    window.yo.approvalRespond(id, false);
+    card.classList.add("yo-approval-resolved", "yo-approval-denied");
+    card.querySelector(".yo-approval-actions")!.remove();
+    const status = document.createElement("span");
+    status.className = "yo-approval-status denied";
+    status.textContent = "denied";
+    card.querySelector(".yo-approval-header")!.appendChild(status);
+  });
 });
 
 // -- Boot gate --

@@ -2,6 +2,8 @@
  * Shared types for the sub-agent architecture.
  */
 
+export type { AgentMode, ToolTier, ToolOverride, GateDecision } from "../action-gate";
+
 export interface SubAgentResult {
   summary: string;        // Concise text for orchestrator context
   success: boolean;

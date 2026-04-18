@@ -23,6 +23,9 @@ import { ManagerAgent } from "./agents/manager-agent";
 import { SkillRunnerAgent } from "./agents/skill-runner-agent";
 import { scanForInjection, scanWithLLM } from "./firewall";
 import { webSearch, fetchPage } from "./web-search";
+import { gate, getAgentMode } from "./action-gate";
+import type { AgentMode } from "./action-gate";
+import type { ApprovalCallback } from "./agents/base-agent";
 
 export interface YoAgentCallbacks {
   onText: (delta: string) => void;
@@ -194,6 +197,8 @@ export class YoAgent {
   private commandRunner: ((cmd: string) => Promise<string>) | null = null;
   private aborted = false;
   private activeMemories: string = "";  // recalled memories for current turn
+  private _mode: AgentMode = getAgentMode();
+  private _approvalCallback: ApprovalCallback | null = null;
 
   // Sub-agents
   private navigator = new NavigatorAgent();
@@ -271,6 +276,23 @@ export class YoAgent {
   }
 
   setMaxMessages(n: number): void { this.maxMessages = n; }
+  getMode(): AgentMode { return this._mode; }
+  setMode(mode: AgentMode): void {
+    this._mode = mode;
+    // Propagate to sub-agents
+    this.navigator.setMode(mode);
+    this.researcher.setMode(mode);
+    this.manager.setMode(mode);
+    this.skillRunner.setMode(mode);
+  }
+  setApprovalCallback(cb: ApprovalCallback | null): void {
+    this._approvalCallback = cb;
+    // Propagate to sub-agents
+    this.navigator.setApprovalCallback(cb);
+    this.researcher.setApprovalCallback(cb);
+    this.manager.setApprovalCallback(cb);
+    this.skillRunner.setApprovalCallback(cb);
+  }
   setCommandRunner(fn: (cmd: string) => Promise<string>): void {
     this.commandRunner = fn;
     this.skillRunner.setCommandRunner(fn);
@@ -489,6 +511,12 @@ export class YoAgent {
       prompt += `\n\nYOUR MEMORIES:\n${this.activeMemories}`;
     }
 
+    // Plan mode: tell the agent to describe its plan without executing
+    if (this._mode === "plan") {
+      prompt += `\n\nMODE: PLAN
+You are in plan mode. DO NOT call any tools or delegates. Instead, describe step by step what you WOULD do to accomplish the user's request. List each action with the tool you would use and why. Be specific about which panels, selectors, or files you would target. The user will review your plan and may approve it for execution.`;
+    }
+
     return prompt;
   }
 
@@ -549,6 +577,20 @@ export class YoAgent {
         const context = this.buildSubAgentContext();
         const delegatePromises = delegateBlocks.map(async (block: any) => {
           if (this.aborted) return { type: "tool_result", tool_use_id: block.id, content: "[interrupted by user]" };
+
+          // Gate check on the delegation itself
+          const decision = gate(block.name, this._mode);
+          if (decision === "skip") {
+            return { type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" };
+          }
+          if (decision === "needs_approval" && this._approvalCallback) {
+            const approved = await this._approvalCallback(block.name, block.input as Record<string, unknown>);
+            if (!approved) {
+              cb.onToolResult?.(block.id, "[blocked by user]");
+              return { type: "tool_result", tool_use_id: block.id, content: "[blocked by user]" };
+            }
+          }
+
           cb.onToolUse(block.id, block.name, block.input);
           const result = await this.execDelegation(
             block.name,
@@ -563,9 +605,24 @@ export class YoAgent {
         results.push(...delegateResults);
       }
 
-      // Run direct tools sequentially
+      // Run direct tools sequentially (with gate checks)
       for (const block of directBlocks) {
         if (this.aborted) break;
+
+        const decision = gate(block.name, this._mode);
+        if (decision === "skip") {
+          results.push({ type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" });
+          continue;
+        }
+        if (decision === "needs_approval" && this._approvalCallback) {
+          const approved = await this._approvalCallback(block.name, block.input as Record<string, unknown>);
+          if (!approved) {
+            cb.onToolResult?.(block.id, "[blocked by user]");
+            results.push({ type: "tool_result", tool_use_id: block.id, content: "[blocked by user]" });
+            continue;
+          }
+        }
+
         cb.onToolUse(block.id, block.name, block.input);
         const result = await this.execDirectTool(block.name, block.input as Record<string, unknown>);
         cb.onToolResult?.(block.id, result.slice(0, 500));
