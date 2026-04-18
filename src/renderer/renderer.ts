@@ -851,7 +851,7 @@ function showYoWelcome() {
   const w = document.createElement("div");
   w.id = "yo-panel-welcome";
   w.className = "yo-panel-welcome";
-  w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo</div>
+  w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo <span class="yo-welcome-dot">.</span>Sup <span class="yo-welcome-dot">.</span>Dip</div>
     <div class="yo-welcome-tagline">Your AI workspace agent</div>
     <div class="yo-welcome-hints">
       <div class="yo-welcome-hint">find that reddit thread about pricing</div>

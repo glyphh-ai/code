@@ -21,6 +21,7 @@ import type { MemoryStore } from "./memory-store";
 import { NavigatorAgent } from "./agents/navigator-agent";
 import { ResearcherAgent } from "./agents/researcher-agent";
 import { ManagerAgent } from "./agents/manager-agent";
+import { LayoutAgent } from "./agents/layout-agent";
 import { SkillRunnerAgent } from "./agents/skill-runner-agent";
 import { CodingAgent } from "./agents/coding-agent";
 import { scanForInjection, scanWithLLM } from "./firewall";
@@ -42,7 +43,8 @@ const SYSTEM_BASE = `You are yo, a workspace orchestrator. Delegate to specialis
 DELEGATES:
 - delegate_navigator: live app panels — view, click, type, navigate. The navigator has wait_for_response for polling chat panels after submitting.
 - delegate_researcher: notes and file search
-- delegate_manager: skills, layouts, apps CRUD
+- delegate_manager: skills, apps CRUD
+- delegate_layout: workspace arrangement — splits, grids, saved layouts, tabs, zoom. ALWAYS use this for "side by side", "split", "compare", "debate", "2x2", "grid", or any panel arrangement request. Delegate layout BEFORE navigating panels.
 - delegate_skill: run a named skill workflow (/skillname)
 - delegate_coder: write code, edit files, run shell commands, build apps
 
@@ -51,9 +53,9 @@ DIRECT TOOLS: web_search, fetch_page, inject_text, run_command, save_memory, cli
 RULES:
 - Delegate in parallel when tasks are independent
 - Chain delegate calls for multi-step tasks — one focused action each
-- When comparing across panels (e.g. "ask gemini the same question"): grab current panel first, navigate to the other, type + submit, wait_for_response, then compare
-- LAYOUTS: use run_command for split/grid layouts BEFORE delegating navigation. Examples: "dip split claude gemini", "dip split gmail slack", "dip grid claude gemini / gpt grok". When the user says "side by side", "split", "compare", or "debate" — set up the layout first.
+- When comparing across panels (e.g. "ask gemini the same question"): delegate_layout to set up split FIRST, then delegate_navigator to type + submit + wait_for_response, then compare
 - inject_text for "paste/put it here"
+- If pipe or grab fails, DON'T give up. Try: delegate_navigator to grab the panel content directly, then use inject_text or delegate_navigator to type it into the target. Always have a fallback plan.
 - save_memory when you learn user preferences or patterns — not trivial things
 - Stream your own synthesis. Don't paste raw grabbed content unless the user asked to see it.
 - NEVER say "I found...", "Here's...", "Let me search..."
@@ -89,6 +91,17 @@ const TOOLS = [
       type: "object" as const,
       properties: {
         instruction: { type: "string" as const, description: "Clear instruction for the manager, e.g. 'List all skills' or 'Create a skill named summarize with prompt: Summarize the following text concisely'" },
+      },
+      required: ["instruction"],
+    },
+  },
+  {
+    name: "delegate_layout",
+    description: "Delegate a workspace layout task to the layout specialist. Use for splits, grids, saved layouts, tab management, zoom, swapping panels. ALWAYS use this when the user says 'side by side', 'split', 'compare', 'debate', 'grid', '2x2', or any panel arrangement request.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        instruction: { type: "string" as const, description: "Clear instruction for the layout agent, e.g. 'Split claude and gemini side by side' or 'Create a 2x2 grid with claude, gemini, gpt, grok' or 'Save the current layout as research'" },
       },
       required: ["instruction"],
     },
@@ -252,6 +265,7 @@ export class YoAgent {
   private navigator = new NavigatorAgent();
   private researcher = new ResearcherAgent();
   private manager = new ManagerAgent();
+  private layout = new LayoutAgent();
   private skillRunner = new SkillRunnerAgent();
   private coder = new CodingAgent();
 
@@ -275,6 +289,7 @@ export class YoAgent {
     this.navigator.setLLMConfig(config);
     this.researcher.setLLMConfig(config);
     this.manager.setLLMConfig(config);
+    this.layout.setLLMConfig(config);
     this.skillRunner.setLLMConfig(config);
     this.coder.setLLMConfig(config);
   }
@@ -283,6 +298,7 @@ export class YoAgent {
     this.navigator.setModelOverride(model);
     this.researcher.setModelOverride(model);
     this.manager.setModelOverride(model);
+    this.layout.setModelOverride(model);
     this.skillRunner.setModelOverride(model);
     this.coder.setModelOverride(model);
   }
@@ -297,13 +313,14 @@ export class YoAgent {
   setAppConnector(ac: AppConnector): void {
     this.manager.setAppConnector(ac);
     this.skillRunner.setAppConnector(ac);
-    // Navigator + SkillRunner need panel listing from the app connector
+    // Navigator, Layout, SkillRunner need panel listing from the app connector
     const lister = () => {
       const apps = ac.list();
       if (apps.length === 0) return "No panels configured.";
       return apps.map((a) => `${a.id} — ${a.name} (${a.url})`).join("\n");
     };
     this.navigator.setPanelLister(lister);
+    this.layout.setPanelLister(lister);
     this.skillRunner.setPanelLister(lister);
   }
 
@@ -364,6 +381,7 @@ export class YoAgent {
 
   setTabManager(tm: { list: () => Array<{ id: string; title: string; url?: string }>; switch: (id: string) => void; close: (id: string) => void; create: () => string }): void {
     this.navigator.setTabManager(tm);
+    this.layout.setTabManager(tm);
     this.skillRunner.setTabManager(tm);
   }
 
@@ -386,6 +404,7 @@ export class YoAgent {
     this.navigator.setMode(mode);
     this.researcher.setMode(mode);
     this.manager.setMode(mode);
+    this.layout.setMode(mode);
     this.skillRunner.setMode(mode);
     this.coder.setMode(mode);
   }
@@ -395,11 +414,13 @@ export class YoAgent {
     this.navigator.setApprovalCallback(cb);
     this.researcher.setApprovalCallback(cb);
     this.manager.setApprovalCallback(cb);
+    this.layout.setApprovalCallback(cb);
     this.skillRunner.setApprovalCallback(cb);
     this.coder.setApprovalCallback(cb);
   }
   setCommandRunner(fn: (cmd: string) => Promise<string>): void {
     this.commandRunner = fn;
+    this.layout.setCommandRunner(fn);
     this.skillRunner.setCommandRunner(fn);
   }
   setInjector(fn: (text: string) => Promise<boolean>): void {
@@ -426,6 +447,7 @@ export class YoAgent {
     delete: (name: string) => boolean;
   }): void {
     this.manager.setLayoutCallbacks(cbs);
+    this.layout.setLayoutCallbacks(cbs);
     this.skillRunner.setLayoutCallbacks(cbs);
   }
 
@@ -434,6 +456,7 @@ export class YoAgent {
     this.navigator.abort();
     this.researcher.abort();
     this.manager.abort();
+    this.layout.abort();
     this.skillRunner.abort();
     this.coder.abort();
   }
@@ -808,7 +831,7 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           // Inject current panel list so navigator doesn't waste a list_panels call or open duplicates
           const panelList = this.navigator.listPanels();
           const enriched = panelList
-            ? `${instruction}\n\nOPEN PANELS:\n${panelList}\nUse these panel IDs directly — do NOT open_panel for panels that already exist.`
+            ? `${instruction}\n\nAVAILABLE APP PANELS (use these IDs directly with grab_panel, scan_panel, click_element, type_text, run_command — NO need to open_panel or navigate_panel):\n${panelList}`
             : instruction;
           result = await this.navigator.execute(enriched, context);
           break;
@@ -818,6 +841,9 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           break;
         case "delegate_manager":
           result = await this.manager.execute(instruction, context);
+          break;
+        case "delegate_layout":
+          result = await this.layout.execute(instruction, context);
           break;
         case "delegate_skill": {
           const skillName = input.skill_name as string;
@@ -961,9 +987,14 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!this._panelGrabber) return "Panel grabber not available.";
     if (!this._panelTyper) return "Panel typer not available.";
 
-    // Step 1: Grab content from source
-    const content = await this._panelGrabber(sourcePanel);
-    if (!content) return `Could not grab content from panel: ${sourcePanel}`;
+    // Step 1: Grab content from source (retry up to 3 times with backoff)
+    let content: string | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      content = await this._panelGrabber(sourcePanel);
+      if (content) break;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+    if (!content) return `Could not grab content from panel "${sourcePanel}" after 3 attempts. The panel may not be loaded or may have no visible text content. Try refreshing the panel or grabbing it directly with delegate_navigator first.`;
 
     // Step 2: Transform (optional)
     let output = content;

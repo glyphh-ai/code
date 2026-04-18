@@ -2623,6 +2623,10 @@ select.settings-input {
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   font-size: 13px;
   font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+.yo-panel-title .yo-dot {
   color: #25C75E;
 }
 

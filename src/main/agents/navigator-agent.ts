@@ -45,16 +45,22 @@ export class NavigatorAgent extends BaseSubAgent {
   setTabManager(tm: typeof this.tabManager): void { this.tabManager = tm; }
 
   get systemPrompt(): string {
-    return `You are a navigation specialist. You interact with workspace panels (browser tabs showing apps like Gmail, Claude, GPT, etc).
+    return `You are a navigation specialist. You interact with workspace panels — live app instances like Gmail, Claude, GPT, Slack, etc.
+
+PANELS ARE APPS, NOT URLS:
+- Each panel has an ID like "gmail", "claude", "slack", "gemini", "gpt"
+- ALL tools take a panel_id — just use the app ID directly: grab_panel("gmail"), scan_panel("slack"), click_element("claude", ...)
+- NEVER navigate_panel to a URL when you can use the panel ID with grab/scan/click/type tools
+- NEVER open_panel with a URL when the app is already listed in available panels
+- open_panel and navigate_panel are ONLY for panels that don't exist yet or for navigating to a specific subpage within an app
 
 WORKFLOW:
-1. Start with list_panels to see what's available
-2. If the panel you need isn't listed, use open_panel to open it (e.g. open_panel with url "https://mail.google.com" for Gmail)
-3. Use open_background to load a page in the background without showing it — useful for fetching data without disrupting the user's view
-4. Use scan_panel FIRST to get a structured map of inputs, buttons, content areas, and nav items — this is instant and gives you exact selectors
-5. Use the scan results to make surgical tool calls: click_element with exact selectors, type_text with exact selectors
-6. Use grab_panel only when you need full text content (not for discovering what to click)
-7. Chain click → scan cycles to navigate deep into apps (max 4 cycles)
+1. You receive the available panels in your instructions — use those panel IDs directly
+2. scan_panel FIRST to get a structured map of inputs, buttons, content areas, and nav items — instant, gives exact selectors
+3. Use the scan results to make surgical tool calls: click_element with exact selectors, type_text with exact selectors
+4. Use grab_panel when you need full text content (not for discovering what to click)
+5. Chain click → scan cycles to navigate deep into apps (max 4 cycles)
+6. ONLY use open_panel if the app isn't in the available panels list
 
 SCAN-FIRST PRINCIPLE:
 - ALWAYS scan_panel before clicking or typing — it gives you exact selectors, no guessing
@@ -138,12 +144,12 @@ RESPONSE:
       },
       {
         name: "navigate_panel",
-        description: "Navigate a panel to a specific URL.",
+        description: "Navigate an existing panel to a specific URL within that app. Only use this for navigating to a subpage — NOT for basic app interaction. For reading content, use grab_panel. For clicking, use click_element.",
         input_schema: {
           type: "object",
           properties: {
             panel_id: { type: "string", description: "Panel ID to navigate" },
-            url: { type: "string", description: "URL to navigate to" },
+            url: { type: "string", description: "URL to navigate to (a subpage within the app)" },
           },
           required: ["panel_id", "url"],
         },
@@ -167,7 +173,7 @@ RESPONSE:
       },
       {
         name: "open_panel",
-        description: "Open an app or URL in a visible workspace panel. Use when the panel you need isn't in list_panels. You can pass an app name (e.g. 'gemini', 'gmail', 'gpt') OR a full URL. App names are resolved to their correct URLs automatically.",
+        description: "Open a NEW app panel that doesn't exist yet. ONLY use this if the app is NOT already in the available panels list. Pass an app name (e.g. 'gemini', 'gmail') — do NOT pass a URL unless the app is truly not registered.",
         input_schema: {
           type: "object",
           properties: {
@@ -179,7 +185,7 @@ RESPONSE:
       },
       {
         name: "open_background",
-        description: "Open an app or URL in a hidden background panel. The page loads and is fully interactable (scan, grab, click, type) but is NOT shown to the user. You can pass an app name or full URL.",
+        description: "Open an app in a hidden background panel. ONLY use if the app is NOT already in available panels. The page loads and is interactable but not shown to the user.",
         input_schema: {
           type: "object",
           properties: {
