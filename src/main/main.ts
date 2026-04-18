@@ -1390,8 +1390,8 @@ async function boot() {
     if (query) {
       yoAgent?.send(query, {
         onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
-        onToolUse: (name) => mainWindow?.webContents.send("yo-panel-tool-use", name),
-        onToolResult: (label, detail) => mainWindow?.webContents.send("yo-panel-tool-result", label, detail),
+        onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
+        onToolResult: (id, detail) => mainWindow?.webContents.send("yo-panel-tool-result", id, detail),
         onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
         onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
       });
@@ -1632,7 +1632,8 @@ async function boot() {
       if (!mainWindow) return;
       const idx = openTabs.indexOf(id);
       if (idx >= 0) openTabs.splice(idx, 1);
-      panelManager.closePanel(id, mainWindow);
+      const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+      panelManager.closePanel(id, mainWindow, nextId);
       sendTabState();
     },
     create: () => {
@@ -1654,11 +1655,8 @@ async function boot() {
       if (!mainWindow) return;
       const idx = openTabs.indexOf(id);
       if (idx >= 0) openTabs.splice(idx, 1);
-      panelManager.closePanel(id, mainWindow);
-      if (panelManager.activePanelId === id || panelManager.activePanelId === null) {
-        const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
-        if (nextId) panelManager.switchTo(nextId, mainWindow);
-      }
+      const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+      panelManager.closePanel(id, mainWindow, nextId);
       sendSplitState();
       sendTabState();
     },
@@ -2516,19 +2514,13 @@ async function boot() {
     const idx = openTabs.indexOf(id);
     if (idx < 0) return;
     openTabs.splice(idx, 1);
-    panelManager.closePanel(id, mainWindow);
+    const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+    panelManager.closePanel(id, mainWindow, nextId);
     // Clean up saved browser URL
     if (id === "browser" || id.startsWith("browse-")) {
       const saved = getPreference<Record<string, string>>("browserTabUrls", {});
       delete saved[id];
       setPreference("browserTabUrls", saved);
-    }
-    // Switch to adjacent tab if closing the active one
-    if (panelManager.activePanelId === id || panelManager.activePanelId === null) {
-      const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
-      if (nextId) {
-        panelManager.switchTo(nextId, mainWindow);
-      }
     }
     sendSplitState();
     sendTabState();

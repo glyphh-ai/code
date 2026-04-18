@@ -41,9 +41,9 @@ export interface YoAgentCallbacks {
 const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, never ask for clarification. Plain text only.
 
 TOOLS:
-- ask_panel: send a prompt to AI chat panels and get real responses. Supports ask (independent), chain (sequential), debate (multi-round). Use this whenever the user wants to interact with AI apps.
-- delegate_navigator: click, type, scan, grab content from any panel. For non-AI interactions or precise DOM actions.
-- delegate_layout: splits, grids, saved layouts, tabs, zoom. Use for "side by side", "split", "compare", "debate layout", "grid".
+- ask_panel: send a prompt to AI chat panels and get real responses. Modes: ask (independent), chain (sequential), debate (multi-round).
+- delegate_navigator: click, type, scan, grab content from any panel. For non-AI interactions.
+- delegate_layout: arrange panels on screen — splits, grids, tabs, zoom.
 - delegate_researcher: notes and file search
 - delegate_manager: skills, apps CRUD
 - delegate_skill: run a named skill (/skillname)
@@ -53,11 +53,10 @@ TOOLS:
 - web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
-- ask_panel for ANY request involving AI apps ("ask claude", "have gemini write", "compare", "debate")
-- delegate_layout ONLY when user explicitly asks to rearrange ("side by side", "split", "grid", "show me X and Y"). If panels are already in the right layout, skip it.
-- Delegate in parallel when tasks are independent
-- Synthesize results in your own words — don't dump raw panel content
-- Use conversation history for "the earlier one", "that thing", etc.`;
+- Use ask_panel to interact with AI apps. Use delegate_navigator for non-AI panel interactions.
+- Check AVAILABLE PANELS and Current layout before acting. Arrange panels the user needs to see.
+- Delegate in parallel when tasks are independent.
+- Synthesize results — don't dump raw content.`;
 
 const TOOLS = [
   {
@@ -95,7 +94,7 @@ const TOOLS = [
   },
   {
     name: "delegate_layout",
-    description: "Delegate a workspace layout task to the layout specialist. Use for splits, grids, saved layouts, tab management, zoom, swapping panels. ALWAYS use this when the user says 'side by side', 'split', 'compare', 'debate', 'grid', '2x2', or any panel arrangement request.",
+    description: "Arrange panels on screen. Opens panels that aren't visible, creates splits/grids, manages tabs and zoom. Use this before ask_panel when the panels need to be shown to the user.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -681,7 +680,7 @@ export class YoAgent {
         panelSection += `\nCurrent layout: single panel view`;
       }
 
-      panelSection += `\nThese panels are already loaded and ready. Do NOT ask the navigator to "open" or "navigate to" any of these — just reference them by ID. Only open_panel for apps NOT in this list. Do NOT rearrange the layout unless the user explicitly asks for it.`;
+      panelSection += `\nUse delegate_layout to arrange any of these panels on screen.`;
       prompt += panelSection;
     }
 
@@ -1085,21 +1084,26 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!this._panelTyper) return `[${panelId}] Panel typing not available.`;
     if (!this._panelGrabber) return `[${panelId}] Panel grabbing not available.`;
 
-    // Grab baseline BEFORE typing so we can detect when new content appears
-    const baseline = (await this._panelGrabber(panelId)) || "";
+    // Fast-fail: check if panel is loaded
+    const baseline = await this._panelGrabber(panelId);
+    if (baseline === null) {
+      return `[${panelId}] Panel not loaded — use delegate_layout to open it first.`;
+    }
 
     // Focus the correct chat input using app-specific "input" command
-    // Without this, the typer may focus the wrong element (e.g. model dropdown on Claude)
     if (this._panelCommandRunner) {
       try { await this._panelCommandRunner(panelId, "input"); } catch { /* fallback to generic focus */ }
       await new Promise((r) => setTimeout(r, 200));
     }
 
     // Type text WITHOUT submitting — we handle submit separately for reliability
-    await this._panelTyper(panelId, prompt, { clear: true, submit: false });
+    const typeResult = await this._panelTyper(panelId, prompt, { clear: true, submit: false });
+    if (typeResult.includes("not found") || typeResult.includes("not loaded")) {
+      return `[${panelId}] Could not type into panel: ${typeResult}`;
+    }
     await new Promise((r) => setTimeout(r, 300));
 
-    // Submit: try app-specific submit command first (most reliable), fall back to generic typer submit
+    // Submit: try app-specific submit command first, fall back to generic
     let submitted = false;
     if (this._panelCommandRunner) {
       try {
@@ -1110,16 +1114,16 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       } catch { /* fall through to fallback */ }
     }
     if (!submitted) {
-      // Fallback: use the typer's built-in submit (Enter key + button click)
-      // Don't clear — the prompt text is already in the input from the previous type call
       await this._panelTyper(panelId, "", { clear: false, submit: true });
     }
 
-    // Wait for response: first wait for content to CHANGE from baseline, then wait for stability
+    // Poll for response in two phases
     const deadline = Date.now() + Math.min(Math.max(timeoutSec, 5), 120) * 1000;
+    const changeDeadline = Date.now() + 20_000; // 20s to detect any change (submit may have failed)
     let prevContent = "";
     let stableCount = 0;
     let contentChanged = false;
+    let nullCount = 0;
     const POLL_MS = 2500;
     const STABLE_THRESHOLD = 2;
 
@@ -1127,7 +1131,13 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       if (this.aborted) return `[${panelId}] Aborted while waiting.`;
       await new Promise((r) => setTimeout(r, POLL_MS));
       const content = await this._panelGrabber(panelId);
-      if (!content) { stableCount = 0; prevContent = ""; continue; }
+
+      if (!content) {
+        nullCount++;
+        if (nullCount > 4) return `[${panelId}] Panel went unavailable.`;
+        stableCount = 0; prevContent = ""; continue;
+      }
+      nullCount = 0;
 
       // Phase 1: wait for content to differ from baseline (AI started generating)
       if (!contentChanged) {
@@ -1135,6 +1145,8 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           contentChanged = true;
           prevContent = content;
           stableCount = 0;
+        } else if (Date.now() > changeDeadline) {
+          return `[${panelId}] No response after 20s — submit may have failed. Panel content unchanged.`;
         }
         continue;
       }
@@ -1152,7 +1164,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         prevContent = content;
       }
     }
-    // Timeout fallback
     const final = await this._panelGrabber(panelId);
     return final || `[${panelId}] Timed out after ${timeoutSec}s — no content.`;
   }
@@ -1165,6 +1176,24 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
 
     if (!panels?.length) return "No panels specified.";
     if (!prompt) return "No prompt provided.";
+
+    // Ensure all target panels are loaded — open them if not
+    if (this._panelGrabber && this.commandRunner) {
+      const notLoaded: string[] = [];
+      for (const panel of panels) {
+        const check = await this._panelGrabber(panel);
+        if (check === null) notLoaded.push(panel);
+      }
+      if (notLoaded.length > 0) {
+        // Open via dip — creates webviews and shows the panels to the user
+        if (panels.length >= 2) {
+          await this.commandRunner(`dip split ${panels.join(" ")}`);
+        } else {
+          await this.commandRunner(`dip ${panels[0]}`);
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
 
     const responses: Array<{ panel: string; content: string }> = [];
 

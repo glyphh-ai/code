@@ -946,8 +946,10 @@ export class PanelManager {
     return this.configs.has(id);
   }
 
-  /** Close and destroy a panel's BrowserView */
-  closePanel(id: string, parent: BrowserWindow): void {
+  /** Close and destroy a panel's BrowserView.
+   *  If closing the active panel, switches to fallbackId (if given),
+   *  then previousPanel, then any remaining loaded panel. */
+  closePanel(id: string, parent: BrowserWindow, fallbackId?: string): void {
     const view = this.panels.get(id);
     if (view) {
       try {
@@ -959,7 +961,16 @@ export class PanelManager {
       this.panels.delete(id);
     }
     if (this.activePanel === id) {
-      this.activePanel = this.previousPanel;
+      const prev = this.previousPanel !== id ? this.previousPanel : null;
+      this.previousPanel = null;
+      // Pick best fallback: caller hint → previous → any loaded panel
+      const next = [fallbackId, prev].find((f) => f && this.panels.has(f))
+        ?? (this.panels.size > 0 ? this.panels.keys().next().value ?? null : null);
+      this.activePanel = next;
+      if (next && !parent.isDestroyed()) {
+        this.switchTo(next, parent);
+      }
+    } else if (this.previousPanel === id) {
       this.previousPanel = null;
     }
   }
