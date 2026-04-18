@@ -857,7 +857,20 @@ async function boot() {
     if (!wc) return null;
     const scan = await scanPanel(wc);
     if (!scan) return null;
-    return formatScan(scan);
+    let result = formatScan(scan);
+    // Inject mapped commands from app config so the agent can skip discovery
+    const app = appConnector.get(panelId);
+    if (app && Object.keys(app.commands).length > 0) {
+      const lines: string[] = ["MAPPED COMMANDS:"];
+      for (const [name, cmd] of Object.entries(app.commands)) {
+        const parts = [`  ${name}: ${cmd.action} "${cmd.selector}"`];
+        if (cmd.description) parts.push(`— ${cmd.description}`);
+        if (cmd.waitFor) parts.push(`(waitFor: ${cmd.waitFor})`);
+        lines.push(parts.join(" "));
+      }
+      result += "\n" + lines.join("\n");
+    }
+    return result;
   });
   yoAgent.setPanelClicker(async (panelId, text, selector) => {
     const wc = panelManager.getWebContents(panelId);
@@ -1096,6 +1109,20 @@ async function boot() {
     // Don't call switchTo — the view loads but stays hidden
     await new Promise((r) => setTimeout(r, 2000));
     return `Background panel "${id}" loaded at ${url}. You can use scan_panel, grab_panel, click_element, type_text with panel_id "${id}". It is NOT visible to the user.`;
+  });
+
+  yoAgent.setCommandRunner(async (panelId, command, value) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+    const app = appConnector.get(panelId);
+    if (!app) return `No app config for panel "${panelId}".`;
+    const mapping = app.commands[command];
+    if (!mapping) return `No command "${command}" mapped for ${app.name}. Available: ${Object.keys(app.commands).join(", ") || "none"}`;
+    try {
+      return await executeCommand(wc, mapping, value);
+    } catch (err: unknown) {
+      return `Command "${command}" failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
   });
 
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);

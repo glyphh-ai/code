@@ -17,6 +17,7 @@ export class NavigatorAgent extends BaseSubAgent {
   private panelScanner: ((panelId: string) => Promise<string | null>) | null = null;
   private panelOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
   private backgroundOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
+  private commandRunner: ((panelId: string, command: string, value?: string) => Promise<string>) | null = null;
 
   setPanelGrabber(fn: typeof this.panelGrabber): void { this.panelGrabber = fn; }
   setPanelClicker(fn: typeof this.panelClicker): void { this.panelClicker = fn; }
@@ -26,6 +27,7 @@ export class NavigatorAgent extends BaseSubAgent {
   setPanelScanner(fn: typeof this.panelScanner): void { this.panelScanner = fn; }
   setPanelOpener(fn: typeof this.panelOpener): void { this.panelOpener = fn; }
   setBackgroundOpener(fn: typeof this.backgroundOpener): void { this.backgroundOpener = fn; }
+  setCommandRunner(fn: typeof this.commandRunner): void { this.commandRunner = fn; }
 
   get systemPrompt(): string {
     return `You are a navigation specialist. You interact with workspace panels (browser tabs showing apps like Gmail, Claude, GPT, etc).
@@ -44,6 +46,14 @@ SCAN-FIRST PRINCIPLE:
 - The scan returns: INPUTS (with type, placeholder, selector), BUTTONS (with text, selector), CONTENT areas, NAV items
 - Use the selector from scan results directly in click_element or type_text
 - Only fall back to grab_panel if scan_panel returns nothing useful (rare)
+
+MAPPED COMMANDS:
+- Some apps include a MAPPED COMMANDS section in the scan result — these are pre-mapped actions with verified selectors and names
+- When a mapped command matches what you need to do, use run_command to execute it directly — this is the fastest path
+- run_command handles click, setValue, extractText, extractHTML, and custom scripts automatically
+- For setValue commands, pass the value parameter (e.g. run_command with command "search" and value "my query")
+- ALWAYS prefer run_command over manual click_element/type_text when a mapped command exists — it's faster and more reliable
+- Only fall back to scan_panel + manual tools when no mapped command covers what you need
 
 TYPING & SUBMITTING:
 - When you type_text into search boxes, chat inputs, or form fields, set submit=true to press Enter.
@@ -152,6 +162,19 @@ RESPONSE:
           required: ["url"],
         },
       },
+      {
+        name: "run_command",
+        description: "Execute a pre-mapped app command by name. These are verified selectors and actions configured for specific apps. Check the MAPPED COMMANDS section of scan_panel results to see available commands. Much faster and more reliable than manual click/type — always prefer this when a matching command exists.",
+        input_schema: {
+          type: "object",
+          properties: {
+            panel_id: { type: "string", description: "Panel ID to run the command on" },
+            command: { type: "string", description: "Command name from MAPPED COMMANDS (e.g. 'new', 'search', 'reply', 'grab')" },
+            value: { type: "string", description: "Value to pass for setValue commands (e.g. search query, message text)" },
+          },
+          required: ["panel_id", "command"],
+        },
+      },
     ];
   }
 
@@ -215,6 +238,14 @@ RESPONSE:
         const panelId = input.panel_id as string | undefined;
         if (!this.backgroundOpener) return "Background panel opening not available.";
         return this.backgroundOpener(url, panelId);
+      }
+
+      case "run_command": {
+        const panelId = input.panel_id as string;
+        const command = input.command as string;
+        const value = input.value as string | undefined;
+        if (!this.commandRunner) return "Command execution not available.";
+        return this.commandRunner(panelId, command, value);
       }
 
       default:

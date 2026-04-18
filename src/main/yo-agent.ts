@@ -275,6 +275,10 @@ export class YoAgent {
     this.skillRunner.setBackgroundOpener(fn);
   }
 
+  setCommandRunner(fn: (panelId: string, command: string, value?: string) => Promise<string>): void {
+    this.navigator.setCommandRunner(fn);
+  }
+
   setMaxMessages(n: number): void { this.maxMessages = n; }
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void {
