@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { LLMConfig, createStream, createCompletion } from "./llm-config";
+import { usageTracker } from "./usage-tracker";
 import type { NoteStore } from "./note-store";
 import type { AppConnector } from "./app-connector";
 import type { MemoryStore } from "./memory-store";
@@ -659,6 +660,10 @@ You are in plan mode. DO NOT call any tools or delegates. Instead, describe step
       },
     );
 
+    if (response.usage) {
+      usageTracker.record("orchestrator", response.usage);
+    }
+
     this.history.push({ role: "assistant", content: response.content });
     if (this.aborted) { this.patchDanglingToolUse(); return; }
 
@@ -960,6 +965,7 @@ You are in plan mode. DO NOT call any tools or delegates. Instead, describe step
           maxTokens: 4000,
           model: this.getCheapModel(),
         });
+        if (response.usage) usageTracker.record("orchestrator", response.usage);
         const text = response.content[0]?.type === "text" ? response.content[0].text : "";
         if (text) output = text;
       } catch {

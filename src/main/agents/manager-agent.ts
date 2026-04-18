@@ -10,6 +10,7 @@ import type { ToolDef } from "./types";
 import type { AppConnector } from "../app-connector";
 
 export class ManagerAgent extends BaseSubAgent {
+  protected agentName = "manager";
   private skillCallbacks: {
     list: () => string[];
     read: (name: string) => string | null;

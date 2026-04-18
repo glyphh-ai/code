@@ -46,6 +46,7 @@ const INTERACTIVE = new Set([
 ]);
 
 export class CodingAgent extends BaseSubAgent {
+  protected agentName = "coder";
   // Panel interaction callbacks (for opening built apps)
   private panelOpener: ((url: string, panelId?: string) => Promise<string>) | null = null;
   private panelRefresher: ((panelId?: string) => Promise<string>) | null = null;

@@ -9,6 +9,7 @@ import { BaseSubAgent } from "./base-agent";
 import type { ToolDef } from "./types";
 
 export class NavigatorAgent extends BaseSubAgent {
+  protected agentName = "navigator";
   private panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
   private panelClicker: ((panelId: string, text?: string, selector?: string) => Promise<string>) | null = null;
   private panelNavigator: ((panelId: string, url: string) => Promise<string>) | null = null;

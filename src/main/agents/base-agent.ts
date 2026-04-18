@@ -8,6 +8,7 @@
 
 import type { LLMConfig } from "../llm-config";
 import { createCompletion } from "../llm-config";
+import { usageTracker } from "../usage-tracker";
 import type { SubAgentResult, SubAgentContext, ToolDef, AgentMode } from "./types";
 import { gate } from "../action-gate";
 
@@ -26,6 +27,9 @@ export abstract class BaseSubAgent {
   private aborted = false;
   private _mode: AgentMode = "ask";
   private _approvalCallback: ApprovalCallback | null = null;
+
+  /** Name used for usage tracking. Override in subclasses. */
+  protected agentName = "sub-agent";
 
   /** Max tool-loop iterations before forcing a response. */
   protected maxIterations = 10;
@@ -94,6 +98,10 @@ export abstract class BaseSubAgent {
       maxTokens: 2048,
       model,
     });
+
+    if (response.usage) {
+      usageTracker.record(this.agentName, response.usage);
+    }
 
     messages.push({ role: "assistant", content: response.content });
 

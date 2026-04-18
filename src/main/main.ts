@@ -7,6 +7,8 @@
 
 import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
+import fs from "fs";
+import os from "os";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
@@ -35,6 +37,7 @@ import { VSCodeServer } from "./vscode-server";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
+import { usageTracker } from "./usage-tracker";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -646,12 +649,16 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
+  const dashboardHtml = `file://${path.join(__dirname, "..", "renderer", "dashboard.html")}`;
+  const dashboardPreload = path.join(__dirname, "dashboard-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
   for (const app of appConnector.list()) {
     if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://dashboard") {
+      panelManager.addPanel(app.id, dashboardHtml, dashboardPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1232,11 +1239,18 @@ async function boot() {
     (text: string) => { try { clipboard.writeText(text); } catch {} },
   );
 
-  // Reminder — sends a message into the yo panel chat
+  // Reminder registry — tracked for dashboard visibility + cancellation
+  const activeReminders = new Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>();
+  let reminderCounter = 0;
+
   yoAgent.setReminderCallback((message: string, delayMs: number) => {
-    setTimeout(() => {
+    const id = `r-${++reminderCounter}`;
+    const fireAt = Date.now() + delayMs;
+    const timer = setTimeout(() => {
+      activeReminders.delete(id);
       mainWindow?.webContents.send("yo-reminder", message);
     }, delayMs);
+    activeReminders.set(id, { message, fireAt, timer });
   });
 
   if (llmConfig) yoAgent.setLLMConfig(llmConfig);
@@ -2265,6 +2279,70 @@ async function boot() {
     return { ok: true };
   });
 
+  // ── Dashboard IPC handlers ─────────────────────────────
+
+  ipcMain.handle("dashboard:today", () => usageTracker.getToday());
+  ipcMain.handle("dashboard:history", (_e, days?: number) => usageTracker.getHistory(days || 30));
+  ipcMain.handle("dashboard:all-time", () => usageTracker.getAllTime());
+
+  ipcMain.handle("dashboard:apps", () => {
+    const appsDir = path.join(os.homedir(), "yo", "apps");
+    try {
+      if (!fs.existsSync(appsDir)) return [];
+      const entries = fs.readdirSync(appsDir, { withFileTypes: true });
+      return entries
+        .filter((e) => e.isDirectory())
+        .map((e) => {
+          const indexPath = path.join(appsDir, e.name, "index.html");
+          let modified = "";
+          try {
+            const stat = fs.statSync(indexPath);
+            modified = stat.mtime.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          } catch { /* no index.html */ }
+          return { name: e.name, path: path.join(appsDir, e.name), modified };
+        })
+        .filter((a) => a.modified); // only show apps that have index.html
+    } catch { return []; }
+  });
+
+  ipcMain.on("dashboard:open-app", (_e, name: string) => {
+    const filePath = path.join(os.homedir(), "yo", "apps", name, "index.html");
+    if (fs.existsSync(filePath) && mainWindow) {
+      const fileUrl = `file://${filePath}`;
+      panelManager.addPanel(`app-${name}`, fileUrl);
+      panelManager.switchTo(`app-${name}`, mainWindow);
+    }
+  });
+
+  ipcMain.handle("dashboard:delete-app", (_e, name: string) => {
+    const appDir = path.join(os.homedir(), "yo", "apps", name);
+    try {
+      fs.rmSync(appDir, { recursive: true, force: true });
+      return true;
+    } catch { return false; }
+  });
+
+  ipcMain.handle("dashboard:reminders", () => {
+    const result: Array<{ id: string; message: string; fireAt: number }> = [];
+    for (const [id, r] of activeReminders) {
+      result.push({ id, message: r.message, fireAt: r.fireAt });
+    }
+    return result;
+  });
+
+  ipcMain.handle("dashboard:cancel-reminder", (_e, id: string) => {
+    const r = activeReminders.get(id);
+    if (!r) return false;
+    clearTimeout(r.timer);
+    activeReminders.delete(id);
+    return true;
+  });
+
+  ipcMain.handle("dashboard:llm-info", () => ({
+    provider: llmConfig.provider,
+    model: llmConfig.model,
+  }));
+
   ipcMain.handle("get-checkout-url", async (_e, plan?: string) => {
     const url = await getCheckoutUrl(plan || "pro");
     if (url) {
@@ -2613,6 +2691,7 @@ function cleanupAll() {
   configSync = null;
   terminalManager?.killAll();
   vscodeServer?.stop();
+  usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();
 }

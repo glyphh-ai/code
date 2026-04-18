@@ -100,6 +100,11 @@ function getBaseUrl(config: LLMConfig): string {
 
 // ── Unified completion call ───────────────────────────────
 
+export interface LLMUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export async function createCompletion(
   config: LLMConfig,
   params: {
@@ -109,7 +114,7 @@ export async function createCompletion(
     maxTokens: number;
     model?: string;
   },
-): Promise<{ content: any[]; stopReason: string }> {
+): Promise<{ content: any[]; stopReason: string; usage?: LLMUsage }> {
   const model = params.model || config.model;
   if (config.provider === "anthropic") {
     return anthropicCompletion(config.apiKey, model, params);
@@ -127,7 +132,7 @@ export async function createStream(
     maxTokens: number;
   },
   onText: (delta: string) => void,
-): Promise<{ content: any[]; stopReason: string }> {
+): Promise<{ content: any[]; stopReason: string; usage?: LLMUsage }> {
   if (config.provider === "anthropic") {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: config.apiKey });
@@ -141,7 +146,8 @@ export async function createStream(
     const stream = client.messages.stream(opts);
     stream.on("text", (text: string) => onText(text));
     const response = await stream.finalMessage();
-    return { content: response.content as any[], stopReason: response.stop_reason as string };
+    const usage: LLMUsage = { inputTokens: response.usage?.input_tokens || 0, outputTokens: response.usage?.output_tokens || 0 };
+    return { content: response.content as any[], stopReason: response.stop_reason as string, usage };
   }
 
   // Non-streaming fallback for OpenAI-compatible providers
@@ -158,7 +164,7 @@ async function anthropicCompletion(
   apiKey: string,
   model: string,
   params: { system: string; messages: any[]; tools?: any[]; maxTokens: number },
-): Promise<{ content: any[]; stopReason: string }> {
+): Promise<{ content: any[]; stopReason: string; usage?: LLMUsage }> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic({ apiKey });
   const opts: any = {
@@ -169,7 +175,8 @@ async function anthropicCompletion(
   };
   if (params.tools && params.tools.length > 0) opts.tools = params.tools;
   const response = await client.messages.create(opts);
-  return { content: response.content as any[], stopReason: response.stop_reason as string };
+  const usage: LLMUsage = { inputTokens: response.usage?.input_tokens || 0, outputTokens: response.usage?.output_tokens || 0 };
+  return { content: response.content as any[], stopReason: response.stop_reason as string, usage };
 }
 
 // ── OpenAI-compatible path ────────────────────────────────
@@ -222,7 +229,7 @@ function toOpenAIMessages(system: string, messages: any[]): any[] {
   return result;
 }
 
-function fromOpenAIResponse(choice: any): { content: any[]; stopReason: string } {
+function fromOpenAIResponse(choice: any): { content: any[]; stopReason: string; usage?: LLMUsage } {
   const content: any[] = [];
   if (choice.message.content) {
     content.push({ type: "text", text: choice.message.content });
@@ -272,7 +279,7 @@ async function openaiCompletion(
   config: LLMConfig,
   model: string,
   params: { system: string; messages: any[]; tools?: any[]; maxTokens: number },
-): Promise<{ content: any[]; stopReason: string }> {
+): Promise<{ content: any[]; stopReason: string; usage?: LLMUsage }> {
   const baseUrl = getBaseUrl(config);
   const body: any = {
     model,
@@ -283,7 +290,11 @@ async function openaiCompletion(
     body.tools = toOpenAITools(params.tools);
   }
   const data = await openaiRequest<any>(`${baseUrl}/chat/completions`, config.apiKey, body);
-  return fromOpenAIResponse(data.choices[0]);
+  const result = fromOpenAIResponse(data.choices[0]);
+  if (data.usage) {
+    result.usage = { inputTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0 };
+  }
+  return result;
 }
 
 // ── Validation ────────────────────────────────────────────

@@ -30,6 +30,7 @@ import {
 } from "./file-utils";
 
 export class SkillRunnerAgent extends BaseSubAgent {
+  protected agentName = "skill-runner";
   // Skill prompt — set dynamically before each execute()
   private skillPrompt: string = "";
 

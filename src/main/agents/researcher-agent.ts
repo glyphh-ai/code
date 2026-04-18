@@ -11,6 +11,7 @@ import type { NoteStore } from "../note-store";
 import { readFileContents, searchFileContents, listFilesAt } from "./file-utils";
 
 export class ResearcherAgent extends BaseSubAgent {
+  protected agentName = "researcher";
   private noteStore: NoteStore | null = null;
 
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
