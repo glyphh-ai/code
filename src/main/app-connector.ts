@@ -32,6 +32,7 @@ export interface AppConfig {
   forceWeb?: boolean;
   meta?: {
     description: string;
+    category?: string;
     capabilities: string[];
   };
 }
@@ -39,7 +40,57 @@ export interface AppConfig {
 /** Commands every app should map */
 export const STANDARD_COMMANDS = [
   { key: "grab", description: "Extract main content/conversation from the page" },
+  { key: "input", description: "Focus the primary text input (chat box, compose field, search bar)" },
+  { key: "submit", description: "Click the primary submit/send button" },
+  { key: "new", description: "Start a new item (new chat, compose email, new document)" },
+  { key: "search", description: "Focus or open the search interface" },
 ] as const;
+
+/** Category-specific commands the connector agent should discover */
+export const CATEGORY_COMMANDS: Record<string, Array<{ key: string; description: string }>> = {
+  chat: [
+    { key: "read-latest", description: "Extract the most recent response/message" },
+    { key: "list-threads", description: "List conversation threads in sidebar" },
+    { key: "new-chat", description: "Start a new conversation" },
+    { key: "stop", description: "Stop/cancel an in-progress generation" },
+    { key: "copy-last", description: "Copy the last assistant response" },
+  ],
+  email: [
+    { key: "compose", description: "Open compose/new email window" },
+    { key: "reply", description: "Reply to the current email" },
+    { key: "inbox", description: "Navigate to inbox" },
+    { key: "read-email", description: "Extract the currently open email content" },
+    { key: "to-field", description: "Focus the To recipient field" },
+    { key: "subject-field", description: "Focus the Subject field" },
+    { key: "body-field", description: "Focus the email body field" },
+    { key: "send", description: "Click the send button" },
+  ],
+  project: [
+    { key: "create-item", description: "Create a new issue/task/ticket" },
+    { key: "list-items", description: "List visible issues/tasks" },
+    { key: "comment", description: "Add a comment to the current item" },
+    { key: "assign", description: "Open the assignee picker" },
+    { key: "status", description: "Open the status/state picker" },
+  ],
+  docs: [
+    { key: "new-doc", description: "Create a new document" },
+    { key: "title-field", description: "Focus the document title" },
+    { key: "body-field", description: "Focus the document body editor" },
+    { key: "share", description: "Open the share dialog" },
+  ],
+  social: [
+    { key: "post", description: "Open new post/tweet composer" },
+    { key: "feed", description: "Extract visible feed content" },
+    { key: "notifications", description: "Navigate to notifications" },
+    { key: "like", description: "Like/heart the focused item" },
+  ],
+  code: [
+    { key: "file-tree", description: "Extract the visible file tree" },
+    { key: "open-file", description: "Open the file finder/picker" },
+    { key: "terminal", description: "Focus or open the terminal" },
+    { key: "run", description: "Run/execute the current file or test" },
+  ],
+};
 
 /** Script to extract all open editor content from VS Code via Monaco's AMD loader */
 const VSCODE_GRAB_SCRIPT = `

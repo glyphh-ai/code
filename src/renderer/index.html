@@ -746,12 +746,43 @@
       <button id="yo-panel-send">&uarr;</button>
     </div>
     <div class="yo-panel-controls">
-      <select id="yo-mode-select" class="yo-control-select" title="Agent mode">
-        <option value="ask">ask</option>
-        <option value="plan">plan</option>
-        <option value="auto">auto</option>
-      </select>
-      <select id="yo-model-select" class="yo-control-select" title="Model"></select>
+      <div id="yo-mode-dropdown" class="yo-mode-dropdown">
+        <button id="yo-mode-trigger" class="yo-mode-trigger" title="Agent mode">
+          <span class="yo-mode-icon"></span>
+          <span class="yo-mode-label">ask</span>
+          <span class="yo-mode-chevron">&#x25BE;</span>
+        </button>
+        <div id="yo-mode-menu" class="yo-mode-menu hidden">
+          <div class="yo-mode-option" data-value="ask">
+            <span class="yo-mode-opt-icon">&#x2753;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">ask</span>
+              <span class="yo-mode-opt-desc">confirms before acting</span>
+            </div>
+          </div>
+          <div class="yo-mode-option" data-value="plan">
+            <span class="yo-mode-opt-icon">&#x1F4CB;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">plan</span>
+              <span class="yo-mode-opt-desc">drafts a plan first</span>
+            </div>
+          </div>
+          <div class="yo-mode-option" data-value="auto">
+            <span class="yo-mode-opt-icon">&#x26A1;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">auto</span>
+              <span class="yo-mode-opt-desc">executes without asking</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="yo-model-dropdown" class="yo-model-dropdown">
+        <button id="yo-model-trigger" class="yo-model-trigger" title="Model">
+          <span class="yo-model-label">model</span>
+          <span class="yo-model-chevron">&#x25BE;</span>
+        </button>
+        <div id="yo-model-menu" class="yo-model-menu hidden"></div>
+      </div>
     </div>
   </div>
 

@@ -60,12 +60,19 @@ SCAN-FIRST PRINCIPLE:
 - Only fall back to grab_panel if scan_panel returns nothing useful (rare)
 
 MAPPED COMMANDS:
-- Some apps include a MAPPED COMMANDS section in the scan result — these are pre-mapped actions with verified selectors and names
-- When a mapped command matches what you need to do, use run_command to execute it directly — this is the fastest path
+- Some apps include a MAPPED COMMANDS section in the scan result — these are pre-mapped actions with verified selectors
+- When a mapped command matches what you need, use run_command — it's faster and more reliable than manual tools
 - run_command handles click, setValue, extractText, extractHTML, and custom scripts automatically
 - For setValue commands, pass the value parameter (e.g. run_command with command "search" and value "my query")
-- ALWAYS prefer run_command over manual click_element/type_text when a mapped command exists — it's faster and more reliable
+- ALWAYS prefer run_command over manual click_element/type_text when a mapped command exists
 - Only fall back to scan_panel + manual tools when no mapped command covers what you need
+
+COMMON MAPPED COMMANDS (apps may have some or all):
+- grab: extract main content   - input: focus the primary text input   - submit: click send/submit
+- new: create new item (chat, email, doc)   - search: focus/open search
+- read-latest: get the last response (chat apps)   - compose: open compose (email)
+- to-field / subject-field / body-field: email compose fields   - send: send email
+- list-threads: sidebar conversations   - create-item: new issue/task   - comment: add comment
 
 TYPING & SUBMITTING:
 - When you type_text into search boxes, chat inputs, or form fields, set submit=true to press Enter.

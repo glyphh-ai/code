@@ -31,6 +31,8 @@ export class CommandParser {
   private yoChat: YoChat | null = null;
   private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
   private wcGetter: ((panelId: string) => WebContents | null) | null = null;
+  private tabCloser: ((id: string) => void) | null = null;
+  private tabLister: (() => string[]) | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -67,6 +69,12 @@ export class CommandParser {
   /** Set the WebContents getter — resolves panel ID to live WebContents. */
   setWebContentsGetter(fn: (panelId: string) => WebContents | null): void {
     this.wcGetter = fn;
+  }
+
+  /** Set tab management callbacks for .dip close. */
+  setTabManager(closer: (id: string) => void, lister: () => string[]): void {
+    this.tabCloser = closer;
+    this.tabLister = lister;
   }
 
   /** Split input at dot-prefixed command keyword boundaries for chaining.
@@ -245,6 +253,21 @@ export class CommandParser {
       const switched = this.panels.switchTo(targetId, win);
       if (switched) setPreference("lastView", { type: "panel", id: targetId });
       return switched ? `Switched to ${targetId}` : `Unknown panel: ${targetId}. Try: dip list`;
+    }
+
+    if (sub === "close") {
+      if (!this.tabCloser || !this.tabLister) return "Tab manager not available.";
+      const target = args[1]?.toLowerCase();
+      if (target === "all") {
+        const tabs = this.tabLister();
+        for (const id of tabs) this.tabCloser(id);
+        return "Closed all tabs.";
+      }
+      // Close specific tab or active tab
+      const id = target || this.panels.activePanelId;
+      if (!id) return "No active tab to close.";
+      this.tabCloser(id);
+      return `Closed: ${id}`;
     }
 
     if (sub === "back") {

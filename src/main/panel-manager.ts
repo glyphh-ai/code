@@ -77,6 +77,7 @@ export class PanelManager {
   private onCreated: PanelCreatedCallback | null = null;
   private onReady: PanelReadyCallback | null = null;
   private onPanelFocused: ((id: string) => void) | null = null;
+  private onWebviewAttach: ((childWc: WebContents, panelId: string) => void) | null = null;
   private zoomFactor = 1.0;
   private _animating = false;
   private onZoomChange: ((factor: number) => void) | null = null;
@@ -377,6 +378,10 @@ export class PanelManager {
     this.onPanelFocused = cb;
   }
 
+  setOnWebviewAttach(cb: (childWc: WebContents, panelId: string) => void): void {
+    this.onWebviewAttach = cb;
+  }
+
   /** Whether a slide animation is in progress */
   get isAnimating(): boolean { return this._animating; }
 
@@ -632,6 +637,8 @@ export class PanelManager {
       // Auto-dismiss JS dialogs, context menu, and themed scrollbars in guest webviews
       PanelManager.attachDialogHandler(childWc);
       PanelManager.attachContextMenu(childWc);
+      // Notify listeners so interceptor can activate on the guest webview
+      this.onWebviewAttach?.(childWc, id);
       childWc.on("did-finish-load", () => {
         if (!childWc.isDestroyed()) {
           childWc.insertCSS(PanelManager.SCROLLBAR_CSS).catch(() => {});

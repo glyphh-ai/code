@@ -484,6 +484,8 @@ async function createWindow() {
 }
 
 async function boot() {
+  app.setName("Yo");
+
   // Clear stale IndexedDB locks from previous crashes
   try {
     const idbDir = path.join(app.getPath("userData"), "Partitions", "yo", "IndexedDB");
@@ -1550,6 +1552,11 @@ async function boot() {
     }
   });
 
+  // Activate interceptor on browser panel guest webviews
+  panelManager.setOnWebviewAttach((childWc, panelId) => {
+    yoInterceptor.activate(childWc, panelId);
+  });
+
   // Wire tab manager to yo agent (must be after tab system is set up)
   yoAgent.setTabManager({
     list: () => {
@@ -1585,6 +1592,23 @@ async function boot() {
       return id;
     },
   });
+
+  // Give command parser tab close/list for .dip close
+  commandParser.setTabManager(
+    (id) => {
+      if (!mainWindow) return;
+      const idx = openTabs.indexOf(id);
+      if (idx >= 0) openTabs.splice(idx, 1);
+      panelManager.closePanel(id, mainWindow);
+      if (panelManager.activePanelId === id || panelManager.activePanelId === null) {
+        const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+        if (nextId) panelManager.switchTo(nextId, mainWindow);
+      }
+      sendSplitState();
+      sendTabState();
+    },
+    () => [...openTabs],
+  );
 
   // Check if onboarding is needed BEFORE restoring panels
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)

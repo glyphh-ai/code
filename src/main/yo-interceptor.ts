@@ -305,12 +305,12 @@ window.addEventListener('beforeunload',function(e){
         return;
       }
 
-      // .sup . <skill/prompt> → capture + process
+      // .sup . <skill/prompt> → capture + process (result stored in session)
       try {
-        const result = await this.commandHandler(`sup . ${skill}`, appId);
+        await this.commandHandler(`sup . ${skill}`, appId);
         if (this.opId !== myOp) return;
         await this.clearNotify(wc);
-        if (result) this.notify(wc, result, "result");
+        this.notify(wc, "captured + processed", "success");
       } catch (err) {
         if (this.opId !== myOp) return;
         this.notify(wc, `sup failed: ${err instanceof Error ? err.message : err}`, "error");
@@ -379,12 +379,23 @@ window.addEventListener('beforeunload',function(e){
   private async handleYo(wc: WebContents, appId: string, instruction?: string): Promise<void> {
     const raw = instruction?.trim() || "";
 
-    // .yo . or .yo . <prompt> → inline LLM using last .sup capture
+    // .yo . or .yo . <prompt> → inject/process last .sup capture
     const dotMatch = raw.match(/^\.\s*(.*)$/s);
     if (dotMatch !== null && raw.startsWith(".")) {
       const [prompt, chain] = YoInterceptor.splitChain(dotMatch[1]?.trim() || "");
       if (!prompt) {
-        this.notify(wc, "Usage: .yo . <prompt>", "error");
+        // Bare .yo . → inject last capture directly, no LLM
+        const content = this.session.get();
+        if (!content) {
+          this.notify(wc, "Nothing captured. Use .sup first.", "error");
+          return;
+        }
+        try {
+          await wc.executeJavaScript(
+            `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(content)});}})()`,
+          );
+        } catch {}
+        await this.runChain(chain);
         return;
       }
       await this.handleYoDot(wc, appId, prompt);

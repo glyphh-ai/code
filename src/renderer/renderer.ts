@@ -331,13 +331,13 @@ window.yo.onUrlUpdate((info: { url: string; favicon: string; canGoBack?: boolean
 
 // -- Cmd+K command overlay --
 
-// Cmd+K from panel -> open yo agent panel
+// Cmd+K from panel -> toggle yo agent panel
 window.yo.onFocusInput(() => {
-  if (!isYoPanelOpen()) {
+  if (isYoPanelOpen()) {
+    window.yo.yoPanelDismiss();
+  } else {
     window.yo.yoPanelOpen("");
     openYoPanel("");
-  } else {
-    yoPanelInput.focus();
   }
 });
 
@@ -351,12 +351,11 @@ document.addEventListener("keydown", (e) => {
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+K to open yo agent panel
+  // Cmd+K to toggle yo agent panel
   if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (isYoPanelOpen()) {
-      yoPanelInput.focus();
-      yoPanelInput.select();
+      window.yo.yoPanelDismiss();
     } else {
       window.yo.yoPanelOpen("");
       openYoPanel("");
@@ -875,67 +874,124 @@ function showYoWelcome() {
 
 // -- Yo panel mode + model dropdowns --
 
-const yoModeSelect = document.getElementById("yo-mode-select") as HTMLSelectElement;
-const yoModelSelect = document.getElementById("yo-model-select") as HTMLSelectElement;
+// Custom mode dropdown elements
+const yoModeDropdown = document.getElementById("yo-mode-dropdown")!;
+const yoModeTrigger = document.getElementById("yo-mode-trigger")!;
+const yoModeMenu = document.getElementById("yo-mode-menu")!;
+const yoModeOptions = yoModeMenu.querySelectorAll(".yo-mode-option");
+const yoModelDropdown = document.getElementById("yo-model-dropdown")!;
+const yoModelTrigger = document.getElementById("yo-model-trigger")!;
+const yoModelMenu = document.getElementById("yo-model-menu")!;
+let currentModel = "";
 let yoControlsInited = false;
+
+const MODE_ICONS: Record<string, string> = {
+  ask: "\u2753",
+  plan: "\uD83D\uDCCB",
+  auto: "\u26A1",
+};
+
+const MODE_COLORS: Record<string, string> = {
+  ask: "#25C75E",
+  plan: "#4A9EFF",
+  auto: "#FF8C00",
+};
+
+let currentMode = "ask";
+
+function setModeValue(mode: string) {
+  currentMode = mode;
+  const icon = yoModeTrigger.querySelector(".yo-mode-icon")!;
+  const label = yoModeTrigger.querySelector(".yo-mode-label")!;
+  icon.textContent = MODE_ICONS[mode] || MODE_ICONS.ask;
+  label.textContent = mode;
+  yoModeOptions.forEach((opt) => {
+    opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
+  });
+  applyModeColor();
+}
+
+function applyModeColor() {
+  const color = MODE_COLORS[currentMode] || MODE_COLORS.ask;
+  yoModeTrigger.style.borderColor = color;
+  yoPanelInput.style.setProperty("--mode-color", color);
+  yoPanelSendBtn.style.background = color;
+  document.documentElement.style.setProperty("--yo-mode-color", color);
+}
+
+yoModeTrigger.addEventListener("click", (e) => {
+  e.stopPropagation();
+  yoModeMenu.classList.toggle("hidden");
+});
+
+yoModeOptions.forEach((opt) => {
+  opt.addEventListener("click", () => {
+    const value = (opt as HTMLElement).dataset.value!;
+    setModeValue(value);
+    window.yo.setAgentMode(value);
+    yoModeMenu.classList.add("hidden");
+  });
+});
+
+document.addEventListener("click", (e) => {
+  if (!yoModeDropdown.contains(e.target as Node)) {
+    yoModeMenu.classList.add("hidden");
+  }
+});
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
-  yoModeSelect.value = mode;
-  applyModeColor();
+  setModeValue(mode);
 
   const [config, presets] = await Promise.all([
     window.yo.getLLMConfig(),
     window.yo.getLLMPresets(),
   ]);
   const preset = presets[config.provider];
-  yoModelSelect.innerHTML = "";
-  if (preset && preset.models.length > 0) {
-    for (const m of preset.models) {
-      const opt = document.createElement("option");
-      opt.value = m;
-      opt.textContent = m.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
-      if (m === config.model) opt.selected = true;
-      yoModelSelect.appendChild(opt);
-    }
-  } else {
-    const opt = document.createElement("option");
-    opt.value = config.model;
-    opt.textContent = config.model;
-    opt.selected = true;
-    yoModelSelect.appendChild(opt);
+  populateModelDropdown(preset?.models || [config.model], config.model);
+}
+
+function populateModelDropdown(models: string[], activeModel: string) {
+  yoModelMenu.innerHTML = "";
+  for (const m of models) {
+    const div = document.createElement("div");
+    div.className = "yo-model-option" + (m === activeModel ? " active" : "");
+    div.dataset.value = m;
+    div.textContent = m.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
+    div.addEventListener("click", async () => {
+      setModelValue(m);
+      yoModelMenu.classList.add("hidden");
+      const cfg = await window.yo.getLLMConfig();
+      await window.yo.saveLLMConfig({
+        provider: cfg.provider,
+        model: m,
+        apiKey: cfg.apiKey,
+        baseUrl: cfg.baseUrl || undefined,
+      });
+    });
+    yoModelMenu.appendChild(div);
   }
+  setModelValue(activeModel);
 }
 
-const MODE_COLORS: Record<string, string> = {
-  ask: "#25C75E",    // green
-  plan: "#4A9EFF",   // blue
-  auto: "#FF8C00",   // orange
-};
-
-function applyModeColor() {
-  const color = MODE_COLORS[yoModeSelect.value] || MODE_COLORS.ask;
-  yoModeSelect.style.color = "#fff";
-  yoModeSelect.style.borderColor = color;
-  yoPanelInput.style.setProperty("--mode-color", color);
-  yoPanelSendBtn.style.background = color;
-  // Update CSS custom property for focus/stop states
-  document.documentElement.style.setProperty("--yo-mode-color", color);
+function setModelValue(model: string) {
+  currentModel = model;
+  const label = yoModelTrigger.querySelector(".yo-model-label")!;
+  label.textContent = model.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
+  yoModelMenu.querySelectorAll(".yo-model-option").forEach((opt) => {
+    opt.classList.toggle("active", (opt as HTMLElement).dataset.value === model);
+  });
 }
 
-yoModeSelect.addEventListener("change", () => {
-  window.yo.setAgentMode(yoModeSelect.value);
-  applyModeColor();
+yoModelTrigger.addEventListener("click", (e) => {
+  e.stopPropagation();
+  yoModelMenu.classList.toggle("hidden");
 });
 
-yoModelSelect.addEventListener("change", async () => {
-  const config = await window.yo.getLLMConfig();
-  await window.yo.saveLLMConfig({
-    provider: config.provider,
-    model: yoModelSelect.value,
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl || undefined,
-  });
+document.addEventListener("click", (e) => {
+  if (!yoModelDropdown.contains(e.target as Node)) {
+    yoModelMenu.classList.add("hidden");
+  }
 });
 
 async function openYoPanel(query: string) {
@@ -1256,7 +1312,7 @@ function finalizeYoMessage(fullText: string) {
   yoResponseEl = null;
 
   // In plan mode, show action buttons
-  if (yoModeSelect.value === "plan" && yoLastUserText) {
+  if (currentMode === "plan" && yoLastUserText) {
     showPlanActions();
   }
 
@@ -1275,8 +1331,7 @@ function showPlanActions() {
   card.querySelector(".yo-plan-proceed")!.addEventListener("click", () => {
     card.remove();
     window.yo.setAgentMode("ask");
-    yoModeSelect.value = "ask";
-    applyModeColor();
+    setModeValue("ask");
     showYoStatus("");
     setYoThinking(true);
     window.yo.yoPanelSend("Execute the plan above.");
@@ -1285,8 +1340,7 @@ function showPlanActions() {
   card.querySelector(".yo-plan-auto")!.addEventListener("click", () => {
     card.remove();
     window.yo.setAgentMode("auto");
-    yoModeSelect.value = "auto";
-    applyModeColor();
+    setModeValue("auto");
     showYoStatus("");
     setYoThinking(true);
     window.yo.yoPanelSend("Execute the plan above.");
