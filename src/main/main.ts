@@ -855,6 +855,11 @@ async function boot() {
     },
     delete: (name) => layoutManager.deleteLayout(name),
   });
+  yoAgent.setLayoutStateGetter(() => {
+    const grid = layoutManager.getGridInfo();
+    if (!grid) return null;
+    return { cols: grid.cols, rows: grid.rows, cells: grid.cells };
+  });
   yoAgent.setPanelGrabber(async (panelId) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc) return null;
@@ -1069,20 +1074,17 @@ async function boot() {
 
       // Submit by pressing Enter if requested
       if (opts.submit) {
-        // Try dispatching a real DOM KeyboardEvent first (works with ProseMirror, React, etc.)
-        await wc.executeJavaScript(`(function(){
-          var el = document.activeElement;
-          if (!el) return;
-          var opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-          el.dispatchEvent(new KeyboardEvent('keydown', opts));
-          el.dispatchEvent(new KeyboardEvent('keypress', opts));
-          el.dispatchEvent(new KeyboardEvent('keyup', opts));
-        })()`);
+        // Use Electron's native sendInputEvent — generates real OS-level key events
+        // that frameworks (React, Angular, ProseMirror) can't distinguish from user input
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+        await new Promise((r) => setTimeout(r, 50));
+        wc.sendInputEvent({ type: 'char', keyCode: 'Return' });
+        await new Promise((r) => setTimeout(r, 50));
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
         await new Promise((r) => setTimeout(r, 300));
 
-        // Fallback: if the above didn't submit (e.g. send button required), try clicking the send button
+        // Fallback: if Enter didn't submit (e.g. send button required), try clicking the send button
         const clicked = await wc.executeJavaScript(`(function(){
-          // Common send button selectors across chat apps
           var selectors = [
             'button[aria-label*="Send" i]',
             'button[aria-label*="Submit" i]',

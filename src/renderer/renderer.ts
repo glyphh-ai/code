@@ -1068,6 +1068,16 @@ const DIRECT_TOOL_DESC: Record<string, string> = {
 
 const BRAILLE = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
 const PHRASES = ["thinking", "cooking", "vibing", "brewing", "conjuring", "channeling"];
+const STOP_QUIPS = [
+  "You stopped the music.",
+  "Record scratch.",
+  "The vibe has been killed.",
+  "Pulling the plug.",
+  "And... cut.",
+  "Mic drop. But not by me.",
+  "Walked off stage mid-set.",
+  "You hit the brakes.",
+];
 
 let yoSpinnerInterval: ReturnType<typeof setInterval> | null = null;
 let yoSpinnerEl: HTMLElement | null = null;
@@ -1415,7 +1425,16 @@ yoPanelSendBtn.addEventListener("click", () => {
   if (yoThinking) {
     window.yo.yoPanelStop();
     clearYoStatus();
+    finishTimeline();
     setYoThinking(false);
+    // Show a stop quip
+    const quip = STOP_QUIPS[Math.floor(Math.random() * STOP_QUIPS.length)];
+    const stopEl = document.createElement("div");
+    stopEl.className = "yo-msg yo-msg-stopped";
+    stopEl.innerHTML = `<em>${quip}</em>`;
+    yoPanelMessages.appendChild(stopEl);
+    yoResponseEl = null;
+    yoScroll();
   } else {
     sendYoPanelMessage();
   }

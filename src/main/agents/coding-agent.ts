@@ -75,11 +75,10 @@ CAPABILITIES:
 - Panel interaction: open_panel (show files in workspace), refresh_panel, grab_panel, scan_panel
 
 BUILDING APPS:
-- You can build HTML/JS/CSS apps and open them instantly in the workspace
+- ALWAYS use write_file to create the file — never say you created it without actually calling write_file
 - Save apps to ${appsDir}/<name>/index.html
-- After writing, use open_panel with the file:// URL to show it to the user
+- ALWAYS open_panel with file://${appsDir}/<name>/index.html after writing — the user must see the result
 - After editing, use refresh_panel to reload — the user sees changes instantly
-- Use grab_panel or scan_panel to verify your output rendered correctly
 - Keep apps self-contained: inline CSS and JS, no build step, no dependencies
 - Use modern HTML5, CSS3, ES2022+ features — the runtime is Chromium
 

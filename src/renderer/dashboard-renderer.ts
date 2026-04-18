@@ -184,6 +184,7 @@ async function renderHistoryChart() {
           borderWidth: 2,
           pointRadius: 0,
           pointHitRadius: 10,
+          pointStyle: "rectRounded",
         },
         {
           label: "Output tokens",
@@ -195,6 +196,7 @@ async function renderHistoryChart() {
           borderWidth: 2,
           pointRadius: 0,
           pointHitRadius: 10,
+          pointStyle: "rectRounded",
         },
       ],
     },
@@ -218,7 +220,7 @@ async function renderHistoryChart() {
       },
       plugins: {
         legend: {
-          labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 8, padding: 16 },
+          labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 },
         },
         tooltip: {
           callbacks: {

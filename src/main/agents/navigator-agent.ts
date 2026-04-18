@@ -10,6 +10,7 @@ import type { ToolDef } from "./types";
 
 export class NavigatorAgent extends BaseSubAgent {
   protected agentName = "navigator";
+  protected maxIterations = 6;
   private panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
   private panelClicker: ((panelId: string, text?: string, selector?: string) => Promise<string>) | null = null;
   private panelNavigator: ((panelId: string, url: string) => Promise<string>) | null = null;
@@ -45,59 +46,14 @@ export class NavigatorAgent extends BaseSubAgent {
   setTabManager(tm: typeof this.tabManager): void { this.tabManager = tm; }
 
   get systemPrompt(): string {
-    return `You are a navigation specialist. You interact with workspace panels — live app instances like Gmail, Claude, GPT, Slack, etc.
+    return `You are a navigation specialist for workspace panels (Gmail, Claude, GPT, Gemini, Slack, etc).
 
-PANELS ARE APPS, NOT URLS:
-- Each panel has an ID like "gmail", "claude", "slack", "gemini", "gpt"
-- ALL tools take a panel_id — just use the app ID directly: grab_panel("gmail"), scan_panel("slack"), click_element("claude", ...)
-- NEVER navigate_panel to a URL when you can use the panel ID with grab/scan/click/type tools
-- NEVER open_panel with a URL when the app is already listed in available panels
-- open_panel and navigate_panel are ONLY for panels that don't exist yet or for navigating to a specific subpage within an app
-
-WORKFLOW:
-1. You receive the available panels in your instructions — use those panel IDs directly
-2. scan_panel FIRST to get a structured map of inputs, buttons, content areas, and nav items — instant, gives exact selectors
-3. Use the scan results to make surgical tool calls: click_element with exact selectors, type_text with exact selectors
-4. Use grab_panel when you need full text content (not for discovering what to click)
-5. Chain click → scan cycles to navigate deep into apps (max 4 cycles)
-6. ONLY use open_panel if the app isn't in the available panels list
-
-SCAN-FIRST PRINCIPLE:
-- ALWAYS scan_panel before clicking or typing — it gives you exact selectors, no guessing
-- The scan returns: INPUTS (with type, placeholder, selector), BUTTONS (with text, selector), CONTENT areas, NAV items
-- Use the selector from scan results directly in click_element or type_text
-- Only fall back to grab_panel if scan_panel returns nothing useful (rare)
-
-MAPPED COMMANDS:
-- Some apps include a MAPPED COMMANDS section in the scan result — these are pre-mapped actions with verified selectors
-- When a mapped command matches what you need, use run_command — it's faster and more reliable than manual tools
-- run_command handles click, setValue, extractText, extractHTML, and custom scripts automatically
-- For setValue commands, pass the value parameter (e.g. run_command with command "search" and value "my query")
-- ALWAYS prefer run_command over manual click_element/type_text when a mapped command exists
-- Only fall back to scan_panel + manual tools when no mapped command covers what you need
-
-COMMON MAPPED COMMANDS (apps may have some or all):
-- grab: extract main content   - input: focus the primary text input   - submit: click send/submit
-- new: create new item (chat, email, doc)   - search: focus/open search
-- read-latest: get the last response (chat apps)   - compose: open compose (email)
-- to-field / subject-field / body-field: email compose fields   - send: send email
-- list-threads: sidebar conversations   - create-item: new issue/task   - comment: add comment
-
-TYPING & SUBMITTING:
-- When you type_text into search boxes, chat inputs, or form fields, set submit=true to press Enter.
-- For buttons that aren't Enter-triggered, use click_element after type_text.
-- Use the selector from scan_panel results for precise targeting.
-
-WAITING FOR AI RESPONSES:
-- After submitting a prompt to a chat panel (Claude, GPT, Gemini, etc.), use wait_for_response to wait for the model to finish generating.
-- wait_for_response polls the panel content until it stops changing, then returns the final content.
-- Always use this before grabbing content from a chat panel you just submitted to — otherwise you'll get partial/empty responses.
-
-RESPONSE:
-- Return the actual content you found, not a summary of actions taken.
-- Truncate very long content to ~2000 chars with "[truncated]" marker.
-- If you can't find what was requested after 3-4 attempts, say what you tried and what you saw.
-- Plain text only, no markdown.`;
+RULES:
+- Use panel IDs directly: grab_panel("gmail"), scan_panel("claude"). NEVER open_panel for apps already in available panels.
+- scan_panel FIRST to get selectors, then click_element/type_text with those selectors. grab_panel only for text content.
+- Prefer run_command when scan shows MAPPED COMMANDS (grab, input, submit, new, search, read-latest, etc).
+- type_text with submit=true for Enter. Use wait_for_response after submitting to AI chat panels.
+- Max 4 click→scan cycles. Return actual content found, not action summaries. Plain text, truncate at ~2000 chars.`;
   }
 
   get tools(): ToolDef[] {
@@ -265,14 +221,16 @@ RESPONSE:
         const panelId = input.panel_id as string;
         if (!this.panelScanner) return "Panel scanning not available.";
         const scan = await this.panelScanner(panelId);
-        return scan || `Could not scan panel: ${panelId}`;
+        if (!scan) return `Could not scan panel: ${panelId}`;
+        return scan.length > 4000 ? scan.slice(0, 4000) + "\n[scan truncated]" : scan;
       }
 
       case "grab_panel": {
         const panelId = input.panel_id as string;
         if (!this.panelGrabber) return "Panel grabbing not available.";
         const content = await this.panelGrabber(panelId);
-        return content || `Could not grab content from panel: ${panelId}`;
+        if (!content) return `Could not grab content from panel: ${panelId}`;
+        return content.length > 4000 ? content.slice(0, 4000) + "\n[content truncated]" : content;
       }
 
       case "click_element": {

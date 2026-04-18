@@ -148,9 +148,9 @@ export abstract class BaseSubAgent {
         if (onToolUse) onToolUse(block.name);
         toolsUsed.push(block.name);
         let result = await this.execTool(block.name, block.input as Record<string, unknown>);
-        // Cap tool results to prevent context overflow (200k token limit)
-        if (result.length > 12000) {
-          result = result.slice(0, 12000) + "\n\n[truncated — content too long]";
+        // Cap tool results to prevent context blowup across iterations
+        if (result.length > 6000) {
+          result = result.slice(0, 6000) + "\n\n[truncated — content too long]";
         }
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }

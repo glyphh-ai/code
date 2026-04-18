@@ -54,7 +54,7 @@ TOOLS:
 
 RULES:
 - ask_panel for ANY request involving AI apps ("ask claude", "have gemini write", "compare", "debate")
-- delegate_layout FIRST when the user wants panels rearranged, THEN ask_panel
+- delegate_layout ONLY when user explicitly asks to rearrange ("side by side", "split", "grid", "show me X and Y"). If panels are already in the right layout, skip it.
 - Delegate in parallel when tasks are independent
 - Synthesize results in your own words — don't dump raw panel content
 - Use conversation history for "the earlier one", "that thing", etc.`;
@@ -178,7 +178,7 @@ const TOOLS = [
   },
   {
     name: "delegate_coder",
-    description: "Delegate a coding task to the file/shell specialist. Use for writing code, building apps, editing files, running shell commands (git, npm, tests). The coder can create HTML/JS apps and open them instantly in workspace panels.",
+    description: "Delegate a coding task to the file/shell specialist. Use for writing code, building apps, editing files, running shell commands (git, npm, tests). The coder writes files and opens them in workspace panels automatically — no need to open them yourself after.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -299,10 +299,14 @@ export class YoAgent {
   private clipboardRead: (() => string) | null = null;
   private clipboardWrite: ((text: string) => void) | null = null;
   private reminderCallback: ((message: string, delayMs: number) => void) | null = null;
+  private _layoutStateGetter: (() => { cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | null) | null = null;
+  private _panelCommandRunner: ((panelId: string, command: string, value?: string) => Promise<string>) | null = null;
 
   // ── Setters (forward to sub-agents) ──────────────────
 
   setActivePanel(panelId: string): void { this._activePanel = panelId; }
+
+  setLayoutStateGetter(fn: typeof this._layoutStateGetter): void { this._layoutStateGetter = fn; }
 
   setLLMConfig(config: LLMConfig): void {
     this.llmConfig = config;
@@ -385,6 +389,7 @@ export class YoAgent {
   }
 
   setPanelCommandRunner(fn: (panelId: string, command: string, value?: string) => Promise<string>): void {
+    this._panelCommandRunner = fn;
     this.navigator.setCommandRunner(fn);
   }
 
@@ -651,14 +656,33 @@ export class YoAgent {
       if (provider === "deepseek" || model.includes("deepseek")) selfPanels.push("deepseek");
 
       if (selfPanels.length > 0) {
-        prompt += `\n\nSELF-AWARENESS:\nYou are running on ${provider} (${this.llmConfig.model}). The panels [${selfPanels.join(", ")}] are YOUR OWN web interface. Do NOT navigate to these panels to answer general knowledge questions — you already have that knowledge. HOWEVER, you MUST grab from these panels when the user asks to compare answers, forward conversations, or reference what's currently on screen. The rule is: don't use your own panel as a knowledge source, but DO read it when the user explicitly references its content.`;
+        prompt += `\n\nSELF-AWARENESS:\nYou are running on ${provider} (${this.llmConfig.model}). The panels [${selfPanels.join(", ")}] are your own web interface. If the user asks a general knowledge question without naming a panel, answer it yourself — don't delegate to your own panel. But when the user explicitly says "ask claude", "have gemini and claude debate", etc., ALWAYS use ask_panel — even for your own panel. ask_panel works on all panels including yours.`;
       }
     }
 
-    // Inject available panels so orchestrator knows what's already loaded
+    // Inject available panels + current layout so orchestrator knows what's already loaded and arranged
     const panelList = this.navigator.listPanels();
     if (panelList) {
-      prompt += `\n\nAVAILABLE PANELS:\n${panelList}\nThese panels are already loaded and ready. Do NOT ask the navigator to "open" or "navigate to" any of these — just reference them by ID. Only open_panel for apps NOT in this list.`;
+      let panelSection = `\n\nAVAILABLE PANELS:\n${panelList}`;
+
+      // Add current layout arrangement
+      const layoutState = this._layoutStateGetter ? this._layoutStateGetter() : null;
+      if (layoutState) {
+        const { cols, rows, cells } = layoutState;
+        if (rows === 1 && cols === 1) {
+          panelSection += `\nCurrent layout: single panel (${cells[0]?.panelId || "unknown"})`;
+        } else {
+          const grid = Array.from({ length: rows }, (_, r) =>
+            cells.filter((c) => c.row === r).sort((a, b) => a.col - b.col).map((c) => c.panelId).join(" | ")
+          ).join(" / ");
+          panelSection += `\nCurrent layout: ${cols}×${rows} grid — ${grid}`;
+        }
+      } else {
+        panelSection += `\nCurrent layout: single panel view`;
+      }
+
+      panelSection += `\nThese panels are already loaded and ready. Do NOT ask the navigator to "open" or "navigate to" any of these — just reference them by ID. Only open_panel for apps NOT in this list. Do NOT rearrange the layout unless the user explicitly asks for it.`;
+      prompt += panelSection;
     }
 
     // Inject available skills so orchestrator knows what's available
@@ -1061,13 +1085,41 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!this._panelTyper) return `[${panelId}] Panel typing not available.`;
     if (!this._panelGrabber) return `[${panelId}] Panel grabbing not available.`;
 
-    // Type and submit
-    await this._panelTyper(panelId, prompt, { clear: true, submit: true });
+    // Grab baseline BEFORE typing so we can detect when new content appears
+    const baseline = (await this._panelGrabber(panelId)) || "";
 
-    // Wait for response (poll until content stabilises)
+    // Focus the correct chat input using app-specific "input" command
+    // Without this, the typer may focus the wrong element (e.g. model dropdown on Claude)
+    if (this._panelCommandRunner) {
+      try { await this._panelCommandRunner(panelId, "input"); } catch { /* fallback to generic focus */ }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    // Type text WITHOUT submitting — we handle submit separately for reliability
+    await this._panelTyper(panelId, prompt, { clear: true, submit: false });
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Submit: try app-specific submit command first (most reliable), fall back to generic typer submit
+    let submitted = false;
+    if (this._panelCommandRunner) {
+      try {
+        const result = await this._panelCommandRunner(panelId, "submit");
+        if (result && !result.includes("not found") && !result.includes("No command") && !result.includes("failed")) {
+          submitted = true;
+        }
+      } catch { /* fall through to fallback */ }
+    }
+    if (!submitted) {
+      // Fallback: use the typer's built-in submit (Enter key + button click)
+      // Don't clear — the prompt text is already in the input from the previous type call
+      await this._panelTyper(panelId, "", { clear: false, submit: true });
+    }
+
+    // Wait for response: first wait for content to CHANGE from baseline, then wait for stability
     const deadline = Date.now() + Math.min(Math.max(timeoutSec, 5), 120) * 1000;
     let prevContent = "";
     let stableCount = 0;
+    let contentChanged = false;
     const POLL_MS = 2500;
     const STABLE_THRESHOLD = 2;
 
@@ -1076,6 +1128,18 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       await new Promise((r) => setTimeout(r, POLL_MS));
       const content = await this._panelGrabber(panelId);
       if (!content) { stableCount = 0; prevContent = ""; continue; }
+
+      // Phase 1: wait for content to differ from baseline (AI started generating)
+      if (!contentChanged) {
+        if (content !== baseline) {
+          contentChanged = true;
+          prevContent = content;
+          stableCount = 0;
+        }
+        continue;
+      }
+
+      // Phase 2: wait for content to stabilise (AI finished generating)
       if (content === prevContent) {
         stableCount++;
         if (stableCount >= STABLE_THRESHOLD) {

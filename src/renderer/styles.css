@@ -2932,6 +2932,12 @@ select.settings-input {
   border: 1px solid rgba(255, 95, 87, 0.15);
 }
 
+.yo-msg-stopped {
+  color: #999;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
 /* ── Activity timeline (result items with connecting line) ── */
 
 .yo-ag-timeline {
