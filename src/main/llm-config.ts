@@ -273,6 +273,7 @@ function toOpenAIMessages(system: string, messages: any[]): any[] {
       } else if (Array.isArray(msg.content)) {
         const toolResults = msg.content.filter((b: any) => b.type === "tool_result");
         const textBlocks = msg.content.filter((b: any) => b.type === "text");
+        // Tool results MUST come first (immediately after the assistant's tool_calls)
         for (const tr of toolResults) {
           result.push({ role: "tool", tool_call_id: tr.tool_use_id, content: tr.content || "" });
         }
@@ -302,6 +303,47 @@ function toOpenAIMessages(system: string, messages: any[]): any[] {
       }
     }
   }
+
+  // ── Repair pass: ensure every assistant with tool_calls has matching tool responses ──
+  // OpenAI requires ALL tool_call_ids to have corresponding tool messages immediately after.
+  // Missing results cause: "tool_call_ids did not have response messages"
+  for (let i = 0; i < result.length; i++) {
+    const msg = result[i];
+    if (msg.role !== "assistant" || !msg.tool_calls?.length) continue;
+
+    const requiredIds = new Set(msg.tool_calls.map((tc: any) => tc.id));
+    // Collect tool responses that follow this assistant (may be interspersed with user messages)
+    const answeredIds = new Set<string>();
+    for (let j = i + 1; j < result.length; j++) {
+      if (result[j].role === "tool") {
+        answeredIds.add(result[j].tool_call_id);
+      } else if (result[j].role === "assistant") {
+        break; // stop at next assistant message
+      }
+    }
+
+    // Patch any missing tool responses
+    const missing = ([...requiredIds] as string[]).filter((id) => !answeredIds.has(id));
+    if (missing.length > 0) {
+      // Find insertion point: right after the last tool message for this assistant,
+      // or right after the assistant message itself
+      let insertAt = i + 1;
+      for (let j = i + 1; j < result.length; j++) {
+        if (result[j].role === "tool") {
+          insertAt = j + 1;
+        } else {
+          break;
+        }
+      }
+      const patches = missing.map((id) => ({
+        role: "tool" as const,
+        tool_call_id: id,
+        content: "[no response recorded]",
+      }));
+      result.splice(insertAt, 0, ...patches);
+    }
+  }
+
   return result;
 }
 
