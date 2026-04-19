@@ -199,11 +199,20 @@ const userMenuDropdown = document.getElementById("user-menu-dropdown")!;
 
 userMenuBtn.addEventListener("click", (e) => {
   e.stopPropagation();
+  const wasHidden = userMenuDropdown.classList.contains("hidden");
   userMenuDropdown.classList.toggle("hidden");
+  if (wasHidden) {
+    window.yo.panelsHide();
+  } else {
+    window.yo.panelsShow();
+  }
 });
 
 document.addEventListener("click", () => {
-  userMenuDropdown.classList.add("hidden");
+  if (!userMenuDropdown.classList.contains("hidden")) {
+    userMenuDropdown.classList.add("hidden");
+    window.yo.panelsShow();
+  }
 });
 
 userMenuDropdown.addEventListener("click", (e) => {
@@ -213,11 +222,13 @@ userMenuDropdown.addEventListener("click", (e) => {
 document.getElementById("user-menu-platform")!.addEventListener("click", () => {
   window.yo.openExternal("https://platform.yosup.dev");
   userMenuDropdown.classList.add("hidden");
+  window.yo.panelsShow();
 });
 
 document.getElementById("user-menu-settings")!.addEventListener("click", () => {
-  openSettings();
   userMenuDropdown.classList.add("hidden");
+  // panelsShow not needed ��� openSettings opens help overlay which calls panelsHide itself
+  openSettings();
 });
 
 document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
