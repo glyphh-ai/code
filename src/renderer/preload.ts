@@ -221,6 +221,9 @@ contextBridge.exposeInMainWorld("yo", {
   // Agent mode + guardrails
   getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<string>,
   setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
+  onAgentModeChanged: (cb: (mode: string) => void) => {
+    ipcRenderer.on("agent-mode-changed", (_e, mode) => cb(mode));
+  },
   getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>,
   setToolOverride: (toolName: string, override: string) => ipcRenderer.send("set-tool-override", toolName, override),
   onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => {

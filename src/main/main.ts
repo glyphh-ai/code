@@ -41,7 +41,6 @@ import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
-import { CouncilChat } from "./council-chat";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -56,7 +55,6 @@ let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
-const councilChat = new CouncilChat();
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 
@@ -662,8 +660,6 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const dashboardHtml = `file://${path.join(__dirname, "..", "renderer", "dashboard.html")}`;
   const dashboardPreload = path.join(__dirname, "dashboard-preload.js");
-  const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
-  const councilPreload = path.join(__dirname, "council-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
@@ -674,8 +670,6 @@ async function boot() {
       panelManager.addPanel(app.id, dashboardHtml, dashboardPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
-    } else if (app.url === "yo://council") {
-      panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -812,18 +806,15 @@ async function boot() {
       return "";
     }
 
-    // .council opens the council panel and starts a session
+    // .council sets the yo-agent into council mode
     if (result.startsWith("__COUNCIL__:")) {
       const participants = result.replace("__COUNCIL__:", "").split(",").filter(Boolean);
-      if (participants.length > 0) {
-        // Switch to the council panel
-        panelManager.switchTo("council", mainWindow!);
-        // Start the council session after the panel loads
-        setTimeout(() => {
-          const wc = panelManager.getWebContents("council");
-          if (wc) councilChat.setCouncilWebContents(wc);
-          councilChat.start(participants);
-        }, 500);
+      if (participants.length > 0 && yoAgent) {
+        yoAgent.setCouncil(participants);
+        // Notify renderer of mode change
+        mainWindow?.webContents.send("agent-mode-changed", "council");
+        // Open the yo panel so the user sees the agent working
+        callbacks.openYoPanel?.(`Council started with ${participants.join(", ")}. Send a message to address the council.`);
       }
       return "";
     }
@@ -1471,52 +1462,6 @@ async function boot() {
     (text: string) => { try { clipboard.writeText(text); } catch {} },
   );
 
-  // ── Council Chat wiring ──────────────────────────────────
-  councilChat.registerIPC();
-  councilChat.setPanelGrabber(async (panelId: string) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const app = appConnector.get(panelId);
-    let content = "";
-    if (app?.commands.grab) {
-      try { content = await executeCommand(wc, app.commands.grab); } catch {}
-    }
-    if (!content || content.startsWith("[Element not found")) {
-      try { content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
-    }
-    return content || null;
-  });
-  councilChat.setPanelTyper(async (panelId: string, text: string, opts: { clear?: boolean; submit?: boolean }) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return `Panel "${panelId}" not loaded.`;
-    const app = appConnector.get(panelId);
-    if (opts?.clear && app?.commands.input) {
-      try { await executeCommand(wc, app.commands.input); } catch {}
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    const mapping = { selector: "[contenteditable='true'], textarea, input[type='text']", action: "setValue" as const, description: "type" };
-    if (app?.commands.input) mapping.selector = app.commands.input.selector;
-    const result = await executeCommand(wc, mapping, text);
-    if (opts?.submit) {
-      if (app?.commands.submit) {
-        try { await executeCommand(wc, app.commands.submit); } catch {}
-      }
-    }
-    return result;
-  });
-  councilChat.setPanelCommandRunner(async (panelId: string, command: string) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return `Panel "${panelId}" not loaded.`;
-    const app = appConnector.get(panelId);
-    const mapping = app?.commands[command];
-    if (!mapping) return `No command "${command}" for ${panelId}.`;
-    return await executeCommand(wc, mapping);
-  });
-  councilChat.setCommandRunner(async (cmd: string) => {
-    const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
-    return await execCommand(clean);
-  });
-
   // Reminder registry — tracked for dashboard visibility + cancellation
   const activeReminders = new Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>();
   let reminderCounter = 0;
@@ -2105,9 +2050,9 @@ async function boot() {
     const trimmed = message.trim();
     const firstWord = trimmed.split(/\s+/)[0]?.toLowerCase();
 
-    // Route .dip, .drip, .sup through the command parser instead of the agent
-    if (firstWord === ".dip" || firstWord === ".drip" || firstWord === ".sup"
-      || firstWord === "dip" || firstWord === "drip" || firstWord === "sup") {
+    // Route .dip, .drip, .sup, .council through the command parser instead of the agent
+    if (firstWord === ".dip" || firstWord === ".drip" || firstWord === ".sup" || firstWord === ".council"
+      || firstWord === "dip" || firstWord === "drip" || firstWord === "sup" || firstWord === "council") {
       try {
         const cmd = trimmed.startsWith(".") ? trimmed.slice(1) : trimmed;
         const result = await execCommand(cmd);

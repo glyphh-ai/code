@@ -8,7 +8,7 @@
 
 import { getPreference } from "./preferences";
 
-export type AgentMode = "plan" | "ask" | "auto";
+export type AgentMode = "plan" | "ask" | "auto" | "council";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask";
 
@@ -252,7 +252,7 @@ export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (override === "ask") return "needs_approval";
 
   // "default" — fall through to mode logic
-  if (mode === "auto") return "execute";
+  if (mode === "auto" || mode === "council") return "execute";
 
   // Ask mode: observe tools execute freely, mutate tools need approval
   const tier = getToolTier(toolName);

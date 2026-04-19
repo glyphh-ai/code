@@ -310,6 +310,7 @@ export class YoAgent {
   private _activePanel: string | null = null; // panel the user typed .yo from
   private _mode: AgentMode = getAgentMode();
   private _approvalCallback: ApprovalCallback | null = null;
+  private _councilParticipants: string[] = [];
 
   // Sub-agents
   private navigator = new NavigatorAgent();
@@ -338,6 +339,17 @@ export class YoAgent {
   // ── Setters (forward to sub-agents) ──────────────────
 
   setActivePanel(panelId: string): void { this._activePanel = panelId; }
+
+  /** Enter council mode — agent will route every user message to all participants via ask_panel. */
+  setCouncil(participants: string[]): void {
+    this._councilParticipants = [...participants];
+    this._mode = "council";
+  }
+  clearCouncil(): void {
+    this._councilParticipants = [];
+    this._mode = getAgentMode();
+  }
+  getCouncilParticipants(): string[] { return [...this._councilParticipants]; }
 
   setLayoutStateGetter(fn: typeof this._layoutStateGetter): void { this._layoutStateGetter = fn; }
 
@@ -801,6 +813,16 @@ export class YoAgent {
         prompt += `\n\nYOUR MEMORIES:\n${this.activeMemories}`;
       }
       // If blocked, silently omit poisoned memories from the system prompt
+    }
+
+    // Council mode: agent sends every user message to all participants
+    if (this._councilParticipants.length > 0) {
+      prompt += `\n\nMODE: COUNCIL [${this._councilParticipants.join(", ")}]
+Pass the user's EXACT message to ask_panel. Do NOT rewrite, embellish, or add instructions — send their words verbatim as the prompt.
+Use ask_panel with panels=[${this._councilParticipants.map(p => `"${p}"`).join(", ")}] mode="ask".
+After responses come back, present them as **name:** response (keep each short — trim to the core point if verbose).
+Your own commentary: 1-2 sentences max. No intros, no summaries, no "the council has spoken" fluff.
+If the user addresses one model specifically, use ask_panel with just that one.`;
     }
 
     // Plan mode: tell the agent to describe its plan without executing

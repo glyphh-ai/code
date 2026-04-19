@@ -140,6 +140,7 @@ declare global {
       // Agent mode + guardrails
       getAgentMode: () => Promise<string>;
       setAgentMode: (mode: string) => void;
+      onAgentModeChanged: (cb: (mode: string) => void) => void;
       getToolRegistry: () => Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>;
       setToolOverride: (toolName: string, override: string) => void;
       onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
@@ -900,12 +901,14 @@ const MODE_ICONS: Record<string, string> = {
   ask: "\u2753",
   plan: "\uD83D\uDCCB",
   auto: "\u26A1",
+  council: "\uD83C\uDFDB",
 };
 
 const MODE_COLORS: Record<string, string> = {
   ask: "#25C75E",
   plan: "#4A9EFF",
   auto: "#FF8C00",
+  council: "#A855F7",
 };
 
 let currentMode = "ask";
@@ -949,6 +952,9 @@ document.addEventListener("click", (e) => {
     yoModeMenu.classList.add("hidden");
   }
 });
+
+// Listen for mode changes pushed from main process (e.g. .council)
+window.yo.onAgentModeChanged?.((mode: string) => setModeValue(mode));
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
