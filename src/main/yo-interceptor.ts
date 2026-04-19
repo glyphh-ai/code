@@ -117,7 +117,7 @@ export class YoInterceptor {
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
 var _n=${JSON.stringify(nonce)};
-var CMD_RE=/^\\.(yo|sup|dip|drip|waz)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|waz|grp)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -252,6 +252,13 @@ window.addEventListener('beforeunload',function(e){
           const cmd = data.instruction ? `waz ${data.instruction}` : "waz";
           const result = await this.commandHandler(cmd, appId);
           if (result) this.notify(wc, result, "success");
+        }
+        break;
+      case "grp":
+        // Delegate to command parser for group chat
+        if (this.commandHandler) {
+          const cmd = data.instruction ? `grp ${data.instruction}` : "grp";
+          await this.commandHandler(cmd);
         }
         break;
       case "cancel":

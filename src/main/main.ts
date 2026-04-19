@@ -41,6 +41,7 @@ import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
+import { GroupChat } from "./group-chat";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -55,6 +56,7 @@ let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
+const groupChat = new GroupChat();
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 
@@ -660,6 +662,8 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const dashboardHtml = `file://${path.join(__dirname, "..", "renderer", "dashboard.html")}`;
   const dashboardPreload = path.join(__dirname, "dashboard-preload.js");
+  const groupHtml = `file://${path.join(__dirname, "..", "renderer", "group.html")}`;
+  const groupPreload = path.join(__dirname, "group-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
@@ -670,6 +674,8 @@ async function boot() {
       panelManager.addPanel(app.id, dashboardHtml, dashboardPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
+    } else if (app.url === "yo://group") {
+      panelManager.addPanel(app.id, groupHtml, groupPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -803,6 +809,22 @@ async function boot() {
     if (result.startsWith("__YO_PANEL__")) {
       const query = result.replace(/^__YO_PANEL__:?/, "");
       callbacks.openYoPanel?.(query);
+      return "";
+    }
+
+    // .grp opens the group chat panel and starts a session
+    if (result.startsWith("__GRP__:")) {
+      const participants = result.replace("__GRP__:", "").split(",").filter(Boolean);
+      if (participants.length > 0) {
+        // Switch to the group panel
+        panelManager.switchTo("group", mainWindow!);
+        // Start the group session after the panel loads
+        setTimeout(() => {
+          const wc = panelManager.getWebContents("group");
+          if (wc) groupChat.setGroupWebContents(wc);
+          groupChat.start(participants);
+        }, 500);
+      }
       return "";
     }
 
@@ -1448,6 +1470,52 @@ async function boot() {
     () => { try { return clipboard.readText(); } catch { return ""; } },
     (text: string) => { try { clipboard.writeText(text); } catch {} },
   );
+
+  // ── Group Chat wiring ────────────────────────────────────
+  groupChat.registerIPC();
+  groupChat.setPanelGrabber(async (panelId) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return null;
+    const app = appConnector.get(panelId);
+    let content = "";
+    if (app?.commands.grab) {
+      try { content = await executeCommand(wc, app.commands.grab); } catch {}
+    }
+    if (!content || content.startsWith("[Element not found")) {
+      try { content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
+    }
+    return content || null;
+  });
+  groupChat.setPanelTyper(async (panelId, text, opts) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return `Panel "${panelId}" not loaded.`;
+    const app = appConnector.get(panelId);
+    if (opts?.clear && app?.commands.input) {
+      try { await executeCommand(wc, app.commands.input); } catch {}
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const mapping = { selector: "[contenteditable='true'], textarea, input[type='text']", action: "setValue" as const, description: "type" };
+    if (app?.commands.input) mapping.selector = app.commands.input.selector;
+    const result = await executeCommand(wc, mapping, text);
+    if (opts?.submit) {
+      if (app?.commands.submit) {
+        try { await executeCommand(wc, app.commands.submit); } catch {}
+      }
+    }
+    return result;
+  });
+  groupChat.setPanelCommandRunner(async (panelId, command) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return `Panel "${panelId}" not loaded.`;
+    const app = appConnector.get(panelId);
+    const mapping = app?.commands[command];
+    if (!mapping) return `No command "${command}" for ${panelId}.`;
+    return await executeCommand(wc, mapping);
+  });
+  groupChat.setCommandRunner(async (cmd) => {
+    const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
+    return await execCommand(clean);
+  });
 
   // Reminder registry — tracked for dashboard visibility + cancellation
   const activeReminders = new Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>();

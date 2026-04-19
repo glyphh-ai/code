@@ -19,10 +19,11 @@ import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz", "grp"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
+  private onGrp: ((participants: string[]) => void) | null = null;
 
   // Sup conversation state
   private yoHistory: Array<{ role: string; content: string }> = [];
@@ -54,6 +55,11 @@ export class CommandParser {
   /** Register callback for drip effects */
   setDripHandler(fn: (effect: string) => void) {
     this.onDrip = fn;
+  }
+
+  /** Register callback for group chat */
+  setGrpHandler(fn: (participants: string[]) => void) {
+    this.onGrp = fn;
   }
 
   /** Set the LLM engine for inline processing. */
@@ -116,8 +122,10 @@ export class CommandParser {
         return this.handleDrip(args);
       case "waz":
         return this.handleWaz(args);
+      case "grp":
+        return this.handleGrp(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or waz.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, waz, or grp.`;
     }
   }
 
@@ -556,6 +564,15 @@ export class CommandParser {
     if (mapping.action === "click") return `Clicked: ${mapping.description || commandKey}`;
     if (mapping.action === "setValue") return `Set: ${mapping.description || commandKey}`;
     return result || `Done: ${commandKey}`;
+  }
+
+  // ── grp: group chat ──────────────────────────────────────────
+
+  private handleGrp(args: string[]): string {
+    if (args.length === 0) return "Usage: grp <model1> <model2> [<model3> ...] — start a group chat";
+    const participants = args.map((a) => a.toLowerCase());
+    this.onGrp?.(participants);
+    return `__GRP__:${participants.join(",")}`;
   }
 
   // ── drip: CSS visual effects ────────────────────────────────

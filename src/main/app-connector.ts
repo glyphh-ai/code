@@ -142,6 +142,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "dashboard", name: "Dashboard", url: "yo://dashboard" },
   { id: "browser", name: "Browser", url: "yo://browser" },
+  { id: "group", name: "Group Chat", url: "yo://group" },
 ];
 
 // ── AppConnector ─────────────────────────────────────��──
@@ -227,18 +228,12 @@ export class AppConnector {
           app.url = def.url;
           changed = true;
         }
-        // Merge new commands from remote (don't overwrite user-customized ones)
-        if (def.commands) {
-          for (const [key, cmd] of Object.entries(def.commands)) {
-            if (!app.commands[key]) {
-              app.commands[key] = cmd;
-              changed = true;
-            }
-          }
-          if (changed) {
-            app.connected = Object.keys(app.commands).length > 0;
-            if (def.meta && !app.meta) app.meta = def.meta;
-          }
+        // Overwrite commands from server catalog (server is source of truth)
+        if (def.commands && Object.keys(def.commands).length > 0) {
+          app.commands = { ...def.commands };
+          app.connected = true;
+          if (def.meta) app.meta = def.meta;
+          changed = true;
         }
         if (changed) this.save(app);
       }
