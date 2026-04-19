@@ -914,6 +914,41 @@ async function boot() {
     try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
     return null;
   });
+  // Background vibe panel resolver — creates hidden panels for background vibes
+  vibeRunner.setBackgroundPanelResolver(async (appId: string) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const bgId = `bgv-${appId}`;
+    const app = appConnector.get(appId);
+    if (!app) return null;
+    if (!panelManager.hasPanel(bgId)) {
+      panelManager.addPanel(bgId, app.url, undefined, app.forceWeb);
+      // Copy command mappings to the background panel ID so commandRunner works
+      appConnector.importApp({ ...app, id: bgId });
+    }
+    const view = panelManager.getOrCreateView(bgId, mainWindow);
+    if (!view) return null;
+    // Wait for page to load
+    await new Promise((r) => setTimeout(r, 3000));
+    return bgId;
+  });
+
+  // Background vibe panel cleanup — destroy hidden panels when job finishes
+  vibeRunner.setBackgroundPanelCleanup((panelIds: string[]) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    for (const id of panelIds) {
+      panelManager.closePanel(id, mainWindow);
+      appConnector.remove(id); // remove the bgv-* config copy
+    }
+  });
+
+  // Background vibe completion — notify the user via yo panel
+  vibeRunner.setOnJobComplete((jobId, result) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const icon = result.success ? "+" : "x";
+    const msg = `[${icon}] Background vibe "${result.name}" finished — ${result.summary}`;
+    mainWindow.webContents.send("yo-reminder", msg);
+  });
+
   yoAgent.setVibeRunner(vibeRunner);
   yoAgent.setLayoutStateGetter(() => {
     const grid = layoutManager.getGridInfo();

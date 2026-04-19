@@ -237,7 +237,7 @@ const TOOLS = [
   },
   {
     name: "run_vibe",
-    description: "Run a saved vibe — a deterministic cross-app automation sequence. Vibes chain commands across multiple apps into replayable patterns. Much faster and more reliable than manual navigation. Use when the user says 'run the vibe' or when a saved vibe matches the task.",
+    description: "Run a saved vibe — a deterministic cross-app automation sequence. Vibes chain commands across multiple apps into replayable patterns. Set background=true to run it silently on hidden panels while the user keeps working — you'll get notified when it finishes.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -246,6 +246,7 @@ const TOOLS = [
           type: "object" as const,
           description: "Named inputs the vibe needs (e.g. { \"message\": \"hello\", \"recipient\": \"john@example.com\" })",
         },
+        background: { type: "boolean" as const, description: "Run in background on hidden panels. Returns immediately; notifies when done. Use when the user wants to keep working." },
       },
       required: ["name"],
     },
@@ -718,11 +719,15 @@ export class YoAgent {
       }
     }
 
-    // Inject available vibes
+    // Inject available vibes + running background jobs
     if (this.vibeRunner) {
       const vibes = this.vibeRunner.list();
       if (vibes.length > 0) {
-        prompt += `\n\nAVAILABLE VIBES:\n${vibes.map((v) => `- ${v.name}: ${v.description} (${v.stepCount} steps)`).join("\n")}\nUse run_vibe to execute a vibe. Vibes are deterministic cross-app sequences — faster and more reliable than manual navigation.`;
+        prompt += `\n\nAVAILABLE VIBES:\n${vibes.map((v) => `- ${v.name}: ${v.description} (${v.stepCount} steps)`).join("\n")}\nUse run_vibe to execute a vibe. Set background=true to run silently while the user keeps working.`;
+      }
+      const jobs = this.vibeRunner.listJobs();
+      if (jobs.length > 0) {
+        prompt += `\n\nRUNNING BACKGROUND VIBES:\n${jobs.map((j) => `- ${j.vibeName} (job: ${j.id}, running ${Math.round(j.elapsed / 1000)}s)`).join("\n")}`;
       }
     }
 
@@ -1125,6 +1130,14 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!name) return "No vibe name provided.";
     if (!this.vibeRunner) return "Vibe engine not available.";
     const inputs = input.inputs as Record<string, string> | undefined;
+    const background = input.background as boolean | undefined;
+
+    if (background) {
+      const jobId = this.vibeRunner.runBackground(name, inputs);
+      if (!jobId) return `Could not start background vibe "${name}" — vibe not found or background panels not available.`;
+      return `Vibe "${name}" started in background (job: ${jobId}). You'll be notified when it finishes. Continue with the user's current task.`;
+    }
+
     const result = await this.vibeRunner.run(name, inputs);
     return result.summary;
   }

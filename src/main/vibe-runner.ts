@@ -77,6 +77,15 @@ export interface VibeResult {
   summary: string;
 }
 
+/** A running background vibe job */
+export interface VibeJob {
+  id: string;
+  vibeName: string;
+  startedAt: number;
+  /** Resolve to abort */
+  abort: () => void;
+}
+
 // ── VibeRunner ──────────────────────────────────────────
 
 export class VibeRunner {
@@ -91,6 +100,21 @@ export class VibeRunner {
   private panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
   private appConnector: AppConnector | null = null;
   private llmConfig: LLMConfig | null = null;
+
+  // Background execution
+  private activeJobs: Map<string, VibeJob> = new Map();
+  private abortedJobs: Set<string> = new Set();
+  private onJobComplete: ((jobId: string, result: VibeResult) => void) | null = null;
+
+  /**
+   * Background panel resolver — given an app ID, returns/creates a hidden
+   * panel ID for background execution. Panels are prefixed "bgv-" to avoid
+   * conflict with the user's visible panels.
+   */
+  private backgroundPanelResolver: ((appId: string) => Promise<string | null>) | null = null;
+
+  /** Cleanup callback — destroys background panels after a job finishes */
+  private backgroundPanelCleanup: ((panelIds: string[]) => void) | null = null;
 
   constructor() {
     this.vibesDir = path.join(os.homedir(), "yo", "vibes");
@@ -107,6 +131,9 @@ export class VibeRunner {
   setPanelGrabber(fn: typeof this.panelGrabber): void { this.panelGrabber = fn; }
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
+  setOnJobComplete(fn: typeof this.onJobComplete): void { this.onJobComplete = fn; }
+  setBackgroundPanelResolver(fn: typeof this.backgroundPanelResolver): void { this.backgroundPanelResolver = fn; }
+  setBackgroundPanelCleanup(fn: typeof this.backgroundPanelCleanup): void { this.backgroundPanelCleanup = fn; }
 
   // ── CRUD ────────────────────────────────────────────────
 
@@ -205,6 +232,148 @@ export class VibeRunner {
 
     return {
       name,
+      success: true,
+      stepsRun: totalExecuted,
+      stepResults,
+      summary: this.buildSummary(vibe, stepResults, true),
+    };
+  }
+
+  // ── Background execution ─────────────────────────────────
+
+  /**
+   * Run a vibe in the background. Returns immediately with a job ID.
+   * The vibe executes on hidden panels (bgv-*) so it doesn't interfere
+   * with the user's workspace. Fires onJobComplete when done.
+   */
+  runBackground(name: string, inputs?: Record<string, string>): string | null {
+    const vibe = this.vibes.get(name);
+    if (!vibe) return null;
+    if (!this.backgroundPanelResolver) return null;
+
+    const jobId = `vibe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const job: VibeJob = {
+      id: jobId,
+      vibeName: name,
+      startedAt: Date.now(),
+      abort: () => { this.abortedJobs.add(jobId); },
+    };
+    this.activeJobs.set(jobId, job);
+
+    // Fire and forget — runs in background
+    this.executeBackground(jobId, vibe, inputs || {}).then((result) => {
+      this.activeJobs.delete(jobId);
+      this.abortedJobs.delete(jobId);
+      this.onJobComplete?.(jobId, result);
+    }).catch((err) => {
+      this.activeJobs.delete(jobId);
+      this.abortedJobs.delete(jobId);
+      const result: VibeResult = {
+        name, success: false, stepsRun: 0, stepResults: [],
+        summary: `Background vibe "${name}" crashed: ${err instanceof Error ? err.message : err}`,
+      };
+      this.onJobComplete?.(jobId, result);
+    });
+
+    return jobId;
+  }
+
+  /** List active background jobs */
+  listJobs(): Array<{ id: string; vibeName: string; startedAt: number; elapsed: number }> {
+    return Array.from(this.activeJobs.values()).map((j) => ({
+      id: j.id,
+      vibeName: j.vibeName,
+      startedAt: j.startedAt,
+      elapsed: Date.now() - j.startedAt,
+    }));
+  }
+
+  /** Abort a running background job */
+  abortJob(jobId: string): boolean {
+    const job = this.activeJobs.get(jobId);
+    if (!job) return false;
+    job.abort();
+    return true;
+  }
+
+  /**
+   * Execute a vibe on background panels. Maps each app to a hidden
+   * "bgv-{app}" panel, runs all steps there, then cleans up.
+   */
+  private async executeBackground(
+    jobId: string,
+    vibe: Vibe,
+    inputs: Record<string, string>,
+  ): Promise<VibeResult> {
+    // Collect unique apps used by this vibe
+    const apps = new Set(vibe.steps.map((s) => s.app));
+    const panelMap = new Map<string, string>(); // app → bgv-app panel ID
+    const bgPanelIds: string[] = [];
+
+    // Create hidden panels for each app
+    for (const app of apps) {
+      if (!this.backgroundPanelResolver) break;
+      const bgId = await this.backgroundPanelResolver(app);
+      if (bgId) {
+        panelMap.set(app, bgId);
+        bgPanelIds.push(bgId);
+      }
+    }
+
+    // Run the vibe with remapped panel IDs
+    const stepResults: StepResult[] = [];
+    const stepOutputs: string[] = [];
+    let currentStep = 0;
+    const maxSteps = vibe.steps.length * 3;
+    let totalExecuted = 0;
+
+    while (currentStep < vibe.steps.length && totalExecuted < maxSteps) {
+      // Check abort
+      if (this.abortedJobs.has(jobId)) {
+        // Cleanup background panels
+        if (this.backgroundPanelCleanup) this.backgroundPanelCleanup(bgPanelIds);
+        return {
+          name: vibe.name,
+          success: false,
+          stepsRun: totalExecuted,
+          stepResults,
+          summary: `Vibe "${vibe.name}" was cancelled after ${totalExecuted} steps.`,
+        };
+      }
+
+      const step = vibe.steps[currentStep];
+      // Remap app → background panel ID
+      const bgStep = { ...step, app: panelMap.get(step.app) || step.app };
+      totalExecuted++;
+
+      const result = await this.executeStep(bgStep, currentStep, inputs, stepOutputs);
+      stepResults.push(result);
+      stepOutputs[currentStep] = result.output;
+
+      if (!result.success) {
+        if (this.backgroundPanelCleanup) this.backgroundPanelCleanup(bgPanelIds);
+        return {
+          name: vibe.name,
+          success: false,
+          stepsRun: totalExecuted,
+          stepResults,
+          summary: this.buildSummary(vibe, stepResults, false),
+        };
+      }
+
+      if (result.nextStep !== undefined) {
+        currentStep = result.nextStep;
+      } else {
+        currentStep++;
+      }
+    }
+
+    // Cleanup background panels
+    if (this.backgroundPanelCleanup) this.backgroundPanelCleanup(bgPanelIds);
+
+    return {
+      name: vibe.name,
       success: true,
       stepsRun: totalExecuted,
       stepResults,
