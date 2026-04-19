@@ -552,11 +552,11 @@ async function clickElement(wc: WebContents, selector: string): Promise<string> 
 
 /** Dangerous patterns that should never appear in custom scripts */
 const BLOCKED_SCRIPT_PATTERNS = [
-  /require\s*\(/i,          // Node.js require
+  /(?<![.\w])require\s*\(/i, // Node.js require (not window.require or .require)
   /process\s*\./i,          // Node.js process access
   /child_process/i,         // Shell execution
   /eval\s*\(/i,             // Dynamic code evaluation
-  /Function\s*\(/i,         // Dynamic function creation
+  /(?:new\s+|[^a-z])Function\s*\(/,  // Dynamic function creation (not plain `function()`)
   /fetch\s*\(\s*['"`](?!https?:\/\/)/i, // Non-HTTP fetch (data:, file:, etc.)
   /XMLHttpRequest/i,        // Raw XHR (prefer fetch with URL check)
   /window\.open\s*\(/i,     // Opening new windows

@@ -2126,6 +2126,7 @@ async function boot() {
     return yoAgent.loadChat(id);
   });
   ipcMain.handle("yo-chats-delete", (_e, id: string) => yoAgent?.deleteChat(id) || false);
+  ipcMain.handle("yo-chats-search", (_e, query: string) => yoAgent?.searchChats(query) || []);
   ipcMain.handle("yo-chat-new", () => {
     yoAgent?.clear();
     return true;

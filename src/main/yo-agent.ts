@@ -52,6 +52,7 @@ TOOLS:
 - delegate_coder: write code, edit files, run shell commands
 - pipe: grab from one panel → transform → push to another
 - inject_text: paste into the input where user typed .yo
+- search_chats: search your own past conversation history for topics/keywords
 - web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
@@ -154,6 +155,17 @@ const TOOLS = [
         },
       },
       required: ["content", "category"],
+    },
+  },
+  {
+    name: "search_chats",
+    description: "Search your own past conversation history for a topic, keyword, or phrase. Returns matching chat titles and excerpts. Use when the user says 'pull up', 'find our discussion', 'remember when we talked about', etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string" as const, description: "Search query — topic, keyword, or phrase to find in past chats" },
+      },
+      required: ["query"],
     },
   },
   {
@@ -599,6 +611,44 @@ export class YoAgent {
     } catch { return false; }
   }
 
+  /** Search chat history for a keyword/phrase. Returns matching chats with excerpts. */
+  searchChats(query: string, limit = 10): Array<{ id: string; title: string; excerpt: string }> {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    const results: Array<{ id: string; title: string; excerpt: string; ts: number }> = [];
+
+    fs.mkdirSync(CHATS_DIR, { recursive: true });
+    try {
+      const files = fs.readdirSync(CHATS_DIR).filter((f) => f.endsWith(".md")).sort().reverse();
+      for (const f of files) {
+        try {
+          const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
+          const lower = raw.toLowerCase();
+          if (!lower.includes(q)) continue;
+
+          // Extract title
+          let title = f.replace(/\.md$/, "");
+          const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+          if (fmMatch) {
+            const t = fmMatch[1].match(/^title:\s*(.+)$/m);
+            if (t) title = t[1].trim();
+          }
+
+          // Extract excerpt around the match
+          const idx = lower.indexOf(q);
+          const start = Math.max(0, idx - 80);
+          const end = Math.min(raw.length, idx + query.length + 80);
+          const excerpt = (start > 0 ? "..." : "") + raw.slice(start, end).replace(/\n/g, " ").trim() + (end < raw.length ? "..." : "");
+
+          const id = f.replace(/\.md$/, "");
+          results.push({ id, title, excerpt, ts: parseInt(id, 10) || 0 });
+          if (results.length >= limit) break;
+        } catch { /* skip */ }
+      }
+    } catch { /* dir missing */ }
+    return results.map(({ id, title, excerpt }) => ({ id, title, excerpt }));
+  }
+
   // ── Send (public API — unchanged) ────────────────────
 
   async send(message: string, cb: YoAgentCallbacks): Promise<void> {
@@ -631,8 +681,11 @@ export class YoAgent {
     }
 
     // ── Firewall: scan user message for injection attempts ──
+    // Only hard-block the user's own message for clear injection syntax
+    // (override, jailbreak, extraction). Content heuristics like resource_abuse
+    // trigger too many false positives on legitimate captured AI content.
     const userScan = scanForInjection(message);
-    if (userScan.blocked) {
+    if (userScan.blocked && userScan.intent && ["override", "extract", "jailbreak"].includes(userScan.intent)) {
       cb.onError(`Blocked: ${userScan.reason}`);
       // Remove the message we just pushed so history stays clean
       this.history.pop();
@@ -990,6 +1043,7 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "inject_text": return await this.toolInjectText(input);
         case "run_command": return await this.toolRunCommand(input);
         case "save_memory": return await this.toolSaveMemory(input);
+        case "search_chats": return this.toolSearchChats(input);
         case "web_search": return await this.toolWebSearch(input);
         case "fetch_page": return await this.toolFetchPage(input);
         case "clipboard_read": return this.toolClipboardRead();
@@ -1029,6 +1083,14 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!this.memoryStore) return "Memory not available.";
     const id = await this.memoryStore.save(content, category || "context");
     return `Memory saved (${id}).`;
+  }
+
+  private toolSearchChats(input: Record<string, unknown>): string {
+    const query = input.query as string;
+    if (!query) return "No query provided.";
+    const results = this.searchChats(query);
+    if (results.length === 0) return `No past conversations found matching "${query}".`;
+    return results.map((r) => `**${r.title}** (id: ${r.id})\n${r.excerpt}`).join("\n\n");
   }
 
   private async toolWebSearch(input: Record<string, unknown>): Promise<string> {

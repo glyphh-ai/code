@@ -225,7 +225,8 @@ const RESOURCE_ABUSE_PATTERNS: RegExp[] = [
   /(bypass|circumvent|evade|avoid|get\s+around)\s+(the\s+)?(rate\s+limit|throttle|quota|api\s+limit|request\s+limit|usage\s+limit|token\s+limit|context\s+limit)/i,
   /(maximize|increase|inflate|spike|run\s+up)\s+.{0,20}(cost|bill|charges?|usage|compute|tokens?|api\s+calls?|expenses?)/i,
   /(cause|create|trigger|generate)\s+.{0,20}(maximum|excessive|extreme|massive)\s+(cost|expense|compute|usage|tokens?|billing|charges?)/i,
-  /(recursive|recursion|amplif|multiply|replicate|fork\s+bomb|infinite\s+recursion|stack\s+overflow|memory\s+exhaustion)/i,
+  /(fork\s+bomb|infinite\s+recursion|stack\s+overflow|memory\s+exhaustion)/i,
+  /(recursive|recursion|amplif|multiply|replicate)\s+.{0,20}(attack|exploit|calls?|requests?|queries|prompts?|api|tokens?|messages?)\s+.{0,20}(to\s+)?(exhaust|overwhelm|crash|overload|drain|deplete|consume|flood|dos\b)/i,
   /(call\s+yourself|invoke\s+yourself|prompt\s+yourself|query\s+yourself|ask\s+yourself)\s+(repeatedly|again|in\s+a\s+loop|recursively|infinitely)/i,
   /(scrape|crawl|spider|harvest|download|rip|mirror)\s+(all|every|entire|complete|full)\s+.{0,20}(website|site|page|database|api|dataset|catalog|listing|content|article|product)/i,
 ];
