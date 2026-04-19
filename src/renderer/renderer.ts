@@ -831,6 +831,7 @@ const yoPanel = document.getElementById("yo-panel")!;
 const yoPanelMessages = document.getElementById("yo-panel-messages")!;
 const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
 const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
+const yoPanelMicBtn = document.getElementById("yo-panel-mic") as HTMLButtonElement | null;
 const yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
 const yoPanelResize = document.getElementById("yo-panel-resize")!;
 const yoHistoryToggle = document.getElementById("yo-history-toggle")!;
@@ -1313,18 +1314,9 @@ function showYoToolResult(id: string, detail: string) {
 }
 
 function appendYoToken(delta: string) {
-  if (!yoResponseEl) {
-    if (yoStatusEl) clearYoStatus();
-    finishTimeline();
-
-    yoResponseEl = document.createElement("div");
-    yoResponseEl.className = "yo-msg yo-msg-assistant";
-    yoPanelMessages.appendChild(yoResponseEl);
-    yoLastAssistantText = "";
-  }
+  // Accumulate silently — the existing spinner stays visible.
+  // Text only renders (formatted) when finalizeYoMessage fires.
   yoLastAssistantText += delta;
-  yoResponseEl.textContent = yoLastAssistantText;
-  yoScroll();
 }
 
 function finalizeYoMessage(fullText: string) {
@@ -1623,6 +1615,68 @@ yoPanelInput.addEventListener("keydown", (e) => {
     sendYoPanelMessage();
   }
 });
+
+// -- Voice input (Web Speech API) --
+if (yoPanelMicBtn) {
+  const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+  if (SpeechRecognition) {
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    let listening = false;
+    let savedValue = "";
+
+    yoPanelMicBtn.addEventListener("click", () => {
+      if (yoThinking) return;
+      if (listening) {
+        recognition.stop();
+        return;
+      }
+      savedValue = yoPanelInput.value;
+      recognition.start();
+    });
+
+    recognition.onstart = () => {
+      listening = true;
+      yoPanelMicBtn!.classList.add("listening");
+    };
+
+    recognition.onresult = (e: any) => {
+      let interim = "";
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      yoPanelInput.value = savedValue + final + interim;
+      yoPanelInput.style.height = "auto";
+      yoPanelInput.style.height = yoPanelInput.scrollHeight + "px";
+    };
+
+    recognition.onend = () => {
+      listening = false;
+      yoPanelMicBtn!.classList.remove("listening");
+      // Auto-send if we got text and input wasn't empty before
+      const text = yoPanelInput.value.trim();
+      if (text && text !== savedValue.trim()) {
+        sendYoPanelMessage();
+      }
+    };
+
+    recognition.onerror = (e: any) => {
+      listening = false;
+      yoPanelMicBtn!.classList.remove("listening");
+      if (e.error !== "aborted" && e.error !== "no-speech") {
+        console.warn("Speech recognition error:", e.error);
+      }
+    };
+  } else {
+    yoPanelMicBtn.classList.add("disabled");
+    yoPanelMicBtn.title = "Voice input not supported";
+  }
+}
 
 yoPanelCloseBtn.addEventListener("click", () => {
   window.yo.yoPanelDismiss();

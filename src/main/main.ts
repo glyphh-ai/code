@@ -459,6 +459,13 @@ async function createWindow() {
 
   if (saved.maximized) mainWindow.maximize();
 
+  // Allow microphone access in the main window renderer (for voice input)
+  const mainSes = mainWindow.webContents.session;
+  mainSes.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === "media");
+  });
+  mainSes.setPermissionCheckHandler((_wc, permission) => permission === "media");
+
   mainWindow.loadFile(
     path.join(__dirname, "..", "renderer", "index.html")
   );
