@@ -19,11 +19,11 @@ import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz", "grp"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz", "council"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
-  private onGrp: ((participants: string[]) => void) | null = null;
+  private onCouncil: ((participants: string[]) => void) | null = null;
 
   // Sup conversation state
   private yoHistory: Array<{ role: string; content: string }> = [];
@@ -57,9 +57,9 @@ export class CommandParser {
     this.onDrip = fn;
   }
 
-  /** Register callback for group chat */
-  setGrpHandler(fn: (participants: string[]) => void) {
-    this.onGrp = fn;
+  /** Register callback for council chat */
+  setCouncilHandler(fn: (participants: string[]) => void) {
+    this.onCouncil = fn;
   }
 
   /** Set the LLM engine for inline processing. */
@@ -122,10 +122,10 @@ export class CommandParser {
         return this.handleDrip(args);
       case "waz":
         return this.handleWaz(args);
-      case "grp":
-        return this.handleGrp(args);
+      case "council":
+        return this.handleCouncil(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, waz, or grp.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, waz, or council.`;
     }
   }
 
@@ -566,13 +566,13 @@ export class CommandParser {
     return result || `Done: ${commandKey}`;
   }
 
-  // ── grp: group chat ──────────────────────────────────────────
+  // ── council: multi-model council ─────────────────────────────
 
-  private handleGrp(args: string[]): string {
-    if (args.length === 0) return "Usage: grp <model1> <model2> [<model3> ...] — start a group chat";
+  private handleCouncil(args: string[]): string {
+    if (args.length === 0) return "Usage: council <model1> <model2> [<model3> ...] — start a council";
     const participants = args.map((a) => a.toLowerCase());
-    this.onGrp?.(participants);
-    return `__GRP__:${participants.join(",")}`;
+    this.onCouncil?.(participants);
+    return `__COUNCIL__:${participants.join(",")}`;
   }
 
   // ── drip: CSS visual effects ────────────────────────────────

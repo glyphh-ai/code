@@ -142,7 +142,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "dashboard", name: "Dashboard", url: "yo://dashboard" },
   { id: "browser", name: "Browser", url: "yo://browser" },
-  { id: "group", name: "Group Chat", url: "yo://group" },
+  { id: "council", name: "Council", url: "yo://council" },
 ];
 
 // ── AppConnector ─────────────────────────────────────��──

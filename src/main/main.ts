@@ -41,7 +41,7 @@ import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
-import { GroupChat } from "./group-chat";
+import { CouncilChat } from "./council-chat";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -56,7 +56,7 @@ let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
-const groupChat = new GroupChat();
+const councilChat = new CouncilChat();
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 
@@ -662,8 +662,8 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const dashboardHtml = `file://${path.join(__dirname, "..", "renderer", "dashboard.html")}`;
   const dashboardPreload = path.join(__dirname, "dashboard-preload.js");
-  const groupHtml = `file://${path.join(__dirname, "..", "renderer", "group.html")}`;
-  const groupPreload = path.join(__dirname, "group-preload.js");
+  const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
+  const councilPreload = path.join(__dirname, "council-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
@@ -674,8 +674,8 @@ async function boot() {
       panelManager.addPanel(app.id, dashboardHtml, dashboardPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
-    } else if (app.url === "yo://group") {
-      panelManager.addPanel(app.id, groupHtml, groupPreload);
+    } else if (app.url === "yo://council") {
+      panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -812,17 +812,17 @@ async function boot() {
       return "";
     }
 
-    // .grp opens the group chat panel and starts a session
-    if (result.startsWith("__GRP__:")) {
-      const participants = result.replace("__GRP__:", "").split(",").filter(Boolean);
+    // .council opens the council panel and starts a session
+    if (result.startsWith("__COUNCIL__:")) {
+      const participants = result.replace("__COUNCIL__:", "").split(",").filter(Boolean);
       if (participants.length > 0) {
-        // Switch to the group panel
-        panelManager.switchTo("group", mainWindow!);
-        // Start the group session after the panel loads
+        // Switch to the council panel
+        panelManager.switchTo("council", mainWindow!);
+        // Start the council session after the panel loads
         setTimeout(() => {
-          const wc = panelManager.getWebContents("group");
-          if (wc) groupChat.setGroupWebContents(wc);
-          groupChat.start(participants);
+          const wc = panelManager.getWebContents("council");
+          if (wc) councilChat.setCouncilWebContents(wc);
+          councilChat.start(participants);
         }, 500);
       }
       return "";
@@ -1471,9 +1471,9 @@ async function boot() {
     (text: string) => { try { clipboard.writeText(text); } catch {} },
   );
 
-  // ── Group Chat wiring ────────────────────────────────────
-  groupChat.registerIPC();
-  groupChat.setPanelGrabber(async (panelId) => {
+  // ── Council Chat wiring ──────────────────────────────────
+  councilChat.registerIPC();
+  councilChat.setPanelGrabber(async (panelId: string) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc) return null;
     const app = appConnector.get(panelId);
@@ -1486,7 +1486,7 @@ async function boot() {
     }
     return content || null;
   });
-  groupChat.setPanelTyper(async (panelId, text, opts) => {
+  councilChat.setPanelTyper(async (panelId: string, text: string, opts: { clear?: boolean; submit?: boolean }) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc) return `Panel "${panelId}" not loaded.`;
     const app = appConnector.get(panelId);
@@ -1504,7 +1504,7 @@ async function boot() {
     }
     return result;
   });
-  groupChat.setPanelCommandRunner(async (panelId, command) => {
+  councilChat.setPanelCommandRunner(async (panelId: string, command: string) => {
     const wc = panelManager.getWebContents(panelId);
     if (!wc) return `Panel "${panelId}" not loaded.`;
     const app = appConnector.get(panelId);
@@ -1512,7 +1512,7 @@ async function boot() {
     if (!mapping) return `No command "${command}" for ${panelId}.`;
     return await executeCommand(wc, mapping);
   });
-  groupChat.setCommandRunner(async (cmd) => {
+  councilChat.setCommandRunner(async (cmd: string) => {
     const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
     return await execCommand(clean);
   });

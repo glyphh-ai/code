@@ -1,23 +1,23 @@
 /**
- * GroupChat — manages a multi-model group conversation.
+ * CouncilChat — manages a multi-model council conversation.
  *
- * The group chat panel (yo://group) is the unified view.
+ * The council panel (yo://council) is the unified view.
  * This class routes user messages to each model's panel
- * via sendAndWait, streams results back to the group panel.
+ * via sendAndWait, streams results back to the council panel.
  */
 
 import { BrowserWindow, ipcMain, WebContents } from "electron";
 
-export interface GroupMessage {
+export interface CouncilMessage {
   from: string;
   text: string;
   type: "user" | "model" | "system";
 }
 
-export class GroupChat {
+export class CouncilChat {
   private participants: string[] = [];
-  private history: GroupMessage[] = [];
-  private groupWc: WebContents | null = null;
+  private history: CouncilMessage[] = [];
+  private councilWc: WebContents | null = null;
   private active = false;
   private aborted = false;
 
@@ -32,22 +32,22 @@ export class GroupChat {
   setPanelCommandRunner(fn: typeof this.panelCommandRunner): void { this.panelCommandRunner = fn; }
   setCommandRunner(fn: typeof this.commandRunner): void { this.commandRunner = fn; }
 
-  /** Set the group panel's WebContents for sending messages to it. */
-  setGroupWebContents(wc: WebContents): void {
-    this.groupWc = wc;
+  /** Set the council panel's WebContents for sending messages to it. */
+  setCouncilWebContents(wc: WebContents): void {
+    this.councilWc = wc;
   }
 
   getParticipants(): string[] { return [...this.participants]; }
   isActive(): boolean { return this.active; }
 
-  /** Start a new group chat session with the given participants. */
+  /** Start a new council session with the given participants. */
   start(participants: string[]): void {
     this.participants = [...participants];
     this.history = [];
     this.active = true;
     this.aborted = false;
     this.notifyParticipantsChanged();
-    this.sendToPanel({ from: "system", text: `Group started with ${participants.join(", ")}`, type: "system" });
+    this.sendToPanel({ from: "system", text: `Council started with ${participants.join(", ")}`, type: "system" });
   }
 
   /** Add a participant mid-session. */
@@ -55,17 +55,17 @@ export class GroupChat {
     if (this.participants.includes(id)) return;
     this.participants.push(id);
     this.notifyParticipantsChanged();
-    this.sendToPanel({ from: "system", text: `${id} joined the group`, type: "system" });
+    this.sendToPanel({ from: "system", text: `${id} joined the council`, type: "system" });
   }
 
   /** Remove a participant mid-session. */
   removeParticipant(id: string): void {
     this.participants = this.participants.filter((p) => p !== id);
     this.notifyParticipantsChanged();
-    this.sendToPanel({ from: "system", text: `${id} left the group`, type: "system" });
+    this.sendToPanel({ from: "system", text: `${id} left the council`, type: "system" });
     if (this.participants.length === 0) {
       this.active = false;
-      this.sendToPanel({ from: "system", text: "Group ended — no participants left", type: "system" });
+      this.sendToPanel({ from: "system", text: "Council ended — no participants left", type: "system" });
     }
   }
 
@@ -79,7 +79,7 @@ export class GroupChat {
     // Build context: last few exchanges so models know the conversation
     const context = this.buildContext();
     const prompt = context
-      ? `You are in a group chat with: ${this.participants.join(", ")} and the user.\n\nRecent conversation:\n${context}\n\nUser: ${text}\n\nRespond naturally. Keep it concise.`
+      ? `You are in a council with: ${this.participants.join(", ")} and the user.\n\nRecent conversation:\n${context}\n\nUser: ${text}\n\nRespond naturally. Keep it concise.`
       : text;
 
     // Send to all participants in parallel
@@ -89,7 +89,7 @@ export class GroupChat {
       try {
         const response = await this.sendAndWait(panelId, prompt);
         if (this.aborted) return;
-        const msg: GroupMessage = { from: panelId, text: response, type: "model" };
+        const msg: CouncilMessage = { from: panelId, text: response, type: "model" };
         this.history.push(msg);
         this.sendToPanel(msg);
       } catch (err) {
@@ -112,42 +112,42 @@ export class GroupChat {
 
   /** Register IPC handlers — call once from main.ts. */
   registerIPC(): void {
-    ipcMain.on("grp:send", (_e, text: string) => {
+    ipcMain.on("council:send", (_e, text: string) => {
       this.handleUserMessage(text).catch((err) =>
-        console.error("[group-chat] send error:", err),
+        console.error("[council-chat] send error:", err),
       );
     });
 
-    ipcMain.on("grp:add", (_e, id: string) => {
+    ipcMain.on("council:add", (_e, id: string) => {
       this.addParticipant(id);
     });
 
-    ipcMain.on("grp:remove", (_e, id: string) => {
+    ipcMain.on("council:remove", (_e, id: string) => {
       this.removeParticipant(id);
     });
 
-    ipcMain.handle("grp:participants", () => {
+    ipcMain.handle("council:participants", () => {
       return this.getParticipants();
     });
   }
 
   // ── Private helpers ───────────────────────────────────────
 
-  private sendToPanel(msg: GroupMessage): void {
-    if (this.groupWc && !this.groupWc.isDestroyed()) {
-      this.groupWc.send("grp:message", msg);
+  private sendToPanel(msg: CouncilMessage): void {
+    if (this.councilWc && !this.councilWc.isDestroyed()) {
+      this.councilWc.send("council:message", msg);
     }
   }
 
   private setTyping(modelId: string, typing: boolean): void {
-    if (this.groupWc && !this.groupWc.isDestroyed()) {
-      this.groupWc.send("grp:typing", modelId, typing);
+    if (this.councilWc && !this.councilWc.isDestroyed()) {
+      this.councilWc.send("council:typing", modelId, typing);
     }
   }
 
   private notifyParticipantsChanged(): void {
-    if (this.groupWc && !this.groupWc.isDestroyed()) {
-      this.groupWc.send("grp:participants-changed", this.participants);
+    if (this.councilWc && !this.councilWc.isDestroyed()) {
+      this.councilWc.send("council:participants-changed", this.participants);
     }
   }
 
