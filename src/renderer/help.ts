@@ -53,12 +53,22 @@ function switchToSection(sectionId: string) {
 
 navItems.forEach((item) => {
   item.addEventListener("click", () => {
-    switchToSection(item.dataset.section!);
-    // Clear sub-item highlights when clicking the parent
-    navSubItems.forEach((s) => s.classList.remove("active"));
-    loadActiveSection();
+    if (item.classList.contains("has-sub")) {
+      // Toggle dropdown expand/collapse — don't switch section
+      item.classList.toggle("expanded");
+    } else {
+      // Regular nav item — switch section, collapse all dropdowns
+      collapseAllDropdowns();
+      navSubItems.forEach((s) => s.classList.remove("active"));
+      switchToSection(item.dataset.section!);
+      loadActiveSection();
+    }
   });
 });
+
+function collapseAllDropdowns() {
+  navItems.forEach((n) => n.classList.remove("expanded"));
+}
 
 // ── Sidebar sub-navigation (dropdown items) ──────────────
 
@@ -66,6 +76,9 @@ navSubItems.forEach((sub) => {
   sub.addEventListener("click", () => {
     const sectionId = sub.dataset.section!;
     const subId = sub.dataset.sub!;
+
+    // Collapse the dropdown after selection
+    collapseAllDropdowns();
 
     // Activate the parent section
     switchToSection(sectionId);

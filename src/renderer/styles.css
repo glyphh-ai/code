@@ -1182,7 +1182,7 @@ body {
   transition: transform 0.15s;
 }
 
-.help-nav-item.has-sub.active::after {
+.help-nav-item.has-sub.expanded::after {
   transform: translateY(-50%) rotate(180deg);
   border-top-color: #25C75E;
 }
@@ -1192,7 +1192,7 @@ body {
   flex-direction: column;
 }
 
-.help-nav-item.has-sub.active + .help-nav-sub {
+.help-nav-item.has-sub.expanded + .help-nav-sub {
   display: flex;
 }
 
