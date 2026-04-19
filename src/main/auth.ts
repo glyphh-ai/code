@@ -1,9 +1,9 @@
 /**
- * Auth — BrowserWindow-based authentication via yosup.dev.
+ * Auth — BrowserWindow-based authentication via platform.yosup.dev.
  *
  * Flow:
- *   1. Open BrowserWindow to yosup.dev/auth?flow=electron (register or login)
- *   2. User completes auth on the web
+ *   1. Open BrowserWindow to platform.yosup.dev/auth?flow=electron (register or login)
+ *   2. User completes auth on the platform
  *   3. Web generates a one-time device code and redirects to /auth/callback?code=XXX
  *   4. We intercept the navigation, extract the code, exchange it for JWT tokens
  *   5. Tokens stored encrypted via safeStorage
@@ -22,8 +22,8 @@ const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
 
 const AUTH_SERVER =
   process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
-const WEB_URL =
-  process.env.YO_WEB_URL || "https://yosup.dev";
+const PLATFORM_URL =
+  process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -259,7 +259,7 @@ export function startAuthFlow(mode: "register" | "login" = "register"): Promise<
     }
 
     const authPath = mode === "login" ? "/auth/login" : "/auth";
-    const authUrl = `${WEB_URL}${authPath}?flow=electron`;
+    const authUrl = `${PLATFORM_URL}${authPath}?flow=electron`;
 
     authWindow = new BrowserWindow({
       width: 520,
