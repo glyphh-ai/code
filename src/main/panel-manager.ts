@@ -78,6 +78,7 @@ export class PanelManager {
   private onReady: PanelReadyCallback | null = null;
   private onPanelFocused: ((id: string) => void) | null = null;
   private onWebviewAttach: ((childWc: WebContents, panelId: string) => void) | null = null;
+  private onRecordToggle: (() => void) | null = null;
   private zoomFactor = 1.0;
   private _animating = false;
   private onZoomChange: ((factor: number) => void) | null = null;
@@ -390,6 +391,10 @@ export class PanelManager {
     this.onWebviewAttach = cb;
   }
 
+  setOnRecordToggle(cb: () => void): void {
+    this.onRecordToggle = cb;
+  }
+
   /** Whether a slide animation is in progress */
   get isAnimating(): boolean { return this._animating; }
 
@@ -637,6 +642,10 @@ export class PanelManager {
         // Cmd+K — open yo agent panel
         e.preventDefault();
         parent.webContents.send("focus-command-input");
+      } else if (input.key === "." && input.shift) {
+        // Cmd+Shift+. — toggle vibe recording
+        e.preventDefault();
+        this.onRecordToggle?.();
       }
     });
 
@@ -671,6 +680,9 @@ export class PanelManager {
         } else if (input.key === "r") {
           e.preventDefault();
           this.refresh(this.activePanel ?? undefined);
+        } else if (input.key === "." && input.shift) {
+          e.preventDefault();
+          this.onRecordToggle?.();
         }
       });
     });

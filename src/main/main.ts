@@ -14,6 +14,7 @@ import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { VibeRunner } from "./vibe-runner";
+import { VibeRecorder } from "./vibe-recorder";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
@@ -47,6 +48,7 @@ let commandParser: CommandParser;
 let skillEngine: SkillEngine;
 let appConnector: AppConnector;
 let vibeRunner: VibeRunner;
+let vibeRecorder: VibeRecorder;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
@@ -521,6 +523,7 @@ async function boot() {
   skillEngine = new SkillEngine();
   appConnector = new AppConnector();
   vibeRunner = new VibeRunner();
+  vibeRecorder = new VibeRecorder();
   connectorAgent = new ConnectorAgent();
 
   // Terminal manager — pty processes for terminal panels
@@ -947,6 +950,34 @@ async function boot() {
     const icon = result.success ? "+" : "x";
     const msg = `[${icon}] Background vibe "${result.name}" finished — ${result.summary}`;
     mainWindow.webContents.send("yo-reminder", msg);
+  });
+
+  // ── Vibe Recorder wiring ─────────────────────────────────
+  vibeRecorder.setWcGetter((id) => panelManager.getWebContents(id));
+  vibeRecorder.setPanelIdsGetter(() => panelManager.getLoadedPanelIds());
+  vibeRecorder.setActivePanelGetter(() => panelManager.activePanelId);
+  vibeRecorder.setAppConnector(appConnector);
+  vibeRecorder.setOnStateChange((recording, stepCount) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("vibe-recording-state", { recording, stepCount });
+  });
+
+  panelManager.setOnRecordToggle(() => {
+    if (vibeRecorder.isRecording) {
+      const session = vibeRecorder.stop();
+      if (session.events.length === 0) {
+        mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
+        return;
+      }
+      // Auto-refine with timestamp name
+      const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+      const vibe = vibeRecorder.refine(session, `recorded-${ts}`);
+      vibeRunner.create(vibe.name, vibe);
+      const msg = `Vibe "${vibe.name}" recorded with ${vibe.steps.length} steps. Use manage_vibe to rename or edit.`;
+      mainWindow?.webContents.send("yo-reminder", msg);
+    } else {
+      vibeRecorder.start();
+    }
   });
 
   yoAgent.setVibeRunner(vibeRunner);
@@ -1704,6 +1735,8 @@ async function boot() {
     ensureTab(id);
     sendTabState();
     sendUrlUpdate();
+    // Forward to vibe recorder for panel-switch tracking
+    vibeRecorder.onPanelFocus(id);
     // Notify dashboard to refresh when it becomes visible
     if (id === "dashboard") {
       const wc = panelManager.getWebContents("dashboard");
@@ -1914,6 +1947,27 @@ async function boot() {
           { role: "zoomOut" },
           { type: "separator" },
           { role: "togglefullscreen" },
+          { type: "separator" },
+          {
+            label: "Record Vibe",
+            accelerator: "CmdOrCtrl+Shift+.",
+            click: () => {
+              // Delegate to the same toggle handler as the panel shortcut
+              if (vibeRecorder.isRecording) {
+                const session = vibeRecorder.stop();
+                if (session.events.length === 0) {
+                  mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
+                  return;
+                }
+                const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+                const vibe = vibeRecorder.refine(session, `recorded-${ts}`);
+                vibeRunner.create(vibe.name, vibe);
+                mainWindow?.webContents.send("yo-reminder", `Vibe "${vibe.name}" recorded with ${vibe.steps.length} steps.`);
+              } else {
+                vibeRecorder.start();
+              }
+            },
+          },
         ],
       },
       {
