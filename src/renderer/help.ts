@@ -2,6 +2,8 @@
  * Help overlay — combined docs + settings (layouts, panels, apps).
  */
 
+import { showOnboarding } from "./onboarding.js";
+
 const overlay = document.getElementById("help-overlay")!;
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
 const sections = document.querySelectorAll<HTMLDivElement>(".help-section");
@@ -938,7 +940,8 @@ function initSettings() {
   // Sign out
   document.getElementById("account-logout-btn")?.addEventListener("click", async () => {
     await window.yo.logout();
-    window.yo.relaunch();
+    closeHelp();
+    showOnboarding(true);
   });
 }
 

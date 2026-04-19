@@ -1,3 +1,24 @@
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url(fonts/Inter-latin.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(fonts/JetBrainsMono-latin.woff2) format('woff2');
+}
+
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Courier New', monospace;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,7 +26,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: #0a0a0a;
   color: #e0e0e0;
   overflow: hidden;
@@ -44,10 +65,11 @@ body {
 }
 
 .splash-logo {
+  font-family: var(--font-mono);
   font-size: 120px;
-  font-weight: 700;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: -4px;
+  letter-spacing: -0.035em;
   margin-bottom: 24px;
 }
 
@@ -127,10 +149,11 @@ body {
 .empty-state.hidden { display: none; }
 
 .empty-state-logo {
+  font-family: var(--font-mono);
   font-size: 72px;
-  font-weight: 700;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: -2px;
+  letter-spacing: -0.035em;
 }
 
 .empty-state-dot {
@@ -148,7 +171,7 @@ body {
   display: inline-block;
   padding: 2px 6px;
   font-size: 11px;
-  font-family: "SF Mono", "Fira Code", Menlo, monospace;
+  font-family: var(--font-mono);
   color: #888;
   background: #1a1a1a;
   border: 1px solid #333;
@@ -202,10 +225,11 @@ body {
 }
 
 .onboarding-title {
+  font-family: var(--font-mono);
   font-size: 64px;
-  font-weight: 700;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.035em;
   margin-bottom: 8px;
 }
 
@@ -236,7 +260,7 @@ body {
   padding: 0 14px;
   color: #f0f0f0;
   font-size: 14px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   outline: none;
   backdrop-filter: blur(8px);
 }
@@ -382,10 +406,11 @@ body {
 }
 
 #titlebar-label {
+  font-family: var(--font-mono);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: #888;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.02em;
   cursor: pointer;
   -webkit-app-region: no-drag;
   transition: color 0.15s;
@@ -397,6 +422,91 @@ body {
 #titlebar-label .dot {
   color: #25C75E;
   -webkit-text-fill-color: #25C75E;
+}
+
+/* ── User menu ────────────────────────────────────────── */
+
+.user-menu {
+  position: relative;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.user-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.user-menu-btn:hover {
+  background: #222;
+  color: #e0e0e0;
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: #ccc;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  text-align: left;
+}
+
+.user-menu-item:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.user-menu-item svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.user-menu-item:hover svg {
+  opacity: 1;
+}
+
+.user-menu-item-danger:hover {
+  background: rgba(220, 50, 50, 0.15);
+  color: #f66;
+}
+
+.user-menu-item-danger:hover svg {
+  stroke: #f66;
+}
+
+.user-menu-divider {
+  height: 1px;
+  background: #333;
+  margin: 4px 8px;
 }
 
 /* ── Cmd+K overlay ─────────────────────────────────────── */
@@ -463,7 +573,7 @@ body {
   border: 1px solid #333;
   border-radius: 8px;
   outline: none;
-  font-family: "SF Mono", "Fira Code", Menlo, monospace;
+  font-family: var(--font-mono);
 }
 .url-bar-input:focus {
   border-color: #25C75E;
@@ -515,7 +625,7 @@ body {
 .cell-url-bar-text {
   flex: 1;
   font-size: 10px;
-  font-family: "SF Mono", "Fira Code", Menlo, monospace;
+  font-family: var(--font-mono);
   color: #777;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -793,7 +903,7 @@ body {
   border-radius: 6px;
   outline: none;
   resize: vertical;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   transition: border-color 0.15s;
 }
 .skill-prompt-area:focus { border-color: #25C75E; }
@@ -1205,7 +1315,7 @@ body {
 
 .section-desc code {
   color: #bbb;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -1233,7 +1343,7 @@ body {
 .cmd-row:last-child { border-bottom: none; }
 
 .cmd-row code {
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
   color: #fff;
@@ -1285,7 +1395,7 @@ body {
 }
 
 .panel-chip code {
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: #888;
 }
@@ -1307,7 +1417,7 @@ body {
   padding: 0 10px;
   color: #f0f0f0;
   font-size: 13px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   outline: none;
 }
 
@@ -1337,7 +1447,7 @@ body {
 .item-name {
   font-size: 13px;
   color: #ccc;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .item-meta {
@@ -1405,7 +1515,7 @@ body {
   padding: 12px;
   color: #e0e0e0;
   font-size: 13px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
   resize: none;
   outline: none;
@@ -1467,7 +1577,7 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   color: #555;
   min-height: 56px;
   transition: all 0.15s;
@@ -1532,7 +1642,7 @@ body {
   color: #ccc;
   cursor: pointer;
   border-radius: 4px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .cell-panel-option:hover {
@@ -1601,7 +1711,7 @@ body {
 .app-card-url {
   font-size: 11px;
   color: #777;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   margin-bottom: 8px;
 }
 
@@ -1614,7 +1724,7 @@ body {
 
 .app-cmd-chip {
   font-size: 11px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   color: #25C75E;
   background: #0e1f14;
   padding: 2px 8px;
@@ -1708,7 +1818,7 @@ body {
   border-radius: 4px;
   padding: 2px 6px;
   outline: none;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   transition: border-color 0.15s;
   width: auto;
   max-width: 180px;
@@ -1735,7 +1845,7 @@ body {
 .app-detail-url {
   font-size: 12px;
   color: #888;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   margin-left: 12px;
 }
 
@@ -1747,7 +1857,7 @@ body {
   font-size: 12px;
   color: #888;
   padding: 8px 0;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .app-status-msg.connecting { color: #25C75E; }
@@ -1807,7 +1917,7 @@ body {
 .command-key {
   font-size: 13px;
   font-weight: 600;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   color: #25C75E;
   min-width: 80px;
 }
@@ -1825,7 +1935,7 @@ body {
 .command-selector {
   font-size: 10px;
   color: #555;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1890,7 +2000,7 @@ body {
 
 #map-selector {
   font-size: 12px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   color: #fff;
   word-break: break-all;
 }
@@ -1916,7 +2026,7 @@ body {
   padding: 0 10px;
   color: #f0f0f0;
   font-size: 12px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   outline: none;
 }
 
@@ -2327,7 +2437,7 @@ select.settings-input {
   color: #777;
 }
 .toggle-desc code {
-  font-family: "SF Mono", "Fira Code", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: #999;
   background: #1a1a1a;
@@ -2398,7 +2508,7 @@ select.settings-input {
 .about-version {
   font-size: 13px;
   color: #888;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   margin-bottom: 4px;
 }
 
@@ -2492,7 +2602,7 @@ select.settings-input {
 .license-value {
   font-size: 13px;
   color: #ccc;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .license-value.active { color: #25C75E; }
@@ -2744,11 +2854,11 @@ select.settings-input {
 }
 
 .yo-panel-title {
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: #fff;
-  letter-spacing: 0.5px;
+  letter-spacing: -0.02em;
 }
 .yo-panel-title .yo-dot {
   color: #25C75E;
@@ -2788,10 +2898,11 @@ select.settings-input {
   animation: yo-welcome-in 0.4s ease-out;
 }
 .yo-welcome-logo {
+  font-family: var(--font-mono);
   font-size: 48px;
-  font-weight: 700;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: -2px;
+  letter-spacing: -0.035em;
   margin-bottom: 2px;
 }
 .yo-welcome-dot { color: #25C75E; }
@@ -2922,7 +3033,7 @@ select.settings-input {
 }
 
 .tutorial-input-mock {
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
   color: #ccc;
   display: flex;
@@ -2958,7 +3069,7 @@ select.settings-input {
   border: 1px solid #333;
   border-radius: 8px;
   color: #ccc;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
   font-weight: 500;
   box-shadow: 0 2px 0 #222;
@@ -3019,7 +3130,7 @@ select.settings-input {
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .yo-msg-user {
@@ -3230,7 +3341,7 @@ select.settings-input {
   width: 20px;
   text-align: center;
   flex-shrink: 0;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .yo-ag-phrase {
@@ -3293,7 +3404,7 @@ select.settings-input {
   color: #e0a0ff;
   padding: 1px 5px;
   border-radius: 4px;
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -3381,7 +3492,7 @@ select.settings-input {
   margin: 0;
   padding: 10px 12px;
   overflow-x: auto;
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
   color: #bbb;
@@ -3412,7 +3523,7 @@ select.settings-input {
   padding: 12px 14px;
   color: #e0e0e0;
   font-size: 14px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-sans);
   resize: none;
   outline: none;
   max-height: 160px;
@@ -3501,7 +3612,7 @@ select.settings-input {
   padding: 4px 8px;
   color: #999;
   font-size: 11px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   outline: none;
   appearance: none;
@@ -3532,7 +3643,7 @@ select.settings-input {
   padding: 4px 8px;
   color: #fff;
   font-size: 11px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   outline: none;
   transition: border-color 0.15s;
@@ -3587,7 +3698,7 @@ select.settings-input {
   font-size: 11px;
   font-weight: 600;
   color: #ddd;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   text-transform: lowercase;
 }
 
@@ -3617,7 +3728,7 @@ select.settings-input {
   padding: 4px 8px;
   color: #999;
   font-size: 11px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   outline: none;
   transition: border-color 0.15s;
@@ -3648,7 +3759,7 @@ select.settings-input {
   cursor: pointer;
   font-size: 11px;
   color: #aaa;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   transition: background 0.1s;
   white-space: nowrap;
   overflow: hidden;

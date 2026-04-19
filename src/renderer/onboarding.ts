@@ -243,7 +243,15 @@ signinBtn.addEventListener("click", async () => {
   signinBtn.textContent = "Sign in";
 
   if (ok) {
-    // Auth succeeded — move to API key step
+    // Auth succeeded — check if API key already exists (re-login scenario)
+    const existingConfig = await window.yo.getLLMConfig();
+    if (existingConfig?.apiKey) {
+      // Key already on disk — skip step 2, go straight to app
+      hideOnboarding();
+      window.yo.onboardingComplete();
+      window.dispatchEvent(new Event("yo-onboarding-done"));
+      return;
+    }
     const account = await window.yo.getAccountInfo();
     if (account) {
       welcomeMsg.textContent = `Welcome back, ${account.firstName}! Enter your AI API key to get started.`;
@@ -267,6 +275,14 @@ registerBtn.addEventListener("click", async () => {
   registerBtn.textContent = "Create Account";
 
   if (ok) {
+    // Check if API key already exists
+    const existingConfig = await window.yo.getLLMConfig();
+    if (existingConfig?.apiKey) {
+      hideOnboarding();
+      window.yo.onboardingComplete();
+      window.dispatchEvent(new Event("yo-onboarding-done"));
+      return;
+    }
     const account = await window.yo.getAccountInfo();
     if (account) {
       welcomeMsg.textContent = `Welcome, ${account.firstName}! Enter your AI API key to get started.`;

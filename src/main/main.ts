@@ -2868,16 +2868,24 @@ async function boot() {
   mainWindow?.webContents.on("did-finish-load", () => {
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
     const authStatus = getAuthStatus();
+    // Recompute needsOnboarding dynamically (may have changed after logout/re-login)
+    const currentNeedsOnboarding = !isAuthenticated() || !llmConfig.apiKey;
     mainWindow?.webContents.send("boot", {
       authenticated: authStatus.authenticated,
       status: authStatus.status,
       tier: authStatus.tier,
       daysRemaining: authStatus.daysRemaining,
       apiKey: llmConfig.apiKey ? true : false,
-      needsOnboarding,
+      needsOnboarding: currentNeedsOnboarding,
       hideWelcome,
     });
-    if (!needsOnboarding) sendSplitState();
+    if (!currentNeedsOnboarding && !panelsReady) {
+      restorePanels();
+      panelsReady = true;
+      sendSplitState();
+    } else if (!currentNeedsOnboarding) {
+      sendSplitState();
+    }
   });
 }
 

@@ -160,7 +160,7 @@ contextBridge.exposeInMainWorld("yo", {
   // Account info
   getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
-  openAccountDashboard: () => ipcRenderer.send("open-external", "https://yosup.dev/dashboard"),
+  openAccountDashboard: () => ipcRenderer.send("open-external", "https://platform.yosup.dev"),
 
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>

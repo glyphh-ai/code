@@ -192,6 +192,40 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
+// -- User menu dropdown --
+
+const userMenuBtn = document.getElementById("user-menu-btn")!;
+const userMenuDropdown = document.getElementById("user-menu-dropdown")!;
+
+userMenuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  userMenuDropdown.classList.toggle("hidden");
+});
+
+document.addEventListener("click", () => {
+  userMenuDropdown.classList.add("hidden");
+});
+
+userMenuDropdown.addEventListener("click", (e) => {
+  e.stopPropagation();
+});
+
+document.getElementById("user-menu-platform")!.addEventListener("click", () => {
+  window.yo.openExternal("https://platform.yosup.dev");
+  userMenuDropdown.classList.add("hidden");
+});
+
+document.getElementById("user-menu-settings")!.addEventListener("click", () => {
+  openSettings();
+  userMenuDropdown.classList.add("hidden");
+});
+
+document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
+  await window.yo.logout();
+  userMenuDropdown.classList.add("hidden");
+  showOnboarding(true);
+});
+
 // -- Tab bar --
 
 const tabBar = document.getElementById("tab-bar")!;
@@ -859,7 +893,7 @@ function showYoWelcome() {
   const w = document.createElement("div");
   w.id = "yo-panel-welcome";
   w.className = "yo-panel-welcome";
-  w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo <span class="yo-welcome-dot">.</span>Sup <span class="yo-welcome-dot">.</span>Dip</div>
+  w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo</div>
     <div class="yo-welcome-tagline">Your AI workspace agent</div>
     <div class="yo-welcome-hints">
       <div class="yo-welcome-hint">find that reddit thread about pricing</div>
@@ -1006,6 +1040,14 @@ async function openYoPanel(query: string) {
   if (!yoControlsInited) {
     yoControlsInited = true;
     initYoControls();
+  }
+  // Personalize title with user's first name
+  const titleEl = document.querySelector(".yo-panel-title");
+  if (titleEl) {
+    const account = await window.yo.getAccountInfo();
+    if (account?.firstName) {
+      titleEl.innerHTML = `<span class="yo-dot">.</span>Yo <span class="yo-dot">.</span>Sup ${account.firstName}`;
+    }
   }
   const savedWidth = await window.yo.yoPanelGetWidth();
   yoPanel.style.width = `${savedWidth}px`;
