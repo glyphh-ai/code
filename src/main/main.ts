@@ -14,7 +14,7 @@ import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { checkLicense, activateLicense, revalidateLicense, initSession, getCheckoutUrl, getBillingPortalUrl, submitSupportTicket, cleanupLicenseTimers } from "./license";
+import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
@@ -52,7 +52,6 @@ let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
-let licenseCheckTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -1663,10 +1662,13 @@ async function boot() {
     () => [...openTabs],
   );
 
+  // Initialize auth — restore session, schedule refresh, start heartbeat
+  await initAuth();
+
   // Check if onboarding is needed BEFORE restoring panels
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
-  const bootLicense = checkLicense();
-  const needsOnboarding = bootLicense.status === "expired" || !llmConfig.apiKey;
+  const authenticated = isAuthenticated();
+  const needsOnboarding = !authenticated || !llmConfig.apiKey;
   let panelsReady = false;
 
   // Restore zoom level
@@ -1681,35 +1683,12 @@ async function boot() {
     if (mainWindow) panelManager.hideActive(mainWindow);
   }
 
-  // Revalidate license on boot (async, non-blocking)
-  if (bootLicense.status === "licensed") {
-    revalidateLicense().then((valid) => {
-      if (!valid) {
-        mainWindow?.webContents.send("license-expired");
-      }
-    });
-    // Initialize JWT session (swap license key for short-lived token)
-    initSession().catch(() => { /* non-blocking — falls back to license key */ });
-  }
-
-  // Start cloud sync if licensed with a cloud token
-  const cloudToken = getPreference<string>("cloudToken", null!);
-  if (bootLicense.status === "licensed" && cloudToken) {
+  // Start cloud sync if authenticated
+  if (authenticated) {
     const library = new Library();
     cloudSyncInstance = new CloudSync(library);
     cloudSyncInstance.start();
   }
-
-  // Revalidate license every 24h
-  licenseCheckTimer = setInterval(async () => {
-    const license = checkLicense();
-    if (license.status === "licensed") {
-      const valid = await revalidateLicense();
-      if (!valid) {
-        mainWindow?.webContents.send("license-expired");
-      }
-    }
-  }, 24 * 60 * 60 * 1000);
 
   // ── Auto-updater ───────────────────────────────────────────
   const autoUpdateEnabled = getPreference<boolean>("autoUpdate", true);
@@ -2361,9 +2340,12 @@ async function boot() {
   // IPC: app version
   ipcMain.handle("get-app-version", () => app.getVersion());
 
-  // IPC: license + API key
-  ipcMain.handle("check-license", () => checkLicense());
-  ipcMain.handle("activate-license", (_e, key: string) => activateLicense(key));
+  // IPC: auth
+  ipcMain.handle("start-auth", async (_e, mode: "register" | "login") => startAuthFlow(mode));
+  ipcMain.handle("is-authenticated", () => isAuthenticated());
+  ipcMain.handle("get-account-info", () => getAccountInfo());
+  ipcMain.handle("get-auth-status", () => getAuthStatus());
+  ipcMain.handle("logout", () => { logout(); });
   ipcMain.handle("validate-api-key", async (_e, key: string) => {
     // Legacy handler — validates as Anthropic by default
     const config: LLMConfig = { ...llmConfig, apiKey: key };
@@ -2461,13 +2443,7 @@ async function boot() {
     model: llmConfig.model,
   }));
 
-  ipcMain.handle("get-checkout-url", async (_e, plan?: string) => {
-    const url = await getCheckoutUrl(plan || "pro");
-    if (url) {
-      shell.openExternal(url);
-    }
-    return url;
-  });
+  // Billing/account managed via web dashboard — no client-side checkout needed
 
   // IPC: tabs
   ipcMain.handle("tab-list", () => {
@@ -2656,33 +2632,20 @@ async function boot() {
     }
   });
 
-  // IPC: license info (for settings display)
-  ipcMain.handle("get-license-info", () => {
-    const license = checkLicense();
-    return {
-      status: license.status,
-      key: license.key ? license.key.slice(0, 4) + "..." + license.key.slice(-4) : undefined,
-      tier: license.tier,
-      daysRemaining: license.daysRemaining,
-    };
-  });
+  // Account and billing managed via yosup.dev/dashboard
 
-  // IPC: billing portal (Stripe manage/cancel)
-  ipcMain.handle("get-billing-portal-url", async () => {
-    const url = await getBillingPortalUrl();
-    if (url) {
-      shell.openExternal(url);
-    }
-    return url;
-  });
-
-  // IPC: submit support ticket
+  // IPC: support ticket (uses authenticated server call)
   ipcMain.handle("submit-support-ticket", async (_e, ticket: { subject: string; description: string }) => {
-    return submitSupportTicket({
-      ...ticket,
-      appVersion: app.getVersion(),
-      os: `${process.platform} ${process.arch}`,
-    });
+    try {
+      return await serverPostAuthed("/api/support/ticket", {
+        ...ticket,
+        appVersion: app.getVersion(),
+        os: `${process.platform} ${process.arch}`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
   });
 
   // IPC: preferences
@@ -2713,11 +2676,15 @@ async function boot() {
     sendSplitState();
   });
 
-  // Tell renderer to check license gate
+  // Tell renderer to check auth gate
   mainWindow?.webContents.on("did-finish-load", () => {
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
+    const authStatus = getAuthStatus();
     mainWindow?.webContents.send("boot", {
-      license: bootLicense,
+      authenticated: authStatus.authenticated,
+      status: authStatus.status,
+      tier: authStatus.tier,
+      daysRemaining: authStatus.daysRemaining,
       apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding,
       hideWelcome,
@@ -2809,8 +2776,7 @@ function cleanupAll() {
   if (cleanedUp) return;
   cleanedUp = true;
   globalShortcut.unregisterAll();
-  if (licenseCheckTimer) { clearInterval(licenseCheckTimer); licenseCheckTimer = null; }
-  cleanupLicenseTimers();
+  cleanupAuthTimers();
   cloudSyncInstance?.stop();
   cloudSyncInstance = null;
   configSync?.stop();

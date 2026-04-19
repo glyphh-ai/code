@@ -269,19 +269,39 @@ body {
 .onboarding-error { color: #ff5f57; }
 .onboarding-success { color: #28c840; }
 
-.onboarding-buy {
-  margin-top: 16px;
-  padding: 8px 24px;
+.onboarding-desc {
+  font-size: 13px;
+  color: #999;
+  margin: 0 0 8px;
+}
+
+.onboarding-signin-btn {
+  height: 44px;
+  background: linear-gradient(135deg, #25C75E, #1da34d);
+  border: none;
+  border-radius: 8px;
+  color: #000;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.onboarding-signin-btn:hover { opacity: 0.9; }
+.onboarding-signin-btn:disabled { opacity: 0.5; cursor: default; }
+
+.onboarding-register-btn {
+  height: 40px;
   background: none;
   border: 1px solid #3a3a3a;
-  color: #999;
-  border-radius: 6px;
+  border-radius: 8px;
+  color: #ccc;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  font-size: 12px;
   transition: all 0.15s ease;
 }
-.onboarding-buy:hover { border-color: #25C75E; color: #e0e0e0; }
-.onboarding-buy:disabled { opacity: 0.5; cursor: default; }
+.onboarding-register-btn:hover { border-color: #25C75E; color: #e0e0e0; }
+.onboarding-register-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Window controls ─────────────────────────────────────── */
 

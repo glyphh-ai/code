@@ -172,7 +172,10 @@ function initAnimation(canvas: HTMLCanvasElement) {
 
 const overlay = document.getElementById("onboarding-overlay")!;
 const canvas = document.getElementById("onboarding-canvas") as HTMLCanvasElement;
-const licenseInput = document.getElementById("onboarding-license") as HTMLInputElement;
+const stepAuth = document.getElementById("onboarding-step-auth")!;
+const stepApiKey = document.getElementById("onboarding-step-apikey")!;
+const signinBtn = document.getElementById("onboarding-signin") as HTMLButtonElement;
+const registerBtn = document.getElementById("onboarding-register") as HTMLButtonElement;
 const providerSelect = document.getElementById("onboarding-provider") as HTMLSelectElement;
 const apiKeyInput = document.getElementById("onboarding-apikey") as HTMLInputElement;
 const baseUrlInput = document.getElementById("onboarding-base-url") as HTMLInputElement;
@@ -180,6 +183,7 @@ const modelInput = document.getElementById("onboarding-model") as HTMLInputEleme
 const activateBtn = document.getElementById("onboarding-activate") as HTMLButtonElement;
 const statusEl = document.getElementById("onboarding-status")!;
 const trialInfo = document.getElementById("onboarding-trial")!;
+const welcomeMsg = document.getElementById("onboarding-welcome-msg")!;
 
 // Provider change -> update placeholders
 let presets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> | null = null;
@@ -198,19 +202,22 @@ providerSelect.addEventListener("change", () => {
 });
 
 let stopAnimation: (() => void) | null = null;
-let inTrial = false;
 
 document.getElementById("onboarding-close")!.addEventListener("click", () => {
   window.yo.windowClose();
 });
 
-export function showOnboarding(trialDays?: number) {
+export function showOnboarding(needsAuth: boolean) {
   overlay.classList.remove("hidden");
-  inTrial = trialDays !== undefined && trialDays > 0;
-  if (inTrial && trialDays) {
-    trialInfo.textContent = `${trialDays} day trial — enter your API key to get started`;
+  if (needsAuth) {
+    trialInfo.textContent = "Sign in to your account or create one to get started.";
+    stepAuth.classList.remove("hidden");
+    stepApiKey.classList.add("hidden");
   } else {
-    trialInfo.textContent = "Enter your license key and API key to get started";
+    // Already authenticated, just need API key
+    trialInfo.textContent = "One more step — set up your AI provider.";
+    stepAuth.classList.add("hidden");
+    stepApiKey.classList.remove("hidden");
   }
   stopAnimation = initAnimation(canvas);
 }
@@ -225,15 +232,59 @@ function setStatus(msg: string, isError = false) {
   statusEl.className = isError ? "onboarding-error" : "onboarding-success";
 }
 
+// Step 1: Sign in / Register via BrowserWindow
+signinBtn.addEventListener("click", async () => {
+  signinBtn.disabled = true;
+  signinBtn.textContent = "Opening...";
+  setStatus("");
+
+  const ok = await window.yo.startAuth("login");
+  signinBtn.disabled = false;
+  signinBtn.textContent = "Sign in";
+
+  if (ok) {
+    // Auth succeeded — move to API key step
+    const account = await window.yo.getAccountInfo();
+    if (account) {
+      welcomeMsg.textContent = `Welcome back, ${account.firstName}! Enter your AI API key to get started.`;
+    }
+    stepAuth.classList.add("hidden");
+    stepApiKey.classList.remove("hidden");
+    trialInfo.textContent = "One more step — set up your AI provider.";
+    apiKeyInput.focus();
+  } else {
+    setStatus("Sign in was cancelled or failed", true);
+  }
+});
+
+registerBtn.addEventListener("click", async () => {
+  registerBtn.disabled = true;
+  registerBtn.textContent = "Opening...";
+  setStatus("");
+
+  const ok = await window.yo.startAuth("register");
+  registerBtn.disabled = false;
+  registerBtn.textContent = "Create Account";
+
+  if (ok) {
+    const account = await window.yo.getAccountInfo();
+    if (account) {
+      welcomeMsg.textContent = `Welcome, ${account.firstName}! Enter your AI API key to get started.`;
+    }
+    stepAuth.classList.add("hidden");
+    stepApiKey.classList.remove("hidden");
+    trialInfo.textContent = "One more step — set up your AI provider.";
+    apiKeyInput.focus();
+  } else {
+    setStatus("Registration was cancelled or failed", true);
+  }
+});
+
+// Step 2: API key validation
 activateBtn.addEventListener("click", async () => {
-  const license = licenseInput.value.trim();
   const apiKey = apiKeyInput.value.trim();
   const provider = providerSelect.value;
 
-  if (!license && !inTrial) {
-    setStatus("License key is required", true);
-    return;
-  }
   if (!apiKey) {
     setStatus("API key is required", true);
     return;
@@ -243,18 +294,6 @@ activateBtn.addEventListener("click", async () => {
   activateBtn.textContent = "Validating...";
   setStatus("");
 
-  // Validate license (skip if in trial and no license entered)
-  if (license) {
-    const licenseOk = await window.yo.activateLicense(license);
-    if (!licenseOk) {
-      setStatus("Invalid license key — must start with YO- and be 12+ chars", true);
-      activateBtn.disabled = false;
-      activateBtn.textContent = "Activate";
-      return;
-    }
-  }
-
-  // Build LLM config and validate via save-llm-config (validates + saves + applies)
   const preset = presets?.[provider];
   const model = provider === "custom" ? modelInput.value.trim() : (preset?.defaultModel || "");
   const config: { provider: string; model: string; apiKey: string; baseUrl?: string } = {
@@ -270,32 +309,26 @@ activateBtn.addEventListener("click", async () => {
   if (!result.ok) {
     setStatus(result.error || "Invalid API key", true);
     activateBtn.disabled = false;
-    activateBtn.textContent = "Activate";
+    activateBtn.textContent = "Continue";
     return;
   }
 
-  setStatus("Activated!");
+  setStatus("All set!");
   setTimeout(() => {
     hideOnboarding();
     window.yo.onboardingComplete();
-    // Dispatch event so renderer can show the tutorial
     window.dispatchEvent(new Event("yo-onboarding-done"));
   }, 600);
 });
 
 // Enter key submits
-[licenseInput, apiKeyInput, baseUrlInput, modelInput].forEach((input) => {
+[apiKeyInput, baseUrlInput, modelInput].forEach((input) => {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") activateBtn.click();
   });
 });
 
-// Policy links — open about section in help
-function openAboutFromOnboarding() {
-  // Use a simple modal overlay for policies during onboarding
-  // (help overlay isn't accessible during onboarding since panels aren't loaded)
-}
-
+// Policy links
 document.getElementById("onboarding-terms-link")?.addEventListener("click", () => {
   window.yo.openExternal("https://yosup.dev/terms");
 });
@@ -304,17 +337,4 @@ document.getElementById("onboarding-privacy-link")?.addEventListener("click", ()
 });
 document.getElementById("onboarding-refund-link")?.addEventListener("click", () => {
   window.yo.openExternal("https://yosup.dev/refund");
-});
-
-// Buy license — opens Stripe Checkout in default browser
-const buyBtn = document.getElementById("onboarding-buy") as HTMLButtonElement;
-buyBtn.addEventListener("click", async () => {
-  buyBtn.disabled = true;
-  buyBtn.textContent = "Opening...";
-  const url = await window.yo.buyLicense();
-  if (!url) {
-    setStatus("Could not reach license server", true);
-  }
-  buyBtn.disabled = false;
-  buyBtn.textContent = "Get License";
 });

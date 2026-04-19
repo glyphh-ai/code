@@ -59,12 +59,13 @@ declare global {
       startPicker: (webContentsId: number) => void;
       onPickerResult: (callback: (result: unknown) => void) => void;
       getAppVersion: () => Promise<string>;
-      checkLicense: () => Promise<{ status: string; daysRemaining?: number }>;
-      activateLicense: (key: string) => Promise<boolean>;
+      startAuth: (mode: "register" | "login") => Promise<boolean>;
+      isAuthenticated: () => Promise<boolean>;
+      getAccountInfo: () => Promise<{ email: string; firstName: string; lastName: string; role: string; orgName: string; tier: string; billingStatus: string } | null>;
+      logout: () => Promise<void>;
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
-      buyLicense: () => Promise<string | null>;
-      onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
+      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; daysRemaining?: number; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
       onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
@@ -109,11 +110,10 @@ declare global {
       onUrlUpdate: (cb: (info: { url: string; favicon: string; canGoBack?: boolean; canGoForward?: boolean }) => void) => void;
       onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => void;
       onPanelUrlUpdate: (cb: (info: { id: string; url: string; favicon: string }) => void) => void;
-      // License info
-      getLicenseInfo: () => Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>;
-      getCheckoutUrlForPlan: (plan: string) => Promise<string | null>;
-      getBillingPortalUrl: () => Promise<string | null>;
+      // Account info
+      getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>;
       openExternal: (url: string) => void;
+      openAccountDashboard: () => void;
       // Support
       submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
       // Yo agent panel
@@ -1802,7 +1802,7 @@ function dismissSplash(): void {
     }
   }, remaining);
   if (bootData?.needsOnboarding) {
-    showOnboarding(bootData.license.daysRemaining);
+    showOnboarding(!bootData.authenticated);
   }
 }
 

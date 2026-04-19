@@ -912,26 +912,15 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // License button — checkout for new users, billing portal for existing
-  document.getElementById("license-upgrade-btn")?.addEventListener("click", async () => {
-    const btn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
-    const origText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Opening...";
-    const info = await window.yo.getLicenseInfo();
-    let url: string | null = null;
-    if (info.status === "licensed") {
-      url = await window.yo.getBillingPortalUrl();
-    } else {
-      url = await window.yo.getCheckoutUrlForPlan("pro");
-    }
-    if (!url) {
-      const statusEl = document.getElementById("settings-status")!;
-      statusEl.textContent = "Could not reach api.yosup.dev — check your connection";
-      statusEl.className = "settings-error";
-    }
-    btn.disabled = false;
-    btn.textContent = origText;
+  // Account dashboard — opens yosup.dev/dashboard
+  document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
+    window.yo.openAccountDashboard();
+  });
+
+  // Sign out
+  document.getElementById("account-logout-btn")?.addEventListener("click", async () => {
+    await window.yo.logout();
+    window.yo.relaunch();
   });
 }
 
@@ -968,10 +957,11 @@ function updateSettingsUI(currentModel?: string) {
 
 async function loadSettings() {
   settingsStatus.textContent = "";
-  const [config, presets, licenseInfo] = await Promise.all([
+  const [config, presets, accountInfo, authStatus] = await Promise.all([
     window.yo.getLLMConfig(),
     window.yo.getLLMPresets(),
-    window.yo.getLicenseInfo(),
+    window.yo.getAccountInfo(),
+    window.yo.getAuthStatus(),
   ]);
   settingsPresets = presets;
 
@@ -981,71 +971,40 @@ async function loadSettings() {
 
   updateSettingsUI(config.model);
 
-  // License info
-  const statusEl = document.getElementById("license-status")!;
-  const keyEl = document.getElementById("license-key")!;
+  // Account info
+  const emailEl = document.getElementById("account-email")!;
+  const nameEl = document.getElementById("account-name")!;
+  const orgEl = document.getElementById("account-org")!;
+  const tierEl = document.getElementById("account-tier")!;
+  const statusEl = document.getElementById("account-status")!;
 
-  const isLicensed = licenseInfo.status === "licensed";
+  if (accountInfo) {
+    emailEl.textContent = accountInfo.email;
+    nameEl.textContent = `${accountInfo.firstName} ${accountInfo.lastName}`;
+    orgEl.textContent = accountInfo.orgName;
+    tierEl.textContent = accountInfo.tier || "free";
+    tierEl.className = `license-value ${accountInfo.tier === "pro" ? "active" : ""}`;
 
-  if (isLicensed) {
-    statusEl.textContent = "Licensed";
-    statusEl.className = "license-value active";
-  } else if (licenseInfo.status === "trial" && licenseInfo.daysRemaining) {
-    statusEl.textContent = `Trial (${licenseInfo.daysRemaining} days left)`;
-    statusEl.className = "license-value";
-  } else {
-    statusEl.textContent = "Expired";
-    statusEl.className = "license-value expired";
-  }
-  keyEl.textContent = licenseInfo.key || "None";
-
-  // License key input
-  const licenseKeyInput = document.getElementById("license-key-input") as HTMLInputElement;
-  const licenseActivateBtn = document.getElementById("license-activate-btn") as HTMLButtonElement;
-  const licenseActivateStatus = document.getElementById("license-activate-status")!;
-
-  licenseActivateBtn.addEventListener("click", async () => {
-    const key = licenseKeyInput.value.trim();
-    if (!key) return;
-    licenseActivateBtn.disabled = true;
-    licenseActivateBtn.textContent = "Activating...";
-    licenseActivateStatus.textContent = "";
-    const ok = await window.yo.activateLicense(key);
-    if (ok) {
-      licenseActivateStatus.textContent = "License activated!";
-      licenseActivateStatus.className = "license-activate-status success";
-      licenseKeyInput.value = "";
-      // Refresh the display
-      const updated = await window.yo.getLicenseInfo();
-      statusEl.textContent = "Licensed";
+    const billingStatus = accountInfo.billingStatus || authStatus.status;
+    if (billingStatus === "active") {
+      statusEl.textContent = "Active";
       statusEl.className = "license-value active";
-      keyEl.textContent = updated.key || key.slice(0, 4) + "..." + key.slice(-4);
-      upgradeBtn.textContent = "Manage Subscription";
-      // Hide the activate form
-      if (inputRow) inputRow.style.display = "none";
-      setTimeout(() => { licenseActivateStatus.style.display = "none"; }, 2000);
+    } else if (authStatus.status === "trial" && authStatus.daysRemaining) {
+      statusEl.textContent = `Trial (${authStatus.daysRemaining} days left)`;
+      statusEl.className = "license-value";
+    } else if (billingStatus === "expired" || authStatus.status === "expired") {
+      statusEl.textContent = "Expired";
+      statusEl.className = "license-value expired";
     } else {
-      licenseActivateStatus.textContent = "Invalid key or could not reach server";
-      licenseActivateStatus.className = "license-activate-status error";
+      statusEl.textContent = billingStatus;
+      statusEl.className = "license-value";
     }
-    licenseActivateBtn.disabled = false;
-    licenseActivateBtn.textContent = "Activate";
-  });
-
-  // Hide activate form when already licensed
-  const inputRow = document.querySelector(".license-input-row") as HTMLElement | null;
-  if (inputRow) inputRow.style.display = isLicensed ? "none" : "";
-  licenseActivateStatus.style.display = isLicensed ? "none" : "";
-
-  // Context-aware button labels
-  const upgradeBtn = document.getElementById("license-upgrade-btn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("license-cancel-btn") as HTMLButtonElement;
-  if (isLicensed) {
-    upgradeBtn.textContent = "Manage Subscription";
-    cancelBtn.style.display = "none";  // manage sub handles cancel too
   } else {
-    upgradeBtn.textContent = "Get License";
-    cancelBtn.style.display = "none";
+    emailEl.textContent = "Not signed in";
+    nameEl.textContent = "—";
+    orgEl.textContent = "—";
+    tierEl.textContent = "—";
+    statusEl.textContent = "—";
   }
 
   // Load toggle states

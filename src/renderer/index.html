@@ -23,8 +23,17 @@
     <div id="onboarding-content">
       <h1 class="onboarding-title"><span class="onboarding-dot">.</span>Yo</h1>
       <p id="onboarding-trial" class="onboarding-sub"></p>
-      <div class="onboarding-fields">
-        <input id="onboarding-license" type="text" placeholder="License key (YO-...)" spellcheck="false" autocomplete="off" />
+
+      <!-- Step 1: Sign in / Create account -->
+      <div id="onboarding-step-auth" class="onboarding-fields">
+        <p class="onboarding-desc">Sign in or create an account to get started.</p>
+        <button id="onboarding-signin" class="onboarding-signin-btn">Sign in</button>
+        <button id="onboarding-register" class="onboarding-register-btn">Create Account</button>
+      </div>
+
+      <!-- Step 2: API key (shown after auth) -->
+      <div id="onboarding-step-apikey" class="onboarding-fields hidden">
+        <p class="onboarding-desc" id="onboarding-welcome-msg">Welcome! Enter your AI API key to get started.</p>
         <select id="onboarding-provider">
           <option value="anthropic">Anthropic</option>
           <option value="openai">OpenAI</option>
@@ -34,10 +43,10 @@
         <input id="onboarding-apikey" type="password" placeholder="Anthropic API key (sk-ant-...)" spellcheck="false" autocomplete="off" />
         <input id="onboarding-base-url" type="text" placeholder="Base URL (for custom provider)" spellcheck="false" autocomplete="off" class="hidden" />
         <input id="onboarding-model" type="text" placeholder="Model name" spellcheck="false" autocomplete="off" class="hidden" />
-        <button id="onboarding-activate">Activate</button>
+        <button id="onboarding-activate">Continue</button>
       </div>
+
       <div id="onboarding-status"></div>
-      <button id="onboarding-buy" class="onboarding-buy">Get License</button>
       <div class="onboarding-policies">
         By using .Yo you agree to our
         <a id="onboarding-terms-link">Terms of Use</a>,
@@ -416,7 +425,7 @@
               <button class="settings-nav-item active" data-sub="general">General</button>
               <button class="settings-nav-item" data-sub="agent">Agent</button>
               <button class="settings-nav-item" data-sub="appearance">Appearance</button>
-              <button class="settings-nav-item" data-sub="license">License</button>
+              <button class="settings-nav-item" data-sub="account">Account</button>
               <button class="settings-nav-item" data-sub="advanced">Advanced</button>
             </nav>
             <div class="settings-panels">
@@ -536,27 +545,34 @@
                 </div>
               </div>
 
-              <!-- License -->
-              <div class="settings-panel" data-sub="license">
-                <h2>License</h2>
-                <p class="section-desc">Manage your .Yo license.</p>
-                <div id="license-card" class="license-card">
+              <!-- Account -->
+              <div class="settings-panel" data-sub="account">
+                <h2>Account</h2>
+                <p class="section-desc">Your .Yo account and subscription.</p>
+                <div id="account-card" class="license-card">
+                  <div class="license-row">
+                    <span class="license-label">Email</span>
+                    <span class="license-value" id="account-email">—</span>
+                  </div>
+                  <div class="license-row">
+                    <span class="license-label">Name</span>
+                    <span class="license-value" id="account-name">—</span>
+                  </div>
+                  <div class="license-row">
+                    <span class="license-label">Organization</span>
+                    <span class="license-value" id="account-org">—</span>
+                  </div>
+                  <div class="license-row">
+                    <span class="license-label">Plan</span>
+                    <span class="license-value" id="account-tier">—</span>
+                  </div>
                   <div class="license-row">
                     <span class="license-label">Status</span>
-                    <span class="license-value" id="license-status">—</span>
+                    <span class="license-value" id="account-status">—</span>
                   </div>
-                  <div class="license-row">
-                    <span class="license-label">Key</span>
-                    <span class="license-value" id="license-key">—</span>
-                  </div>
-                  <div class="license-row license-input-row">
-                    <input id="license-key-input" type="text" placeholder="Paste license key (YO-...)" spellcheck="false" autocomplete="off" class="settings-input" />
-                    <button id="license-activate-btn" class="action-btn primary">Activate</button>
-                  </div>
-                  <div id="license-activate-status" class="license-activate-status"></div>
                   <div class="license-actions">
-                    <button id="license-upgrade-btn" class="action-btn primary">Get License</button>
-                    <button id="license-cancel-btn" class="action-btn" style="display:none">Cancel Subscription</button>
+                    <button id="account-dashboard-btn" class="action-btn primary">Manage Account</button>
+                    <button id="account-logout-btn" class="action-btn">Sign Out</button>
                   </div>
                 </div>
               </div>

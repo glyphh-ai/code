@@ -54,6 +54,12 @@ export class CloudSync {
   }
 
   private get authToken(): string | null {
+    // Use JWT session token from auth module, fallback to legacy cloudToken preference
+    try {
+      const { getAuthToken } = require("./auth");
+      const jwt = getAuthToken();
+      if (jwt) return jwt;
+    } catch { /* auth module not available yet */ }
     return getPreference<string>("cloudToken", null!);
   }
 

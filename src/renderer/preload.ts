@@ -84,13 +84,14 @@ contextBridge.exposeInMainWorld("yo", {
   // App version
   getAppVersion: () => ipcRenderer.invoke("get-app-version") as Promise<string>,
 
-  // License + API key
-  checkLicense: () => ipcRenderer.invoke("check-license"),
-  activateLicense: (key: string) => ipcRenderer.invoke("activate-license", key) as Promise<boolean>,
+  // Auth
+  startAuth: (mode: "register" | "login") => ipcRenderer.invoke("start-auth", mode) as Promise<boolean>,
+  isAuthenticated: () => ipcRenderer.invoke("is-authenticated") as Promise<boolean>,
+  getAccountInfo: () => ipcRenderer.invoke("get-account-info") as Promise<{ email: string; firstName: string; lastName: string; role: string; orgName: string; tier: string; billingStatus: string } | null>,
+  logout: () => ipcRenderer.invoke("logout") as Promise<void>,
   validateApiKey: (key: string) => ipcRenderer.invoke("validate-api-key", key) as Promise<{ valid: boolean; error?: string }>,
   getApiKey: () => ipcRenderer.invoke("get-api-key") as Promise<string | null>,
-  buyLicense: () => ipcRenderer.invoke("get-checkout-url") as Promise<string | null>,
-  onBoot: (callback: (data: { license: { status: string; daysRemaining?: number }; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
+  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; daysRemaining?: number; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
   onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => {
@@ -145,11 +146,10 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("tab-state", (_event, state) => callback(state));
   },
 
-  // License info
-  getLicenseInfo: () => ipcRenderer.invoke("get-license-info") as Promise<{ status: string; key?: string; tier?: string; daysRemaining?: number }>,
-  getCheckoutUrlForPlan: (plan: string) => ipcRenderer.invoke("get-checkout-url", plan) as Promise<string | null>,
-  getBillingPortalUrl: () => ipcRenderer.invoke("get-billing-portal-url") as Promise<string | null>,
+  // Account info
+  getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
+  openAccountDashboard: () => ipcRenderer.send("open-external", "https://yosup.dev/dashboard"),
 
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>
