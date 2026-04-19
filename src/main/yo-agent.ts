@@ -17,6 +17,7 @@ import { usageTracker } from "./usage-tracker";
 import type { NoteStore } from "./note-store";
 import type { AppConnector } from "./app-connector";
 import type { MemoryStore } from "./memory-store";
+import type { VibeRunner } from "./vibe-runner";
 
 import { NavigatorAgent } from "./agents/navigator-agent";
 import { ResearcherAgent } from "./agents/researcher-agent";
@@ -42,10 +43,11 @@ const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, neve
 
 TOOLS:
 - ask_panel: send a prompt to AI chat panels and get real responses. Modes: ask (independent), chain (sequential), debate (multi-round).
+- run_vibe: run a saved vibe — deterministic cross-app automation sequences. ALWAYS prefer vibes over manual navigation when a matching vibe exists.
 - delegate_navigator: click, type, scan, grab content from any panel. For non-AI interactions.
 - delegate_layout: arrange panels on screen — splits, grids, tabs, zoom.
 - delegate_researcher: notes and file search
-- delegate_manager: skills, apps CRUD
+- delegate_manager: skills, apps, vibes CRUD
 - delegate_skill: run a named skill (/skillname)
 - delegate_coder: write code, edit files, run shell commands
 - pipe: grab from one panel → transform → push to another
@@ -54,6 +56,7 @@ TOOLS:
 
 RULES:
 - Use ask_panel to interact with AI apps. Use delegate_navigator for non-AI panel interactions.
+- PREFER run_vibe over delegate_navigator for multi-step tasks when a matching vibe exists. Vibes are faster and more reliable.
 - Check AVAILABLE PANELS and Current layout before acting. Arrange panels the user needs to see.
 - Delegate in parallel when tasks are independent.
 - Synthesize results — don't dump raw content.`;
@@ -233,6 +236,21 @@ const TOOLS = [
     },
   },
   {
+    name: "run_vibe",
+    description: "Run a saved vibe — a deterministic cross-app automation sequence. Vibes chain commands across multiple apps into replayable patterns. Much faster and more reliable than manual navigation. Use when the user says 'run the vibe' or when a saved vibe matches the task.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string" as const, description: "Name of the vibe to run" },
+        inputs: {
+          type: "object" as const,
+          description: "Named inputs the vibe needs (e.g. { \"message\": \"hello\", \"recipient\": \"john@example.com\" })",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
     name: "ask_panel",
     description: "Send a prompt to one or more AI chat panels and get real responses. Types the prompt, submits, waits for each AI to finish, returns actual content. Modes: 'ask' sends the same prompt to each panel independently. 'chain' feeds each panel's response to the next. 'debate' runs multiple rounds of back-and-forth between panels.",
     input_schema: {
@@ -291,6 +309,9 @@ export class YoAgent {
   // Skill engine access (for listing + reading skill prompts)
   private skillList: (() => string[]) | null = null;
   private skillRead: ((name: string) => string | null) | null = null;
+
+  // Vibe engine access
+  private vibeRunner: VibeRunner | null = null;
 
   // Direct tool callbacks — new tools
   private _panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
@@ -463,6 +484,11 @@ export class YoAgent {
     // Keep references for orchestrator skill awareness
     this.skillList = cbs.list;
     this.skillRead = cbs.read;
+  }
+
+  setVibeRunner(runner: VibeRunner): void {
+    this.vibeRunner = runner;
+    this.manager.setVibeRunner(runner);
   }
 
   setLayoutCallbacks(cbs: {
@@ -689,6 +715,14 @@ export class YoAgent {
       const skills = this.skillList();
       if (skills.length > 0) {
         prompt += `\n\nAVAILABLE SKILLS:\n${skills.map((s) => `- /${s}`).join("\n")}\nWhen the user says /<skillname> or asks to apply a skill, use delegate_skill with that skill name.`;
+      }
+    }
+
+    // Inject available vibes
+    if (this.vibeRunner) {
+      const vibes = this.vibeRunner.list();
+      if (vibes.length > 0) {
+        prompt += `\n\nAVAILABLE VIBES:\n${vibes.map((v) => `- ${v.name}: ${v.description} (${v.stepCount} steps)`).join("\n")}\nUse run_vibe to execute a vibe. Vibes are deterministic cross-app sequences — faster and more reliable than manual navigation.`;
       }
     }
 
@@ -948,6 +982,7 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "set_reminder": return this.toolSetReminder(input);
         case "pipe": return await this.toolPipe(input);
         case "ask_panel": return await this.toolAskPanel(input);
+        case "run_vibe": return await this.toolRunVibe(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -1083,6 +1118,15 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     });
 
     return `Piped ${content.length} chars from ${sourcePanel} → ${targetPanel}${transform ? ` (transformed: ${transform})` : ""}. ${result}`;
+  }
+
+  private async toolRunVibe(input: Record<string, unknown>): Promise<string> {
+    const name = input.name as string;
+    if (!name) return "No vibe name provided.";
+    if (!this.vibeRunner) return "Vibe engine not available.";
+    const inputs = input.inputs as Record<string, string> | undefined;
+    const result = await this.vibeRunner.run(name, inputs);
+    return result.summary;
   }
 
   // ── Panel interaction helpers ─────────────────────────

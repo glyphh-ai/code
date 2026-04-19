@@ -13,6 +13,7 @@ import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
+import { VibeRunner } from "./vibe-runner";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
@@ -45,6 +46,7 @@ let layoutManager: LayoutManager;
 let commandParser: CommandParser;
 let skillEngine: SkillEngine;
 let appConnector: AppConnector;
+let vibeRunner: VibeRunner;
 let connectorAgent: ConnectorAgent;
 let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
@@ -512,11 +514,13 @@ async function boot() {
     skillEngine?.setLLMConfig(config);
     connectorAgent?.setLLMConfig(config);
     yoAgent?.setLLMConfig(config);
+    vibeRunner?.setLLMConfig(config);
   }
 
   // Core services
   skillEngine = new SkillEngine();
   appConnector = new AppConnector();
+  vibeRunner = new VibeRunner();
   connectorAgent = new ConnectorAgent();
 
   // Terminal manager — pty processes for terminal panels
@@ -854,6 +858,63 @@ async function boot() {
     },
     delete: (name) => layoutManager.deleteLayout(name),
   });
+  vibeRunner.setAppConnector(appConnector);
+  vibeRunner.setCommandRunner(async (panelId, command, value) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return `Panel "${panelId}" not found.`;
+    const app = appConnector.get(panelId);
+    if (!app?.commands[command]) return `No command "${command}" on "${panelId}".`;
+    return executeCommand(wc, app.commands[command], value);
+  });
+  vibeRunner.setPanelScanner(async (panelId) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return null;
+    const scan = await scanPanel(wc);
+    return scan ? formatScan(scan) : null;
+  });
+  vibeRunner.setPanelClicker(async (panelId, text, selector) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return `Panel "${panelId}" not found.`;
+    // Reuse the same click script as the navigator
+    const script = selector
+      ? `(function(){ var el = document.querySelector(${JSON.stringify(selector)}); if(el){el.click(); return 'Clicked.'} return 'Not found.'; })()`
+      : `(function(){ var els = document.querySelectorAll('button, a, [role="button"]'); for(var i=0;i<els.length;i++){ if(els[i].textContent.trim().toLowerCase().includes(${JSON.stringify((text || "").toLowerCase())})){els[i].click(); return 'Clicked.';}} return 'Not found.'; })()`;
+    return wc.executeJavaScript(script);
+  });
+  vibeRunner.setPanelTyper(async (panelId, text, opts) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found.`;
+    try {
+      // Focus the target input
+      if (opts.selector) {
+        await wc.executeJavaScript(`(function(){ var el = document.querySelector(${JSON.stringify(opts.selector)}); if(el){el.focus(); if(el.select) el.select();} })()`);
+      }
+      // Clear if needed
+      if (opts.clear !== false) {
+        await wc.executeJavaScript(`(function(){ var el = document.activeElement; if(!el) return; if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));} else if(el.isContentEditable){el.textContent='';} })()`);
+      }
+      // Insert text
+      await wc.insertText(text);
+      // Submit if requested
+      if (opts.submit) {
+        await wc.executeJavaScript(`(function(){ var e = new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}); document.activeElement.dispatchEvent(e); })()`);
+      }
+      return "Typed successfully.";
+    } catch (err) {
+      return `Type failed: ${err instanceof Error ? err.message : err}`;
+    }
+  });
+  vibeRunner.setPanelGrabber(async (panelId) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return null;
+    const app = appConnector.get(panelId);
+    if (app?.commands.grab) {
+      try { return await executeCommand(wc, app.commands.grab); } catch {}
+    }
+    try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
+    return null;
+  });
+  yoAgent.setVibeRunner(vibeRunner);
   yoAgent.setLayoutStateGetter(() => {
     const grid = layoutManager.getGridInfo();
     if (!grid) return null;
@@ -887,6 +948,12 @@ async function boot() {
         const parts = [`  ${name}: ${cmd.action} "${cmd.selector}"`];
         if (cmd.description) parts.push(`— ${cmd.description}`);
         if (cmd.waitFor) parts.push(`(waitFor: ${cmd.waitFor})`);
+        if (cmd.guide) {
+          if (cmd.guide.pre) parts.push(`[pre: ${cmd.guide.pre}]`);
+          if (cmd.guide.post) parts.push(`[post: ${cmd.guide.post}]`);
+          if (cmd.guide.verify) parts.push(`[verify: ${cmd.guide.verify}]`);
+          if (cmd.guide.recover) parts.push(`[recover: ${cmd.guide.recover}]`);
+        }
         lines.push(parts.join(" "));
       }
       result += "\n" + lines.join("\n");
@@ -1329,7 +1396,10 @@ async function boot() {
     activeReminders.set(id, { message, fireAt, timer });
   });
 
-  if (llmConfig) yoAgent.setLLMConfig(llmConfig);
+  if (llmConfig) {
+    yoAgent.setLLMConfig(llmConfig);
+    vibeRunner.setLLMConfig(llmConfig);
+  }
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
   yoAgent.setMaxMessages(yoMaxMessages);
 

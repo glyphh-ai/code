@@ -14,12 +14,28 @@ import { ConfigSync } from "./config-sync";
 
 // ── Types ───────────────────────────────────────────────
 
+/** Execution intelligence attached to a command — makes the agent reliable. */
+export interface CommandGuide {
+  /** What must be true before running, e.g. "compose window must be open" */
+  pre?: string;
+  /** What to expect after success, e.g. "email is sent, compose window closes" */
+  post?: string;
+  /** CSS selector to check after execution — confirms success */
+  verify?: string;
+  /** What to try if the command fails, e.g. "try the icon button instead" */
+  recover?: string;
+  /** Milliseconds to wait after executing before checking verify */
+  delay?: number;
+}
+
 export interface CommandMapping {
   selector: string;
   action: "extractText" | "extractHTML" | "setValue" | "click" | "custom";
   description: string;
   script?: string; // custom JS for action === "custom"
   waitFor?: string; // selector to wait for before executing
+  /** Mini-skill: execution intelligence for reliable automation */
+  guide?: CommandGuide;
 }
 
 export interface AppConfig {
