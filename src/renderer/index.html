@@ -860,11 +860,23 @@
                 </div>
               </div>
 
-              <!-- Advanced: Services, Relaunch -->
+              <!-- Advanced: Services, Voice, Relaunch -->
               <div class="settings-panel" data-sub="advanced">
                 <h2>Advanced</h2>
                 <p class="section-desc">Optional services and system settings.</p>
                 <div class="settings-toggles">
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-voice-input" />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Voice Input</span>
+                      <span class="toggle-desc">Enable mic button in .yo panel — uses OpenAI Whisper for transcription</span>
+                    </div>
+                  </label>
+                  <div id="voice-key-wrap" class="settings-form hidden" style="margin: 8px 0 16px 44px;">
+                    <label class="settings-label" style="color: #999;">OpenAI Key <span style="color:#555; font-weight:400;">(for Whisper only)</span></label>
+                    <input id="settings-voice-key" type="password" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off" />
+                  </div>
                   <label class="settings-toggle">
                     <input type="checkbox" id="toggle-vscode-server" />
                     <span class="toggle-switch"></span>

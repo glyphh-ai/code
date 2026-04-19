@@ -166,6 +166,10 @@ contextBridge.exposeInMainWorld("yo", {
   submitSupportTicket: (ticket: { subject: string; description: string }) =>
     ipcRenderer.invoke("submit-support-ticket", ticket) as Promise<{ ok: boolean; error?: string }>,
 
+  // Voice transcription
+  transcribeAudio: (audioBuffer: ArrayBuffer) =>
+    ipcRenderer.invoke("transcribe-audio", audioBuffer) as Promise<{ ok: boolean; text?: string; error?: string }>,
+
   // Yo agent panel
   yoPanelOpen: (query: string) => ipcRenderer.send("yo-panel-open-from-renderer", query),
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),

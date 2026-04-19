@@ -1028,6 +1028,9 @@ const settingsBaseUrlLabel = document.getElementById("settings-base-url-label")!
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsStatus = document.getElementById("settings-status")!;
 
+const toggleVoiceInput = document.getElementById("toggle-voice-input") as HTMLInputElement;
+const voiceKeyWrap = document.getElementById("voice-key-wrap")!;
+const settingsVoiceKey = document.getElementById("settings-voice-key") as HTMLInputElement;
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
@@ -1051,6 +1054,18 @@ function initSettings() {
     const bar = document.getElementById("settings-relaunch")!;
     if (bar) bar.classList.remove("hidden");
   };
+  // Voice input toggle + key
+  toggleVoiceInput.addEventListener("change", () => {
+    window.yo.setPreference("voiceEnabled", toggleVoiceInput.checked);
+    voiceKeyWrap.classList.toggle("hidden", !toggleVoiceInput.checked);
+    // Show/hide mic button immediately
+    const micBtn = document.getElementById("yo-panel-mic");
+    if (micBtn) micBtn.style.display = toggleVoiceInput.checked ? "" : "none";
+  });
+  settingsVoiceKey.addEventListener("change", () => {
+    window.yo.setPreference("voiceApiKey", settingsVoiceKey.value.trim());
+  });
+
   toggleVscodeServer.addEventListener("change", () => {
     window.yo.setPreference("enableVscodeServer", toggleVscodeServer.checked);
     showRelaunch();
@@ -1220,6 +1235,9 @@ async function loadSettings() {
   // Load toggle states
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
   toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
+  toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;
+  voiceKeyWrap.classList.toggle("hidden", !toggleVoiceInput.checked);
+  settingsVoiceKey.value = await window.yo.getPreference("voiceApiKey", "") as string;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));

@@ -6,7 +6,7 @@
  */
 
 import "dotenv/config";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, systemPreferences, webContents } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -35,6 +35,7 @@ import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
 import { Embedder } from "./embedder";
+import { Transcriber } from "./transcriber";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
 import { autoUpdater } from "electron-updater";
@@ -459,6 +460,11 @@ async function createWindow() {
 
   if (saved.maximized) mainWindow.maximize();
 
+  // Request macOS mic entitlement (triggers OS permission dialog on first use)
+  if (process.platform === "darwin") {
+    systemPreferences.askForMediaAccess("microphone").catch(() => {});
+  }
+
   // Allow microphone access in the main window renderer (for voice input)
   const mainSes = mainWindow.webContents.session;
   mainSes.setPermissionRequestHandler((_wc, permission, callback) => {
@@ -744,6 +750,9 @@ async function boot() {
         message: "model unavailable — search disabled",
       });
     });
+
+  // Transcriber — OpenAI Whisper API for voice input
+  const transcriber = new Transcriber();
 
   layoutManager = new LayoutManager(panelManager);
   commandParser = new CommandParser(panelManager, skillEngine, layoutManager, appConnector, session);
@@ -2140,6 +2149,18 @@ async function boot() {
   });
   ipcMain.handle("yo-panel-get-width", () => {
     return getPreference<number>("yoPanelWidth", 380);
+  });
+
+  // IPC: Voice transcription (local Whisper)
+  ipcMain.handle("transcribe-audio", async (_e, audioBuffer: ArrayBuffer) => {
+    try {
+      const float32 = new Float32Array(audioBuffer);
+      const text = await transcriber.transcribe(float32);
+      return { ok: true, text };
+    } catch (err: any) {
+      console.error("[transcribe]", err);
+      return { ok: false, error: err.message || "Transcription failed" };
+    }
   });
 
   // IPC: Yo chat history

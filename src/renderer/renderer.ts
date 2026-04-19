@@ -116,6 +116,8 @@ declare global {
       openAccountDashboard: () => void;
       // Support
       submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
+      // Voice transcription
+      transcribeAudio: (audioBuffer: ArrayBuffer) => Promise<{ ok: boolean; text?: string; error?: string }>;
       // Yo agent panel
       yoPanelOpen: (query: string) => void;
       yoPanelSend: (message: string) => void;
@@ -832,6 +834,13 @@ const yoPanelMessages = document.getElementById("yo-panel-messages")!;
 const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
 const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
 const yoPanelMicBtn = document.getElementById("yo-panel-mic") as HTMLButtonElement | null;
+// Hide mic button by default — shown when voiceEnabled pref is true
+if (yoPanelMicBtn) {
+  yoPanelMicBtn.style.display = "none";
+  window.yo.getPreference("voiceEnabled", false).then((v) => {
+    yoPanelMicBtn!.style.display = v ? "" : "none";
+  });
+}
 const yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
 const yoPanelResize = document.getElementById("yo-panel-resize")!;
 const yoHistoryToggle = document.getElementById("yo-history-toggle")!;
@@ -1616,66 +1625,83 @@ yoPanelInput.addEventListener("keydown", (e) => {
   }
 });
 
-// -- Voice input (Web Speech API) --
+// -- Voice input (getUserMedia + local Whisper via IPC) --
 if (yoPanelMicBtn) {
-  const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-  if (SpeechRecognition) {
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    let listening = false;
-    let savedValue = "";
+  let recording = false;
+  let mediaRecorder: MediaRecorder | null = null;
+  let audioChunks: Blob[] = [];
+  let micStream: MediaStream | null = null;
 
-    yoPanelMicBtn.addEventListener("click", () => {
-      if (yoThinking) return;
-      if (listening) {
-        recognition.stop();
+  yoPanelMicBtn.addEventListener("click", async () => {
+    if (yoThinking) return;
+
+    if (recording) {
+      // Stop recording — MediaRecorder.onstop will handle transcription
+      mediaRecorder?.stop();
+      return;
+    }
+
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.warn("Mic access denied:", err);
+      return;
+    }
+
+    recording = true;
+    audioChunks = [];
+    yoPanelMicBtn!.classList.add("listening");
+
+    mediaRecorder = new MediaRecorder(micStream, { mimeType: "audio/webm" });
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = async () => {
+      recording = false;
+      yoPanelMicBtn!.classList.remove("listening");
+      // Release mic immediately
+      micStream?.getTracks().forEach((t) => t.stop());
+      micStream = null;
+
+      if (audioChunks.length === 0) return;
+
+      const blob = new Blob(audioChunks, { type: "audio/webm" });
+      audioChunks = [];
+
+      // Decode to raw 16kHz mono Float32 for Whisper
+      const arrayBuf = await blob.arrayBuffer();
+      const actx = new AudioContext({ sampleRate: 16000 });
+      let decoded: AudioBuffer;
+      try {
+        decoded = await actx.decodeAudioData(arrayBuf);
+      } catch {
+        console.warn("Failed to decode audio");
+        actx.close();
         return;
       }
-      savedValue = yoPanelInput.value;
-      recognition.start();
-    });
+      const mono = decoded.getChannelData(0);
+      actx.close();
 
-    recognition.onstart = () => {
-      listening = true;
-      yoPanelMicBtn!.classList.add("listening");
-    };
+      // Show brief status
+      yoPanelMicBtn!.classList.add("disabled");
+      yoPanelMicBtn!.title = "Transcribing...";
 
-    recognition.onresult = (e: any) => {
-      let interim = "";
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += t;
-        else interim += t;
-      }
-      yoPanelInput.value = savedValue + final + interim;
-      yoPanelInput.style.height = "auto";
-      yoPanelInput.style.height = yoPanelInput.scrollHeight + "px";
-    };
+      const result = await window.yo.transcribeAudio(mono.buffer as ArrayBuffer);
 
-    recognition.onend = () => {
-      listening = false;
-      yoPanelMicBtn!.classList.remove("listening");
-      // Auto-send if we got text and input wasn't empty before
-      const text = yoPanelInput.value.trim();
-      if (text && text !== savedValue.trim()) {
-        sendYoPanelMessage();
+      yoPanelMicBtn!.classList.remove("disabled");
+      yoPanelMicBtn!.title = "Voice input";
+
+      if (result.ok && result.text) {
+        yoPanelInput.value = (yoPanelInput.value + " " + result.text).trim();
+        yoPanelInput.style.height = "auto";
+        yoPanelInput.style.height = yoPanelInput.scrollHeight + "px";
+        yoPanelInput.focus();
       }
     };
 
-    recognition.onerror = (e: any) => {
-      listening = false;
-      yoPanelMicBtn!.classList.remove("listening");
-      if (e.error !== "aborted" && e.error !== "no-speech") {
-        console.warn("Speech recognition error:", e.error);
-      }
-    };
-  } else {
-    yoPanelMicBtn.classList.add("disabled");
-    yoPanelMicBtn.title = "Voice input not supported";
-  }
+    mediaRecorder.start();
+  });
 }
 
 yoPanelCloseBtn.addEventListener("click", () => {
