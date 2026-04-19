@@ -2643,7 +2643,17 @@ async function boot() {
   });
 
   ipcMain.on("open-external", (_e, url: string) => {
-    shell.openExternal(url);
+    // Only allow http(s) and mailto URLs — block file://, javascript://, etc.
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:" || parsed.protocol === "mailto:") {
+        shell.openExternal(url);
+      } else {
+        console.warn("[open-external] blocked unsafe protocol:", parsed.protocol, url.slice(0, 80));
+      }
+    } catch {
+      console.warn("[open-external] blocked malformed URL:", url.slice(0, 80));
+    }
   });
 
   // IPC: license info (for settings display)

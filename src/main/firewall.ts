@@ -1124,7 +1124,12 @@ export async function scanWithLLM(
 
     return { blocked: false, borderline: false };
   } catch {
-    // If LLM call fails, don't block — fail open
-    return { blocked: false, borderline: false };
+    // If LLM call fails, fail closed — treat borderline content as blocked
+    return {
+      blocked: true,
+      borderline: false,
+      reason: "LLM judge unavailable — blocking borderline content as a precaution",
+      family: analysis.attack_family,
+    };
   }
 }

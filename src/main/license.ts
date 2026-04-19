@@ -10,7 +10,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { execSync } from "child_process";
-import { net } from "electron";
+import { net, safeStorage } from "electron";
 
 const CONFIG_DIR = path.join(os.homedir(), "yo");
 const LICENSE_FILE = path.join(CONFIG_DIR, ".license");
@@ -46,18 +46,45 @@ interface SessionData {
 let currentSession: SessionData | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-function readSessionFile(): SessionData | null {
-  if (!fs.existsSync(SESSION_FILE)) return null;
+function secureWriteLicense(filePath: string, data: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(data);
+    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+  } else {
+    fs.writeFileSync(filePath, data, { encoding: "utf-8", mode: 0o600 });
+  }
+}
+
+function secureReadLicense(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
   try {
-    return JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
+    const raw = fs.readFileSync(filePath);
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        return safeStorage.decryptString(raw);
+      } catch {
+        return raw.toString("utf-8");
+      }
+    }
+    return raw.toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
+function readSessionFile(): SessionData | null {
+  const data = secureReadLicense(SESSION_FILE);
+  if (!data) return null;
+  try {
+    return JSON.parse(data);
   } catch {
     return null;
   }
 }
 
 function saveSessionFile(session: SessionData): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(SESSION_FILE, JSON.stringify(session), "utf-8");
+  secureWriteLicense(SESSION_FILE, JSON.stringify(session));
   currentSession = session;
   scheduleRefresh(session);
 }
@@ -203,19 +230,19 @@ function getMachineFingerprint(): string {
 // ── License file helpers ─────────────────────────────────────
 
 function readLicenseFile(): LicenseFileData | null {
-  if (!fs.existsSync(LICENSE_FILE)) return null;
+  const data = secureReadLicense(LICENSE_FILE);
+  if (!data) return null;
   try {
-    return JSON.parse(fs.readFileSync(LICENSE_FILE, "utf-8"));
+    return JSON.parse(data);
   } catch {
     return null;
   }
 }
 
 function saveLicense(key: string, serverValidated: boolean = false, tier?: string): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
   const data: LicenseFileData = { key, activated: Date.now(), serverValidated };
   if (tier) data.tier = tier;
-  fs.writeFileSync(LICENSE_FILE, JSON.stringify(data), "utf-8");
+  secureWriteLicense(LICENSE_FILE, JSON.stringify(data));
 }
 
 // ── License check ────────────────────────────────────────────

@@ -102,10 +102,20 @@ export class SkillRunnerAgent extends BaseSubAgent {
   // ── System prompt (dynamic from skill) ────────────────
 
   get systemPrompt(): string {
+    // Sanitize skill prompt — strip any content that looks like injection
+    let safeSkillPrompt = this.skillPrompt || "No skill prompt provided — act as a general assistant.";
+    try {
+      const { scanForInjection } = require("../firewall");
+      const scan = scanForInjection(safeSkillPrompt);
+      if (scan.blocked) {
+        safeSkillPrompt = `[skill prompt blocked by firewall: ${scan.reason}] — act as a general assistant.`;
+      }
+    } catch { /* firewall not available — use raw prompt */ }
+
     return `You are a skill executor with full access to the workspace. Execute the skill described below.
 
 SKILL INSTRUCTIONS:
-${this.skillPrompt || "No skill prompt provided — act as a general assistant."}
+${safeSkillPrompt}
 
 AVAILABLE CAPABILITIES:
 - Navigate apps: list_panels, scan_panel, grab_panel, click_element, navigate_panel, type_text, open_panel, open_background, screenshot_panel, refresh_panel, manage_tabs

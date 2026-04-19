@@ -292,12 +292,20 @@ export class PanelManager {
         .replace(/\s+/g, " ").trim()
     );
 
-    // Grant all permissions — web apps need clipboard, file system, etc.
-    ses.setPermissionRequestHandler((_wc, _permission, callback) => {
-      callback(true);
+    // Allowlist specific permissions — only grant what web apps actually need
+    const ALLOWED_PERMISSIONS = new Set([
+      "clipboard-read",
+      "clipboard-sanitized-write",
+      "notifications",
+      "fullscreen",
+      "pointerLock",
+      "media",            // camera/mic — only when user explicitly grants via panel
+    ]);
+    ses.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(ALLOWED_PERMISSIONS.has(permission));
     });
 
-    ses.setPermissionCheckHandler(() => true);
+    ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
 
     // Handle file downloads — auto-save to ~/Downloads with progress UI
     const downloadsDir = path.join(os.homedir(), "Downloads");

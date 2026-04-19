@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { net } from "electron";
+import { net, safeStorage } from "electron";
 
 const CONFIG_DIR = path.join(os.homedir(), "yo");
 const LLM_CONFIG_FILE = path.join(CONFIG_DIR, ".llm");
@@ -102,36 +102,67 @@ export const PROVIDER_PRESETS: Record<string, {
 
 // ── Config storage ────────────────────────────────────────
 
+// ── Secure read/write helpers ─────────────────────────────
+// Uses Electron safeStorage (OS keychain) when available, falls back to plaintext.
+// All sensitive files are written with 0o600 (owner-only) permissions.
+
+function secureWrite(filePath: string, data: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(data);
+    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+  } else {
+    fs.writeFileSync(filePath, data, { encoding: "utf-8", mode: 0o600 });
+  }
+}
+
+function secureRead(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath);
+    // Try to decrypt — if it fails, it's likely plaintext (pre-migration)
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        return safeStorage.decryptString(raw);
+      } catch {
+        // Fallback: treat as plaintext (legacy file), will be re-encrypted on next save
+        return raw.toString("utf-8");
+      }
+    }
+    return raw.toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
 export function loadLLMConfig(): LLMConfig {
-  if (fs.existsSync(LLM_CONFIG_FILE)) {
+  const data = secureRead(LLM_CONFIG_FILE);
+  if (data) {
     try {
-      return JSON.parse(fs.readFileSync(LLM_CONFIG_FILE, "utf-8"));
+      return JSON.parse(data);
     } catch { /* fall through */ }
   }
 
   // Migrate from legacy .apikey
-  if (fs.existsSync(LEGACY_API_KEY_FILE)) {
-    const key = fs.readFileSync(LEGACY_API_KEY_FILE, "utf-8").trim();
-    if (key) {
-      const config: LLMConfig = {
-        provider: "anthropic",
-        model: "claude-sonnet-4-20250514",
-        apiKey: key,
-      };
-      saveLLMConfig(config);
-      return config;
-    }
+  const legacyKey = secureRead(LEGACY_API_KEY_FILE);
+  if (legacyKey?.trim()) {
+    const config: LLMConfig = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      apiKey: legacyKey.trim(),
+    };
+    saveLLMConfig(config);
+    return config;
   }
 
   return { provider: "anthropic", model: "claude-sonnet-4-20250514", apiKey: "" };
 }
 
 export function saveLLMConfig(config: LLMConfig): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(LLM_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  secureWrite(LLM_CONFIG_FILE, JSON.stringify(config, null, 2));
   // Keep legacy .apikey in sync for Anthropic
   if (config.provider === "anthropic" && config.apiKey) {
-    fs.writeFileSync(LEGACY_API_KEY_FILE, config.apiKey, "utf-8");
+    secureWrite(LEGACY_API_KEY_FILE, config.apiKey);
   }
 }
 

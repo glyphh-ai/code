@@ -20,10 +20,14 @@ import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
 
+import crypto from "crypto";
+
 const PREFIX = "__YO__";
 
 export class YoInterceptor {
   private active = new Map<number, () => void>();
+  /** Per-session nonce — injected into pages and validated on receipt. */
+  private readonly sessionNonce = crypto.randomBytes(16).toString("hex");
   private commandHandler: ((input: string, sourcePanelId?: string) => Promise<string>) | null = null;
   private yoChat: YoChat | null = null;
   private getVisiblePanelIds: (() => string[]) | null = null;
@@ -58,6 +62,9 @@ export class YoInterceptor {
       if (typeof msg !== "string" || !msg.startsWith(PREFIX)) return;
       try {
         const data = JSON.parse(msg.slice(PREFIX.length));
+        // Validate session nonce — reject messages from page scripts that don't have it
+        if (data._nonce !== this.sessionNonce) return;
+        delete data._nonce; // strip before dispatch
         this.dispatch(wc, appId, data).catch((err) => {
           console.error("YoInterceptor dispatch error:", err);
           this.notify(wc, `Error: ${err instanceof Error ? err.message : err}`, "error").catch(() => {});
@@ -105,9 +112,11 @@ export class YoInterceptor {
   }
 
   private buildScript(): string {
+    const nonce = this.sessionNonce;
     return `
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
+var _n=${JSON.stringify(nonce)};
 var CMD_RE=/^\\.(yo|sup|dip|drip|waz)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
@@ -155,7 +164,7 @@ function fire(text,srcEl){
   var cmd=m[1].toLowerCase();
   var arg=(m[2]||'').trim()||null;
   window.__yoLastEl=srcEl||ed();
-  console.log('${PREFIX}'+JSON.stringify({type:cmd,instruction:arg}));
+  console.log('${PREFIX}'+JSON.stringify({type:cmd,instruction:arg,_nonce:_n}));
   setTimeout(function(){firing=false;},500);
 }
 
@@ -526,9 +535,11 @@ window.addEventListener('beforeunload',function(e){
 
   private async injectYoWidget(wc: WebContents, query: string): Promise<void> {
     const escaped = JSON.stringify(query);
+    const nonceJs = JSON.stringify(this.sessionNonce);
     try {
       await wc.executeJavaScript(`
 (function(){
+var _n=${nonceJs};
 // Shadow DOM host — isolates widget from site CSS
 var oldHost=document.getElementById('__yo-widget-host');if(oldHost)oldHost.remove();
 var host=document.createElement('div');host.id='__yo-widget-host';
@@ -546,7 +557,7 @@ var closeBtn=document.createElement('div');closeBtn.textContent='\\u00d7';
 closeBtn.style.cssText='width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-size:16px;border-radius:4px;';
 closeBtn.onmouseenter=function(){closeBtn.style.color='#fff';closeBtn.style.background='#333';};
 closeBtn.onmouseleave=function(){closeBtn.style.color='#666';closeBtn.style.background='none';};
-closeBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));};
+closeBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss',_nonce:_n}));};
 hdr.appendChild(title);hdr.appendChild(closeBtn);
 
 // Body (results + messages)
@@ -583,7 +594,7 @@ function updateSend(){sendBtn.style.opacity=input.value.trim()?'1':'0.4';}
 function doSend(){
   var msg=input.value.trim();if(!msg)return;
   input.value='';input.style.height='auto';updateSend();
-  console.log('${PREFIX}'+JSON.stringify({type:'yo-refine',text:msg}));
+  console.log('${PREFIX}'+JSON.stringify({type:'yo-refine',text:msg,_nonce:_n}));
 }
 sendBtn.onclick=function(e){e.preventDefault();doSend();input.focus();};
 input.addEventListener('input',function(){
@@ -596,7 +607,7 @@ input.addEventListener('keydown',function(e){
   }
   if(e.key==='Escape'){
     e.preventDefault();e.stopPropagation();
-    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss',_nonce:_n}));
   }
 },true);
 input.onfocus=function(){inputRow.style.borderColor='#25C75E';};
@@ -613,7 +624,7 @@ setTimeout(function(){input.focus();},50);
 window.__yoWidgetEsc=function(e){
   if(e.key==='Escape'&&document.getElementById('__yo-widget-host')){
     e.preventDefault();e.stopPropagation();
-    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss',_nonce:_n}));
   }
 };
 document.addEventListener('keydown',window.__yoWidgetEsc,true);
@@ -637,11 +648,20 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
     const icon = type === "success" ? "\u2713 " : type === "error" || isNegativeResult ? "\u2717 " : type === "result" ? "\u2713 " : "";
     const text = icon + displayMsg;
     const autoRemove = type === "success" || type === "error";
+    const nonceJs = JSON.stringify(this.sessionNonce);
     try {
       await wc.executeJavaScript(`
 (function(){
+var _n=${nonceJs};
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
-var el=window.__yoLastEl;if(!el)return;
+var el=window.__yoLastEl;
+if(!el||!el.isConnected){el=document.activeElement;if(!el||el===document.body)el=null;
+if(!el){var fb=['[role="textbox"]','[contenteditable]:not([contenteditable="false"])','textarea','input[type="text"]'];
+for(var i=0;!el&&i<fb.length;i++){try{var els=document.querySelectorAll(fb[i]);
+for(var j=0;j<els.length;j++){var r=els[j].getBoundingClientRect();
+if(r.width>0&&r.height>0){el=els[j];break;}}}catch(e){}}}
+if(el)window.__yoLastEl=el;}
+if(!el)return;
 var isLoading=${type === "loading"};
 var text=${JSON.stringify(text)};
 function setText(val){
@@ -674,13 +694,13 @@ if(isLoading){
   stopBtn.style.cssText='position:fixed;z-index:999999;width:24px;height:24px;border-radius:6px;background:#333;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;';
   stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';};
   stopBtn.onmouseleave=function(){stopBtn.style.background='#333';};
-  stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel'}));};
+  stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));};
   // Position next to input
   try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-12)+'px';stopBtn.style.right='12px';}catch(e){}
   var old=document.getElementById('__yo-stop');if(old)old.remove();
   document.body.appendChild(stopBtn);
   // Escape key also cancels
-  window.__yoStopEsc=function(e){if(e.key==='Escape'){console.log('${PREFIX}'+JSON.stringify({type:'cancel'}));}};
+  window.__yoStopEsc=function(e){if(e.key==='Escape'){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));}};
   document.addEventListener('keydown',window.__yoStopEsc,true);
   window.__yoNoteIv=setInterval(function(){
     fi++;
@@ -708,7 +728,7 @@ if(isLoading){
     if(e.key==='Escape'){
       e.preventDefault();e.stopPropagation();
       try{setText('');}catch(ex){}
-      console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss'}));
+      console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss',_nonce:_n}));
       document.removeEventListener('keydown',window.__yoResultEsc,true);
       window.__yoResultEsc=null;
     }
@@ -728,7 +748,8 @@ if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
 var stop=document.getElementById('__yo-stop');if(stop)stop.remove();
 if(window.__yoStopEsc){document.removeEventListener('keydown',window.__yoStopEsc,true);window.__yoStopEsc=null;}
 if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
-var el=window.__yoLastEl;if(!el)return;
+var el=window.__yoLastEl;
+if(el&&el.isConnected){
 if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
   var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
   var s=Object.getOwnPropertyDescriptor(p,'value');
@@ -739,7 +760,7 @@ if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
   var sel=window.getSelection();var range=document.createRange();
   range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
   document.execCommand('delete',false);
-}
+}}
 })();`);
     } catch {}
   }

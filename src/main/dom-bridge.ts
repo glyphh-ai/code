@@ -421,8 +421,18 @@ export async function executeCommand(
 /**
  * Validate that a CSS selector matches an element in the live DOM.
  */
+/** Escape a CSS selector for safe interpolation into a JS string literal. */
+function escapeSelector(selector: string): string {
+  return selector
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\0/g, "");
+}
+
 export async function validateSelector(webContents: WebContents, selector: string): Promise<boolean> {
-  const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const escaped = escapeSelector(selector);
   return await webContents.executeJavaScript(
     `!!document.querySelector('${escaped}')`,
   );
@@ -431,7 +441,7 @@ export async function validateSelector(webContents: WebContents, selector: strin
 // ── Primitives ──────────────────────────────────────────
 
 async function extractText(wc: WebContents, selector: string): Promise<string> {
-  const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const escaped = escapeSelector(selector);
   return await wc.executeJavaScript(`
     (function() {
       var el = document.querySelector('${escaped}');
@@ -442,7 +452,7 @@ async function extractText(wc: WebContents, selector: string): Promise<string> {
 }
 
 async function extractHTML(wc: WebContents, selector: string): Promise<string> {
-  const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const escaped = escapeSelector(selector);
   return await wc.executeJavaScript(`
     (function() {
       var el = document.querySelector('${escaped}');
@@ -453,7 +463,7 @@ async function extractHTML(wc: WebContents, selector: string): Promise<string> {
 }
 
 async function setValue(wc: WebContents, selector: string, value: string): Promise<string> {
-  const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const escaped = escapeSelector(selector);
 
   // Step 1: Focus the target element (with fallbacks if selector is stale)
   const focused = await wc.executeJavaScript(`
@@ -529,7 +539,7 @@ async function setValue(wc: WebContents, selector: string, value: string): Promi
 }
 
 async function clickElement(wc: WebContents, selector: string): Promise<string> {
-  const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const escaped = escapeSelector(selector);
   return await wc.executeJavaScript(`
     (function() {
       var el = document.querySelector('${escaped}');
@@ -540,7 +550,32 @@ async function clickElement(wc: WebContents, selector: string): Promise<string> 
   `);
 }
 
+/** Dangerous patterns that should never appear in custom scripts */
+const BLOCKED_SCRIPT_PATTERNS = [
+  /require\s*\(/i,          // Node.js require
+  /process\s*\./i,          // Node.js process access
+  /child_process/i,         // Shell execution
+  /eval\s*\(/i,             // Dynamic code evaluation
+  /Function\s*\(/i,         // Dynamic function creation
+  /fetch\s*\(\s*['"`](?!https?:\/\/)/i, // Non-HTTP fetch (data:, file:, etc.)
+  /XMLHttpRequest/i,        // Raw XHR (prefer fetch with URL check)
+  /window\.open\s*\(/i,     // Opening new windows
+  /location\s*[.=]/i,       // Navigation/redirect
+  /document\.cookie/i,      // Cookie access
+  /localStorage|sessionStorage/i, // Storage exfiltration
+  /indexedDB/i,
+  /navigator\.sendBeacon/i, // Silent data exfiltration
+  /WebSocket/i,             // Opening websocket connections
+];
+
 async function runCustomScript(wc: WebContents, script: string, value?: string): Promise<string> {
+  // Security: block scripts containing dangerous patterns
+  for (const pattern of BLOCKED_SCRIPT_PATTERNS) {
+    if (pattern.test(script)) {
+      return `[blocked — custom script contains restricted pattern: ${pattern.source}]`;
+    }
+  }
+
   // The script can reference __value__ as the input
   const wrapped = `
     (async function() {

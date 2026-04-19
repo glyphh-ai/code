@@ -1381,7 +1381,15 @@ function formatYoText(text: string): string {
       .replace(/`([^`]+)`/g, '<code class="yo-md-inline">$1</code>')
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="yo-md-link" href="$2" title="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
+        // Sanitize URL: only allow http(s) and mailto protocols
+        const trimmed = url.trim().toLowerCase();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("mailto:")) {
+          return `<a class="yo-md-link" href="${url}" title="${url}">${text}</a>`;
+        }
+        // Strip dangerous protocols (javascript:, data:, vbscript:, file:, etc.)
+        return `<span class="yo-md-link" title="[blocked: unsafe URL]">${text}</span>`;
+      });
 
   const lines = text.split("\n");
   const out: string[] = [];

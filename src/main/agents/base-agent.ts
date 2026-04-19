@@ -11,6 +11,7 @@ import { createCompletion } from "../llm-config";
 import { usageTracker } from "../usage-tracker";
 import type { SubAgentResult, SubAgentContext, ToolDef, AgentMode } from "./types";
 import { gate } from "../action-gate";
+import { scanForInjection } from "../firewall";
 
 /** Provider-specific cheap model overrides. */
 const CHEAP_MODELS: Record<string, string> = {
@@ -141,8 +142,11 @@ export abstract class BaseSubAgent {
               results.push({ type: "tool_result", tool_use_id: block.id, content: "[blocked by user]" });
               continue;
             }
+          } else {
+            // No callback set — fail closed: deny mutate tools without approval
+            results.push({ type: "tool_result", tool_use_id: block.id, content: "[blocked — no approval handler available]" });
+            continue;
           }
-          // No callback set — fall through and execute (degraded mode)
         }
 
         if (onToolUse) onToolUse(block.name);
@@ -151,6 +155,14 @@ export abstract class BaseSubAgent {
         // Cap tool results to prevent context blowup across iterations
         if (result.length > 6000) {
           result = result.slice(0, 6000) + "\n\n[truncated — content too long]";
+        }
+        // Firewall: scan tool results that contain web content for prompt injection
+        const CONTENT_TOOLS = new Set(["grab_panel", "scan_panel", "read_file", "clipboard_read"]);
+        if (CONTENT_TOOLS.has(block.name) && result.length > 50) {
+          const scan = scanForInjection(result);
+          if (scan.blocked) {
+            result = `[content blocked by firewall: ${scan.reason}]`;
+          }
         }
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }

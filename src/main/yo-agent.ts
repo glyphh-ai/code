@@ -693,7 +693,12 @@ export class YoAgent {
     }
 
     if (this.activeMemories) {
-      prompt += `\n\nYOUR MEMORIES:\n${this.activeMemories}`;
+      // Firewall: scan recalled memories for injection before adding to system prompt
+      const memoryScan = scanForInjection(this.activeMemories);
+      if (!memoryScan.blocked) {
+        prompt += `\n\nYOUR MEMORIES:\n${this.activeMemories}`;
+      }
+      // If blocked, silently omit poisoned memories from the system prompt
     }
 
     // Plan mode: tell the agent to describe its plan without executing
@@ -1046,6 +1051,12 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     }
     if (!content) return `Could not grab content from panel "${sourcePanel}" after 3 attempts. The panel may not be loaded or may have no visible text content. Try refreshing the panel or grabbing it directly with delegate_navigator first.`;
 
+    // ── Firewall: scan grabbed content before feeding to LLM ──
+    const pipeScan = scanForInjection(content);
+    if (pipeScan.blocked) {
+      return `[pipe blocked — source panel content triggered firewall: ${pipeScan.reason}]`;
+    }
+
     // Step 2: Transform (optional)
     let output = content;
     if (transform && this.llmConfig) {
@@ -1227,6 +1238,14 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           responses.push({ panel, content });
           lastResponse = content;
         }
+      }
+    }
+
+    // ── Firewall: scan panel responses before returning to orchestrator ──
+    for (const r of responses) {
+      const panelScan = scanForInjection(r.content);
+      if (panelScan.blocked) {
+        r.content = `[response from ${r.panel} blocked by firewall: ${panelScan.reason}]`;
       }
     }
 

@@ -60,8 +60,15 @@ export class SkillEngine {
     return this.callLLM(prompt, buffer);
   }
 
+  /** Sanitize skill name to prevent path traversal */
+  private sanitizeName(name: string): string {
+    return name.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+  }
+
   /** Create a new skill */
   createSkill(name: string, prompt: string): void {
+    name = this.sanitizeName(name);
+    if (!name) return;
     const skill: Skill = { name, prompt };
     this.skills.set(name, skill);
     this.saveSkill(skill);
@@ -79,6 +86,7 @@ export class SkillEngine {
 
   /** Update a skill's prompt */
   updateSkill(name: string, prompt: string): boolean {
+    name = this.sanitizeName(name);
     if (!this.skills.has(name)) return false;
     const skill: Skill = { name, prompt };
     this.skills.set(name, skill);
@@ -88,9 +96,13 @@ export class SkillEngine {
 
   /** Delete a skill */
   deleteSkill(name: string): boolean {
+    name = this.sanitizeName(name);
     if (!this.skills.has(name)) return false;
     this.skills.delete(name);
     const filePath = path.join(this.skillsDir, `${name}.md`);
+    // Verify resolved path is within skills directory
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(this.skillsDir))) return false;
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return true;
   }
@@ -142,10 +154,10 @@ export class SkillEngine {
   }
 
   private saveSkill(skill: Skill): void {
-    fs.writeFileSync(
-      path.join(this.skillsDir, `${skill.name}.md`),
-      skill.prompt,
-      "utf-8"
-    );
+    const filePath = path.join(this.skillsDir, `${skill.name}.md`);
+    // Verify resolved path is within skills directory
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(this.skillsDir))) return;
+    fs.writeFileSync(filePath, skill.prompt, "utf-8");
   }
 }
