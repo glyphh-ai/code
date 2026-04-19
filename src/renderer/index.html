@@ -129,6 +129,7 @@
       <nav id="help-nav">
         <div class="help-brand"><span class="dot">.</span>Yo</div>
         <button class="help-nav-item active" data-section="guide">Guide</button>
+        <button class="help-nav-item" data-section="docs">Docs</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
@@ -289,6 +290,210 @@
             <div class="cmd-row">
               <code>Esc</code>
               <span>Close this page</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Docs -->
+        <div class="help-section" data-section="docs">
+          <h2>Documentation</h2>
+          <p class="section-desc">How everything works — navigation, commands, skills, layouts, apps, and vibes.</p>
+
+          <div class="docs-toc">
+            <a href="#" class="docs-toc-item" data-doc="navigation">Navigation</a>
+            <a href="#" class="docs-toc-item" data-doc="commands">Commands</a>
+            <a href="#" class="docs-toc-item" data-doc="apps">Apps</a>
+            <a href="#" class="docs-toc-item" data-doc="skills">Skills</a>
+            <a href="#" class="docs-toc-item" data-doc="layouts">Layouts</a>
+            <a href="#" class="docs-toc-item" data-doc="vibes">Vibes</a>
+            <a href="#" class="docs-toc-item" data-doc="agent">Agent</a>
+          </div>
+
+          <div id="docs-content">
+            <div class="docs-article" data-doc="navigation">
+              <h3>Navigation</h3>
+              <p>.Yo is a multi-panel workspace. You can view one app at a time, or split the screen into a grid of panels. Every panel is a live web app running inside .Yo.</p>
+
+              <h4>Switching panels</h4>
+              <p>Use the <strong>.dip</strong> command to switch between panels. Type it in the command bar (Cmd+K) or the agent panel.</p>
+              <div class="cmd-row"><code>.dip claude</code><span>Switch to Claude</span></div>
+              <div class="cmd-row"><code>.dip gmail</code><span>Switch to Gmail</span></div>
+              <div class="cmd-row"><code>.dip back</code><span>Go to the previous panel</span></div>
+              <p>You can also click on tabs in the tab bar to switch panels.</p>
+
+              <h4>Split view</h4>
+              <p>Put multiple panels side by side with <strong>.dip split</strong>.</p>
+              <div class="cmd-row"><code>.dip split claude gpt</code><span>Two panels side by side</span></div>
+              <div class="cmd-row"><code>.dip split claude gpt / gemini code</code><span>2&times;2 grid — <code>/</code> separates rows</span></div>
+
+              <h4>URL bar</h4>
+              <p>The URL bar at the top shows the current panel's address. You can type any URL to navigate, or use it as a search bar (searches Google by default). Use <strong>Cmd+L</strong> to focus it.</p>
+
+              <h4>Keyboard shortcuts</h4>
+              <div class="cmd-row"><code>&#8984;K</code><span>Open the command bar</span></div>
+              <div class="cmd-row"><code>&#8984;Y</code><span>Toggle the .Yo agent panel</span></div>
+              <div class="cmd-row"><code>&#8984;L</code><span>Focus the URL bar</span></div>
+              <div class="cmd-row"><code>&#8984;R</code><span>Refresh the active panel</span></div>
+              <div class="cmd-row"><code>&#8984;+</code><span>Zoom in</span></div>
+              <div class="cmd-row"><code>&#8984;-</code><span>Zoom out</span></div>
+              <div class="cmd-row"><code>Esc</code><span>Close current overlay</span></div>
+            </div>
+
+            <div class="docs-article" data-doc="commands">
+              <h3>Commands</h3>
+              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+K) or chain them together. Every command starts with a dot.</p>
+
+              <h4>.yo — Agent</h4>
+              <p>Opens the AI agent panel. The agent can search your notes, navigate panels, click through apps, create skills, manage layouts, and more. Ask it anything in natural language.</p>
+              <div class="cmd-row"><code>.yo</code><span>Open the agent panel</span></div>
+              <div class="cmd-row"><code>.yo find my notes about pricing</code><span>Agent searches your captures</span></div>
+              <div class="cmd-row"><code>.yo open gmail and claude side by side</code><span>Agent navigates and arranges panels</span></div>
+
+              <h4>.yo . — Inline process</h4>
+              <p>Processes the last <code>.sup</code> capture with a prompt and injects the result directly into the active text field. No agent panel — just capture, switch, and process.</p>
+              <div class="cmd-row"><code>.yo . summarize this</code><span>Summarize and inject into text field</span></div>
+              <div class="cmd-row"><code>.yo . rewrite as bullet points</code><span>Transform and inject</span></div>
+
+              <h4>.sup — Capture</h4>
+              <p>Captures the visible content of the active panel into memory and your clipboard. Use <code>.sup .</code> to also run a skill or prompt on the capture.</p>
+              <div class="cmd-row"><code>.sup</code><span>Capture to memory + clipboard</span></div>
+              <div class="cmd-row"><code>.sup . formalize</code><span>Capture + run the "formalize" skill</span></div>
+              <div class="cmd-row"><code>.sup . translate to spanish</code><span>Capture + run a freeform prompt</span></div>
+
+              <h4>.dip — Navigate</h4>
+              <p>Switches panels, creates split views, and restores saved layouts.</p>
+              <div class="cmd-row"><code>.dip claude</code><span>Switch to a panel</span></div>
+              <div class="cmd-row"><code>.dip split claude gpt</code><span>Side by side</span></div>
+              <div class="cmd-row"><code>.dip layout workspace</code><span>Restore a saved layout</span></div>
+
+              <h4>.waz — Execute</h4>
+              <p>Runs mapped commands on apps. Each app has commands like grab, compose, search, new, etc.</p>
+              <div class="cmd-row"><code>.waz grab</code><span>Run "grab" on the active panel</span></div>
+              <div class="cmd-row"><code>.waz claude new</code><span>Run "new" on Claude</span></div>
+              <div class="cmd-row"><code>.waz layout workspace</code><span>Save current layout</span></div>
+
+              <h4>.drip — Effects</h4>
+              <p>Visual celebration effects. Reward yourself.</p>
+              <div class="cmd-row"><code>.drip</code><span>Default fireworks effect</span></div>
+              <div class="cmd-row"><code>.drip fireworks</code><span>Particle burst</span></div>
+
+              <h4>Chaining</h4>
+              <p>Commands can be chained together with spaces. Each command runs in sequence.</p>
+              <div class="cmd-row"><code>.dip claude .waz new</code><span>Switch to Claude, then start new chat</span></div>
+              <div class="cmd-row"><code>.sup .dip gpt .yo . explain this</code><span>Capture, switch to GPT, process inline</span></div>
+            </div>
+
+            <div class="docs-article" data-doc="apps">
+              <h3>Apps</h3>
+              <p>Apps are web applications that run inside .Yo panels. Each app has an ID, a URL, and a set of mapped commands that the agent and <code>.waz</code> can execute.</p>
+
+              <h4>Pre-configured apps</h4>
+              <p>.Yo ships with pre-configured apps including ChatGPT, Claude, Gemini, Gmail, Slack, GitHub, Linear, Notion, Grok, Perplexity, YouTube, Reddit, Google Docs, and X. Each has commands mapped to their specific UI elements.</p>
+
+              <h4>Adding apps</h4>
+              <p>Open the <strong>Apps</strong> page in this help panel and click <strong>+ New</strong>. Give it an ID (used in commands like <code>.dip myapp</code>), a name, and a URL. You can optionally map commands.</p>
+
+              <h4>App commands</h4>
+              <p>Commands are actions mapped to specific selectors in the app's DOM. Common commands:</p>
+              <div class="cmd-row"><code>grab</code><span>Extract the main content as text</span></div>
+              <div class="cmd-row"><code>input</code><span>Focus the text input field</span></div>
+              <div class="cmd-row"><code>submit</code><span>Click the send/submit button</span></div>
+              <div class="cmd-row"><code>new</code><span>Start a new conversation/document</span></div>
+              <div class="cmd-row"><code>search</code><span>Focus the search bar</span></div>
+              <div class="cmd-row"><code>compose</code><span>Open compose window (email)</span></div>
+              <p>Run commands with <code>.waz grab</code> (active panel) or <code>.waz claude grab</code> (specific app). The .yo agent also uses these commands when navigating for you.</p>
+
+              <h4>Force web mode</h4>
+              <p>Some apps (like ChatGPT, Claude, Gmail) need to run in a web view instead of Electron's BrowserView. This is the "Force Web" toggle — enable it if the app doesn't render correctly.</p>
+            </div>
+
+            <div class="docs-article" data-doc="skills">
+              <h3>Skills</h3>
+              <p>Skills are reusable prompt templates that process captured content. Think of them as saved instructions — capture something with <code>.sup</code>, then apply a skill to transform it.</p>
+
+              <h4>Using skills</h4>
+              <div class="cmd-row"><code>.sup . summarize</code><span>Capture + run the "summarize" skill</span></div>
+              <div class="cmd-row"><code>.sup . formalize</code><span>Capture + formalize the text</span></div>
+              <div class="cmd-row"><code>.yo . summarize</code><span>Process last capture with a skill</span></div>
+              <p>When you use <code>.sup . skillname</code>, the content is captured and then processed through the skill's prompt template. The result replaces your clipboard content.</p>
+              <p>When you use <code>.yo . skillname</code>, the result is injected directly into the active text field.</p>
+
+              <h4>Creating skills</h4>
+              <p>Go to the <strong>Skills</strong> page in this panel and click <strong>+ New</strong>. Each skill has:</p>
+              <ul class="docs-list">
+                <li><strong>Name</strong> — the keyword you use to invoke it (e.g., "summarize")</li>
+                <li><strong>Prompt</strong> — the instruction template. Use <code>{{input}}</code> as a placeholder for the captured content.</li>
+              </ul>
+              <p>Example prompt: <code>Summarize the following in 3 bullet points:\n\n{{input}}</code></p>
+              <p>The .yo agent can also create skills for you — just ask: <code>.yo create a skill called translate that converts text to Spanish</code></p>
+            </div>
+
+            <div class="docs-article" data-doc="layouts">
+              <h3>Layouts</h3>
+              <p>Layouts save your panel arrangement so you can restore it later with one command. Save a 3-panel workspace, switch away, and come back to it instantly.</p>
+
+              <h4>Saving layouts</h4>
+              <p>Arrange your panels the way you want (using <code>.dip split</code> or <code>.dip grid</code>), then save:</p>
+              <div class="cmd-row"><code>.waz layout workspace</code><span>Save current arrangement as "workspace"</span></div>
+              <p>You can also save layouts from the <strong>Layouts</strong> page in this panel.</p>
+
+              <h4>Restoring layouts</h4>
+              <div class="cmd-row"><code>.dip layout workspace</code><span>Restore the "workspace" layout</span></div>
+              <p>This restores the exact panel arrangement, sizes, and apps that were active when you saved.</p>
+
+              <h4>Grid layouts</h4>
+              <p>For advanced arrangements, use <code>.dip grid</code> with column/row spans and custom sizing:</p>
+              <div class="cmd-row"><code>.dip grid claude,gpt / gemini,code</code><span>2&times;2 grid</span></div>
+              <div class="cmd-row"><code>.dip grid claude:2,gpt / gemini,code</code><span>Claude spans 2 columns</span></div>
+              <div class="cmd-row"><code>.dip grid [70,30] claude,gpt</code><span>70/30 split</span></div>
+              <p>Drag the grid handles between panels to resize them live.</p>
+            </div>
+
+            <div class="docs-article" data-doc="vibes">
+              <h3>Vibes</h3>
+              <p>Vibes are recorded interaction sequences — automated workflows that replay your actions across multiple apps. Record once, run anytime.</p>
+
+              <h4>Recording a vibe</h4>
+              <ol class="docs-list">
+                <li>Open the <strong>Vibes</strong> page in this panel and click <strong>+ New</strong>, or press <strong>Cmd+Shift+.</strong></li>
+                <li>A recording indicator appears. Perform your actions — navigate panels, click elements, type text.</li>
+                <li>Press <strong>Cmd+Shift+.</strong> again or click <strong>Stop</strong> to end recording.</li>
+                <li>Give your vibe a name and save it.</li>
+              </ol>
+              <p>Vibes record panel switches, clicks, text input, and command executions as discrete steps.</p>
+
+              <h4>Running a vibe</h4>
+              <p>From the <strong>Vibes</strong> page, click the play button on any saved vibe. It will replay each step in sequence, navigating panels and executing actions automatically.</p>
+
+              <h4>Editing vibes</h4>
+              <p>Click on a saved vibe to open the step editor. You can reorder steps, edit the details of each action (selectors, text, delays), or delete individual steps.</p>
+            </div>
+
+            <div class="docs-article" data-doc="agent">
+              <h3>The .Yo Agent</h3>
+              <p>The agent is your AI assistant that lives in the side panel. It can see your panels, navigate apps, search your captures, and execute commands — all through natural language.</p>
+
+              <h4>What it can do</h4>
+              <ul class="docs-list">
+                <li><strong>Navigate</strong> — switch panels, create layouts, open apps</li>
+                <li><strong>Read</strong> — grab content from any panel, extract specific elements</li>
+                <li><strong>Click &amp; type</strong> — interact with web apps on your behalf</li>
+                <li><strong>Search</strong> — find content in your captured notes and local files</li>
+                <li><strong>Create</strong> — make new skills, layouts, and app configurations</li>
+                <li><strong>Write notes</strong> — save information to your local note store</li>
+              </ul>
+
+              <h4>Agent modes</h4>
+              <p>The mode selector at the bottom of the agent panel controls how the agent behaves:</p>
+              <div class="cmd-row"><code>ask</code><span>Agent confirms before taking actions (default)</span></div>
+              <div class="cmd-row"><code>plan</code><span>Agent drafts a plan before executing</span></div>
+              <div class="cmd-row"><code>auto</code><span>Agent executes immediately without confirmation</span></div>
+
+              <h4>Model selection</h4>
+              <p>The model selector lets you choose which LLM powers the agent. Configure your API key and preferred provider in <strong>Settings &gt; Model Configuration</strong>.</p>
+
+              <h4>Chat history</h4>
+              <p>Click the hamburger menu (&#9776;) in the agent panel header to see your conversation history. Each conversation is saved automatically. Click <strong>+</strong> to start a new chat.</p>
             </div>
           </div>
         </div>

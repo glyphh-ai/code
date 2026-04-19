@@ -74,6 +74,7 @@ function loadActiveSection() {
   else if (sec === "apps") loadApps();
   else if (sec === "vibes") loadVibes();
   else if (sec === "settings") loadSettings();
+  else if (sec === "docs") loadDocs();
   else if (sec === "support") loadSupport();
   else if (sec === "about") loadAbout();
 }
@@ -1492,6 +1493,38 @@ function addVibeStep() {
 }
 
 // ── About ─────────────────────────────────────────────────
+
+// ── Docs ──────────────────────────────────────────────────
+
+let docsInitialized = false;
+
+function loadDocs() {
+  if (docsInitialized) return;
+  docsInitialized = true;
+
+  const tocItems = document.querySelectorAll<HTMLAnchorElement>(".docs-toc-item");
+  const articles = document.querySelectorAll<HTMLDivElement>(".docs-article");
+
+  function showArticle(docId: string) {
+    articles.forEach((a) => a.classList.toggle("active", a.dataset.doc === docId));
+    tocItems.forEach((t) => t.classList.toggle("active", t.dataset.doc === docId));
+    // Scroll docs content to top
+    const docsContent = document.getElementById("docs-content");
+    if (docsContent) docsContent.scrollTop = 0;
+  }
+
+  tocItems.forEach((item) => {
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      showArticle(item.dataset.doc!);
+    });
+  });
+
+  // Show first article by default
+  if (tocItems.length > 0) {
+    showArticle(tocItems[0].dataset.doc!);
+  }
+}
 
 // ── Support ───────────────────────────────────────────────
 const DISCORD_INVITE = "https://discord.gg/7wR9amSs";
