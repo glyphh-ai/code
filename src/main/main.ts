@@ -5,6 +5,7 @@
  * overlay window, and wires up panels + commands.
  */
 
+import "dotenv/config";
 import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, webContents } from "electron";
 import path from "path";
 import fs from "fs";

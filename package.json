@@ -39,6 +39,7 @@
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^12.9.0",
     "chart.js": "^4.5.1",
+    "dotenv": "^17.4.2",
     "electron-updater": "^6.8.3",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.0.0",
