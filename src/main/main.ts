@@ -811,10 +811,13 @@ async function boot() {
       const participants = result.replace("__COUNCIL__:", "").split(",").filter(Boolean);
       if (participants.length > 0 && yoAgent) {
         yoAgent.setCouncil(participants);
-        // Notify renderer of mode change
+        // Notify renderer of mode change + show yo panel without sending a message to the agent
         mainWindow?.webContents.send("agent-mode-changed", "council");
-        // Open the yo panel so the user sees the agent working
-        callbacks.openYoPanel?.(`Council started with ${participants.join(", ")}. Send a message to address the council.`);
+        mainWindow?.webContents.send("yo-panel-open", "");
+        panelManager.setRightInset(getPreference<number>("yoPanelWidth", 380));
+        mainWindow?.webContents.focus();
+        // Show status in the yo panel as a system message (not an agent prompt)
+        mainWindow?.webContents.send("yo-panel-done", `Council ready: ${participants.join(", ")}. Type a message.`);
       }
       return "";
     }
