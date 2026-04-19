@@ -147,6 +147,14 @@ declare global {
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;
+      // Vibes
+      vibesList: () => Promise<Array<{ name: string; description: string; stepCount: number }>>;
+      vibesRead: (name: string) => Promise<{ name: string; description: string; steps: Array<{ app: string; command: string; value?: string; find?: string; waitMs?: number; describe?: string; condition?: string; onTrue?: number; onFalse?: number; retries?: number }> } | null>;
+      vibesCreate: (name: string, vibe: unknown) => Promise<boolean>;
+      vibesDelete: (name: string) => Promise<boolean>;
+      vibesRun: (name: string) => Promise<{ success: boolean; summary: string }>;
+      vibesRecordToggle: () => void;
+      onVibeRecordingState: (cb: (state: { recording: boolean; stepCount: number }) => void) => void;
     };
   }
 }

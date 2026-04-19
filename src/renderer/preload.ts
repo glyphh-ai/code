@@ -56,6 +56,17 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("focus-command-input", () => callback());
   },
 
+  // Vibes CRUD
+  vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<{ name: string; description: string; stepCount: number }>>,
+  vibesRead: (name: string) => ipcRenderer.invoke("vibes-read", name) as Promise<{ name: string; description: string; inputs?: Array<{ name: string; description: string; required?: boolean }>; steps: Array<{ app: string; command: string; value?: string; find?: string; waitFor?: string; waitMs?: number; describe?: string; condition?: string; onTrue?: number; onFalse?: number; retries?: number }> } | null>,
+  vibesCreate: (name: string, vibe: unknown) => ipcRenderer.invoke("vibes-create", name, vibe) as Promise<boolean>,
+  vibesDelete: (name: string) => ipcRenderer.invoke("vibes-delete", name) as Promise<boolean>,
+  vibesRun: (name: string) => ipcRenderer.invoke("vibes-run", name) as Promise<{ success: boolean; summary: string }>,
+  vibesRecordToggle: () => ipcRenderer.send("vibes-record-toggle"),
+  onVibeRecordingState: (cb: (state: { recording: boolean; stepCount: number }) => void) => {
+    ipcRenderer.on("vibe-recording-state", (_e, state) => cb(state));
+  },
+
   // Apps CRUD
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),

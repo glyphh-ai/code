@@ -70,6 +70,7 @@ function loadActiveSection() {
   if (sec === "skills") loadSkills();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
+  else if (sec === "vibes") loadVibes();
   else if (sec === "settings") loadSettings();
   else if (sec === "support") loadSupport();
   else if (sec === "about") loadAbout();
@@ -212,6 +213,23 @@ export function initHelp() {
     } else {
       custom.classList.add("hidden");
     }
+  });
+
+  // Vibes
+  document.getElementById("vibe-new-btn")!.addEventListener("click", () => openVibeEditor("", "", []));
+  document.getElementById("vibe-save")!.addEventListener("click", saveVibe);
+  document.getElementById("vibe-cancel")!.addEventListener("click", closeVibeEditor);
+  document.getElementById("vibe-delete")!.addEventListener("click", deleteVibe);
+  document.getElementById("vibe-run-btn")!.addEventListener("click", runVibeFromEditor);
+  document.getElementById("vibe-add-step")!.addEventListener("click", addVibeStep);
+  document.getElementById("vibe-record-btn")!.addEventListener("click", () => window.yo.vibesRecordToggle());
+
+  // Listen for recording state changes
+  window.yo.onVibeRecordingState((state) => {
+    const badge = document.getElementById("vibe-recording-badge");
+    const recordBtn = document.getElementById("vibe-record-btn") as HTMLButtonElement;
+    if (badge) badge.style.display = state.recording ? "inline-flex" : "none";
+    if (recordBtn) recordBtn.textContent = state.recording ? "Stop Recording" : "Record";
   });
 }
 
@@ -1269,6 +1287,205 @@ async function generateSkillPrompt() {
 
   btn.textContent = "Generate";
   btn.disabled = false;
+}
+
+// ── Vibes ─────────────────────────────────────────────────
+
+const vibesListEl = document.getElementById("vibes-list")!;
+const vibesToolbar = document.getElementById("vibes-toolbar")!;
+const vibeEditor = document.getElementById("vibe-editor")!;
+const vibeNameInput = document.getElementById("vibe-name") as HTMLInputElement;
+const vibeDescInput = document.getElementById("vibe-desc") as HTMLInputElement;
+const vibeStepsList = document.getElementById("vibe-steps-list")!;
+const vibeDeleteBtn = document.getElementById("vibe-delete") as HTMLButtonElement;
+const vibeRunBtn = document.getElementById("vibe-run-btn") as HTMLButtonElement;
+let editingVibeName: string | null = null;
+
+interface VibeStepData {
+  app: string;
+  command: string;
+  value?: string;
+  find?: string;
+  waitMs?: number;
+  describe?: string;
+  condition?: string;
+  onTrue?: number;
+  onFalse?: number;
+  retries?: number;
+}
+
+async function loadVibes() {
+  vibeEditor.classList.add("hidden");
+  vibesListEl.classList.remove("hidden");
+  vibesToolbar.classList.remove("hidden");
+  const vibes = await window.yo.vibesList();
+  if (vibes.length === 0) {
+    vibesListEl.innerHTML = `<div class="help-item-empty">No vibes yet. Click "+ New" or press Cmd+Shift+. to record one.</div>`;
+    return;
+  }
+  vibesListEl.innerHTML = "";
+  for (const v of vibes) {
+    const row = document.createElement("div");
+    row.className = "help-item-row";
+    row.innerHTML = `
+      <div class="help-item-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
+      </div>
+      <span class="help-item-name">${v.name}</span>
+      <span class="help-item-meta">${v.stepCount} steps</span>
+      <div class="help-item-actions">
+        <button class="action-btn vibe-edit" title="Edit">Edit</button>
+        <button class="action-btn vibe-play" title="Run">Run</button>
+      </div>`;
+
+    row.querySelector(".vibe-edit")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const vibe = await window.yo.vibesRead(v.name);
+      if (vibe) openVibeEditor(vibe.name, vibe.description, vibe.steps);
+    });
+
+    row.querySelector(".vibe-play")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const btn = e.target as HTMLButtonElement;
+      btn.textContent = "Running...";
+      btn.disabled = true;
+      try {
+        const result = await window.yo.vibesRun(v.name);
+        btn.textContent = result.success ? "Done" : "Failed";
+      } catch {
+        btn.textContent = "Error";
+      }
+      setTimeout(() => { btn.textContent = "Run"; btn.disabled = false; }, 2000);
+    });
+
+    vibesListEl.appendChild(row);
+  }
+}
+
+function openVibeEditor(name: string, description: string, steps: VibeStepData[]) {
+  editingVibeName = name || null;
+  vibeNameInput.value = name;
+  vibeDescInput.value = description;
+  vibeDeleteBtn.style.display = name ? "block" : "none";
+  vibeRunBtn.style.display = name ? "inline-flex" : "none";
+
+  vibesListEl.classList.add("hidden");
+  vibesToolbar.classList.add("hidden");
+  vibeEditor.classList.remove("hidden");
+
+  renderVibeSteps(steps);
+  vibeNameInput.focus();
+}
+
+function renderVibeSteps(steps: VibeStepData[]) {
+  vibeStepsList.innerHTML = "";
+  for (let i = 0; i < steps.length; i++) {
+    vibeStepsList.appendChild(createStepRow(i, steps[i]));
+  }
+}
+
+function createStepRow(idx: number, step: VibeStepData): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "vibe-step-row";
+  row.dataset.idx = String(idx);
+  row.innerHTML = `
+    <span class="vibe-step-idx">${idx}</span>
+    <input class="vibe-step-app" value="${step.app || ""}" placeholder="app" spellcheck="false" />
+    <input class="vibe-step-cmd" value="${step.command || ""}" placeholder="command" spellcheck="false" />
+    <input class="vibe-step-val" value="${escVibeVal(step)}" placeholder="value / describe" spellcheck="false" />
+    <span class="vibe-step-remove" title="Remove step">&times;</span>`;
+
+  row.querySelector(".vibe-step-remove")!.addEventListener("click", () => {
+    row.remove();
+    reindexSteps();
+  });
+  return row;
+}
+
+function escVibeVal(step: VibeStepData): string {
+  if (step.value && typeof step.value === "string") return step.value;
+  if (step.describe) return step.describe;
+  if (step.find) return `find: ${step.find}`;
+  return "";
+}
+
+function reindexSteps() {
+  vibeStepsList.querySelectorAll(".vibe-step-row").forEach((row, i) => {
+    (row as HTMLElement).dataset.idx = String(i);
+    row.querySelector(".vibe-step-idx")!.textContent = String(i);
+  });
+}
+
+function collectSteps(): VibeStepData[] {
+  const steps: VibeStepData[] = [];
+  vibeStepsList.querySelectorAll(".vibe-step-row").forEach((row) => {
+    const app = (row.querySelector(".vibe-step-app") as HTMLInputElement).value.trim();
+    const command = (row.querySelector(".vibe-step-cmd") as HTMLInputElement).value.trim();
+    const val = (row.querySelector(".vibe-step-val") as HTMLInputElement).value.trim();
+    if (!app || !command) return;
+    const step: VibeStepData = { app, command };
+    if (val.startsWith("find: ")) {
+      step.find = val.slice(6);
+    } else if (val) {
+      const clickCmds = new Set(["click", "submit", "send", "new", "compose", "navigate"]);
+      if (clickCmds.has(command)) {
+        step.describe = val;
+      } else {
+        step.value = val;
+      }
+    }
+    steps.push(step);
+  });
+  return steps;
+}
+
+function closeVibeEditor() {
+  vibeEditor.classList.add("hidden");
+  vibesListEl.classList.remove("hidden");
+  vibesToolbar.classList.remove("hidden");
+  editingVibeName = null;
+  loadVibes();
+}
+
+async function saveVibe() {
+  const name = vibeNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+  const description = vibeDescInput.value.trim();
+  if (!name) { vibeNameInput.focus(); return; }
+  const steps = collectSteps();
+  if (steps.length === 0) return;
+
+  if (editingVibeName && editingVibeName !== name) {
+    await window.yo.vibesDelete(editingVibeName);
+  }
+
+  await window.yo.vibesCreate(name, { name, description: description || name, steps });
+  closeVibeEditor();
+}
+
+async function deleteVibe() {
+  if (editingVibeName) {
+    await window.yo.vibesDelete(editingVibeName);
+  }
+  closeVibeEditor();
+}
+
+async function runVibeFromEditor() {
+  const name = editingVibeName || vibeNameInput.value.trim();
+  if (!name) return;
+  vibeRunBtn.textContent = "Running...";
+  vibeRunBtn.disabled = true;
+  try {
+    const result = await window.yo.vibesRun(name);
+    vibeRunBtn.textContent = result.success ? "Done" : "Failed";
+  } catch {
+    vibeRunBtn.textContent = "Error";
+  }
+  setTimeout(() => { vibeRunBtn.textContent = "Run"; vibeRunBtn.disabled = false; }, 2000);
+}
+
+function addVibeStep() {
+  const idx = vibeStepsList.querySelectorAll(".vibe-step-row").length;
+  vibeStepsList.appendChild(createStepRow(idx, { app: "", command: "" }));
 }
 
 // ── About ─────────────────────────────────────────────────

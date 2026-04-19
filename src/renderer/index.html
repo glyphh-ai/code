@@ -109,6 +109,7 @@
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
+        <button class="help-nav-item" data-section="vibes">Vibes</button>
         <button class="help-nav-item" data-section="settings">Settings</button>
         <button class="help-nav-item" data-section="support">Support</button>
         <button class="help-nav-item" data-section="about">About</button>
@@ -414,6 +415,42 @@
                 </div>
                 <webview id="app-preview" allowpopups></webview>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vibes -->
+        <div class="help-section" data-section="vibes">
+          <h2>Vibes</h2>
+          <p class="section-desc">Cross-app automation sequences. Chain commands across apps into replayable patterns. Press <code>Cmd+Shift+.</code> to record a new vibe from live interactions.</p>
+          <div id="vibes-toolbar" style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+            <button id="vibe-record-btn" class="action-btn">Record</button>
+            <button id="vibe-new-btn" class="action-btn primary">+ New</button>
+          </div>
+          <div id="vibes-list" class="help-item-list"></div>
+
+          <!-- Vibe editor (hidden by default) -->
+          <div id="vibe-editor" class="hidden">
+            <div class="skill-field">
+              <label class="skill-label">Name</label>
+              <input type="text" id="vibe-name" class="skill-input" placeholder="vibe name" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="skill-field">
+              <label class="skill-label">Description</label>
+              <input type="text" id="vibe-desc" class="skill-input" placeholder="What does this vibe do?" spellcheck="false" autocomplete="off" />
+            </div>
+
+            <div class="skill-field">
+              <label class="skill-label">Steps</label>
+              <div id="vibe-steps-list" class="vibe-steps-list"></div>
+              <button id="vibe-add-step" class="action-btn" style="margin-top:6px;">+ Add Step</button>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button id="vibe-save" class="action-btn primary">Save</button>
+              <button id="vibe-cancel" class="action-btn">Cancel</button>
+              <button id="vibe-run-btn" class="action-btn" style="margin-left:auto;">Run</button>
+              <button id="vibe-delete" class="action-btn danger">Delete</button>
             </div>
           </div>
         </div>

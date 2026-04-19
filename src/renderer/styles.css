@@ -799,6 +799,110 @@ body {
 .skill-prompt-area:focus { border-color: #25C75E; }
 .skill-prompt-area::placeholder { color: #444; -webkit-text-fill-color: #444; }
 
+/* ── Vibe steps ──────────────────────────────────────────── */
+
+.vibe-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vibe-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #ccc;
+}
+.vibe-step-row:hover {
+  border-color: #444;
+}
+.vibe-step-idx {
+  width: 20px;
+  color: #555;
+  font-size: 11px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.vibe-step-app {
+  width: 70px;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: #25C75E;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 4px;
+  outline: none;
+  flex-shrink: 0;
+}
+.vibe-step-app:focus { border-color: #25C75E; }
+.vibe-step-cmd {
+  width: 80px;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: #fff;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 4px;
+  outline: none;
+  flex-shrink: 0;
+}
+.vibe-step-cmd:focus { border-color: #25C75E; }
+.vibe-step-val {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: #aaa;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 4px;
+  outline: none;
+}
+.vibe-step-val:focus { border-color: #25C75E; }
+.vibe-step-val::placeholder { color: #444; }
+.vibe-step-remove {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #555;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.vibe-step-remove:hover {
+  color: #ff5f57;
+  background: rgba(255,95,87,0.1);
+}
+.vibe-recording-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(255,50,50,0.15);
+  color: #ff5f57;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  animation: vibePulse 1.5s infinite;
+}
+.vibe-recording-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+@keyframes vibePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* ── Panel screenshots (freeze-frame) ────────────────────── */
 
 #panel-screenshots {

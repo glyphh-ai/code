@@ -2145,6 +2145,34 @@ async function boot() {
     skillEngine.generatePrompt(name, description),
   );
 
+  // IPC: vibes CRUD
+  ipcMain.handle("vibes-list", () => vibeRunner.list());
+  ipcMain.handle("vibes-read", (_e, name: string) => vibeRunner.get(name));
+  ipcMain.handle("vibes-create", (_e, name: string, vibe: any) => {
+    vibeRunner.create(name, { ...vibe, name });
+    return true;
+  });
+  ipcMain.handle("vibes-delete", (_e, name: string) => vibeRunner.remove(name));
+  ipcMain.handle("vibes-run", async (_e, name: string) => {
+    const result = await vibeRunner.run(name);
+    return { success: result.success, summary: result.summary };
+  });
+  ipcMain.on("vibes-record-toggle", () => {
+    if (vibeRecorder.isRecording) {
+      const session = vibeRecorder.stop();
+      if (session.events.length === 0) {
+        mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
+        return;
+      }
+      const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+      const vibe = vibeRecorder.refine(session, `recorded-${ts}`);
+      vibeRunner.create(vibe.name, vibe);
+      mainWindow?.webContents.send("yo-reminder", `Vibe "${vibe.name}" recorded with ${vibe.steps.length} steps.`);
+    } else {
+      vibeRecorder.start();
+    }
+  });
+
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>
     layoutManager.listLayouts().map((l) => ({
