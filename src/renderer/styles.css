@@ -26,7 +26,12 @@
 }
 
 button, input, select, textarea {
-  font-family: inherit;
+  font-family: var(--font-sans);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -1844,6 +1849,63 @@ ol.docs-list li::before {
   font-style: italic;
 }
 
+/* ── Pagination ─────────────────────────────────────────── */
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 4px;
+  border-top: 1px solid #1e1e1e;
+  margin-top: 12px;
+}
+
+.pagination-info {
+  font-size: 12px;
+  color: #666;
+}
+
+.pagination-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pagination-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #999;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 28px;
+  text-align: center;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: #1a1a1a;
+  border-color: #2a2a2a;
+  color: #e0e0e0;
+}
+
+.pagination-btn.active {
+  background: #1a1a1a;
+  border-color: #25C75E;
+  color: #25C75E;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.pagination-ellipsis {
+  color: #444;
+  font-size: 12px;
+  padding: 0 4px;
+}
 
 /* App detail view */
 
@@ -3641,6 +3703,11 @@ select.settings-input {
 }
 #yo-panel-input:focus { border-color: var(--yo-mode-color, #25C75E); }
 #yo-panel-input::placeholder { color: #555; }
+#yo-panel-input.yo-input-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 .yo-mic-btn {
   background: none;

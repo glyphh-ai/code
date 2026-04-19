@@ -187,9 +187,26 @@ export class AppConnector {
 
   /** Merge remote app catalog — adds new apps, updates forceWeb/protocol URLs/commands for existing. */
   mergeRemoteApps(): void {
-    const remote = ConfigSync.load<{ apps: Array<{ id: string; name: string; url: string; forceWeb?: boolean; commands?: Record<string, CommandMapping>; meta?: AppConfig["meta"] }> }>("apps");
-    if (!remote?.apps) return;
-    for (const def of remote.apps) {
+    const raw = ConfigSync.load<
+      | Array<{ app_id?: string; id?: string; name: string; url: string; force_web?: boolean; forceWeb?: boolean; commands?: Record<string, CommandMapping>; meta?: AppConfig["meta"] }>
+      | { apps: Array<{ id: string; name: string; url: string; forceWeb?: boolean; commands?: Record<string, CommandMapping>; meta?: AppConfig["meta"] }> }
+    >("apps");
+    if (!raw) return;
+    // Normalize: server returns flat array with app_id/force_web; old format was { apps: [...] } with id/forceWeb
+    const list = Array.isArray(raw) ? raw : (raw as { apps: unknown[] }).apps;
+    if (!list) return;
+    const apps = list.map((a: unknown) => {
+      const r = a as Record<string, unknown>;
+      return {
+        id: (r.app_id || r.id) as string,
+        name: r.name as string,
+        url: r.url as string,
+        forceWeb: (r.force_web ?? r.forceWeb) as boolean | undefined,
+        commands: r.commands as Record<string, CommandMapping> | undefined,
+        meta: r.meta as AppConfig["meta"] | undefined,
+      };
+    });
+    for (const def of apps) {
       if (!this.apps.has(def.id)) {
         const app = this.add(def.id, def.name, def.url, def.forceWeb);
         // Merge commands from remote catalog

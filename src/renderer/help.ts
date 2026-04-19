@@ -4,6 +4,86 @@
 
 import { showOnboarding } from "./onboarding.js";
 
+// ── Pagination utility ──────────────────────────────────────
+const PAGE_SIZE = 50;
+
+interface PaginationState {
+  page: number;
+  totalPages: number;
+  total: number;
+}
+
+function renderPaginationBar(state: PaginationState, onPage: (page: number) => void): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "pagination-bar";
+  if (state.totalPages <= 1) return bar;
+
+  const info = document.createElement("span");
+  info.className = "pagination-info";
+  const start = state.page * PAGE_SIZE + 1;
+  const end = Math.min((state.page + 1) * PAGE_SIZE, state.total);
+  info.textContent = `${start}–${end} of ${state.total}`;
+
+  const nav = document.createElement("div");
+  nav.className = "pagination-nav";
+
+  const prev = document.createElement("button");
+  prev.className = "pagination-btn";
+  prev.textContent = "‹ Prev";
+  prev.disabled = state.page === 0;
+  prev.addEventListener("click", () => onPage(state.page - 1));
+
+  // Page buttons — show max 7 with ellipsis
+  const pages: (number | "...")[] = [];
+  const tp = state.totalPages;
+  const cp = state.page;
+  if (tp <= 7) {
+    for (let i = 0; i < tp; i++) pages.push(i);
+  } else {
+    pages.push(0);
+    if (cp > 2) pages.push("...");
+    for (let i = Math.max(1, cp - 1); i <= Math.min(tp - 2, cp + 1); i++) pages.push(i);
+    if (cp < tp - 3) pages.push("...");
+    pages.push(tp - 1);
+  }
+
+  const next = document.createElement("button");
+  next.className = "pagination-btn";
+  next.textContent = "Next ›";
+  next.disabled = state.page >= state.totalPages - 1;
+  next.addEventListener("click", () => onPage(state.page + 1));
+
+  nav.appendChild(prev);
+  for (const p of pages) {
+    if (p === "...") {
+      const ell = document.createElement("span");
+      ell.className = "pagination-ellipsis";
+      ell.textContent = "…";
+      nav.appendChild(ell);
+    } else {
+      const btn = document.createElement("button");
+      btn.className = "pagination-btn" + (p === state.page ? " active" : "");
+      btn.textContent = String(p + 1);
+      btn.addEventListener("click", () => onPage(p));
+      nav.appendChild(btn);
+    }
+  }
+  nav.appendChild(next);
+
+  bar.appendChild(info);
+  bar.appendChild(nav);
+  return bar;
+}
+
+function paginate<T>(items: T[], page: number): { items: T[]; state: PaginationState } {
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  return {
+    items: items.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
+    state: { page: safePage, totalPages, total: items.length },
+  };
+}
+
 const overlay = document.getElementById("help-overlay")!;
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
 const sections = document.querySelectorAll<HTMLDivElement>(".help-section");
@@ -166,7 +246,9 @@ export function initHelp() {
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
     await window.yo.logout();
-    closeHelp();
+    // Hide help overlay without restoring panels (they should stay hidden for onboarding)
+    overlay.classList.add("hidden");
+    window.yo.panelsHide();
     showOnboarding(true);
   });
 
@@ -324,6 +406,7 @@ export function initHelp() {
 
 // ── Layouts (Grid Builder) ──────────────────────────────────
 
+let layoutsPage = 0;
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
 const layoutEditName = document.getElementById("layout-edit-name")!;
@@ -526,7 +609,14 @@ async function loadLayouts() {
     layoutsList.innerHTML = `<div class="inline-empty">No layouts yet. Create one to arrange panels your way.</div>`;
     return;
   }
-  layoutsList.innerHTML = items
+  renderLayoutsList(items);
+}
+
+function renderLayoutsList(items: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }> }>) {
+  const { items: layouts, state } = paginate(items, layoutsPage);
+  layoutsPage = state.page;
+
+  layoutsList.innerHTML = layouts
     .map(
       (layout) => `
     <div class="item-row" data-name="${layout.name}">
@@ -539,6 +629,8 @@ async function loadLayouts() {
     </div>`,
     )
     .join("");
+
+  layoutsList.appendChild(renderPaginationBar(state, (p) => { layoutsPage = p; renderLayoutsList(items); }));
 
   layoutsList.querySelectorAll(".item-row").forEach((row) => {
     row.addEventListener("click", () => editLayout((row as HTMLElement).dataset.name!));
@@ -622,6 +714,7 @@ async function saveLayout() {
 
 // ── Apps ─────────────────────────────────────────────────
 
+let appsPage = 0;
 const appsList = document.getElementById("apps-list")!;
 const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
@@ -671,17 +764,22 @@ async function loadApps() {
 
 function renderAppsList() {
   const query = appSearchInput.value.trim().toLowerCase();
-  const apps = query
+  const filtered = query
     ? allApps.filter((a) => a.id.includes(query) || a.name.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
     : allApps;
   if (allApps.length === 0) {
     appsList.innerHTML = `<div class="inline-empty">No apps yet. Add a web app to connect it to yo/dip.</div>`;
     return;
   }
-  if (apps.length === 0) {
+  if (filtered.length === 0) {
     appsList.innerHTML = `<div class="inline-empty">No apps matching "${query}"</div>`;
     return;
   }
+  // Reset page on search
+  if (query) appsPage = 0;
+  const { items: apps, state } = paginate(filtered, appsPage);
+  appsPage = state.page;
+
   appsList.innerHTML = apps.map((app) => `
     <div class="app-card" data-id="${app.id}">
       <div class="app-card-header">
@@ -700,6 +798,8 @@ function renderAppsList() {
         <button class="action-btn danger app-card-delete">Delete</button>
       </div>
     </div>`).join("");
+
+  appsList.appendChild(renderPaginationBar(state, (p) => { appsPage = p; renderAppsList(); }));
 
   appsList.querySelectorAll(".app-card").forEach((card) => {
     const id = (card as HTMLElement).dataset.id!;
@@ -1027,7 +1127,9 @@ function initSettings() {
   // Sign out
   document.getElementById("account-logout-btn")?.addEventListener("click", async () => {
     await window.yo.logout();
-    closeHelp();
+    // Hide help overlay without restoring panels (they should stay hidden for onboarding)
+    overlay.classList.add("hidden");
+    window.yo.panelsHide();
     showOnboarding(true);
   });
 }
@@ -1273,6 +1375,7 @@ async function saveMapping() {
 
 // ── Skills ────────────────────────────────────────────────
 
+let skillsPage = 0;
 const skillsListEl = document.getElementById("skills-list")!;
 const skillsToolbar = document.getElementById("skills-toolbar")!;
 const skillEditor = document.getElementById("skill-editor")!;
@@ -1291,8 +1394,14 @@ async function loadSkills() {
     skillsListEl.innerHTML = `<div class="help-item-empty">No skills yet. Click "+ New" to create one.</div>`;
     return;
   }
+  renderSkillsList(skills);
+}
+
+function renderSkillsList(skills: string[]) {
+  const { items, state } = paginate(skills, skillsPage);
+  skillsPage = state.page;
   skillsListEl.innerHTML = "";
-  for (const name of skills) {
+  for (const name of items) {
     const row = document.createElement("div");
     row.className = "help-item-row";
     const cleanName = name.replace(/\.md$/i, "");
@@ -1313,6 +1422,7 @@ async function loadSkills() {
 
     skillsListEl.appendChild(row);
   }
+  skillsListEl.appendChild(renderPaginationBar(state, (p) => { skillsPage = p; renderSkillsList(skills); }));
 }
 
 function openSkillEditor(name: string, prompt: string) {
@@ -1381,6 +1491,7 @@ async function generateSkillPrompt() {
 
 // ── Vibes ─────────────────────────────────────────────────
 
+let vibesPage = 0;
 const vibesListEl = document.getElementById("vibes-list")!;
 const vibesToolbar = document.getElementById("vibes-toolbar")!;
 const vibeEditor = document.getElementById("vibe-editor")!;
@@ -1413,8 +1524,14 @@ async function loadVibes() {
     vibesListEl.innerHTML = `<div class="help-item-empty">No vibes yet. Click "+ New" or press Cmd+Shift+. to record one.</div>`;
     return;
   }
+  renderVibesList(vibes);
+}
+
+function renderVibesList(vibes: Array<{ name: string; stepCount: number }>) {
+  const { items, state } = paginate(vibes, vibesPage);
+  vibesPage = state.page;
   vibesListEl.innerHTML = "";
-  for (const v of vibes) {
+  for (const v of items) {
     const row = document.createElement("div");
     row.className = "help-item-row";
     row.innerHTML = `
@@ -1450,6 +1567,7 @@ async function loadVibes() {
 
     vibesListEl.appendChild(row);
   }
+  vibesListEl.appendChild(renderPaginationBar(state, (p) => { vibesPage = p; renderVibesList(vibes); }));
 }
 
 function openVibeEditor(name: string, description: string, steps: VibeStepData[]) {

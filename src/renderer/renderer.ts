@@ -134,7 +134,7 @@ declare global {
       yoPanelGetWidth: () => Promise<number>;
       // Yo chat history
       yoChatsList: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
-      yoChatsLoad: (id: string) => Promise<Array<{ role: string; text: string }> | null>;
+      yoChatsLoad: (id: string) => Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>;
       yoChatsDelete: (id: string) => Promise<boolean>;
       yoChatNew: () => Promise<boolean>;
       // Agent mode + guardrails
@@ -848,6 +848,8 @@ function setYoThinking(thinking: boolean) {
   yoThinking = thinking;
   yoPanelSendBtn.textContent = thinking ? "\u25A0" : "\u2191";
   yoPanelSendBtn.classList.toggle("yo-stop", thinking);
+  yoPanelInput.disabled = thinking;
+  yoPanelInput.classList.toggle("yo-input-disabled", thinking);
 }
 
 function hideYoWelcome() {
@@ -1562,6 +1564,7 @@ function autoGrowYoInput() {
 }
 
 function sendYoPanelMessage() {
+  if (yoThinking) return;
   const text = yoPanelInput.value.trim();
   if (!text) return;
   hideYoWelcome();
@@ -1700,13 +1703,46 @@ async function loadYoHistory() {
         yoLastAssistantText = "";
         yoHistoryPanel.classList.add("hidden");
 
-        // Render conversation messages
+        // Render conversation messages (including tool calls from history)
         for (const msg of messages) {
+          // Render tool timeline for this assistant turn (before the text)
+          if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
+            const timeline = document.createElement("div");
+            timeline.className = "yo-ag-timeline done";
+            for (const tool of msg.tools) {
+              const block = document.createElement("div");
+              block.className = "yo-result-block yo-done";
+              const header = document.createElement("div");
+              header.className = "yo-result-header";
+              const dot = document.createElement("span");
+              dot.className = "yo-ag-dot";
+              header.appendChild(dot);
+              const headings = document.createElement("div");
+              headings.className = "yo-result-headings";
+              const nameEl = document.createElement("span");
+              nameEl.className = "yo-result-name";
+              nameEl.textContent = DELEGATION_DESC[tool.name] || DIRECT_TOOL_DESC[tool.name] || tool.name.replace(/_/g, " ");
+              headings.appendChild(nameEl);
+              const sub = toolInputSummary(tool.name, tool.input);
+              if (sub) {
+                const subEl = document.createElement("span");
+                subEl.className = "yo-result-subtitle";
+                subEl.textContent = sub;
+                headings.appendChild(subEl);
+              }
+              header.appendChild(headings);
+              block.appendChild(header);
+              timeline.appendChild(block);
+            }
+            yoPanelMessages.appendChild(timeline);
+          }
+
           const el = document.createElement("div");
           if (msg.role === "user") {
             el.className = "yo-msg yo-msg-user";
             el.textContent = msg.text;
           } else {
+            if (!msg.text) continue; // tool-only turn with no text
             el.className = "yo-msg yo-msg-assistant";
             el.innerHTML = formatYoText(msg.text);
             attachCopyHandlers(el);

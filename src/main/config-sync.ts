@@ -11,7 +11,7 @@ import os from "os";
 
 const CONFIG_CACHE_DIR = path.join(os.homedir(), "yo", ".config-cache");
 const MANIFEST_PATH = path.join(CONFIG_CACHE_DIR, "manifest.json");
-const SERVER_BASE = "https://api.yosup.dev";
+const SERVER_BASE = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
 const CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
 interface ConfigVersion {

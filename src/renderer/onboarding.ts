@@ -246,10 +246,9 @@ signinBtn.addEventListener("click", async () => {
     // Auth succeeded — check if API key already exists (re-login scenario)
     const existingConfig = await window.yo.getLLMConfig();
     if (existingConfig?.apiKey) {
-      // Key already on disk — skip step 2, go straight to app
+      // Key already on disk — just restore the app, no onboarding/tutorial
       hideOnboarding();
-      window.yo.onboardingComplete();
-      window.dispatchEvent(new Event("yo-onboarding-done"));
+      window.yo.panelsShow();
       return;
     }
     const account = await window.yo.getAccountInfo();
@@ -278,9 +277,9 @@ registerBtn.addEventListener("click", async () => {
     // Check if API key already exists
     const existingConfig = await window.yo.getLLMConfig();
     if (existingConfig?.apiKey) {
+      // Key already on disk — just restore the app, no onboarding/tutorial
       hideOnboarding();
-      window.yo.onboardingComplete();
-      window.dispatchEvent(new Event("yo-onboarding-done"));
+      window.yo.panelsShow();
       return;
     }
     const account = await window.yo.getAccountInfo();

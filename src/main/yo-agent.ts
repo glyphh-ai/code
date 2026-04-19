@@ -521,7 +521,7 @@ export class YoAgent {
     this.chatTitle = "";
   }
 
-  loadChat(id: string): Array<{ role: string; text: string }> | null {
+  loadChat(id: string): Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null {
     const filepath = path.join(CHATS_DIR, `${id}.md`);
     if (!fs.existsSync(filepath)) return null;
     try {
@@ -531,16 +531,26 @@ export class YoAgent {
       this.chatTitle = parsed.title;
       this.history = parsed.history;
 
-      const display: Array<{ role: string; text: string }> = [];
+      const display: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> = [];
       for (const msg of parsed.history) {
         if (msg.role === "user" && typeof msg.content === "string") {
           display.push({ role: "user", text: msg.content });
         } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+          // Collect tool_use blocks for this assistant turn
+          const toolUses = msg.content
+            .filter((b: any) => b.type === "tool_use")
+            .map((b: any) => ({ name: b.name as string, input: b.input }));
           const text = msg.content
             .filter((b: any) => b.type === "text")
             .map((b: any) => b.text)
             .join("");
-          if (text) display.push({ role: "assistant", text });
+          if (text || toolUses.length > 0) {
+            display.push({
+              role: "assistant",
+              text: text || "",
+              ...(toolUses.length > 0 ? { tools: toolUses } : {}),
+            });
+          }
         }
       }
       return display;
