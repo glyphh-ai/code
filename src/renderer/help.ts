@@ -7,6 +7,7 @@ import { showOnboarding } from "./onboarding.js";
 const overlay = document.getElementById("help-overlay")!;
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
 const sections = document.querySelectorAll<HTMLDivElement>(".help-section");
+const navSubItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-sub-item");
 
 // ── Open / close ─────────────────────────────────────────
 
@@ -16,14 +17,17 @@ export function openHelp() {
   loadActiveSection();
 }
 
-export function openSettings() {
-  // Switch to settings tab
-  navItems.forEach((n) => n.classList.remove("active"));
-  sections.forEach((s) => s.classList.remove("active"));
-  const settingsNav = document.querySelector('.help-nav-item[data-section="settings"]') as HTMLElement;
-  const settingsSec = document.querySelector('.help-section[data-section="settings"]') as HTMLElement;
-  if (settingsNav) settingsNav.classList.add("active");
-  if (settingsSec) settingsSec.classList.add("active");
+export function openSettings(sub?: string) {
+  switchToSection("settings");
+  if (sub) {
+    // Activate the specific settings sub-panel
+    const settingsNavItems = document.querySelectorAll<HTMLButtonElement>(".help-section[data-section='settings'] .settings-nav-item");
+    const settingsPanels = document.querySelectorAll<HTMLDivElement>(".help-section[data-section='settings'] .settings-panel");
+    settingsNavItems.forEach((n) => n.classList.toggle("active", n.dataset.sub === sub));
+    settingsPanels.forEach((p) => p.classList.toggle("active", p.dataset.sub === sub));
+    // Also highlight the sub-item in sidebar
+    navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === sub));
+  }
   openHelp();
 }
 
@@ -38,33 +42,92 @@ export function isHelpOpen(): boolean {
 
 // ── Navigation ───────────────────────────────────────────
 
+function switchToSection(sectionId: string) {
+  navItems.forEach((n) => n.classList.remove("active"));
+  sections.forEach((s) => s.classList.remove("active"));
+  const navItem = document.querySelector(`.help-nav-item[data-section="${sectionId}"]`) as HTMLElement;
+  const section = document.querySelector(`.help-section[data-section="${sectionId}"]`) as HTMLElement;
+  if (navItem) navItem.classList.add("active");
+  if (section) section.classList.add("active");
+}
+
 navItems.forEach((item) => {
   item.addEventListener("click", () => {
-    navItems.forEach((n) => n.classList.remove("active"));
-    sections.forEach((s) => s.classList.remove("active"));
-    item.classList.add("active");
-    document.querySelector(`.help-section[data-section="${item.dataset.section}"]`)!.classList.add("active");
+    switchToSection(item.dataset.section!);
+    // Clear sub-item highlights when clicking the parent
+    navSubItems.forEach((s) => s.classList.remove("active"));
     loadActiveSection();
   });
 });
 
-// ── Settings sub-navigation ─────────────────────────────
+// ── Sidebar sub-navigation (dropdown items) ──────────────
 
-const settingsSubNav = document.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-const settingsSubPanels = document.querySelectorAll<HTMLDivElement>(".settings-panel");
+navSubItems.forEach((sub) => {
+  sub.addEventListener("click", () => {
+    const sectionId = sub.dataset.section!;
+    const subId = sub.dataset.sub!;
+
+    // Activate the parent section
+    switchToSection(sectionId);
+
+    // Highlight this sub-item
+    navSubItems.forEach((s) => s.classList.remove("active"));
+    sub.classList.add("active");
+
+    if (sectionId === "docs") {
+      loadDocs();
+      showDocPanel(subId);
+    } else if (sectionId === "settings") {
+      loadActiveSection();
+      // Switch to specific settings sub-panel
+      const settingsNavItems = document.querySelectorAll<HTMLButtonElement>(".help-section[data-section='settings'] .settings-nav-item");
+      const settingsPanels = document.querySelectorAll<HTMLDivElement>(".help-section[data-section='settings'] .settings-panel");
+      settingsNavItems.forEach((n) => n.classList.toggle("active", n.dataset.sub === subId));
+      settingsPanels.forEach((p) => p.classList.toggle("active", p.dataset.sub === subId));
+    }
+  });
+});
+
+// ── Settings inner sub-navigation ────────────────────────
+
+const settingsSubNav = document.querySelectorAll<HTMLButtonElement>(".help-section[data-section='settings'] .settings-nav-item");
+const settingsSubPanels = document.querySelectorAll<HTMLDivElement>(".help-section[data-section='settings'] .settings-panel");
 
 settingsSubNav.forEach((btn) => {
   btn.addEventListener("click", () => {
     settingsSubNav.forEach((n) => n.classList.remove("active"));
     settingsSubPanels.forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
-    const target = document.querySelector(`.settings-panel[data-sub="${btn.dataset.sub}"]`);
+    const target = document.querySelector(`.help-section[data-section='settings'] .settings-panel[data-sub="${btn.dataset.sub}"]`);
     if (target) target.classList.add("active");
+    // Sync sidebar sub-item highlight
+    navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === btn.dataset.sub));
+  });
+});
+
+// ── Docs inner sub-navigation ────────────────────────────
+
+const docsSubNav = document.querySelectorAll<HTMLButtonElement>(".docs-nav .settings-nav-item");
+const docsPanels = document.querySelectorAll<HTMLDivElement>(".docs-panel");
+
+function showDocPanel(docId: string) {
+  docsSubNav.forEach((n) => n.classList.toggle("active", n.dataset.doc === docId));
+  docsPanels.forEach((p) => p.classList.toggle("active", p.dataset.doc === docId));
+  // Sync sidebar sub-item highlight
+  navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "docs" && s.dataset.sub === docId));
+  // Scroll to top
+  const container = document.querySelector(".docs-panels");
+  if (container) container.scrollTop = 0;
+}
+
+docsSubNav.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    showDocPanel(btn.dataset.doc!);
   });
 });
 
 function activeSection(): string {
-  return (document.querySelector(".help-nav-item.active") as HTMLElement).dataset.section!;
+  return (document.querySelector(".help-nav-item.active") as HTMLElement)?.dataset.section || "guide";
 }
 
 function loadActiveSection() {
@@ -83,6 +146,16 @@ function loadActiveSection() {
 
 export function initHelp() {
   document.getElementById("help-close")!.addEventListener("click", closeHelp);
+
+  // User menu (bottom of help nav)
+  document.getElementById("user-menu-platform")!.addEventListener("click", () => {
+    window.yo.openExternal("https://platform.yosup.dev");
+  });
+  document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
+    await window.yo.logout();
+    closeHelp();
+    showOnboarding(true);
+  });
 
   // Settings
   initSettings();
@@ -1496,34 +1569,9 @@ function addVibeStep() {
 
 // ── Docs ──────────────────────────────────────────────────
 
-let docsInitialized = false;
-
 function loadDocs() {
-  if (docsInitialized) return;
-  docsInitialized = true;
-
-  const tocItems = document.querySelectorAll<HTMLAnchorElement>(".docs-toc-item");
-  const articles = document.querySelectorAll<HTMLDivElement>(".docs-article");
-
-  function showArticle(docId: string) {
-    articles.forEach((a) => a.classList.toggle("active", a.dataset.doc === docId));
-    tocItems.forEach((t) => t.classList.toggle("active", t.dataset.doc === docId));
-    // Scroll docs content to top
-    const docsContent = document.getElementById("docs-content");
-    if (docsContent) docsContent.scrollTop = 0;
-  }
-
-  tocItems.forEach((item) => {
-    item.addEventListener("click", (e) => {
-      e.preventDefault();
-      showArticle(item.dataset.doc!);
-    });
-  });
-
-  // Show first article by default
-  if (tocItems.length > 0) {
-    showArticle(tocItems[0].dataset.doc!);
-  }
+  // Docs sub-nav is handled above (docsSubNav click handlers)
+  // Nothing dynamic to load — all content is static HTML
 }
 
 // ── Support ───────────────────────────────────────────────

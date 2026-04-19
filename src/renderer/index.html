@@ -67,29 +67,6 @@
     <div id="tab-bar">
       <button id="tab-new-btn" class="tab-new-btn" title="New tab">+</button>
     </div>
-    <div id="user-menu" class="user-menu">
-      <button id="user-menu-btn" class="user-menu-btn" title="Account">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
-      </button>
-      <div id="user-menu-dropdown" class="user-menu-dropdown hidden">
-        <button class="user-menu-item" id="user-menu-platform">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-          <span>Platform</span>
-        </button>
-        <button class="user-menu-item" id="user-menu-settings">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Settings</span>
-        </button>
-        <div class="user-menu-divider"></div>
-        <button class="user-menu-item user-menu-item-danger" id="user-menu-logout">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          <span>Sign Out</span>
-        </button>
-      </div>
-    </div>
   </div>
 
   <!-- URL bar — shown below titlebar for all panels -->
@@ -129,15 +106,45 @@
       <nav id="help-nav">
         <div class="help-brand"><span class="dot">.</span>Yo</div>
         <button class="help-nav-item active" data-section="guide">Guide</button>
-        <button class="help-nav-item" data-section="docs">Docs</button>
+        <div class="help-nav-group">
+          <button class="help-nav-item has-sub" data-section="docs">Docs</button>
+          <div class="help-nav-sub">
+            <button class="help-nav-sub-item" data-section="docs" data-sub="navigation">Navigation</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="commands">Commands</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="apps">Apps</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="skills">Skills</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="layouts">Layouts</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="vibes">Vibes</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="agent">Agent</button>
+          </div>
+        </div>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="vibes">Vibes</button>
-        <button class="help-nav-item" data-section="settings">Settings</button>
+        <div class="help-nav-group">
+          <button class="help-nav-item has-sub" data-section="settings">Settings</button>
+          <div class="help-nav-sub">
+            <button class="help-nav-sub-item" data-section="settings" data-sub="general">General</button>
+            <button class="help-nav-sub-item" data-section="settings" data-sub="agent">Agent</button>
+            <button class="help-nav-sub-item" data-section="settings" data-sub="appearance">Appearance</button>
+            <button class="help-nav-sub-item" data-section="settings" data-sub="account">Account</button>
+            <button class="help-nav-sub-item" data-section="settings" data-sub="advanced">Advanced</button>
+          </div>
+        </div>
         <button class="help-nav-item" data-section="support">Support</button>
         <button class="help-nav-item" data-section="about">About</button>
         <div class="help-nav-spacer"></div>
+        <div class="help-nav-user">
+          <button class="help-nav-user-item" id="user-menu-platform">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            <span>Platform</span>
+          </button>
+          <button class="help-nav-user-item help-nav-user-danger" id="user-menu-logout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>Sign Out</span>
+          </button>
+        </div>
       </nav>
       <main id="help-content">
         <button id="help-close" class="help-close-x" aria-label="Close">&times;</button>
@@ -296,21 +303,18 @@
 
         <!-- Docs -->
         <div class="help-section" data-section="docs">
-          <h2>Documentation</h2>
-          <p class="section-desc">How everything works — navigation, commands, skills, layouts, apps, and vibes.</p>
-
-          <div class="docs-toc">
-            <a href="#" class="docs-toc-item" data-doc="navigation">Navigation</a>
-            <a href="#" class="docs-toc-item" data-doc="commands">Commands</a>
-            <a href="#" class="docs-toc-item" data-doc="apps">Apps</a>
-            <a href="#" class="docs-toc-item" data-doc="skills">Skills</a>
-            <a href="#" class="docs-toc-item" data-doc="layouts">Layouts</a>
-            <a href="#" class="docs-toc-item" data-doc="vibes">Vibes</a>
-            <a href="#" class="docs-toc-item" data-doc="agent">Agent</a>
-          </div>
-
-          <div id="docs-content">
-            <div class="docs-article" data-doc="navigation">
+          <div class="settings-layout">
+            <nav class="settings-nav docs-nav">
+              <button class="settings-nav-item active" data-doc="navigation">Navigation</button>
+              <button class="settings-nav-item" data-doc="commands">Commands</button>
+              <button class="settings-nav-item" data-doc="apps">Apps</button>
+              <button class="settings-nav-item" data-doc="skills">Skills</button>
+              <button class="settings-nav-item" data-doc="layouts">Layouts</button>
+              <button class="settings-nav-item" data-doc="vibes">Vibes</button>
+              <button class="settings-nav-item" data-doc="agent">Agent</button>
+            </nav>
+            <div class="settings-panels docs-panels">
+            <div class="docs-panel active" data-doc="navigation">
               <h3>Navigation</h3>
               <p>.Yo is a multi-panel workspace. You can view one app at a time, or split the screen into a grid of panels. Every panel is a live web app running inside .Yo.</p>
 
@@ -339,7 +343,7 @@
               <div class="cmd-row"><code>Esc</code><span>Close current overlay</span></div>
             </div>
 
-            <div class="docs-article" data-doc="commands">
+            <div class="docs-panel" data-doc="commands">
               <h3>Commands</h3>
               <p>Commands are the core of .Yo. Type them in the command bar (Cmd+K) or chain them together. Every command starts with a dot.</p>
 
@@ -383,7 +387,7 @@
               <div class="cmd-row"><code>.sup .dip gpt .yo . explain this</code><span>Capture, switch to GPT, process inline</span></div>
             </div>
 
-            <div class="docs-article" data-doc="apps">
+            <div class="docs-panel" data-doc="apps">
               <h3>Apps</h3>
               <p>Apps are web applications that run inside .Yo panels. Each app has an ID, a URL, and a set of mapped commands that the agent and <code>.waz</code> can execute.</p>
 
@@ -407,7 +411,7 @@
               <p>Some apps (like ChatGPT, Claude, Gmail) need to run in a web view instead of Electron's BrowserView. This is the "Force Web" toggle — enable it if the app doesn't render correctly.</p>
             </div>
 
-            <div class="docs-article" data-doc="skills">
+            <div class="docs-panel" data-doc="skills">
               <h3>Skills</h3>
               <p>Skills are reusable prompt templates that process captured content. Think of them as saved instructions — capture something with <code>.sup</code>, then apply a skill to transform it.</p>
 
@@ -428,7 +432,7 @@
               <p>The .yo agent can also create skills for you — just ask: <code>.yo create a skill called translate that converts text to Spanish</code></p>
             </div>
 
-            <div class="docs-article" data-doc="layouts">
+            <div class="docs-panel" data-doc="layouts">
               <h3>Layouts</h3>
               <p>Layouts save your panel arrangement so you can restore it later with one command. Save a 3-panel workspace, switch away, and come back to it instantly.</p>
 
@@ -449,7 +453,7 @@
               <p>Drag the grid handles between panels to resize them live.</p>
             </div>
 
-            <div class="docs-article" data-doc="vibes">
+            <div class="docs-panel" data-doc="vibes">
               <h3>Vibes</h3>
               <p>Vibes are recorded interaction sequences — automated workflows that replay your actions across multiple apps. Record once, run anytime.</p>
 
@@ -469,7 +473,7 @@
               <p>Click on a saved vibe to open the step editor. You can reorder steps, edit the details of each action (selectors, text, delays), or delete individual steps.</p>
             </div>
 
-            <div class="docs-article" data-doc="agent">
+            <div class="docs-panel" data-doc="agent">
               <h3>The .Yo Agent</h3>
               <p>The agent is your AI assistant that lives in the side panel. It can see your panels, navigate apps, search your captures, and execute commands — all through natural language.</p>
 

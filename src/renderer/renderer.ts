@@ -192,50 +192,6 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
-// -- User menu dropdown --
-
-const userMenuBtn = document.getElementById("user-menu-btn")!;
-const userMenuDropdown = document.getElementById("user-menu-dropdown")!;
-
-userMenuBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  const wasHidden = userMenuDropdown.classList.contains("hidden");
-  userMenuDropdown.classList.toggle("hidden");
-  if (wasHidden) {
-    window.yo.panelsHide();
-  } else {
-    window.yo.panelsShow();
-  }
-});
-
-document.addEventListener("click", () => {
-  if (!userMenuDropdown.classList.contains("hidden")) {
-    userMenuDropdown.classList.add("hidden");
-    window.yo.panelsShow();
-  }
-});
-
-userMenuDropdown.addEventListener("click", (e) => {
-  e.stopPropagation();
-});
-
-document.getElementById("user-menu-platform")!.addEventListener("click", () => {
-  window.yo.openExternal("https://platform.yosup.dev");
-  userMenuDropdown.classList.add("hidden");
-  window.yo.panelsShow();
-});
-
-document.getElementById("user-menu-settings")!.addEventListener("click", () => {
-  userMenuDropdown.classList.add("hidden");
-  // panelsShow not needed ��� openSettings opens help overlay which calls panelsHide itself
-  openSettings();
-});
-
-document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
-  await window.yo.logout();
-  userMenuDropdown.classList.add("hidden");
-  showOnboarding(true);
-});
 
 // -- Tab bar --
 
