@@ -876,7 +876,19 @@
                   <div id="voice-key-wrap" class="settings-form hidden" style="margin: 8px 0 16px 44px;">
                     <label class="settings-label" style="color: #999;">OpenAI Key <span style="color:#555; font-weight:400;">(for Whisper only)</span></label>
                     <input id="settings-voice-key" type="password" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off" />
+                    <div class="settings-actions" style="margin-top: 8px;">
+                      <button id="voice-key-save" class="action-btn primary">Save</button>
+                      <span id="voice-key-status"></span>
+                    </div>
                   </div>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-remote" />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Remote</span>
+                      <span class="toggle-desc">Control your desktop from your phone via <a href="https://platform.yosup.dev/voice" target="_blank" style="color:#25C75E;">yosup.dev/voice</a></span>
+                    </div>
+                  </label>
                   <label class="settings-toggle">
                     <input type="checkbox" id="toggle-vscode-server" />
                     <span class="toggle-switch"></span>

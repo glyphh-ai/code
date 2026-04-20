@@ -1031,6 +1031,7 @@ const settingsStatus = document.getElementById("settings-status")!;
 const toggleVoiceInput = document.getElementById("toggle-voice-input") as HTMLInputElement;
 const voiceKeyWrap = document.getElementById("voice-key-wrap")!;
 const settingsVoiceKey = document.getElementById("settings-voice-key") as HTMLInputElement;
+const toggleRemote = document.getElementById("toggle-remote") as HTMLInputElement;
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
@@ -1062,8 +1063,17 @@ function initSettings() {
     const micBtn = document.getElementById("yo-panel-mic");
     if (micBtn) micBtn.style.display = toggleVoiceInput.checked ? "" : "none";
   });
-  settingsVoiceKey.addEventListener("change", () => {
+  const voiceKeySaveBtn = document.getElementById("voice-key-save")!;
+  const voiceKeyStatus = document.getElementById("voice-key-status")!;
+  voiceKeySaveBtn.addEventListener("click", () => {
     window.yo.setPreference("voiceApiKey", settingsVoiceKey.value.trim());
+    voiceKeyStatus.textContent = "Saved";
+    voiceKeyStatus.className = "settings-success";
+    setTimeout(() => { voiceKeyStatus.textContent = ""; }, 2000);
+  });
+
+  toggleRemote.addEventListener("change", () => {
+    window.yo.setPreference("remoteEnabled", toggleRemote.checked);
   });
 
   toggleVscodeServer.addEventListener("change", () => {
@@ -1238,6 +1248,7 @@ async function loadSettings() {
   toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;
   voiceKeyWrap.classList.toggle("hidden", !toggleVoiceInput.checked);
   settingsVoiceKey.value = await window.yo.getPreference("voiceApiKey", "") as string;
+  toggleRemote.checked = await window.yo.getPreference("remoteEnabled", false) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));

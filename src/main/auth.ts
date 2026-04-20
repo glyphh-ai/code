@@ -424,7 +424,7 @@ function serverPost<T>(endpoint: string, body: Record<string, unknown>): Promise
   });
 }
 
-function serverGetAuthed<T>(endpoint: string): Promise<T> {
+export function serverGetAuthed<T>(endpoint: string): Promise<T> {
   const token = getAuthToken();
   if (!token) return Promise.reject(new Error("Not authenticated"));
 

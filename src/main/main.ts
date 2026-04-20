@@ -36,6 +36,7 @@ import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
 import { Embedder } from "./embedder";
 import { Transcriber } from "./transcriber";
+import { VoiceRelay } from "./voice-relay";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
 import { autoUpdater } from "electron-updater";
@@ -56,6 +57,7 @@ let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let yoAgent: YoAgent | undefined;
+let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 
@@ -1531,6 +1533,25 @@ async function boot() {
     }
   });
 
+  // Voice Relay — phone-to-desktop voice remote
+  voiceRelay = new VoiceRelay();
+  voiceRelay.setAgentSend((text) => {
+    // Feed voice command through the agent, push response back when done
+    yoAgent?.send(text, {
+      onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
+      onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
+      onToolResult: (id, detail) => mainWindow?.webContents.send("yo-panel-tool-result", id, detail),
+      onDone: (responseText) => {
+        mainWindow?.webContents.send("yo-panel-done", responseText);
+        voiceRelay?.respond(responseText);
+      },
+      onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
+    });
+  });
+  if (getPreference<boolean>("remoteEnabled", false)) {
+    voiceRelay.start();
+  }
+
   // Wire .yo conversational agent — slide-out panel
   const yoPanelWidth = () => getPreference<number>("yoPanelWidth", 380);
 
@@ -2888,6 +2909,11 @@ async function boot() {
     if (key === "subAgentModel") {
       yoAgent?.setSubAgentModel(value as string);
     }
+    // Live-apply remote mode toggle
+    if (key === "remoteEnabled") {
+      if (value) voiceRelay?.start();
+      else voiceRelay?.stop();
+    }
   });
   ipcMain.handle("get-preference", (_e, key: string, defaultVal: unknown) => {
     return getPreference(key, defaultVal);
@@ -3018,6 +3044,7 @@ function cleanupAll() {
   cleanedUp = true;
   globalShortcut.unregisterAll();
   cleanupAuthTimers();
+  voiceRelay?.stop();
   cloudSyncInstance?.stop();
   cloudSyncInstance = null;
   configSync?.stop();
