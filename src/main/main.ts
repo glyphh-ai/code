@@ -1990,6 +1990,7 @@ async function boot() {
   });
   ipcMain.on("panels-show", () => {
     if (!mainWindow || !panelsReady) return;
+    const wasHidden = panelManager.isHidden;
     panelManager.hidden = false;
     if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
@@ -1997,6 +1998,14 @@ async function boot() {
       panelManager.showActive(mainWindow);
     }
     sendSplitState();
+    // After first reveal (post-splash), force active panel to repaint
+    // — sites don't render CSS properly when loaded at zero size
+    if (wasHidden && panelManager.activePanelId) {
+      const view = panelManager.getView(panelManager.activePanelId);
+      if (view) {
+        view.webContents.invalidate();
+      }
+    }
   });
 
   // IPC: Yo agent panel
