@@ -550,7 +550,11 @@ async function boot() {
   const session = new SessionCache();
 
   // yo/dip/drip interceptor — injected into ALL app panels
+  const MODE_COLORS: Record<string, string> = {
+    ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7", vibe: "#FF3E8A",
+  };
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
+  yoInterceptor.setModeColor(MODE_COLORS[getAgentMode()] || MODE_COLORS.ask);
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -2156,6 +2160,7 @@ async function boot() {
   ipcMain.on("set-agent-mode", (_e, mode: string) => {
     setPreference("agentMode", mode);
     yoAgent?.setMode(mode as AgentMode);
+    yoInterceptor.setModeColor(MODE_COLORS[mode] || MODE_COLORS.ask);
   });
   ipcMain.handle("get-tool-registry", () => getToolRegistry());
   ipcMain.on("set-tool-override", (_e, toolName: string, override: string) => {

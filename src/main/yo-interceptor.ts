@@ -38,6 +38,7 @@ export class YoInterceptor {
   private yoClearer: (() => void) | null = null;
   private panelOpener: ((query: string, sourcePanelId?: string) => void) | null = null;
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
+  private modeColor = "#25C75E"; // current agent mode color (ask=green, plan=blue, auto=orange)
 
   constructor(
     private appConnector: AppConnector,
@@ -51,6 +52,7 @@ export class YoInterceptor {
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
   setPanelOpener(fn: (query: string, sourcePanelId?: string) => void): void { this.panelOpener = fn; }
+  setModeColor(color: string): void { this.modeColor = color; }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
 
   /** Start watching a panel's webContents for commands. */
@@ -701,11 +703,12 @@ if(isLoading){
     if(pb&&pb!=='rgba(0, 0, 0, 0)'&&pb!=='transparent'){bg=pb;break;}p=p.parentElement;}
     if(!bg||bg==='rgba(0, 0, 0, 0)'||bg==='transparent')bg='#1a1a1a';
   }
+  var modeColor=${JSON.stringify(this.modeColor)};
   overlay.style.cssText='position:fixed;z-index:999998;pointer-events:none;'+
     'top:'+rect.top+'px;left:'+rect.left+'px;width:'+rect.width+'px;height:'+rect.height+'px;'+
     'display:flex;align-items:center;padding:0 12px;'+
-    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:16px;'+
-    'color:#999;background:'+bg+';border-radius:'+cs.borderRadius+';';
+    'font-family:'+cs.fontFamily+';font-size:'+cs.fontSize+';'+
+    'color:'+modeColor+';background:'+bg+';border-radius:'+cs.borderRadius+';';
   overlay.textContent=frames[0]+' '+curWord;
   var oldOverlay=document.getElementById('__yo-spinner');if(oldOverlay)oldOverlay.remove();
   document.body.appendChild(overlay);
@@ -758,7 +761,7 @@ if(isLoading){
   msgOverlay.style.cssText='position:fixed;z-index:999998;pointer-events:none;'+
     'top:'+rect2.top+'px;left:'+rect2.left+'px;width:'+rect2.width+'px;height:'+rect2.height+'px;'+
     'display:flex;align-items:center;padding:0 12px;'+
-    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:16px;'+
+    'font-family:'+cs2.fontFamily+';font-size:'+cs2.fontSize+';'+
     'color:'+msgColor+';background:'+bg2+';border-radius:'+cs2.borderRadius+';';
   msgOverlay.textContent=text;
   var oldMsg=document.getElementById('__yo-spinner');if(oldMsg)oldMsg.remove();
