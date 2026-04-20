@@ -1030,15 +1030,16 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ── Vibe mode controls ──────────────────────────────────────
-const yoVibeRecord = document.getElementById("yo-vibe-record")!;
-const yoVibePlay = document.getElementById("yo-vibe-play")!;
-const yoVibeName = document.getElementById("yo-vibe-name") as HTMLInputElement;
-const yoVibeSave = document.getElementById("yo-vibe-save")!;
+// ── Vibe mode controls (Phase 2 — disabled) ──────────────────
+// Elements may not exist when vibes are feature-flagged off
+const yoVibeRecord = document.getElementById("yo-vibe-record");
+const yoVibePlay = document.getElementById("yo-vibe-play");
+const yoVibeName = document.getElementById("yo-vibe-name") as HTMLInputElement | null;
+const yoVibeSave = document.getElementById("yo-vibe-save");
 let vibeRecording = false;
 
-// Autocomplete: populate datalist with existing vibe names
 async function refreshVibeAutocomplete() {
+  if (!yoVibeName) return;
   let datalist = document.getElementById("yo-vibe-datalist") as HTMLDataListElement;
   if (!datalist) {
     datalist = document.createElement("datalist");
@@ -1050,68 +1051,65 @@ async function refreshVibeAutocomplete() {
   datalist.innerHTML = vibes.map((v: { name: string }) => `<option value="${v.name}">`).join("");
 }
 
-yoVibeRecord.addEventListener("click", () => {
-  if (vibeRecording) {
-    // Stopping — pass the name so the vibe saves with it
-    const name = yoVibeName.value.trim();
-    window.yo.vibesRecordToggle(name || undefined);
-  } else {
-    // Starting
-    window.yo.vibesRecordToggle();
-  }
-  vibeRecording = !vibeRecording;
-  yoVibeRecord.classList.toggle("recording", vibeRecording);
-  yoVibeRecord.innerHTML = vibeRecording
-    ? '<span class="yo-vibe-dot recording"></span> Stop'
-    : '<span class="yo-vibe-dot"></span> Record';
-});
-
-yoVibePlay.addEventListener("click", async () => {
-  const name = yoVibeName.value.trim();
-  if (!name) return;
-  yoVibePlay.textContent = "Running...";
-  (yoVibePlay as HTMLButtonElement).disabled = true;
-  try {
-    const result = await window.yo.vibesRun(name);
-    yoVibePlay.textContent = result.success ? "Done" : "Failed";
-  } catch {
-    yoVibePlay.textContent = "Error";
-  }
-  setTimeout(() => { yoVibePlay.innerHTML = "&#x25B6; Play"; (yoVibePlay as HTMLButtonElement).disabled = false; }, 2000);
-});
-
-yoVibeSave.addEventListener("click", async () => {
-  const name = yoVibeName.value.trim();
-  if (!name) return;
-  // Rename last recorded vibe if it exists with a different name
-  const vibes = await window.yo.vibesList();
-  const lastRecorded = vibes.find((v: { name: string }) => v.name.startsWith("recorded-"));
-  if (lastRecorded && lastRecorded.name !== name) {
-    const vibe = await window.yo.vibesRead(lastRecorded.name);
-    if (vibe) {
-      await window.yo.vibesDelete(lastRecorded.name);
-      await window.yo.vibesCreate(name, { ...vibe, name });
+if (yoVibeRecord && yoVibePlay && yoVibeName && yoVibeSave) {
+  yoVibeRecord.addEventListener("click", () => {
+    if (vibeRecording) {
+      const name = yoVibeName.value.trim();
+      window.yo.vibesRecordToggle(name || undefined);
+    } else {
+      window.yo.vibesRecordToggle();
     }
-  }
-  yoVibeSave.textContent = "Saved";
-  refreshVibeAutocomplete();
-  setTimeout(() => { yoVibeSave.textContent = "Save"; }, 1500);
-});
+    vibeRecording = !vibeRecording;
+    yoVibeRecord.classList.toggle("recording", vibeRecording);
+    yoVibeRecord.innerHTML = vibeRecording
+      ? '<span class="yo-vibe-dot recording"></span> Stop'
+      : '<span class="yo-vibe-dot"></span> Record';
+  });
 
-// Listen for recording state changes from main process
-window.yo.onVibeRecordingState?.((state: { recording: boolean; stepCount: number }) => {
-  vibeRecording = state.recording;
-  yoVibeRecord.classList.toggle("recording", state.recording);
-  yoVibeRecord.innerHTML = state.recording
-    ? `<span class="yo-vibe-dot recording"></span> Stop (${state.stepCount})`
-    : '<span class="yo-vibe-dot"></span> Record';
-});
+  yoVibePlay.addEventListener("click", async () => {
+    const name = yoVibeName.value.trim();
+    if (!name) return;
+    yoVibePlay.textContent = "Running...";
+    (yoVibePlay as HTMLButtonElement).disabled = true;
+    try {
+      const result = await window.yo.vibesRun(name);
+      yoVibePlay.textContent = result.success ? "Done" : "Failed";
+    } catch {
+      yoVibePlay.textContent = "Error";
+    }
+    setTimeout(() => { yoVibePlay.innerHTML = "&#x25B6; Play"; (yoVibePlay as HTMLButtonElement).disabled = false; }, 2000);
+  });
 
-// Refresh autocomplete when a vibe is saved
-window.yo.onVibeSaved?.((name: string) => {
-  if (!yoVibeName.value.trim()) yoVibeName.value = name;
-  refreshVibeAutocomplete();
-});
+  yoVibeSave.addEventListener("click", async () => {
+    const name = yoVibeName.value.trim();
+    if (!name) return;
+    const vibes = await window.yo.vibesList();
+    const lastRecorded = vibes.find((v: { name: string }) => v.name.startsWith("recorded-"));
+    if (lastRecorded && lastRecorded.name !== name) {
+      const vibe = await window.yo.vibesRead(lastRecorded.name);
+      if (vibe) {
+        await window.yo.vibesDelete(lastRecorded.name);
+        await window.yo.vibesCreate(name, { ...vibe, name });
+      }
+    }
+    yoVibeSave.textContent = "Saved";
+    refreshVibeAutocomplete();
+    setTimeout(() => { yoVibeSave.textContent = "Save"; }, 1500);
+  });
+
+  window.yo.onVibeRecordingState?.((state: { recording: boolean; stepCount: number }) => {
+    vibeRecording = state.recording;
+    yoVibeRecord.classList.toggle("recording", state.recording);
+    yoVibeRecord.innerHTML = state.recording
+      ? `<span class="yo-vibe-dot recording"></span> Stop (${state.stepCount})`
+      : '<span class="yo-vibe-dot"></span> Record';
+  });
+
+  window.yo.onVibeSaved?.((name: string) => {
+    if (!yoVibeName.value.trim()) yoVibeName.value = name;
+    refreshVibeAutocomplete();
+  });
+}
 
 async function openYoPanel(query: string) {
   if (!yoControlsInited) {
