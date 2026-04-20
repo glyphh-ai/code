@@ -1876,9 +1876,12 @@ ol.docs-list li::before {
   border-radius: 12px;
   padding: 20px;
   width: 90%;
-  max-width: 600px;
+  max-width: 860px;
   max-height: 70vh;
   overflow-y: auto;
+}
+.apps-browse-modal-content .mcp-preset-grid {
+  grid-template-columns: repeat(3, 1fr);
 }
 .apps-browse-modal-header {
   display: flex;
