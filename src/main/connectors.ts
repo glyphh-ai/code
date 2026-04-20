@@ -12,7 +12,7 @@
  * project keys server-side. The client only sees connect tokens and account lists.
  */
 
-import { BrowserWindow } from "electron";
+import { BrowserWindow, shell } from "electron";
 import { EventEmitter } from "events";
 import { serverPostAuthed, serverGetAuthed, getAccountInfo } from "./auth";
 import type { McpManager } from "./mcp-manager";
@@ -211,6 +211,15 @@ export class ConnectorManager extends EventEmitter {
         }
         resolve({ ok: success, error });
       };
+
+      // Open external links (Google Cloud Console, etc.) in system browser
+      this.oauthWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (!url.includes("pipedream")) {
+          shell.openExternal(url);
+          return { action: "deny" };
+        }
+        return { action: "allow" };
+      });
 
       // Watch for success callback URL from Pipedream
       this.oauthWindow.webContents.on("will-navigate", (_event, url) => {
