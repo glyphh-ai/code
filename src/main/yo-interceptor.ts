@@ -679,6 +679,7 @@ function setText(val){
     el.dispatchEvent(new Event('input',{bubbles:true}));
   }else{
     el.innerText=val;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
   }
 }
 if(isLoading){
