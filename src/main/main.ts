@@ -1641,10 +1641,11 @@ async function boot() {
   // Restore panels from last view (or default to claude)
   function restorePanels() {
     const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
+    const savedTabs = getPreference<string[]>("openTabs", []);
 
-    // Re-register any browse-* panels from the saved view so they exist for restore
+    // Re-register any browse-* panels from saved tabs or view so they exist for restore
     const savedUrls = getPreference<Record<string, string>>("browserTabUrls", {});
-    const allPanelIds: string[] = [];
+    const allPanelIds: string[] = [...savedTabs];
     if (lastView) {
       if (lastView.grid?.cells) allPanelIds.push(...lastView.grid.cells.map(c => c.panelId));
       if (lastView.panels) allPanelIds.push(...lastView.panels);
@@ -1692,7 +1693,14 @@ async function boot() {
     } else if (mainWindow) {
       panelManager.switchTo("claude", mainWindow);
     }
-    // Seed tabs from restored panels
+
+    // Restore all saved tabs (not just those in the current view)
+    for (const id of savedTabs) {
+      if (!openTabs.includes(id)) {
+        openTabs.push(id);
+      }
+    }
+    // Also ensure panels from the active layout are in tabs
     const gridInfo = layoutManager.getGridInfo();
     if (gridInfo) {
       for (const id of gridInfo.panelIds) ensureTab(id);
@@ -1782,7 +1790,12 @@ async function boot() {
   function ensureTab(id: string) {
     if (!openTabs.includes(id)) {
       openTabs.push(id);
+      persistTabs();
     }
+  }
+
+  function persistTabs() {
+    setPreference("openTabs", [...openTabs]);
   }
 
   // Hook into panel focus events — add tab when panel becomes active
@@ -2745,6 +2758,7 @@ async function boot() {
       if (openTabs.length > 0) {
         panelManager.switchTo(openTabs[0], mainWindow);
       }
+      persistTabs();
       sendSplitState();
       sendTabState();
       return;
@@ -2753,6 +2767,7 @@ async function boot() {
     const idx = openTabs.indexOf(id);
     if (idx < 0) return;
     openTabs.splice(idx, 1);
+    persistTabs();
     const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
     panelManager.closePanel(id, mainWindow, nextId);
     // Clean up saved browser URL

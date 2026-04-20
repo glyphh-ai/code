@@ -4220,6 +4220,49 @@ select.settings-input {
 .tool-perm-select:hover { border-color: #444; }
 .tool-perm-select:focus { border-color: #25C75E; }
 
+/* ── Command palette (Cmd+K) ───────────────────────────── */
+
+.cmd-palette {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 18vh;
+}
+.cmd-palette.hidden { display: none; }
+
+.cmd-palette-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.cmd-palette-modal {
+  position: relative;
+  width: min(520px, 80vw);
+  background: #141414;
+  border: 1px solid var(--yo-mode-color, #25C75E);
+  border-radius: 14px;
+  padding: 4px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+.cmd-palette-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: #e0e0e0;
+  font-size: 15px;
+  font-family: var(--font-sans);
+  outline: none;
+  caret-color: var(--yo-mode-color, #25C75E);
+}
+.cmd-palette-input::placeholder { color: #555; }
+
 /* ── Wassup admin modal ─────────────────────────────────── */
 
 

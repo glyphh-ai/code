@@ -70,6 +70,7 @@ declare global {
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
+      onOpenCmdPalette: (callback: () => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
         cols: number;
@@ -356,12 +357,58 @@ window.yo.onFocusInput(() => {
 
 
 
+// -- Command palette (Cmd+K) --
+
+const cmdPalette = document.getElementById("cmd-palette")!;
+const cmdPaletteInput = document.getElementById("cmd-palette-input") as HTMLInputElement;
+const cmdPaletteBackdrop = cmdPalette.querySelector(".cmd-palette-backdrop")!;
+
+function openCmdPalette() {
+  cmdPalette.classList.remove("hidden");
+  cmdPaletteInput.value = "";
+  cmdPaletteInput.focus();
+}
+
+function closeCmdPalette() {
+  cmdPalette.classList.add("hidden");
+  cmdPaletteInput.blur();
+}
+
+cmdPaletteBackdrop.addEventListener("click", closeCmdPalette);
+
+cmdPaletteInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeCmdPalette();
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const cmd = cmdPaletteInput.value.trim();
+    if (!cmd) return;
+    closeCmdPalette();
+    // Strip leading dot if present, route through execCommand
+    const clean = cmd.startsWith(".") ? cmd.slice(1) : cmd;
+    window.yo.execCommand(clean);
+  }
+});
+
+// Cmd+K from BrowserView panels (intercepted by panel-manager, forwarded via IPC)
+window.yo.onOpenCmdPalette(() => openCmdPalette());
+
 // -- Global keyboard shortcuts --
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (!cmdPalette.classList.contains("hidden")) { closeCmdPalette(); return; }
     if (isYoPanelOpen()) window.yo.yoPanelDismiss();
     else if (isHelpOpen()) closeHelp();
+  }
+
+  // Cmd+K to open command palette
+  if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    if (cmdPalette.classList.contains("hidden")) openCmdPalette();
+    else closeCmdPalette();
   }
 
   // Cmd+. to toggle yo agent panel

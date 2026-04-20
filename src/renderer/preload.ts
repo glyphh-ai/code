@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld("yo", {
   onFocusInput: (callback: () => void) => {
     ipcRenderer.on("focus-command-input", () => callback());
   },
+  onOpenCmdPalette: (callback: () => void) => {
+    ipcRenderer.on("open-cmd-palette", () => callback());
+  },
 
   // Vibes CRUD
   vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<{ name: string; description: string; stepCount: number }>>,

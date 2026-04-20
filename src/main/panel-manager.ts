@@ -638,6 +638,10 @@ export class PanelManager {
         // Cmd+Opt+I (mac) or Ctrl+Shift+I (win/linux) — DevTools for active panel
         e.preventDefault();
         this.toggleDevTools();
+      } else if (input.key === "k") {
+        // Cmd+K — open command palette
+        e.preventDefault();
+        parent.webContents.send("open-cmd-palette");
       } else if (input.key === "." && !input.shift) {
         // Cmd+. — open yo agent panel
         e.preventDefault();
@@ -665,7 +669,10 @@ export class PanelManager {
         if (childWc.isDestroyed() || parent.isDestroyed()) return;
         if (!input.meta && !input.control) return;
         if (input.type !== "keyDown") return;
-        if (input.key === "." && !input.shift) {
+        if (input.key === "k") {
+          e.preventDefault();
+          parent.webContents.send("open-cmd-palette");
+        } else if (input.key === "." && !input.shift) {
           e.preventDefault();
           parent.webContents.send("focus-command-input");
         } else if (input.key === "=" || input.key === "+") {
