@@ -638,8 +638,8 @@ export class PanelManager {
         // Cmd+Opt+I (mac) or Ctrl+Shift+I (win/linux) — DevTools for active panel
         e.preventDefault();
         this.toggleDevTools();
-      } else if (input.key === "k") {
-        // Cmd+K — open yo agent panel
+      } else if (input.key === "." && !input.shift) {
+        // Cmd+. — open yo agent panel
         e.preventDefault();
         parent.webContents.send("focus-command-input");
       } else if (input.key === "." && input.shift) {
@@ -665,7 +665,7 @@ export class PanelManager {
         if (childWc.isDestroyed() || parent.isDestroyed()) return;
         if (!input.meta && !input.control) return;
         if (input.type !== "keyDown") return;
-        if (input.key === "k") {
+        if (input.key === "." && !input.shift) {
           e.preventDefault();
           parent.webContents.send("focus-command-input");
         } else if (input.key === "=" || input.key === "+") {
@@ -735,7 +735,7 @@ export class PanelManager {
       parent.setBrowserView(view);
       view.setBounds(finalBounds);
       view.setAutoResize({ width: true, height: true });
-      view.webContents.focus();
+      if (!this._rightInset) view.webContents.focus();
       this.onReady?.(id, view.webContents);
       return true;
     }
@@ -749,6 +749,7 @@ export class PanelManager {
     view.setAutoResize({ width: false, height: false });
     parent.addBrowserView(view);
 
+    const keepRendererFocus = this._rightInset > 0;
     this.slideViews(
       parent, oldBounds,
       [{ view, finalBounds }],
@@ -756,7 +757,7 @@ export class PanelManager {
       220,
       () => {
         view.setAutoResize({ width: true, height: true });
-        view.webContents.focus();
+        if (!keepRendererFocus) view.webContents.focus();
         this.onReady?.(id, view.webContents);
       },
     );
@@ -861,6 +862,18 @@ export class PanelManager {
   setRightInset(px: number): void {
     this._rightInset = px;
     this.onInsetChange?.();
+  }
+
+  /** Resize all visible BrowserViews to reflect current insets */
+  resizeViews(parent: BrowserWindow): void {
+    if (parent.isDestroyed() || this._hidden) return;
+    const [w, h] = parent.getContentSize();
+    const yTop = 38 + this._topInset;
+    const bounds = { x: 0, y: yTop, width: w - this._rightInset, height: h - yTop };
+    for (const bv of parent.getBrowserViews()) {
+      bv.setBounds(bounds);
+      bv.setAutoResize({ width: true, height: true });
+    }
   }
 
   setTopInset(px: number): void {

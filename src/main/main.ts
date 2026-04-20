@@ -1562,12 +1562,12 @@ async function boot() {
     if (panelManager.isHidden) return; // don't re-show during splash/overlay
     if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
-    } else if (panelManager.activePanelId) {
-      panelManager.switchTo(panelManager.activePanelId, mainWindow);
+    } else {
+      panelManager.resizeViews(mainWindow);
     }
   });
 
-  // Panel opener — called by interceptor or Cmd+K when user types .yo <query>
+  // Panel opener — called by interceptor or Cmd+. when user types .yo <query>
   const openYoPanel = (query: string, sourcePanelId?: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     yoAgent?.clear();
@@ -2104,6 +2104,27 @@ async function boot() {
       return;
     }
 
+    // Route .vibe <name> to run a saved vibe directly
+    if (firstWord === ".vibe" || firstWord === "vibe") {
+      const vibeName = trimmed.replace(/^\.?vibe\s*/i, "").trim();
+      if (!vibeName) {
+        const vibes = vibeRunner.list();
+        const list = vibes.length > 0
+          ? vibes.map((v) => `- ${v.name} (${v.stepCount} steps)`).join("\n")
+          : "No vibes saved yet. Record one in vibe mode.";
+        mainWindow?.webContents.send("yo-panel-done", list);
+        return;
+      }
+      try {
+        mainWindow?.webContents.send("yo-panel-token", `Running vibe: ${vibeName}...\n`);
+        const result = await vibeRunner.run(vibeName);
+        mainWindow?.webContents.send("yo-panel-done", result.summary || (result.success ? "Vibe complete." : "Vibe failed."));
+      } catch (err: any) {
+        mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
+      }
+      return;
+    }
+
     yoAgent?.send(message, {
       onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
       onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
@@ -2140,7 +2161,7 @@ async function boot() {
     setPreference("toolOverrides", overrides);
   });
 
-  // Renderer-initiated panel open (Cmd+K) — resize BrowserViews and focus renderer
+  // Renderer-initiated panel open (Cmd+.) — resize BrowserViews and focus renderer
   ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
     panelManager.setRightInset(yoPanelWidth());
     // Pull focus from BrowserView to the main renderer so yo panel input can receive it
@@ -2577,7 +2598,7 @@ async function boot() {
     wc.executeJavaScript(pickerScript).catch(() => {});
   });
 
-  // IPC: command execution (used by Cmd+K overlay)
+  // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);
   });

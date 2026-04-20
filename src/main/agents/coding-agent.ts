@@ -179,15 +179,15 @@ RESPONSE:
     }
 
     // Block interactive commands
-    const program = command.split(/\s+/)[0].replace(/^.*\//, "");
-    if (INTERACTIVE.has(program)) {
-      return `Interactive command not supported: ${program}. Use non-interactive alternatives.`;
+    const basename = command.split(/\s+/)[0].replace(/^.*\//, "");
+    if (INTERACTIVE.has(basename)) {
+      return `Interactive command not supported: ${basename}. Use non-interactive alternatives.`;
     }
 
     // Parse command into program + args (no shell — prevents injection)
     const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
     if (parts.length === 0) return "No command provided.";
-    const program = parts[0];
+    const program = parts[0]!;
     const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ""));
 
     return new Promise((resolve) => {
@@ -196,7 +196,7 @@ RESPONSE:
         timeout,
         maxBuffer: 1024 * 1024,
         env: { ...process.env, HOME: os.homedir() },
-      }, (err, stdout, stderr) => {
+      }, (err: Error | null, stdout: string, stderr: string) => {
         let result = "";
         if (stdout) result += stdout.slice(0, 10000);
         if (stderr) result += (result ? "\n\n[stderr]\n" : "") + stderr.slice(0, 5000);

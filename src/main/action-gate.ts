@@ -8,7 +8,7 @@
 
 import { getPreference } from "./preferences";
 
-export type AgentMode = "plan" | "ask" | "auto" | "council";
+export type AgentMode = "plan" | "ask" | "auto" | "council" | "vibe";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask";
 

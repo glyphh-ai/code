@@ -436,7 +436,7 @@ body {
 /* ── User menu ────────────────────────────────────────── */
 
 
-/* ── Cmd+K overlay ─────────────────────────────────────── */
+/* ── Cmd+. overlay ─────────────────────────────────────── */
 
 /* ── URL bar ──────────────────────────────────────────── */
 
@@ -3674,6 +3674,77 @@ select.settings-input {
   font-size: inherit;
 }
 
+
+/* ── Vibe mode bar ──────────────────────────────────── */
+.yo-vibe-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  flex-shrink: 0;
+}
+.yo-vibe-bar.hidden { display: none; }
+
+.yo-vibe-btn {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #ccc;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.yo-vibe-btn:hover { border-color: #555; color: #fff; }
+
+.yo-vibe-btn.recording {
+  border-color: #FF3E8A;
+  color: #FF3E8A;
+}
+
+.yo-vibe-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+  display: inline-block;
+}
+.yo-vibe-dot.recording {
+  background: #FF3E8A;
+  animation: vibe-pulse 1s ease-in-out infinite;
+}
+@keyframes vibe-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.yo-vibe-name {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: #ccc;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  min-width: 0;
+}
+.yo-vibe-name:focus { border-color: #FF3E8A; }
+.yo-vibe-name::placeholder { color: #555; }
+
+.yo-vibe-save {
+  background: #FF3E8A22;
+  border-color: #FF3E8A55;
+  color: #FF3E8A;
+}
+.yo-vibe-save:hover { background: #FF3E8A33; }
 
 .yo-panel-input-wrap {
   display: flex;

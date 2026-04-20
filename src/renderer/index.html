@@ -87,7 +87,7 @@
   <!-- Empty state — shown when no panels are open -->
   <div id="empty-state" class="empty-state hidden">
     <div class="empty-state-logo"><span class="empty-state-dot">.</span>Yo</div>
-    <div class="empty-state-hint">Type a command or press <kbd>Cmd+K</kbd></div>
+    <div class="empty-state-hint">Type a command or press <kbd>Cmd+.</kbd></div>
   </div>
 
   <!-- Panel screenshots (freeze-frame when panels are hidden) -->
@@ -296,7 +296,7 @@
           <div class="help-group">
             <h3>Shortcuts</h3>
             <div class="cmd-row">
-              <code>&#8984;K</code>
+              <code>&#8984;.</code>
               <span>Open command bar</span>
             </div>
             <div class="cmd-row">
@@ -332,7 +332,7 @@
               <p>.Yo is a multi-panel workspace. You can view one app at a time, or split the screen into a grid of panels. Every panel is a live web app running inside .Yo.</p>
 
               <h4>Switching panels</h4>
-              <p>Use the <strong>.dip</strong> command to switch between panels. Type it in the command bar (Cmd+K) or the agent panel.</p>
+              <p>Use the <strong>.dip</strong> command to switch between panels. Type it in the command bar (Cmd+.) or the agent panel.</p>
               <div class="cmd-row"><code>.dip claude</code><span>Switch to Claude</span></div>
               <div class="cmd-row"><code>.dip gmail</code><span>Switch to Gmail</span></div>
               <div class="cmd-row"><code>.dip back</code><span>Go to the previous panel</span></div>
@@ -347,7 +347,7 @@
               <p>The URL bar at the top shows the current panel's address. You can type any URL to navigate, or use it as a search bar (searches Google by default). Use <strong>Cmd+L</strong> to focus it.</p>
 
               <h4>Keyboard shortcuts</h4>
-              <div class="cmd-row"><code>&#8984;K</code><span>Open the command bar</span></div>
+              <div class="cmd-row"><code>&#8984;.</code><span>Open the command bar</span></div>
               <div class="cmd-row"><code>&#8984;Y</code><span>Toggle the .Yo agent panel</span></div>
               <div class="cmd-row"><code>&#8984;L</code><span>Focus the URL bar</span></div>
               <div class="cmd-row"><code>&#8984;R</code><span>Refresh the active panel</span></div>
@@ -358,7 +358,7 @@
 
             <div class="docs-panel" data-doc="commands">
               <h3>Commands</h3>
-              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+K) or chain them together. Every command starts with a dot.</p>
+              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+.) or chain them together. Every command starts with a dot.</p>
 
               <h4>.yo — Agent</h4>
               <p>Opens the AI agent panel. The agent can search your notes, navigate panels, click through apps, create skills, manage layouts, and more. Ask it anything in natural language.</p>
@@ -1045,8 +1045,8 @@
               <kbd class="tutorial-key">&#8984;</kbd><kbd class="tutorial-key">K</kbd>
             </div>
           </div>
-          <div class="tutorial-cmd">&#8984;K</div>
-          <div class="tutorial-desc">Press <strong>Cmd+K</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip, .waz, .drip — or just start talking to the agent.</div>
+          <div class="tutorial-cmd">&#8984;.</div>
+          <div class="tutorial-desc">Press <strong>Cmd+.</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip, .waz, .drip — or just start talking to the agent.</div>
         </div>
       </div>
 
@@ -1075,6 +1075,14 @@
       <div id="yo-history-list" class="yo-history-list"></div>
     </div>
     <div class="yo-panel-messages" id="yo-panel-messages"></div>
+    <div id="yo-vibe-bar" class="yo-vibe-bar hidden">
+      <button id="yo-vibe-record" class="yo-vibe-btn" title="Record vibe">
+        <span class="yo-vibe-dot"></span> Record
+      </button>
+      <button id="yo-vibe-play" class="yo-vibe-btn" title="Play vibe">&#x25B6; Play</button>
+      <input id="yo-vibe-name" class="yo-vibe-name" placeholder="vibe name..." spellcheck="false" />
+      <button id="yo-vibe-save" class="yo-vibe-btn yo-vibe-save" title="Save vibe">Save</button>
+    </div>
     <div class="yo-panel-input-wrap">
       <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
       <button id="yo-panel-mic" class="yo-mic-btn" title="Voice input"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="1" y2="8"/><line x1="3.5" y1="5" x2="3.5" y2="11"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="8.5" y1="5" x2="8.5" y2="11"/><line x1="11" y1="2" x2="11" y2="14"/><line x1="13.5" y1="5" x2="13.5" y2="11"/></svg></button>
@@ -1107,6 +1115,20 @@
             <div class="yo-mode-opt-text">
               <span class="yo-mode-opt-label">auto</span>
               <span class="yo-mode-opt-desc">executes without asking</span>
+            </div>
+          </div>
+          <div class="yo-mode-option" data-value="council">
+            <span class="yo-mode-opt-icon">&#x1F3DB;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">council</span>
+              <span class="yo-mode-opt-desc">multi-model debate</span>
+            </div>
+          </div>
+          <div class="yo-mode-option" data-value="vibe">
+            <span class="yo-mode-opt-icon">&#x1F3B5;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">vibe</span>
+              <span class="yo-mode-opt-desc">record &amp; replay automations</span>
             </div>
           </div>
         </div>

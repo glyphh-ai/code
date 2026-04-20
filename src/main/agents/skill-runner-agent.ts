@@ -311,11 +311,11 @@ RULES:
     // Parse command into program + args (no shell — prevents injection)
     const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
     if (parts.length === 0) return "No command provided.";
-    const program = parts[0];
+    const program = parts[0]!;
     const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ""));
 
     return new Promise((resolve) => {
-      execFile(program, args, { cwd, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, HOME: os.homedir() } }, (err, stdout, stderr) => {
+      execFile(program, args, { cwd, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, HOME: os.homedir() } }, (err: Error | null, stdout: string, stderr: string) => {
         let result = "";
         if (stdout) result += stdout.slice(0, 10000);
         if (stderr) result += (result ? "\n\n[stderr]\n" : "") + stderr.slice(0, 5000);

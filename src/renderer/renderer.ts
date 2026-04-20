@@ -341,9 +341,9 @@ window.yo.onUrlUpdate((info: { url: string; favicon: string; canGoBack?: boolean
   urlBarForward.disabled = !info.canGoForward;
 });
 
-// -- Cmd+K command overlay --
+// -- Cmd+. command overlay --
 
-// Cmd+K from panel -> toggle yo agent panel
+// Cmd+. from panel -> toggle yo agent panel
 window.yo.onFocusInput(() => {
   if (isYoPanelOpen()) {
     window.yo.yoPanelDismiss();
@@ -363,8 +363,8 @@ document.addEventListener("keydown", (e) => {
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+K to toggle yo agent panel
-  if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+  // Cmd+. to toggle yo agent panel
+  if (e.key === "." && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     if (isYoPanelOpen()) {
       window.yo.yoPanelDismiss();
@@ -912,6 +912,7 @@ const MODE_ICONS: Record<string, string> = {
   plan: "\uD83D\uDCCB",
   auto: "\u26A1",
   council: "\uD83C\uDFDB",
+  vibe: "\uD83C\uDFB5",
 };
 
 const MODE_COLORS: Record<string, string> = {
@@ -919,6 +920,7 @@ const MODE_COLORS: Record<string, string> = {
   plan: "#4A9EFF",
   auto: "#FF8C00",
   council: "#A855F7",
+  vibe: "#FF3E8A",
 };
 
 let currentMode = "ask";
@@ -933,6 +935,9 @@ function setModeValue(mode: string) {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
   });
   applyModeColor();
+  // Show/hide vibe controls
+  const vibeBar = document.getElementById("yo-vibe-bar");
+  if (vibeBar) vibeBar.classList.toggle("hidden", mode !== "vibe");
 }
 
 function applyModeColor() {
@@ -1019,6 +1024,52 @@ document.addEventListener("click", (e) => {
   if (!yoModelDropdown.contains(e.target as Node)) {
     yoModelMenu.classList.add("hidden");
   }
+});
+
+// ── Vibe mode controls ──────────────────────────────────────
+const yoVibeRecord = document.getElementById("yo-vibe-record")!;
+const yoVibePlay = document.getElementById("yo-vibe-play")!;
+const yoVibeName = document.getElementById("yo-vibe-name") as HTMLInputElement;
+const yoVibeSave = document.getElementById("yo-vibe-save")!;
+let vibeRecording = false;
+
+yoVibeRecord.addEventListener("click", () => {
+  vibeRecording = !vibeRecording;
+  window.yo.vibesRecordToggle();
+  yoVibeRecord.classList.toggle("recording", vibeRecording);
+  yoVibeRecord.innerHTML = vibeRecording
+    ? '<span class="yo-vibe-dot recording"></span> Stop'
+    : '<span class="yo-vibe-dot"></span> Record';
+});
+
+yoVibePlay.addEventListener("click", async () => {
+  const name = yoVibeName.value.trim();
+  if (!name) return;
+  yoVibePlay.textContent = "Running...";
+  (yoVibePlay as HTMLButtonElement).disabled = true;
+  try {
+    const result = await window.yo.vibesRun(name);
+    yoVibePlay.textContent = result.success ? "Done" : "Failed";
+  } catch {
+    yoVibePlay.textContent = "Error";
+  }
+  setTimeout(() => { yoVibePlay.innerHTML = "&#x25B6; Play"; (yoVibePlay as HTMLButtonElement).disabled = false; }, 2000);
+});
+
+yoVibeSave.addEventListener("click", async () => {
+  const name = yoVibeName.value.trim();
+  if (!name) return;
+  yoVibeSave.textContent = "Saved";
+  setTimeout(() => { yoVibeSave.textContent = "Save"; }, 1500);
+});
+
+// Listen for recording state changes from main process
+window.yo.onVibeRecordingState?.((state: { recording: boolean; stepCount: number }) => {
+  vibeRecording = state.recording;
+  yoVibeRecord.classList.toggle("recording", state.recording);
+  yoVibeRecord.innerHTML = state.recording
+    ? `<span class="yo-vibe-dot recording"></span> Stop (${state.stepCount})`
+    : '<span class="yo-vibe-dot"></span> Record';
 });
 
 async function openYoPanel(query: string) {
@@ -2074,7 +2125,7 @@ const TUTORIAL_SEQUENCES = [
   ".yo find that reddit thread about pricing",
   ".sup . formalize",
   ".dip split claude gpt",
-  "", // Cmd+K step — no typing, shows keyboard shortcut
+  "", // Cmd+. step — no typing, shows keyboard shortcut
 ];
 
 function showTutorial() {
