@@ -183,6 +183,7 @@ export class ConnectorManager extends EventEmitter {
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
+          partition: "persist:pipedream",
         },
       });
 
