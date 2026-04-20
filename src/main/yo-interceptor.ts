@@ -671,16 +671,21 @@ if(el)window.__yoLastEl=el;}
 if(!el)return;
 var isLoading=${type === "loading"};
 var text=${JSON.stringify(text)};
+var fb=['[role="textbox"]','[contenteditable]:not([contenteditable="false"])','textarea','input[type="text"]'];
+function refindEl(){
+  for(var i=0;i<fb.length;i++){try{var els=document.querySelectorAll(fb[i]);
+  for(var j=0;j<els.length;j++){var r=els[j].getBoundingClientRect();
+  if(r.width>0&&r.height>0){return els[j];}}}catch(e){}}return null;
+}
 function setText(val){
+  if(!el||!el.isConnected){el=refindEl();if(!el)return;}
   if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
     var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
     var s=Object.getOwnPropertyDescriptor(p,'value');
     if(s&&s.set)s.set.call(el,val);else el.value=val;
     el.dispatchEvent(new Event('input',{bubbles:true}));
   }else{
-    try{var sel=window.getSelection();var range=document.createRange();
-    range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
-    document.execCommand('insertText',false,val);}catch(ex){el.innerText=val;}
+    el.textContent=val;
   }
 }
 if(isLoading){
