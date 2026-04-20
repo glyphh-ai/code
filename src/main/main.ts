@@ -2287,6 +2287,7 @@ async function boot() {
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
+  ipcMain.handle("apps-set-connected-slug", (_e, id: string, slug: string | null) => appConnector.updateConnectedSlug(id, slug));
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);

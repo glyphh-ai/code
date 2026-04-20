@@ -635,6 +635,7 @@ interface PanelApp {
   id: string;
   name: string;
   url: string;
+  connectedSlug?: string;
 }
 
 interface ConnectorAccount {
@@ -656,7 +657,7 @@ async function loadApps() {
   // Fetch local panel apps
   try {
     const apps = await window.yo.appsList();
-    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url }));
+    panelApps = apps.map((a: { id: string; name: string; url: string; connectedSlug?: string }) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug }));
   } catch { panelApps = []; }
 
   // Fetch connected accounts (silently fail for non-Advanced)
@@ -684,7 +685,7 @@ function renderAppsList() {
   }
 
   appsList.innerHTML = filtered.map((app) => {
-    const acct = connectedAccounts.find((a) => a.appSlug === app.id || a.appName.toLowerCase() === app.name.toLowerCase());
+    const acct = connectedAccounts.find((a) => a.appSlug === app.connectedSlug || a.appSlug === app.id);
     const badge = acct
       ? `<span class="app-card-status connected">${acct.healthy ? "connected" : "unhealthy"}</span>`
       : `<span class="app-card-status panel">panel</span>`;
@@ -726,7 +727,7 @@ function openPanelAppDetail(app: PanelApp) {
   const toolsSection = document.getElementById("app-detail-tools")!;
 
   // Check if already connected
-  const acct = connectedAccounts.find((a) => a.appSlug === app.id);
+  const acct = connectedAccounts.find((a) => a.appSlug === app.connectedSlug || a.appSlug === app.id);
   if (acct) {
     connectBtn.classList.add("hidden");
     disconnectBtn.classList.remove("hidden");
@@ -821,8 +822,14 @@ async function openAppsBrowse(append = false) {
       card.style.opacity = "1";
       card.style.pointerEvents = "auto";
       if (result.ok) {
-        // Close modal, refresh accounts, refresh detail
+        // Save the Pipedream slug association, refresh, show detail
         appsBrowseSection.classList.add("hidden");
+        if (connectingForAppId) {
+          await window.yo.appsSetConnectedSlug(connectingForAppId, app.id);
+          // Update local state
+          const panelApp = panelApps.find((a) => a.id === connectingForAppId);
+          if (panelApp) panelApp.connectedSlug = app.id;
+        }
         try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
         if (connectingForAppId) {
           const panelApp = panelApps.find((a) => a.id === connectingForAppId);
@@ -919,9 +926,13 @@ function initApps() {
 
   document.getElementById("app-detail-disconnect")!.addEventListener("click", async () => {
     if (!currentAppId) return;
-    const acct = connectedAccounts.find((a) => a.appSlug === currentAppId);
+    const panelApp = panelApps.find((a) => a.id === currentAppId);
+    const slug = panelApp?.connectedSlug || currentAppId;
+    const acct = connectedAccounts.find((a) => a.appSlug === slug);
     if (acct) {
       await window.yo.connectorsDisconnect(acct.id);
+      await window.yo.appsSetConnectedSlug(currentAppId, null);
+      if (panelApp) panelApp.connectedSlug = undefined;
       loadApps();
     }
   });

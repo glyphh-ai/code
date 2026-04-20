@@ -60,11 +60,12 @@ contextBridge.exposeInMainWorld("yo", {
   },
 
   // Apps CRUD
-  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
+  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
   appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
   appsUpdateUrl: (id: string, url: string) => ipcRenderer.invoke("apps-update-url", id, url) as Promise<boolean>,
+  appsSetConnectedSlug: (id: string, slug: string | null) => ipcRenderer.invoke("apps-set-connected-slug", id, slug) as Promise<boolean>,
 
   // Onboarding complete — triggers panel restore
   onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),
