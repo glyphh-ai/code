@@ -612,18 +612,15 @@
               <h4 style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#888;margin-bottom:8px;">Available Tools</h4>
               <div id="app-detail-tools-list"></div>
             </div>
-          </div>
 
-          <!-- Browse modal: Pipedream app catalog -->
-          <div id="apps-browse-modal" class="apps-browse-modal hidden">
-            <div class="apps-browse-modal-backdrop" id="apps-browse-backdrop"></div>
-            <div class="apps-browse-modal-content">
-              <div class="apps-browse-modal-header">
-                <h3>Connect an App</h3>
-                <button id="apps-browse-cancel" class="apps-browse-modal-close">&times;</button>
+            <!-- Inline browse: Pipedream app catalog (shown when Connect is clicked) -->
+            <div id="apps-browse-section" class="hidden" style="margin-top:16px;">
+              <div class="apps-browse-inline-header">
+                <h4 class="apps-browse-inline-title">Pick a service to connect</h4>
+                <button id="apps-browse-cancel" class="apps-browse-inline-close">&times;</button>
               </div>
-              <input id="apps-browse-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" class="apps-browse-modal-search" />
-              <div id="apps-browse-grid" class="mcp-preset-grid"></div>
+              <input id="apps-browse-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" class="apps-browse-inline-search" />
+              <div id="apps-browse-grid" class="mcp-preset-grid apps-browse-inline-grid"></div>
               <div id="apps-browse-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
             </div>
           </div>

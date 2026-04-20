@@ -1854,76 +1854,35 @@ ol.docs-list li::before {
 
 .app-detail-actions { gap: 8px; }
 
-/* ── Apps browse modal ───────────────────────────────────── */
-.apps-browse-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.apps-browse-modal.hidden { display: none; }
-.apps-browse-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-}
-.apps-browse-modal-content {
-  position: relative;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 12px;
-  padding: 20px;
-  width: 90%;
-  max-width: 860px;
-  height: 70vh;
-  display: flex;
-  flex-direction: column;
-}
-.apps-browse-modal-content .mcp-preset-grid {
-  grid-template-columns: repeat(3, 1fr);
-  flex: 1;
-  overflow-y: auto;
-  align-content: start;
-}
-@media (max-width: 700px) {
-  .apps-browse-modal-content {
-    width: 95%;
-    height: 85vh;
-    padding: 16px;
-    border-radius: 8px;
-  }
-  .apps-browse-modal-content .mcp-preset-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-.apps-browse-modal-header {
+/* ── Apps browse inline ───────────────────────────────────── */
+.apps-browse-inline-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
-.apps-browse-modal-header h3 {
-  font-size: 15px;
+.apps-browse-inline-title {
+  font-size: 12px;
   font-weight: 600;
-  color: #f0f0f0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #888;
   margin: 0;
 }
-.apps-browse-modal-close {
+.apps-browse-inline-close {
   background: none;
   border: none;
   color: #888;
-  font-size: 22px;
+  font-size: 20px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
 }
-.apps-browse-modal-close:hover { color: #fff; background: #333; }
-.apps-browse-modal-search {
+.apps-browse-inline-close:hover { color: #fff; background: #333; }
+.apps-browse-inline-search {
   width: 100%;
   box-sizing: border-box;
-  height: 32px;
+  height: 30px;
   background: #111;
   border: 1px solid #3a3a3a;
   border-radius: 6px;
@@ -1934,7 +1893,13 @@ ol.docs-list li::before {
   outline: none;
   margin-bottom: 12px;
 }
-.apps-browse-modal-search:focus { border-color: #25C75E; }
+.apps-browse-inline-search:focus { border-color: #25C75E; }
+.apps-browse-inline-grid {
+  grid-template-columns: repeat(3, 1fr);
+  max-height: 300px;
+  overflow-y: auto;
+  align-content: start;
+}
 
 /* ── Panel container ─────────────────────────────────────── */
 

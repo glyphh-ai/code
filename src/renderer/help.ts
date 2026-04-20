@@ -627,7 +627,7 @@ const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
-const appsBrowseModal = document.getElementById("apps-browse-modal")!;
+const appsBrowseSection = document.getElementById("apps-browse-section")!;
 
 let currentAppId = "";
 
@@ -762,7 +762,7 @@ async function openAppsBrowse(append = false) {
     return;
   }
 
-  appsBrowseModal.classList.remove("hidden");
+  appsBrowseSection.classList.remove("hidden");
 
   const grid = document.getElementById("apps-browse-grid")!;
   const loading = document.getElementById("apps-browse-loading")!;
@@ -822,7 +822,7 @@ async function openAppsBrowse(append = false) {
       card.style.pointerEvents = "auto";
       if (result.ok) {
         // Close modal, refresh accounts, refresh detail
-        appsBrowseModal.classList.add("hidden");
+        appsBrowseSection.classList.add("hidden");
         try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
         if (connectingForAppId) {
           const panelApp = panelApps.find((a) => a.id === connectingForAppId);
@@ -851,11 +851,10 @@ async function openAppsBrowse(append = false) {
 
 function initApps() {
   const closeBrowseModal = () => {
-    appsBrowseModal.classList.add("hidden");
+    appsBrowseSection.classList.add("hidden");
     connectingForAppId = "";
   };
   document.getElementById("apps-browse-cancel")!.addEventListener("click", closeBrowseModal);
-  document.getElementById("apps-browse-backdrop")!.addEventListener("click", closeBrowseModal);
 
   // Browse search
   let browseSearchTimeout: ReturnType<typeof setTimeout>;
