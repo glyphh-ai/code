@@ -582,10 +582,11 @@
 
           <div class="tab-toolbar">
             <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
-            <button id="apps-browse-btn" class="action-btn primary">+ Browse Apps</button>
+            <button id="apps-add-btn" class="action-btn">+ Add App</button>
+            <button id="apps-browse-btn" class="action-btn primary">+ Connect</button>
           </div>
 
-          <!-- Local apps + connected accounts (merged list) -->
+          <!-- Panel apps + connected accounts (merged list) -->
           <div id="apps-list"></div>
 
           <!-- App detail -->
@@ -599,6 +600,7 @@
               <div class="action-btns app-detail-actions">
                 <button id="app-detail-connect" class="action-btn primary hidden">Connect</button>
                 <button id="app-detail-disconnect" class="action-btn danger hidden">Disconnect</button>
+                <button id="app-detail-delete" class="action-btn danger hidden">Delete</button>
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>

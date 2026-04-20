@@ -1715,6 +1715,11 @@ ol.docs-list li::before {
   border-color: #1a3a1e;
   background: #0d1f10;
 }
+.app-card-status.panel {
+  color: #999;
+  border-color: #333;
+  background: #1a1a1a;
+}
 
 .app-card-url {
   font-size: 11px;

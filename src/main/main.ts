@@ -2268,8 +2268,16 @@ async function boot() {
     }
   });
 
-  // IPC: apps list (used by layout cell picker)
+  // IPC: apps CRUD (panel apps)
   ipcMain.handle("apps-list", () => appConnector.list());
+  ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
+    const app = appConnector.add(id, name, url);
+    panelManager.addPanel(id, url);
+    return app;
+  });
+  ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
+  ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);

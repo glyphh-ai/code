@@ -284,6 +284,14 @@ export class AppConnector {
     return true;
   }
 
+  updateUrl(id: string, url: string): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    app.url = url;
+    this.save(app);
+    return true;
+  }
+
   /** Update an app's ID (renames file and map entry) */
   updateId(oldId: string, newId: string): boolean {
     const app = this.apps.get(oldId);

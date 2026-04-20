@@ -31,6 +31,10 @@ declare global {
       skillsGenerate: (name: string, description: string) => Promise<string>;
       // Apps
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
+      appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
+      appsRemove: (id: string) => Promise<boolean>;
+      appsUpdateName: (id: string, name: string) => Promise<boolean>;
+      appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
 
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;

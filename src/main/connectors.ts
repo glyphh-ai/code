@@ -187,6 +187,10 @@ export class ConnectorManager extends EventEmitter {
         },
       });
 
+      // Use a real Chrome user-agent so Google/OAuth providers don't flag as suspicious
+      this.oauthWindow.webContents.setUserAgent(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      );
       this.oauthWindow.setMenuBarVisibility(false);
 
       let resolved = false;
