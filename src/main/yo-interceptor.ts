@@ -678,8 +678,9 @@ function setText(val){
     if(s&&s.set)s.set.call(el,val);else el.value=val;
     el.dispatchEvent(new Event('input',{bubbles:true}));
   }else{
-    el.innerText=val;
-    el.dispatchEvent(new Event('input',{bubbles:true}));
+    try{var sel=window.getSelection();var range=document.createRange();
+    range.selectNodeContents(el);sel.removeAllRanges();sel.addRange(range);
+    document.execCommand('insertText',false,val);}catch(ex){el.innerText=val;}
   }
 }
 if(isLoading){
