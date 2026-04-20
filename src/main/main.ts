@@ -1998,12 +1998,12 @@ async function boot() {
       panelManager.showActive(mainWindow);
     }
     sendSplitState();
-    // After first reveal (post-splash), force active panel to repaint
-    // — sites don't render CSS properly when loaded at zero size
+    // After first reveal (post-splash), reload active panel
+    // — sites like Gmail don't render CSS properly when loaded at zero size
     if (wasHidden && panelManager.activePanelId) {
       const view = panelManager.getView(panelManager.activePanelId);
-      if (view) {
-        view.webContents.invalidate();
+      if (view && !view.webContents.isDestroyed()) {
+        view.webContents.reload();
       }
     }
   });
