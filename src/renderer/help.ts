@@ -671,54 +671,33 @@ async function loadApps() {
 function renderAppsList() {
   const query = appSearchInput.value.trim().toLowerCase();
 
-  const filteredPanel = query
+  const filtered = query
     ? panelApps.filter((a) => a.name.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
     : panelApps;
 
-  const filteredConnected = query
-    ? connectedAccounts.filter((a) => a.appName.toLowerCase().includes(query) || a.appSlug.includes(query))
-    : connectedAccounts;
-
-  if (filteredPanel.length === 0 && filteredConnected.length === 0) {
-    if (panelApps.length === 0 && connectedAccounts.length === 0) {
-      appsList.innerHTML = `<div class="inline-empty">No apps yet. Add one or connect via Pipedream.</div>`;
-    } else {
-      appsList.innerHTML = `<div class="inline-empty">No apps matching "${query}"</div>`;
-    }
+  if (panelApps.length === 0) {
+    appsList.innerHTML = `<div class="inline-empty">No apps yet. Add one above.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    appsList.innerHTML = `<div class="inline-empty">No apps matching "${query}"</div>`;
     return;
   }
 
-  let html = "";
-
-  // Connected accounts first
-  html += filteredConnected.map((acct) => `
-    <div class="app-card app-card-connected" data-acct-id="${acct.id}">
-      <div class="app-card-header">
-        <span class="app-card-name">${acct.appName}</span>
-        <span class="app-card-status connected">${acct.healthy ? "connected" : "unhealthy"}</span>
-      </div>
-      <div class="app-card-url">${acct.appSlug}</div>
-    </div>`).join("");
-
-  // Panel apps
-  html += filteredPanel.map((app) => `
+  appsList.innerHTML = filtered.map((app) => {
+    const acct = connectedAccounts.find((a) => a.appSlug === app.id || a.appName.toLowerCase() === app.name.toLowerCase());
+    const badge = acct
+      ? `<span class="app-card-status connected">${acct.healthy ? "connected" : "unhealthy"}</span>`
+      : `<span class="app-card-status panel">panel</span>`;
+    return `
     <div class="app-card" data-app-id="${app.id}">
       <div class="app-card-header">
         <span class="app-card-name">${app.name}</span>
-        <span class="app-card-status panel">panel</span>
+        ${badge}
       </div>
       <div class="app-card-url">${app.url}</div>
-    </div>`).join("");
-
-  appsList.innerHTML = html;
-
-  appsList.querySelectorAll(".app-card[data-acct-id]").forEach((card) => {
-    const acctId = (card as HTMLElement).dataset.acctId!;
-    card.addEventListener("click", () => {
-      const acct = connectedAccounts.find((a) => a.id === acctId);
-      if (acct) openConnectedDetail(acct);
-    });
-  });
+    </div>`;
+  }).join("");
 
   appsList.querySelectorAll(".app-card[data-app-id]").forEach((card) => {
     const appId = (card as HTMLElement).dataset.appId!;
@@ -729,30 +708,6 @@ function renderAppsList() {
   });
 }
 
-function openConnectedDetail(acct: ConnectorAccount) {
-  appsList.classList.add("hidden");
-  document.querySelector(".tab-toolbar")?.classList.add("hidden");
-  appDetail.classList.remove("hidden");
-
-  currentAppId = acct.appSlug;
-  (document.getElementById("app-detail-id") as HTMLInputElement).value = acct.appSlug;
-  appDetailName.value = acct.appName;
-  appDetailUrl.value = "";
-  appDetailUrl.readOnly = true;
-
-  const connectBtn = document.getElementById("app-detail-connect")!;
-  const disconnectBtn = document.getElementById("app-detail-disconnect")!;
-  const connectionSection = document.getElementById("app-detail-connection")!;
-  const toolsSection = document.getElementById("app-detail-tools")!;
-
-  connectBtn.classList.add("hidden");
-  disconnectBtn.classList.remove("hidden");
-  document.getElementById("app-detail-delete")!.classList.add("hidden");
-  connectionSection.classList.remove("hidden");
-  document.getElementById("app-detail-connection-status")!.textContent =
-    `Connected via Pipedream · ${acct.healthy ? "Healthy" : "Unhealthy"} · Since ${new Date(acct.createdAt).toLocaleDateString()}`;
-  toolsSection.classList.add("hidden");
-}
 
 function openPanelAppDetail(app: PanelApp) {
   appsList.classList.add("hidden");
