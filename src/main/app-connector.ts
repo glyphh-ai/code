@@ -140,13 +140,39 @@ const VSCODE_GRAB_SCRIPT = `
   });
 `;
 
-// Internal apps — these use yo:// protocol and can't come from the server
+// Internal apps — these use yo:// protocol
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "dashboard", name: "Dashboard", url: "yo://dashboard" },
   { id: "browser", name: "Browser", url: "yo://browser" },
+];
+
+// Default panel apps — seeded on first launch so the workspace isn't empty
+const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
+  // LLMs
+  { id: "chatgpt", name: "ChatGPT", url: "https://chatgpt.com" },
+  { id: "claude", name: "Claude", url: "https://claude.ai" },
+  { id: "gemini", name: "Gemini", url: "https://gemini.google.com" },
+  { id: "grok", name: "Grok", url: "https://grok.com" },
+  { id: "perplexity", name: "Perplexity", url: "https://perplexity.ai" },
+  // Google Workspace
+  { id: "gmail", name: "Gmail", url: "https://mail.google.com" },
+  { id: "google-calendar", name: "Google Calendar", url: "https://calendar.google.com" },
+  { id: "google-sheets", name: "Google Sheets", url: "https://sheets.google.com" },
+  { id: "google-docs", name: "Google Docs", url: "https://docs.google.com" },
+  { id: "google-slides", name: "Google Slides", url: "https://slides.google.com" },
+  { id: "notebooklm", name: "NotebookLM", url: "https://notebooklm.google.com" },
+  // Dev & Work
+  { id: "github", name: "GitHub", url: "https://github.com" },
+  { id: "slack", name: "Slack", url: "https://app.slack.com" },
+  { id: "linear", name: "Linear", url: "https://linear.app" },
+  { id: "jira", name: "Jira", url: "https://atlassian.net" },
+  { id: "notion", name: "Notion", url: "https://notion.so" },
+  // Other
+  { id: "figma", name: "Figma", url: "https://figma.com" },
+  { id: "youtube", name: "YouTube", url: "https://youtube.com" },
 ];
 
 // ── AppConnector ─────────────────────────────────────��──
@@ -162,17 +188,26 @@ export class AppConnector {
     this.ensureDefaults();
   }
 
-  /** Seed internal yo:// apps that can't come from the server */
+  /** Seed internal + default apps on first launch */
   private ensureDefaults(): void {
     for (const def of INTERNAL_APPS) {
       if (!this.apps.has(def.id)) {
         this.add(def.id, def.name, def.url);
       } else {
         const app = this.apps.get(def.id)!;
-        // Ensure yo:// URL stays current
         if (app.url !== def.url) {
           app.url = def.url;
           this.save(app);
+        }
+      }
+    }
+
+    // Seed default panel apps only if none exist yet (fresh install)
+    const hasUserApps = [...this.apps.values()].some((a) => !a.url.startsWith("yo://"));
+    if (!hasUserApps) {
+      for (const def of DEFAULT_APPS) {
+        if (!this.apps.has(def.id)) {
+          this.add(def.id, def.name, def.url);
         }
       }
     }
