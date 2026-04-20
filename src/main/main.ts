@@ -1801,6 +1801,11 @@ async function boot() {
   // Hook into panel focus events — add tab when panel becomes active
   panelManager.setOnPanelFocused((id: string) => {
     ensureTab(id);
+    // Persist lastView (only for single-panel mode — grids are saved by the layout system)
+    const gridInfo = layoutManager.getGridInfo();
+    if (!gridInfo || gridInfo.panelIds.length <= 1) {
+      setPreference("lastView", { type: "panel", id });
+    }
     sendTabState();
     sendUrlUpdate();
     // Forward to vibe recorder for panel-switch tracking
@@ -1839,6 +1844,7 @@ async function boot() {
       if (idx >= 0) openTabs.splice(idx, 1);
       const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
       panelManager.closePanel(id, mainWindow, nextId);
+      persistTabs();
       sendTabState();
     },
     create: () => {
@@ -1849,6 +1855,7 @@ async function boot() {
       panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
       if (mainWindow) panelManager.switchTo(id, mainWindow);
       openTabs.push(id);
+      persistTabs();
       sendTabState();
       return id;
     },
@@ -1862,6 +1869,7 @@ async function boot() {
       if (idx >= 0) openTabs.splice(idx, 1);
       const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
       panelManager.closePanel(id, mainWindow, nextId);
+      persistTabs();
       sendSplitState();
       sendTabState();
     },
@@ -2731,10 +2739,18 @@ async function boot() {
     if (id === "__layout__") {
       // Clicking the layout tab restores the grid
       layoutManager.restoreSplit(mainWindow);
+      const gridInfo = layoutManager.getGridInfo();
+      if (gridInfo) {
+        setPreference("lastView", {
+          type: "grid-full",
+          grid: { name: "", version: 2, cols: gridInfo.cols, rows: gridInfo.rows, colWidths: gridInfo.colWidths, rowHeights: gridInfo.rowHeights, cells: gridInfo.cells },
+        });
+      }
     } else {
       // Switching to a non-layout tab exits the grid
       layoutManager.clearSplit();
       panelManager.switchTo(id, mainWindow);
+      setPreference("lastView", { type: "panel", id });
     }
     sendSplitState();
     sendTabState();
