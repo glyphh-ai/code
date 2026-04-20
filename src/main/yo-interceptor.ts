@@ -662,7 +662,7 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
       await wc.executeJavaScript(`
 (function(){
 var _n=${nonceJs};
-window.__yoNoteIv=null;
+if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
 var el=window.__yoLastEl;
 if(!el||!el.isConnected){el=document.activeElement;if(!el||el===document.body)el=null;
 if(!el){var fb=['[role="textbox"]','[contenteditable]:not([contenteditable="false"])','textarea','input[type="text"]'];
@@ -674,98 +674,89 @@ if(!el)return;
 var isLoading=${type === "loading"};
 var text=${JSON.stringify(text)};
 var modeColor=${JSON.stringify(this.modeColor)};
-var cs=window.getComputedStyle(el);
-var elColor=cs.color||'#ccc';
-var elFont=cs.fontFamily;
-var elSize=cs.fontSize;
-var bg=cs.backgroundColor||'#1a1a1a';
-if(bg==='rgba(0, 0, 0, 0)'||bg==='transparent'){
-  var p=el.parentElement;while(p){var pb=window.getComputedStyle(p).backgroundColor;
-  if(pb&&pb!=='rgba(0, 0, 0, 0)'&&pb!=='transparent'){bg=pb;break;}p=p.parentElement;}
-  if(!bg||bg==='rgba(0, 0, 0, 0)'||bg==='transparent')bg='#1a1a1a';
-}
-function makeOverlay(rect){
-  var o=document.createElement('div');
-  o.id='__yo-spinner';
-  o.style.cssText='position:fixed;z-index:2147483647;pointer-events:none;'+
-    'top:'+rect.top+'px;left:'+rect.left+'px;width:'+rect.width+'px;height:'+rect.height+'px;'+
-    'display:flex;align-items:center;padding:0 12px;box-sizing:border-box;'+
-    'font-family:'+elFont+';font-size:'+elSize+';'+
-    'color:'+elColor+';background:'+bg+';border-radius:'+cs.borderRadius+';';
-  return o;
+var isContentEditable=(el.tagName!=='INPUT'&&el.tagName!=='TEXTAREA');
+function setText(val,frame){
+  if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
+    var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    var s=Object.getOwnPropertyDescriptor(p,'value');
+    if(s&&s.set)s.set.call(el,val);else el.value=val;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }else{
+    if(frame){
+      el.innerHTML='<span style="color:'+modeColor+';font-weight:bold">'+frame+'</span> '+val;
+    }else{
+      el.innerText=val;
+    }
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }
 }
 if(isLoading){
   var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
   var words=['chilling...','vibing...','yozing...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
   var fi=0;
-  var curWord=text||words[Math.floor(Math.random()*words.length)];
+  var curWord=text;
   var nextWord='';
   var wipePos=-1;
   var lastSwap=Date.now();
   function pickNext(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
-  var rect=el.getBoundingClientRect();
-  var overlay=makeOverlay(rect);
-  overlay.innerHTML='<span style="color:'+modeColor+'">'+frames[0]+'</span> '+curWord;
-  var oldOverlay=document.getElementById('__yo-spinner');if(oldOverlay)oldOverlay.remove();
-  document.body.appendChild(overlay);
+  function cursorHome(){try{if(el.setSelectionRange)el.setSelectionRange(0,0);else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}}
+  setText(isContentEditable?curWord+'   ':frames[0]+' '+curWord+'   ',isContentEditable?frames[0]:null);
+  cursorHome();
   // Stop button
   var stopBtn=document.createElement('div');
   stopBtn.id='__yo-stop';
   stopBtn.innerHTML='\\u25A0';
   stopBtn.title='Stop';
-  stopBtn.style.cssText='position:fixed;z-index:2147483647;width:24px;height:24px;border-radius:6px;background:#333;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;';
+  stopBtn.style.cssText='position:fixed;z-index:999999;width:24px;height:24px;border-radius:6px;background:#333;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;';
   stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';};
   stopBtn.onmouseleave=function(){stopBtn.style.background='#333';};
   stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));};
-  stopBtn.style.top=(rect.top+rect.height/2-12)+'px';
-  stopBtn.style.right='12px';
+  // Position next to input
+  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-12)+'px';stopBtn.style.right='12px';}catch(e){}
   var old=document.getElementById('__yo-stop');if(old)old.remove();
   document.body.appendChild(stopBtn);
   // Escape key also cancels
   window.__yoStopEsc=function(e){if(e.key==='Escape'){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));}};
   document.addEventListener('keydown',window.__yoStopEsc,true);
-  var lastTick=0;
-  function tick(ts){
-    if(!window.__yoNoteIv)return;
-    if(ts-lastTick>=100){
-      lastTick=ts;
-      fi++;
-      var now=Date.now();
-      var display;
-      if(wipePos>=0){
-        wipePos++;
-        display=curWord;
-        if(wipePos<=display.length){
-          display=nextWord.substring(0,wipePos)+display.substring(wipePos);
-          if(wipePos>=curWord.length){curWord=nextWord;wipePos=-1;lastSwap=now;}
-        }
-      }else{
-        display=curWord;
-        if(now-lastSwap>3000){nextWord=pickNext();wipePos=0;}
+  window.__yoNoteIv=setInterval(function(){
+    fi++;
+    var now=Date.now();
+    var display;
+    if(wipePos>=0){
+      wipePos++;
+      display=curWord;
+      if(wipePos<=display.length){
+        display=nextWord.substring(0,wipePos)+display.substring(wipePos);
+        if(wipePos>=curWord.length){curWord=nextWord;wipePos=-1;lastSwap=now;}
       }
-      overlay.innerHTML='<span style="color:'+modeColor+'">'+frames[fi%frames.length]+'</span> '+display;
+    }else{
+      display=curWord;
+      if(now-lastSwap>3000){nextWord=pickNext();wipePos=0;}
     }
-    requestAnimationFrame(tick);
-  }
-  window.__yoNoteIv=true;
-  requestAnimationFrame(tick);
+    if(isContentEditable){
+      setText(display+'   ',frames[fi%frames.length]);
+    }else{
+      setText(frames[fi%frames.length]+' '+display+'   ');
+    }
+    cursorHome();
+  },100);
 }else{
   var isSuccess=${type === "success"};
   var isError=${type === "error"};
-  var msgColor=isError?'#ff5f57':isSuccess?'#25C75E':modeColor;
-  var rect2=el.getBoundingClientRect();
-  var msgOverlay=makeOverlay(rect2);
-  msgOverlay.style.color=msgColor;
-  msgOverlay.textContent=text;
-  var oldMsg=document.getElementById('__yo-spinner');if(oldMsg)oldMsg.remove();
-  document.body.appendChild(msgOverlay);
-  ${autoRemove ? "setTimeout(function(){var o=document.getElementById('__yo-spinner');if(o)o.remove();},1500);" : `
+  if(isContentEditable){
+    var msgColor=isError?'#ff5f57':isSuccess?'#25C75E':modeColor;
+    el.innerHTML='<span style="color:'+msgColor+'">'+text+'</span>';
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  }else{
+    setText(text);
+  }
+  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},1500);" : `
   // Escape clears result and ends yo session
   if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
   window.__yoResultEsc=function(e){
     if(e.key==='Escape'){
       e.preventDefault();e.stopPropagation();
-      var o=document.getElementById('__yo-spinner');if(o)o.remove();
+      try{setText('');}catch(ex){}
       console.log('${PREFIX}'+JSON.stringify({type:'yo-dismiss',_nonce:_n}));
       document.removeEventListener('keydown',window.__yoResultEsc,true);
       window.__yoResultEsc=null;
@@ -782,8 +773,7 @@ if(isLoading){
     try {
       await wc.executeJavaScript(`
 (function(){
-window.__yoNoteIv=null;
-var spinner=document.getElementById('__yo-spinner');if(spinner)spinner.remove();
+if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
 var stop=document.getElementById('__yo-stop');if(stop)stop.remove();
 if(window.__yoStopEsc){document.removeEventListener('keydown',window.__yoStopEsc,true);window.__yoStopEsc=null;}
 if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
