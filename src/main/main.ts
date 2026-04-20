@@ -2268,29 +2268,8 @@ async function boot() {
     }
   });
 
-  // IPC: apps CRUD + connect + pick
+  // IPC: apps list (used by layout cell picker)
   ipcMain.handle("apps-list", () => appConnector.list());
-  ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
-    const app = appConnector.add(id, name, url);
-    panelManager.addPanel(id, url);
-    return app;
-  });
-  ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
-  ipcMain.handle("apps-import", (_e, config: { id: string; name: string; url: string; connected: boolean; commands: Record<string, unknown>; forceWeb?: boolean; meta?: unknown }) => {
-    const app = appConnector.importApp(config as import("./app-connector").AppConfig);
-    panelManager.addPanel(app.id, app.url);
-    return app;
-  });
-  ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
-  ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {
-    const ok = appConnector.updateId(oldId, newId);
-    if (ok) {
-      // Re-register panel with new ID
-      const app = appConnector.get(newId);
-      if (app) panelManager.addPanel(newId, app.url);
-    }
-    return ok;
-  });
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);

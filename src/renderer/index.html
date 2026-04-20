@@ -583,8 +583,6 @@
           <div class="tab-toolbar">
             <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
             <button id="apps-browse-btn" class="action-btn primary">+ Browse Apps</button>
-            <button id="app-import-btn" class="action-btn">Import</button>
-            <input id="app-import-file" type="file" accept=".json" class="hidden" />
           </div>
 
           <!-- Local apps + connected accounts (merged list) -->
@@ -596,13 +594,11 @@
               <div class="app-detail-info">
                 <input id="app-detail-id" class="app-detail-id-input" spellcheck="false" placeholder="app-id" />
                 <input id="app-detail-name" class="app-detail-title-input" spellcheck="false" />
-                <span id="app-detail-url" class="app-detail-url"></span>
+                <input id="app-detail-url" class="app-detail-url" spellcheck="false" placeholder="https://..." />
               </div>
               <div class="action-btns app-detail-actions">
                 <button id="app-detail-connect" class="action-btn primary hidden">Connect</button>
                 <button id="app-detail-disconnect" class="action-btn danger hidden">Disconnect</button>
-                <button id="app-detail-export" class="action-btn">Export</button>
-                <button id="app-detail-delete" class="action-btn danger">Delete</button>
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>

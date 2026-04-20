@@ -307,62 +307,7 @@ export function initHelp() {
   document.getElementById("app-detail-close")!.addEventListener("click", closeAppDetail);
   appSearchInput.addEventListener("input", () => renderAppsList());
 
-  // Rename on blur / enter
-  appDetailName.addEventListener("blur", () => {
-    const name = appDetailName.value.trim();
-    if (currentAppId && name) window.yo.appsUpdateName(currentAppId, name);
-  });
-  appDetailName.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") appDetailName.blur();
-  });
 
-  // ID rename on blur / enter
-  const appDetailId = document.getElementById("app-detail-id") as HTMLInputElement;
-  appDetailId.addEventListener("blur", async () => {
-    const newId = appDetailId.value.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+$/, "");
-    if (currentAppId && newId && newId !== currentAppId) {
-      const ok = await window.yo.appsUpdateId(currentAppId, newId);
-      if (ok) {
-        currentAppId = newId;
-        appDetailId.value = newId;
-      } else {
-        appDetailId.value = currentAppId; // revert
-      }
-    }
-  });
-  appDetailId.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") appDetailId.blur();
-  });
-
-  // Delete from detail screen
-  document.getElementById("app-detail-delete")!.addEventListener("click", async () => {
-    if (!currentAppId) return;
-    await window.yo.appsRemove(currentAppId);
-    closeAppDetail();
-  });
-
-  // Export from detail screen
-  document.getElementById("app-detail-export")!.addEventListener("click", () => {
-    const app = allApps.find((a) => a.id === currentAppId);
-    if (app) exportAppConfig(app);
-  });
-
-  // Import from toolbar
-  const importBtn = document.getElementById("app-import-btn")!;
-  const importFile = document.getElementById("app-import-file") as HTMLInputElement;
-  importBtn.addEventListener("click", () => importFile.click());
-  importFile.addEventListener("change", async () => {
-    const file = importFile.files?.[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const config = JSON.parse(text);
-      if (!config.id || !config.name || !config.url) return;
-      await window.yo.appsImport(config);
-      loadApps();
-    } catch { /* ignore parse errors */ }
-    importFile.value = "";
-  });
 
 }
 
@@ -680,20 +625,11 @@ let appsPage = 0;
 const appsList = document.getElementById("apps-list")!;
 const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
-const appDetailUrl = document.getElementById("app-detail-url")!;
+const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
 const appsBrowsePanel = document.getElementById("apps-browse-panel")!;
 
 let currentAppId = "";
-
-interface AppData {
-  id: string;
-  name: string;
-  url: string;
-  connected: boolean;
-  commands: Record<string, { selector: string; action: string; description: string }>;
-  meta?: { description: string; capabilities: string[] };
-}
 
 interface ConnectorAccount {
   id: string;
@@ -703,26 +639,13 @@ interface ConnectorAccount {
   healthy: boolean;
 }
 
-let allApps: AppData[] = [];
 let connectedAccounts: ConnectorAccount[] = [];
-
-function exportAppConfig(app: AppData): void {
-  const blob = new Blob([JSON.stringify(app, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${app.id}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 async function loadApps() {
   appDetail.classList.add("hidden");
   appsBrowsePanel.classList.add("hidden");
   appsList.classList.remove("hidden");
   document.querySelector(".tab-toolbar")?.classList.remove("hidden");
-
-  allApps = await window.yo.appsList();
 
   // Fetch connected accounts (silently fail for non-Advanced)
   try {
@@ -735,100 +658,61 @@ async function loadApps() {
 function renderAppsList() {
   const query = appSearchInput.value.trim().toLowerCase();
 
-  // Merge local apps with connection status
-  const merged = allApps.map((app) => {
-    const acct = connectedAccounts.find((a) => a.appSlug === app.id || app.name.toLowerCase().includes(a.appName.toLowerCase()));
-    return { ...app, connectedAccount: acct || null };
-  });
-
-  // Also include connected accounts that don't have a local app
-  const extraConnections = connectedAccounts.filter((acct) =>
-    !merged.some((m) => m.connectedAccount?.id === acct.id)
-  );
-
   const filtered = query
-    ? merged.filter((a) => a.id.includes(query) || a.name.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
-    : merged;
+    ? connectedAccounts.filter((a) => a.appName.toLowerCase().includes(query) || a.appSlug.includes(query))
+    : connectedAccounts;
 
-  if (merged.length === 0 && extraConnections.length === 0) {
-    appsList.innerHTML = `<div class="inline-empty">No apps yet. Click "+ Browse Apps" to connect one.</div>`;
+  if (connectedAccounts.length === 0) {
+    appsList.innerHTML = `<div class="inline-empty">No connected apps yet. Click "+ Browse Apps" to connect one.</div>`;
     return;
   }
-  if (filtered.length === 0 && extraConnections.length === 0) {
+  if (filtered.length === 0) {
     appsList.innerHTML = `<div class="inline-empty">No apps matching "${query}"</div>`;
     return;
   }
-  if (query) appsPage = 0;
-  const { items: apps, state } = paginate(filtered, appsPage);
-  appsPage = state.page;
 
-  let html = apps.map((app) => `
-    <div class="app-card" data-id="${app.id}">
+  appsList.innerHTML = filtered.map((acct) => `
+    <div class="app-card app-card-connected" data-acct-id="${acct.id}">
       <div class="app-card-header">
-        <span class="app-card-name">${app.name}</span>
-        ${app.connectedAccount
-          ? `<span class="app-card-status connected">connected</span>`
-          : ""}
+        <span class="app-card-name">${acct.appName}</span>
+        <span class="app-card-status connected">${acct.healthy ? "connected" : "unhealthy"}</span>
       </div>
-      <div class="app-card-url">${app.url}</div>
+      <div class="app-card-url">${acct.appSlug}</div>
     </div>`).join("");
 
-  // Show connected-only accounts that have no local app
-  if (!query && extraConnections.length > 0) {
-    html += extraConnections.map((acct) => `
-      <div class="app-card app-card-connected" data-acct-id="${acct.id}">
-        <div class="app-card-header">
-          <span class="app-card-name">${acct.appName}</span>
-          <span class="app-card-status connected">connected</span>
-        </div>
-        <div class="app-card-url">${acct.appSlug}</div>
-      </div>`).join("");
-  }
-
-  appsList.innerHTML = html;
-  appsList.appendChild(renderPaginationBar(state, (p) => { appsPage = p; renderAppsList(); }));
-
-  appsList.querySelectorAll(".app-card[data-id]").forEach((card) => {
-    const id = (card as HTMLElement).dataset.id!;
-    card.addEventListener("click", () => openAppDetail(id));
+  appsList.querySelectorAll(".app-card[data-acct-id]").forEach((card) => {
+    const acctId = (card as HTMLElement).dataset.acctId!;
+    card.addEventListener("click", () => {
+      const acct = connectedAccounts.find((a) => a.id === acctId);
+      if (acct) openConnectedDetail(acct);
+    });
   });
 }
 
-async function openAppDetail(id: string) {
-  currentAppId = id;
-  const apps: AppData[] = await window.yo.appsList();
-  const app = apps.find((a) => a.id === id);
-  if (!app) return;
+function openConnectedDetail(acct: ConnectorAccount) {
+  appsList.classList.add("hidden");
+  document.querySelector(".tab-toolbar")?.classList.add("hidden");
+  appDetail.classList.remove("hidden");
 
-  (document.getElementById("app-detail-id") as HTMLInputElement).value = app.id;
-  appDetailName.value = app.name;
-  appDetailUrl.textContent = app.url;
+  currentAppId = acct.appSlug;
+  (document.getElementById("app-detail-id") as HTMLInputElement).value = acct.appSlug;
+  appDetailName.value = acct.appName;
+  appDetailUrl.value = "";
 
-  // Check connection status
-  const acct = connectedAccounts.find((a) => a.appSlug === app.id || app.name.toLowerCase().includes(a.appName.toLowerCase()));
   const connectBtn = document.getElementById("app-detail-connect")!;
   const disconnectBtn = document.getElementById("app-detail-disconnect")!;
   const connectionSection = document.getElementById("app-detail-connection")!;
   const toolsSection = document.getElementById("app-detail-tools")!;
 
-  if (acct) {
-    connectBtn.classList.add("hidden");
-    disconnectBtn.classList.remove("hidden");
-    connectionSection.classList.remove("hidden");
-    document.getElementById("app-detail-connection-status")!.textContent =
-      `Connected via Pipedream · ${acct.healthy ? "Healthy" : "Unhealthy"} · Since ${new Date(acct.createdAt).toLocaleDateString()}`;
-    toolsSection.classList.add("hidden");
-  } else {
-    connectBtn.classList.remove("hidden");
-    disconnectBtn.classList.add("hidden");
-    connectionSection.classList.add("hidden");
-    toolsSection.classList.add("hidden");
-  }
+  connectBtn.classList.add("hidden");
+  disconnectBtn.classList.remove("hidden");
+  connectionSection.classList.remove("hidden");
+  document.getElementById("app-detail-connection-status")!.textContent =
+    `Connected via Pipedream · ${acct.healthy ? "Healthy" : "Unhealthy"} · Since ${new Date(acct.createdAt).toLocaleDateString()}`;
+  toolsSection.classList.add("hidden");
 
-  appsList.classList.add("hidden");
-  document.querySelector(".tab-toolbar")?.classList.add("hidden");
-  appDetail.classList.remove("hidden");
 }
+
 
 function closeAppDetail() {
   appDetail.classList.add("hidden");
@@ -948,8 +832,11 @@ function initApps() {
     // Connect via Pipedream OAuth
     const result = await window.yo.connectorsConnect(currentAppId);
     if (result.ok) {
-      loadApps();
-      openAppDetail(currentAppId);
+      // Refresh accounts and show connected detail
+      try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
+      const acct = connectedAccounts.find((a) => a.appSlug === currentAppId);
+      if (acct) openConnectedDetail(acct);
+      else loadApps();
     }
   });
 
@@ -959,7 +846,6 @@ function initApps() {
     if (acct) {
       await window.yo.connectorsDisconnect(acct.id);
       loadApps();
-      openAppDetail(currentAppId);
     }
   });
 
