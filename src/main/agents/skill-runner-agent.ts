@@ -11,7 +11,7 @@
  */
 
 import os from "os";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { BaseSubAgent } from "./base-agent";
 import type { ToolDef } from "./types";
 import type { NoteStore } from "../note-store";
@@ -308,8 +308,14 @@ RULES:
     const prog = command.split(/\s+/)[0].replace(/^.*\//, "");
     if (interactive.has(prog)) return `Interactive command not supported: ${prog}`;
 
+    // Parse command into program + args (no shell — prevents injection)
+    const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    if (parts.length === 0) return "No command provided.";
+    const program = parts[0];
+    const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ""));
+
     return new Promise((resolve) => {
-      exec(command, { cwd, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, HOME: os.homedir() } }, (err, stdout, stderr) => {
+      execFile(program, args, { cwd, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, HOME: os.homedir() } }, (err, stdout, stderr) => {
         let result = "";
         if (stdout) result += stdout.slice(0, 10000);
         if (stderr) result += (result ? "\n\n[stderr]\n" : "") + stderr.slice(0, 5000);

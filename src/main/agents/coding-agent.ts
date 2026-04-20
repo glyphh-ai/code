@@ -9,7 +9,7 @@
  */
 
 import os from "os";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { BaseSubAgent } from "./base-agent";
 import type { ToolDef } from "./types";
 import {
@@ -184,8 +184,14 @@ RESPONSE:
       return `Interactive command not supported: ${program}. Use non-interactive alternatives.`;
     }
 
+    // Parse command into program + args (no shell — prevents injection)
+    const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    if (parts.length === 0) return "No command provided.";
+    const program = parts[0];
+    const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ""));
+
     return new Promise((resolve) => {
-      exec(command, {
+      execFile(program, args, {
         cwd,
         timeout,
         maxBuffer: 1024 * 1024,
