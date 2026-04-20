@@ -2101,6 +2101,10 @@ async function boot() {
       } catch (err: any) {
         mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
       }
+      // Keep focus on yo panel input (BrowserView can steal focus during load)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.focus();
+      }
       return;
     }
 
