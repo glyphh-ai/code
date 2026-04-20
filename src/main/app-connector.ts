@@ -106,6 +106,11 @@ export const CATEGORY_COMMANDS: Record<string, Array<{ key: string; description:
     { key: "terminal", description: "Focus or open the terminal" },
     { key: "run", description: "Run/execute the current file or test" },
   ],
+  search: [
+    { key: "read-result", description: "Click/open the first search result" },
+    { key: "images", description: "Switch to image search results" },
+    { key: "news", description: "Switch to news search results" },
+  ],
 };
 
 /** Script to extract all open editor content from VS Code via Monaco's AMD loader */
