@@ -7,6 +7,7 @@
  */
 
 import { getPreference } from "./preferences";
+import type { McpManager } from "./mcp-manager";
 
 export type AgentMode = "plan" | "ask" | "auto" | "council" | "vibe";
 export type ToolTier = "observe" | "mutate";
@@ -270,4 +271,38 @@ export function getToolRegistry(): Array<{ name: string; label: string; descript
     tier: getToolTier(name),
     override: (overrides[name] || "default") as ToolOverride,
   }));
+}
+
+// ── MCP tool gating ────────────────────────────────────────
+
+let mcpManagerRef: McpManager | null = null;
+
+/** Set the MCP manager reference for gate checks. */
+export function setMcpManager(mgr: McpManager): void {
+  mcpManagerRef = mgr;
+}
+
+/**
+ * Gate check for MCP tools. Uses per-server per-tool overrides,
+ * falling back to mode logic. MCP tools default to "mutate" tier.
+ */
+export function gateMcp(qualifiedName: string, mode: AgentMode): GateDecision {
+  if (mode === "plan") return "skip";
+
+  // Parse serverId and toolName from mcp__<serverId>__<toolName>
+  const match = qualifiedName.match(/^mcp__(.+?)__(.+)$/);
+  if (!match) return "needs_approval";
+
+  const [, serverId, toolName] = match;
+
+  // Check per-server per-tool override
+  if (mcpManagerRef) {
+    const override = mcpManagerRef.getToolOverride(serverId, toolName);
+    if (override === "auto") return "execute";
+    if (override === "ask") return "needs_approval";
+  }
+
+  // Default: MCP tools are treated as "mutate" — approval needed in ask mode
+  if (mode === "auto" || mode === "council") return "execute";
+  return "needs_approval";
 }

@@ -148,6 +148,23 @@ declare global {
       setToolOverride: (toolName: string, override: string) => void;
       onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
       approvalRespond: (id: string, approved: boolean) => void;
+      // MCP Servers
+      mcpGetPresets: () => Promise<Array<{ id: string; name: string; description: string; transport: string; command: string; args: string[]; configHint?: string }>>;
+      mcpGetServers: () => Promise<Array<{
+        config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean };
+        status: string;
+        error?: string;
+        tools: Array<{ name: string; description?: string }>;
+      }>>;
+      mcpAddServer: (config: Record<string, unknown>) => Promise<boolean>;
+      mcpRemoveServer: (id: string) => Promise<boolean>;
+      mcpUpdateServer: (id: string, updates: Record<string, unknown>) => Promise<boolean>;
+      mcpConnectServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+      mcpDisconnectServer: (id: string) => Promise<boolean>;
+      mcpGetToolOverride: (serverId: string, toolName: string) => Promise<string>;
+      mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
+      mcpSetServerOverride: (serverId: string, override: string) => void;
+      onMcpChanged: (cb: () => void) => void;
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;

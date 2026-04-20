@@ -241,6 +241,24 @@ contextBridge.exposeInMainWorld("yo", {
   },
   approvalRespond: (id: string, approved: boolean) => ipcRenderer.send("approval-respond", id, approved),
 
+  // MCP servers
+  mcpGetPresets: () => ipcRenderer.invoke("mcp-get-presets") as Promise<Array<{ id: string; name: string; description: string; transport: string; command: string; args: string[]; configHint?: string }>>,
+  mcpGetServers: () => ipcRenderer.invoke("mcp-get-servers") as Promise<Array<{
+    config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean };
+    status: string;
+    error?: string;
+    tools: Array<{ name: string; description?: string }>;
+  }>>,
+  mcpAddServer: (config: Record<string, unknown>) => ipcRenderer.invoke("mcp-add-server", config) as Promise<boolean>,
+  mcpRemoveServer: (id: string) => ipcRenderer.invoke("mcp-remove-server", id) as Promise<boolean>,
+  mcpUpdateServer: (id: string, updates: Record<string, unknown>) => ipcRenderer.invoke("mcp-update-server", id, updates) as Promise<boolean>,
+  mcpConnectServer: (id: string) => ipcRenderer.invoke("mcp-connect-server", id) as Promise<{ ok: boolean; error?: string }>,
+  mcpDisconnectServer: (id: string) => ipcRenderer.invoke("mcp-disconnect-server", id) as Promise<boolean>,
+  mcpGetToolOverride: (serverId: string, toolName: string) => ipcRenderer.invoke("mcp-get-tool-override", serverId, toolName) as Promise<string>,
+  mcpSetToolOverride: (serverId: string, toolName: string, override: string) => ipcRenderer.send("mcp-set-tool-override", serverId, toolName, override),
+  mcpSetServerOverride: (serverId: string, override: string) => ipcRenderer.send("mcp-set-server-override", serverId, override),
+  onMcpChanged: (cb: () => void) => { ipcRenderer.on("mcp-changed", () => cb()); },
+
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>,

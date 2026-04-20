@@ -26,8 +26,9 @@ import { AppConnector, CommandMapping } from "./app-connector";
 import { ConnectorAgent } from "./connector-agent";
 import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
-import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS } from "./action-gate";
+import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS, setMcpManager } from "./action-gate";
 import type { AgentMode, ToolOverride } from "./action-gate";
+import { McpManager, MCP_PRESETS, McpServerConfig } from "./mcp-manager";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
@@ -60,6 +61,7 @@ let yoAgent: YoAgent | undefined;
 let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
+let mcpManager: McpManager;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -1512,6 +1514,33 @@ async function boot() {
   const subAgentModel = getPreference<string>("subAgentModel", "auto");
   yoAgent.setSubAgentModel(subAgentModel);
 
+  // MCP server manager — connects to external tool servers
+  mcpManager = new McpManager();
+  setMcpManager(mcpManager);
+  yoAgent.setMcpManager(mcpManager);
+  mcpManager.on("changed", () => {
+    mainWindow?.webContents.send("mcp-changed");
+  });
+  mcpManager.init().catch((err) => {
+    console.error("MCP init error:", err);
+  });
+
+  // Wire tool executor for .waz direct tool execution
+  commandParser.setToolExecutor(async (toolName: string, args: Record<string, unknown>) => {
+    // Check MCP tools first (mcp__<server>__<tool> format)
+    if (toolName.startsWith("mcp__")) {
+      return mcpManager.callTool(toolName, args);
+    }
+    // Check if it matches an MCP tool by short name (try all servers)
+    const mcpTools = mcpManager.getAllTools();
+    const mcpMatch = mcpTools.find((t) => t.name === toolName);
+    if (mcpMatch) {
+      return mcpManager.callTool(mcpMatch.qualifiedName, args);
+    }
+    // Not a recognized tool
+    return `Unknown tool: ${toolName}`;
+  });
+
   // Agent mode + approval callback
   yoAgent.setMode(getAgentMode());
 
@@ -2171,6 +2200,55 @@ async function boot() {
       overrides[toolName] = override;
     }
     setPreference("toolOverrides", overrides);
+  });
+
+  // ── MCP Server IPC ──────────────────────────────────────
+  ipcMain.handle("mcp-get-presets", () => MCP_PRESETS);
+  ipcMain.handle("mcp-get-servers", () => mcpManager.getServerStates().map((s) => ({
+    config: s.config,
+    status: s.status,
+    error: s.error,
+    tools: s.tools.map((t) => ({ name: t.name, description: t.description })),
+  })));
+  ipcMain.handle("mcp-add-server", (_e, config: McpServerConfig) => {
+    mcpManager.addServer(config);
+    if (config.enabled) {
+      mcpManager.connectServer(config).catch(() => {});
+    }
+    return true;
+  });
+  ipcMain.handle("mcp-remove-server", (_e, id: string) => {
+    mcpManager.removeServer(id);
+    return true;
+  });
+  ipcMain.handle("mcp-update-server", (_e, id: string, updates: Partial<McpServerConfig>) => {
+    mcpManager.updateServer(id, updates);
+    return true;
+  });
+  ipcMain.handle("mcp-connect-server", async (_e, id: string) => {
+    const config = mcpManager.getConfigs().find((c) => c.id === id);
+    if (!config) return { ok: false, error: "Server not found" };
+    try {
+      await mcpManager.connectServer(config);
+      mcpManager.updateServer(id, { enabled: true });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("mcp-disconnect-server", async (_e, id: string) => {
+    await mcpManager.disconnectServer(id);
+    mcpManager.updateServer(id, { enabled: false });
+    return true;
+  });
+  ipcMain.handle("mcp-get-tool-override", (_e, serverId: string, toolName: string) => {
+    return mcpManager.getToolOverride(serverId, toolName);
+  });
+  ipcMain.on("mcp-set-tool-override", (_e, serverId: string, toolName: string, override: string) => {
+    mcpManager.setToolOverride(serverId, toolName, override as "default" | "auto" | "ask");
+  });
+  ipcMain.on("mcp-set-server-override", (_e, serverId: string, override: string) => {
+    mcpManager.setServerOverride(serverId, override as "default" | "auto" | "ask");
   });
 
   // Renderer-initiated panel open (Cmd+.) — resize BrowserViews and focus renderer
@@ -3096,6 +3174,7 @@ function cleanupAll() {
   configSync = null;
   terminalManager?.killAll();
   vscodeServer?.stop();
+  mcpManager?.disconnectAll().catch(() => {});
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

@@ -27,9 +27,10 @@ import { SkillRunnerAgent } from "./agents/skill-runner-agent";
 import { CodingAgent } from "./agents/coding-agent";
 import { scanForInjection, scanWithLLM } from "./firewall";
 import { webSearch, fetchPage } from "./web-search";
-import { gate, getAgentMode } from "./action-gate";
+import { gate, gateMcp, getAgentMode } from "./action-gate";
 import type { AgentMode } from "./action-gate";
 import type { ApprovalCallback } from "./agents/base-agent";
+import type { McpManager } from "./mcp-manager";
 
 export interface YoAgentCallbacks {
   onText: (delta: string) => void;
@@ -327,6 +328,9 @@ export class YoAgent {
   // Vibe engine access
   private vibeRunner: VibeRunner | null = null;
 
+  // MCP server manager
+  private mcpManager: McpManager | null = null;
+
   // Direct tool callbacks — new tools
   private _panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
   private _panelTyper: ((panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>) | null = null;
@@ -510,6 +514,8 @@ export class YoAgent {
     this.skillList = cbs.list;
     this.skillRead = cbs.read;
   }
+
+  setMcpManager(mgr: McpManager): void { this.mcpManager = mgr; }
 
   setVibeRunner(runner: VibeRunner): void {
     this.vibeRunner = runner;
@@ -806,6 +812,29 @@ export class YoAgent {
       }
     }
 
+    // Inject MCP tools so orchestrator knows about external tools
+    if (this.mcpManager) {
+      const mcpTools = this.mcpManager.getAllTools();
+      if (mcpTools.length > 0) {
+        // Group by server
+        const byServer = new Map<string, typeof mcpTools>();
+        for (const t of mcpTools) {
+          const group = byServer.get(t.serverName) || [];
+          group.push(t);
+          byServer.set(t.serverName, group);
+        }
+        let mcpSection = "\n\nMCP TOOLS (external servers):";
+        for (const [serverName, tools] of byServer) {
+          mcpSection += `\n${serverName}:`;
+          for (const t of tools) {
+            mcpSection += `\n  - ${t.qualifiedName}: ${t.description}`;
+          }
+        }
+        mcpSection += "\nCall MCP tools directly by their qualified name (mcp__<server>__<tool>).";
+        prompt += mcpSection;
+      }
+    }
+
     if (this.activeMemories) {
       // Firewall: scan recalled memories for injection before adding to system prompt
       const memoryScan = scanForInjection(this.activeMemories);
@@ -851,12 +880,15 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
 
     const systemPrompt = this.buildSystemPrompt();
 
+    // Merge built-in tools with MCP tools
+    const allTools = [...TOOLS, ...(this.mcpManager?.getAgentTools() || [])];
+
     const response = await createStream(
       this.llmConfig!,
       {
         system: systemPrompt,
         messages: this.history,
-        tools: TOOLS,
+        tools: allTools,
         maxTokens: 4096,
       },
       (delta) => {
@@ -885,11 +917,13 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         return;
       }
 
-      // Partition into delegate and direct tools
+      // Partition into delegate, MCP, and direct tools
       const delegateBlocks = toolBlocks.filter((b: any) =>
         b.name.startsWith("delegate_"));
+      const mcpBlocks = toolBlocks.filter((b: any) =>
+        b.name.startsWith("mcp__"));
       const directBlocks = toolBlocks.filter((b: any) =>
-        !b.name.startsWith("delegate_"));
+        !b.name.startsWith("delegate_") && !b.name.startsWith("mcp__"));
 
       const results: any[] = [];
 
@@ -924,6 +958,35 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         });
         const delegateResults = await Promise.all(delegatePromises);
         results.push(...delegateResults);
+      }
+
+      // Run MCP tools in parallel (with MCP-specific gate checks)
+      if (mcpBlocks.length > 0 && !this.aborted && this.mcpManager) {
+        const mcpPromises = mcpBlocks.map(async (block: any) => {
+          if (this.aborted) return { type: "tool_result", tool_use_id: block.id, content: "[interrupted by user]" };
+
+          const decision = gateMcp(block.name, this._mode);
+          if (decision === "skip") {
+            return { type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" };
+          }
+          if (decision === "needs_approval" && this._approvalCallback) {
+            const approved = await this._approvalCallback(block.name, block.input as Record<string, unknown>);
+            if (!approved) {
+              cb.onToolResult?.(block.id, "[blocked by user]");
+              return { type: "tool_result", tool_use_id: block.id, content: "[blocked by user]" };
+            }
+          }
+
+          cb.onToolUse(block.id, block.name, block.input);
+          const result = await this.mcpManager!.callTool(block.name, block.input as Record<string, unknown>);
+          // Firewall: scan MCP output for injection
+          const contentScan = scanForInjection(result);
+          const safeResult = contentScan.blocked ? `[content blocked by firewall: ${contentScan.reason}]` : result;
+          cb.onToolResult?.(block.id, safeResult.slice(0, 500));
+          return { type: "tool_result", tool_use_id: block.id, content: safeResult };
+        });
+        const mcpResults = await Promise.all(mcpPromises);
+        results.push(...mcpResults);
       }
 
       // Run direct tools sequentially (with gate checks)
