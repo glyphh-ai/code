@@ -729,7 +729,7 @@ if(isLoading){
   },100);
 }else{
   setText(text);
-  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},2500);" : `
+  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},1500);" : `
   // Escape clears result and ends yo session
   if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
   window.__yoResultEsc=function(e){
