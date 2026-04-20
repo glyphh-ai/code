@@ -694,11 +694,18 @@ if(isLoading){
   var overlay=document.createElement('div');
   overlay.id='__yo-spinner';
   var rect=el.getBoundingClientRect();
+  var cs=window.getComputedStyle(el);
+  var bg=cs.backgroundColor||'#1a1a1a';
+  if(bg==='rgba(0, 0, 0, 0)'||bg==='transparent'){
+    var p=el.parentElement;while(p){var pb=window.getComputedStyle(p).backgroundColor;
+    if(pb&&pb!=='rgba(0, 0, 0, 0)'&&pb!=='transparent'){bg=pb;break;}p=p.parentElement;}
+    if(!bg||bg==='rgba(0, 0, 0, 0)'||bg==='transparent')bg='#1a1a1a';
+  }
   overlay.style.cssText='position:fixed;z-index:999998;pointer-events:none;'+
     'top:'+rect.top+'px;left:'+rect.left+'px;width:'+rect.width+'px;height:'+rect.height+'px;'+
     'display:flex;align-items:center;padding:0 12px;'+
     'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:16px;'+
-    'color:#999;background:transparent;border-radius:inherit;';
+    'color:#999;background:'+bg+';border-radius:'+cs.borderRadius+';';
   overlay.textContent=frames[0]+' '+curWord;
   var oldOverlay=document.getElementById('__yo-spinner');if(oldOverlay)oldOverlay.remove();
   document.body.appendChild(overlay);
@@ -740,12 +747,19 @@ if(isLoading){
   var msgOverlay=document.createElement('div');
   msgOverlay.id='__yo-spinner';
   var rect2=el.getBoundingClientRect();
+  var cs2=window.getComputedStyle(el);
+  var bg2=cs2.backgroundColor||'#1a1a1a';
+  if(bg2==='rgba(0, 0, 0, 0)'||bg2==='transparent'){
+    var p2=el.parentElement;while(p2){var pb2=window.getComputedStyle(p2).backgroundColor;
+    if(pb2&&pb2!=='rgba(0, 0, 0, 0)'&&pb2!=='transparent'){bg2=pb2;break;}p2=p2.parentElement;}
+    if(!bg2||bg2==='rgba(0, 0, 0, 0)'||bg2==='transparent')bg2='#1a1a1a';
+  }
   var msgColor=isError?'#ff5f57':isSuccess?'#25C75E':'#999';
   msgOverlay.style.cssText='position:fixed;z-index:999998;pointer-events:none;'+
     'top:'+rect2.top+'px;left:'+rect2.left+'px;width:'+rect2.width+'px;height:'+rect2.height+'px;'+
     'display:flex;align-items:center;padding:0 12px;'+
     'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:16px;'+
-    'color:'+msgColor+';background:transparent;border-radius:inherit;';
+    'color:'+msgColor+';background:'+bg2+';border-radius:'+cs2.borderRadius+';';
   msgOverlay.textContent=text;
   var oldMsg=document.getElementById('__yo-spinner');if(oldMsg)oldMsg.remove();
   document.body.appendChild(msgOverlay);
