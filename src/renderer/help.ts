@@ -798,6 +798,7 @@ function closeAppDetail() {
 
 // Browse Pipedream app catalog
 let appsBrowseOffset = 0;
+let connectingForAppId = ""; // tracks which panel app we're connecting for
 
 async function openAppsBrowse(append = false) {
   // Tier gate
@@ -814,6 +815,7 @@ async function openAppsBrowse(append = false) {
 
   const grid = document.getElementById("apps-browse-grid")!;
   const loading = document.getElementById("apps-browse-loading")!;
+  const searchInput = document.getElementById("apps-browse-search") as HTMLInputElement | null;
 
   if (!append) {
     grid.innerHTML = "";
@@ -825,7 +827,7 @@ async function openAppsBrowse(append = false) {
 
   loading.classList.remove("hidden");
 
-  const search = appSearchInput.value.trim() || undefined;
+  const search = searchInput?.value.trim() || undefined;
   const { apps, hasMore } = await window.yo.connectorsGetApps(search, appsBrowseOffset);
   loading.classList.add("hidden");
 
@@ -868,6 +870,14 @@ async function openAppsBrowse(append = false) {
       card.style.opacity = "1";
       card.style.pointerEvents = "auto";
       if (result.ok) {
+        // Refresh accounts
+        try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
+        // If connecting for a specific panel app, return to its detail
+        if (connectingForAppId) {
+          const panelApp = panelApps.find((a) => a.id === connectingForAppId);
+          connectingForAppId = "";
+          if (panelApp) { openPanelAppDetail(panelApp); return; }
+        }
         loadApps();
       } else if (result.error) {
         card.style.borderColor = "#ff4444";
@@ -890,7 +900,22 @@ async function openAppsBrowse(append = false) {
 }
 
 function initApps() {
-  document.getElementById("apps-browse-cancel")!.addEventListener("click", loadApps);
+  document.getElementById("apps-browse-cancel")!.addEventListener("click", () => {
+    if (connectingForAppId) {
+      const panelApp = panelApps.find((a) => a.id === connectingForAppId);
+      connectingForAppId = "";
+      if (panelApp) { openPanelAppDetail(panelApp); return; }
+    }
+    loadApps();
+  });
+
+  // Browse search
+  let browseSearchTimeout: ReturnType<typeof setTimeout>;
+  const browseSearchInput = document.getElementById("apps-browse-search") as HTMLInputElement;
+  browseSearchInput.addEventListener("input", () => {
+    clearTimeout(browseSearchTimeout);
+    browseSearchTimeout = setTimeout(() => openAppsBrowse(), 300);
+  });
 
   document.getElementById("apps-upgrade-btn")!.addEventListener("click", () => {
     window.yo.openBilling();
@@ -938,21 +963,11 @@ function initApps() {
     closeAppDetail();
   });
 
-  // Connect via Pipedream OAuth
-  document.getElementById("app-detail-connect")!.addEventListener("click", async () => {
+  // Connect — opens Pipedream catalog so user can pick the right app
+  document.getElementById("app-detail-connect")!.addEventListener("click", () => {
     if (!currentAppId) return;
-    const authStatus = await window.yo.getAuthStatus();
-    if (authStatus.tier !== "advanced") {
-      document.getElementById("apps-pro-gate")!.classList.remove("hidden");
-      return;
-    }
-    const result = await window.yo.connectorsConnect(currentAppId);
-    if (result.ok) {
-      try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
-      const acct = connectedAccounts.find((a) => a.appSlug === currentAppId);
-      if (acct) openConnectedDetail(acct);
-      else loadApps();
-    }
+    connectingForAppId = currentAppId;
+    openAppsBrowse();
   });
 
   document.getElementById("app-detail-disconnect")!.addEventListener("click", async () => {
