@@ -1877,11 +1877,26 @@ ol.docs-list li::before {
   padding: 20px;
   width: 90%;
   max-width: 860px;
-  max-height: 70vh;
-  overflow-y: auto;
+  height: 70vh;
+  display: flex;
+  flex-direction: column;
 }
 .apps-browse-modal-content .mcp-preset-grid {
   grid-template-columns: repeat(3, 1fr);
+  flex: 1;
+  overflow-y: auto;
+  align-content: start;
+}
+@media (max-width: 700px) {
+  .apps-browse-modal-content {
+    width: 95%;
+    height: 85vh;
+    padding: 16px;
+    border-radius: 8px;
+  }
+  .apps-browse-modal-content .mcp-preset-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 .apps-browse-modal-header {
   display: flex;
