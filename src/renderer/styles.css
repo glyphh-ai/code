@@ -1896,9 +1896,16 @@ ol.docs-list li::before {
 .apps-browse-inline-search:focus { border-color: #25C75E; }
 .apps-browse-inline-grid {
   grid-template-columns: repeat(3, 1fr);
-  max-height: 300px;
   overflow-y: auto;
   align-content: start;
+  flex: 1;
+  min-height: 0;
+}
+#apps-browse-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Panel container ─────────────────────────────────────── */
