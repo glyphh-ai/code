@@ -244,7 +244,7 @@ export function initHelp() {
 
   // User menu (bottom of help nav)
   document.getElementById("user-menu-platform")!.addEventListener("click", () => {
-    window.yo.openExternal("https://platform.yosup.dev");
+    window.yo.openAccountDashboard();
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
     await window.yo.logout();
@@ -2209,7 +2209,9 @@ function openConnectorDetail(acct: ConnectorAccount) {
   info.textContent = `App: ${acct.appSlug} · Connected: ${new Date(acct.createdAt).toLocaleDateString()}`;
 }
 
-async function openConnectorAppGrid() {
+let connectorAppGridOffset = 0;
+
+async function openConnectorAppGrid(append = false) {
   connectorsAccountsList.classList.add("hidden");
   connectorsNoAccounts.classList.add("hidden");
   document.getElementById("connectors-toolbar")!.classList.add("hidden");
@@ -2218,16 +2220,25 @@ async function openConnectorAppGrid() {
 
   const grid = document.getElementById("connectors-app-grid")!;
   const loading = document.getElementById("connectors-app-loading")!;
-  grid.innerHTML = "";
+
+  if (!append) {
+    grid.innerHTML = "";
+    connectorAppGridOffset = 0;
+  }
+
+  // Remove existing "Load more" button
+  const existingLoadMore = grid.querySelector(".connector-load-more");
+  if (existingLoadMore) existingLoadMore.remove();
+
   loading.classList.remove("hidden");
 
   const searchInput = document.getElementById("connectors-search") as HTMLInputElement;
   const search = searchInput.value.trim() || undefined;
 
-  const apps: ConnectorApp[] = await window.yo.connectorsGetApps(search);
+  const { apps, hasMore } = await window.yo.connectorsGetApps(search, connectorAppGridOffset);
   loading.classList.add("hidden");
 
-  if (apps.length === 0) {
+  if (apps.length === 0 && !append) {
     grid.innerHTML = `<div class="help-item-empty" style="grid-column:1/-1;">No apps found.</div>`;
     return;
   }
@@ -2275,10 +2286,22 @@ async function openConnectorAppGrid() {
 
     grid.appendChild(card);
   }
+
+  connectorAppGridOffset += apps.length;
+
+  if (hasMore) {
+    const loadMoreBtn = document.createElement("div");
+    loadMoreBtn.className = "connector-load-more";
+    loadMoreBtn.textContent = "Load more";
+    loadMoreBtn.addEventListener("click", () => {
+      openConnectorAppGrid(true);
+    });
+    grid.appendChild(loadMoreBtn);
+  }
 }
 
 function initConnectors() {
-  document.getElementById("connectors-add-btn")!.addEventListener("click", openConnectorAppGrid);
+  document.getElementById("connectors-add-btn")!.addEventListener("click", () => openConnectorAppGrid());
   document.getElementById("connectors-app-cancel")!.addEventListener("click", loadConnectors);
   document.getElementById("connectors-detail-back")!.addEventListener("click", loadConnectors);
 

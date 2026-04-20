@@ -2264,8 +2264,8 @@ async function boot() {
   });
 
   // ── Connectors IPC ──────────────────────────────────────
-  ipcMain.handle("connectors-get-apps", async (_e, search?: string) => {
-    return connectorManager.getApps(search);
+  ipcMain.handle("connectors-get-apps", async (_e, search?: string, offset?: number) => {
+    return connectorManager.getApps(search, offset);
   });
   ipcMain.handle("connectors-get-accounts", async () => {
     return connectorManager.getAccounts();

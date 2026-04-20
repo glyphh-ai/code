@@ -51,6 +51,7 @@ interface AccountsResponse {
 interface AppsResponse {
   ok: boolean;
   apps?: ConnectorApp[];
+  hasMore?: boolean;
   error?: string;
 }
 
@@ -84,17 +85,20 @@ export class ConnectorManager extends EventEmitter {
 
   // ── Available apps (browse catalog) ───────────────────
 
-  async getApps(search?: string): Promise<ConnectorApp[]> {
-    const params = search ? `?search=${encodeURIComponent(search)}` : "";
+  async getApps(search?: string, offset?: number): Promise<{ apps: ConnectorApp[]; hasMore: boolean }> {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (offset) params.set("offset", String(offset));
+    const qs = params.toString() ? `?${params.toString()}` : "";
     try {
-      const res = await serverGetAuthed<AppsResponse>(`/api/connectors/apps${params}`);
+      const res = await serverGetAuthed<AppsResponse>(`/api/connectors/apps${qs}`);
       if (res.ok && res.apps) {
         this.cachedApps = res.apps;
-        return res.apps;
+        return { apps: res.apps, hasMore: !!res.hasMore };
       }
-      return this.cachedApps;
+      return { apps: this.cachedApps, hasMore: false };
     } catch {
-      return this.cachedApps;
+      return { apps: this.cachedApps, hasMore: false };
     }
   }
 

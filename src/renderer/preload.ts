@@ -261,7 +261,7 @@ contextBridge.exposeInMainWorld("yo", {
   onMcpChanged: (cb: () => void) => { ipcRenderer.on("mcp-changed", () => cb()); },
 
   // Connectors (Pipedream Connect)
-  connectorsGetApps: (search?: string) => ipcRenderer.invoke("connectors-get-apps", search) as Promise<Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>>,
+  connectorsGetApps: (search?: string, offset?: number) => ipcRenderer.invoke("connectors-get-apps", search, offset) as Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>,
   connectorsGetAccounts: () => ipcRenderer.invoke("connectors-get-accounts") as Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>,
   connectorsConnect: (appSlug: string) => ipcRenderer.invoke("connectors-connect", appSlug) as Promise<{ ok: boolean; error?: string }>,
   connectorsDisconnect: (accountId: string) => ipcRenderer.invoke("connectors-disconnect", accountId) as Promise<boolean>,

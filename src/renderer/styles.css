@@ -4415,6 +4415,23 @@ select.settings-input {
   -webkit-box-orient: vertical;
 }
 
+.connector-load-more {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 10px;
+  color: #25C75E;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px dashed #333;
+  border-radius: 8px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.connector-load-more:hover {
+  background: #1a1a1a;
+  border-color: #25C75E;
+}
+
 /* ── Command palette (Cmd+K) ───────────────────────────── */
 
 .cmd-palette {
