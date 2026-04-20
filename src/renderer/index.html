@@ -581,9 +581,10 @@
           </div>
 
           <div class="tab-toolbar">
-            <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
-            <button id="apps-add-btn" class="action-btn">+ Add App</button>
-            <button id="apps-browse-btn" class="action-btn primary">+ Connect</button>
+            <input id="app-search" type="text" placeholder="Search..." spellcheck="false" autocomplete="off" />
+            <input id="app-add-name" type="text" placeholder="Name" spellcheck="false" autocomplete="off" />
+            <input id="app-add-url" type="text" placeholder="https://..." spellcheck="false" autocomplete="off" />
+            <button id="apps-add-btn" class="action-btn primary">Add</button>
           </div>
 
           <!-- Panel apps + connected accounts (merged list) -->
@@ -595,7 +596,6 @@
               <div class="app-detail-info">
                 <input id="app-detail-id" class="app-detail-id-input" spellcheck="false" placeholder="app-id" />
                 <input id="app-detail-name" class="app-detail-title-input" spellcheck="false" />
-                <input id="app-detail-url" class="app-detail-url" spellcheck="false" placeholder="https://..." />
               </div>
               <div class="action-btns app-detail-actions">
                 <button id="app-detail-connect" class="action-btn primary hidden">Connect</button>
@@ -604,6 +604,7 @@
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>
+            <input id="app-detail-url" class="app-detail-url" spellcheck="false" placeholder="https://..." />
             <div id="app-detail-connection" class="hidden" style="margin-top:12px;padding:12px;background:#111;border:1px solid #2a2a2a;border-radius:8px;">
               <div id="app-detail-connection-status" style="font-size:12px;color:#888;"></div>
             </div>

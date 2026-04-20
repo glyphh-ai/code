@@ -1427,7 +1427,11 @@ ol.docs-list li::before {
   font-size: 13px;
   font-family: var(--font-mono);
   outline: none;
+  min-width: 0;
 }
+#app-search { flex: 0.7; }
+#app-add-name { flex: 0.8; }
+#app-add-url { flex: 1.5; }
 
 .tab-toolbar input:focus { border-color: #25C75E; }
 .tab-toolbar input::placeholder { color: #666; }
@@ -1832,17 +1836,17 @@ ol.docs-list li::before {
 .app-detail-title-input:focus { border-color: #25C75E; }
 
 .app-detail-url {
-  font-size: 12px;
+  font-size: 13px;
   color: #888;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 2px 6px;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 8px 12px;
   outline: none;
   font-family: var(--font-mono);
-  margin-left: 12px;
-  flex: 1;
-  min-width: 0;
+  margin-top: 8px;
+  width: 100%;
+  box-sizing: border-box;
   transition: border-color 0.15s;
 }
 .app-detail-url:hover { border-color: #333; }

@@ -771,10 +771,20 @@ function openPanelAppDetail(app: PanelApp) {
   const connectionSection = document.getElementById("app-detail-connection")!;
   const toolsSection = document.getElementById("app-detail-tools")!;
 
-  connectBtn.classList.add("hidden");
-  disconnectBtn.classList.add("hidden");
+  // Check if already connected
+  const acct = connectedAccounts.find((a) => a.appSlug === app.id);
+  if (acct) {
+    connectBtn.classList.add("hidden");
+    disconnectBtn.classList.remove("hidden");
+    connectionSection.classList.remove("hidden");
+    document.getElementById("app-detail-connection-status")!.textContent =
+      `Connected via Pipedream · ${acct.healthy ? "Healthy" : "Unhealthy"} · Since ${new Date(acct.createdAt).toLocaleDateString()}`;
+  } else {
+    connectBtn.classList.remove("hidden");
+    disconnectBtn.classList.add("hidden");
+    connectionSection.classList.add("hidden");
+  }
   deleteBtn.classList.remove("hidden");
-  connectionSection.classList.add("hidden");
   toolsSection.classList.add("hidden");
 }
 
@@ -880,22 +890,28 @@ async function openAppsBrowse(append = false) {
 }
 
 function initApps() {
-  document.getElementById("apps-browse-btn")!.addEventListener("click", () => openAppsBrowse());
   document.getElementById("apps-browse-cancel")!.addEventListener("click", loadApps);
 
   document.getElementById("apps-upgrade-btn")!.addEventListener("click", () => {
     window.yo.openBilling();
   });
 
-  // Add panel app
-  document.getElementById("apps-add-btn")!.addEventListener("click", async () => {
-    const name = "New App";
-    const id = `app-${Date.now()}`;
-    await window.yo.appsAdd(id, name, "https://");
+  // Add panel app from inline form
+  const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
+  const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
+  const addApp = async () => {
+    const name = addNameInput.value.trim();
+    const url = addUrlInput.value.trim();
+    if (!name || !url) return;
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+    await window.yo.appsAdd(id, name, url);
+    addNameInput.value = "";
+    addUrlInput.value = "";
     await loadApps();
-    const app = panelApps.find((a) => a.id === id);
-    if (app) openPanelAppDetail(app);
-  });
+  };
+  document.getElementById("apps-add-btn")!.addEventListener("click", addApp);
+  addUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addApp(); });
+  addNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addUrlInput.focus(); });
 
   // Edit name on blur
   appDetailName.addEventListener("blur", async () => {
