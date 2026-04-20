@@ -114,14 +114,14 @@
             <button class="help-nav-sub-item" data-section="docs" data-sub="apps">Apps</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="skills">Skills</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="layouts">Layouts</button>
-            <button class="help-nav-sub-item" data-section="docs" data-sub="vibes">Vibes</button>
+            <!-- Phase 2 --><button class="help-nav-sub-item" data-section="docs" data-sub="vibes" style="display:none;">Vibes</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="agent">Agent</button>
           </div>
         </div>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
-        <button class="help-nav-item" data-section="vibes">Vibes</button>
+        <!-- Phase 2 --><button class="help-nav-item" data-section="vibes" style="display:none;">Vibes</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
           <div class="help-nav-sub">
@@ -323,7 +323,7 @@
               <button class="settings-nav-item" data-doc="apps">Apps</button>
               <button class="settings-nav-item" data-doc="skills">Skills</button>
               <button class="settings-nav-item" data-doc="layouts">Layouts</button>
-              <button class="settings-nav-item" data-doc="vibes">Vibes</button>
+              <!-- Phase 2 --><button class="settings-nav-item" data-doc="vibes" style="display:none;">Vibes</button>
               <button class="settings-nav-item" data-doc="agent">Agent</button>
             </nav>
             <div class="settings-panels docs-panels">
@@ -466,24 +466,9 @@
               <p>Drag the grid handles between panels to resize them live.</p>
             </div>
 
-            <div class="docs-panel" data-doc="vibes">
+            <!-- Phase 2: Vibes docs hidden -->
+            <div class="docs-panel" data-doc="vibes" style="display:none;">
               <h3>Vibes</h3>
-              <p>Vibes are recorded interaction sequences — automated workflows that replay your actions across multiple apps. Record once, run anytime.</p>
-
-              <h4>Recording a vibe</h4>
-              <ol class="docs-list">
-                <li>Open the <strong>Vibes</strong> page in this panel and click <strong>+ New</strong>, or press <strong>Cmd+Shift+.</strong></li>
-                <li>A recording indicator appears. Perform your actions — navigate panels, click elements, type text.</li>
-                <li>Press <strong>Cmd+Shift+.</strong> again or click <strong>Stop</strong> to end recording.</li>
-                <li>Give your vibe a name and save it.</li>
-              </ol>
-              <p>Vibes record panel switches, clicks, text input, and command executions as discrete steps.</p>
-
-              <h4>Running a vibe</h4>
-              <p>From the <strong>Vibes</strong> page, click the play button on any saved vibe. It will replay each step in sequence, navigating panels and executing actions automatically.</p>
-
-              <h4>Editing vibes</h4>
-              <p>Click on a saved vibe to open the step editor. You can reorder steps, edit the details of each action (selectors, text, delays), or delete individual steps.</p>
             </div>
 
             <div class="docs-panel" data-doc="agent">
@@ -665,8 +650,8 @@
           </div>
         </div>
 
-        <!-- Vibes -->
-        <div class="help-section" data-section="vibes">
+        <!-- Phase 2: Vibes section hidden -->
+        <div class="help-section" data-section="vibes" style="display:none;">
           <h2>Vibes</h2>
           <p class="section-desc">Cross-app automation sequences. Chain commands across apps into replayable patterns. Press <code>Cmd+Shift+.</code> to record a new vibe from live interactions.</p>
           <div id="vibes-toolbar" style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
@@ -1075,14 +1060,8 @@
       <div id="yo-history-list" class="yo-history-list"></div>
     </div>
     <div class="yo-panel-messages" id="yo-panel-messages"></div>
-    <div id="yo-vibe-bar" class="yo-vibe-bar hidden">
-      <button id="yo-vibe-record" class="yo-vibe-btn" title="Record vibe">
-        <span class="yo-vibe-dot"></span> Record
-      </button>
-      <button id="yo-vibe-play" class="yo-vibe-btn" title="Play vibe">&#x25B6; Play</button>
-      <input id="yo-vibe-name" class="yo-vibe-name" placeholder="vibe name..." spellcheck="false" />
-      <button id="yo-vibe-save" class="yo-vibe-btn yo-vibe-save" title="Save vibe">Save</button>
-    </div>
+    <!-- Phase 2: vibe bar hidden for now -->
+    <div id="yo-vibe-bar" class="yo-vibe-bar hidden" style="display:none !important;"></div>
     <div class="yo-panel-input-wrap">
       <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
       <button id="yo-panel-mic" class="yo-mic-btn" title="Voice input"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="1" y2="8"/><line x1="3.5" y1="5" x2="3.5" y2="11"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="8.5" y1="5" x2="8.5" y2="11"/><line x1="11" y1="2" x2="11" y2="14"/><line x1="13.5" y1="5" x2="13.5" y2="11"/></svg></button>
@@ -1124,6 +1103,7 @@
               <span class="yo-mode-opt-desc">multi-model debate</span>
             </div>
           </div>
+          <!-- Phase 2: vibe mode hidden for now
           <div class="yo-mode-option" data-value="vibe">
             <span class="yo-mode-opt-icon">&#x1F3B5;</span>
             <div class="yo-mode-opt-text">
@@ -1131,6 +1111,7 @@
               <span class="yo-mode-opt-desc">record &amp; replay automations</span>
             </div>
           </div>
+          -->
         </div>
       </div>
       <div id="yo-model-dropdown" class="yo-model-dropdown">

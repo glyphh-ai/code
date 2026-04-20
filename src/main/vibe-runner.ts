@@ -397,15 +397,27 @@ export class VibeRunner {
         // 1. Resolve dynamic value if needed
         const value = await this.resolveValue(step.value, inputs, stepOutputs);
 
-        // 2. Try the mapped command first (fast path)
-        let output = await this.tryCommand(step.app, step.command, value);
+        let output: string | null = null;
 
-        // 3. If command failed and we have a NL fallback, try that
+        // 2. Generic recorder-produced commands ("click", "input", "navigate")
+        //    bypass the command map and use the captured selector directly.
+        if (step.command === "click" && step.find) {
+          output = await this.tryDirectClick(step.app, step.find);
+        } else if (step.command === "input" && step.find) {
+          output = await this.tryDirectType(step.app, value || "", step.find);
+        } else if (step.command === "navigate" && value) {
+          output = await this.tryNavigate(step.app, value);
+        } else {
+          // 3. Try the mapped command (fast path)
+          output = await this.tryCommand(step.app, step.command, value);
+        }
+
+        // 4. If command failed and we have a NL fallback, try that
         if (output === null && step.find) {
           output = await this.tryFallback(step.app, step.command, step.find, value);
         }
 
-        // 4. If still failed, check command guide for recovery hint
+        // 5. If still failed, check command guide for recovery hint
         if (output === null) {
           const guide = this.getCommandGuide(step.app, step.command);
           if (guide?.recover) {
@@ -518,6 +530,46 @@ export class VibeRunner {
       if (result.includes("not found") || result.includes("No command") || result.includes("failed")) {
         return null;
       }
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Direct execution (for generic recorder steps) ───────
+
+  /** Click using the recorded CSS selector directly on the panel's live DOM. */
+  private async tryDirectClick(app: string, selector: string): Promise<string | null> {
+    if (!this.panelClicker) return null;
+    try {
+      const result = await this.panelClicker(app, undefined, selector);
+      if (result.includes("Not found")) return null;
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Type into the recorded CSS selector directly on the panel's live DOM. */
+  private async tryDirectType(app: string, value: string, selector: string): Promise<string | null> {
+    if (!this.panelTyper) return null;
+    try {
+      const result = await this.panelTyper(app, value, { selector, clear: true });
+      if (result.includes("not found") || result.includes("not loaded")) return null;
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Navigate a panel to a URL. */
+  private async tryNavigate(app: string, url: string): Promise<string | null> {
+    // Navigate uses the commandRunner with a "navigate" command if available,
+    // otherwise fall through to tryCommand which will handle it.
+    if (!this.commandRunner) return null;
+    try {
+      const result = await this.commandRunner(app, "navigate", url);
+      if (result.includes("not found") || result.includes("No command")) return null;
       return result;
     } catch {
       return null;

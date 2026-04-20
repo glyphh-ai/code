@@ -2104,26 +2104,8 @@ async function boot() {
       return;
     }
 
-    // Route .vibe <name> to run a saved vibe directly
-    if (firstWord === ".vibe" || firstWord === "vibe") {
-      const vibeName = trimmed.replace(/^\.?vibe\s*/i, "").trim();
-      if (!vibeName) {
-        const vibes = vibeRunner.list();
-        const list = vibes.length > 0
-          ? vibes.map((v) => `- ${v.name} (${v.stepCount} steps)`).join("\n")
-          : "No vibes saved yet. Record one in vibe mode.";
-        mainWindow?.webContents.send("yo-panel-done", list);
-        return;
-      }
-      try {
-        mainWindow?.webContents.send("yo-panel-token", `Running vibe: ${vibeName}...\n`);
-        const result = await vibeRunner.run(vibeName);
-        mainWindow?.webContents.send("yo-panel-done", result.summary || (result.success ? "Vibe complete." : "Vibe failed."));
-      } catch (err: any) {
-        mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
-      }
-      return;
-    }
+    // Phase 2: .vibe command disabled for now
+    // if (firstWord === ".vibe" || firstWord === "vibe") { ... }
 
     yoAgent?.send(message, {
       onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
@@ -2246,17 +2228,18 @@ async function boot() {
     const result = await vibeRunner.run(name);
     return { success: result.success, summary: result.summary };
   });
-  ipcMain.on("vibes-record-toggle", () => {
+  ipcMain.on("vibes-record-toggle", (_e, vibeName?: string) => {
     if (vibeRecorder.isRecording) {
       const session = vibeRecorder.stop();
       if (session.events.length === 0) {
         mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
         return;
       }
-      const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-      const vibe = vibeRecorder.refine(session, `recorded-${ts}`);
+      const name = vibeName?.trim() || `recorded-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-")}`;
+      const vibe = vibeRecorder.refine(session, name);
       vibeRunner.create(vibe.name, vibe);
-      mainWindow?.webContents.send("yo-reminder", `Vibe "${vibe.name}" recorded with ${vibe.steps.length} steps.`);
+      mainWindow?.webContents.send("yo-reminder", `Vibe "${vibe.name}" saved with ${vibe.steps.length} steps.`);
+      mainWindow?.webContents.send("vibe-saved", vibe.name);
     } else {
       vibeRecorder.start();
     }

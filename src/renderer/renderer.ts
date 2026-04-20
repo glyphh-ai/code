@@ -156,8 +156,9 @@ declare global {
       vibesCreate: (name: string, vibe: unknown) => Promise<boolean>;
       vibesDelete: (name: string) => Promise<boolean>;
       vibesRun: (name: string) => Promise<{ success: boolean; summary: string }>;
-      vibesRecordToggle: () => void;
+      vibesRecordToggle: (name?: string) => void;
       onVibeRecordingState: (cb: (state: { recording: boolean; stepCount: number }) => void) => void;
+      onVibeSaved: (cb: (name: string) => void) => void;
     };
   }
 }
@@ -937,7 +938,10 @@ function setModeValue(mode: string) {
   applyModeColor();
   // Show/hide vibe controls
   const vibeBar = document.getElementById("yo-vibe-bar");
-  if (vibeBar) vibeBar.classList.toggle("hidden", mode !== "vibe");
+  if (vibeBar) {
+    vibeBar.classList.toggle("hidden", mode !== "vibe");
+    if (mode === "vibe") refreshVibeAutocomplete();
+  }
 }
 
 function applyModeColor() {
@@ -1033,9 +1037,29 @@ const yoVibeName = document.getElementById("yo-vibe-name") as HTMLInputElement;
 const yoVibeSave = document.getElementById("yo-vibe-save")!;
 let vibeRecording = false;
 
+// Autocomplete: populate datalist with existing vibe names
+async function refreshVibeAutocomplete() {
+  let datalist = document.getElementById("yo-vibe-datalist") as HTMLDataListElement;
+  if (!datalist) {
+    datalist = document.createElement("datalist");
+    datalist.id = "yo-vibe-datalist";
+    yoVibeName.parentElement!.appendChild(datalist);
+    yoVibeName.setAttribute("list", "yo-vibe-datalist");
+  }
+  const vibes = await window.yo.vibesList();
+  datalist.innerHTML = vibes.map((v: { name: string }) => `<option value="${v.name}">`).join("");
+}
+
 yoVibeRecord.addEventListener("click", () => {
+  if (vibeRecording) {
+    // Stopping — pass the name so the vibe saves with it
+    const name = yoVibeName.value.trim();
+    window.yo.vibesRecordToggle(name || undefined);
+  } else {
+    // Starting
+    window.yo.vibesRecordToggle();
+  }
   vibeRecording = !vibeRecording;
-  window.yo.vibesRecordToggle();
   yoVibeRecord.classList.toggle("recording", vibeRecording);
   yoVibeRecord.innerHTML = vibeRecording
     ? '<span class="yo-vibe-dot recording"></span> Stop'
@@ -1059,7 +1083,18 @@ yoVibePlay.addEventListener("click", async () => {
 yoVibeSave.addEventListener("click", async () => {
   const name = yoVibeName.value.trim();
   if (!name) return;
+  // Rename last recorded vibe if it exists with a different name
+  const vibes = await window.yo.vibesList();
+  const lastRecorded = vibes.find((v: { name: string }) => v.name.startsWith("recorded-"));
+  if (lastRecorded && lastRecorded.name !== name) {
+    const vibe = await window.yo.vibesRead(lastRecorded.name);
+    if (vibe) {
+      await window.yo.vibesDelete(lastRecorded.name);
+      await window.yo.vibesCreate(name, { ...vibe, name });
+    }
+  }
   yoVibeSave.textContent = "Saved";
+  refreshVibeAutocomplete();
   setTimeout(() => { yoVibeSave.textContent = "Save"; }, 1500);
 });
 
@@ -1070,6 +1105,12 @@ window.yo.onVibeRecordingState?.((state: { recording: boolean; stepCount: number
   yoVibeRecord.innerHTML = state.recording
     ? `<span class="yo-vibe-dot recording"></span> Stop (${state.stepCount})`
     : '<span class="yo-vibe-dot"></span> Record';
+});
+
+// Refresh autocomplete when a vibe is saved
+window.yo.onVibeSaved?.((name: string) => {
+  if (!yoVibeName.value.trim()) yoVibeName.value = name;
+  refreshVibeAutocomplete();
 });
 
 async function openYoPanel(query: string) {

@@ -62,9 +62,12 @@ contextBridge.exposeInMainWorld("yo", {
   vibesCreate: (name: string, vibe: unknown) => ipcRenderer.invoke("vibes-create", name, vibe) as Promise<boolean>,
   vibesDelete: (name: string) => ipcRenderer.invoke("vibes-delete", name) as Promise<boolean>,
   vibesRun: (name: string) => ipcRenderer.invoke("vibes-run", name) as Promise<{ success: boolean; summary: string }>,
-  vibesRecordToggle: () => ipcRenderer.send("vibes-record-toggle"),
+  vibesRecordToggle: (name?: string) => ipcRenderer.send("vibes-record-toggle", name),
   onVibeRecordingState: (cb: (state: { recording: boolean; stepCount: number }) => void) => {
     ipcRenderer.on("vibe-recording-state", (_e, state) => cb(state));
+  },
+  onVibeSaved: (cb: (name: string) => void) => {
+    ipcRenderer.on("vibe-saved", (_e, name) => cb(name));
   },
 
   // Apps CRUD
