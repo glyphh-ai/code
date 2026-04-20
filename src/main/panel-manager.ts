@@ -646,10 +646,6 @@ export class PanelManager {
         // Cmd+. — open yo agent panel
         e.preventDefault();
         parent.webContents.send("focus-command-input");
-      } else if (input.key === "." && input.shift) {
-        // Cmd+Shift+. — toggle vibe recording
-        e.preventDefault();
-        this.onRecordToggle?.();
       }
     });
 
@@ -687,9 +683,6 @@ export class PanelManager {
         } else if (input.key === "r") {
           e.preventDefault();
           this.refresh(this.activePanel ?? undefined);
-        } else if (input.key === "." && input.shift) {
-          e.preventDefault();
-          this.onRecordToggle?.();
         }
       });
     });

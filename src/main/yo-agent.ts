@@ -17,7 +17,6 @@ import { usageTracker } from "./usage-tracker";
 import type { NoteStore } from "./note-store";
 import type { AppConnector } from "./app-connector";
 import type { MemoryStore } from "./memory-store";
-import type { VibeRunner } from "./vibe-runner";
 
 import { NavigatorAgent } from "./agents/navigator-agent";
 import { ResearcherAgent } from "./agents/researcher-agent";
@@ -42,13 +41,18 @@ export interface YoAgentCallbacks {
 
 const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, never ask for clarification.
 
+ACTION PRIORITY (use in this order):
+1. MCP tools — PRIMARY for all actions (send_email, create_event, list_messages, etc.). Structured, cheap, reliable.
+2. Skills — reusable prompts for complex workflows (/skillname)
+3. Navigation — scan_panel, click_element, type_text for visual interaction
+4. grab_panel — LAST RESORT only. Expensive (~10KB per call). Only when user explicitly asks via .sup or you truly need page text.
+
 TOOLS:
 - ask_panel: send a prompt to AI chat panels and get real responses. Modes: ask (independent), chain (sequential), debate (multi-round).
-- run_vibe: run a saved vibe — deterministic cross-app automation sequences. ALWAYS prefer vibes over manual navigation when a matching vibe exists.
-- delegate_navigator: click, type, scan, grab content from any panel. For non-AI interactions.
+- delegate_navigator: scan, click, type in live panels. Use scan_panel for discovery, click/type for interaction.
 - delegate_layout: arrange panels on screen — splits, grids, tabs, zoom.
 - delegate_researcher: notes and file search
-- delegate_manager: skills, apps, vibes CRUD
+- delegate_manager: skills, apps CRUD
 - delegate_skill: run a named skill (/skillname)
 - delegate_coder: write code, edit files, run shell commands
 - pipe: grab from one panel → transform → push to another
@@ -57,8 +61,8 @@ TOOLS:
 - web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
+- Always try MCP tools FIRST before falling back to panel navigation.
 - Use ask_panel to interact with AI apps. Use delegate_navigator for non-AI panel interactions.
-- PREFER run_vibe over delegate_navigator for multi-step tasks when a matching vibe exists. Vibes are faster and more reliable.
 - Check AVAILABLE PANELS and Current layout before acting. Arrange panels the user needs to see.
 - Delegate in parallel when tasks are independent.
 - Synthesize results — don't dump raw content.`;
@@ -249,22 +253,6 @@ const TOOLS = [
     },
   },
   {
-    name: "run_vibe",
-    description: "Run a saved vibe — a deterministic cross-app automation sequence. Vibes chain commands across multiple apps into replayable patterns. Set background=true to run it silently on hidden panels while the user keeps working — you'll get notified when it finishes.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string" as const, description: "Name of the vibe to run" },
-        inputs: {
-          type: "object" as const,
-          description: "Named inputs the vibe needs (e.g. { \"message\": \"hello\", \"recipient\": \"john@example.com\" })",
-        },
-        background: { type: "boolean" as const, description: "Run in background on hidden panels. Returns immediately; notifies when done. Use when the user wants to keep working." },
-      },
-      required: ["name"],
-    },
-  },
-  {
     name: "ask_panel",
     description: "Send a prompt to one or more AI chat panels and get real responses. Types the prompt, submits, waits for each AI to finish, returns actual content. Modes: 'ask' sends the same prompt to each panel independently. 'chain' feeds each panel's response to the next. 'debate' runs multiple rounds of back-and-forth between panels.",
     input_schema: {
@@ -324,9 +312,6 @@ export class YoAgent {
   // Skill engine access (for listing + reading skill prompts)
   private skillList: (() => string[]) | null = null;
   private skillRead: ((name: string) => string | null) | null = null;
-
-  // Vibe engine access
-  private vibeRunner: VibeRunner | null = null;
 
   // MCP server manager
   private mcpManager: McpManager | null = null;
@@ -517,10 +502,6 @@ export class YoAgent {
 
   setMcpManager(mgr: McpManager): void { this.mcpManager = mgr; }
 
-  setVibeRunner(runner: VibeRunner): void {
-    this.vibeRunner = runner;
-    this.manager.setVibeRunner(runner);
-  }
 
   setLayoutCallbacks(cbs: {
     list: () => Array<{ name: string; cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
@@ -767,10 +748,41 @@ export class YoAgent {
       }
     }
 
-    // Inject available panels + current layout so orchestrator knows what's already loaded and arranged
+    // Inject MCP tools FIRST — these are the primary action path
+    if (this.mcpManager) {
+      const mcpTools = this.mcpManager.getAllTools();
+      if (mcpTools.length > 0) {
+        // Group by server
+        const byServer = new Map<string, typeof mcpTools>();
+        for (const t of mcpTools) {
+          const group = byServer.get(t.serverName) || [];
+          group.push(t);
+          byServer.set(t.serverName, group);
+        }
+        let mcpSection = "\n\nMCP TOOLS (PRIMARY — use these first for actions):";
+        for (const [serverName, tools] of byServer) {
+          mcpSection += `\n${serverName}:`;
+          for (const t of tools) {
+            mcpSection += `\n  - ${t.qualifiedName}: ${t.description}`;
+          }
+        }
+        mcpSection += "\nCall MCP tools directly by their qualified name (mcp__<server>__<tool>). These are structured, cheap, and reliable — always prefer over grab_panel.";
+        prompt += mcpSection;
+      }
+    }
+
+    // Inject available skills
+    if (this.skillList) {
+      const skills = this.skillList();
+      if (skills.length > 0) {
+        prompt += `\n\nAVAILABLE SKILLS:\n${skills.map((s) => `- /${s}`).join("\n")}\nWhen the user says /<skillname> or asks to apply a skill, use delegate_skill with that skill name.`;
+      }
+    }
+
+    // Inject available panels + current layout (secondary — for visual interaction only)
     const panelList = this.navigator.listPanels();
     if (panelList) {
-      let panelSection = `\n\nAVAILABLE PANELS:\n${panelList}`;
+      let panelSection = `\n\nAVAILABLE PANELS (for visual interaction — use scan_panel/click/type, NOT grab_panel):\n${panelList}`;
 
       // Add current layout arrangement
       const layoutState = this._layoutStateGetter ? this._layoutStateGetter() : null;
@@ -790,49 +802,6 @@ export class YoAgent {
 
       panelSection += `\nUse delegate_layout to arrange any of these panels on screen.`;
       prompt += panelSection;
-    }
-
-    // Inject available skills so orchestrator knows what's available
-    if (this.skillList) {
-      const skills = this.skillList();
-      if (skills.length > 0) {
-        prompt += `\n\nAVAILABLE SKILLS:\n${skills.map((s) => `- /${s}`).join("\n")}\nWhen the user says /<skillname> or asks to apply a skill, use delegate_skill with that skill name.`;
-      }
-    }
-
-    // Inject available vibes + running background jobs
-    if (this.vibeRunner) {
-      const vibes = this.vibeRunner.list();
-      if (vibes.length > 0) {
-        prompt += `\n\nAVAILABLE VIBES:\n${vibes.map((v) => `- ${v.name}: ${v.description} (${v.stepCount} steps)`).join("\n")}\nUse run_vibe to execute a vibe. Set background=true to run silently while the user keeps working.`;
-      }
-      const jobs = this.vibeRunner.listJobs();
-      if (jobs.length > 0) {
-        prompt += `\n\nRUNNING BACKGROUND VIBES:\n${jobs.map((j) => `- ${j.vibeName} (job: ${j.id}, running ${Math.round(j.elapsed / 1000)}s)`).join("\n")}`;
-      }
-    }
-
-    // Inject MCP tools so orchestrator knows about external tools
-    if (this.mcpManager) {
-      const mcpTools = this.mcpManager.getAllTools();
-      if (mcpTools.length > 0) {
-        // Group by server
-        const byServer = new Map<string, typeof mcpTools>();
-        for (const t of mcpTools) {
-          const group = byServer.get(t.serverName) || [];
-          group.push(t);
-          byServer.set(t.serverName, group);
-        }
-        let mcpSection = "\n\nMCP TOOLS (external servers):";
-        for (const [serverName, tools] of byServer) {
-          mcpSection += `\n${serverName}:`;
-          for (const t of tools) {
-            mcpSection += `\n  - ${t.qualifiedName}: ${t.description}`;
-          }
-        }
-        mcpSection += "\nCall MCP tools directly by their qualified name (mcp__<server>__<tool>).";
-        prompt += mcpSection;
-      }
     }
 
     if (this.activeMemories) {
@@ -1072,7 +1041,7 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           // Inject current panel list so navigator doesn't waste a list_panels call or open duplicates
           const panelList = this.navigator.listPanels();
           const enriched = panelList
-            ? `${instruction}\n\nAVAILABLE APP PANELS (use these IDs directly with grab_panel, scan_panel, click_element, type_text, run_command — NO need to open_panel or navigate_panel):\n${panelList}`
+            ? `${instruction}\n\nAVAILABLE APP PANELS (use scan_panel, click_element, type_text, run_command — grab_panel only as last resort):\n${panelList}`
             : instruction;
           result = await this.navigator.execute(enriched, context);
           break;
@@ -1136,7 +1105,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "set_reminder": return this.toolSetReminder(input);
         case "pipe": return await this.toolPipe(input);
         case "ask_panel": return await this.toolAskPanel(input);
-        case "run_vibe": return await this.toolRunVibe(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -1280,23 +1248,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     });
 
     return `Piped ${content.length} chars from ${sourcePanel} → ${targetPanel}${transform ? ` (transformed: ${transform})` : ""}. ${result}`;
-  }
-
-  private async toolRunVibe(input: Record<string, unknown>): Promise<string> {
-    const name = input.name as string;
-    if (!name) return "No vibe name provided.";
-    if (!this.vibeRunner) return "Vibe engine not available.";
-    const inputs = input.inputs as Record<string, string> | undefined;
-    const background = input.background as boolean | undefined;
-
-    if (background) {
-      const jobId = this.vibeRunner.runBackground(name, inputs);
-      if (!jobId) return `Could not start background vibe "${name}" — vibe not found or background panels not available.`;
-      return `Vibe "${name}" started in background (job: ${jobId}). You'll be notified when it finishes. Continue with the user's current task.`;
-    }
-
-    const result = await this.vibeRunner.run(name, inputs);
-    return result.summary;
   }
 
   // ── Panel interaction helpers ─────────────────────────

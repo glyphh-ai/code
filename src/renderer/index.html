@@ -114,16 +114,14 @@
             <button class="help-nav-sub-item" data-section="docs" data-sub="apps">Apps</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="skills">Skills</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="layouts">Layouts</button>
-            <!-- Phase 2 --><button class="help-nav-sub-item" data-section="docs" data-sub="vibes" style="display:none;">Vibes</button>
+
             <button class="help-nav-sub-item" data-section="docs" data-sub="agent">Agent</button>
           </div>
         </div>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
-        <!-- Phase 2 --><button class="help-nav-item" data-section="vibes" style="display:none;">Vibes</button>
         <button class="help-nav-item" data-section="mcp">MCP Servers</button>
-        <button class="help-nav-item" data-section="connectors">Connectors</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
           <div class="help-nav-sub">
@@ -325,7 +323,7 @@
               <button class="settings-nav-item" data-doc="apps">Apps</button>
               <button class="settings-nav-item" data-doc="skills">Skills</button>
               <button class="settings-nav-item" data-doc="layouts">Layouts</button>
-              <!-- Phase 2 --><button class="settings-nav-item" data-doc="vibes" style="display:none;">Vibes</button>
+
               <button class="settings-nav-item" data-doc="agent">Agent</button>
             </nav>
             <div class="settings-panels docs-panels">
@@ -468,10 +466,6 @@
               <p>Drag the grid handles between panels to resize them live.</p>
             </div>
 
-            <!-- Phase 2: Vibes docs hidden -->
-            <div class="docs-panel" data-doc="vibes" style="display:none;">
-              <h3>Vibes</h3>
-            </div>
 
             <div class="docs-panel" data-doc="agent">
               <h3>The .Yo Agent</h3>
@@ -578,18 +572,25 @@
         <!-- Apps -->
         <div class="help-section" data-section="apps">
           <h2>Apps</h2>
-          <p class="section-desc">Connected apps with mapped commands. Add any web app and connect it to .yo/.dip.</p>
+          <p class="section-desc">Browse and connect apps. Connected apps provide MCP tools for the .yo agent. <span style="color:#b79cff;">Connections require Advanced.</span></p>
+
+          <!-- Upgrade gate (shown for non-Advanced when trying to connect) -->
+          <div id="apps-pro-gate" class="hidden" style="text-align:center;padding:32px 16px;">
+            <p style="color:#999;font-size:14px;margin-bottom:12px;">App connections require an Advanced subscription.</p>
+            <button id="apps-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
+          </div>
+
           <div class="tab-toolbar">
             <input id="app-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
-            <input id="app-new-name" type="text" placeholder="app name" spellcheck="false" />
-            <input id="app-new-url" type="text" placeholder="https://..." spellcheck="false" />
-            <button id="app-add-btn" class="action-btn primary">+ Add App</button>
+            <button id="apps-browse-btn" class="action-btn primary">+ Browse Apps</button>
             <button id="app-import-btn" class="action-btn">Import</button>
             <input id="app-import-file" type="file" accept=".json" class="hidden" />
           </div>
+
+          <!-- Local apps + connected accounts (merged list) -->
           <div id="apps-list"></div>
 
-          <!-- App detail / command editor + live preview -->
+          <!-- App detail -->
           <div id="app-detail" class="hidden">
             <div class="app-detail-header">
               <div class="app-detail-info">
@@ -598,95 +599,34 @@
                 <span id="app-detail-url" class="app-detail-url"></span>
               </div>
               <div class="action-btns app-detail-actions">
-                <button id="app-connect-btn" class="action-btn primary">Connect</button>
-                <button id="app-pick-btn" class="action-btn">Pick Element</button>
+                <button id="app-detail-connect" class="action-btn primary hidden">Connect</button>
+                <button id="app-detail-disconnect" class="action-btn danger hidden">Disconnect</button>
                 <button id="app-detail-export" class="action-btn">Export</button>
                 <button id="app-detail-delete" class="action-btn danger">Delete</button>
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>
+            <div id="app-detail-connection" class="hidden" style="margin-top:12px;padding:12px;background:#111;border:1px solid #2a2a2a;border-radius:8px;">
+              <div id="app-detail-connection-status" style="font-size:12px;color:#888;"></div>
+            </div>
+            <div id="app-detail-tools" class="hidden" style="margin-top:12px;">
+              <h4 style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#888;margin-bottom:8px;">Available Tools</h4>
+              <div id="app-detail-tools-list"></div>
+            </div>
+          </div>
 
-            <div class="app-builder-split">
-              <!-- Left: commands + mapping -->
-              <div class="app-builder-controls">
-                <div id="app-connect-status"></div>
-                <div id="app-commands-list"></div>
-
-                <!-- Manual command mapping (after pick) -->
-                <div id="app-map-command" class="hidden">
-                  <div class="map-command-header">Map to Command</div>
-                  <div class="map-command-info">
-                    <span id="map-selector"></span>
-                    <span id="map-element-info"></span>
-                  </div>
-                  <div class="map-command-form">
-                    <select id="map-command-key">
-                      <option value="">Select command...</option>
-                      <option value="grab">grab</option>
-                      <option value="__custom__">+ custom command</option>
-                    </select>
-                    <input id="map-custom-key" type="text" placeholder="command name" class="hidden" spellcheck="false" />
-                    <select id="map-action">
-                      <option value="extractText">Extract Text</option>
-                      <option value="extractHTML">Extract HTML</option>
-                      <option value="setValue">Set Value</option>
-                      <option value="click">Click</option>
-                      <option value="custom">Custom Script</option>
-                    </select>
-                    <input id="map-description" type="text" placeholder="description" spellcheck="false" />
-                    <button id="map-save-btn" class="action-btn primary">Save Mapping</button>
-                    <button id="map-cancel-btn" class="action-btn">Cancel</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Right: live app preview -->
-              <div class="app-builder-preview">
-                <div class="preview-toolbar">
-                  <span class="preview-label">Live Preview</span>
-                  <button id="app-preview-refresh" class="preview-action">Refresh</button>
-                </div>
-                <webview id="app-preview" allowpopups></webview>
-              </div>
+          <!-- Browse modal: Pipedream app catalog grid -->
+          <div id="apps-browse-panel" class="hidden">
+            <h3 class="settings-subheading">Browse Apps</h3>
+            <p class="section-desc">Select an app to connect via OAuth.</p>
+            <div id="apps-browse-grid" class="mcp-preset-grid"></div>
+            <div id="apps-browse-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
+            <div style="margin-top:12px;">
+              <button id="apps-browse-cancel" class="action-btn">Back</button>
             </div>
           </div>
         </div>
 
-        <!-- Phase 2: Vibes section hidden -->
-        <div class="help-section" data-section="vibes" style="display:none;">
-          <h2>Vibes</h2>
-          <p class="section-desc">Cross-app automation sequences. Chain commands across apps into replayable patterns. Press <code>Cmd+Shift+.</code> to record a new vibe from live interactions.</p>
-          <div id="vibes-toolbar" style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
-            <button id="vibe-record-btn" class="action-btn">Record</button>
-            <button id="vibe-new-btn" class="action-btn primary">+ New</button>
-          </div>
-          <div id="vibes-list" class="help-item-list"></div>
-
-          <!-- Vibe editor (hidden by default) -->
-          <div id="vibe-editor" class="hidden">
-            <div class="skill-field">
-              <label class="skill-label">Name</label>
-              <input type="text" id="vibe-name" class="skill-input" placeholder="vibe name" spellcheck="false" autocomplete="off" />
-            </div>
-            <div class="skill-field">
-              <label class="skill-label">Description</label>
-              <input type="text" id="vibe-desc" class="skill-input" placeholder="What does this vibe do?" spellcheck="false" autocomplete="off" />
-            </div>
-
-            <div class="skill-field">
-              <label class="skill-label">Steps</label>
-              <div id="vibe-steps-list" class="vibe-steps-list"></div>
-              <button id="vibe-add-step" class="action-btn" style="margin-top:6px;">+ Add Step</button>
-            </div>
-
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button id="vibe-save" class="action-btn primary">Save</button>
-              <button id="vibe-cancel" class="action-btn">Cancel</button>
-              <button id="vibe-run-btn" class="action-btn" style="margin-left:auto;">Run</button>
-              <button id="vibe-delete" class="action-btn danger">Delete</button>
-            </div>
-          </div>
-        </div>
 
         <!-- MCP Servers -->
         <div class="help-section" data-section="mcp">
@@ -793,54 +733,6 @@
         </div>
 
         <!-- Connectors (Pipedream Connect — Pro only) -->
-        <div class="help-section" data-section="connectors">
-          <h2>Connectors</h2>
-          <p class="section-desc">Connect to 1,000+ apps with managed OAuth. Connected apps become available as tools for the .yo agent and .waz. <span style="color:#b79cff;">Advanced feature.</span></p>
-
-          <!-- Advanced gate overlay -->
-          <div id="connectors-pro-gate" class="hidden" style="text-align:center;padding:32px 16px;">
-            <p style="color:#999;font-size:14px;margin-bottom:12px;">Connectors require an Advanced subscription.</p>
-            <button id="connectors-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
-          </div>
-
-          <!-- Main content (shown for Advanced users) -->
-          <div id="connectors-content">
-            <div id="connectors-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-              <input id="connectors-search" type="text" class="settings-input" placeholder="Search apps..." spellcheck="false" autocomplete="off" style="flex:1;max-width:280px;" />
-              <button id="connectors-add-btn" class="action-btn primary">+ Connect App</button>
-            </div>
-
-            <!-- Connected accounts list -->
-            <h3 class="settings-subheading">Connected Accounts</h3>
-            <div id="connectors-accounts-list" class="help-item-list"></div>
-            <div id="connectors-no-accounts" class="help-item-empty">No connected accounts yet. Click "+ Connect App" to get started.</div>
-
-            <!-- App grid (hidden by default — shown when adding) -->
-            <div id="connectors-app-grid-panel" class="hidden">
-              <h3 class="settings-subheading">Choose an App</h3>
-              <p class="section-desc">Select an app to connect via OAuth.</p>
-              <div id="connectors-app-grid" class="mcp-preset-grid"></div>
-              <div id="connectors-app-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
-              <div style="margin-top:12px;">
-                <button id="connectors-app-cancel" class="action-btn">Cancel</button>
-              </div>
-            </div>
-
-            <!-- Account detail (hidden by default) -->
-            <div id="connectors-detail-panel" class="hidden">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-                <h3 class="settings-subheading" id="connectors-detail-name" style="margin:0;flex:1;"></h3>
-                <span id="connectors-detail-status" class="mcp-status-badge"></span>
-              </div>
-              <p class="section-desc" id="connectors-detail-info"></p>
-              <div style="display:flex;gap:8px;margin-bottom:16px;">
-                <button id="connectors-detail-reconnect" class="action-btn primary">Reconnect</button>
-                <button id="connectors-detail-disconnect" class="action-btn danger">Disconnect</button>
-                <button id="connectors-detail-back" class="action-btn" style="margin-left:auto;">Back</button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <!-- Settings -->
         <div class="help-section" data-section="settings">
@@ -1216,8 +1108,7 @@
       <div id="yo-history-list" class="yo-history-list"></div>
     </div>
     <div class="yo-panel-messages" id="yo-panel-messages"></div>
-    <!-- Phase 2: vibe bar hidden for now -->
-    <div id="yo-vibe-bar" class="yo-vibe-bar hidden" style="display:none !important;"></div>
+
     <div class="yo-panel-input-wrap">
       <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
       <button id="yo-panel-mic" class="yo-mic-btn" title="Voice input"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="1" y2="8"/><line x1="3.5" y1="5" x2="3.5" y2="11"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="8.5" y1="5" x2="8.5" y2="11"/><line x1="11" y1="2" x2="11" y2="14"/><line x1="13.5" y1="5" x2="13.5" y2="11"/></svg></button>
@@ -1259,15 +1150,7 @@
               <span class="yo-mode-opt-desc">multi-model debate</span>
             </div>
           </div>
-          <!-- Phase 2: vibe mode hidden for now
-          <div class="yo-mode-option" data-value="vibe">
-            <span class="yo-mode-opt-icon">&#x1F3B5;</span>
-            <div class="yo-mode-opt-text">
-              <span class="yo-mode-opt-label">vibe</span>
-              <span class="yo-mode-opt-desc">record &amp; replay automations</span>
-            </div>
-          </div>
-          -->
+
         </div>
       </div>
       <div id="yo-model-dropdown" class="yo-model-dropdown">

@@ -6,7 +6,7 @@
  */
 
 import "dotenv/config";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, systemPreferences, webContents } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, systemPreferences } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -14,16 +14,13 @@ import { PanelManager } from "./panel-manager";
 import { TerminalManager } from "./terminal";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
-import { VibeRunner } from "./vibe-runner";
-import { VibeRecorder } from "./vibe-recorder";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
-import { AppConnector, CommandMapping } from "./app-connector";
-import { ConnectorAgent } from "./connector-agent";
+import { AppConnector } from "./app-connector";
 import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS, setMcpManager } from "./action-gate";
@@ -52,9 +49,7 @@ let layoutManager: LayoutManager;
 let commandParser: CommandParser;
 let skillEngine: SkillEngine;
 let appConnector: AppConnector;
-let vibeRunner: VibeRunner;
-let vibeRecorder: VibeRecorder;
-let connectorAgent: ConnectorAgent;
+
 let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
@@ -534,17 +529,13 @@ async function boot() {
     }
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
-    connectorAgent?.setLLMConfig(config);
+
     yoAgent?.setLLMConfig(config);
-    vibeRunner?.setLLMConfig(config);
   }
 
   // Core services
   skillEngine = new SkillEngine();
   appConnector = new AppConnector();
-  vibeRunner = new VibeRunner();
-  vibeRecorder = new VibeRecorder();
-  connectorAgent = new ConnectorAgent();
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
@@ -555,7 +546,7 @@ async function boot() {
 
   // yo/dip/drip interceptor — injected into ALL app panels
   const MODE_COLORS: Record<string, string> = {
-    ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7", vibe: "#FF3E8A",
+    ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7",
   };
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   yoInterceptor.setModeColor(MODE_COLORS[getAgentMode()] || MODE_COLORS.ask);
@@ -904,126 +895,6 @@ async function boot() {
     },
     delete: (name) => layoutManager.deleteLayout(name),
   });
-  vibeRunner.setAppConnector(appConnector);
-  vibeRunner.setCommandRunner(async (panelId, command, value) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return `Panel "${panelId}" not found.`;
-    const app = appConnector.get(panelId);
-    if (!app?.commands[command]) return `No command "${command}" on "${panelId}".`;
-    return executeCommand(wc, app.commands[command], value);
-  });
-  vibeRunner.setPanelScanner(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const scan = await scanPanel(wc);
-    return scan ? formatScan(scan) : null;
-  });
-  vibeRunner.setPanelClicker(async (panelId, text, selector) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return `Panel "${panelId}" not found.`;
-    // Reuse the same click script as the navigator
-    const script = selector
-      ? `(function(){ var el = document.querySelector(${JSON.stringify(selector)}); if(el){el.click(); return 'Clicked.'} return 'Not found.'; })()`
-      : `(function(){ var els = document.querySelectorAll('button, a, [role="button"]'); for(var i=0;i<els.length;i++){ if(els[i].textContent.trim().toLowerCase().includes(${JSON.stringify((text || "").toLowerCase())})){els[i].click(); return 'Clicked.';}} return 'Not found.'; })()`;
-    return wc.executeJavaScript(script);
-  });
-  vibeRunner.setPanelTyper(async (panelId, text, opts) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found.`;
-    try {
-      // Focus the target input
-      if (opts.selector) {
-        await wc.executeJavaScript(`(function(){ var el = document.querySelector(${JSON.stringify(opts.selector)}); if(el){el.focus(); if(el.select) el.select();} })()`);
-      }
-      // Clear if needed
-      if (opts.clear !== false) {
-        await wc.executeJavaScript(`(function(){ var el = document.activeElement; if(!el) return; if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));} else if(el.isContentEditable){el.textContent='';} })()`);
-      }
-      // Insert text
-      await wc.insertText(text);
-      // Submit if requested
-      if (opts.submit) {
-        await wc.executeJavaScript(`(function(){ var e = new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}); document.activeElement.dispatchEvent(e); })()`);
-      }
-      return "Typed successfully.";
-    } catch (err) {
-      return `Type failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-  vibeRunner.setPanelGrabber(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const app = appConnector.get(panelId);
-    if (app?.commands.grab) {
-      try { return await executeCommand(wc, app.commands.grab); } catch {}
-    }
-    try { return await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
-    return null;
-  });
-  // Background vibe panel resolver — creates hidden panels for background vibes
-  vibeRunner.setBackgroundPanelResolver(async (appId: string) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return null;
-    const bgId = `bgv-${appId}`;
-    const app = appConnector.get(appId);
-    if (!app) return null;
-    if (!panelManager.hasPanel(bgId)) {
-      panelManager.addPanel(bgId, app.url, undefined, app.forceWeb);
-      // Copy command mappings to the background panel ID so commandRunner works
-      appConnector.importApp({ ...app, id: bgId });
-    }
-    const view = panelManager.getOrCreateView(bgId, mainWindow);
-    if (!view) return null;
-    // Wait for page to load
-    await new Promise((r) => setTimeout(r, 3000));
-    return bgId;
-  });
-
-  // Background vibe panel cleanup — destroy hidden panels when job finishes
-  vibeRunner.setBackgroundPanelCleanup((panelIds: string[]) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    for (const id of panelIds) {
-      panelManager.closePanel(id, mainWindow);
-      appConnector.remove(id); // remove the bgv-* config copy
-    }
-  });
-
-  // Background vibe completion — notify the user via yo panel
-  vibeRunner.setOnJobComplete((jobId, result) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    const icon = result.success ? "+" : "x";
-    const msg = `[${icon}] Background vibe "${result.name}" finished — ${result.summary}`;
-    mainWindow.webContents.send("yo-reminder", msg);
-  });
-
-  // ── Vibe Recorder wiring ─────────────────────────────────
-  vibeRecorder.setWcGetter((id) => panelManager.getWebContents(id));
-  vibeRecorder.setPanelIdsGetter(() => panelManager.getLoadedPanelIds());
-  vibeRecorder.setActivePanelGetter(() => panelManager.activePanelId);
-  vibeRecorder.setAppConnector(appConnector);
-  vibeRecorder.setOnStateChange((recording, stepCount) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send("vibe-recording-state", { recording, stepCount });
-  });
-
-  panelManager.setOnRecordToggle(() => {
-    if (vibeRecorder.isRecording) {
-      const session = vibeRecorder.stop();
-      if (session.events.length === 0) {
-        mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
-        return;
-      }
-      // Auto-refine with timestamp name
-      const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-      const vibe = vibeRecorder.refine(session, `recorded-${ts}`);
-      vibeRunner.create(vibe.name, vibe);
-      const msg = `Vibe "${vibe.name}" recorded with ${vibe.steps.length} steps. Use manage_vibe to rename or edit.`;
-      mainWindow?.webContents.send("yo-reminder", msg);
-    } else {
-      vibeRecorder.start();
-    }
-  });
-
-  yoAgent.setVibeRunner(vibeRunner);
   yoAgent.setLayoutStateGetter(() => {
     const grid = layoutManager.getGridInfo();
     if (!grid) return null;
@@ -1507,7 +1378,6 @@ async function boot() {
 
   if (llmConfig) {
     yoAgent.setLLMConfig(llmConfig);
-    vibeRunner.setLLMConfig(llmConfig);
   }
   const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
   yoAgent.setMaxMessages(yoMaxMessages);
@@ -1853,8 +1723,6 @@ async function boot() {
     }
     sendTabState();
     sendUrlUpdate();
-    // Forward to vibe recorder for panel-switch tracking
-    vibeRecorder.onPanelFocus(id);
     // Notify dashboard to refresh when it becomes visible
     if (id === "dashboard") {
       const wc = panelManager.getWebContents("dashboard");
@@ -2068,27 +1936,6 @@ async function boot() {
           { role: "zoomOut" },
           { type: "separator" },
           { role: "togglefullscreen" },
-          { type: "separator" },
-          {
-            label: "Record Vibe",
-            accelerator: "CmdOrCtrl+Shift+.",
-            click: () => {
-              // Delegate to the same toggle handler as the panel shortcut
-              if (vibeRecorder.isRecording) {
-                const session = vibeRecorder.stop();
-                if (session.events.length === 0) {
-                  mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
-                  return;
-                }
-                const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-                const vibe = vibeRecorder.refine(session, `recorded-${ts}`);
-                vibeRunner.create(vibe.name, vibe);
-                mainWindow?.webContents.send("yo-reminder", `Vibe "${vibe.name}" recorded with ${vibe.steps.length} steps.`);
-              } else {
-                vibeRecorder.start();
-              }
-            },
-          },
         ],
       },
       {
@@ -2174,8 +2021,6 @@ async function boot() {
       return;
     }
 
-    // Phase 2: .vibe command disabled for now
-    // if (firstWord === ".vibe" || firstWord === "vibe") { ... }
 
     yoAgent?.send(message, {
       onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
@@ -2354,35 +2199,6 @@ async function boot() {
     skillEngine.generatePrompt(name, description),
   );
 
-  // IPC: vibes CRUD
-  ipcMain.handle("vibes-list", () => vibeRunner.list());
-  ipcMain.handle("vibes-read", (_e, name: string) => vibeRunner.get(name));
-  ipcMain.handle("vibes-create", (_e, name: string, vibe: any) => {
-    vibeRunner.create(name, { ...vibe, name });
-    return true;
-  });
-  ipcMain.handle("vibes-delete", (_e, name: string) => vibeRunner.remove(name));
-  ipcMain.handle("vibes-run", async (_e, name: string) => {
-    const result = await vibeRunner.run(name);
-    return { success: result.success, summary: result.summary };
-  });
-  ipcMain.on("vibes-record-toggle", (_e, vibeName?: string) => {
-    if (vibeRecorder.isRecording) {
-      const session = vibeRecorder.stop();
-      if (session.events.length === 0) {
-        mainWindow?.webContents.send("yo-reminder", "Recording stopped — no interactions captured.");
-        return;
-      }
-      const name = vibeName?.trim() || `recorded-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-")}`;
-      const vibe = vibeRecorder.refine(session, name);
-      vibeRunner.create(vibe.name, vibe);
-      mainWindow?.webContents.send("yo-reminder", `Vibe "${vibe.name}" saved with ${vibe.steps.length} steps.`);
-      mainWindow?.webContents.send("vibe-saved", vibe.name);
-    } else {
-      vibeRecorder.start();
-    }
-  });
-
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>
     layoutManager.listLayouts().map((l) => ({
@@ -2475,250 +2291,6 @@ async function boot() {
     }
     return ok;
   });
-  ipcMain.handle("apps-connect", async (_e, id: string, webContentsId?: number) => {
-    const appConfig = appConnector.get(id);
-    if (!appConfig) return { ok: false, error: "App not found" };
-
-    // Use embedded webview's webContents if provided, else fall back to panel
-    let wc = webContentsId ? webContents.fromId(webContentsId) : null;
-    if (!wc) {
-      if (!mainWindow) return { ok: false, error: "No window" };
-      if (!panelManager.hasPanel(id)) panelManager.addPanel(id, appConfig.url);
-      const view = panelManager.getOrCreateView(id, mainWindow);
-      if (!view) return { ok: false, error: "Could not create panel" };
-      wc = view.webContents;
-    }
-
-    if (wc.isLoading()) {
-      await new Promise<void>((resolve) => wc!.once("did-finish-load", () => resolve()));
-    }
-
-    try {
-      const result = await connectorAgent.analyze(wc, appConfig.name, appConfig.url);
-      appConnector.updateCommands(id, result.commands, result.meta);
-
-      // Activate yo/sup interception on the panel's BrowserView
-      const panelWc = panelManager.getWebContents(id);
-      if (panelWc) yoInterceptor.activate(panelWc, id);
-
-      return { ok: true, commandCount: Object.keys(result.commands).length };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { ok: false, error: msg };
-    }
-  });
-  ipcMain.handle("apps-set-command", (_e, id: string, commandKey: string, mapping: CommandMapping) => {
-    return appConnector.setCommand(id, commandKey, mapping);
-  });
-  ipcMain.handle("apps-remove-command", (_e, id: string, commandKey: string) => {
-    return appConnector.removeCommand(id, commandKey);
-  });
-  ipcMain.handle("apps-test-command", async (_e, id: string, commandKey: string, webContentsId?: number) => {
-    const appConfig = appConnector.get(id);
-    if (!appConfig) return "App not found";
-    const mapping = appConfig.commands[commandKey];
-    if (!mapping) return "Command not mapped";
-
-    // Use embedded webview if provided, else panel
-    let wc = webContentsId ? webContents.fromId(webContentsId) : panelManager.getWebContents(id);
-    if (!wc) return "App not loaded.";
-
-    try {
-      // For setValue/push, send a test string so the user can see it working
-      const testValue = mapping.action === "setValue" ? "Hello from yo!" : undefined;
-      return await executeCommand(wc, mapping, testValue);
-    } catch (err: unknown) {
-      return err instanceof Error ? err.message : String(err);
-    }
-  });
-
-  // IPC: DOM picker — inject picker script into a webContents, receive result via console-message
-  // (executeJavaScript doesn't properly await Promises in Electron 35, so we use a message channel)
-  ipcMain.on("start-picker", (_e, webContentsId: number) => {
-    const wc = webContents.fromId(webContentsId);
-    if (!wc) {
-      mainWindow?.webContents.send("picker-result", null);
-      return;
-    }
-
-    // Listen for the picker result via console.log message
-    const handler = (_event: Electron.Event, _level: number, message: string) => {
-      if (!message.startsWith("__YO_PICK__:")) return;
-      wc.removeListener("console-message", handler);
-      try {
-        const json = message.slice("__YO_PICK__:".length);
-        const result = JSON.parse(json);
-        mainWindow?.webContents.send("picker-result", result);
-      } catch {
-        mainWindow?.webContents.send("picker-result", null);
-      }
-    };
-    wc.on("console-message", handler);
-
-    // Timeout: cancel after 30s if no pick
-    setTimeout(() => {
-      wc.removeListener("console-message", handler);
-    }, 30000);
-
-    // Inject the picker script (fire-and-forget, no return value needed)
-    const pickerScript = `
-      (function() {
-        var overlay = document.createElement('div');
-        overlay.id = '__yo_picker_overlay__';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;cursor:crosshair;';
-
-        var highlight = document.createElement('div');
-        highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;' +
-          'border:2px solid #25C75E;background:rgba(37,199,94,0.08);border-radius:3px;' +
-          'transition:all 0.05s ease;box-shadow:0 0 12px rgba(37,199,94,0.3);display:none;';
-        document.body.appendChild(highlight);
-
-        var label = document.createElement('div');
-        label.style.cssText = 'position:fixed;z-index:1000000;pointer-events:none;' +
-          'background:#1a1a1a;color:#e0e0e0;font:12px monospace;' +
-          'padding:4px 8px;border-radius:4px;border:1px solid #25C75E;' +
-          'box-shadow:0 4px 12px rgba(0,0,0,0.5);max-width:400px;overflow:hidden;' +
-          'text-overflow:ellipsis;white-space:nowrap;display:none;';
-        document.body.appendChild(label);
-
-        var lastTarget = null;
-
-        function getEl(e) {
-          overlay.style.pointerEvents = 'none';
-          var el = document.elementFromPoint(e.clientX, e.clientY);
-          overlay.style.pointerEvents = 'auto';
-          return el;
-        }
-
-        // Filter out dynamic/framework-generated class names
-        var DYNAMIC_CLASS_RE = /^(ng-tns-|ng-star-|ng-trigger-|ng-animating|ng-untouched|ng-touched|ng-pristine|ng-dirty|ng-valid|ng-invalid|cdk-|mat-|css-|sc-|_|jsx-|svelte-|\\d)/;
-        var STATE_CLASS_RE = /^(is-|has-|with-|no-|not-|height-|width-|show-|hide-|visible-|hidden-|active$|focused$|disabled$|selected$|expanded$|collapsed$|open$|closed$)/;
-        function isStableClass(c) {
-          if (c.length <= 1 || c.length >= 50) return false;
-          if (DYNAMIC_CLASS_RE.test(c)) return false;
-          if (STATE_CLASS_RE.test(c)) return false;
-          // Skip classes that look like generated hashes (contain long digit sequences)
-          if (/\d{4,}/.test(c)) return false;
-          return true;
-        }
-
-        function buildSelector(el) {
-          if (!el || !el.tagName) return 'body';
-          if (el === document.body || el === document.documentElement) return 'body';
-          if (el.id) return '#' + CSS.escape(el.id);
-
-          // Prefer stable attributes over classes
-          try {
-            var tid = el.getAttribute('data-testid');
-            if (tid) return '[data-testid="' + tid + '"]';
-          } catch(e) {}
-          try {
-            var role = el.getAttribute('role');
-            if (role) {
-              var rs = el.tagName.toLowerCase() + '[role="' + role + '"]';
-              try { if (document.querySelectorAll(rs).length === 1) return rs; } catch(e) {}
-            }
-          } catch(e) {}
-          try {
-            var aria = el.getAttribute('aria-label');
-            if (aria) {
-              var s = el.tagName.toLowerCase() + '[aria-label="' + aria.replace(/"/g, '\\\\\\"') + '"]';
-              try { if (document.querySelectorAll(s).length === 1) return s; } catch(e) {}
-            }
-          } catch(e) {}
-          try {
-            if (el.getAttribute('contenteditable') === 'true') {
-              var ce = el.tagName.toLowerCase() + '[contenteditable="true"]';
-              try { if (document.querySelectorAll(ce).length === 1) return ce; } catch(e) {}
-            }
-          } catch(e) {}
-          try {
-            var ph = el.getAttribute('placeholder');
-            if (ph) {
-              var ps = el.tagName.toLowerCase() + '[placeholder="' + ph.replace(/"/g, '\\\\\\"') + '"]';
-              try { if (document.querySelectorAll(ps).length === 1) return ps; } catch(e) {}
-            }
-          } catch(e) {}
-
-          var parts = [];
-          var cur = el;
-          while (cur && cur !== document.body && cur !== document.documentElement && parts.length < 5) {
-            var tag = cur.tagName ? cur.tagName.toLowerCase() : '?';
-            if (cur.id) { parts.unshift('#' + CSS.escape(cur.id)); break; }
-            var cls = '';
-            try {
-              var stable = Array.from(cur.classList || []).filter(isStableClass).slice(0, 3);
-              cls = stable.map(function(c) { return '.' + CSS.escape(c); }).join('');
-            } catch(e) {}
-            // Also try role/contenteditable at this level for path segments
-            var attrSel = '';
-            try {
-              var r2 = cur.getAttribute('role');
-              if (r2) attrSel = '[role="' + r2 + '"]';
-              else if (cur.getAttribute('contenteditable') === 'true') attrSel = '[contenteditable="true"]';
-            } catch(e) {}
-            var seg = tag + cls + attrSel;
-            if (cur.parentElement) {
-              try {
-                var sibs = Array.from(cur.parentElement.children).filter(function(s) { return s.tagName === cur.tagName; });
-                if (sibs.length > 1) seg += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
-              } catch(e) {}
-            }
-            parts.unshift(seg);
-            cur = cur.parentElement || (cur.getRootNode && cur.getRootNode().host) || null;
-          }
-          return parts.join(' > ') || el.tagName.toLowerCase();
-        }
-
-        overlay.addEventListener('mousemove', function(e) {
-          var el = getEl(e);
-          if (el === lastTarget) return;
-          lastTarget = el;
-          if (!el || el === overlay) { highlight.style.display = 'none'; label.style.display = 'none'; return; }
-          try {
-            var r = el.getBoundingClientRect();
-            highlight.style.display = 'block';
-            highlight.style.left = r.left + 'px'; highlight.style.top = r.top + 'px';
-            highlight.style.width = r.width + 'px'; highlight.style.height = r.height + 'px';
-            var info = (el.tagName || '?').toLowerCase();
-            if (el.id) info += '#' + el.id;
-            else if (el.className && typeof el.className === 'string') info += '.' + el.className.split(' ')[0];
-            try { var role = el.getAttribute('role'); if (role) info += ' [' + role + ']'; } catch(x) {}
-            label.textContent = info;
-            label.style.display = 'block';
-            label.style.left = r.left + 'px';
-            label.style.top = Math.max(0, r.top - 28) + 'px';
-          } catch(x) { highlight.style.display = 'none'; label.style.display = 'none'; }
-        });
-
-        overlay.addEventListener('click', function(e) {
-          e.preventDefault(); e.stopPropagation();
-          var el = getEl(e);
-          cleanup();
-          if (!el) { console.log('__YO_PICK__:null'); return; }
-          var tag = (el.tagName || 'unknown').toLowerCase();
-          var ce = false; try { ce = el.getAttribute('contenteditable') === 'true'; } catch(x) {}
-          var role = ''; try { role = el.getAttribute('role') || ''; } catch(x) {}
-          console.log('__YO_PICK__:' + JSON.stringify({
-            selector: buildSelector(el), tag: tag,
-            text: (el.innerText || el.textContent || '').trim().slice(0, 100),
-            isEditable: ce || tag === 'input' || tag === 'textarea',
-            isClickable: tag === 'button' || tag === 'a' || role === 'button',
-          }));
-        });
-
-        function onKey(e) {
-          if (e.key === 'Escape') { cleanup(); console.log('__YO_PICK__:null'); }
-        }
-        document.addEventListener('keydown', onKey);
-
-        function cleanup() { overlay.remove(); highlight.remove(); label.remove(); document.removeEventListener('keydown', onKey); }
-        document.body.appendChild(overlay);
-      })();
-    `;
-    wc.executeJavaScript(pickerScript).catch(() => {});
-  });
-
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);

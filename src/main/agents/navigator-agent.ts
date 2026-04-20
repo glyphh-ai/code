@@ -49,9 +49,10 @@ export class NavigatorAgent extends BaseSubAgent {
     return `You are a navigation specialist for workspace panels (Gmail, Claude, GPT, Gemini, Slack, etc).
 
 RULES:
-- Use panel IDs directly: grab_panel("gmail"), scan_panel("claude"). NEVER open_panel for apps already in available panels.
-- scan_panel FIRST to get selectors, then click_element/type_text with those selectors. grab_panel only for text content.
+- scan_panel FIRST for element discovery (~5ms, zero cost). Use click_element/type_text with those selectors.
+- grab_panel is EXPENSIVE (sends full page text to LLM context). Only use when you specifically need text content that scan_panel doesn't provide.
 - Prefer run_command when scan shows MAPPED COMMANDS (grab, input, submit, new, search, read-latest, etc).
+- Use panel IDs directly. NEVER open_panel for apps already in available panels.
 - type_text with submit=true for Enter. Use wait_for_response after submitting to AI chat panels.
 - Max 4 click→scan cycles. Return actual content found, not action summaries. Plain text, truncate at ~2000 chars.`;
   }
@@ -76,7 +77,7 @@ RULES:
       },
       {
         name: "grab_panel",
-        description: "Grab the full visible text content from a workspace panel. Use scan_panel first for element discovery — use this only when you need the actual text content.",
+        description: "EXPENSIVE — Grab full visible text content from a panel (~10KB sent to context). Only use when you specifically need text content that scan_panel doesn't provide. Prefer MCP tools for structured data access (emails, events, messages).",
         input_schema: {
           type: "object",
           properties: {

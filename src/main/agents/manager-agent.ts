@@ -8,7 +8,6 @@
 import { BaseSubAgent } from "./base-agent";
 import type { ToolDef } from "./types";
 import type { AppConnector } from "../app-connector";
-import type { VibeRunner, Vibe } from "../vibe-runner";
 
 export class ManagerAgent extends BaseSubAgent {
   protected agentName = "manager";
@@ -24,15 +23,13 @@ export class ManagerAgent extends BaseSubAgent {
     delete: (name: string) => boolean;
   } | null = null;
   private appConnector: AppConnector | null = null;
-  private vibeRunner: VibeRunner | null = null;
 
   setSkillCallbacks(cbs: typeof this.skillCallbacks): void { this.skillCallbacks = cbs; }
   setLayoutCallbacks(cbs: typeof this.layoutCallbacks): void { this.layoutCallbacks = cbs; }
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
-  setVibeRunner(runner: VibeRunner): void { this.vibeRunner = runner; }
 
   get systemPrompt(): string {
-    return `You are a workspace manager specialist. You handle CRUD operations for skills (prompt templates), layouts (panel arrangements), apps (connected web panels), and vibes (cross-app automation sequences).
+    return `You are a workspace manager specialist. You handle CRUD operations for skills (prompt templates), layouts (panel arrangements), and apps (connected web panels).
 
 RESPONSE:
 - Confirm the action taken with a brief result
@@ -82,52 +79,6 @@ RESPONSE:
           required: ["action"],
         },
       },
-      {
-        name: "manage_vibe",
-        description: "Create, list, read, or delete vibes (cross-app automation sequences). Vibes chain commands across apps into replayable patterns.",
-        input_schema: {
-          type: "object",
-          properties: {
-            action: { type: "string", enum: ["create", "list", "read", "delete"], description: "Action to perform" },
-            name: { type: "string", description: "Vibe name (for create/read/delete)" },
-            description: { type: "string", description: "What the vibe does (for create)" },
-            inputs: {
-              type: "array",
-              description: "Named inputs the vibe accepts (for create)",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  description: { type: "string" },
-                  required: { type: "boolean" },
-                },
-              },
-            },
-            steps: {
-              type: "array",
-              description: "Ordered steps (for create). Each step: { app, command, value?, find?, waitFor?, waitMs?, describe?, condition?, onTrue?, onFalse?, retries? }",
-              items: {
-                type: "object",
-                properties: {
-                  app: { type: "string", description: "Panel ID" },
-                  command: { type: "string", description: "Command key from app's commands" },
-                  value: { description: "Static string or { from: 'step'|'input'|'llm', ref?, prompt? }" },
-                  find: { type: "string", description: "NL fallback for element finding" },
-                  waitFor: { type: "string", description: "CSS selector to wait for" },
-                  waitMs: { type: "number", description: "Delay after step" },
-                  describe: { type: "string", description: "Human-readable description" },
-                  condition: { type: "string", description: "NL condition for branching" },
-                  onTrue: { type: "number", description: "Step index if condition true" },
-                  onFalse: { type: "number", description: "Step index if condition false" },
-                  retries: { type: "number", description: "Retry count on failure" },
-                },
-                required: ["app", "command"],
-              },
-            },
-          },
-          required: ["action"],
-        },
-      },
     ];
   }
 
@@ -136,7 +87,6 @@ RESPONSE:
       case "manage_skill": return this.toolManageSkill(input);
       case "manage_layout": return this.toolManageLayout(input);
       case "manage_app": return this.toolManageApp(input);
-      case "manage_vibe": return this.toolManageVibe(input);
       default: return `Unknown tool: ${name}`;
     }
   }
@@ -226,51 +176,4 @@ RESPONSE:
     }
   }
 
-  private toolManageVibe(input: Record<string, unknown>): string {
-    const action = input.action as string;
-    if (!this.vibeRunner) return "Vibe engine not available.";
-    switch (action) {
-      case "list": {
-        const vibes = this.vibeRunner.list();
-        if (!vibes.length) return "No vibes saved.";
-        return vibes.map((v) => `${v.name} — ${v.description} (${v.stepCount} steps)`).join("\n");
-      }
-      case "read": {
-        const name = input.name as string;
-        if (!name) return "Vibe name required.";
-        const vibe = this.vibeRunner.get(name);
-        if (!vibe) return `Vibe "${name}" not found.`;
-        const lines = [`${vibe.name}: ${vibe.description}`];
-        if (vibe.inputs?.length) {
-          lines.push(`Inputs: ${vibe.inputs.map((i) => `${i.name}${i.required ? " (required)" : ""}`).join(", ")}`);
-        }
-        lines.push("Steps:");
-        for (let i = 0; i < vibe.steps.length; i++) {
-          const s = vibe.steps[i];
-          lines.push(`  ${i}: ${s.describe || `${s.command} on ${s.app}`}`);
-        }
-        return lines.join("\n");
-      }
-      case "create": {
-        const name = input.name as string;
-        const description = input.description as string;
-        const steps = input.steps as Vibe["steps"];
-        if (!name || !steps?.length) return "Name and steps required.";
-        const vibe: Vibe = {
-          name,
-          description: description || name,
-          inputs: input.inputs as Vibe["inputs"],
-          steps,
-        };
-        this.vibeRunner.create(name, vibe);
-        return `Vibe "${name}" created with ${steps.length} steps.`;
-      }
-      case "delete": {
-        const name = input.name as string;
-        if (!name) return "Vibe name required.";
-        return this.vibeRunner.remove(name) ? `Vibe "${name}" deleted.` : `Vibe "${name}" not found.`;
-      }
-      default: return `Unknown vibe action: ${action}`;
-    }
-  }
 }

@@ -9,7 +9,7 @@
 import { getPreference } from "./preferences";
 import type { McpManager } from "./mcp-manager";
 
-export type AgentMode = "plan" | "ask" | "auto" | "council" | "vibe";
+export type AgentMode = "plan" | "ask" | "auto" | "council";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask";
 
@@ -39,7 +39,6 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   manage_skill:     "mutate",
   manage_layout:    "mutate",
   manage_app:       "mutate",
-  manage_vibe:      "mutate",
 
   // Layout (sub-agent)
   switch_panel:     "mutate",
@@ -81,7 +80,6 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   set_reminder:     "observe",
   pipe:             "mutate",
   ask_panel:        "mutate",
-  run_vibe:         "mutate",
 
   // Orchestrator delegations (gated at sub-agent level, but listed for plan mode)
   delegate_navigator:  "mutate",
@@ -110,7 +108,7 @@ export const TOOL_LABELS: Record<string, string> = {
   manage_skill:     "Manage skills",
   manage_layout:    "Manage layouts",
   manage_app:       "Manage apps",
-  manage_vibe:      "Manage vibes",
+
   switch_panel:     "Switch panel",
   split_view:       "Split view",
   grid_layout:      "Grid layout",
@@ -144,7 +142,6 @@ export const TOOL_LABELS: Record<string, string> = {
   set_reminder:     "Set reminder",
   pipe:             "Pipe cross-panel",
   ask_panel:        "Ask panel",
-  run_vibe:         "Run vibe",
   delegate_navigator:  "Delegate navigator",
   delegate_researcher: "Delegate researcher",
   delegate_manager:    "Delegate manager",
@@ -171,7 +168,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   manage_skill:     "Create, edit, or delete saved skills",
   manage_layout:    "Save or restore panel layout presets",
   manage_app:       "Add, edit, or remove app configs",
-  manage_vibe:      "Create, read, or delete cross-app automation vibes",
+
   switch_panel:     "Switch to a single panel fullscreen",
   split_view:       "Create a side-by-side split view",
   grid_layout:      "Create an advanced grid layout with spans",
@@ -205,7 +202,6 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   set_reminder:     "Schedule a delayed reminder message",
   pipe:             "Pipe content between two panels",
   ask_panel:        "Send a prompt to AI chat panels and get real responses",
-  run_vibe:         "Run a saved cross-app automation vibe",
   delegate_navigator:  "Delegate a panel interaction task to the navigator",
   delegate_researcher: "Delegate a note/file search to the researcher",
   delegate_manager:    "Delegate a skill/layout/app task to the manager",

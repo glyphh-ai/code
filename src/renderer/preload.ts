@@ -59,20 +59,6 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("open-cmd-palette", () => callback());
   },
 
-  // Vibes CRUD
-  vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<{ name: string; description: string; stepCount: number }>>,
-  vibesRead: (name: string) => ipcRenderer.invoke("vibes-read", name) as Promise<{ name: string; description: string; inputs?: Array<{ name: string; description: string; required?: boolean }>; steps: Array<{ app: string; command: string; value?: string; find?: string; waitFor?: string; waitMs?: number; describe?: string; condition?: string; onTrue?: number; onFalse?: number; retries?: number }> } | null>,
-  vibesCreate: (name: string, vibe: unknown) => ipcRenderer.invoke("vibes-create", name, vibe) as Promise<boolean>,
-  vibesDelete: (name: string) => ipcRenderer.invoke("vibes-delete", name) as Promise<boolean>,
-  vibesRun: (name: string) => ipcRenderer.invoke("vibes-run", name) as Promise<{ success: boolean; summary: string }>,
-  vibesRecordToggle: (name?: string) => ipcRenderer.send("vibes-record-toggle", name),
-  onVibeRecordingState: (cb: (state: { recording: boolean; stepCount: number }) => void) => {
-    ipcRenderer.on("vibe-recording-state", (_e, state) => cb(state));
-  },
-  onVibeSaved: (cb: (name: string) => void) => {
-    ipcRenderer.on("vibe-saved", (_e, name) => cb(name));
-  },
-
   // Apps CRUD
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
@@ -80,23 +66,9 @@ contextBridge.exposeInMainWorld("yo", {
   appsImport: (config: Record<string, unknown>) => ipcRenderer.invoke("apps-import", config),
   appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
   appsUpdateId: (oldId: string, newId: string) => ipcRenderer.invoke("apps-update-id", oldId, newId) as Promise<boolean>,
-  appsConnect: (id: string, webContentsId?: number) =>
-    ipcRenderer.invoke("apps-connect", id, webContentsId) as Promise<{ ok: boolean; error?: string; commandCount?: number }>,
-  appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) =>
-    ipcRenderer.invoke("apps-set-command", id, commandKey, mapping) as Promise<boolean>,
-  appsRemoveCommand: (id: string, commandKey: string) =>
-    ipcRenderer.invoke("apps-remove-command", id, commandKey) as Promise<boolean>,
-  appsTestCommand: (id: string, commandKey: string, webContentsId?: number) =>
-    ipcRenderer.invoke("apps-test-command", id, commandKey, webContentsId) as Promise<string>,
 
   // Onboarding complete — triggers panel restore
   onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),
-
-  // DOM picker — start picker on a webContents, result comes back via onPickerResult
-  startPicker: (webContentsId: number) => ipcRenderer.send("start-picker", webContentsId),
-  onPickerResult: (callback: (result: unknown) => void) => {
-    ipcRenderer.once("picker-result", (_event, result) => callback(result));
-  },
 
   // App version
   getAppVersion: () => ipcRenderer.invoke("get-app-version") as Promise<string>,

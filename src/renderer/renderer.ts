@@ -36,10 +36,7 @@ declare global {
       appsImport: (config: Record<string, unknown>) => Promise<unknown>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsUpdateId: (oldId: string, newId: string) => Promise<boolean>;
-      appsConnect: (id: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string; commandCount?: number }>;
-      appsSetCommand: (id: string, commandKey: string, mapping: { selector: string; action: string; description: string; script?: string }) => Promise<boolean>;
-      appsRemoveCommand: (id: string, commandKey: string) => Promise<boolean>;
-      appsTestCommand: (id: string, commandKey: string, webContentsId?: number) => Promise<string>;
+
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
@@ -56,8 +53,7 @@ declare global {
       setPreference: (key: string, value: unknown) => void;
       getPreference: (key: string, defaultVal?: unknown) => Promise<unknown>;
       onboardingComplete: () => Promise<void>;
-      startPicker: (webContentsId: number) => void;
-      onPickerResult: (callback: (result: unknown) => void) => void;
+
       getAppVersion: () => Promise<string>;
       startAuth: (mode: "register" | "login") => Promise<boolean>;
       isAuthenticated: () => Promise<boolean>;
@@ -176,15 +172,6 @@ declare global {
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;
-      // Vibes
-      vibesList: () => Promise<Array<{ name: string; description: string; stepCount: number }>>;
-      vibesRead: (name: string) => Promise<{ name: string; description: string; steps: Array<{ app: string; command: string; value?: string; find?: string; waitMs?: number; describe?: string; condition?: string; onTrue?: number; onFalse?: number; retries?: number }> } | null>;
-      vibesCreate: (name: string, vibe: unknown) => Promise<boolean>;
-      vibesDelete: (name: string) => Promise<boolean>;
-      vibesRun: (name: string) => Promise<{ success: boolean; summary: string }>;
-      vibesRecordToggle: (name?: string) => void;
-      onVibeRecordingState: (cb: (state: { recording: boolean; stepCount: number }) => void) => void;
-      onVibeSaved: (cb: (name: string) => void) => void;
     };
   }
 }
@@ -985,7 +972,6 @@ const MODE_ICONS: Record<string, string> = {
   plan: "\uD83D\uDCCB",
   auto: "\u26A1",
   council: "\uD83C\uDFDB",
-  vibe: "\uD83C\uDFB5",
 };
 
 const MODE_COLORS: Record<string, string> = {
@@ -993,7 +979,6 @@ const MODE_COLORS: Record<string, string> = {
   plan: "#4A9EFF",
   auto: "#FF8C00",
   council: "#A855F7",
-  vibe: "#FF3E8A",
 };
 
 let currentMode = "ask";
@@ -1008,12 +993,6 @@ function setModeValue(mode: string) {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
   });
   applyModeColor();
-  // Show/hide vibe controls
-  const vibeBar = document.getElementById("yo-vibe-bar");
-  if (vibeBar) {
-    vibeBar.classList.toggle("hidden", mode !== "vibe");
-    if (mode === "vibe") refreshVibeAutocomplete();
-  }
 }
 
 function applyModeColor() {
@@ -1101,87 +1080,6 @@ document.addEventListener("click", (e) => {
     yoModelMenu.classList.add("hidden");
   }
 });
-
-// ── Vibe mode controls (Phase 2 — disabled) ──────────────────
-// Elements may not exist when vibes are feature-flagged off
-const yoVibeRecord = document.getElementById("yo-vibe-record");
-const yoVibePlay = document.getElementById("yo-vibe-play");
-const yoVibeName = document.getElementById("yo-vibe-name") as HTMLInputElement | null;
-const yoVibeSave = document.getElementById("yo-vibe-save");
-let vibeRecording = false;
-
-async function refreshVibeAutocomplete() {
-  if (!yoVibeName) return;
-  let datalist = document.getElementById("yo-vibe-datalist") as HTMLDataListElement;
-  if (!datalist) {
-    datalist = document.createElement("datalist");
-    datalist.id = "yo-vibe-datalist";
-    yoVibeName.parentElement!.appendChild(datalist);
-    yoVibeName.setAttribute("list", "yo-vibe-datalist");
-  }
-  const vibes = await window.yo.vibesList();
-  datalist.innerHTML = vibes.map((v: { name: string }) => `<option value="${v.name}">`).join("");
-}
-
-if (yoVibeRecord && yoVibePlay && yoVibeName && yoVibeSave) {
-  yoVibeRecord.addEventListener("click", () => {
-    if (vibeRecording) {
-      const name = yoVibeName.value.trim();
-      window.yo.vibesRecordToggle(name || undefined);
-    } else {
-      window.yo.vibesRecordToggle();
-    }
-    vibeRecording = !vibeRecording;
-    yoVibeRecord.classList.toggle("recording", vibeRecording);
-    yoVibeRecord.innerHTML = vibeRecording
-      ? '<span class="yo-vibe-dot recording"></span> Stop'
-      : '<span class="yo-vibe-dot"></span> Record';
-  });
-
-  yoVibePlay.addEventListener("click", async () => {
-    const name = yoVibeName.value.trim();
-    if (!name) return;
-    yoVibePlay.textContent = "Running...";
-    (yoVibePlay as HTMLButtonElement).disabled = true;
-    try {
-      const result = await window.yo.vibesRun(name);
-      yoVibePlay.textContent = result.success ? "Done" : "Failed";
-    } catch {
-      yoVibePlay.textContent = "Error";
-    }
-    setTimeout(() => { yoVibePlay.innerHTML = "&#x25B6; Play"; (yoVibePlay as HTMLButtonElement).disabled = false; }, 2000);
-  });
-
-  yoVibeSave.addEventListener("click", async () => {
-    const name = yoVibeName.value.trim();
-    if (!name) return;
-    const vibes = await window.yo.vibesList();
-    const lastRecorded = vibes.find((v: { name: string }) => v.name.startsWith("recorded-"));
-    if (lastRecorded && lastRecorded.name !== name) {
-      const vibe = await window.yo.vibesRead(lastRecorded.name);
-      if (vibe) {
-        await window.yo.vibesDelete(lastRecorded.name);
-        await window.yo.vibesCreate(name, { ...vibe, name });
-      }
-    }
-    yoVibeSave.textContent = "Saved";
-    refreshVibeAutocomplete();
-    setTimeout(() => { yoVibeSave.textContent = "Save"; }, 1500);
-  });
-
-  window.yo.onVibeRecordingState?.((state: { recording: boolean; stepCount: number }) => {
-    vibeRecording = state.recording;
-    yoVibeRecord.classList.toggle("recording", state.recording);
-    yoVibeRecord.innerHTML = state.recording
-      ? `<span class="yo-vibe-dot recording"></span> Stop (${state.stepCount})`
-      : '<span class="yo-vibe-dot"></span> Record';
-  });
-
-  window.yo.onVibeSaved?.((name: string) => {
-    if (!yoVibeName.value.trim()) yoVibeName.value = name;
-    refreshVibeAutocomplete();
-  });
-}
 
 async function openYoPanel(query: string) {
   if (!yoControlsInited) {
