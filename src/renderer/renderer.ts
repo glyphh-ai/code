@@ -115,6 +115,7 @@ declare global {
       getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>;
       openExternal: (url: string) => void;
       openAccountDashboard: () => void;
+      openBilling: () => void;
       // Support
       submitSupportTicket: (ticket: { subject: string; description: string }) => Promise<{ ok: boolean; error?: string }>;
       // Voice transcription
@@ -165,6 +166,13 @@ declare global {
       mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
       mcpSetServerOverride: (serverId: string, override: string) => void;
       onMcpChanged: (cb: () => void) => void;
+      // Connectors (Pipedream Connect)
+      connectorsGetApps: (search?: string) => Promise<Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>>;
+      connectorsGetAccounts: () => Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>;
+      connectorsConnect: (appSlug: string) => Promise<{ ok: boolean; error?: string }>;
+      connectorsDisconnect: (accountId: string) => Promise<boolean>;
+      connectorsRefreshMcp: () => Promise<boolean>;
+      onConnectorsChanged: (cb: () => void) => void;
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;

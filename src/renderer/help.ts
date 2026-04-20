@@ -230,6 +230,7 @@ function loadActiveSection() {
   else if (sec === "apps") loadApps();
   else if (sec === "vibes") loadVibes();
   else if (sec === "mcp") loadMcp();
+  else if (sec === "connectors") loadConnectors();
   else if (sec === "settings") loadSettings();
   else if (sec === "docs") loadDocs();
   else if (sec === "support") loadSupport();
@@ -258,6 +259,9 @@ export function initHelp() {
 
   // MCP Servers
   initMcp();
+
+  // Connectors
+  initConnectors();
 
   // Layouts
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
@@ -1222,7 +1226,7 @@ async function loadSettings() {
     nameEl.textContent = `${accountInfo.firstName} ${accountInfo.lastName}`;
     orgEl.textContent = accountInfo.orgName;
     tierEl.textContent = accountInfo.tier || "free";
-    tierEl.className = `license-value ${accountInfo.tier === "pro" ? "active" : ""}`;
+    tierEl.className = `license-value ${accountInfo.tier !== "free" ? "active" : ""}`;
 
     const billingStatus = accountInfo.billingStatus || authStatus.status;
     if (billingStatus === "active") {
@@ -2097,6 +2101,232 @@ function initMcp() {
         // Don't refresh if editing
       } else {
         loadMcp();
+      }
+    }
+  });
+}
+
+// ── Connectors (Pipedream Connect) ──────────────────────
+
+interface ConnectorAccount {
+  id: string;
+  appSlug: string;
+  appName: string;
+  createdAt: string;
+  healthy: boolean;
+}
+
+interface ConnectorApp {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  categories?: string[];
+}
+
+const connectorsProGate = document.getElementById("connectors-pro-gate")!;
+const connectorsContent = document.getElementById("connectors-content")!;
+const connectorsAccountsList = document.getElementById("connectors-accounts-list")!;
+const connectorsNoAccounts = document.getElementById("connectors-no-accounts")!;
+const connectorsAppGridPanel = document.getElementById("connectors-app-grid-panel")!;
+const connectorsDetailPanel = document.getElementById("connectors-detail-panel")!;
+let connectorsCurrentAccountId: string | null = null;
+
+async function loadConnectors() {
+  connectorsAppGridPanel.classList.add("hidden");
+  connectorsDetailPanel.classList.add("hidden");
+  connectorsAccountsList.classList.remove("hidden");
+  document.getElementById("connectors-toolbar")!.classList.remove("hidden");
+
+  // Tier gate — check Pro
+  const authStatus = await window.yo.getAuthStatus();
+  const isPro = authStatus.tier === "advanced";
+
+  if (!isPro) {
+    connectorsProGate.classList.remove("hidden");
+    connectorsContent.classList.add("hidden");
+    return;
+  }
+
+  connectorsProGate.classList.add("hidden");
+  connectorsContent.classList.remove("hidden");
+
+  const accounts: ConnectorAccount[] = await window.yo.connectorsGetAccounts();
+  if (accounts.length === 0) {
+    connectorsAccountsList.innerHTML = "";
+    connectorsNoAccounts.classList.remove("hidden");
+    return;
+  }
+
+  connectorsNoAccounts.classList.add("hidden");
+  connectorsAccountsList.innerHTML = "";
+
+  for (const acct of accounts) {
+    const row = document.createElement("div");
+    row.className = "connector-account-row";
+
+    const icon = document.createElement("div");
+    icon.className = "connector-account-icon";
+    icon.textContent = acct.appName.charAt(0).toUpperCase();
+
+    const name = document.createElement("span");
+    name.className = "connector-account-name";
+    name.textContent = acct.appName;
+
+    const app = document.createElement("span");
+    app.className = "connector-account-app";
+    app.textContent = acct.appSlug;
+
+    const dot = document.createElement("span");
+    dot.className = "connector-health-dot" + (acct.healthy ? "" : " unhealthy");
+    dot.title = acct.healthy ? "Connected" : "Connection issue";
+
+    row.appendChild(icon);
+    row.appendChild(name);
+    row.appendChild(app);
+    row.appendChild(dot);
+
+    row.addEventListener("click", () => openConnectorDetail(acct));
+    connectorsAccountsList.appendChild(row);
+  }
+}
+
+function openConnectorDetail(acct: ConnectorAccount) {
+  connectorsCurrentAccountId = acct.id;
+  connectorsAccountsList.classList.add("hidden");
+  connectorsNoAccounts.classList.add("hidden");
+  document.getElementById("connectors-toolbar")!.classList.add("hidden");
+  connectorsAppGridPanel.classList.add("hidden");
+  connectorsDetailPanel.classList.remove("hidden");
+
+  document.getElementById("connectors-detail-name")!.textContent = acct.appName;
+
+  const statusBadge = document.getElementById("connectors-detail-status")!;
+  statusBadge.className = `mcp-status-badge status-${acct.healthy ? "connected" : "error"}`;
+  statusBadge.textContent = acct.healthy ? "connected" : "unhealthy";
+
+  const info = document.getElementById("connectors-detail-info")!;
+  info.textContent = `App: ${acct.appSlug} · Connected: ${new Date(acct.createdAt).toLocaleDateString()}`;
+}
+
+async function openConnectorAppGrid() {
+  connectorsAccountsList.classList.add("hidden");
+  connectorsNoAccounts.classList.add("hidden");
+  document.getElementById("connectors-toolbar")!.classList.add("hidden");
+  connectorsDetailPanel.classList.add("hidden");
+  connectorsAppGridPanel.classList.remove("hidden");
+
+  const grid = document.getElementById("connectors-app-grid")!;
+  const loading = document.getElementById("connectors-app-loading")!;
+  grid.innerHTML = "";
+  loading.classList.remove("hidden");
+
+  const searchInput = document.getElementById("connectors-search") as HTMLInputElement;
+  const search = searchInput.value.trim() || undefined;
+
+  const apps: ConnectorApp[] = await window.yo.connectorsGetApps(search);
+  loading.classList.add("hidden");
+
+  if (apps.length === 0) {
+    grid.innerHTML = `<div class="help-item-empty" style="grid-column:1/-1;">No apps found.</div>`;
+    return;
+  }
+
+  for (const app of apps) {
+    const card = document.createElement("div");
+    card.className = "connector-app-card";
+
+    const icon = document.createElement("div");
+    icon.className = "connector-app-card-icon";
+    if (app.icon) {
+      const img = document.createElement("img");
+      img.src = app.icon;
+      img.alt = app.name;
+      icon.appendChild(img);
+    } else {
+      icon.textContent = app.name.charAt(0).toUpperCase();
+    }
+
+    const name = document.createElement("div");
+    name.className = "connector-app-card-name";
+    name.textContent = app.name;
+
+    const desc = document.createElement("div");
+    desc.className = "connector-app-card-desc";
+    desc.textContent = app.description || "";
+
+    card.appendChild(icon);
+    card.appendChild(name);
+    card.appendChild(desc);
+
+    card.addEventListener("click", async () => {
+      card.style.opacity = "0.5";
+      card.style.pointerEvents = "none";
+      const result = await window.yo.connectorsConnect(app.id);
+      card.style.opacity = "1";
+      card.style.pointerEvents = "auto";
+      if (result.ok) {
+        loadConnectors();
+      } else if (result.error) {
+        card.style.borderColor = "#ff4444";
+        setTimeout(() => { card.style.borderColor = ""; }, 2000);
+      }
+    });
+
+    grid.appendChild(card);
+  }
+}
+
+function initConnectors() {
+  document.getElementById("connectors-add-btn")!.addEventListener("click", openConnectorAppGrid);
+  document.getElementById("connectors-app-cancel")!.addEventListener("click", loadConnectors);
+  document.getElementById("connectors-detail-back")!.addEventListener("click", loadConnectors);
+
+  document.getElementById("connectors-upgrade-btn")!.addEventListener("click", () => {
+    window.yo.openBilling();
+  });
+
+  document.getElementById("connectors-detail-reconnect")!.addEventListener("click", async () => {
+    if (!connectorsCurrentAccountId) return;
+    const btn = document.getElementById("connectors-detail-reconnect") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Reconnecting...";
+    await window.yo.connectorsRefreshMcp();
+    btn.disabled = false;
+    btn.textContent = "Reconnect";
+    loadConnectors();
+  });
+
+  document.getElementById("connectors-detail-disconnect")!.addEventListener("click", async () => {
+    if (!connectorsCurrentAccountId) return;
+    const btn = document.getElementById("connectors-detail-disconnect") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Disconnecting...";
+    await window.yo.connectorsDisconnect(connectorsCurrentAccountId);
+    btn.disabled = false;
+    btn.textContent = "Disconnect";
+    loadConnectors();
+  });
+
+  // Search with debounce
+  let searchTimeout: number;
+  document.getElementById("connectors-search")!.addEventListener("input", () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = window.setTimeout(() => {
+      if (!connectorsAppGridPanel.classList.contains("hidden")) {
+        openConnectorAppGrid();
+      }
+    }, 300);
+  });
+
+  // Listen for connector changes
+  window.yo.onConnectorsChanged(() => {
+    const sec = document.querySelector(".help-section.active, .help-section[style*='display: block']");
+    if (sec?.getAttribute("data-section") === "connectors") {
+      if (!connectorsAppGridPanel.classList.contains("hidden") || !connectorsDetailPanel.classList.contains("hidden")) {
+        // Don't refresh while browsing/viewing detail
+      } else {
+        loadConnectors();
       }
     }
   });

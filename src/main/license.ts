@@ -255,7 +255,7 @@ export function checkLicense(): LicenseState {
   if (data?.key && validateKeyLocal(data.key)) {
     // Dev keys and server-validated keys are trusted
     if (validateDevKey(data.key) || data.serverValidated) {
-      return { status: "licensed", key: data.key, tier: data.tier || "pro" };
+      return { status: "licensed", key: data.key, tier: data.tier || "basic" };
     }
     // Key exists but was never validated by server — treat as unlicensed
   }
@@ -356,7 +356,7 @@ export async function revalidateLicense(): Promise<boolean> {
 
 // ── Checkout URL ─────────────────────────────────────────────
 
-export async function getCheckoutUrl(plan: string = "pro"): Promise<string | null> {
+export async function getCheckoutUrl(plan: string = "basic"): Promise<string | null> {
   try {
     const data = readLicenseFile();
     const keyParam = data?.key ? `&key=${encodeURIComponent(data.key)}` : "";

@@ -123,6 +123,7 @@
         <button class="help-nav-item" data-section="apps">Apps</button>
         <!-- Phase 2 --><button class="help-nav-item" data-section="vibes" style="display:none;">Vibes</button>
         <button class="help-nav-item" data-section="mcp">MCP Servers</button>
+        <button class="help-nav-item" data-section="connectors">Connectors</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
           <div class="help-nav-sub">
@@ -788,6 +789,56 @@
               <tbody id="mcp-tools-body"></tbody>
             </table>
             <div id="mcp-no-tools" class="help-item-empty hidden">No tools discovered. Connect the server first.</div>
+          </div>
+        </div>
+
+        <!-- Connectors (Pipedream Connect — Pro only) -->
+        <div class="help-section" data-section="connectors">
+          <h2>Connectors</h2>
+          <p class="section-desc">Connect to 1,000+ apps with managed OAuth. Connected apps become available as tools for the .yo agent and .waz. <span style="color:#b79cff;">Advanced feature.</span></p>
+
+          <!-- Advanced gate overlay -->
+          <div id="connectors-pro-gate" class="hidden" style="text-align:center;padding:32px 16px;">
+            <p style="color:#999;font-size:14px;margin-bottom:12px;">Connectors require an Advanced subscription.</p>
+            <button id="connectors-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
+          </div>
+
+          <!-- Main content (shown for Advanced users) -->
+          <div id="connectors-content">
+            <div id="connectors-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <input id="connectors-search" type="text" class="settings-input" placeholder="Search apps..." spellcheck="false" autocomplete="off" style="flex:1;max-width:280px;" />
+              <button id="connectors-add-btn" class="action-btn primary">+ Connect App</button>
+            </div>
+
+            <!-- Connected accounts list -->
+            <h3 class="settings-subheading">Connected Accounts</h3>
+            <div id="connectors-accounts-list" class="help-item-list"></div>
+            <div id="connectors-no-accounts" class="help-item-empty">No connected accounts yet. Click "+ Connect App" to get started.</div>
+
+            <!-- App grid (hidden by default — shown when adding) -->
+            <div id="connectors-app-grid-panel" class="hidden">
+              <h3 class="settings-subheading">Choose an App</h3>
+              <p class="section-desc">Select an app to connect via OAuth.</p>
+              <div id="connectors-app-grid" class="mcp-preset-grid"></div>
+              <div id="connectors-app-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
+              <div style="margin-top:12px;">
+                <button id="connectors-app-cancel" class="action-btn">Cancel</button>
+              </div>
+            </div>
+
+            <!-- Account detail (hidden by default) -->
+            <div id="connectors-detail-panel" class="hidden">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <h3 class="settings-subheading" id="connectors-detail-name" style="margin:0;flex:1;"></h3>
+                <span id="connectors-detail-status" class="mcp-status-badge"></span>
+              </div>
+              <p class="section-desc" id="connectors-detail-info"></p>
+              <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <button id="connectors-detail-reconnect" class="action-btn primary">Reconnect</button>
+                <button id="connectors-detail-disconnect" class="action-btn danger">Disconnect</button>
+                <button id="connectors-detail-back" class="action-btn" style="margin-left:auto;">Back</button>
+              </div>
+            </div>
           </div>
         </div>
 

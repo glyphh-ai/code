@@ -29,6 +29,7 @@ import { getPreference, setPreference } from "./preferences";
 import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS, setMcpManager } from "./action-gate";
 import type { AgentMode, ToolOverride } from "./action-gate";
 import { McpManager, MCP_PRESETS, McpServerConfig } from "./mcp-manager";
+import { ConnectorManager } from "./connectors";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
@@ -62,6 +63,7 @@ let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let mcpManager: McpManager;
+let connectorManager: ConnectorManager;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -1525,6 +1527,16 @@ async function boot() {
     console.error("MCP init error:", err);
   });
 
+  // Connectors (Pipedream Connect) — Pro-only managed OAuth
+  connectorManager = new ConnectorManager();
+  connectorManager.setMcpManager(mcpManager);
+  connectorManager.on("changed", () => {
+    mainWindow?.webContents.send("connectors-changed");
+  });
+  connectorManager.init().catch((err) => {
+    console.error("Connectors init error:", err);
+  });
+
   // Wire tool executor for .waz direct tool execution
   commandParser.setToolExecutor(async (toolName: string, args: Record<string, unknown>) => {
     // Check MCP tools first (mcp__<server>__<tool> format)
@@ -2249,6 +2261,24 @@ async function boot() {
   });
   ipcMain.on("mcp-set-server-override", (_e, serverId: string, override: string) => {
     mcpManager.setServerOverride(serverId, override as "default" | "auto" | "ask");
+  });
+
+  // ── Connectors IPC ──────────────────────────────────────
+  ipcMain.handle("connectors-get-apps", async (_e, search?: string) => {
+    return connectorManager.getApps(search);
+  });
+  ipcMain.handle("connectors-get-accounts", async () => {
+    return connectorManager.getAccounts();
+  });
+  ipcMain.handle("connectors-connect", async (_e, appSlug: string) => {
+    return connectorManager.connectApp(appSlug);
+  });
+  ipcMain.handle("connectors-disconnect", async (_e, accountId: string) => {
+    return connectorManager.disconnectAccount(accountId);
+  });
+  ipcMain.handle("connectors-refresh-mcp", async () => {
+    await connectorManager.refreshMcp();
+    return true;
   });
 
   // Renderer-initiated panel open (Cmd+.) — resize BrowserViews and focus renderer
@@ -3175,6 +3205,7 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpManager?.disconnectAll().catch(() => {});
+  connectorManager?.cleanup();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

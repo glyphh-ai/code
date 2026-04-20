@@ -4313,6 +4313,108 @@ select.settings-input {
   color: #555;
 }
 
+/* ── Connectors ─────────────────────────────────────────── */
+
+.connector-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.connector-account-row:hover { border-color: #333; }
+
+.connector-account-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background: #1e1e1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #999;
+}
+.connector-account-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.connector-account-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #ccc;
+  flex: 1;
+}
+
+.connector-account-app {
+  font-size: 11px;
+  color: #555;
+}
+
+.connector-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #25C75E;
+}
+.connector-health-dot.unhealthy {
+  background: #ff4444;
+}
+
+.connector-app-card {
+  padding: 12px;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  text-align: center;
+}
+.connector-app-card:hover { border-color: #25C75E; }
+
+.connector-app-card-icon {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 8px;
+  border-radius: 6px;
+  background: #1e1e1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #999;
+}
+.connector-app-card-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.connector-app-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  margin-bottom: 2px;
+}
+
+.connector-app-card-desc {
+  font-size: 10px;
+  color: #666;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* ── Command palette (Cmd+K) ───────────────────────────── */
 
 .cmd-palette {

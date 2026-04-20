@@ -166,7 +166,8 @@ contextBridge.exposeInMainWorld("yo", {
   // Account info
   getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
-  openAccountDashboard: () => ipcRenderer.send("open-external", "https://platform.yosup.dev"),
+  openAccountDashboard: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.yosup.dev")),
+  openBilling: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.yosup.dev") + "/dashboard/billing"),
 
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>
@@ -258,6 +259,14 @@ contextBridge.exposeInMainWorld("yo", {
   mcpSetToolOverride: (serverId: string, toolName: string, override: string) => ipcRenderer.send("mcp-set-tool-override", serverId, toolName, override),
   mcpSetServerOverride: (serverId: string, override: string) => ipcRenderer.send("mcp-set-server-override", serverId, override),
   onMcpChanged: (cb: () => void) => { ipcRenderer.on("mcp-changed", () => cb()); },
+
+  // Connectors (Pipedream Connect)
+  connectorsGetApps: (search?: string) => ipcRenderer.invoke("connectors-get-apps", search) as Promise<Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>>,
+  connectorsGetAccounts: () => ipcRenderer.invoke("connectors-get-accounts") as Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>,
+  connectorsConnect: (appSlug: string) => ipcRenderer.invoke("connectors-connect", appSlug) as Promise<{ ok: boolean; error?: string }>,
+  connectorsDisconnect: (accountId: string) => ipcRenderer.invoke("connectors-disconnect", accountId) as Promise<boolean>,
+  connectorsRefreshMcp: () => ipcRenderer.invoke("connectors-refresh-mcp") as Promise<boolean>,
+  onConnectorsChanged: (cb: () => void) => { ipcRenderer.on("connectors-changed", () => cb()); },
 
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
