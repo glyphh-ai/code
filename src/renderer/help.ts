@@ -627,7 +627,7 @@ const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
-const appsBrowsePanel = document.getElementById("apps-browse-panel")!;
+const appsBrowseModal = document.getElementById("apps-browse-modal")!;
 
 let currentAppId = "";
 
@@ -650,7 +650,6 @@ let connectedAccounts: ConnectorAccount[] = [];
 
 async function loadApps() {
   appDetail.classList.add("hidden");
-  appsBrowsePanel.classList.add("hidden");
   appsList.classList.remove("hidden");
   document.querySelector(".tab-toolbar")?.classList.remove("hidden");
 
@@ -763,10 +762,7 @@ async function openAppsBrowse(append = false) {
     return;
   }
 
-  appsList.classList.add("hidden");
-  appDetail.classList.add("hidden");
-  document.querySelector(".tab-toolbar")?.classList.add("hidden");
-  appsBrowsePanel.classList.remove("hidden");
+  appsBrowseModal.classList.remove("hidden");
 
   const grid = document.getElementById("apps-browse-grid")!;
   const loading = document.getElementById("apps-browse-loading")!;
@@ -825,15 +821,14 @@ async function openAppsBrowse(append = false) {
       card.style.opacity = "1";
       card.style.pointerEvents = "auto";
       if (result.ok) {
-        // Refresh accounts
+        // Close modal, refresh accounts, refresh detail
+        appsBrowseModal.classList.add("hidden");
         try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
-        // If connecting for a specific panel app, return to its detail
         if (connectingForAppId) {
           const panelApp = panelApps.find((a) => a.id === connectingForAppId);
           connectingForAppId = "";
-          if (panelApp) { openPanelAppDetail(panelApp); return; }
+          if (panelApp) openPanelAppDetail(panelApp);
         }
-        loadApps();
       } else if (result.error) {
         card.style.borderColor = "#ff4444";
         setTimeout(() => { card.style.borderColor = ""; }, 2000);
@@ -855,14 +850,12 @@ async function openAppsBrowse(append = false) {
 }
 
 function initApps() {
-  document.getElementById("apps-browse-cancel")!.addEventListener("click", () => {
-    if (connectingForAppId) {
-      const panelApp = panelApps.find((a) => a.id === connectingForAppId);
-      connectingForAppId = "";
-      if (panelApp) { openPanelAppDetail(panelApp); return; }
-    }
-    loadApps();
-  });
+  const closeBrowseModal = () => {
+    appsBrowseModal.classList.add("hidden");
+    connectingForAppId = "";
+  };
+  document.getElementById("apps-browse-cancel")!.addEventListener("click", closeBrowseModal);
+  document.getElementById("apps-browse-backdrop")!.addEventListener("click", closeBrowseModal);
 
   // Browse search
   let browseSearchTimeout: ReturnType<typeof setTimeout>;

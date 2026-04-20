@@ -1854,6 +1854,69 @@ ol.docs-list li::before {
 
 .app-detail-actions { gap: 8px; }
 
+/* ── Apps browse modal ───────────────────────────────────── */
+.apps-browse-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.apps-browse-modal.hidden { display: none; }
+.apps-browse-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+}
+.apps-browse-modal-content {
+  position: relative;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.apps-browse-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.apps-browse-modal-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f0f0f0;
+  margin: 0;
+}
+.apps-browse-modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.apps-browse-modal-close:hover { color: #fff; background: #333; }
+.apps-browse-modal-search {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  background: #111;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #f0f0f0;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  margin-bottom: 12px;
+}
+.apps-browse-modal-search:focus { border-color: #25C75E; }
 
 /* ── Panel container ─────────────────────────────────────── */
 

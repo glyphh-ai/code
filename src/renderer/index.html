@@ -614,15 +614,17 @@
             </div>
           </div>
 
-          <!-- Browse modal: Pipedream app catalog grid -->
-          <div id="apps-browse-panel" class="hidden">
-            <h3 class="settings-subheading">Connect an App</h3>
-            <p class="section-desc">Pick the service to connect via Pipedream OAuth.</p>
-            <input id="apps-browse-search" type="text" placeholder="Search Pipedream apps..." spellcheck="false" autocomplete="off" style="width:100%;box-sizing:border-box;height:30px;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:6px;padding:0 10px;color:#f0f0f0;font-size:13px;font-family:var(--font-mono);outline:none;margin-bottom:12px;" />
-            <div id="apps-browse-grid" class="mcp-preset-grid"></div>
-            <div id="apps-browse-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
-            <div style="margin-top:12px;">
-              <button id="apps-browse-cancel" class="action-btn">Back</button>
+          <!-- Browse modal: Pipedream app catalog -->
+          <div id="apps-browse-modal" class="apps-browse-modal hidden">
+            <div class="apps-browse-modal-backdrop" id="apps-browse-backdrop"></div>
+            <div class="apps-browse-modal-content">
+              <div class="apps-browse-modal-header">
+                <h3>Connect an App</h3>
+                <button id="apps-browse-cancel" class="apps-browse-modal-close">&times;</button>
+              </div>
+              <input id="apps-browse-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" class="apps-browse-modal-search" />
+              <div id="apps-browse-grid" class="mcp-preset-grid"></div>
+              <div id="apps-browse-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
             </div>
           </div>
         </div>
