@@ -697,8 +697,8 @@ if(isLoading){
   overlay.style.cssText='position:fixed;z-index:999998;pointer-events:none;'+
     'top:'+rect.top+'px;left:'+rect.left+'px;width:'+rect.width+'px;height:'+rect.height+'px;'+
     'display:flex;align-items:center;padding:0 12px;'+
-    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;'+
-    'color:#999;background:var(--background,#1a1a1a);border-radius:inherit;';
+    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:16px;'+
+    'color:#999;background:transparent;border-radius:inherit;';
   overlay.textContent=frames[0]+' '+curWord;
   var oldOverlay=document.getElementById('__yo-spinner');if(oldOverlay)oldOverlay.remove();
   document.body.appendChild(overlay);
@@ -744,8 +744,8 @@ if(isLoading){
   msgOverlay.style.cssText='position:fixed;z-index:999998;pointer-events:none;'+
     'top:'+rect2.top+'px;left:'+rect2.left+'px;width:'+rect2.width+'px;height:'+rect2.height+'px;'+
     'display:flex;align-items:center;padding:0 12px;'+
-    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;'+
-    'color:'+msgColor+';background:var(--background,#1a1a1a);border-radius:inherit;';
+    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:16px;'+
+    'color:'+msgColor+';background:transparent;border-radius:inherit;';
   msgOverlay.textContent=text;
   var oldMsg=document.getElementById('__yo-spinner');if(oldMsg)oldMsg.remove();
   document.body.appendChild(msgOverlay);
