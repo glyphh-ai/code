@@ -1,22 +1,15 @@
 /**
- * NoteStore — flat .md files in ~/yo/notes/ with vector search.
+ * NoteStore — flat .md files in ~/yo/notes/.
  *
- * Notes are written as markdown files. Each note gets an embedding
- * stored alongside it (as a .vec sidecar). Search embeds the query
- * and ranks by cosine similarity.
- *
- * Replaces the old SQLite ContextStore — simpler, no database,
- * the agent can also find notes via search_files / read_file.
+ * Notes are written as markdown files. Search is keyword-based.
  */
 
 import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
-import type { Embedder } from "./embedder";
 
 const NOTES_DIR = path.join(os.homedir(), "yo", "notes");
-const EMBED_DIM = 384;
 
 export interface NoteResult {
   file: string;
@@ -27,14 +20,8 @@ export interface NoteResult {
 }
 
 export class NoteStore {
-  private embedder: Embedder | null = null;
-
   constructor() {
     fs.mkdirSync(NOTES_DIR, { recursive: true });
-  }
-
-  setEmbedder(embedder: Embedder): void {
-    this.embedder = embedder;
   }
 
   get notesDir(): string { return NOTES_DIR; }
@@ -61,76 +48,12 @@ export class NoteStore {
     ];
 
     fs.writeFileSync(filepath, lines.join("\n"), "utf-8");
-
-    // Embed and store vector sidecar
-    if (this.embedder?.isReady) {
-      try {
-        const vec = await this.embedder.embed(`${title}\n${content}`);
-        const vecPath = filepath.replace(/\.md$/, ".vec");
-        fs.writeFileSync(vecPath, Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength));
-      } catch {
-        // Embedding failed — note is still searchable via grep
-      }
-    }
-
     return filepath;
   }
 
-  /**
-   * Search notes by vector similarity.
-   * Falls back to keyword search if embedder isn't ready.
-   */
   async search(query: string, limit = 10): Promise<NoteResult[]> {
     const files = this.listNoteFiles();
-
-    // Vector search if embedder is ready
-    if (this.embedder?.isReady) {
-      try {
-        const queryVec = await this.embedder.embed(query);
-        return this.vectorSearch(files, queryVec, limit);
-      } catch {
-        // Fall through to keyword search
-      }
-    }
-
-    // Keyword fallback
     return this.keywordSearch(files, query, limit);
-  }
-
-  private vectorSearch(files: string[], queryVec: Float32Array, limit: number): NoteResult[] {
-    const scored: NoteResult[] = [];
-
-    for (const file of files) {
-      const vecPath = file.replace(/\.md$/, ".vec");
-      if (!fs.existsSync(vecPath)) continue;
-
-      try {
-        const buf = fs.readFileSync(vecPath);
-        const vec = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
-
-        // Cosine similarity (vectors are normalized)
-        let dot = 0;
-        for (let i = 0; i < Math.min(queryVec.length, vec.length); i++) {
-          dot += queryVec[i] * vec[i];
-        }
-
-        const content = fs.readFileSync(file, "utf-8");
-        const { title, body, timestamp } = this.parseNote(content, file);
-
-        scored.push({
-          file: path.basename(file),
-          title,
-          content: body,
-          timestamp,
-          rank: dot,
-        });
-      } catch {
-        continue;
-      }
-    }
-
-    scored.sort((a, b) => b.rank - a.rank);
-    return scored.slice(0, limit);
   }
 
   private keywordSearch(files: string[], query: string, limit: number): NoteResult[] {

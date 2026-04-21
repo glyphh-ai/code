@@ -89,9 +89,6 @@ contextBridge.exposeInMainWorld("yo", {
   onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; daysRemaining?: number; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
-  onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => {
-    ipcRenderer.on("embedder-status", (_event, status) => callback(status));
-  },
   onSplashStatus: (callback: (msg: string) => void) => {
     ipcRenderer.on("splash-status", (_event, msg) => callback(msg));
   },

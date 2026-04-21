@@ -33,13 +33,10 @@ import { YoAgent } from "./yo-agent";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
-import { UnifiedStore } from "./unified-store";
-import { Embedder } from "./embedder";
 import { Transcriber } from "./transcriber";
 import { VoiceRelay } from "./voice-relay";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { smartGrab } from "./smart-grab";
-import { AmbientCapture } from "./ambient-capture";
 import { VSCodeServer } from "./vscode-server";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
@@ -62,8 +59,6 @@ let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let mcpManager: McpManager;
 let connectorManager: ConnectorManager;
-let embedder: Embedder | null = null;
-let ambientCapture: AmbientCapture | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -548,9 +543,7 @@ async function boot() {
 
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
-  session.setOnCapture((appId, content) => {
-    unifiedStore.ingest({ type: "capture", source: appId, content, appId }).catch(() => {});
-  });
+  session.setOnCapture(() => {});
 
   // yo/dip/drip interceptor — injected into ALL app panels
   const MODE_COLORS: Record<string, string> = {
@@ -747,20 +740,6 @@ async function boot() {
   // Note store + memory store + embedder (flat files with vector search)
   noteStore = new NoteStore();
   const memoryStore = new MemoryStore();
-  embedder = new Embedder();
-  const unifiedStore = new UnifiedStore();
-  noteStore.setEmbedder(embedder);
-  memoryStore.setEmbedder(embedder);
-  unifiedStore.setEmbedder(embedder);
-  // Load embedding model in background — doesn't block app startup
-  embedder.init()
-    .catch((err) => {
-      console.error("[main] embedder init failed:", err);
-      mainWindow?.webContents.send("embedder-status", {
-        state: "error",
-        message: "model unavailable — search disabled",
-      });
-    });
 
   // Transcriber — OpenAI Whisper API for voice input
   const transcriber = new Transcriber();
@@ -870,11 +849,7 @@ async function boot() {
   yoAgent = new YoAgent();
   yoAgent.setNoteStore(noteStore);
   yoAgent.setMemoryStore(memoryStore);
-  yoAgent.setUnifiedStore(unifiedStore);
   yoAgent.setAppConnector(appConnector);
-
-  ambientCapture = new AmbientCapture(panelManager, appConnector, unifiedStore);
-  ambientCapture.start();
   yoAgent.setSkillCallbacks({
     list: () => skillEngine.listSkills(),
     read: (name) => skillEngine.readSkill(name),
@@ -2254,7 +2229,7 @@ async function boot() {
     return yoAgent.loadChat(id);
   });
   ipcMain.handle("yo-chats-delete", (_e, id: string) => yoAgent?.deleteChat(id) || false);
-  ipcMain.handle("yo-chats-search", (_e, query: string) => yoAgent?.searchChats(query) || []);
+  ipcMain.handle("yo-chats-search", () => []);
   ipcMain.handle("yo-chat-new", () => {
     yoAgent?.clear();
     return true;
@@ -2843,8 +2818,6 @@ function cleanupAll() {
   vscodeServer?.stop();
   mcpManager?.disconnectAll().catch(() => {});
   connectorManager?.cleanup();
-  ambientCapture?.stop();
-  embedder?.cleanup();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

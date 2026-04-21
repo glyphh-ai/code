@@ -74,8 +74,6 @@ TOOLS:
 - ask_panel: send a prompt to AI chat panels. Modes: ask (independent), chain (sequential), debate (multi-round).
 - pipe: cross-panel data flow (grab → transform → push)
 - inject_text: paste into the input where user typed .yo
-- search_store: search all past interactions (captures, MCP results, chats)
-- search_chats: search past conversation history (fallback)
 - web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
@@ -178,30 +176,6 @@ const TOOLS = [
         },
       },
       required: ["content", "category"],
-    },
-  },
-  {
-    name: "search_store",
-    description: "Search all past interactions — captures (.sup), MCP tool results, council exchanges, and chat history. This is your PRIMARY recall tool. Use when the user says 'what did I email', 'find that thing from yesterday', 'what did Claude say', etc.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        query: { type: "string" as const, description: "Search query — topic, keyword, or phrase" },
-        type: { type: "string" as const, enum: ["capture", "mcp", "council", "chat"], description: "Optional: filter by entry type" },
-        limit: { type: "number" as const, description: "Max results (default 10)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "search_chats",
-    description: "Search past conversation history by chat titles and message text. Fallback if search_store doesn't find what you need.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        query: { type: "string" as const, description: "Search query — topic, keyword, or phrase to find in past chats" },
-      },
-      required: ["query"],
     },
   },
   {
@@ -370,9 +344,6 @@ export class YoAgent {
 
   // MCP server manager
   private mcpManager: McpManager | null = null;
-
-  // Unified store for persistent interaction history
-  private unifiedStore: import("./unified-store").UnifiedStore | null = null;
 
   // App awareness — resolve + connect apps from agent conversation
   private _appConnector: AppConnector | null = null;
@@ -564,7 +535,6 @@ export class YoAgent {
   }
 
   setMcpManager(mgr: McpManager): void { this.mcpManager = mgr; }
-  setUnifiedStore(store: import("./unified-store").UnifiedStore): void { this.unifiedStore = store; }
   setConnectorManager(cm: import("./connectors").ConnectorManager): void { this.connectorManager = cm; }
 
   setLayoutCallbacks(cbs: {
@@ -672,44 +642,6 @@ export class YoAgent {
       fs.unlinkSync(path.join(CHATS_DIR, `${id}.md`));
       return true;
     } catch { return false; }
-  }
-
-  /** Search chat history for a keyword/phrase. Returns matching chats with excerpts. */
-  searchChats(query: string, limit = 10): Array<{ id: string; title: string; excerpt: string }> {
-    if (!query.trim()) return [];
-    const q = query.toLowerCase();
-    const results: Array<{ id: string; title: string; excerpt: string; ts: number }> = [];
-
-    fs.mkdirSync(CHATS_DIR, { recursive: true });
-    try {
-      const files = fs.readdirSync(CHATS_DIR).filter((f) => f.endsWith(".md")).sort().reverse();
-      for (const f of files) {
-        try {
-          const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
-          const lower = raw.toLowerCase();
-          if (!lower.includes(q)) continue;
-
-          // Extract title
-          let title = f.replace(/\.md$/, "");
-          const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
-          if (fmMatch) {
-            const t = fmMatch[1].match(/^title:\s*(.+)$/m);
-            if (t) title = t[1].trim();
-          }
-
-          // Extract excerpt around the match
-          const idx = lower.indexOf(q);
-          const start = Math.max(0, idx - 80);
-          const end = Math.min(raw.length, idx + query.length + 80);
-          const excerpt = (start > 0 ? "..." : "") + raw.slice(start, end).replace(/\n/g, " ").trim() + (end < raw.length ? "..." : "");
-
-          const id = f.replace(/\.md$/, "");
-          results.push({ id, title, excerpt, ts: parseInt(id, 10) || 0 });
-          if (results.length >= limit) break;
-        } catch { /* skip */ }
-      }
-    } catch { /* dir missing */ }
-    return results.map(({ id, title, excerpt }) => ({ id, title, excerpt }));
   }
 
   // ── Send (public API — unchanged) ────────────────────
@@ -1016,16 +948,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           const contentScan = scanForInjection(result);
           const safeResult = contentScan.blocked ? `[content blocked by firewall: ${contentScan.reason}]` : result;
           cb.onToolResult?.(block.id, safeResult.slice(0, 500));
-          // Ingest MCP result into unified store (non-blocking)
-          if (this.unifiedStore && !contentScan.blocked) {
-            this.unifiedStore.ingest({
-              type: "mcp",
-              source: block.name,
-              content: safeResult,
-              toolName: block.name,
-              toolArgs: block.input as Record<string, unknown>,
-            }).catch(() => {});
-          }
           return { type: "tool_result", tool_use_id: block.id, content: safeResult };
         });
         const mcpResults = await Promise.all(mcpPromises);
@@ -1171,8 +1093,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "inject_text": return await this.toolInjectText(input);
         case "run_command": return await this.toolRunCommand(input);
         case "save_memory": return await this.toolSaveMemory(input);
-        case "search_store": return await this.toolSearchStore(input);
-        case "search_chats": return this.toolSearchChats(input);
         case "web_search": return await this.toolWebSearch(input);
         case "fetch_page": return await this.toolFetchPage(input);
         case "clipboard_read": return this.toolClipboardRead();
@@ -1213,22 +1133,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!this.memoryStore) return "Memory not available.";
     const id = await this.memoryStore.save(content, category || "context");
     return `Memory saved (${id}).`;
-  }
-
-  private async toolSearchStore(input: Record<string, unknown>): Promise<string> {
-    const query = input.query as string;
-    if (!query) return "No query provided.";
-    if (!this.unifiedStore) return "Store not available.";
-    const type = input.type as import("./unified-store").EntryType | undefined;
-    const limit = (input.limit as number) || 10;
-    const results = await this.unifiedStore.search(query, type, limit);
-    if (results.length === 0) return `No stored interactions found matching "${query}".`;
-    return results.map((r) => {
-      const date = new Date(r.meta.created).toLocaleString();
-      const label = r.meta.toolName || r.meta.source;
-      const snippet = r.content.length > 500 ? r.content.slice(0, 500) + "…" : r.content;
-      return `[${r.meta.type}] ${label} (${date})\n${snippet}`;
-    }).join("\n\n---\n\n");
   }
 
   private async toolResolveApp(input: Record<string, unknown>): Promise<string> {
@@ -1390,14 +1294,6 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       lines.push(`Tell the user: "The app connected but the MCP server didn't start. Try restarting yo."`);
     }
     return lines.join("\n");
-  }
-
-  private toolSearchChats(input: Record<string, unknown>): string {
-    const query = input.query as string;
-    if (!query) return "No query provided.";
-    const results = this.searchChats(query);
-    if (results.length === 0) return `No past conversations found matching "${query}".`;
-    return results.map((r) => `**${r.title}** (id: ${r.id})\n${r.excerpt}`).join("\n\n");
   }
 
   private async toolWebSearch(input: Record<string, unknown>): Promise<string> {
@@ -1967,21 +1863,6 @@ Rules:
     lines.push("```");
 
     fs.writeFileSync(path.join(CHATS_DIR, `${this.chatId}.md`), lines.join("\n"), "utf-8");
-
-    // Ingest chat text into unified store (non-blocking)
-    if (this.unifiedStore) {
-      const chatText = this.history
-        .filter((m) => typeof m.content === "string")
-        .map((m) => `${m.role}: ${m.content}`)
-        .join("\n");
-      if (chatText.length > 0) {
-        this.unifiedStore.ingest({
-          type: "chat",
-          source: this.chatId!,
-          content: `# ${this.chatTitle}\n\n${chatText}`,
-        }).catch(() => {});
-      }
-    }
   }
 
   private parseChatFile(raw: string): { title: string; history: any[] } {

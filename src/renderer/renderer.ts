@@ -65,7 +65,6 @@ declare global {
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
       onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; daysRemaining?: number; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
-      onEmbedderStatus: (callback: (status: { state: string; progress?: number; message?: string }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
@@ -2091,25 +2090,6 @@ function dismissSplash(): void {
     el.textContent = msg;
     if (msg === "ready") el.classList.add("done");
     else el.classList.remove("done");
-  }
-});
-
-// Embedder status updates drive the splash status text (cosmetic only, doesn't gate splash)
-(window as any).yo.onEmbedderStatus?.((status: { state: string; progress?: number; message?: string }) => {
-  const el = document.getElementById("splash-status");
-  if (!el) return;
-  if (status.state === "downloading") {
-    const pct = status.progress != null ? ` ${Math.round(status.progress)}%` : "";
-    el.textContent = `downloading brain${pct}`;
-    el.classList.remove("done");
-  } else if (status.state === "loading") {
-    el.textContent = "loading model...";
-    el.classList.remove("done");
-  } else if (status.state === "ready") {
-    el.textContent = "ready";
-    el.classList.add("done");
-  } else if (status.state === "error") {
-    el.textContent = status.message || "model failed — continuing without embeddings";
   }
 });
 
