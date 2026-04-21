@@ -17,9 +17,10 @@ import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
+import { RipStore, runRip } from "./rip-store";
 
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz", "council"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "rip", "waz", "council"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -32,6 +33,7 @@ export class CommandParser {
   private yoChat: YoChat | null = null;
   private grabber: ((activeOnly?: boolean) => Promise<string | null>) | null = null;
   private wcGetter: ((panelId: string) => WebContents | null) | null = null;
+  private ripStore: RipStore = new RipStore();
   private tabCloser: ((id: string) => void) | null = null;
   private tabLister: (() => string[]) | null = null;
   constructor(
@@ -120,12 +122,14 @@ export class CommandParser {
         return this.handleDip(args, sourcePanelId);
       case "drip":
         return this.handleDrip(args);
+      case "rip":
+        return this.handleRip(args);
       case "waz":
         return this.handleWaz(args);
       case "council":
         return this.handleCouncil(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, waz, or council.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, rip, waz, or council.`;
     }
   }
 
@@ -134,7 +138,7 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|waz)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|rip|waz)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
@@ -546,6 +550,58 @@ export class CommandParser {
       }).join(","),
     ).join(" / ");
     return `Grid: ${label}`;
+  }
+
+  // ── rip: cross-app action sequences ──────────────────────────
+
+  private async handleRip(args: string[]): Promise<string> {
+    if (args.length === 0) {
+      const rips = this.ripStore.list();
+      if (rips.length === 0) return "No rips defined. Create one in Settings → Rips.";
+      return "Rips:\n" + rips.map((r) =>
+        `  ${r.name} — ${r.steps.length} step${r.steps.length > 1 ? "s" : ""}${r.description ? ` (${r.description})` : ""}`,
+      ).join("\n");
+    }
+
+    const name = args[0].toLowerCase();
+
+    if (name === "list") {
+      const rips = this.ripStore.list();
+      if (rips.length === 0) return "No rips defined.";
+      return rips.map((r) => `  ${r.name} — ${r.steps.map((s) => s.type === "agent" ? "agent" : `${s.app}.${s.command}`).join(" → ")}`).join("\n");
+    }
+
+    const rip = this.ripStore.get(name);
+    if (!rip) return `Unknown rip: ${name}. Try: rip list`;
+
+    if (!this.session.hasContent()) {
+      return `No captured context. Use .sup first to capture content, then run .rip ${name}`;
+    }
+
+    const win = this.mainWindow ?? (await import("electron")).BrowserWindow.getFocusedWindow();
+    if (!win) return "No active window";
+
+    const result = await runRip(rip, {
+      appConnector: this.appConnector,
+      getWebContents: (appId) => {
+        this.panels.switchTo(appId, win);
+        return this.wcGetter?.(appId) ?? null;
+      },
+      skillEngine: this.skillEngine,
+      onStep: (i, step, status) => {
+        const label = step.type === "agent" ? "agent" : `${step.app}.${step.command}`;
+        if (status === "running") {
+          win.webContents.send("rip-step", { index: i, label, status: "running" });
+        } else if (status === "done") {
+          win.webContents.send("rip-step", { index: i, label, status: "done" });
+        }
+      },
+    }, this.session.get());
+
+    if (!result.ok) {
+      return `Rip "${name}" failed:\n${result.log.join("\n")}`;
+    }
+    return `Rip "${name}" complete (${rip.steps.length} steps)\n${result.log.join("\n")}`;
   }
 
   // ── waz: MCP tool execution (coming soon) ────────────────────

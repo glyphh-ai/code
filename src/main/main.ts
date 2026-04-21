@@ -71,9 +71,10 @@ const PICKER_SCRIPT = `(function(){
   function buildSelector(el){
     if(el.dataset && el.dataset.testid) return '[data-testid="'+el.dataset.testid+'"]';
     if(el.getAttribute('role')&&el.getAttribute('aria-label')) return '[role="'+el.getAttribute('role')+'"][aria-label="'+el.getAttribute('aria-label')+'"]';
-    if(el.id&&!/\\d{4,}/.test(el.id)&&!/^(ember|react|ng|mat-|cdk-)/.test(el.id)) return '#'+CSS.escape(el.id);
+    if(el.id&&!/\\d{4,}/.test(el.id)&&!/^[:.]/.test(el.id)&&el.id.length>3&&!/^(ember|react|ng|mat-|cdk-|gb_)/.test(el.id)&&!/^[a-z]{1,2}\\d/.test(el.id)) return '#'+CSS.escape(el.id);
     if(el.getAttribute('placeholder')) return el.tagName.toLowerCase()+'[placeholder="'+el.getAttribute('placeholder')+'"]';
     if(el.getAttribute('aria-label')) return '[aria-label="'+el.getAttribute('aria-label')+'"]';
+    if(el.getAttribute('role')) return el.tagName.toLowerCase()+'[role="'+el.getAttribute('role')+'"]';
     if(el.getAttribute('name')&&!el.getAttribute('name').match(/\\d{4,}/)) return el.tagName.toLowerCase()+'[name="'+el.getAttribute('name')+'"]';
     const parts=[];
     let node=el;
@@ -875,7 +876,7 @@ async function boot() {
   });
 
   // Give command parser access to panel WebContents for .waz
-  commandParser.setWebContentsGetter((id) => panelManager.getWebContents(id));
+  commandParser.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
 
   // Push session state to renderer
   const sendSessionState = () => {
@@ -1697,13 +1698,18 @@ async function boot() {
   ipcMain.handle("apps-remove-command", (_e, id: string, key: string) => {
     return appConnector.removeCommand(id, key);
   });
-  ipcMain.handle("apps-test-command", async (_e, id: string, key: string) => {
+  ipcMain.handle("apps-test-command", async (_e, id: string, key: string, wcId?: number) => {
     const app = appConnector.get(id);
     if (!app) return "App not found";
     const mapping = app.commands[key];
     if (!mapping) return "Command not found";
-    const wc = panelManager.getWebContents(id);
-    if (!wc) return "Panel not open";
+    let wc: import("electron").WebContents | null = null;
+    if (wcId) {
+      const { webContents } = require("electron") as typeof import("electron");
+      wc = webContents.fromId(wcId) ?? null;
+    }
+    if (!wc) wc = panelManager.getGuestOrWebContents(id);
+    if (!wc || wc.isDestroyed()) return "Panel not open";
     const { executeCommand: execCmd } = await import("./dom-bridge");
     return execCmd(wc, mapping);
   });
@@ -1722,6 +1728,26 @@ async function boot() {
       wc.off("console-message", onConsole);
     };
     wc.on("console-message", onConsole);
+  });
+
+  // IPC: Rips (cross-app action sequences)
+  const ripStore = new (await import("./rip-store")).RipStore();
+  ipcMain.handle("rips-list", () => ripStore.list());
+  ipcMain.handle("rips-save", (_e, rip: any) => ripStore.save(rip));
+  ipcMain.handle("rips-remove", (_e, name: string) => ripStore.remove(name));
+  ipcMain.handle("rips-run", async (_e, name: string) => {
+    const rip = ripStore.get(name);
+    if (!rip) return { ok: false, context: "", log: ["Rip not found: " + name] };
+    if (!session.hasContent()) return { ok: false, context: "", log: ["No captured context. Use .sup first."] };
+    const { runRip } = await import("./rip-store");
+    return runRip(rip, {
+      appConnector,
+      getWebContents: (appId) => {
+        if (mainWindow) panelManager.switchTo(appId, mainWindow);
+        return panelManager.getGuestOrWebContents(appId);
+      },
+      skillEngine,
+    }, session.get());
   });
 
   // IPC: command execution (used by Cmd+. overlay)
@@ -2087,6 +2113,21 @@ async function boot() {
     // that gets painted under BrowserViews. panelsShow fires when tutorial closes.
     if (mainWindow) panelManager.hideActive(mainWindow);
     sendSplitState();
+  });
+
+  // Configure webviews embedded in the renderer (e.g. app-preview in help overlay)
+  (mainWindow?.webContents as any)?.on("did-attach-webview", (_event: unknown, childWc: Electron.WebContents) => {
+    childWc.setWindowOpenHandler(({ url }) => {
+      if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
+        return { action: "deny" };
+      }
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          webPreferences: { contextIsolation: true, nodeIntegration: false, partition: "persist:yo" },
+        },
+      };
+    });
   });
 
   // Tell renderer to check auth gate

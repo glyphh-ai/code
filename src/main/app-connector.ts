@@ -30,6 +30,7 @@ export interface CommandMapping {
   selector: string;
   action: "extractText" | "extractHTML" | "setValue" | "click" | "custom";
   description: string;
+  text?: string; // element text for fallback matching when selector fails
   script?: string; // custom JS for action === "custom"
   waitFor?: string; // selector to wait for before executing
   /** Mini-skill: execution intelligence for reliable automation */

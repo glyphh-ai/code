@@ -45,7 +45,7 @@ export async function extractDomStructure(webContents: WebContents): Promise<str
   // ── Selector generator ──────────────────────────
   function uniq(el) {
     if (!el || el === document.body) return 'body';
-    if (el.id) return '#' + CSS.escape(el.id);
+    if (el.id && el.id.length > 3 && !/^\d|^[:.]/. test(el.id) && !/\d{4,}/.test(el.id) && !/^(ember|react|ng|mat-|cdk-|gb_)/.test(el.id) && !/^[a-z]{1,2}\d/.test(el.id)) return '#' + CSS.escape(el.id);
     var tag = el.tagName.toLowerCase();
     var tid = el.getAttribute('data-testid');
     if (tid) return '[data-testid=' + JSON.stringify(tid) + ']';
@@ -392,6 +392,49 @@ export async function extractDomStructure(webContents: WebContents): Promise<str
 // ── Command Execution ───────────────────────────────────
 
 /**
+ * Resolve an element by CSS selector, with text-based fallback.
+ * Injects a __yo_resolved marker attribute so subsequent calls can target it.
+ */
+async function resolveElement(wc: WebContents, selector: string, text?: string): Promise<string | null> {
+  const escaped = escapeSelector(selector);
+  const escapedText = text ? JSON.stringify(text.trim().slice(0, 80)) : "null";
+  return await wc.executeJavaScript(`
+    (function() {
+      var el = document.querySelector('${escaped}');
+      var textHint = ${escapedText};
+      if (el && textHint) {
+        var t = (el.textContent || '').trim();
+        if (t !== textHint && t.indexOf(textHint) === -1) {
+          var all = document.querySelectorAll('${escaped}');
+          for (var i = 0; i < all.length; i++) {
+            var ct = (all[i].textContent || '').trim();
+            if (ct === textHint || ct.indexOf(textHint) !== -1) { el = all[i]; break; }
+          }
+        }
+      }
+      if (!el && textHint) {
+        var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+        while (walk.nextNode()) {
+          var n = walk.currentNode;
+          var nt = (n.textContent || '').trim();
+          if (nt === textHint && n.offsetWidth > 0 && n.offsetHeight > 0) { el = n; break; }
+        }
+      }
+      if (!el) return null;
+      el.setAttribute('__yo_resolved', '1');
+      return '[__yo_resolved="1"]';
+    })()
+  `);
+}
+
+async function cleanupResolved(wc: WebContents): Promise<void> {
+  await wc.executeJavaScript(`
+    var r = document.querySelector('[__yo_resolved]');
+    if (r) r.removeAttribute('__yo_resolved');
+  `).catch(() => {});
+}
+
+/**
  * Execute a mapped command against a live DOM.
  */
 export async function executeCommand(
@@ -399,23 +442,36 @@ export async function executeCommand(
   mapping: CommandMapping,
   value?: string,
 ): Promise<string> {
+  const resolved = await resolveElement(webContents, mapping.selector, mapping.text);
+  const sel = resolved || mapping.selector;
+
+  let result: string;
   switch (mapping.action) {
     case "extractText":
-      return extractText(webContents, mapping.selector);
+      result = await extractText(webContents, sel);
+      break;
     case "extractHTML":
-      return extractHTML(webContents, mapping.selector);
+      result = await extractHTML(webContents, sel);
+      break;
     case "setValue":
-      return setValue(webContents, mapping.selector, value || "");
+      result = await setValue(webContents, sel, value || "");
+      break;
     case "click":
-      return clickElement(webContents, mapping.selector);
+      result = await clickElement(webContents, sel);
+      break;
     case "custom":
       if (mapping.script) {
-        return runCustomScript(webContents, mapping.script, value);
+        result = await runCustomScript(webContents, mapping.script, value);
+      } else {
+        result = "No script defined for custom action";
       }
-      return "No script defined for custom action";
+      break;
     default:
-      return `Unknown action: ${mapping.action}`;
+      result = `Unknown action: ${mapping.action}`;
   }
+
+  await cleanupResolved(webContents);
+  return result;
 }
 
 /**
@@ -540,14 +596,23 @@ async function setValue(wc: WebContents, selector: string, value: string): Promi
 
 async function clickElement(wc: WebContents, selector: string): Promise<string> {
   const escaped = escapeSelector(selector);
-  return await wc.executeJavaScript(`
+  const coords = await wc.executeJavaScript(`
     (function() {
       var el = document.querySelector('${escaped}');
-      if (!el) return 'Element not found: ${escaped}';
-      el.click();
-      return 'ok';
+      if (!el) return null;
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      el.focus && el.focus();
+      var r = el.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
     })()
   `);
+  if (!coords) return `Element not found: ${escaped}`;
+  await wc.sendInputEvent({ type: "mouseMove", x: coords.x, y: coords.y });
+  await new Promise(r => setTimeout(r, 80));
+  await wc.sendInputEvent({ type: "mouseDown", x: coords.x, y: coords.y, button: "left", clickCount: 1 });
+  await new Promise(r => setTimeout(r, 50));
+  await wc.sendInputEvent({ type: "mouseUp", x: coords.x, y: coords.y, button: "left", clickCount: 1 });
+  return "ok";
 }
 
 /** Dangerous patterns that should never appear in custom scripts */

@@ -121,6 +121,7 @@
         <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
+        <button class="help-nav-item" data-section="rips">Rips</button>
         <button class="help-nav-item" data-section="mcp">MCP Servers</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
@@ -663,6 +664,51 @@
         </div>
 
 
+        <!-- Rips -->
+        <div class="help-section" data-section="rips">
+          <h2>Rips</h2>
+          <p class="section-desc">Cross-app action sequences. Chain commands across apps with optional skill processing between steps. Use <code>.rip &lt;name&gt;</code> to run.</p>
+
+          <div id="rips-toolbar" class="tab-toolbar">
+            <input id="rip-new-name" type="text" placeholder="rip name" spellcheck="false" autocomplete="off" />
+            <button id="rip-new-btn" class="action-btn primary">+ New Rip</button>
+          </div>
+
+          <div id="rips-list" class="item-list"></div>
+
+          <!-- Rip Editor -->
+          <div id="rip-editor" class="editor-area hidden">
+            <div class="editor-header">
+              <span id="rip-edit-name"></span>
+              <button id="rip-editor-back" class="action-btn">Back</button>
+            </div>
+            <input id="rip-name" type="text" placeholder="rip name" spellcheck="false" autocomplete="off" />
+            <input id="rip-desc" type="text" placeholder="description (optional)" spellcheck="false" autocomplete="off" />
+
+            <div id="rip-steps-list"></div>
+
+            <div id="rip-add-step">
+              <div class="rip-add-row">
+                <select id="rip-step-type">
+                  <option value="app">App</option>
+                  <option value="agent">Agent</option>
+                </select>
+                <select id="rip-step-app"></select>
+                <select id="rip-step-command"></select>
+                <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
+              </div>
+              <textarea id="rip-step-prompt" rows="1" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
+            </div>
+
+            <div class="editor-actions">
+              <button id="rip-save-btn" class="action-btn primary">Save</button>
+              <button id="rip-run-btn" class="action-btn">Run</button>
+              <button id="rip-delete-btn" class="action-btn danger">Delete</button>
+            </div>
+            <div id="rip-status"></div>
+          </div>
+        </div>
+
         <!-- MCP Servers -->
         <div class="help-section" data-section="mcp">
           <h2>MCP Servers</h2>
@@ -1031,6 +1077,17 @@
             <div class="about-policy" id="policy-refund">
               <h3>Refund Policy</h3>
               <div class="policy-content"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Confirm modal -->
+        <div id="confirm-modal" class="confirm-overlay hidden">
+          <div class="confirm-box">
+            <p id="confirm-message"></p>
+            <div class="confirm-actions">
+              <button id="confirm-yes" class="action-btn danger">Delete</button>
+              <button id="confirm-no" class="action-btn">Cancel</button>
             </div>
           </div>
         </div>

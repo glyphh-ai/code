@@ -41,9 +41,15 @@ declare global {
       appsSetConnectedSlug: (id: string, slug: string | null) => Promise<boolean>;
       appsSetCommand: (id: string, key: string, mapping: { selector: string; action: string; description: string }) => Promise<boolean>;
       appsRemoveCommand: (id: string, key: string) => Promise<boolean>;
-      appsTestCommand: (id: string, key: string) => Promise<string>;
+      appsTestCommand: (id: string, key: string, wcId?: number) => Promise<string>;
       startPicker: (wcId: number) => void;
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
+
+      // Rips
+      ripsList: () => Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string }> }>>;
+      ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string }> }) => Promise<boolean>;
+      ripsRemove: (name: string) => Promise<boolean>;
+      ripsRun: (name: string) => Promise<{ ok: boolean; context: string; log: string[] }>;
 
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;

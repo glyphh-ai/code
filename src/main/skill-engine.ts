@@ -74,6 +74,12 @@ export class SkillEngine {
     this.saveSkill(skill);
   }
 
+  /** Process content with an inline text prompt (not a saved skill) */
+  async processWithPrompt(content: string, prompt: string): Promise<string> {
+    if (!this.llmConfig?.apiKey) return content;
+    return this.callLLM(prompt, content);
+  }
+
   /** List all skills with their prompts */
   listSkills(): string[] {
     return Array.from(this.skills.keys());

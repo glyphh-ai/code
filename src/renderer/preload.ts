@@ -76,12 +76,19 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("apps-set-command", id, key, mapping) as Promise<boolean>,
   appsRemoveCommand: (id: string, key: string) =>
     ipcRenderer.invoke("apps-remove-command", id, key) as Promise<boolean>,
-  appsTestCommand: (id: string, key: string) =>
-    ipcRenderer.invoke("apps-test-command", id, key) as Promise<string>,
+  appsTestCommand: (id: string, key: string, wcId?: number) =>
+    ipcRenderer.invoke("apps-test-command", id, key, wcId) as Promise<string>,
   startPicker: (wcId: number) => ipcRenderer.send("start-picker", wcId),
   onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => {
     ipcRenderer.on("picker-result", (_e, result) => cb(result));
   },
+
+  // Rips
+  ripsList: () => ipcRenderer.invoke("rips-list") as Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string }> }>>,
+  ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string }> }) =>
+    ipcRenderer.invoke("rips-save", rip) as Promise<boolean>,
+  ripsRemove: (name: string) => ipcRenderer.invoke("rips-remove", name) as Promise<boolean>,
+  ripsRun: (name: string) => ipcRenderer.invoke("rips-run", name) as Promise<{ ok: boolean; context: string; log: string[] }>,
 
   // Onboarding complete — triggers panel restore
   onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),
