@@ -10,8 +10,6 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { ConfigSync } from "./config-sync";
-
 // ── Types ───────────────────────────────────────────────
 
 /** Execution intelligence attached to a command — makes the agent reliable. */
@@ -224,60 +222,6 @@ export class AppConnector {
         script: VSCODE_GRAB_SCRIPT,
       };
       this.save(vscode);
-    }
-  }
-
-  /** Merge remote app catalog — adds new apps, updates forceWeb/protocol URLs/commands for existing. */
-  mergeRemoteApps(): void {
-    const raw = ConfigSync.load<
-      | Array<{ app_id?: string; id?: string; name: string; url: string; force_web?: boolean; forceWeb?: boolean; commands?: Record<string, CommandMapping>; meta?: AppConfig["meta"] }>
-      | { apps: Array<{ id: string; name: string; url: string; forceWeb?: boolean; commands?: Record<string, CommandMapping>; meta?: AppConfig["meta"] }> }
-    >("apps");
-    if (!raw) return;
-    // Normalize: server returns flat array with app_id/force_web; old format was { apps: [...] } with id/forceWeb
-    const list = Array.isArray(raw) ? raw : (raw as { apps: unknown[] }).apps;
-    if (!list) return;
-    const apps = list.map((a: unknown) => {
-      const r = a as Record<string, unknown>;
-      return {
-        id: (r.app_id || r.id) as string,
-        name: r.name as string,
-        url: r.url as string,
-        forceWeb: (r.force_web ?? r.forceWeb) as boolean | undefined,
-        commands: r.commands as Record<string, CommandMapping> | undefined,
-        meta: r.meta as AppConfig["meta"] | undefined,
-      };
-    });
-    for (const def of apps) {
-      if (!this.apps.has(def.id)) {
-        const app = this.add(def.id, def.name, def.url, def.forceWeb);
-        // Merge commands from remote catalog
-        if (def.commands && Object.keys(def.commands).length > 0) {
-          app.commands = { ...def.commands };
-          app.connected = true;
-          if (def.meta) app.meta = def.meta;
-          this.save(app);
-        }
-      } else {
-        const app = this.apps.get(def.id)!;
-        let changed = false;
-        if (def.forceWeb !== undefined && app.forceWeb !== def.forceWeb) {
-          app.forceWeb = def.forceWeb;
-          changed = true;
-        }
-        if (def.url.startsWith("yo://") && app.url !== def.url) {
-          app.url = def.url;
-          changed = true;
-        }
-        // Overwrite commands from server catalog (server is source of truth)
-        if (def.commands && Object.keys(def.commands).length > 0) {
-          app.commands = { ...def.commands };
-          app.connected = true;
-          if (def.meta) app.meta = def.meta;
-          changed = true;
-        }
-        if (changed) this.save(app);
-      }
     }
   }
 

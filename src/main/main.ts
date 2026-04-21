@@ -1855,25 +1855,15 @@ async function boot() {
   }
 
   // ── Hot config sync (non-blocking, then periodic) ─
-  function syncRemoteApps(): void {
-    reloadRemotePatterns();
-    appConnector.mergeRemoteApps();
-    // Register any new apps with the panel manager so dip can find them
-    for (const app of appConnector.list()) {
-      if (!panelManager.hasPanel(app.id)) {
-        panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
-      }
-    }
-  }
   configSync = new ConfigSync();
   configSync.fetchAll((msg) => {
     mainWindow?.webContents.send("splash-status", msg);
   }).then(() => {
-    syncRemoteApps();
+    reloadRemotePatterns();
   }).catch(() => {});
   // Start periodic checks for future updates
   configSync.start(() => {
-    syncRemoteApps();
+    reloadRemotePatterns();
   });
 
   // Global hotkey: Cmd+Y / Ctrl+Y

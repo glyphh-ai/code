@@ -1,7 +1,7 @@
 /**
  * Config Sync — hot config updates from yo-server.
  *
- * Periodically checks for updated firewall patterns and app catalog.
+ * Periodically checks for updated firewall patterns.
  * Caches in ~/yo/.config-cache/.
  */
 
@@ -21,7 +21,6 @@ interface ConfigVersion {
 
 interface ConfigManifest {
   firewall: ConfigVersion;
-  apps: ConfigVersion;
 }
 
 export class ConfigSync {
@@ -45,12 +44,10 @@ export class ConfigSync {
       let local: ConfigManifest | null = null;
       try { local = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf-8")); } catch { /* first run */ }
 
-      for (const key of ["firewall", "apps"] as const) {
-        const localVersion = local?.[key]?.version;
-        if (localVersion !== remote[key].version) {
-          onProgress?.(`updating ${key}...`);
-          await this.download(key);
-        }
+      const localVersion = local?.firewall?.version;
+      if (localVersion !== remote.firewall.version) {
+        onProgress?.("updating firewall...");
+        await this.download("firewall");
       }
 
       fs.writeFileSync(MANIFEST_PATH, JSON.stringify(remote, null, 2), "utf-8");
@@ -103,15 +100,12 @@ export class ConfigSync {
       /* first run */
     }
 
-    let updated = false;
+    const localVersion = local?.firewall?.version;
+    const remoteVersion = remote.firewall.version;
+    const updated = localVersion !== remoteVersion;
 
-    for (const key of ["firewall", "apps"] as const) {
-      const localVersion = local?.[key]?.version;
-      const remoteVersion = remote[key].version;
-      if (localVersion !== remoteVersion) {
-        await this.download(key);
-        updated = true;
-      }
+    if (updated) {
+      await this.download("firewall");
     }
 
     // Save manifest
