@@ -2953,6 +2953,45 @@ select.settings-input {
   color: #c8c8c8;
   padding: 4px 0;
   white-space: normal;
+  position: relative;
+}
+
+.yo-msg-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.yo-msg-assistant:hover .yo-msg-actions {
+  opacity: 1;
+}
+
+.yo-msg-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.yo-msg-copy-btn:hover {
+  color: #ccc;
+  border-color: #555;
+  background: #1e1e1e;
+}
+.yo-msg-copy-btn.yo-copied {
+  color: #25C75E;
+  border-color: #25C75E55;
+}
+.yo-msg-copy-btn svg {
+  flex-shrink: 0;
 }
 
 .yo-msg-status {

@@ -712,7 +712,7 @@ if(isLoading){
   var wipePos=-1;
   var lastSwap=Date.now();
   function pickNext(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
-  setText(frames[0]+' '+curWord+'   ');
+  setText(' '+frames[0]+' '+curWord+'   ');
   cursorHome();
   window.__yoStopEsc=function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));}};
   document.addEventListener('keydown',window.__yoStopEsc,true);
@@ -731,7 +731,7 @@ if(isLoading){
       display=curWord;
       if(now-lastSwap>3000){nextWord=pickNext();wipePos=0;}
     }
-    setText(frames[fi%frames.length]+' '+display+'   ');
+    setText(' '+frames[fi%frames.length]+' '+display+'   ');
     cursorHome();
   },100);
 }else{

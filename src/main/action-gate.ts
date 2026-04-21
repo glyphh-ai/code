@@ -59,10 +59,13 @@ export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (override === "auto") return "execute";
   if (override === "ask") return "needs_approval";
 
-  if (mode === "auto") return "execute";
+  if (mode === "auto") {
+    const tier = getToolTier(toolName);
+    if (tier === "observe") return "execute";
+    return "needs_approval";
+  }
 
-  const tier = getToolTier(toolName);
-  if (tier === "observe") return "execute";
+  // ask mode: all tools need approval
   return "needs_approval";
 }
 
