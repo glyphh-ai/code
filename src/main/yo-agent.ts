@@ -51,12 +51,13 @@ CRITICAL RULES:
 - If an MCP tool exists for the task, ALWAYS use it. NEVER open a panel, navigate, or grab content for something MCP can do.
 - After connect_app succeeds, MCP tools ARE available. Use them immediately. NEVER fall back to navigation after connecting.
 - NEVER open_panel or delegate_navigator for apps that have MCP tools (email, calendar, slack, etc.).
-- The ONLY reason to navigate a panel is for visual UI interaction that has no MCP equivalent (e.g. clicking a specific UI button).
+- If resolve_app says STOP → follow its instructions exactly. Report the issue to the user. Do NOT navigate as a workaround.
+- The ONLY reason to navigate a panel is when resolve_app explicitly says "No Pipedream connector found. Use panel navigation."
 
 APP AWARENESS:
 - Before interacting with any app, call resolve_app to check if MCP tools exist.
 - If resolve_app shows MCP tools → use them directly. Done.
-- If resolve_app shows a connected account but no tools yet → try calling the MCP tool directly anyway.
+- If resolve_app shows a connected account but MCP is broken → REPORT THE ERROR to the user. Do NOT navigate.
 - If not connected but available in Pipedream → offer to connect via connect_app, then use the MCP tools.
 - If no Pipedream connector → ONLY THEN fall back to panel navigation.
 - If multiple Pipedream matches → ask the user which app they mean.
@@ -1273,7 +1274,9 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       if (serverState) {
         lines.push(`\nMCP server status: ${serverState.status}${serverState.error ? ` — error: ${serverState.error}` : ""}`);
         if (serverState.status !== "connected") {
-          lines.push(`The MCP server is NOT connected. Tell the user: "Your ${searchTerm} account is connected but the MCP server isn't working. Try restarting yo or checking MCP settings."`);
+          lines.push(`\nSTOP. Do NOT navigate, do NOT open panels, do NOT delegate to navigator.`);
+          lines.push(`Reply to the user: "Your ${searchTerm} account is connected but the MCP tools aren't loading (server status: ${serverState.status}). Try restarting yo or check Settings > MCP."`);
+          lines.push(`That is your ONLY action. Do not attempt any workaround.`);
         } else if (serverState.tools.length === 0) {
           lines.push(`MCP server connected but reports 0 tools. The Pipedream endpoint may be loading.`);
         }
