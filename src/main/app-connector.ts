@@ -150,7 +150,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
 ];
 
 // Default panel apps — seeded on first launch so the workspace isn't empty
-const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
+const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: boolean }> = [
   // LLMs
   { id: "chatgpt", name: "ChatGPT", url: "https://chatgpt.com" },
   { id: "claude", name: "Claude", url: "https://claude.ai" },
@@ -166,12 +166,12 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "notebooklm", name: "NotebookLM", url: "https://notebooklm.google.com" },
   // Dev & Work
   { id: "github", name: "GitHub", url: "https://github.com" },
-  { id: "slack", name: "Slack", url: "https://app.slack.com" },
+  { id: "slack", name: "Slack", url: "https://app.slack.com", forceWeb: true },
   { id: "linear", name: "Linear", url: "https://linear.app" },
-  { id: "jira", name: "Jira", url: "https://atlassian.net" },
-  { id: "notion", name: "Notion", url: "https://notion.so" },
+  { id: "jira", name: "Jira", url: "https://atlassian.net", forceWeb: true },
+  { id: "notion", name: "Notion", url: "https://notion.so", forceWeb: true },
   // Other
-  { id: "figma", name: "Figma", url: "https://figma.com" },
+  { id: "figma", name: "Figma", url: "https://figma.com", forceWeb: true },
   { id: "youtube", name: "YouTube", url: "https://youtube.com" },
 ];
 
@@ -207,10 +207,11 @@ export class AppConnector {
     if (!hasUserApps) {
       for (const def of DEFAULT_APPS) {
         if (!this.apps.has(def.id)) {
-          this.add(def.id, def.name, def.url);
+          this.add(def.id, def.name, def.url, def.forceWeb);
         }
       }
     }
+
 
     // Ensure VS Code has a grab command that uses Monaco API
     const vscode = this.apps.get("vscode");
@@ -281,6 +282,18 @@ export class AppConnector {
     const app = this.apps.get(id);
     if (!app) return false;
     app.url = url;
+    this.save(app);
+    return true;
+  }
+
+  updateForceWeb(id: string, forceWeb: boolean): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    if (forceWeb) {
+      app.forceWeb = true;
+    } else {
+      delete app.forceWeb;
+    }
     this.save(app);
     return true;
   }

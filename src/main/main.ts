@@ -1512,6 +1512,24 @@ async function boot() {
   };
   yoInterceptor.setPanelOpener(openYoPanel);
   callbacks.openYoPanel = openYoPanel;
+
+  // Agent runner — runs the full agent headlessly and returns the final text.
+  // Used by .yo . <prompt> when no capture exists — result is injected into the active input.
+  yoInterceptor.setAgentRunner(async (prompt, sourcePanelId) => {
+    if (!yoAgent) throw new Error("Agent not ready");
+    yoAgent.clear();
+    if (sourcePanelId) yoAgent.setActivePanel(sourcePanelId);
+    const wrappedPrompt = `[INLINE MODE: Your response will be injected directly into a text field. Return ONLY the raw result — no markdown, no formatting, no preamble, no explanation. Just the data the user asked for, ready to paste.]\n${prompt}`;
+    return new Promise<string>((resolve, reject) => {
+      yoAgent!.send(wrappedPrompt, {
+        onText: () => {},
+        onToolUse: () => {},
+        onDone: (fullText) => resolve(fullText),
+        onError: (err) => reject(new Error(err)),
+      });
+    });
+  });
+
   yoChat.setCommandCallback(execCommand);
 
   // Terminal yo/sup/dip — route through command parser, show result in terminal
@@ -2285,6 +2303,7 @@ async function boot() {
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
+  ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
   ipcMain.handle("apps-set-connected-slug", (_e, id: string, slug: string | null) => appConnector.updateConnectedSlug(id, slug));
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {

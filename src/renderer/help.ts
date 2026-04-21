@@ -636,6 +636,7 @@ interface PanelApp {
   name: string;
   url: string;
   connectedSlug?: string;
+  forceWeb?: boolean;
 }
 
 interface ConnectorAccount {
@@ -741,6 +742,10 @@ function openPanelAppDetail(app: PanelApp) {
   }
   deleteBtn.classList.remove("hidden");
   toolsSection.classList.add("hidden");
+
+  // Force Web toggle
+  const forceWebToggle = document.getElementById("app-detail-force-web") as HTMLInputElement;
+  forceWebToggle.checked = !!app.forceWeb;
 }
 
 
@@ -909,6 +914,12 @@ function initApps() {
     }
   });
   appDetailUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") appDetailUrl.blur(); });
+
+  // Force Web toggle
+  document.getElementById("app-detail-force-web")!.addEventListener("change", async (e) => {
+    if (!currentAppId) return;
+    await window.yo.appsUpdateForceWeb(currentAppId, (e.target as HTMLInputElement).checked);
+  });
 
   // Delete panel app
   document.getElementById("app-detail-delete")!.addEventListener("click", async () => {

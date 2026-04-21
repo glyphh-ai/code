@@ -37,6 +37,7 @@ export class YoInterceptor {
   // Yo conversation callbacks
   private yoClearer: (() => void) | null = null;
   private panelOpener: ((query: string, sourcePanelId?: string) => void) | null = null;
+  private agentRunner: ((prompt: string, sourcePanelId?: string) => Promise<string>) | null = null;
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
   private modeColor = "#25C75E"; // current agent mode color (ask=green, plan=blue, auto=orange)
 
@@ -52,6 +53,7 @@ export class YoInterceptor {
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
   setPanelOpener(fn: (query: string, sourcePanelId?: string) => void): void { this.panelOpener = fn; }
+  setAgentRunner(fn: (prompt: string, sourcePanelId?: string) => Promise<string>): void { this.agentRunner = fn; }
   setModeColor(color: string): void { this.modeColor = color; }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
 
@@ -416,7 +418,13 @@ window.addEventListener('beforeunload',function(e){
         await this.runChain(chain);
         return;
       }
-      await this.handleYoDot(wc, appId, prompt);
+      // If there's captured content, use the lightweight processor
+      // If no capture, run the full agent and inject the result
+      if (this.session.hasContent()) {
+        await this.handleYoDot(wc, appId, prompt);
+      } else {
+        await this.handleYoDotAgent(wc, appId, prompt);
+      }
       await this.runChain(chain);
       return;
     }
@@ -467,7 +475,38 @@ window.addEventListener('beforeunload',function(e){
     }
   }
 
+  /**
+   * .yo . <prompt> with no capture — full agent run, inject result.
+   * Runs the yo agent headlessly (with tools, MCP, etc.) and injects
+   * the final response text into the current text area.
+   */
+  private async handleYoDotAgent(wc: WebContents, appId: string, prompt: string): Promise<void> {
+    if (!this.agentRunner) {
+      this.notify(wc, "Agent not ready.", "error");
+      return;
+    }
 
+    const myOp = ++this.opId;
+    this.notify(wc, "", "loading");
+
+    try {
+      const result = await this.agentRunner(prompt, appId);
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+
+      if (result) {
+        try {
+          await wc.executeJavaScript(
+            `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(result)});}})()`,
+          );
+        } catch {}
+      }
+    } catch (err) {
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+      this.notify(wc, `Failed: ${err instanceof Error ? err.message : err}`, "error");
+    }
+  }
 
   private timestamp(): string {
     const now = new Date();
@@ -656,7 +695,8 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
     const isNegativeResult = (type === "result" || type === "yo") && /not found|nothing/i.test(msg);
     const icon = type === "success" ? "\u2713 " : type === "error" || isNegativeResult ? "\u2717 " : type === "result" ? "\u2713 " : "";
     const text = icon + displayMsg;
-    const autoRemove = type === "success" || type === "error";
+    const autoRemove = type === "success";
+  const autoRemoveError = type === "error";
     const nonceJs = JSON.stringify(this.sessionNonce);
     try {
       await wc.executeJavaScript(`
@@ -750,7 +790,7 @@ if(isLoading){
   }else{
     setText(text);
   }
-  ${autoRemove ? "setTimeout(function(){try{setText('');}catch(e){}},1500);" : `
+  ${autoRemove || autoRemoveError ? `setTimeout(function(){try{setText('');}catch(e){}},${autoRemoveError ? 6000 : 1500});` : `
   // Escape clears result and ends yo session
   if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
   window.__yoResultEsc=function(e){
