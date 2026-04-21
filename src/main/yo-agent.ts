@@ -52,7 +52,16 @@ CRITICAL: If an MCP tool exists for the task, ALWAYS use it instead of navigatin
 - "create a calendar event" → use MCP calendar tool, NOT navigate to Google Calendar
 - "send a slack message" → use MCP slack tool, NOT open Slack panel + type
 
+APP AWARENESS:
+- Before interacting with any app, call resolve_app to check if MCP tools exist.
+- If the app is connected → use MCP tools directly.
+- If not connected but available in Pipedream → offer to connect via connect_app.
+- If no Pipedream connector → fall back to panel navigation.
+- If multiple matches → ask the user which app they mean.
+
 TOOLS:
+- resolve_app: check an app's MCP tools + connection status. Call before app interactions.
+- connect_app: connect an app via OAuth to enable MCP tools. Needs user approval.
 - delegate_navigator: scan, click, type in panels. For VISUAL interaction only — not for reading data that MCP tools can provide.
 - delegate_layout: arrange panels on screen — splits, grids, tabs, zoom.
 - delegate_researcher: notes and file search
@@ -62,11 +71,12 @@ TOOLS:
 - ask_panel: send a prompt to AI chat panels. Modes: ask (independent), chain (sequential), debate (multi-round).
 - pipe: cross-panel data flow (grab → transform → push)
 - inject_text: paste into the input where user typed .yo
-- search_chats: search your own past conversation history for topics/keywords
+- search_store: search all past interactions (captures, MCP results, chats)
+- search_chats: search past conversation history (fallback)
 - web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
-- MCP tools FIRST. Navigation ONLY when no MCP tool covers the task.
+- MCP tools FIRST. Call resolve_app if unsure whether MCP tools exist for an app.
 - Use ask_panel to interact with AI apps. Use delegate_navigator for non-AI panel interactions.
 - Check AVAILABLE PANELS and Current layout before acting. Arrange panels the user needs to see.
 - Delegate in parallel when tasks are independent.
@@ -292,6 +302,30 @@ const TOOLS = [
       required: ["panels", "prompt"],
     },
   },
+  {
+    name: "resolve_app",
+    description: "Check if an app has MCP tools available before interacting with it. Returns connection status, available tools, and Pipedream catalog matches. Call this FIRST when you need to interact with an app and aren't sure if MCP tools exist.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        intent: { type: "string" as const, description: "What the user wants to do, e.g. 'send email', 'check calendar', 'post to slack'" },
+        app_hint: { type: "string" as const, description: "Specific app name if the user mentioned one, e.g. 'gmail', 'slack', 'anthropic'" },
+      },
+      required: ["intent"],
+    },
+  },
+  {
+    name: "connect_app",
+    description: "Connect an app via OAuth so its MCP tools become available. Opens an OAuth popup for the user. Only call after resolve_app shows the app is not connected.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        app_slug: { type: "string" as const, description: "Pipedream app slug to connect (from resolve_app results)" },
+        panel_app_id: { type: "string" as const, description: "Panel app ID to associate with this connection (from resolve_app results)" },
+      },
+      required: ["app_slug"],
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -336,6 +370,10 @@ export class YoAgent {
 
   // Unified store for persistent interaction history
   private unifiedStore: import("./unified-store").UnifiedStore | null = null;
+
+  // App awareness — resolve + connect apps from agent conversation
+  private _appConnector: AppConnector | null = null;
+  private connectorManager: import("./connectors").ConnectorManager | null = null;
 
   // Direct tool callbacks — new tools
   private _panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
@@ -390,6 +428,7 @@ export class YoAgent {
   }
 
   setAppConnector(ac: AppConnector): void {
+    this._appConnector = ac;
     this.manager.setAppConnector(ac);
     this.skillRunner.setAppConnector(ac);
     // Navigator, Layout, SkillRunner need panel listing from the app connector
@@ -523,7 +562,7 @@ export class YoAgent {
 
   setMcpManager(mgr: McpManager): void { this.mcpManager = mgr; }
   setUnifiedStore(store: import("./unified-store").UnifiedStore): void { this.unifiedStore = store; }
-
+  setConnectorManager(cm: import("./connectors").ConnectorManager): void { this.connectorManager = cm; }
 
   setLayoutCallbacks(cbs: {
     list: () => Array<{ name: string; cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
@@ -1138,6 +1177,8 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "set_reminder": return this.toolSetReminder(input);
         case "pipe": return await this.toolPipe(input);
         case "ask_panel": return await this.toolAskPanel(input);
+        case "resolve_app": return await this.toolResolveApp(input);
+        case "connect_app": return await this.toolConnectApp(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -1185,6 +1226,122 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       const snippet = r.content.length > 500 ? r.content.slice(0, 500) + "…" : r.content;
       return `[${r.meta.type}] ${label} (${date})\n${snippet}`;
     }).join("\n\n---\n\n");
+  }
+
+  private async toolResolveApp(input: Record<string, unknown>): Promise<string> {
+    const intent = input.intent as string || "";
+    const appHint = input.app_hint as string || "";
+    const searchTerm = appHint || intent;
+    if (!searchTerm) return "No intent or app_hint provided.";
+
+    const lines: string[] = [`APP RESOLUTION for "${searchTerm}":`];
+
+    // 1. Fuzzy match against panel apps
+    const panelApps = this._appConnector?.list() || [];
+    const term = searchTerm.toLowerCase();
+    const matchedPanels = panelApps.filter((a) => {
+      const id = a.id.toLowerCase();
+      const name = a.name.toLowerCase();
+      const url = a.url.toLowerCase();
+      return id.includes(term) || name.includes(term) || term.includes(id) || term.includes(name) || url.includes(term);
+    });
+
+    // 2. Check connection + MCP tools for matched panel apps
+    const accounts = this.connectorManager ? await this.connectorManager.getAccounts() : [];
+    const allTools = this.mcpManager?.getAllTools() || [];
+
+    for (const app of matchedPanels) {
+      const slug = app.connectedSlug;
+      const account = slug ? accounts.find((a) => a.appSlug === slug) : null;
+      const tools = slug ? allTools.filter((t) => t.name.startsWith(slug.replace(/-/g, "_"))) : [];
+
+      lines.push(`\nPanel app: ${app.id} (${app.name}) — ${app.url}`);
+      if (account) {
+        lines.push(`Connected: yes (slug: ${slug}, healthy: ${account.healthy})`);
+        if (tools.length > 0) {
+          lines.push(`MCP tools (${tools.length}):`);
+          for (const t of tools.slice(0, 10)) {
+            lines.push(`  - ${t.qualifiedName}: ${t.description}`);
+          }
+          if (tools.length > 10) lines.push(`  ... and ${tools.length - 10} more`);
+          lines.push(`Action: Use MCP tools directly.`);
+        } else {
+          lines.push(`MCP tools: none discovered yet (try after MCP refresh)`);
+        }
+      } else {
+        lines.push(`Connected: no`);
+        lines.push(`Action: Call connect_app to enable MCP tools.`);
+      }
+    }
+
+    // 3. Search Pipedream catalog for matches (always, to show what's connectable)
+    if (this.connectorManager) {
+      try {
+        const catalog = await this.connectorManager.getApps(searchTerm);
+        if (catalog.apps.length > 0) {
+          lines.push(`\nPipedream catalog matches:`);
+          for (const app of catalog.apps.slice(0, 5)) {
+            const isConnected = accounts.some((a) => a.appSlug === app.id);
+            lines.push(`  - ${app.id}: ${app.name} — ${app.description}${isConnected ? " [already connected]" : ""}`);
+          }
+          const unconnectedApps = catalog.apps.filter((a) => !accounts.some((ac) => ac.appSlug === a.id));
+          if (unconnectedApps.length > 1) {
+            lines.push(`\nMULTIPLE OPTIONS — ask the user which one they want before calling connect_app.`);
+          } else if (unconnectedApps.length === 1) {
+            const slug = unconnectedApps[0].id;
+            const panelId = matchedPanels[0]?.id;
+            lines.push(`\nTo connect: call connect_app with app_slug="${slug}"${panelId ? ` and panel_app_id="${panelId}"` : ""}.`);
+          }
+        } else if (matchedPanels.length === 0) {
+          lines.push(`\nNo Pipedream connector found. Use panel navigation (scan_panel, click_element, type_text) instead.`);
+        }
+      } catch {
+        // Catalog search failed — continue with what we have
+      }
+    }
+
+    if (matchedPanels.length === 0 && lines.length === 1) {
+      lines.push(`No panel app or Pipedream connector found for "${searchTerm}".`);
+      lines.push(`Use panel navigation if the app is open, or web_search to find it.`);
+    }
+
+    return lines.join("\n");
+  }
+
+  private async toolConnectApp(input: Record<string, unknown>): Promise<string> {
+    const appSlug = input.app_slug as string;
+    const panelAppId = input.panel_app_id as string | undefined;
+    if (!appSlug) return "No app_slug provided.";
+    if (!this.connectorManager) return "Connector system not available.";
+    if (!this.connectorManager.isPro()) return "App connections require an Advanced subscription. The user needs to upgrade to connect apps and use MCP tools.";
+
+    const result = await this.connectorManager.connectApp(appSlug);
+    if (!result.ok) {
+      return `Failed to connect ${appSlug}: ${result.error || "unknown error"}`;
+    }
+
+    // Save the slug association on the panel app
+    if (panelAppId && this._appConnector) {
+      this._appConnector.updateConnectedSlug(panelAppId, appSlug);
+    }
+
+    // Report newly available MCP tools
+    const allTools = this.mcpManager?.getAllTools() || [];
+    const slugPrefix = appSlug.replace(/-/g, "_");
+    const newTools = allTools.filter((t) => t.name.startsWith(slugPrefix));
+
+    const lines = [`Successfully connected ${appSlug}.`];
+    if (newTools.length > 0) {
+      lines.push(`New MCP tools available (${newTools.length}):`);
+      for (const t of newTools.slice(0, 10)) {
+        lines.push(`  - ${t.qualifiedName}: ${t.description}`);
+      }
+      if (newTools.length > 10) lines.push(`  ... and ${newTools.length - 10} more`);
+      lines.push(`You can now use these tools directly.`);
+    } else {
+      lines.push(`MCP tools may take a moment to appear. Try using them in your next action.`);
+    }
+    return lines.join("\n");
   }
 
   private toolSearchChats(input: Record<string, unknown>): string {

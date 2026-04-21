@@ -1407,6 +1407,7 @@ async function boot() {
   // Connectors (Pipedream Connect) — Pro-only managed OAuth
   connectorManager = new ConnectorManager();
   connectorManager.setMcpManager(mcpManager);
+  yoAgent.setConnectorManager(connectorManager);
   connectorManager.on("changed", () => {
     mainWindow?.webContents.send("connectors-changed");
   });
@@ -1754,7 +1755,7 @@ async function boot() {
     switch: (id: string) => {
       if (!mainWindow) return;
       layoutManager.clearSplit();
-      panelManager.switchTo(id, mainWindow);
+      panelManager.switchTo(id, mainWindow, "left", true);
       sendSplitState();
       sendTabState();
     },
@@ -2428,7 +2429,7 @@ async function boot() {
     } else {
       // Switching to a non-layout tab exits the grid
       layoutManager.clearSplit();
-      panelManager.switchTo(id, mainWindow);
+      panelManager.switchTo(id, mainWindow, "left", true);
       setPreference("lastView", { type: "panel", id });
     }
     sendSplitState();
@@ -2481,7 +2482,7 @@ async function boot() {
     const id = `browse-${tabBrowserCounter}`;
     const homeUrl = resolveBrowserHome();
     panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
-    panelManager.switchTo(id, mainWindow);
+    panelManager.switchTo(id, mainWindow, "left", true);
     ensureTab(id);
     sendSplitState();
     sendTabState();

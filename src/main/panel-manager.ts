@@ -717,7 +717,7 @@ export class PanelManager {
   }
 
   /** Switch to a panel with slide animation (dip <id>) */
-  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left"): boolean {
+  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left", focusPanel = false): boolean {
     if (parent.isDestroyed()) return false;
     const view = this.getOrCreate(id, parent);
     if (!view) return false;
@@ -735,7 +735,7 @@ export class PanelManager {
       parent.setBrowserView(view);
       view.setBounds(finalBounds);
       view.setAutoResize({ width: true, height: true });
-      if (!this._rightInset) view.webContents.focus();
+      if (focusPanel) view.webContents.focus();
       this.onReady?.(id, view.webContents);
       return true;
     }
@@ -749,7 +749,6 @@ export class PanelManager {
     view.setAutoResize({ width: false, height: false });
     parent.addBrowserView(view);
 
-    const keepRendererFocus = this._rightInset > 0;
     this.slideViews(
       parent, oldBounds,
       [{ view, finalBounds }],
@@ -757,7 +756,7 @@ export class PanelManager {
       220,
       () => {
         view.setAutoResize({ width: true, height: true });
-        if (!keepRendererFocus) view.webContents.focus();
+        if (focusPanel) view.webContents.focus();
         this.onReady?.(id, view.webContents);
       },
     );
