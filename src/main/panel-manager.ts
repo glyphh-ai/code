@@ -717,7 +717,7 @@ export class PanelManager {
   }
 
   /** Switch to a panel with slide animation (dip <id>) */
-  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left", focusPanel = false): boolean {
+  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left", keepRendererFocus = false): boolean {
     if (parent.isDestroyed()) return false;
     const view = this.getOrCreate(id, parent);
     if (!view) return false;
@@ -730,12 +730,15 @@ export class PanelManager {
     const yTop = 38 + this._topInset;
     const finalBounds = { x: 0, y: yTop, width: w - this._rightInset, height: h - yTop };
 
+    // Don't focus the panel if yo panel is open or caller says to keep renderer focus
+    const shouldFocusPanel = !keepRendererFocus && !this._rightInset;
+
     // No animation if same panel, hidden, or already animating
     if (oldId === id || this._hidden || this._animating) {
       parent.setBrowserView(view);
       view.setBounds(finalBounds);
       view.setAutoResize({ width: true, height: true });
-      if (focusPanel) view.webContents.focus();
+      if (shouldFocusPanel) view.webContents.focus();
       this.onReady?.(id, view.webContents);
       return true;
     }
@@ -756,7 +759,7 @@ export class PanelManager {
       220,
       () => {
         view.setAutoResize({ width: true, height: true });
-        if (focusPanel) view.webContents.focus();
+        if (shouldFocusPanel) view.webContents.focus();
         this.onReady?.(id, view.webContents);
       },
     );

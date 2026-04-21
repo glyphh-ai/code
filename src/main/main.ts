@@ -1755,7 +1755,7 @@ async function boot() {
     switch: (id: string) => {
       if (!mainWindow) return;
       layoutManager.clearSplit();
-      panelManager.switchTo(id, mainWindow, "left", true);
+      panelManager.switchTo(id, mainWindow);
       sendSplitState();
       sendTabState();
     },
@@ -2429,7 +2429,7 @@ async function boot() {
     } else {
       // Switching to a non-layout tab exits the grid
       layoutManager.clearSplit();
-      panelManager.switchTo(id, mainWindow, "left", true);
+      panelManager.switchTo(id, mainWindow);
       setPreference("lastView", { type: "panel", id });
     }
     sendSplitState();
@@ -2482,7 +2482,7 @@ async function boot() {
     const id = `browse-${tabBrowserCounter}`;
     const homeUrl = resolveBrowserHome();
     panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
-    panelManager.switchTo(id, mainWindow, "left", true);
+    panelManager.switchTo(id, mainWindow);
     ensureTab(id);
     sendSplitState();
     sendTabState();
