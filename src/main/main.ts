@@ -1520,23 +1520,6 @@ async function boot() {
   yoInterceptor.setPanelOpener(openYoPanel);
   callbacks.openYoPanel = openYoPanel;
 
-  // Agent runner — runs the full agent headlessly and returns the final text.
-  // Used by .yo . <prompt> when no capture exists — result is injected into the active input.
-  yoInterceptor.setAgentRunner(async (prompt, sourcePanelId) => {
-    if (!yoAgent) throw new Error("Agent not ready");
-    yoAgent.clear();
-    if (sourcePanelId) yoAgent.setActivePanel(sourcePanelId);
-    const wrappedPrompt = `[INLINE MODE: Your response will be injected directly into a text field. Return ONLY the raw result — no markdown, no formatting, no preamble, no explanation. Just the data the user asked for, ready to paste.]\n${prompt}`;
-    return new Promise<string>((resolve, reject) => {
-      yoAgent!.send(wrappedPrompt, {
-        onText: () => {},
-        onToolUse: () => {},
-        onDone: (fullText) => resolve(fullText),
-        onError: (err) => reject(new Error(err)),
-      });
-    });
-  });
-
   yoChat.setCommandCallback(execCommand);
 
   // Terminal yo/sup/dip — route through command parser, show result in terminal

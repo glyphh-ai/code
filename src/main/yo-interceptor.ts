@@ -1,8 +1,8 @@
 /**
  * YoInterceptor — intercepts yo/sup/dip/drip typed inside app panels.
  *
- *   yo <query>     → search context store → open inline widget
- *   yo . <skill>   → process last capture with skill → inject result
+ *   yo <query>     → open agent panel
+ *   yo . <skill>   → process last .sup capture with skill → inject result (requires capture)
  *   yo help        → open help overlay
  *   sup            → capture active panel → context store + clipboard
  *   sup . <skill>  → capture + process with skill → inject result
@@ -37,7 +37,6 @@ export class YoInterceptor {
   // Yo conversation callbacks
   private yoClearer: (() => void) | null = null;
   private panelOpener: ((query: string, sourcePanelId?: string) => void) | null = null;
-  private agentRunner: ((prompt: string, sourcePanelId?: string) => Promise<string>) | null = null;
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
   private modeColor = "#25C75E"; // current agent mode color (ask=green, plan=blue, auto=orange)
 
@@ -53,7 +52,6 @@ export class YoInterceptor {
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
   setPanelOpener(fn: (query: string, sourcePanelId?: string) => void): void { this.panelOpener = fn; }
-  setAgentRunner(fn: (prompt: string, sourcePanelId?: string) => Promise<string>): void { this.agentRunner = fn; }
   setModeColor(color: string): void { this.modeColor = color; }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
 
@@ -266,8 +264,9 @@ window.addEventListener('beforeunload',function(e){
         }
         break;
       case "cancel":
-        this.opId++; // invalidate any in-flight operation
+        this.opId++;
         await this.clearNotify(wc);
+        this.notify(wc, "cancelled", "success");
         break;
     }
   }
@@ -418,13 +417,11 @@ window.addEventListener('beforeunload',function(e){
         await this.runChain(chain);
         return;
       }
-      // If there's captured content, use the lightweight processor
-      // If no capture, run the full agent and inject the result
-      if (this.session.hasContent()) {
-        await this.handleYoDot(wc, appId, prompt);
-      } else {
-        await this.handleYoDotAgent(wc, appId, prompt);
+      if (!this.session.hasContent()) {
+        this.notify(wc, "Nothing captured. Use .sup first.", "error");
+        return;
       }
+      await this.handleYoDot(wc, appId, prompt);
       await this.runChain(chain);
       return;
     }
@@ -468,39 +465,6 @@ window.addEventListener('beforeunload',function(e){
           `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(result)});}})()`,
         );
       } catch {}
-    } catch (err) {
-      if (this.opId !== myOp) return;
-      await this.clearNotify(wc);
-      this.notify(wc, `Failed: ${err instanceof Error ? err.message : err}`, "error");
-    }
-  }
-
-  /**
-   * .yo . <prompt> with no capture — full agent run, inject result.
-   * Runs the yo agent headlessly (with tools, MCP, etc.) and injects
-   * the final response text into the current text area.
-   */
-  private async handleYoDotAgent(wc: WebContents, appId: string, prompt: string): Promise<void> {
-    if (!this.agentRunner) {
-      this.notify(wc, "Agent not ready.", "error");
-      return;
-    }
-
-    const myOp = ++this.opId;
-    this.notify(wc, "", "loading");
-
-    try {
-      const result = await this.agentRunner(prompt, appId);
-      if (this.opId !== myOp) return;
-      await this.clearNotify(wc);
-
-      if (result) {
-        try {
-          await wc.executeJavaScript(
-            `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(result)});}})()`,
-          );
-        } catch {}
-      }
     } catch (err) {
       if (this.opId !== myOp) return;
       await this.clearNotify(wc);
@@ -703,7 +667,6 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
 (function(){
 var _n=${nonceJs};
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
-if(window.__yoLastEl&&window.__yoLastEl.isConnected&&window.__yoOrigIndent!==undefined){window.__yoLastEl.style.textIndent=window.__yoOrigIndent;window.__yoOrigIndent=undefined;}
 var el=window.__yoLastEl;
 if(!el||!el.isConnected){el=document.activeElement;if(!el||el===document.body)el=null;
 if(!el){var fb=['[role="textbox"]','[contenteditable]:not([contenteditable="false"])','textarea','input[type="text"]'];
@@ -740,28 +703,11 @@ if(isLoading){
   var wipePos=-1;
   var lastSwap=Date.now();
   function pickNext(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
-  function cursorHome(){try{if(el.setSelectionRange)el.setSelectionRange(0,0);else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}}
-  // Indent text to make room for stop button
-  var origIndent=el.style.textIndent||'';
-  el.style.textIndent='26px';
-  window.__yoOrigIndent=origIndent;
-  setText(isContentEditable?curWord+'   ':frames[0]+' '+curWord+'   ',isContentEditable?frames[0]:null);
-  cursorHome();
-  // Stop button
-  var stopBtn=document.createElement('div');
-  stopBtn.id='__yo-stop';
-  stopBtn.innerHTML='\\u25A0';
-  stopBtn.title='Stop';
-  stopBtn.style.cssText='position:fixed;z-index:999999;width:18px;height:18px;border-radius:5px;background:'+modeColor+';color:#fff;font-size:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;opacity:0.8;';
-  stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';stopBtn.style.opacity='1';};
-  stopBtn.onmouseleave=function(){stopBtn.style.background=modeColor;stopBtn.style.opacity='0.8';};
-  stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));};
-  // Position to the left of the spinner text
-  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-9)+'px';stopBtn.style.left=(rect.left+4)+'px';}catch(e){}
-  var old=document.getElementById('__yo-stop');if(old)old.remove();
-  document.body.appendChild(stopBtn);
-  // Escape key also cancels
-  window.__yoStopEsc=function(e){if(e.key==='Escape'){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));}};
+  // Blur to hide cursor
+  try{el.blur();}catch(e){}
+  setText(isContentEditable?curWord:frames[0]+' '+curWord,isContentEditable?frames[0]:null);
+  // Escape cancels
+  window.__yoStopEsc=function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));}};
   document.addEventListener('keydown',window.__yoStopEsc,true);
   window.__yoNoteIv=setInterval(function(){
     fi++;
@@ -779,11 +725,10 @@ if(isLoading){
       if(now-lastSwap>3000){nextWord=pickNext();wipePos=0;}
     }
     if(isContentEditable){
-      setText(display+'   ',frames[fi%frames.length]);
+      setText(display,frames[fi%frames.length]);
     }else{
-      setText(frames[fi%frames.length]+' '+display+'   ');
+      setText(frames[fi%frames.length]+' '+display);
     }
-    cursorHome();
   },100);
 }else{
   var isSuccess=${type === "success"};
@@ -819,11 +764,9 @@ if(isLoading){
       await wc.executeJavaScript(`
 (function(){
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
-var stop=document.getElementById('__yo-stop');if(stop)stop.remove();
 if(window.__yoStopEsc){document.removeEventListener('keydown',window.__yoStopEsc,true);window.__yoStopEsc=null;}
 if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
 var el=window.__yoLastEl;
-if(el&&el.isConnected&&window.__yoOrigIndent!==undefined){el.style.textIndent=window.__yoOrigIndent;window.__yoOrigIndent=undefined;}
 if(el&&el.isConnected){
 if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
   var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
