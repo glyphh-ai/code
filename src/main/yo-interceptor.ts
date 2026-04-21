@@ -483,13 +483,13 @@ window.addEventListener('beforeunload',function(e){
   private async grabPanels(wc: WebContents, appId: string, allPanels: boolean): Promise<string | null> {
     if (!allPanels) {
       const app = this.appConnector.get(appId);
-      return this.grabContent(wc, app);
+      return this.grabContent(wc, app, appId);
     }
 
     const panelIds = this.getVisiblePanelIds?.() ?? [appId];
     if (panelIds.length <= 1) {
       const app = this.appConnector.get(appId);
-      return this.grabContent(wc, app);
+      return this.grabContent(wc, app, appId);
     }
 
     const sections: string[] = [];
@@ -497,11 +497,11 @@ window.addEventListener('beforeunload',function(e){
       const app = this.appConnector.get(id);
       let content: string | null;
       if (id === appId) {
-        content = await this.grabContent(wc, app);
+        content = await this.grabContent(wc, app, id);
       } else {
         const otherWc = this.getWebContentsForPanel(id);
         if (!otherWc) continue;
-        content = await this.grabContent(otherWc, app);
+        content = await this.grabContent(otherWc, app, id);
       }
       if (content) {
         sections.push(`## ${app?.name || id}\n\n${content}`);
@@ -530,6 +530,7 @@ window.addEventListener('beforeunload',function(e){
   private async grabContent(
     wc: WebContents,
     app: ReturnType<AppConnector["get"]>,
+    appId?: string,
   ): Promise<string | null> {
     let content = "";
     if (app?.commands.grab) {
@@ -540,6 +541,18 @@ window.addEventListener('beforeunload',function(e){
       content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)");
     }
     if (!content) return null;
+
+    // Raw body text → capture store for search indexing
+    if (appId) {
+      try {
+        const raw = await wc.executeJavaScript("document.body.innerText.slice(0, 30000)");
+        if (raw) {
+          const title = await wc.executeJavaScript("document.title");
+          this.session.rawCapture(appId, `PAGE: ${title}\nURL: ${wc.getURL()}\n\n${raw}`);
+        }
+      } catch {}
+    }
+
     return content;
   }
 
@@ -660,7 +673,7 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
     const icon = type === "success" ? "\u2713 " : type === "error" || isNegativeResult ? "\u2717 " : type === "result" ? "\u2713 " : "";
     const text = icon + displayMsg;
     const autoRemove = type === "success";
-  const autoRemoveError = type === "error";
+    const autoRemoveError = type === "error";
     const nonceJs = JSON.stringify(this.sessionNonce);
     try {
       await wc.executeJavaScript(`
@@ -678,22 +691,18 @@ if(!el)return;
 var isLoading=${type === "loading"};
 var text=${JSON.stringify(text)};
 var modeColor=${JSON.stringify(this.modeColor)};
-var isContentEditable=(el.tagName!=='INPUT'&&el.tagName!=='TEXTAREA');
-function setText(val,frame){
+function setText(val){
   if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
     var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
     var s=Object.getOwnPropertyDescriptor(p,'value');
     if(s&&s.set)s.set.call(el,val);else el.value=val;
     el.dispatchEvent(new Event('input',{bubbles:true}));
   }else{
-    if(frame){
-      el.innerHTML='<span style="color:'+modeColor+';font-weight:bold">'+frame+'</span> '+val;
-    }else{
-      el.innerText=val;
-    }
+    el.innerText=val;
     el.dispatchEvent(new Event('input',{bubbles:true}));
   }
 }
+function cursorHome(){try{if(el.setSelectionRange)el.setSelectionRange(0,0);else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}}
 if(isLoading){
   var frames=['\\u280B','\\u2819','\\u2839','\\u2838','\\u283C','\\u2834','\\u2826','\\u2827'];
   var words=['chilling...','vibing...','yozing...','cooking...','thinking...','brewing...','manifesting...','marinating...'];
@@ -703,10 +712,8 @@ if(isLoading){
   var wipePos=-1;
   var lastSwap=Date.now();
   function pickNext(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
-  // Blur to hide cursor
-  try{el.blur();}catch(e){}
-  setText(isContentEditable?curWord:frames[0]+' '+curWord,isContentEditable?frames[0]:null);
-  // Escape cancels
+  setText(frames[0]+' '+curWord+'   ');
+  cursorHome();
   window.__yoStopEsc=function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));}};
   document.addEventListener('keydown',window.__yoStopEsc,true);
   window.__yoNoteIv=setInterval(function(){
@@ -724,24 +731,12 @@ if(isLoading){
       display=curWord;
       if(now-lastSwap>3000){nextWord=pickNext();wipePos=0;}
     }
-    if(isContentEditable){
-      setText(display,frames[fi%frames.length]);
-    }else{
-      setText(frames[fi%frames.length]+' '+display);
-    }
+    setText(frames[fi%frames.length]+' '+display+'   ');
+    cursorHome();
   },100);
 }else{
-  var isSuccess=${type === "success"};
-  var isError=${type === "error"};
-  if(isContentEditable){
-    var msgColor=isError?'#ff5f57':isSuccess?'#25C75E':modeColor;
-    el.innerHTML='<span style="color:'+msgColor+'">'+text+'</span>';
-    el.dispatchEvent(new Event('input',{bubbles:true}));
-  }else{
-    setText(text);
-  }
+  setText(text);
   ${autoRemove || autoRemoveError ? `setTimeout(function(){try{setText('');}catch(e){}},${autoRemoveError ? 6000 : 1500});` : `
-  // Escape clears result and ends yo session
   if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
   window.__yoResultEsc=function(e){
     if(e.key==='Escape'){

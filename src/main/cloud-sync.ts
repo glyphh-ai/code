@@ -6,6 +6,7 @@
  */
 
 import { NoteStore } from "./note-store";
+import type { CaptureStore } from "./capture-store";
 import { getPreference } from "./preferences";
 
 interface PendingItem {
@@ -20,11 +21,16 @@ const DEFAULT_SERVER = "https://yo.yo.dev";
 
 export class CloudSync {
   private noteStore: NoteStore;
+  private captureStore: CaptureStore | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
   constructor(noteStore: NoteStore) {
     this.noteStore = noteStore;
+  }
+
+  setCaptureStore(store: CaptureStore): void {
+    this.captureStore = store;
   }
 
   start(): void {
@@ -83,9 +89,10 @@ export class CloudSync {
       const items = (await res.json()) as PendingItem[];
       if (items.length === 0) return;
 
-      // 2. Write each to local notes
+      // 2. Write each to local notes + capture store
       for (const item of items) {
         await this.noteStore.write(item.name, item.content, "cloud-sync");
+        this.captureStore?.ingest("cloud-sync", item.content).catch(() => {});
       }
 
       // 3. ACK all fetched IDs

@@ -22,25 +22,22 @@ import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
-import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS, setMcpManager } from "./action-gate";
-import type { AgentMode, ToolOverride } from "./action-gate";
-import { McpManager, MCP_PRESETS, McpServerConfig } from "./mcp-manager";
-import { ConnectorManager } from "./connectors";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
-import { YoAgent } from "./yo-agent";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
 import { Transcriber } from "./transcriber";
 import { VoiceRelay } from "./voice-relay";
-import { scanPanel, formatScan } from "./dom-scanner";
 import { smartGrab } from "./smart-grab";
 import { VSCodeServer } from "./vscode-server";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
+import { Embedder } from "./embedder";
+import { CaptureStore } from "./capture-store";
+import { YoAgent } from "./yo-agent";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -52,12 +49,10 @@ let appConnector: AppConnector;
 let terminalManager: TerminalManager;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
-let yoAgent: YoAgent | undefined;
 let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
-let mcpManager: McpManager;
-let connectorManager: ConnectorManager;
+let embedder: Embedder | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -528,13 +523,24 @@ async function boot() {
     }
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
-
     yoAgent?.setLLMConfig(config);
   }
 
   // Core services
   skillEngine = new SkillEngine();
   appConnector = new AppConnector();
+
+  // Embedder + capture store
+  embedder = new Embedder();
+  embedder.init().catch((err) => console.error("[embedder]", err));
+
+  const captureStore = new CaptureStore();
+  captureStore.setEmbedder(embedder);
+
+  // Yo agent — capture search + format assistant
+  const yoAgent = new YoAgent();
+  yoAgent.setCaptureStore(captureStore);
+  yoAgent.setSkillEngine(skillEngine);
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
@@ -543,13 +549,13 @@ async function boot() {
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
   session.setOnCapture(() => {});
+  session.setOnRawCapture((appId, content) => {
+    captureStore.ingest(appId, content).catch(() => {});
+  });
 
   // yo/dip/drip interceptor — injected into ALL app panels
-  const MODE_COLORS: Record<string, string> = {
-    ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7",
-  };
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
-  yoInterceptor.setModeColor(MODE_COLORS[getAgentMode()] || MODE_COLORS.ask);
+  yoInterceptor.setModeColor("#25C75E");
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -755,6 +761,10 @@ async function boot() {
   yoInterceptor.setYoChat(yoChat);
   commandParser.setYoChat(yoChat);
 
+  // Wire yo agent dependencies
+  yoAgent.setSessionCache(session);
+  yoAgent.setMemoryStore(memoryStore);
+
   // Give interceptor access to visible panel IDs (for multi-panel grab)
   yoInterceptor.setVisiblePanelsGetter(() => {
     const gridInfo = layoutManager.getGridInfo();
@@ -787,6 +797,11 @@ async function boot() {
       if (content && !content.startsWith("[Element not found")) {
         sections.push(panelIds.length > 1 ? `## ${app?.name || id}\n\n${content}` : content);
       }
+      // Raw body text → capture store for search indexing
+      try {
+        const raw = await wc.executeJavaScript("document.body.innerText.slice(0, 30000)");
+        if (raw) session.rawCapture(id, `PAGE: ${await wc.executeJavaScript("document.title")}\nURL: ${wc.getURL()}\n\n${raw}`);
+      } catch {}
     }
     return sections.length > 0 ? sections.join("\n\n---\n\n") : null;
   });
@@ -812,22 +827,6 @@ async function boot() {
       return "";
     }
 
-    // .council sets the yo-agent into council mode
-    if (result.startsWith("__COUNCIL__:")) {
-      const participants = result.replace("__COUNCIL__:", "").split(",").filter(Boolean);
-      if (participants.length > 0 && yoAgent) {
-        yoAgent.setCouncil(participants);
-        // Notify renderer of mode change + show yo panel without sending a message to the agent
-        mainWindow?.webContents.send("agent-mode-changed", "council");
-        mainWindow?.webContents.send("yo-panel-open", "");
-        panelManager.setRightInset(getPreference<number>("yoPanelWidth", 380));
-        mainWindow?.webContents.focus();
-        // Show status in the yo panel as a system message (not an agent prompt)
-        mainWindow?.webContents.send("yo-panel-done", `Council ready: ${participants.join(", ")}. Type a message.`);
-      }
-      return "";
-    }
-
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     sendSessionState();
@@ -842,616 +841,14 @@ async function boot() {
   };
   yoInterceptor.setCommandHandler(execCommand);
   yoInterceptor.setSessionNotifier(sendSessionState);
-  yoInterceptor.setYoClearer(() => { commandParser.clearYoHistory(); yoAgent?.clear(); });
+  yoInterceptor.setYoClearer(() => { commandParser.clearYoHistory(); });
 
-  // YoAgent — full agentic retrieval with tools and streaming
-  yoAgent = new YoAgent();
-  yoAgent.setNoteStore(noteStore);
-  yoAgent.setMemoryStore(memoryStore);
-  yoAgent.setAppConnector(appConnector);
-  yoAgent.setSkillCallbacks({
-    list: () => skillEngine.listSkills(),
-    read: (name) => skillEngine.readSkill(name),
-    create: (name, prompt) => skillEngine.createSkill(name, prompt),
-    remove: (name) => skillEngine.deleteSkill(name),
-  });
-  yoAgent.setLayoutCallbacks({
-    list: () => layoutManager.listLayouts().map((l) => ({ name: l.name, cols: l.cols, rows: l.rows, cells: l.cells })),
-    save: (name, panels) => {
-      // Parse "claude gpt / gemini code" → rows of panel IDs
-      const rows = panels.split("/").map((r) => r.trim().split(/\s+/).filter(Boolean));
-      const numRows = rows.length;
-      const numCols = Math.max(...rows.map((r) => r.length));
-      const cells = rows.flatMap((row, rowIdx) =>
-        row.map((panelId, colIdx) => ({
-          panelId,
-          col: colIdx,
-          row: rowIdx,
-          colSpan: 1,
-          rowSpan: 1,
-        }))
-      );
-      layoutManager.saveLayout({
-        name,
-        version: 2,
-        cols: numCols,
-        rows: numRows,
-        colWidths: Array(numCols).fill(1 / numCols),
-        rowHeights: Array(numRows).fill(1 / numRows),
-        cells,
-      });
-      return true;
-    },
-    delete: (name) => layoutManager.deleteLayout(name),
-  });
-  yoAgent.setLayoutStateGetter(() => {
-    const grid = layoutManager.getGridInfo();
-    if (!grid) return null;
-    return { cols: grid.cols, rows: grid.rows, cells: grid.cells };
-  });
-  yoAgent.setPanelGrabber(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const app = appConnector.get(panelId);
-    let content = "";
-    if (app?.commands.grab) {
-      try { content = await executeCommand(wc, app.commands.grab); } catch {}
-    }
-    if (!content || content.startsWith("[Element not found")) {
-      try { content = await smartGrab(wc) || ""; } catch {}
-    }
-    return content || null;
-  });
-  yoAgent.setPanelScanner(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const scan = await scanPanel(wc);
-    if (!scan) return null;
-    let result = formatScan(scan);
-    // Inject mapped commands from app config so the agent can skip discovery
-    const app = appConnector.get(panelId);
-    if (app && Object.keys(app.commands).length > 0) {
-      const lines: string[] = ["MAPPED COMMANDS:"];
-      for (const [name, cmd] of Object.entries(app.commands)) {
-        const parts = [`  ${name}: ${cmd.action} "${cmd.selector}"`];
-        if (cmd.description) parts.push(`— ${cmd.description}`);
-        if (cmd.waitFor) parts.push(`(waitFor: ${cmd.waitFor})`);
-        if (cmd.guide) {
-          if (cmd.guide.pre) parts.push(`[pre: ${cmd.guide.pre}]`);
-          if (cmd.guide.post) parts.push(`[post: ${cmd.guide.post}]`);
-          if (cmd.guide.verify) parts.push(`[verify: ${cmd.guide.verify}]`);
-          if (cmd.guide.recover) parts.push(`[recover: ${cmd.guide.recover}]`);
-        }
-        lines.push(parts.join(" "));
-      }
-      result += "\n" + lines.join("\n");
-    }
-    return result;
-  });
-  yoAgent.setPanelClicker(async (panelId, text, selector) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    try {
-      const result = await wc.executeJavaScript(`(function(){
-        // Simulate real mouse events so React/Vue/Angular handlers fire
-        function realClick(el) {
-          var rect = el.getBoundingClientRect();
-          var x = rect.left + rect.width / 2;
-          var y = rect.top + rect.height / 2;
-          var opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
-          el.dispatchEvent(new PointerEvent('pointerdown', opts));
-          el.dispatchEvent(new MouseEvent('mousedown', opts));
-          el.dispatchEvent(new PointerEvent('pointerup', opts));
-          el.dispatchEvent(new MouseEvent('mouseup', opts));
-          el.dispatchEvent(new MouseEvent('click', opts));
-        }
-
-        // Walk up to the nearest interactive ancestor (button, link, role=button)
-        function findClickable(el) {
-          var cur = el;
-          while (cur && cur !== document.body) {
-            var tag = cur.tagName.toLowerCase();
-            if (tag === 'button' || tag === 'a' || cur.getAttribute('role') === 'button' ||
-                cur.getAttribute('role') === 'tab' || cur.getAttribute('role') === 'menuitem' ||
-                cur.onclick || cur.getAttribute('tabindex') !== null) return cur;
-            cur = cur.parentElement;
-          }
-          return el; // fallback to original
-        }
-
-        ${selector && !text ? `
-        var el = document.querySelector(${JSON.stringify(selector)});
-        if (el) { realClick(findClickable(el)); return 'Clicked successfully.'; }
-        return 'Element not found: ' + ${JSON.stringify(selector)};
-        ` : ''}
-
-        ${text ? `
-        var target = ${JSON.stringify(text)};
-        var targetLower = target.toLowerCase();
-        var candidates = [];
-
-        // Phase 1: check aria-label, title, data-tooltip, placeholder, data-testid
-        var all = document.querySelectorAll('[aria-label],[title],[data-tooltip],[placeholder],[data-testid]');
-        for (var i = 0; i < all.length; i++) {
-          var el = all[i];
-          var rect = el.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) continue;
-          var attrs = [
-            el.getAttribute('aria-label'),
-            el.getAttribute('title'),
-            el.getAttribute('data-tooltip'),
-            el.getAttribute('placeholder'),
-            el.getAttribute('data-testid'),
-          ];
-          for (var j = 0; j < attrs.length; j++) {
-            if (!attrs[j]) continue;
-            var val = attrs[j].toLowerCase();
-            if (val === targetLower) { candidates.push({ el: el, score: 0 }); break; }
-            if (val.includes(targetLower)) { candidates.push({ el: el, score: val.length }); break; }
-          }
-        }
-
-        // Phase 2: visible text (TreeWalker), only if no attr matches
-        if (candidates.length === 0) {
-          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-          while (walker.nextNode()) {
-            var el = walker.currentNode;
-            var rect = el.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) continue;
-            var t = (el.innerText || el.textContent || '').trim();
-            if (!t || t.length > 500) continue;
-            var tLower = t.toLowerCase();
-            if (tLower === targetLower) { candidates.push({ el: el, score: 0 }); break; }
-            if (tLower.includes(targetLower) && t.length < 200) {
-              candidates.push({ el: el, score: t.length });
-            }
-          }
-        }
-
-        // Sort by score (0 = exact, then shortest containing match)
-        candidates.sort(function(a, b) { return a.score - b.score; });
-
-        if (candidates.length > 0) {
-          var best = findClickable(candidates[0].el);
-          realClick(best);
-          return 'Clicked successfully.';
-        }
-        return 'Element not found: ' + target;
-        ` : ''}
-      })()`);
-      await new Promise((r) => setTimeout(r, 500));
-      return result;
-    } catch (err) {
-      return `Click failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-
-  yoAgent.setPanelNavigator(async (panelId, url) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    try {
-      wc.loadURL(url);
-      return `Navigating to ${url}`;
-    } catch (err) {
-      return `Navigation failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-
-  yoAgent.setPanelTyper(async (panelId, text, opts) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    const shouldClear = opts.clear !== false; // default true
-    try {
-      // Find and focus the target input element
-      const focused = await wc.executeJavaScript(`(function(){
-        var el = null;
-        ${opts.selector ? `el = document.querySelector(${JSON.stringify(opts.selector)});` : ''}
-        ${opts.label && !opts.selector ? `
-        if (!el) {
-          // Find input near a label with matching text
-          var labels = document.querySelectorAll('label, [aria-label]');
-          for (var i = 0; i < labels.length; i++) {
-            var lbl = labels[i];
-            var lt = (lbl.getAttribute('aria-label') || lbl.textContent || '').trim().toLowerCase();
-            if (lt.includes(${JSON.stringify(opts.label.toLowerCase())})) {
-              var forId = lbl.getAttribute('for');
-              if (forId) { el = document.getElementById(forId); break; }
-              el = lbl.querySelector('input,textarea,[contenteditable]');
-              if (el) break;
-              el = lbl.nextElementSibling;
-              if (el && (el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable)) break;
-              el = null;
-            }
-          }
-        }` : ''}
-        ${opts.placeholder && !opts.selector ? `
-        if (!el) {
-          var inputs = document.querySelectorAll('input[placeholder],textarea[placeholder]');
-          for (var i = 0; i < inputs.length; i++) {
-            if (inputs[i].placeholder.toLowerCase().includes(${JSON.stringify(opts.placeholder.toLowerCase())})) {
-              el = inputs[i]; break;
-            }
-          }
-        }` : ''}
-        if (!el) {
-          // Fallback: find the focused element or first visible input
-          if (document.activeElement && (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA'||document.activeElement.isContentEditable)) {
-            el = document.activeElement;
-          }
-        }
-        if (!el) return 'not_found';
-        el.focus();
-        if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.select(); }
-        else if (el.isContentEditable) {
-          var range = document.createRange();
-          range.selectNodeContents(el);
-          var sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-        return 'focused';
-      })()`);
-      if (focused === 'not_found') return 'Input field not found.';
-
-      // Clear existing content if requested
-      if (shouldClear) {
-        await wc.executeJavaScript(`(function(){
-          var el = document.activeElement;
-          if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); }
-          else if (el.isContentEditable) { el.textContent=''; }
-        })()`);
-      }
-
-      // Type the text using insertText (triggers proper framework events)
-      wc.insertText(text);
-      await new Promise((r) => setTimeout(r, 200));
-
-      // Submit by pressing Enter if requested
-      if (opts.submit) {
-        // Use Electron's native sendInputEvent — generates real OS-level key events
-        // that frameworks (React, Angular, ProseMirror) can't distinguish from user input
-        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-        await new Promise((r) => setTimeout(r, 50));
-        wc.sendInputEvent({ type: 'char', keyCode: 'Return' });
-        await new Promise((r) => setTimeout(r, 50));
-        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
-        await new Promise((r) => setTimeout(r, 300));
-
-        // Fallback: if Enter didn't submit (e.g. send button required), try clicking the send button
-        const clicked = await wc.executeJavaScript(`(function(){
-          var selectors = [
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Submit" i]',
-            'button[data-testid*="send"]',
-            'button[data-testid*="submit"]',
-            'button[class*="send" i]',
-            'button.mdc-icon-button[aria-label*="Send" i]',
-            'form button[type="submit"]',
-            'button[aria-label*="Message" i][type="submit"]',
-          ];
-          for (var i = 0; i < selectors.length; i++) {
-            var btn = document.querySelector(selectors[i]);
-            if (btn && !btn.disabled) { btn.click(); return 'clicked'; }
-          }
-          return 'no-btn';
-        })()`);
-        if (clicked === 'clicked') {
-          await new Promise((r) => setTimeout(r, 200));
-        }
-        return 'Typed and submitted.';
-      }
-      return 'Typed successfully.';
-    } catch (err) {
-      return `Type failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-
-  yoAgent.setCommandRunner(async (cmd: string) => {
-    // Strip leading dot if present
-    const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
-    const result = await execCommand(clean);
-    // Keep focus on the yo panel input after dip switches panels
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.focus();
-    }
-    return result;
-  });
-
-  yoAgent.setInjector(async (text: string) => {
-    const wc = yoInterceptor.getActiveYoWc();
-    if (!wc || wc.isDestroyed()) return false;
-    try {
-      await wc.executeJavaScript(`(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(text)});}})()`);
-      return true;
-    } catch { return false; }
-  });
-
-  // Open a panel visibly — registers config, creates view, switches to it
-  yoAgent.setPanelOpener(async (urlOrName, panelId) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
-    let url = urlOrName;
-    let id = panelId;
-    // Resolve app name to URL if not a valid URL
-    let isUrl = false;
-    try { new URL(urlOrName); isUrl = true; } catch {}
-    if (!isUrl) {
-      // Treat as app name/ID — look up from app connector or existing panels
-      const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
-      const app = appConnector.get(appName);
-      if (app) {
-        url = app.url;
-        id = id || app.id;
-      } else if (panelManager.hasPanel(appName)) {
-        // Already exists as a panel — just switch to it
-        const ok = panelManager.switchTo(appName, mainWindow);
-        return ok ? `Switched to panel "${appName}".` : `Failed to switch to "${appName}".`;
-      } else {
-        return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
-      }
-    }
-    id = id || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
-    if (!panelManager.hasPanel(id)) {
-      panelManager.addPanel(id, url);
-    }
-    const ok = panelManager.switchTo(id, mainWindow);
-    if (!ok) return `Failed to open panel "${id}".`;
-    // Wait a moment for the page to start loading
-    await new Promise((r) => setTimeout(r, 2000));
-    return `Opened panel "${id}" at ${url}. You can now use scan_panel, grab_panel, etc. with panel_id "${id}".`;
-  });
-
-  // Open a panel in the background — registers + creates view but does NOT show it
-  yoAgent.setBackgroundOpener(async (urlOrName, panelId) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
-    let url = urlOrName;
-    let id = panelId;
-    // Resolve app name to URL if not a valid URL
-    let isUrl = false;
-    try { new URL(urlOrName); isUrl = true; } catch {}
-    if (!isUrl) {
-      const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
-      const app = appConnector.get(appName);
-      if (app) {
-        url = app.url;
-        id = id || "bg-" + app.id;
-      } else {
-        return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
-      }
-    }
-    id = id || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
-    if (!panelManager.hasPanel(id)) {
-      panelManager.addPanel(id, url);
-    }
-    const view = panelManager.getOrCreateView(id, mainWindow);
-    if (!view) return `Failed to create background panel "${id}".`;
-    // Don't call switchTo — the view loads but stays hidden
-    await new Promise((r) => setTimeout(r, 2000));
-    return `Background panel "${id}" loaded at ${url}. You can use scan_panel, grab_panel, click_element, type_text with panel_id "${id}". It is NOT visible to the user.`;
-  });
-
-  yoAgent.setPanelCommandRunner(async (panelId, command, value) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    const app = appConnector.get(panelId);
-    if (!app) return `No app config for panel "${panelId}".`;
-    const mapping = app.commands[command];
-    if (!mapping) return `No command "${command}" mapped for ${app.name}. Available: ${Object.keys(app.commands).join(", ") || "none"}`;
-
-    // Try the mapped selector first
-    try {
-      const result = await executeCommand(wc, mapping, value);
-      // Detect selector failures from dom-bridge primitives
-      if (typeof result === "string" && (result.startsWith("Element not found:") || result.startsWith("[Element not found:"))) {
-        // Self-heal: scan the DOM and try to find a matching element
-        const healed = await selfHealCommand(wc, app.id, command, mapping, value);
-        if (healed) return healed;
-      }
-      return result;
-    } catch {
-      // executeCommand threw — try self-healing
-      const healed = await selfHealCommand(wc, app.id, command, mapping, value);
-      if (healed) return healed;
-      return `Command "${command}" failed and self-heal could not find a replacement.`;
-    }
-  });
-
-  /** Try to find a replacement selector by scanning the DOM and matching by description/action. */
-  async function selfHealCommand(
-    wc: Electron.WebContents,
-    appId: string,
-    command: string,
-    mapping: import("./app-connector").CommandMapping,
-    value?: string,
-  ): Promise<string | null> {
-    const scan = await scanPanel(wc);
-    if (!scan) return null;
-
-    const desc = (mapping.description || command).toLowerCase();
-    let newSelector: string | null = null;
-
-    if (mapping.action === "click") {
-      // Match buttons by description text
-      for (const btn of scan.buttons) {
-        const btnText = (btn.text || "").toLowerCase();
-        const btnAria = (btn.ariaLabel || "").toLowerCase();
-        if (btnText.includes(desc) || desc.includes(btnText) || btnAria.includes(desc) || desc.includes(btnAria)) {
-          newSelector = btn.selector;
-          break;
-        }
-      }
-      // Also check nav items
-      if (!newSelector) {
-        for (const nav of scan.nav) {
-          if (nav.text.toLowerCase().includes(desc) || desc.includes(nav.text.toLowerCase())) {
-            newSelector = nav.selector;
-            break;
-          }
-        }
-      }
-    } else if (mapping.action === "setValue") {
-      // Match inputs by description/placeholder/label
-      for (const inp of scan.inputs) {
-        const ph = (inp.placeholder || "").toLowerCase();
-        const lbl = (inp.label || "").toLowerCase();
-        const tp = (inp.type || "").toLowerCase();
-        if (ph.includes(desc) || desc.includes(ph) || lbl.includes(desc) || desc.includes(lbl) || desc.includes(tp)) {
-          newSelector = inp.selector;
-          break;
-        }
-      }
-    } else if (mapping.action === "extractText" || mapping.action === "extractHTML") {
-      // Match content areas by role
-      for (const c of scan.content) {
-        if (c.role.toLowerCase().includes(desc) || desc.includes(c.role.toLowerCase())) {
-          newSelector = c.selector;
-          break;
-        }
-      }
-    }
-
-    if (!newSelector) return null;
-
-    // Update the mapping with the healed selector
-    const healedMapping = { ...mapping, selector: newSelector };
-    appConnector.setCommand(appId, command, healedMapping);
-    console.log(`[self-heal] ${appId}.${command}: ${mapping.selector} → ${newSelector}`);
-
-    // Retry with the new selector
-    try {
-      return await executeCommand(wc, healedMapping, value);
-    } catch {
-      return null;
-    }
-  }
-
-  // ── New tool wiring ──────────────────────────────────
-
-  // Screenshot panel
-  yoAgent.setPanelScreenshotter(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return null;
-    try {
-      const image = await wc.capturePage();
-      return image.toDataURL();
-    } catch {
-      return null;
-    }
-  });
-
-  // Refresh panel
-  yoAgent.setPanelRefresher(async (panelId?: string) => {
-    panelManager.refresh(panelId);
-    return panelId ? `Refreshed panel: ${panelId}` : "Refreshed active panel.";
-  });
-
-  // Clipboard
-  yoAgent.setClipboard(
-    () => { try { return clipboard.readText(); } catch { return ""; } },
-    (text: string) => { try { clipboard.writeText(text); } catch {} },
-  );
-
-  // Reminder registry — tracked for dashboard visibility + cancellation
+  // Reminder registry
   const activeReminders = new Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>();
-  let reminderCounter = 0;
-
-  yoAgent.setReminderCallback((message: string, delayMs: number) => {
-    const id = `r-${++reminderCounter}`;
-    const fireAt = Date.now() + delayMs;
-    const timer = setTimeout(() => {
-      activeReminders.delete(id);
-      mainWindow?.webContents.send("yo-reminder", message);
-    }, delayMs);
-    activeReminders.set(id, { message, fireAt, timer });
-  });
-
-  if (llmConfig) {
-    yoAgent.setLLMConfig(llmConfig);
-  }
-  const yoMaxMessages = getPreference<number>("yoContextWindow", 40);
-  yoAgent.setMaxMessages(yoMaxMessages);
-
-  // Sub-agent model override
-  const subAgentModel = getPreference<string>("subAgentModel", "auto");
-  yoAgent.setSubAgentModel(subAgentModel);
-
-  // MCP server manager — connects to external tool servers
-  mcpManager = new McpManager();
-  setMcpManager(mcpManager);
-  yoAgent.setMcpManager(mcpManager);
-  mcpManager.on("changed", () => {
-    mainWindow?.webContents.send("mcp-changed");
-  });
-  mcpManager.init().catch((err) => {
-    console.error("MCP init error:", err);
-  });
-
-  // Connectors (Pipedream Connect) — Pro-only managed OAuth
-  connectorManager = new ConnectorManager();
-  connectorManager.setMcpManager(mcpManager);
-  yoAgent.setConnectorManager(connectorManager);
-  connectorManager.on("changed", () => {
-    mainWindow?.webContents.send("connectors-changed");
-  });
-  connectorManager.init().catch((err) => {
-    console.error("Connectors init error:", err);
-  });
-
-  // Wire tool executor for .waz direct tool execution
-  commandParser.setToolExecutor(async (toolName: string, args: Record<string, unknown>) => {
-    // Check MCP tools first (mcp__<server>__<tool> format)
-    if (toolName.startsWith("mcp__")) {
-      return mcpManager.callTool(toolName, args);
-    }
-    // Check if it matches an MCP tool by short name (try all servers)
-    const mcpTools = mcpManager.getAllTools();
-    const mcpMatch = mcpTools.find((t) => t.name === toolName);
-    if (mcpMatch) {
-      return mcpManager.callTool(mcpMatch.qualifiedName, args);
-    }
-    // Not a recognized tool
-    return `Unknown tool: ${toolName}`;
-  });
-
-  // Agent mode + approval callback
-  yoAgent.setMode(getAgentMode());
-
-  // Pending approval requests: id → { resolve }
-  const pendingApprovals = new Map<string, { resolve: (approved: boolean) => void }>();
-  let approvalCounter = 0;
-
-  yoAgent.setApprovalCallback(async (toolName: string, input: Record<string, unknown>) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return true;
-    const id = `approval-${++approvalCounter}`;
-    const label = TOOL_LABELS[toolName] || toolName;
-    mainWindow.webContents.send("approval-request", id, toolName, label, input);
-    return new Promise<boolean>((resolve) => {
-      pendingApprovals.set(id, { resolve });
-    });
-  });
-
-  ipcMain.on("approval-respond", (_e, id: string, approved: boolean) => {
-    const pending = pendingApprovals.get(id);
-    if (pending) {
-      pendingApprovals.delete(id);
-      pending.resolve(approved);
-    }
-  });
 
   // Voice Relay — phone-to-desktop voice remote (feature-flagged, disabled by default)
   if (getPreference<boolean>("voiceRemoteFeature", false)) {
     voiceRelay = new VoiceRelay();
-    voiceRelay.setAgentSend((text) => {
-      yoAgent?.send(`[VOICE MODE: This is a spoken voice command. Reply in plain conversational English — no markdown, no bold, no bullets, no lists, no formatting. Keep it to 1-2 short sentences unless the user asks for detail. Speak like a person, not a document.]\n${text}`, {
-        onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
-        onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
-        onToolResult: (id, detail) => mainWindow?.webContents.send("yo-panel-tool-result", id, detail),
-        onDone: (responseText) => {
-          mainWindow?.webContents.send("yo-panel-done", responseText);
-          voiceRelay?.respond(responseText);
-        },
-        onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
-      });
-    });
     if (getPreference<boolean>("remoteEnabled", false)) {
       voiceRelay.start();
     }
@@ -1472,24 +869,11 @@ async function boot() {
   });
 
   // Panel opener — called by interceptor or Cmd+. when user types .yo <query>
-  const openYoPanel = (query: string, sourcePanelId?: string) => {
+  const openYoPanel = (query: string, _sourcePanelId?: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    yoAgent?.clear();
-    if (sourcePanelId) yoAgent?.setActivePanel(sourcePanelId);
     mainWindow.webContents.send("yo-panel-open", query);
     panelManager.setRightInset(yoPanelWidth());
-    // Focus the main window's webContents so the panel input can receive focus
     mainWindow.webContents.focus();
-    // Start the agent only if there's an actual query
-    if (query) {
-      yoAgent?.send(query, {
-        onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
-        onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
-        onToolResult: (id, detail) => mainWindow?.webContents.send("yo-panel-tool-result", id, detail),
-        onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
-        onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
-      });
-    }
   };
   yoInterceptor.setPanelOpener(openYoPanel);
   callbacks.openYoPanel = openYoPanel;
@@ -1725,45 +1109,6 @@ async function boot() {
     yoInterceptor.activate(childWc, panelId);
   });
 
-  // Wire tab manager to yo agent (must be after tab system is set up)
-  yoAgent.setTabManager({
-    list: () => {
-      const state = buildTabState();
-      return state.tabs.map((t: { id: string; name: string }) => ({
-        id: t.id,
-        title: t.name,
-      }));
-    },
-    switch: (id: string) => {
-      if (!mainWindow) return;
-      layoutManager.clearSplit();
-      panelManager.switchTo(id, mainWindow);
-      sendSplitState();
-      sendTabState();
-    },
-    close: (id: string) => {
-      if (!mainWindow) return;
-      const idx = openTabs.indexOf(id);
-      if (idx >= 0) openTabs.splice(idx, 1);
-      const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
-      panelManager.closePanel(id, mainWindow, nextId);
-      persistTabs();
-      sendTabState();
-    },
-    create: () => {
-      if (!mainWindow) return "no-window";
-      tabBrowserCounter++;
-      const id = `browse-${tabBrowserCounter}`;
-      const homeUrl = resolveBrowserHome();
-      panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
-      if (mainWindow) panelManager.switchTo(id, mainWindow);
-      openTabs.push(id);
-      persistTabs();
-      sendTabState();
-      return id;
-    },
-  });
-
   // Give command parser tab close/list for .dip close
   commandParser.setTabManager(
     (id) => {
@@ -1803,6 +1148,7 @@ async function boot() {
   // Start cloud sync if authenticated
   if (authenticated) {
     cloudSyncInstance = new CloudSync(noteStore);
+    cloudSyncInstance.setCaptureStore(captureStore);
     cloudSyncInstance.start();
   }
 
@@ -2048,153 +1394,55 @@ async function boot() {
 
   ipcMain.on("cmd-palette-close", () => closeCmdPalette());
 
-  // IPC: Yo agent panel
+  // IPC: Yo panel commands — route through command parser
   ipcMain.on("yo-panel-send", async (_e, message: string) => {
     const trimmed = message.trim();
-    const firstWord = trimmed.split(/\s+/)[0]?.toLowerCase();
 
-    // Route .dip, .drip, .sup, .council through the command parser instead of the agent
-    if (firstWord === ".dip" || firstWord === ".drip" || firstWord === ".sup" || firstWord === ".council"
-      || firstWord === "dip" || firstWord === "drip" || firstWord === "sup" || firstWord === "council") {
-      try {
-        const cmd = trimmed.startsWith(".") ? trimmed.slice(1) : trimmed;
-        const result = await execCommand(cmd);
-        mainWindow?.webContents.send("yo-panel-done", result || `${firstWord} done.`);
-      } catch (err: any) {
-        mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
+    // Route dot-commands (.dip, .drip, .sup, .waz) through command parser
+    if (trimmed.startsWith(".")) {
+      const firstWord = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase();
+      if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
+        try {
+          const result = await execCommand(trimmed.slice(1));
+          mainWindow?.webContents.send("yo-panel-done", result || "done.");
+        } catch (err: any) {
+          mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
+        }
+        return;
       }
-      // Keep focus on yo panel input (BrowserView can steal focus during load)
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.focus();
-      }
-      return;
     }
 
+    // Everything else goes to the yo agent
+    const wc = mainWindow?.webContents;
+    if (!wc || mainWindow!.isDestroyed()) return;
 
-    yoAgent?.send(message, {
-      onText: (delta) => mainWindow?.webContents.send("yo-panel-token", delta),
-      onToolUse: (id, name, input) => mainWindow?.webContents.send("yo-panel-tool-use", id, name, input),
-      onToolResult: (id, detail) => mainWindow?.webContents.send("yo-panel-tool-result", id, detail),
-      onDone: (text) => mainWindow?.webContents.send("yo-panel-done", text),
-      onError: (err) => mainWindow?.webContents.send("yo-panel-error", err),
+    yoAgent.send(trimmed, {
+      onText: (delta) => wc.send("yo-panel-token", delta),
+      onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
+      onToolResult: (id, detail) => wc.send("yo-panel-tool-result", id, detail),
+      onDone: (fullText) => wc.send("yo-panel-done", fullText),
+      onError: (err) => wc.send("yo-panel-error", err),
     });
   });
 
-
   ipcMain.on("yo-panel-stop", () => {
-    yoAgent?.abort();
-    // Reject any pending approvals so they don't hang
-    for (const [id, pending] of pendingApprovals) {
-      pending.resolve(false);
-    }
-    pendingApprovals.clear();
+    yoAgent.abort();
   });
 
-  // Agent mode + guardrails IPC
-  ipcMain.handle("get-agent-mode", () => yoAgent?.getMode() || getAgentMode());
-  ipcMain.on("set-agent-mode", (_e, mode: string) => {
-    setPreference("agentMode", mode);
-    yoAgent?.setMode(mode as AgentMode);
-    yoInterceptor.setModeColor(MODE_COLORS[mode] || MODE_COLORS.ask);
-  });
-  ipcMain.handle("get-tool-registry", () => getToolRegistry());
-  ipcMain.on("set-tool-override", (_e, toolName: string, override: string) => {
-    const overrides = getPreference<Record<string, string>>("toolOverrides", {});
-    if (override === "default") {
-      delete overrides[toolName];
-    } else {
-      overrides[toolName] = override;
-    }
-    setPreference("toolOverrides", overrides);
-  });
-
-  // ── MCP Server IPC ──────────────────────────────────────
-  ipcMain.handle("mcp-get-presets", () => MCP_PRESETS);
-  ipcMain.handle("mcp-get-servers", () => mcpManager.getServerStates().map((s) => ({
-    config: s.config,
-    status: s.status,
-    error: s.error,
-    tools: s.tools.map((t) => ({ name: t.name, description: t.description })),
-  })));
-  ipcMain.handle("mcp-add-server", (_e, config: McpServerConfig) => {
-    mcpManager.addServer(config);
-    if (config.enabled) {
-      mcpManager.connectServer(config).catch(() => {});
-    }
-    return true;
-  });
-  ipcMain.handle("mcp-remove-server", (_e, id: string) => {
-    mcpManager.removeServer(id);
-    return true;
-  });
-  ipcMain.handle("mcp-update-server", (_e, id: string, updates: Partial<McpServerConfig>) => {
-    mcpManager.updateServer(id, updates);
-    return true;
-  });
-  ipcMain.handle("mcp-connect-server", async (_e, id: string) => {
-    const config = mcpManager.getConfigs().find((c) => c.id === id);
-    if (!config) return { ok: false, error: "Server not found" };
-    try {
-      await mcpManager.connectServer(config);
-      mcpManager.updateServer(id, { enabled: true });
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-  ipcMain.handle("mcp-disconnect-server", async (_e, id: string) => {
-    await mcpManager.disconnectServer(id);
-    mcpManager.updateServer(id, { enabled: false });
-    return true;
-  });
-  ipcMain.handle("mcp-get-tool-override", (_e, serverId: string, toolName: string) => {
-    return mcpManager.getToolOverride(serverId, toolName);
-  });
-  ipcMain.on("mcp-set-tool-override", (_e, serverId: string, toolName: string, override: string) => {
-    mcpManager.setToolOverride(serverId, toolName, override as "default" | "auto" | "ask");
-  });
-  ipcMain.on("mcp-set-server-override", (_e, serverId: string, override: string) => {
-    mcpManager.setServerOverride(serverId, override as "default" | "auto" | "ask");
-  });
-
-  // ── Connectors IPC ──────────────────────────────────────
-  ipcMain.handle("connectors-get-apps", async (_e, search?: string, offset?: number) => {
-    return connectorManager.getApps(search, offset);
-  });
-  ipcMain.handle("connectors-get-accounts", async () => {
-    return connectorManager.getAccounts();
-  });
-  ipcMain.handle("connectors-connect", async (_e, appSlug: string) => {
-    return connectorManager.connectApp(appSlug);
-  });
-  ipcMain.handle("connectors-disconnect", async (_e, accountId: string) => {
-    return connectorManager.disconnectAccount(accountId);
-  });
-  ipcMain.handle("connectors-refresh-mcp", async () => {
-    await connectorManager.refreshMcp();
-    return true;
-  });
-
-  // Renderer-initiated panel open (Cmd+.) — resize BrowserViews and focus renderer
+  // Renderer-initiated panel open (Cmd+.)
   ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
+    yoAgent.clear();
     panelManager.setRightInset(yoPanelWidth());
-    // Pull focus from BrowserView to the main renderer so yo panel input can receive it
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.focus();
     }
-    if (query) {
-      yoAgent?.clear();
-      // Set active panel from current view so agent knows context
-      const activeId = panelManager.activePanelId;
-      if (activeId) yoAgent?.setActivePanel(activeId);
-      openYoPanel(query);
-    }
+    if (query) openYoPanel(query);
   });
 
   ipcMain.on("yo-panel-dismiss", () => {
+    yoAgent.clear();
     mainWindow?.webContents.send("yo-panel-close");
     panelManager.setRightInset(0);
-    yoAgent?.clear();
   });
 
   // IPC: Yo panel resize
@@ -2206,6 +1454,55 @@ async function boot() {
   });
   ipcMain.handle("yo-panel-get-width", () => {
     return getPreference<number>("yoPanelWidth", 380);
+  });
+
+  // IPC: Agent mode + guardrails
+  ipcMain.handle("get-agent-mode", () => yoAgent.getMode());
+  ipcMain.on("set-agent-mode", (_e, mode: string) => {
+    yoAgent.setMode(mode as any);
+    setPreference("agentMode", mode);
+    mainWindow?.webContents.send("agent-mode-changed", mode);
+  });
+  ipcMain.handle("get-tool-registry", () => {
+    const { getToolRegistry } = require("./action-gate");
+    return getToolRegistry();
+  });
+  ipcMain.on("set-tool-override", (_e, toolName: string, override: string) => {
+    const overrides = getPreference<Record<string, string>>("toolOverrides", {});
+    if (override === "default") {
+      delete overrides[toolName];
+    } else {
+      overrides[toolName] = override;
+    }
+    setPreference("toolOverrides", overrides);
+  });
+
+  // Approval system — pending approvals map + IPC
+  const pendingApprovals = new Map<string, (approved: boolean) => void>();
+  let approvalCounter = 0;
+
+  yoAgent.setApprovalCallback(async (toolName, input) => {
+    const id = `approval-${++approvalCounter}`;
+    const { TOOL_LABELS } = require("./action-gate");
+    const toolLabel = TOOL_LABELS[toolName] || toolName;
+    mainWindow?.webContents.send("approval-request", id, toolName, toolLabel, input);
+    return new Promise<boolean>((resolve) => {
+      pendingApprovals.set(id, resolve);
+      setTimeout(() => {
+        if (pendingApprovals.has(id)) {
+          pendingApprovals.delete(id);
+          resolve(false);
+        }
+      }, 60000);
+    });
+  });
+
+  ipcMain.on("approval-respond", (_e, id: string, approved: boolean) => {
+    const resolve = pendingApprovals.get(id);
+    if (resolve) {
+      pendingApprovals.delete(id);
+      resolve(approved);
+    }
   });
 
   // IPC: Voice transcription (local Whisper)
@@ -2221,17 +1518,11 @@ async function boot() {
   });
 
   // IPC: Yo chat history
-  ipcMain.handle("yo-chats-list", () => yoAgent?.listChats() || []);
-  ipcMain.handle("yo-chats-load", (_e, id: string) => {
-    if (!yoAgent) return null;
-    return yoAgent.loadChat(id);
-  });
-  ipcMain.handle("yo-chats-delete", (_e, id: string) => yoAgent?.deleteChat(id) || false);
+  ipcMain.handle("yo-chats-list", () => yoAgent.listChats());
+  ipcMain.handle("yo-chats-load", (_e, id: string) => yoAgent.loadChat(id));
+  ipcMain.handle("yo-chats-delete", (_e, id: string) => yoAgent.deleteChat(id));
   ipcMain.handle("yo-chats-search", () => []);
-  ipcMain.handle("yo-chat-new", () => {
-    yoAgent?.clear();
-    return true;
-  });
+  ipcMain.handle("yo-chat-new", () => { yoAgent.clear(); return true; });
 
   // IPC: skills CRUD
   ipcMain.handle("skills-list", () => skillEngine.listSkills());
@@ -2328,7 +1619,7 @@ async function boot() {
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
-  ipcMain.handle("apps-set-connected-slug", (_e, id: string, slug: string | null) => appConnector.updateConnectedSlug(id, slug));
+  ipcMain.handle("apps-set-connected-slug", () => false);
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);
@@ -2668,10 +1959,6 @@ async function boot() {
   // IPC: preferences
   ipcMain.on("set-preference", (_e, key: string, value: unknown) => {
     setPreference(key, value);
-    // Live-apply sub-agent model changes
-    if (key === "subAgentModel") {
-      yoAgent?.setSubAgentModel(value as string);
-    }
     // Live-apply remote mode toggle
     if (key === "remoteEnabled") {
       if (value) voiceRelay?.start();
@@ -2814,8 +2101,7 @@ function cleanupAll() {
   configSync = null;
   terminalManager?.killAll();
   vscodeServer?.stop();
-  mcpManager?.disconnectAll().catch(() => {});
-  connectorManager?.cleanup();
+  embedder?.cleanup();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

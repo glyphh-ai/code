@@ -29,10 +29,21 @@ export class SessionCache {
   private _label = "";
   private _fileName = "";
   private _onCapture: ((appId: string, content: string) => void) | null = null;
+  private _onRawCapture: ((appId: string, content: string) => void) | null = null;
 
-  /** Register callback fired on every capture. */
+  /** Register callback fired on every capture (cleaned content for skills/display). */
   setOnCapture(fn: (appId: string, content: string) => void): void {
     this._onCapture = fn;
+  }
+
+  /** Register callback for raw body text capture (for search indexing). */
+  setOnRawCapture(fn: (appId: string, content: string) => void): void {
+    this._onRawCapture = fn;
+  }
+
+  /** Fire the raw capture callback directly (called by interceptor/grabber). */
+  rawCapture(appId: string, content: string): void {
+    if (this._onRawCapture) this._onRawCapture(appId, content);
   }
 
   /** Add captured content from a panel. Replaces any existing entry from the same app. */

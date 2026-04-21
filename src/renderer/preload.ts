@@ -152,7 +152,7 @@ contextBridge.exposeInMainWorld("yo", {
   transcribeAudio: (audioBuffer: ArrayBuffer) =>
     ipcRenderer.invoke("transcribe-audio", audioBuffer) as Promise<{ ok: boolean; text?: string; error?: string }>,
 
-  // Yo agent panel
+  // Yo panel
   yoPanelOpen: (query: string) => ipcRenderer.send("yo-panel-open-from-renderer", query),
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
   yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
@@ -179,6 +179,25 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
 
+  // Yo chat history
+  yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
+  yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>,
+  yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
+  yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
+
+  // Agent mode + guardrails
+  getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<string>,
+  setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
+  onAgentModeChanged: (cb: (mode: string) => void) => {
+    ipcRenderer.on("agent-mode-changed", (_e, mode) => cb(mode));
+  },
+  getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>,
+  setToolOverride: (toolName: string, override: string) => ipcRenderer.send("set-tool-override", toolName, override),
+  onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => {
+    ipcRenderer.on("approval-request", (_e, id, toolName, toolLabel, input) => cb(id, toolName, toolLabel, input));
+  },
+  approvalRespond: (id: string, approved: boolean) => ipcRenderer.send("approval-respond", id, approved),
+
   // URL bar
   urlBarNavigate: (url: string) => ipcRenderer.send("url-bar-navigate", url),
   urlBarBack: () => ipcRenderer.send("url-bar-back"),
@@ -204,50 +223,24 @@ contextBridge.exposeInMainWorld("yo", {
   yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
   yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
 
-  // Agent mode + guardrails
-  getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<string>,
-  setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
-  onAgentModeChanged: (cb: (mode: string) => void) => {
-    ipcRenderer.on("agent-mode-changed", (_e, mode) => cb(mode));
-  },
-  getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>,
-  setToolOverride: (toolName: string, override: string) => ipcRenderer.send("set-tool-override", toolName, override),
-  onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => {
-    ipcRenderer.on("approval-request", (_e, id, toolName, toolLabel, input) => cb(id, toolName, toolLabel, input));
-  },
-  approvalRespond: (id: string, approved: boolean) => ipcRenderer.send("approval-respond", id, approved),
-
-  // MCP servers
-  mcpGetPresets: () => ipcRenderer.invoke("mcp-get-presets") as Promise<Array<{ id: string; name: string; description: string; transport: string; command: string; args: string[]; configHint?: string }>>,
-  mcpGetServers: () => ipcRenderer.invoke("mcp-get-servers") as Promise<Array<{
-    config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean };
-    status: string;
-    error?: string;
-    tools: Array<{ name: string; description?: string }>;
-  }>>,
-  mcpAddServer: (config: Record<string, unknown>) => ipcRenderer.invoke("mcp-add-server", config) as Promise<boolean>,
-  mcpRemoveServer: (id: string) => ipcRenderer.invoke("mcp-remove-server", id) as Promise<boolean>,
-  mcpUpdateServer: (id: string, updates: Record<string, unknown>) => ipcRenderer.invoke("mcp-update-server", id, updates) as Promise<boolean>,
-  mcpConnectServer: (id: string) => ipcRenderer.invoke("mcp-connect-server", id) as Promise<{ ok: boolean; error?: string }>,
-  mcpDisconnectServer: (id: string) => ipcRenderer.invoke("mcp-disconnect-server", id) as Promise<boolean>,
-  mcpGetToolOverride: (serverId: string, toolName: string) => ipcRenderer.invoke("mcp-get-tool-override", serverId, toolName) as Promise<string>,
-  mcpSetToolOverride: (serverId: string, toolName: string, override: string) => ipcRenderer.send("mcp-set-tool-override", serverId, toolName, override),
-  mcpSetServerOverride: (serverId: string, override: string) => ipcRenderer.send("mcp-set-server-override", serverId, override),
-  onMcpChanged: (cb: () => void) => { ipcRenderer.on("mcp-changed", () => cb()); },
-
-  // Connectors (Pipedream Connect)
-  connectorsGetApps: (search?: string, offset?: number) => ipcRenderer.invoke("connectors-get-apps", search, offset) as Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>,
-  connectorsGetAccounts: () => ipcRenderer.invoke("connectors-get-accounts") as Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>,
-  connectorsConnect: (appSlug: string) => ipcRenderer.invoke("connectors-connect", appSlug) as Promise<{ ok: boolean; error?: string }>,
-  connectorsDisconnect: (accountId: string) => ipcRenderer.invoke("connectors-disconnect", accountId) as Promise<boolean>,
-  connectorsRefreshMcp: () => ipcRenderer.invoke("connectors-refresh-mcp") as Promise<boolean>,
-  onConnectorsChanged: (cb: () => void) => { ipcRenderer.on("connectors-changed", () => cb()); },
-
-  // Yo chat history
-  yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
-  yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>,
-  yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
-  yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
+  // MCP + Connectors (removed — stubs for renderer compat)
+  mcpGetPresets: () => Promise.resolve([]),
+  mcpGetServers: () => Promise.resolve([]),
+  mcpAddServer: () => Promise.resolve(false),
+  mcpRemoveServer: () => Promise.resolve(false),
+  mcpUpdateServer: () => Promise.resolve(false),
+  mcpConnectServer: () => Promise.resolve({ ok: false, error: "MCP removed" }),
+  mcpDisconnectServer: () => Promise.resolve(false),
+  mcpGetToolOverride: () => Promise.resolve("default"),
+  mcpSetToolOverride: () => {},
+  mcpSetServerOverride: () => {},
+  onMcpChanged: () => {},
+  connectorsGetApps: () => Promise.resolve({ apps: [], hasMore: false }),
+  connectorsGetAccounts: () => Promise.resolve([]),
+  connectorsConnect: () => Promise.resolve({ ok: false, error: "Connectors removed" }),
+  connectorsDisconnect: () => Promise.resolve(false),
+  connectorsRefreshMcp: () => Promise.resolve(false),
+  onConnectorsChanged: () => {},
 
   // Auto-update
   onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => {

@@ -34,7 +34,6 @@ export class CommandParser {
   private wcGetter: ((panelId: string) => WebContents | null) | null = null;
   private tabCloser: ((id: string) => void) | null = null;
   private tabLister: (() => string[]) | null = null;
-  private toolExecutor: ((toolName: string, args: Record<string, unknown>) => Promise<string>) | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -82,11 +81,6 @@ export class CommandParser {
   setTabManager(closer: (id: string) => void, lister: () => string[]): void {
     this.tabCloser = closer;
     this.tabLister = lister;
-  }
-
-  /** Set the tool executor for .waz direct tool execution. */
-  setToolExecutor(fn: (toolName: string, args: Record<string, unknown>) => Promise<string>): void {
-    this.toolExecutor = fn;
   }
 
   /** Split input at dot-prefixed command keyword boundaries for chaining.
@@ -535,50 +529,6 @@ export class CommandParser {
         })),
       });
       return `Layout saved: ${name}`;
-    }
-
-    // .waz <tool_name> [json_args] — direct tool execution
-    // Detect if first arg looks like a tool name (contains underscores or mcp__ prefix)
-    if (this.toolExecutor) {
-      const toolName = first;
-      let toolArgs: Record<string, unknown> = {};
-
-      // If there are more args, try to parse them as JSON
-      if (args.length > 1) {
-        const rest = args.slice(1).join(" ");
-        try {
-          toolArgs = JSON.parse(rest);
-        } catch {
-          // If not JSON, wrap as a single string argument
-          // Try common patterns: key=value pairs
-          const kvPairs = rest.match(/(\w+)=("[^"]*"|'[^']*'|\S+)/g);
-          if (kvPairs) {
-            for (const pair of kvPairs) {
-              const eq = pair.indexOf("=");
-              const key = pair.slice(0, eq);
-              let val: string = pair.slice(eq + 1);
-              // Strip quotes
-              if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-                val = val.slice(1, -1);
-              }
-              toolArgs[key] = val;
-            }
-          } else {
-            // Single value — pass as the first likely parameter
-            toolArgs = { _input: rest };
-          }
-        }
-      }
-
-      try {
-        const result = await this.toolExecutor(toolName, toolArgs);
-        if (result && !result.startsWith("Unknown tool:")) {
-          return result;
-        }
-        // Fall through to app command if tool not found
-      } catch {
-        // Fall through to app command
-      }
     }
 
     // Determine target app + command
