@@ -19,6 +19,7 @@ export interface McpServerConfig {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  headers?: Record<string, string>;
   enabled: boolean;
 }
 
@@ -131,7 +132,9 @@ export class McpManager extends EventEmitter {
   }
 
   private saveConfigs(configs: McpServerConfig[]): void {
-    setPreference("mcpServers", configs);
+    // Strip runtime-only fields (headers may contain auth tokens)
+    const safe = configs.map(({ headers: _h, ...rest }) => rest);
+    setPreference("mcpServers", safe);
   }
 
   addServer(config: McpServerConfig): void {
@@ -193,6 +196,7 @@ export class McpManager extends EventEmitter {
       args: config.args,
       env: config.env,
       url: config.url,
+      headers: config.headers,
     });
 
     this.servers.set(config.id, { client, state });

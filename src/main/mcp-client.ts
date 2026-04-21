@@ -53,6 +53,7 @@ export interface McpClientOptions {
   env?: Record<string, string>;
   // sse
   url?: string;
+  headers?: Record<string, string>;
 }
 
 // ── MCP Client ─────────────────────────────────────────────
@@ -161,7 +162,7 @@ export class McpClient extends EventEmitter {
 
     // SSE: GET the endpoint to receive server messages
     const response = await fetch(url, {
-      headers: { Accept: "text/event-stream" },
+      headers: { Accept: "text/event-stream", ...this.options.headers },
       signal: this.sseAbort.signal,
     });
 
@@ -283,7 +284,7 @@ export class McpClient extends EventEmitter {
       if (!this.sseMessageEndpoint) throw new Error("SSE endpoint not established");
       fetch(this.sseMessageEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.options.headers },
         body: json,
       }).catch((err) => this.emit("error", err));
     }

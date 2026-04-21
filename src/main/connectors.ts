@@ -265,42 +265,47 @@ export class ConnectorManager extends EventEmitter {
    * Pipedream exposes tools via a single SSE MCP endpoint per user.
    * The yo-server returns the MCP endpoint URL for the authenticated user.
    */
-  async refreshMcp(): Promise<void> {
-    if (!this.mcpManager) return;
+  async refreshMcp(): Promise<{ ok: boolean; error?: string; toolCount: number }> {
+    if (!this.mcpManager) return { ok: false, error: "MCP manager not available", toolCount: 0 };
 
     // Get MCP endpoint from yo-server
     try {
       const res = await serverGetAuthed<{
         ok: boolean;
         mcpUrl?: string;
+        mcpToken?: string;
         hasAccounts?: boolean;
         error?: string;
       }>("/api/connectors/mcp-endpoint");
 
       if (!res.ok || !res.mcpUrl) {
-        // No MCP endpoint — maybe no accounts. Remove server if it exists.
         const existing = this.mcpManager.getConfigs().find((c) => c.id === PIPEDREAM_SERVER_ID);
         if (existing) {
           this.mcpManager.removeServer(PIPEDREAM_SERVER_ID);
         }
-        return;
+        return { ok: false, error: `Server returned: ${res.error || "no MCP URL"}`, toolCount: 0 };
       }
 
       if (!res.hasAccounts) {
-        // No connected accounts — remove server if present
         const existing = this.mcpManager.getConfigs().find((c) => c.id === PIPEDREAM_SERVER_ID);
         if (existing) {
           this.mcpManager.removeServer(PIPEDREAM_SERVER_ID);
         }
-        return;
+        return { ok: false, error: "No connected accounts on server", toolCount: 0 };
       }
 
       // Add or update the Pipedream MCP server
+      const headers: Record<string, string> = {};
+      if (res.mcpToken) {
+        headers["Authorization"] = `Bearer ${res.mcpToken}`;
+      }
+
       const config = {
         id: PIPEDREAM_SERVER_ID,
         name: PIPEDREAM_SERVER_NAME,
         transport: "sse" as const,
         url: res.mcpUrl,
+        headers,
         enabled: true,
       };
 
@@ -309,11 +314,19 @@ export class ConnectorManager extends EventEmitter {
       // Reconnect to pick up new/removed tools
       try {
         await this.mcpManager.connectServer(config);
+        const state = this.mcpManager.getServerState(PIPEDREAM_SERVER_ID);
+        const toolCount = state?.tools.length || 0;
+        console.log(`[connectors] MCP refresh: status=${state?.status}, tools=${toolCount}, url=${res.mcpUrl}`);
+        return { ok: state?.status === "connected", error: state?.error, toolCount };
       } catch (err) {
-        console.error("Pipedream MCP connect error:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("Pipedream MCP connect error:", msg);
+        return { ok: false, error: msg, toolCount: 0 };
       }
     } catch (err) {
-      console.error("Connectors MCP refresh error:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Connectors MCP refresh error:", msg);
+      return { ok: false, error: msg, toolCount: 0 };
     }
   }
 

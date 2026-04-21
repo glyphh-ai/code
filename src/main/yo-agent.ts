@@ -47,17 +47,19 @@ ACTION PRIORITY (strict — follow this order):
 3. Navigation — scan_panel → click_element → type_text for visual interaction only (UI that has no MCP equivalent)
 4. grab_panel — LAST RESORT. Costs ~10K tokens per call. ONLY when user explicitly asks via .sup or you truly need full page text that no MCP tool can provide.
 
-CRITICAL: If an MCP tool exists for the task, ALWAYS use it instead of navigating a panel. Examples:
-- "find emails from anthropic" → use MCP gmail tool, NOT open Gmail panel + grab
-- "create a calendar event" → use MCP calendar tool, NOT navigate to Google Calendar
-- "send a slack message" → use MCP slack tool, NOT open Slack panel + type
+CRITICAL RULES:
+- If an MCP tool exists for the task, ALWAYS use it. NEVER open a panel, navigate, or grab content for something MCP can do.
+- After connect_app succeeds, MCP tools ARE available. Use them immediately. NEVER fall back to navigation after connecting.
+- NEVER open_panel or delegate_navigator for apps that have MCP tools (email, calendar, slack, etc.).
+- The ONLY reason to navigate a panel is for visual UI interaction that has no MCP equivalent (e.g. clicking a specific UI button).
 
 APP AWARENESS:
 - Before interacting with any app, call resolve_app to check if MCP tools exist.
-- If the app is connected → use MCP tools directly.
-- If not connected but available in Pipedream → offer to connect via connect_app.
-- If no Pipedream connector → fall back to panel navigation.
-- If multiple matches → ask the user which app they mean.
+- If resolve_app shows MCP tools → use them directly. Done.
+- If resolve_app shows a connected account but no tools yet → try calling the MCP tool directly anyway.
+- If not connected but available in Pipedream → offer to connect via connect_app, then use the MCP tools.
+- If no Pipedream connector → ONLY THEN fall back to panel navigation.
+- If multiple Pipedream matches → ask the user which app they mean.
 
 TOOLS:
 - resolve_app: check an app's MCP tools + connection status. Call before app interactions.
@@ -1235,10 +1237,55 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!searchTerm) return "No intent or app_hint provided.";
 
     const lines: string[] = [`APP RESOLUTION for "${searchTerm}":`];
-
-    // 1. Fuzzy match against panel apps
-    const panelApps = this._appConnector?.list() || [];
     const term = searchTerm.toLowerCase();
+    const accounts = this.connectorManager ? await this.connectorManager.getAccounts() : [];
+    const allTools = this.mcpManager?.getAllTools() || [];
+
+    // 1. Check MCP tools first — if tools exist for this app, that's the answer
+    const matchingTools = allTools.filter((t) => {
+      const n = t.name.toLowerCase();
+      const d = t.description.toLowerCase();
+      return n.includes(term) || d.includes(term) || term.split(/[\s_-]+/).some((w) => n.includes(w));
+    });
+
+    if (matchingTools.length > 0) {
+      lines.push(`\nMCP TOOLS AVAILABLE (${matchingTools.length}) — use these directly:`);
+      for (const t of matchingTools.slice(0, 15)) {
+        lines.push(`  - ${t.qualifiedName}: ${t.description}`);
+      }
+      if (matchingTools.length > 15) lines.push(`  ... and ${matchingTools.length - 15} more`);
+      lines.push(`\nAction: USE THESE MCP TOOLS. Do NOT open panels or navigate.`);
+      return lines.join("\n");
+    }
+
+    // 2. Check connected accounts — an account may exist even without panel app linkage
+    const matchingAccounts = accounts.filter((a) => {
+      const slug = a.appSlug.toLowerCase();
+      return slug.includes(term) || term.includes(slug.replace(/_/g, "").replace(/v\d+$/, ""));
+    });
+
+    if (matchingAccounts.length > 0) {
+      lines.push(`\nConnected Pipedream accounts:`);
+      for (const a of matchingAccounts) {
+        lines.push(`  - ${a.appSlug} (healthy: ${a.healthy})`);
+      }
+      const serverState = this.mcpManager?.getServerState("pipedream-connect");
+      if (serverState) {
+        lines.push(`\nMCP server status: ${serverState.status}${serverState.error ? ` — error: ${serverState.error}` : ""}`);
+        if (serverState.status !== "connected") {
+          lines.push(`The MCP server is NOT connected. Tell the user: "Your ${searchTerm} account is connected but the MCP server isn't working. Try restarting yo or checking MCP settings."`);
+        } else if (serverState.tools.length === 0) {
+          lines.push(`MCP server connected but reports 0 tools. The Pipedream endpoint may be loading.`);
+        }
+      } else {
+        lines.push(`\nMCP server "pipedream-connect" does not exist. The MCP bridge may not have initialized.`);
+        lines.push(`Tell the user: "Your ${searchTerm} account is connected but MCP isn't set up. Try restarting yo."`);
+      }
+      return lines.join("\n");
+    }
+
+    // 3. Fuzzy match against panel apps (for context, not as primary resolution)
+    const panelApps = this._appConnector?.list() || [];
     const matchedPanels = panelApps.filter((a) => {
       const id = a.id.toLowerCase();
       const name = a.name.toLowerCase();
@@ -1246,54 +1293,31 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       return id.includes(term) || name.includes(term) || term.includes(id) || term.includes(name) || url.includes(term);
     });
 
-    // 2. Check connection + MCP tools for matched panel apps
-    const accounts = this.connectorManager ? await this.connectorManager.getAccounts() : [];
-    const allTools = this.mcpManager?.getAllTools() || [];
-
-    for (const app of matchedPanels) {
-      const slug = app.connectedSlug;
-      const account = slug ? accounts.find((a) => a.appSlug === slug) : null;
-      const tools = slug ? allTools.filter((t) => t.name.startsWith(slug.replace(/-/g, "_"))) : [];
-
-      lines.push(`\nPanel app: ${app.id} (${app.name}) — ${app.url}`);
-      if (account) {
-        lines.push(`Connected: yes (slug: ${slug}, healthy: ${account.healthy})`);
-        if (tools.length > 0) {
-          lines.push(`MCP tools (${tools.length}):`);
-          for (const t of tools.slice(0, 10)) {
-            lines.push(`  - ${t.qualifiedName}: ${t.description}`);
-          }
-          if (tools.length > 10) lines.push(`  ... and ${tools.length - 10} more`);
-          lines.push(`Action: Use MCP tools directly.`);
-        } else {
-          lines.push(`MCP tools: none discovered yet (try after MCP refresh)`);
-        }
-      } else {
-        lines.push(`Connected: no`);
-        lines.push(`Action: Call connect_app to enable MCP tools.`);
+    if (matchedPanels.length > 0) {
+      lines.push(`\nPanel apps found (no MCP tools available):`);
+      for (const app of matchedPanels) {
+        lines.push(`  - ${app.id} (${app.name})`);
       }
     }
 
-    // 3. Search Pipedream catalog for matches (always, to show what's connectable)
+    // 4. Search Pipedream catalog for connectable apps
     if (this.connectorManager) {
       try {
         const catalog = await this.connectorManager.getApps(searchTerm);
         if (catalog.apps.length > 0) {
-          lines.push(`\nPipedream catalog matches:`);
+          lines.push(`\nPipedream connectors available:`);
           for (const app of catalog.apps.slice(0, 5)) {
-            const isConnected = accounts.some((a) => a.appSlug === app.id);
-            lines.push(`  - ${app.id}: ${app.name} — ${app.description}${isConnected ? " [already connected]" : ""}`);
+            lines.push(`  - ${app.id}: ${app.name} — ${app.description}`);
           }
-          const unconnectedApps = catalog.apps.filter((a) => !accounts.some((ac) => ac.appSlug === a.id));
-          if (unconnectedApps.length > 1) {
+          if (catalog.apps.length > 1) {
             lines.push(`\nMULTIPLE OPTIONS — ask the user which one they want before calling connect_app.`);
-          } else if (unconnectedApps.length === 1) {
-            const slug = unconnectedApps[0].id;
+          } else {
+            const slug = catalog.apps[0].id;
             const panelId = matchedPanels[0]?.id;
             lines.push(`\nTo connect: call connect_app with app_slug="${slug}"${panelId ? ` and panel_app_id="${panelId}"` : ""}.`);
           }
         } else if (matchedPanels.length === 0) {
-          lines.push(`\nNo Pipedream connector found. Use panel navigation (scan_panel, click_element, type_text) instead.`);
+          lines.push(`\nNo Pipedream connector found. Use panel navigation instead.`);
         }
       } catch {
         // Catalog search failed — continue with what we have
@@ -1320,26 +1344,47 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
       return `Failed to connect ${appSlug}: ${result.error || "unknown error"}`;
     }
 
-    // Save the slug association on the panel app
-    if (panelAppId && this._appConnector) {
-      this._appConnector.updateConnectedSlug(panelAppId, appSlug);
+    // Auto-link matching panel apps (fuzzy match slug against panel app ids/names)
+    if (this._appConnector) {
+      const slugBase = appSlug.replace(/_v\d+$/, "").replace(/_/g, "");
+      for (const app of this._appConnector.list()) {
+        if (app.connectedSlug) continue;
+        const id = app.id.toLowerCase().replace(/-/g, "");
+        const name = app.name.toLowerCase().replace(/\s/g, "");
+        if (id.includes(slugBase) || slugBase.includes(id) || name.includes(slugBase) || slugBase.includes(name)) {
+          this._appConnector.updateConnectedSlug(app.id, appSlug);
+        }
+      }
+      if (panelAppId) {
+        this._appConnector.updateConnectedSlug(panelAppId, appSlug);
+      }
     }
 
-    // Report newly available MCP tools
-    const allTools = this.mcpManager?.getAllTools() || [];
-    const slugPrefix = appSlug.replace(/-/g, "_");
-    const newTools = allTools.filter((t) => t.name.startsWith(slugPrefix));
+    // connectApp already calls refreshMcp internally. Check server state.
+    const serverState = this.mcpManager?.getServerState("pipedream-connect");
+    const lines = [`Successfully connected ${appSlug} (OAuth complete).`];
 
-    const lines = [`Successfully connected ${appSlug}.`];
-    if (newTools.length > 0) {
-      lines.push(`New MCP tools available (${newTools.length}):`);
-      for (const t of newTools.slice(0, 10)) {
-        lines.push(`  - ${t.qualifiedName}: ${t.description}`);
+    if (serverState?.status === "connected" && serverState.tools.length > 0) {
+      const slugPrefix = appSlug.replace(/-/g, "_");
+      const newTools = serverState.tools.filter((t) => t.name.startsWith(slugPrefix));
+      if (newTools.length > 0) {
+        lines.push(`\nMCP tools now available (${newTools.length}):`);
+        for (const t of newTools.slice(0, 15)) {
+          lines.push(`  - mcp__pipedream-connect__${t.name}: ${t.description || ""}`);
+        }
+        if (newTools.length > 15) lines.push(`  ... and ${newTools.length - 15} more`);
+      } else {
+        lines.push(`\nMCP server connected with ${serverState.tools.length} total tools, but none match "${appSlug}" prefix.`);
+        lines.push(`Available tool prefixes: ${[...new Set(serverState.tools.map((t) => t.name.split("-")[0]))].join(", ")}`);
       }
-      if (newTools.length > 10) lines.push(`  ... and ${newTools.length - 10} more`);
-      lines.push(`You can now use these tools directly.`);
+      lines.push(`\nIMPORTANT: Use these MCP tools for all ${appSlug} actions. Do NOT open panels or navigate.`);
+    } else if (serverState) {
+      lines.push(`\nMCP server status: ${serverState.status}${serverState.error ? ` (${serverState.error})` : ""}`);
+      lines.push(`The MCP connection to Pipedream failed or is still loading.`);
+      lines.push(`Tell the user: "The app is connected but MCP tools aren't loading. Try restarting yo or checking the MCP settings."`);
     } else {
-      lines.push(`MCP tools may take a moment to appear. Try using them in your next action.`);
+      lines.push(`\nMCP server not found — refreshMcp may have failed.`);
+      lines.push(`Tell the user: "The app connected but the MCP server didn't start. Try restarting yo."`);
     }
     return lines.join("\n");
   }
