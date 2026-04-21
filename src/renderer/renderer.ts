@@ -2056,7 +2056,7 @@ window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
 
 // -- Boot gate --
 
-// Splash — waits for embedder to be ready before dismissing
+// Splash — minimum display time before dismissing
 const splashShownAt = Date.now();
 const SPLASH_MIN_MS = 2000;
 let booted = false;

@@ -17,7 +17,6 @@ import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
-import { Library } from "./library";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
@@ -737,7 +736,7 @@ async function boot() {
     });
   }
 
-  // Note store + memory store + embedder (flat files with vector search)
+  // Note store + memory store (flat files with keyword search)
   noteStore = new NoteStore();
   const memoryStore = new MemoryStore();
 
@@ -1803,8 +1802,7 @@ async function boot() {
 
   // Start cloud sync if authenticated
   if (authenticated) {
-    const library = new Library();
-    cloudSyncInstance = new CloudSync(library);
+    cloudSyncInstance = new CloudSync(noteStore);
     cloudSyncInstance.start();
   }
 

@@ -1,11 +1,11 @@
 /**
- * CloudSync — polls yo.yo.dev/api/pending, pulls new captures
- * to ~/yo/library/, then ACKs so the cloud deletes them.
+ * CloudSync — polls yo.yo.dev/api/pending, pulls new items
+ * to ~/yo/notes/, then ACKs so the cloud deletes them.
  *
  * Cloud is transient. Local is source of truth.
  */
 
-import { Library } from "./library";
+import { NoteStore } from "./note-store";
 import { getPreference } from "./preferences";
 
 interface PendingItem {
@@ -19,12 +19,12 @@ const POLL_INTERVAL_MS = 7_000; // ~7 seconds
 const DEFAULT_SERVER = "https://yo.yo.dev";
 
 export class CloudSync {
-  private library: Library;
+  private noteStore: NoteStore;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
-  constructor(library: Library) {
-    this.library = library;
+  constructor(noteStore: NoteStore) {
+    this.noteStore = noteStore;
   }
 
   start(): void {
@@ -83,9 +83,9 @@ export class CloudSync {
       const items = (await res.json()) as PendingItem[];
       if (items.length === 0) return;
 
-      // 2. Write each to local library
+      // 2. Write each to local notes
       for (const item of items) {
-        this.library.write(item.name, item.content);
+        await this.noteStore.write(item.name, item.content, "cloud-sync");
       }
 
       // 3. ACK all fetched IDs

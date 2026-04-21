@@ -30,7 +30,7 @@ export class SessionCache {
   private _fileName = "";
   private _onCapture: ((appId: string, content: string) => void) | null = null;
 
-  /** Register callback fired on every capture (for unified store ingestion). */
+  /** Register callback fired on every capture. */
   setOnCapture(fn: (appId: string, content: string) => void): void {
     this._onCapture = fn;
   }
