@@ -274,6 +274,7 @@ export class ConnectorManager extends EventEmitter {
         ok: boolean;
         mcpUrl?: string;
         mcpToken?: string;
+        mcpHeaders?: Record<string, string>;
         hasAccounts?: boolean;
         error?: string;
       }>("/api/connectors/mcp-endpoint");
@@ -294,8 +295,10 @@ export class ConnectorManager extends EventEmitter {
         return { ok: false, error: "No connected accounts on server", toolCount: 0 };
       }
 
-      // Add or update the Pipedream MCP server
-      const headers: Record<string, string> = {};
+      // Build headers: Bearer auth + Pipedream-specific headers from server
+      const headers: Record<string, string> = {
+        ...(res.mcpHeaders || {}),
+      };
       if (res.mcpToken) {
         headers["Authorization"] = `Bearer ${res.mcpToken}`;
       }
