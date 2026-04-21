@@ -42,7 +42,7 @@ declare global {
       appsSetCommand: (id: string, key: string, mapping: { selector: string; action: string; description: string }) => Promise<boolean>;
       appsRemoveCommand: (id: string, key: string) => Promise<boolean>;
       appsTestCommand: (id: string, key: string) => Promise<string>;
-      startPicker: (panelId: string) => void;
+      startPicker: (wcId: number) => void;
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
       // Layouts

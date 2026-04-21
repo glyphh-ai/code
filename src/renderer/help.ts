@@ -321,15 +321,15 @@ export function initHelp() {
   document.getElementById("app-pick-btn")!.addEventListener("click", pickElement);
   document.getElementById("map-save-btn")!.addEventListener("click", saveMapping);
   document.getElementById("map-cancel-btn")!.addEventListener("click", () => {
-    document.getElementById("app-map-command")!.classList.add("hidden");
-    pickerResult = null;
+    appMapCommand.classList.add("hidden");
   });
   const mapKeySelect = document.getElementById("map-command-key") as HTMLSelectElement;
   mapKeySelect.addEventListener("change", () => {
-    const customInput = document.getElementById("map-custom-key")!;
-    customInput.classList.toggle("hidden", mapKeySelect.value !== "__custom__");
+    document.getElementById("map-custom-key")!.classList.toggle("hidden", mapKeySelect.value !== "__custom__");
   });
-  window.yo.onPickerResult(onPickerResult);
+  document.getElementById("app-preview-refresh")!.addEventListener("click", () => {
+    appPreview.reload();
+  });
 }
 
 // ── Layouts (Grid Builder) ──────────────────────────────────
@@ -646,8 +646,17 @@ let appsPage = 0;
 const appsList = document.getElementById("apps-list")!;
 const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
-const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
+const appDetailUrl = document.getElementById("app-detail-url")!;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
+const appConnectStatus = document.getElementById("app-connect-status")!;
+const appCommandsList = document.getElementById("app-commands-list")!;
+const appMapCommand = document.getElementById("app-map-command")!;
+const appPreview = document.getElementById("app-preview") as HTMLElement & {
+  src: string;
+  partition: string;
+  getWebContentsId: () => number;
+  reload: () => void;
+};
 
 let currentAppId = "";
 
@@ -716,41 +725,38 @@ function renderAppsList() {
 }
 
 
-function openPanelAppDetail(app: PanelApp) {
+async function openPanelAppDetail(app: PanelApp) {
+  currentAppId = app.id;
+  appDetailName.value = app.name;
+  appDetailUrl.textContent = app.url;
+  appConnectStatus.textContent = "";
+  appMapCommand.classList.add("hidden");
+
+  // Load app in the embedded webview preview
+  appPreview.partition = "persist:yo";
+  appPreview.src = app.url;
+
+  await refreshCommands();
   appsList.classList.add("hidden");
   document.getElementById("apps-toolbar")?.classList.add("hidden");
   appDetail.classList.remove("hidden");
-
-  currentAppId = app.id;
-  (document.getElementById("app-detail-id") as HTMLInputElement).value = app.id;
-  appDetailName.value = app.name;
-  appDetailUrl.value = app.url;
-  appDetailUrl.readOnly = false;
-
-  document.getElementById("app-detail-delete")!.classList.remove("hidden");
-
-  const forceWebToggle = document.getElementById("app-detail-force-web") as HTMLInputElement;
-  forceWebToggle.checked = !!app.forceWeb;
-
-  renderCommands();
 }
 
-async function renderCommands() {
-  const commandsList = document.getElementById("app-commands-list")!;
+async function refreshCommands() {
   const apps = await window.yo.appsList();
   const app = apps.find((a) => a.id === currentAppId);
   const commands = app?.commands || {};
   const keys = Object.keys(commands);
 
   if (keys.length === 0) {
-    commandsList.innerHTML = `<div class="inline-empty" style="margin-top:12px;">No commands mapped. Click "Pick Element" to add one.</div>`;
+    appCommandsList.innerHTML = `<div class="inline-empty">No commands mapped. Click "Pick Element" to add one.</div>`;
     return;
   }
 
-  commandsList.innerHTML = keys.map((key) => {
+  appCommandsList.innerHTML = keys.map((key) => {
     const cmd = commands[key];
     return `<div class="command-row" data-key="${key}">
-      <span class="command-key">.dip ${currentAppId} ${key}</span>
+      <span class="command-key">${key}</span>
       <span class="command-desc">${cmd.description || cmd.action}</span>
       <span class="command-selector" title="${cmd.selector}">${cmd.selector.length > 40 ? cmd.selector.slice(0, 40) + "…" : cmd.selector}</span>
       <div class="command-actions">
@@ -760,102 +766,103 @@ async function renderCommands() {
     </div>`;
   }).join("");
 
-  commandsList.querySelectorAll(".command-remove-btn").forEach((btn) => {
+  appCommandsList.querySelectorAll(".command-remove-btn").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
       await window.yo.appsRemoveCommand(currentAppId, key);
-      renderCommands();
+      refreshCommands();
     });
   });
 
-  commandsList.querySelectorAll(".command-test-btn").forEach((btn) => {
+  appCommandsList.querySelectorAll(".command-test-btn").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
       const result = await window.yo.appsTestCommand(currentAppId, key);
-      const status = document.getElementById("app-connect-status")!;
-      status.textContent = result ? `✓ ${result.slice(0, 80)}` : "✓ executed";
-      status.className = "app-connect-status success";
-      setTimeout(() => { status.textContent = ""; status.className = "app-connect-status"; }, 3000);
+      appConnectStatus.textContent = result ? `Test ${key}: ${result.slice(0, 80)}` : `Test ${key}: executed`;
+      setTimeout(() => { appConnectStatus.textContent = ""; }, 3000);
     });
   });
 }
 
-let pickerResult: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean } | null = null;
-
-function pickElement() {
-  if (!currentAppId) return;
-  // Close help overlay so the panel is visible for picking
-  overlay.classList.add("hidden");
-  window.yo.panelsShow();
-  // Small delay to let the panel render before injecting picker
-  setTimeout(() => {
-    window.yo.startPicker(currentAppId);
-  }, 300);
+function getPreviewWebContentsId(): number | undefined {
+  try { return appPreview.getWebContentsId(); } catch { return undefined; }
 }
 
-function onPickerResult(result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) {
-  pickerResult = result;
-
-  // Re-open help overlay and navigate back to the app detail
-  window.yo.panelsHide();
-  overlay.classList.remove("hidden");
-  switchToSection("apps");
-
-  // Re-open the app detail (appsList is still hidden, detail still visible from before)
-  const app = panelApps.find((a) => a.id === currentAppId);
-  if (app) {
-    appsList.classList.add("hidden");
-    document.getElementById("apps-toolbar")?.classList.add("hidden");
-    appDetail.classList.remove("hidden");
+async function pickElement() {
+  if (!currentAppId) return;
+  const wcId = getPreviewWebContentsId();
+  if (!wcId) {
+    appConnectStatus.textContent = "Preview not loaded yet.";
+    return;
   }
 
-  const mapPanel = document.getElementById("app-map-command")!;
-  mapPanel.classList.remove("hidden");
+  appConnectStatus.textContent = "Click an element in the preview...";
 
-  document.getElementById("map-selector")!.textContent = result.selector;
+  const picked = await new Promise<{
+    selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean;
+  } | null>((resolve) => {
+    window.yo.onPickerResult((result) => {
+      resolve(result);
+    });
+    window.yo.startPicker(wcId);
+  });
+
+  if (!picked) {
+    appConnectStatus.textContent = "";
+    appMapCommand.classList.add("hidden");
+    return;
+  }
+
+  appConnectStatus.textContent = "";
+
+  document.getElementById("map-selector")!.textContent = picked.selector;
   document.getElementById("map-element-info")!.textContent =
-    `${result.tag}${result.text ? " — " + result.text.slice(0, 50) : ""}`;
+    `<${picked.tag}>` +
+    `${picked.text ? ' "' + picked.text.slice(0, 60) + '"' : ""}` +
+    `${picked.isEditable ? " [editable]" : ""}${picked.isClickable ? " [clickable]" : ""}`;
 
   const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
-  if (result.isEditable) actionSelect.value = "setValue";
-  else if (result.isClickable) actionSelect.value = "click";
+  if (picked.isEditable) actionSelect.value = "setValue";
+  else if (picked.isClickable) actionSelect.value = "click";
   else actionSelect.value = "extractText";
+
+  appMapCommand.classList.remove("hidden");
+  (document.getElementById("map-command-key") as HTMLSelectElement).value = "";
+  (document.getElementById("map-description") as HTMLInputElement).value = "";
 }
 
 async function saveMapping() {
-  if (!pickerResult || !currentAppId) return;
-
   const keySelect = document.getElementById("map-command-key") as HTMLSelectElement;
   const customKeyInput = document.getElementById("map-custom-key") as HTMLInputElement;
   const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
   const descInput = document.getElementById("map-description") as HTMLInputElement;
+  const selector = document.getElementById("map-selector")!.textContent || "";
 
   let key = keySelect.value;
   if (key === "__custom__") {
     key = customKeyInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
     if (!key) { customKeyInput.focus(); return; }
   }
-  if (!key) { keySelect.focus(); return; }
+  if (!key || !selector) return;
 
   await window.yo.appsSetCommand(currentAppId, key, {
-    selector: pickerResult.selector,
+    selector,
     action: actionSelect.value,
     description: descInput.value.trim() || key,
   });
 
-  document.getElementById("app-map-command")!.classList.add("hidden");
-  pickerResult = null;
-  (document.getElementById("map-description") as HTMLInputElement).value = "";
-  (document.getElementById("map-command-key") as HTMLSelectElement).value = "";
-  (document.getElementById("map-custom-key") as HTMLInputElement).value = "";
-  (document.getElementById("map-custom-key") as HTMLInputElement).classList.add("hidden");
-  renderCommands();
+  appMapCommand.classList.add("hidden");
+  appConnectStatus.textContent = `Mapped: ${key}`;
+  setTimeout(() => { appConnectStatus.textContent = ""; }, 2000);
+  refreshCommands();
 }
 
 
 function closeAppDetail() {
+  appPreview.src = "about:blank";
+  appMapCommand.classList.add("hidden");
   appDetail.classList.add("hidden");
   appsList.classList.remove("hidden");
   document.getElementById("apps-toolbar")?.classList.remove("hidden");
@@ -889,28 +896,12 @@ function initApps() {
   });
   appDetailName.addEventListener("keydown", (e) => { if (e.key === "Enter") appDetailName.blur(); });
 
-  // Edit URL on blur
-  appDetailUrl.addEventListener("blur", async () => {
-    const url = appDetailUrl.value.trim();
-    if (currentAppId && url && panelApps.find((a) => a.id === currentAppId)) {
-      await window.yo.appsUpdateUrl(currentAppId, url);
-    }
-  });
-  appDetailUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") appDetailUrl.blur(); });
-
-  // Force Web toggle
-  document.getElementById("app-detail-force-web")!.addEventListener("change", async (e) => {
-    if (!currentAppId) return;
-    await window.yo.appsUpdateForceWeb(currentAppId, (e.target as HTMLInputElement).checked);
-  });
-
   // Delete panel app
   document.getElementById("app-detail-delete")!.addEventListener("click", async () => {
     if (!currentAppId) return;
     await window.yo.appsRemove(currentAppId);
     closeAppDetail();
   });
-
 }
 
 // ── Settings ─────────────────────────────────────────────

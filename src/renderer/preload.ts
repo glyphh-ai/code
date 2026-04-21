@@ -78,7 +78,7 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("apps-remove-command", id, key) as Promise<boolean>,
   appsTestCommand: (id: string, key: string) =>
     ipcRenderer.invoke("apps-test-command", id, key) as Promise<string>,
-  startPicker: (panelId: string) => ipcRenderer.send("start-picker", panelId),
+  startPicker: (wcId: number) => ipcRenderer.send("start-picker", wcId),
   onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => {
     ipcRenderer.on("picker-result", (_e, result) => cb(result));
   },

@@ -602,52 +602,61 @@
           <div id="app-detail" class="hidden">
             <div class="app-detail-header">
               <div class="app-detail-info">
-                <input id="app-detail-id" class="app-detail-id-input" spellcheck="false" placeholder="app-id" />
                 <input id="app-detail-name" class="app-detail-title-input" spellcheck="false" />
+                <span id="app-detail-url" class="app-detail-url-label"></span>
               </div>
               <div class="action-btns app-detail-actions">
                 <button id="app-pick-btn" class="action-btn primary">Pick Element</button>
-                <button id="app-detail-delete" class="action-btn danger hidden">Delete</button>
+                <button id="app-detail-delete" class="action-btn danger">Delete</button>
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>
-            <input id="app-detail-url" class="app-detail-url" spellcheck="false" placeholder="https://..." />
-            <label class="app-detail-option">
-              <input type="checkbox" id="app-detail-force-web" />
-              Force web mode <span class="app-detail-option-hint">— block native app redirects</span>
-            </label>
 
-            <div id="app-connect-status"></div>
-            <div id="app-commands-list"></div>
+            <div class="app-builder-split">
+              <!-- Left: commands + mapping -->
+              <div class="app-builder-controls">
+                <div id="app-connect-status"></div>
+                <div id="app-commands-list"></div>
 
-            <!-- Manual command mapping (after pick) -->
-            <div id="app-map-command" class="hidden">
-              <div class="map-command-header">Map to Command</div>
-              <div class="map-command-info">
-                <span id="map-selector"></span>
-                <span id="map-element-info"></span>
+                <!-- Manual command mapping (after pick) -->
+                <div id="app-map-command" class="hidden">
+                  <div class="map-command-header">Map to Command</div>
+                  <div class="map-command-info">
+                    <span id="map-selector"></span>
+                    <span id="map-element-info"></span>
+                  </div>
+                  <div class="map-command-form">
+                    <select id="map-command-key">
+                      <option value="">Select command...</option>
+                      <option value="new">new</option>
+                      <option value="search">search</option>
+                      <option value="submit">submit</option>
+                      <option value="grab">grab</option>
+                      <option value="input">input</option>
+                      <option value="__custom__">+ custom command</option>
+                    </select>
+                    <input id="map-custom-key" type="text" placeholder="command name" class="hidden" spellcheck="false" />
+                    <select id="map-action">
+                      <option value="click">Click</option>
+                      <option value="extractText">Extract Text</option>
+                      <option value="extractHTML">Extract HTML</option>
+                      <option value="setValue">Set Value</option>
+                      <option value="custom">Custom Script</option>
+                    </select>
+                    <input id="map-description" type="text" placeholder="description" spellcheck="false" />
+                    <button id="map-save-btn" class="action-btn primary">Save</button>
+                    <button id="map-cancel-btn" class="action-btn">Cancel</button>
+                  </div>
+                </div>
               </div>
-              <div class="map-command-form">
-                <select id="map-command-key">
-                  <option value="">Select command...</option>
-                  <option value="new">new</option>
-                  <option value="search">search</option>
-                  <option value="submit">submit</option>
-                  <option value="grab">grab</option>
-                  <option value="input">input</option>
-                  <option value="__custom__">+ custom command</option>
-                </select>
-                <input id="map-custom-key" type="text" placeholder="command name" class="hidden" spellcheck="false" />
-                <select id="map-action">
-                  <option value="click">Click</option>
-                  <option value="extractText">Extract Text</option>
-                  <option value="extractHTML">Extract HTML</option>
-                  <option value="setValue">Set Value</option>
-                  <option value="custom">Custom Script</option>
-                </select>
-                <input id="map-description" type="text" placeholder="description" spellcheck="false" />
-                <button id="map-save-btn" class="action-btn primary">Save</button>
-                <button id="map-cancel-btn" class="action-btn">Cancel</button>
+
+              <!-- Right: live app preview -->
+              <div class="app-builder-preview">
+                <div class="preview-toolbar">
+                  <span class="preview-label">Live Preview</span>
+                  <button id="app-preview-refresh" class="preview-action">Refresh</button>
+                </div>
+                <webview id="app-preview" partition="persist:yo" allowpopups></webview>
               </div>
             </div>
           </div>

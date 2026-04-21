@@ -1708,9 +1708,10 @@ async function boot() {
     return execCmd(wc, mapping);
   });
 
-  ipcMain.on("start-picker", (_e, panelId: string) => {
-    const wc = panelManager.getGuestOrWebContents(panelId);
-    if (!wc) return;
+  ipcMain.on("start-picker", (_e, wcId: number) => {
+    const { webContents } = require("electron") as typeof import("electron");
+    const wc = webContents.fromId(wcId);
+    if (!wc || wc.isDestroyed()) return;
     wc.executeJavaScript(PICKER_SCRIPT).catch(() => {});
     const onConsole = (_ev: Electron.Event, _level: number, message: string) => {
       if (!message.startsWith("__YO_PICK__:")) return;
