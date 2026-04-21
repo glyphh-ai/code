@@ -243,7 +243,17 @@ export function initHelp() {
 
   // User menu (bottom of help nav)
   document.getElementById("user-menu-platform")!.addEventListener("click", () => {
-    window.yo.openAccountDashboard();
+    const modal = document.getElementById("platform-modal")!;
+    const iframe = document.getElementById("platform-iframe") as HTMLIFrameElement;
+    const platformUrl = "https://platform.yosup.dev";
+    iframe.src = platformUrl;
+    modal.classList.remove("hidden");
+  });
+  document.getElementById("platform-modal-close")!.addEventListener("click", () => {
+    const modal = document.getElementById("platform-modal")!;
+    const iframe = document.getElementById("platform-iframe") as HTMLIFrameElement;
+    modal.classList.add("hidden");
+    iframe.src = "";
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
     await window.yo.logout();
@@ -712,7 +722,7 @@ function renderAppsList() {
 
 function openPanelAppDetail(app: PanelApp) {
   appsList.classList.add("hidden");
-  document.querySelector(".tab-toolbar")?.classList.add("hidden");
+  document.getElementById("apps-toolbar")?.classList.add("hidden");
   appDetail.classList.remove("hidden");
 
   currentAppId = app.id;
@@ -752,7 +762,7 @@ function openPanelAppDetail(app: PanelApp) {
 function closeAppDetail() {
   appDetail.classList.add("hidden");
   appsList.classList.remove("hidden");
-  document.querySelector(".tab-toolbar")?.classList.remove("hidden");
+  document.getElementById("apps-toolbar")?.classList.remove("hidden");
   loadApps();
 }
 
@@ -1081,9 +1091,12 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // Account dashboard — opens yosup.dev/dashboard
+  // Account dashboard — opens platform in modal
   document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
-    window.yo.openAccountDashboard();
+    const modal = document.getElementById("platform-modal")!;
+    const iframe = document.getElementById("platform-iframe") as HTMLIFrameElement;
+    iframe.src = "https://platform.yosup.dev";
+    modal.classList.remove("hidden");
   });
 
   // Sign out

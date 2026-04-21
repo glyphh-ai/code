@@ -146,6 +146,14 @@
           </button>
         </div>
       </nav>
+      <!-- Platform modal (iframe overlay) -->
+      <div id="platform-modal" class="hidden" style="position:absolute;inset:0;z-index:100;background:#0a0a0a;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #2a2a2a;">
+          <span style="font-size:13px;color:#999;">Platform</span>
+          <button id="platform-modal-close" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;">&times;</button>
+        </div>
+        <iframe id="platform-iframe" style="flex:1;border:none;background:#0a0a0a;"></iframe>
+      </div>
       <main id="help-content">
         <button id="help-close" class="help-close-x" aria-label="Close">&times;</button>
 
@@ -580,7 +588,7 @@
             <button id="apps-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
           </div>
 
-          <div class="tab-toolbar">
+          <div id="apps-toolbar" class="tab-toolbar">
             <input id="app-search" type="text" placeholder="Search..." spellcheck="false" autocomplete="off" />
             <input id="app-add-name" type="text" placeholder="Name" spellcheck="false" autocomplete="off" />
             <input id="app-add-url" type="text" placeholder="https://..." spellcheck="false" autocomplete="off" />
