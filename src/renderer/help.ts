@@ -786,14 +786,31 @@ let pickerResult: { selector: string; tag: string; text: string; isEditable: boo
 
 function pickElement() {
   if (!currentAppId) return;
-  window.yo.startPicker(currentAppId);
-  const status = document.getElementById("app-connect-status")!;
-  status.textContent = "Click an element in the panel…";
-  status.className = "app-connect-status";
+  // Close help overlay so the panel is visible for picking
+  overlay.classList.add("hidden");
+  window.yo.panelsShow();
+  // Small delay to let the panel render before injecting picker
+  setTimeout(() => {
+    window.yo.startPicker(currentAppId);
+  }, 300);
 }
 
 function onPickerResult(result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) {
   pickerResult = result;
+
+  // Re-open help overlay and navigate back to the app detail
+  window.yo.panelsHide();
+  overlay.classList.remove("hidden");
+  switchToSection("apps");
+
+  // Re-open the app detail (appsList is still hidden, detail still visible from before)
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (app) {
+    appsList.classList.add("hidden");
+    document.getElementById("apps-toolbar")?.classList.add("hidden");
+    appDetail.classList.remove("hidden");
+  }
+
   const mapPanel = document.getElementById("app-map-command")!;
   mapPanel.classList.remove("hidden");
 
@@ -805,10 +822,6 @@ function onPickerResult(result: { selector: string; tag: string; text: string; i
   if (result.isEditable) actionSelect.value = "setValue";
   else if (result.isClickable) actionSelect.value = "click";
   else actionSelect.value = "extractText";
-
-  const status = document.getElementById("app-connect-status")!;
-  status.textContent = "";
-  status.className = "app-connect-status";
 }
 
 async function saveMapping() {
