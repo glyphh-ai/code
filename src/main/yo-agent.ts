@@ -14,6 +14,7 @@ import type { MemoryStore } from "./memory-store";
 import type { CaptureStore } from "./capture-store";
 import type { SessionCache } from "./session-cache";
 import type { SkillEngine } from "./skill-engine";
+import type { NoteStore } from "./note-store";
 import { gate, getAgentMode } from "./action-gate";
 import type { AgentMode } from "./action-gate";
 
@@ -32,12 +33,15 @@ const SYSTEM_BASE = `You are yo, a capture search and format assistant.
 WORKFLOW:
 1. Check get_context first — the answer may be in the current session
 2. Use search_captures with descriptive natural language queries
-3. Evaluate confidence — scores above 0.7 are strong, 0.4-0.7 partial
-4. If ambiguous or low-confidence, ask the user to clarify before proceeding
-5. Use format with a named skill to present results cleanly
+3. Use search_notes / read_file / list_files for saved notes and local files
+4. Evaluate confidence — scores above 0.7 are strong, 0.4-0.7 partial
+5. If ambiguous or low-confidence, ask the user to clarify before proceeding
+6. Use format with a named skill to present results cleanly
 
 RULES:
 - search_captures is vector search — use descriptive phrases, not keywords
+- search_notes is keyword search — use specific terms
+- read_file can read any file under ~/ but defaults to ~/yo/ for relative paths
 - Be concise. Return the actual content, not descriptions of it.
 - Use save_memory for user preferences and patterns you learn.`;
 
@@ -89,6 +93,40 @@ const TOOLS = [
       required: ["content", "category"],
     },
   },
+  {
+    name: "search_notes",
+    description: "Search saved notes in ~/yo/notes/. Notes are .md files created by captures, agent, or the user. Returns matching notes ranked by relevance.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string" as const, description: "Search query — keywords to match against note titles and content" },
+        limit: { type: "number" as const, description: "Max results (default: 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "read_file",
+    description: "Read a file from the local filesystem. Returns the file content. Use for reading notes, configs, or any accessible file.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: { type: "string" as const, description: "Absolute file path, or relative to ~/yo/ (e.g. 'notes/my-note.md')" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "list_files",
+    description: "List files in a directory. Defaults to ~/yo/notes/ if no path given. Returns filenames with size and modified date.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: { type: "string" as const, description: "Directory path. Defaults to ~/yo/notes/" },
+        pattern: { type: "string" as const, description: "Glob filter, e.g. '*.md' (default: all files)" },
+      },
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -110,6 +148,7 @@ export class YoAgent {
   private captureStore: CaptureStore | null = null;
   private sessionCache: SessionCache | null = null;
   private skillEngine: SkillEngine | null = null;
+  private noteStore: NoteStore | null = null;
   private aborted = false;
   private activeMemories: string = "";
   private _mode: AgentMode = getAgentMode();
@@ -122,6 +161,7 @@ export class YoAgent {
   setCaptureStore(store: CaptureStore): void { this.captureStore = store; }
   setSessionCache(cache: SessionCache): void { this.sessionCache = cache; }
   setSkillEngine(engine: SkillEngine): void { this.skillEngine = engine; }
+  setNoteStore(store: NoteStore): void { this.noteStore = store; }
   setMaxMessages(n: number): void { this.maxMessages = n; }
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void { this._mode = mode; }
@@ -395,6 +435,9 @@ export class YoAgent {
         case "get_context": return this.toolGetContext();
         case "format": return await this.toolFormat(input);
         case "save_memory": return await this.toolSaveMemory(input);
+        case "search_notes": return await this.toolSearchNotes(input);
+        case "read_file": return this.toolReadFile(input);
+        case "list_files": return this.toolListFiles(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -449,6 +492,83 @@ export class YoAgent {
     if (!this.memoryStore) return "Memory not available.";
     const id = await this.memoryStore.save(content, category || "context");
     return `Memory saved (${id}).`;
+  }
+
+  private async toolSearchNotes(input: Record<string, unknown>): Promise<string> {
+    const query = input.query as string;
+    const limit = (input.limit as number) || 10;
+    if (!query) return "No query provided.";
+    if (!this.noteStore) return "Note store not available.";
+
+    const results = await this.noteStore.search(query, limit);
+    if (results.length === 0) return "No matching notes found.";
+
+    return results
+      .map((r, i) => `[${i + 1}] ${r.title} (${r.file}) — rank: ${r.rank.toFixed(2)}\n${r.content.slice(0, 600)}`)
+      .join("\n\n---\n\n");
+  }
+
+  private toolReadFile(input: Record<string, unknown>): string {
+    let filePath = input.path as string;
+    if (!filePath) return "No path provided.";
+
+    if (!path.isAbsolute(filePath)) {
+      filePath = path.join(os.homedir(), "yo", filePath);
+    }
+
+    const resolved = path.resolve(filePath);
+    const yoDir = path.join(os.homedir(), "yo");
+    const homeDir = os.homedir();
+    if (!resolved.startsWith(yoDir) && !resolved.startsWith(homeDir)) {
+      return "Access denied — can only read files under ~/";
+    }
+
+    if (!fs.existsSync(resolved)) return `File not found: ${resolved}`;
+
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) return `${resolved} is a directory. Use list_files instead.`;
+    if (stat.size > 500_000) return `File too large (${(stat.size / 1024).toFixed(0)} KB). Max 500 KB.`;
+
+    return fs.readFileSync(resolved, "utf-8");
+  }
+
+  private toolListFiles(input: Record<string, unknown>): string {
+    let dirPath = (input.path as string) || path.join(os.homedir(), "yo", "notes");
+    const pattern = (input.pattern as string) || "";
+
+    if (!path.isAbsolute(dirPath)) {
+      dirPath = path.join(os.homedir(), "yo", dirPath);
+    }
+
+    const resolved = path.resolve(dirPath);
+    if (!resolved.startsWith(os.homedir())) {
+      return "Access denied — can only list files under ~/";
+    }
+
+    if (!fs.existsSync(resolved)) return `Directory not found: ${resolved}`;
+    if (!fs.statSync(resolved).isDirectory()) return `Not a directory: ${resolved}`;
+
+    let entries = fs.readdirSync(resolved);
+    if (pattern) {
+      const re = new RegExp("^" + pattern.replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+      entries = entries.filter((e) => re.test(e));
+    }
+
+    if (entries.length === 0) return "No files found.";
+
+    const lines = entries.slice(0, 100).map((name) => {
+      try {
+        const stat = fs.statSync(path.join(resolved, name));
+        const size = stat.isDirectory() ? "dir" : `${(stat.size / 1024).toFixed(1)}K`;
+        const modified = new Date(stat.mtimeMs).toISOString().slice(0, 16).replace("T", " ");
+        return `${name.padEnd(40)} ${size.padStart(8)}  ${modified}`;
+      } catch {
+        return name;
+      }
+    });
+
+    if (entries.length > 100) lines.push(`... and ${entries.length - 100} more`);
+    return lines.join("\n");
   }
 
   private formatAge(timestamp: number): string {

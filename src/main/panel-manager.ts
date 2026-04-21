@@ -78,6 +78,7 @@ export class PanelManager {
   private onReady: PanelReadyCallback | null = null;
   private onPanelFocused: ((id: string) => void) | null = null;
   private onWebviewAttach: ((childWc: WebContents, panelId: string) => void) | null = null;
+  private guests = new Map<string, WebContents>();
   private onRecordToggle: (() => void) | null = null;
   private zoomFactor = 1.0;
   private _animating = false;
@@ -654,6 +655,8 @@ export class PanelManager {
       // Auto-dismiss JS dialogs, context menu, and themed scrollbars in guest webviews
       PanelManager.attachDialogHandler(childWc);
       PanelManager.attachContextMenu(childWc);
+      this.guests.set(id, childWc);
+      childWc.on("destroyed", () => { if (this.guests.get(id) === childWc) this.guests.delete(id); });
       // Notify listeners so interceptor can activate on the guest webview
       this.onWebviewAttach?.(childWc, id);
       childWc.on("did-finish-load", () => {
@@ -965,6 +968,13 @@ export class PanelManager {
 
   /** Get a panel's webContents by ID (null if not yet created) */
   getWebContents(id: string): WebContents | null {
+    return this.panels.get(id)?.webContents ?? null;
+  }
+
+  /** Get the innermost webContents — guest webview if present, else the panel's own */
+  getGuestOrWebContents(id: string): WebContents | null {
+    const guest = this.guests.get(id);
+    if (guest && !guest.isDestroyed()) return guest;
     return this.panels.get(id)?.webContents ?? null;
   }
 

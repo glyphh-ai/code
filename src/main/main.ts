@@ -831,6 +831,7 @@ async function boot() {
   // Wire yo agent dependencies
   yoAgent.setSessionCache(session);
   yoAgent.setMemoryStore(memoryStore);
+  yoAgent.setNoteStore(noteStore);
 
   // Give interceptor access to visible panel IDs (for multi-panel grab)
   yoInterceptor.setVisiblePanelsGetter(() => {
@@ -1708,7 +1709,7 @@ async function boot() {
   });
 
   ipcMain.on("start-picker", (_e, panelId: string) => {
-    const wc = panelManager.getWebContents(panelId);
+    const wc = panelManager.getGuestOrWebContents(panelId);
     if (!wc) return;
     wc.executeJavaScript(PICKER_SCRIPT).catch(() => {});
     const onConsole = (_ev: Electron.Event, _level: number, message: string) => {

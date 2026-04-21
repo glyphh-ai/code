@@ -19,6 +19,9 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   get_context:     "observe",
   format:          "observe",
   save_memory:     "observe",
+  search_notes:    "observe",
+  read_file:       "observe",
+  list_files:      "observe",
 };
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -26,6 +29,9 @@ export const TOOL_LABELS: Record<string, string> = {
   get_context:     "Get session context",
   format:          "Format with skill",
   save_memory:     "Save memory",
+  search_notes:    "Search notes",
+  read_file:       "Read file",
+  list_files:      "List files",
 };
 
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
@@ -33,6 +39,9 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   get_context:     "Read current session context (in-memory captures)",
   format:          "Apply a skill to format content",
   save_memory:     "Save a preference or pattern to agent memory",
+  search_notes:    "Keyword search across saved notes in ~/yo/notes/",
+  read_file:       "Read a file from the local filesystem",
+  list_files:      "List files in a directory",
 };
 
 export function getToolTier(toolName: string): ToolTier {
