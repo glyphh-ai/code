@@ -997,12 +997,26 @@ const ripStepApp = document.getElementById("rip-step-app") as HTMLSelectElement;
 const ripStepCommand = document.getElementById("rip-step-command") as HTMLSelectElement;
 const ripStepPrompt = document.getElementById("rip-step-prompt") as HTMLTextAreaElement;
 const ripStatus = document.getElementById("rip-status")!;
+const ripOutputsList = document.getElementById("rip-outputs-list")!;
+const ripOutputsSection = document.getElementById("rip-outputs-section")!;
+const ripOutputField = document.getElementById("rip-output-field") as HTMLInputElement;
+const ripOutputApp = document.getElementById("rip-output-app") as HTMLSelectElement;
+const ripOutputCommand = document.getElementById("rip-output-command") as HTMLSelectElement;
+
+let pendingOutputs: RipOutput[] = [];
+
+interface RipOutput {
+  field: string;
+  app: string;
+  command: string;
+}
 
 interface RipStep {
   type: "app" | "agent";
   app?: string;
   command?: string;
   prompt?: string;
+  outputs?: RipOutput[];
 }
 
 interface RipData {
@@ -1084,10 +1098,18 @@ async function openRipEditor(rip?: RipData) {
   const deleteBtn = document.getElementById("rip-delete-btn") as HTMLButtonElement;
   deleteBtn.style.display = editingRip ? "" : "none";
 
-  // Populate app dropdown from full app list (not just panelApps cache)
+  // Populate app dropdowns from full app list
   const apps = await window.yo.appsList();
-  ripStepApp.innerHTML = apps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+  const appOptions = apps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+  ripStepApp.innerHTML = appOptions;
+  ripOutputApp.innerHTML = appOptions;
   await updateRipCommandDropdown();
+  await updateOutputCommandDropdown();
+
+  // Reset pending outputs and outputs section visibility
+  pendingOutputs = [];
+  renderPendingOutputs();
+  ripOutputsSection.classList.add("hidden");
 
   ripsListEl.classList.add("hidden");
   document.getElementById("rips-toolbar")?.classList.add("hidden");
@@ -1129,9 +1151,11 @@ function renderRipSteps() {
       <span class="command-key" style="min-width:auto;">${i + 1}</span>
       <span class="command-desc" style="color:#ccc;">${label}</span>
       <div class="command-actions">
+        <button class="action-btn rip-step-edit" title="Edit">Edit</button>
         <button class="action-btn danger rip-step-remove" title="Remove">×</button>
       </div>
       ${step.prompt ? `<span class="step-prompt">${escHtml(step.prompt)}</span>` : ""}
+      ${step.outputs && step.outputs.length > 0 ? `<div class="step-outputs">${step.outputs.map((o) => `<span class="step-output">[${escHtml(o.field)}] → ${escHtml(o.app)}.${escHtml(o.command)}</span>`).join("")}</div>` : ""}
     </div>`;
   }).join("");
 
@@ -1165,6 +1189,30 @@ function renderRipSteps() {
     });
   });
 
+  ripStepsList.querySelectorAll(".rip-step-edit").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const idx = parseInt((btn.closest(".command-row") as HTMLElement).dataset.index!, 10);
+      const step = editingRipSteps[idx];
+      const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
+      ripStepType.value = step.type;
+      ripStepType.dispatchEvent(new Event("change"));
+      if (step.type === "app" && step.app) {
+        ripStepApp.value = step.app;
+        await updateRipCommandDropdown();
+        if (step.command) ripStepCommand.value = step.command;
+      }
+      ripStepPrompt.value = step.prompt || "";
+      if (step.type === "agent" && step.outputs) {
+        pendingOutputs = [...step.outputs];
+        renderPendingOutputs();
+      }
+      editingRipSteps.splice(idx, 1);
+      renderRipSteps();
+      ripStepPrompt.focus();
+    });
+  });
+
   ripStepsList.querySelectorAll(".rip-step-remove").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1177,6 +1225,42 @@ function renderRipSteps() {
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderPendingOutputs() {
+  if (pendingOutputs.length === 0) {
+    ripOutputsList.innerHTML = "";
+    return;
+  }
+  ripOutputsList.innerHTML = pendingOutputs.map((out, i) => `
+    <div class="rip-output-row" data-oidx="${i}">
+      <span class="output-field">[${escHtml(out.field)}]</span>
+      <span class="output-target">→ ${escHtml(out.app)}.${escHtml(out.command)}</span>
+      <button class="action-btn danger rip-output-remove" title="Remove">×</button>
+    </div>
+  `).join("");
+  ripOutputsList.querySelectorAll(".rip-output-remove").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const oidx = parseInt((btn.closest(".rip-output-row") as HTMLElement).dataset.oidx!, 10);
+      pendingOutputs.splice(oidx, 1);
+      renderPendingOutputs();
+    });
+  });
+}
+
+async function updateOutputCommandDropdown() {
+  const appId = ripOutputApp.value;
+  if (!appId) { ripOutputCommand.innerHTML = ""; return; }
+  const apps = await window.yo.appsList();
+  const app = apps.find((a) => a.id === appId);
+  const commands = app?.commands || {};
+  const keys = Object.keys(commands).filter((k) => commands[k].action === "setValue");
+  if (keys.length === 0) {
+    ripOutputCommand.innerHTML = `<option value="">no setValue commands</option>`;
+    return;
+  }
+  ripOutputCommand.innerHTML = keys.map((k) => `<option value="${k}">${k}</option>`).join("");
 }
 
 async function saveRip() {
@@ -1203,18 +1287,28 @@ async function saveRip() {
 function initRips() {
   const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
 
-  // Toggle app/command visibility based on step type
+  // Toggle app/command/outputs visibility based on step type
   ripStepType.addEventListener("change", () => {
     const isAgent = ripStepType.value === "agent";
     ripStepApp.style.display = isAgent ? "none" : "";
     ripStepCommand.style.display = isAgent ? "none" : "";
     ripStepPrompt.placeholder = isAgent ? "skill or prompt (required)" : "skill or prompt (optional)";
+    ripOutputsSection.classList.toggle("hidden", !isAgent);
+    if (!isAgent) { pendingOutputs = []; renderPendingOutputs(); }
   });
 
-  // Auto-expand textarea
-  ripStepPrompt.addEventListener("input", () => {
-    ripStepPrompt.style.height = "auto";
-    ripStepPrompt.style.height = Math.min(ripStepPrompt.scrollHeight, 200) + "px";
+  // Output app dropdown → update output command dropdown
+  ripOutputApp.addEventListener("change", updateOutputCommandDropdown);
+
+  // Add output button
+  document.getElementById("rip-output-add-btn")!.addEventListener("click", () => {
+    const field = ripOutputField.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    const app = ripOutputApp.value;
+    const command = ripOutputCommand.value;
+    if (!field || !app || !command) { if (!field) ripOutputField.focus(); return; }
+    pendingOutputs.push({ field, app, command });
+    ripOutputField.value = "";
+    renderPendingOutputs();
   });
 
   document.getElementById("rip-new-btn")!.addEventListener("click", () => {
@@ -1254,7 +1348,10 @@ function initRips() {
 
     if (stepType === "agent") {
       if (!prompt) { ripStepPrompt.focus(); return; }
-      editingRipSteps.push({ type: "agent", prompt });
+      const outputs = pendingOutputs.length > 0 ? [...pendingOutputs] : undefined;
+      editingRipSteps.push({ type: "agent", prompt, outputs });
+      pendingOutputs = [];
+      renderPendingOutputs();
     } else {
       const app = ripStepApp.value;
       const command = ripStepCommand.value;
@@ -1263,7 +1360,6 @@ function initRips() {
     }
 
     ripStepPrompt.value = "";
-    ripStepPrompt.style.height = "auto";
     renderRipSteps();
   });
   ripStepApp.addEventListener("change", updateRipCommandDropdown);
@@ -1635,7 +1731,7 @@ const skillsListEl = document.getElementById("skills-list")!;
 const skillsToolbar = document.getElementById("skills-toolbar")!;
 const skillEditor = document.getElementById("skill-editor")!;
 const skillNameInput = document.getElementById("skill-name") as HTMLInputElement;
-const skillDescInput = document.getElementById("skill-desc") as HTMLInputElement;
+const skillDescInput = document.getElementById("skill-desc") as HTMLTextAreaElement;
 const skillPromptArea = document.getElementById("skill-prompt") as HTMLTextAreaElement;
 const skillDeleteBtn = document.getElementById("skill-delete") as HTMLButtonElement;
 let editingSkillName: string | null = null;

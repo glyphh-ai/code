@@ -84,8 +84,8 @@ contextBridge.exposeInMainWorld("yo", {
   },
 
   // Rips
-  ripsList: () => ipcRenderer.invoke("rips-list") as Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string }> }>>,
-  ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string }> }) =>
+  ripsList: () => ipcRenderer.invoke("rips-list") as Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }> }> }>>,
+  ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }> }> }) =>
     ipcRenderer.invoke("rips-save", rip) as Promise<boolean>,
   ripsRemove: (name: string) => ipcRenderer.invoke("rips-remove", name) as Promise<boolean>,
   ripsRun: (name: string) => ipcRenderer.invoke("rips-run", name) as Promise<{ ok: boolean; context: string; log: string[] }>,

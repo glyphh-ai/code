@@ -795,6 +795,22 @@ body {
 
 /* ── Skill editor ────────────────────────────────────────── */
 
+#skill-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#skill-editor .skill-field-grow {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#skill-editor .skill-field-grow .skill-prompt-area {
+  flex: 1;
+  min-height: 80px;
+}
 .skill-field {
   margin-bottom: 14px;
 }
@@ -803,6 +819,22 @@ body {
   font-size: 12px;
   color: #999;
   margin-bottom: 6px;
+}
+.skill-ai-icon {
+  color: #25C75E;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+.skill-generate-btn {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #25C75E;
+  border-color: #25C75E;
+}
+.skill-generate-btn:hover {
+  background: rgba(37, 199, 94, 0.1);
 }
 .skill-input {
   width: 100%;
@@ -816,12 +848,13 @@ body {
   outline: none;
   font-family: inherit;
   transition: border-color 0.15s;
+  box-sizing: border-box;
+  resize: vertical;
 }
 .skill-input:focus { border-color: #25C75E; }
 .skill-input::placeholder { color: #555; -webkit-text-fill-color: #555; }
 .skill-prompt-area {
   width: 100%;
-  min-height: 200px;
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1.6;
@@ -2156,6 +2189,19 @@ ol.docs-list li::before {
   white-space: pre-wrap;
   word-break: break-word;
 }
+#rip-steps-list .step-outputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+#rip-steps-list .step-output {
+  font-size: 11px;
+  color: #25C75E;
+  background: rgba(37, 199, 94, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
 #rip-steps-list .command-actions {
   opacity: 1;
 }
@@ -2177,6 +2223,9 @@ ol.docs-list li::before {
   gap: 8px;
   align-items: center;
 }
+#rip-add-step .rip-add-row #rip-step-add-btn {
+  margin-left: auto;
+}
 #rip-step-type {
   min-width: 80px !important;
 }
@@ -2195,8 +2244,6 @@ ol.docs-list li::before {
 #rip-add-step select:focus { border-color: #25C75E; }
 #rip-add-step textarea {
   width: 100%;
-  min-height: 30px;
-  max-height: 200px;
   background: #1e1e1e;
   border: 1px solid #3a3a3a;
   border-radius: 6px;
@@ -2205,13 +2252,56 @@ ol.docs-list li::before {
   font-size: 12px;
   font-family: var(--font-mono);
   outline: none;
-  resize: none;
-  overflow: hidden;
+  resize: vertical;
   box-sizing: border-box;
-  field-sizing: content;
 }
 #rip-add-step textarea:focus { border-color: #25C75E; }
 #rip-add-step textarea::placeholder { color: #666; }
+
+#rip-outputs-section { margin-top: 4px; }
+#rip-outputs-list {
+  margin-bottom: 6px;
+}
+#rip-outputs-list .rip-output-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #ccc;
+}
+#rip-outputs-list .rip-output-row .output-field {
+  color: #25C75E;
+  min-width: 60px;
+}
+#rip-outputs-list .rip-output-row .output-target {
+  color: #888;
+}
+#rip-outputs-list .rip-output-row .action-btn {
+  font-size: 11px;
+  padding: 1px 5px;
+}
+#rip-add-output-row input[type="text"] {
+  height: 28px;
+  min-width: 80px;
+  max-width: 100px;
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 0 8px;
+  color: #f0f0f0;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+#rip-add-output-row input[type="text"]:focus { border-color: #25C75E; }
+#rip-add-output-row input[type="text"]::placeholder { color: #666; }
+#rip-add-output-row select {
+  height: 28px;
+}
+#rip-add-output-row #rip-output-add-btn {
+  margin-left: auto;
+}
 
 .editor-actions {
   display: flex;

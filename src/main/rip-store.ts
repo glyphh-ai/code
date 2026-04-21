@@ -14,12 +14,20 @@ import type { WebContents } from "electron";
 import type { AppConnector, CommandMapping } from "./app-connector";
 import type { SkillEngine } from "./skill-engine";
 
+export interface RipOutput {
+  field: string;
+  app: string;
+  command: string;
+}
+
 export interface RipStep {
   type: "app" | "agent";
   app?: string;
   command?: string;
   /** Skill name or inline text prompt — optional for app steps, required for agent steps */
   prompt?: string;
+  /** Agent step outputs — map parsed [field] sections to app commands (setValue) */
+  outputs?: RipOutput[];
 }
 
 export interface Rip {
@@ -101,6 +109,21 @@ export interface RipResult {
   log: string[];
 }
 
+function parseOutputSections(text: string): Record<string, string> {
+  const sections: Record<string, string> = {};
+  const re = /\[(\w+)\]\s*/gi;
+  let match: RegExpExecArray | null;
+  const markers: Array<{ field: string; start: number }> = [];
+  while ((match = re.exec(text)) !== null) {
+    markers.push({ field: match[1].toLowerCase(), start: match.index + match[0].length });
+  }
+  for (let i = 0; i < markers.length; i++) {
+    const end = i + 1 < markers.length ? text.lastIndexOf("[", markers[i + 1].start) : text.length;
+    sections[markers[i].field] = text.slice(markers[i].start, end).trim();
+  }
+  return sections;
+}
+
 export async function runRip(rip: Rip, deps: RipRunnerDeps, initialContext = ""): Promise<RipResult> {
   const { executeCommand } = await import("./dom-bridge");
   let context = initialContext;
@@ -139,6 +162,32 @@ export async function runRip(rip: Rip, deps: RipRunnerDeps, initialContext = "")
         context = await deps.skillEngine.processWithPrompt(context, step.prompt);
         log.push(`Step ${i + 1}: agent → prompt`);
       }
+
+      // Inject outputs — parse [field] sections and route to app commands
+      if (step.outputs && step.outputs.length > 0) {
+        const sections = parseOutputSections(context);
+        for (const out of step.outputs) {
+          const value = sections[out.field.toLowerCase()];
+          if (!value) {
+            log.push(`  → output "${out.field}": no [${out.field}] section in agent response`);
+            continue;
+          }
+          const outApp = deps.appConnector.get(out.app);
+          if (!outApp) { log.push(`  → output "${out.field}": app "${out.app}" not found`); continue; }
+          const outMapping = outApp.commands[out.command];
+          if (!outMapping) { log.push(`  → output "${out.field}": command "${out.command}" not found`); continue; }
+          const outWc = deps.getWebContents(out.app);
+          if (!outWc || outWc.isDestroyed()) { log.push(`  → output "${out.field}": ${out.app} panel not open`); continue; }
+          const outResult = await executeCommand(outWc, outMapping, value);
+          if (outResult.startsWith("Element not found")) {
+            log.push(`  → output "${out.field}": ${outResult}`);
+          } else {
+            log.push(`  → output "${out.field}" → ${out.app}.${out.command}`);
+          }
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+
       deps.onStep?.(i, step, "done");
       if (i < rip.steps.length - 1) await new Promise((r) => setTimeout(r, 200));
       continue;

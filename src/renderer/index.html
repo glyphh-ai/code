@@ -522,13 +522,17 @@
               <input type="text" id="skill-name" class="skill-input" placeholder="skill name" spellcheck="false" autocomplete="off" />
             </div>
             <div class="skill-field">
-              <label class="skill-label">Describe what this skill should do</label>
-              <div style="display:flex;gap:8px;">
-                <input type="text" id="skill-desc" class="skill-input" placeholder="e.g. rewrite text as formal business email" spellcheck="false" autocomplete="off" />
-                <button id="skill-generate" class="action-btn primary" title="Generate prompt with AI">Generate</button>
-              </div>
+              <label class="skill-label">
+                <svg class="skill-ai-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
+                Describe what this skill should do
+              </label>
+              <textarea id="skill-desc" class="skill-input" rows="2" placeholder="e.g. rewrite text as formal business email" spellcheck="false"></textarea>
+              <button id="skill-generate" class="action-btn skill-generate-btn" title="Generate prompt with AI">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
+                Generate
+              </button>
             </div>
-            <div class="skill-field">
+            <div class="skill-field skill-field-grow">
               <label class="skill-label">Prompt</label>
               <textarea id="skill-prompt" class="skill-prompt-area" placeholder="System prompt for this skill..." spellcheck="false"></textarea>
             </div>
@@ -697,7 +701,17 @@
                 <select id="rip-step-command"></select>
                 <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
               </div>
-              <textarea id="rip-step-prompt" rows="1" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
+              <textarea id="rip-step-prompt" rows="3" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
+              <div id="rip-outputs-section" class="hidden">
+                <label class="skill-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
+                <div id="rip-outputs-list"></div>
+                <div class="rip-add-row" id="rip-add-output-row">
+                  <input type="text" id="rip-output-field" placeholder="field name" spellcheck="false" autocomplete="off" />
+                  <select id="rip-output-app"></select>
+                  <select id="rip-output-command"></select>
+                  <button id="rip-output-add-btn" class="action-btn">+ Output</button>
+                </div>
+              </div>
             </div>
 
             <div class="editor-actions">

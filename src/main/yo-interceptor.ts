@@ -121,7 +121,7 @@ export class YoInterceptor {
 (function(){
 if(window.__yoActive)return;window.__yoActive=true;
 var _n=${JSON.stringify(nonce)};
-var CMD_RE=/^\\.(yo|sup|dip|drip|waz|council)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|rip|waz|council)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -248,6 +248,13 @@ window.addEventListener('beforeunload',function(e){
         if (this.commandHandler) {
           const cmd = data.instruction ? `drip ${data.instruction}` : "drip";
           await this.commandHandler(cmd);
+        }
+        break;
+      case "rip":
+        if (this.commandHandler) {
+          const ripCmd = data.instruction ? `rip ${data.instruction}` : "rip";
+          const ripResult = await this.commandHandler(ripCmd, appId);
+          if (ripResult) this.notify(wc, ripResult, "success");
         }
         break;
       case "waz":
@@ -389,7 +396,7 @@ window.addEventListener('beforeunload',function(e){
     this.notify(wc, "captured", "success");
   }
 
-  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip", ".waz"]);
+  private static readonly COMMAND_KEYWORDS = new Set([".dip", ".drip", ".rip", ".waz"]);
 
   /**
    * Split off chained commands (.dip, .drip, .waz) from the end of an instruction.
@@ -397,7 +404,7 @@ window.addEventListener('beforeunload',function(e){
    * e.g. "summarize .dip grok .drip =" → ["summarize", ".dip grok .drip ="]
    */
   private static splitChain(instruction: string): [string, string] {
-    const chainRe = /\s+(\.(dip|drip|waz)\b.*)$/i;
+    const chainRe = /\s+(\.(dip|drip|rip|waz)\b.*)$/i;
     const m = instruction.match(chainRe);
     if (!m) return [instruction, ""];
     return [instruction.slice(0, m.index!).trim(), m[1].trim()];

@@ -392,25 +392,46 @@ export async function extractDomStructure(webContents: WebContents): Promise<str
 // ── Command Execution ───────────────────────────────────
 
 /**
- * Resolve an element by CSS selector, with text-based fallback.
- * Injects a __yo_resolved marker attribute so subsequent calls can target it.
+ * Resolve an element and execute the action in a single JS call.
+ * Avoids the timing gap where Gmail's virtual DOM replaces nodes between calls.
  */
-async function resolveElement(wc: WebContents, selector: string, text?: string): Promise<string | null> {
-  const escaped = escapeSelector(selector);
-  const escapedText = text ? JSON.stringify(text.trim().slice(0, 80)) : "null";
-  return await wc.executeJavaScript(`
+export async function executeCommand(
+  webContents: WebContents,
+  mapping: CommandMapping,
+  value?: string,
+): Promise<string> {
+  const escaped = escapeSelector(mapping.selector);
+  const escapedText = mapping.text ? JSON.stringify(mapping.text.trim().slice(0, 80)) : "null";
+  const escapedValue = JSON.stringify(value || "");
+  const action = mapping.action;
+
+  if (action === "click") {
+    const found = await resolveAndMark(webContents, escaped, escapedText);
+    if (!found) return `Element not found: ${mapping.selector}${mapping.text ? ` (text: ${mapping.text})` : ""}`;
+    const result = await clickElement(webContents, '[__yo_resolved="1"]');
+    await cleanupResolved(webContents);
+    return result;
+  }
+
+  if (action === "custom" && mapping.script) {
+    return await runCustomScript(webContents, mapping.script, value);
+  }
+  if (action === "custom") return "No script defined for custom action";
+
+  return await webContents.executeJavaScript(`
     (function() {
-      var el = document.querySelector('${escaped}');
+      var el = null;
       var textHint = ${escapedText};
-      if (el && textHint) {
-        var t = (el.textContent || '').trim();
-        if (t !== textHint && t.indexOf(textHint) === -1) {
-          var all = document.querySelectorAll('${escaped}');
-          for (var i = 0; i < all.length; i++) {
-            var ct = (all[i].textContent || '').trim();
-            if (ct === textHint || ct.indexOf(textHint) !== -1) { el = all[i]; break; }
-          }
+      var candidates = document.querySelectorAll('${escaped}');
+      if (candidates.length === 1) {
+        el = candidates[0];
+      } else if (candidates.length > 1 && textHint) {
+        for (var i = 0; i < candidates.length; i++) {
+          var ct = (candidates[i].textContent || '').trim();
+          if (ct === textHint || ct.indexOf(textHint) !== -1) { el = candidates[i]; break; }
         }
+      } else if (candidates.length > 0) {
+        el = candidates[0];
       }
       if (!el && textHint) {
         var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
@@ -420,9 +441,60 @@ async function resolveElement(wc: WebContents, selector: string, text?: string):
           if (nt === textHint && n.offsetWidth > 0 && n.offsetHeight > 0) { el = n; break; }
         }
       }
-      if (!el) return null;
+      if (!el) return 'Element not found: ${escaped.replace(/'/g, "\\'")}' + (textHint ? ' (text: ' + textHint + ')' : '');
+
+      var action = '${action}';
+      if (action === 'extractText') return (el.innerText || el.textContent || '').trim();
+      if (action === 'extractHTML') return el.innerHTML || '';
+      if (action === 'setValue') {
+        el.focus();
+        var val = ${escapedValue};
+        if (el.isContentEditable) {
+          el.innerText = val;
+          el.dispatchEvent(new Event('input', {bubbles: true}));
+        } else {
+          var p = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          var s = Object.getOwnPropertyDescriptor(p, 'value');
+          if (s && s.set) s.set.call(el, val); else el.value = val;
+          el.dispatchEvent(new Event('input', {bubbles: true}));
+          el.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        return 'ok';
+      }
+      return 'Unknown action: ' + action;
+    })()
+  `);
+}
+
+async function resolveAndMark(wc: WebContents, escaped: string, escapedText: string): Promise<boolean> {
+  return await wc.executeJavaScript(`
+    (function() {
+      var prev = document.querySelector('[__yo_resolved]');
+      if (prev) prev.removeAttribute('__yo_resolved');
+      var el = null;
+      var textHint = ${escapedText};
+      var candidates = document.querySelectorAll('${escaped}');
+      if (candidates.length === 1) {
+        el = candidates[0];
+      } else if (candidates.length > 1 && textHint) {
+        for (var i = 0; i < candidates.length; i++) {
+          var ct = (candidates[i].textContent || '').trim();
+          if (ct === textHint || ct.indexOf(textHint) !== -1) { el = candidates[i]; break; }
+        }
+      } else if (candidates.length > 0) {
+        el = candidates[0];
+      }
+      if (!el && textHint) {
+        var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+        while (walk.nextNode()) {
+          var n = walk.currentNode;
+          var nt = (n.textContent || '').trim();
+          if (nt === textHint && n.offsetWidth > 0 && n.offsetHeight > 0) { el = n; break; }
+        }
+      }
+      if (!el) return false;
       el.setAttribute('__yo_resolved', '1');
-      return '[__yo_resolved="1"]';
+      return true;
     })()
   `);
 }
@@ -432,46 +504,6 @@ async function cleanupResolved(wc: WebContents): Promise<void> {
     var r = document.querySelector('[__yo_resolved]');
     if (r) r.removeAttribute('__yo_resolved');
   `).catch(() => {});
-}
-
-/**
- * Execute a mapped command against a live DOM.
- */
-export async function executeCommand(
-  webContents: WebContents,
-  mapping: CommandMapping,
-  value?: string,
-): Promise<string> {
-  const resolved = await resolveElement(webContents, mapping.selector, mapping.text);
-  const sel = resolved || mapping.selector;
-
-  let result: string;
-  switch (mapping.action) {
-    case "extractText":
-      result = await extractText(webContents, sel);
-      break;
-    case "extractHTML":
-      result = await extractHTML(webContents, sel);
-      break;
-    case "setValue":
-      result = await setValue(webContents, sel, value || "");
-      break;
-    case "click":
-      result = await clickElement(webContents, sel);
-      break;
-    case "custom":
-      if (mapping.script) {
-        result = await runCustomScript(webContents, mapping.script, value);
-      } else {
-        result = "No script defined for custom action";
-      }
-      break;
-    default:
-      result = `Unknown action: ${mapping.action}`;
-  }
-
-  await cleanupResolved(webContents);
-  return result;
 }
 
 /**
