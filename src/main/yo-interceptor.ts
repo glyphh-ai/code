@@ -751,8 +751,8 @@ if(isLoading){
   stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';};
   stopBtn.onmouseleave=function(){stopBtn.style.background='#333';};
   stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));};
-  // Position next to input
-  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-12)+'px';stopBtn.style.right='12px';}catch(e){}
+  // Position just right of the input element
+  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-12)+'px';stopBtn.style.left=(rect.right+8)+'px';}catch(e){}
   var old=document.getElementById('__yo-stop');if(old)old.remove();
   document.body.appendChild(stopBtn);
   // Escape key also cancels
