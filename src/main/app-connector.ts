@@ -44,6 +44,8 @@ export interface AppConfig {
   commands: Record<string, CommandMapping>;
   /** When true, suppress "open in desktop app" banners and protocol redirects */
   forceWeb?: boolean;
+  /** Pipedream app slug linked to this panel app (set when user connects) */
+  connectedSlug?: string;
   meta?: {
     description: string;
     category?: string;
@@ -260,6 +262,18 @@ export class AppConnector {
     const app = this.apps.get(id);
     if (!app) return false;
     app.name = name;
+    this.save(app);
+    return true;
+  }
+
+  updateConnectedSlug(id: string, slug: string | null): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    if (slug) {
+      app.connectedSlug = slug;
+    } else {
+      delete app.connectedSlug;
+    }
     this.save(app);
     return true;
   }

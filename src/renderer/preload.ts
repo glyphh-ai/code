@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("yo", {
   // Panel visibility + refresh
   panelsHide: () => ipcRenderer.send("panels-hide"),
   panelsShow: () => ipcRenderer.send("panels-show"),
+  cmdPaletteOpen: () => ipcRenderer.send("cmd-palette-open"),
+  cmdPaletteClose: () => ipcRenderer.send("cmd-palette-close"),
   capturePanels: () => ipcRenderer.invoke("capture-panels") as Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>,
   panelsRefresh: (id?: string) => ipcRenderer.send("panels-refresh", id),
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
@@ -58,14 +60,19 @@ contextBridge.exposeInMainWorld("yo", {
   onOpenCmdPalette: (callback: () => void) => {
     ipcRenderer.on("open-cmd-palette", () => callback());
   },
+  onExecCommandFromPalette: (callback: (cmd: string) => void) => {
+    ipcRenderer.on("exec-command-from-palette", (_e, cmd: string) => callback(cmd));
+  },
 
   // Apps CRUD
-  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
+  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
   appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
   appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
   appsUpdateUrl: (id: string, url: string) => ipcRenderer.invoke("apps-update-url", id, url) as Promise<boolean>,
   appsUpdateForceWeb: (id: string, forceWeb: boolean) => ipcRenderer.invoke("apps-update-force-web", id, forceWeb) as Promise<boolean>,
+  appsSetConnectedSlug: (id: string, slug: string | null) => ipcRenderer.invoke("apps-set-connected-slug", id, slug) as Promise<boolean>,
+
   // Onboarding complete — triggers panel restore
   onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),
 
@@ -230,6 +237,14 @@ contextBridge.exposeInMainWorld("yo", {
   mcpSetToolOverride: (serverId: string, toolName: string, override: string) => ipcRenderer.send("mcp-set-tool-override", serverId, toolName, override),
   mcpSetServerOverride: (serverId: string, override: string) => ipcRenderer.send("mcp-set-server-override", serverId, override),
   onMcpChanged: (cb: () => void) => { ipcRenderer.on("mcp-changed", () => cb()); },
+
+  // Connectors (Pipedream Connect)
+  connectorsGetApps: (search?: string, offset?: number) => ipcRenderer.invoke("connectors-get-apps", search, offset) as Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>,
+  connectorsGetAccounts: () => ipcRenderer.invoke("connectors-get-accounts") as Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>,
+  connectorsConnect: (appSlug: string) => ipcRenderer.invoke("connectors-connect", appSlug) as Promise<{ ok: boolean; error?: string }>,
+  connectorsDisconnect: (accountId: string) => ipcRenderer.invoke("connectors-disconnect", accountId) as Promise<boolean>,
+  connectorsRefreshMcp: () => ipcRenderer.invoke("connectors-refresh-mcp") as Promise<boolean>,
+  onConnectorsChanged: (cb: () => void) => { ipcRenderer.on("connectors-changed", () => cb()); },
 
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,

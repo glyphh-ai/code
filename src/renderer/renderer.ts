@@ -19,6 +19,8 @@ declare global {
       windowMaximize: () => void;
       panelsHide: () => void;
       panelsShow: () => void;
+      cmdPaletteOpen: () => void;
+      cmdPaletteClose: () => void;
       capturePanels: () => Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>;
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
@@ -30,12 +32,13 @@ declare global {
       skillsRemove: (name: string) => Promise<boolean>;
       skillsGenerate: (name: string, description: string) => Promise<string>;
       // Apps
-      appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; forceWeb?: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
+      appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; forceWeb?: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
       appsRemove: (id: string) => Promise<boolean>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
       appsUpdateForceWeb: (id: string, forceWeb: boolean) => Promise<boolean>;
+      appsSetConnectedSlug: (id: string, slug: string | null) => Promise<boolean>;
 
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
@@ -67,6 +70,7 @@ declare global {
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
       onOpenCmdPalette: (callback: () => void) => void;
+      onExecCommandFromPalette: (callback: (cmd: string) => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
         cols: number;
@@ -162,6 +166,13 @@ declare global {
       mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
       mcpSetServerOverride: (serverId: string, override: string) => void;
       onMcpChanged: (cb: () => void) => void;
+      // Connectors (Pipedream Connect)
+      connectorsGetApps: (search?: string, offset?: number) => Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>;
+      connectorsGetAccounts: () => Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>;
+      connectorsConnect: (appSlug: string) => Promise<{ ok: boolean; error?: string }>;
+      connectorsDisconnect: (accountId: string) => Promise<boolean>;
+      connectorsRefreshMcp: () => Promise<boolean>;
+      onConnectorsChanged: (cb: () => void) => void;
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;
@@ -369,9 +380,7 @@ const cmdPaletteInput = document.getElementById("cmd-palette-input") as HTMLInpu
 const cmdPaletteBackdrop = cmdPalette.querySelector(".cmd-palette-backdrop")!;
 
 function openCmdPalette() {
-  cmdPalette.classList.remove("hidden");
-  cmdPaletteInput.value = "";
-  cmdPaletteInput.focus();
+  window.yo.cmdPaletteOpen();
 }
 
 function closeCmdPalette() {
@@ -400,20 +409,21 @@ cmdPaletteInput.addEventListener("keydown", (e) => {
 // Cmd+K from BrowserView panels (intercepted by panel-manager, forwarded via IPC)
 window.yo.onOpenCmdPalette(() => openCmdPalette());
 
+// Commands submitted from the palette child window
+window.yo.onExecCommandFromPalette((cmd) => window.yo.execCommand(cmd));
+
 // -- Global keyboard shortcuts --
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (!cmdPalette.classList.contains("hidden")) { closeCmdPalette(); return; }
     if (isYoPanelOpen()) window.yo.yoPanelDismiss();
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+K to open command palette
+  // Cmd+K to open command palette (child window)
   if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
-    if (cmdPalette.classList.contains("hidden")) openCmdPalette();
-    else closeCmdPalette();
+    openCmdPalette();
   }
 
   // Cmd+. to toggle yo agent panel
@@ -1408,7 +1418,6 @@ function finalizeYoMessage(fullText: string) {
   }
 
   yoScroll();
-  yoPanelInput.focus();
 }
 
 function showPlanActions() {

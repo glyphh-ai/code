@@ -26,7 +26,7 @@ import { getPreference, setPreference } from "./preferences";
 import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS, setMcpManager } from "./action-gate";
 import type { AgentMode, ToolOverride } from "./action-gate";
 import { McpManager, MCP_PRESETS, McpServerConfig } from "./mcp-manager";
-
+import { ConnectorManager } from "./connectors";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
@@ -38,6 +38,8 @@ import { Embedder } from "./embedder";
 import { Transcriber } from "./transcriber";
 import { VoiceRelay } from "./voice-relay";
 import { scanPanel, formatScan } from "./dom-scanner";
+import { smartGrab } from "./smart-grab";
+import { AmbientCapture } from "./ambient-capture";
 import { VSCodeServer } from "./vscode-server";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
@@ -59,7 +61,9 @@ let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let mcpManager: McpManager;
+let connectorManager: ConnectorManager;
 let embedder: Embedder | null = null;
+let ambientCapture: AmbientCapture | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -798,8 +802,9 @@ async function boot() {
       let content = "";
       if (app?.commands.grab) {
         try { content = await executeCommand(wc, app.commands.grab); } catch {}
-      } else {
-        try { content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
+      }
+      if (!content || content.startsWith("[Element not found")) {
+        try { content = await smartGrab(wc) || ""; } catch {}
       }
       if (content && !content.startsWith("[Element not found")) {
         sections.push(panelIds.length > 1 ? `## ${app?.name || id}\n\n${content}` : content);
@@ -867,6 +872,9 @@ async function boot() {
   yoAgent.setMemoryStore(memoryStore);
   yoAgent.setUnifiedStore(unifiedStore);
   yoAgent.setAppConnector(appConnector);
+
+  ambientCapture = new AmbientCapture(panelManager, appConnector, unifiedStore);
+  ambientCapture.start();
   yoAgent.setSkillCallbacks({
     list: () => skillEngine.listSkills(),
     read: (name) => skillEngine.readSkill(name),
@@ -915,9 +923,8 @@ async function boot() {
     if (app?.commands.grab) {
       try { content = await executeCommand(wc, app.commands.grab); } catch {}
     }
-    // Fall back to body text if app-specific grab returned nothing useful
     if (!content || content.startsWith("[Element not found")) {
-      try { content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)"); } catch {}
+      try { content = await smartGrab(wc) || ""; } catch {}
     }
     return content || null;
   });
@@ -1402,6 +1409,17 @@ async function boot() {
   });
   mcpManager.init().catch((err) => {
     console.error("MCP init error:", err);
+  });
+
+  // Connectors (Pipedream Connect) — Pro-only managed OAuth
+  connectorManager = new ConnectorManager();
+  connectorManager.setMcpManager(mcpManager);
+  yoAgent.setConnectorManager(connectorManager);
+  connectorManager.on("changed", () => {
+    mainWindow?.webContents.send("connectors-changed");
+  });
+  connectorManager.init().catch((err) => {
+    console.error("Connectors init error:", err);
   });
 
   // Wire tool executor for .waz direct tool execution
@@ -2013,6 +2031,67 @@ async function boot() {
     }
   });
 
+  // IPC: Command palette — transparent child window above BrowserViews
+  let cmdPaletteWin: BrowserWindow | null = null;
+
+  function closeCmdPalette() {
+    if (cmdPaletteWin && !cmdPaletteWin.isDestroyed()) cmdPaletteWin.close();
+    cmdPaletteWin = null;
+  }
+
+  ipcMain.on("cmd-palette-open", () => {
+    if (cmdPaletteWin && !cmdPaletteWin.isDestroyed()) { closeCmdPalette(); return; }
+    if (!mainWindow) return;
+    const bounds = mainWindow.getContentBounds();
+    cmdPaletteWin = new BrowserWindow({
+      parent: mainWindow,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      backgroundColor: "#00000000",
+      skipTaskbar: true,
+      show: false,
+      resizable: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
+    });
+    const html = `<!DOCTYPE html><html><head><style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{background:rgba(0,0,0,0.35);display:flex;align-items:flex-start;justify-content:center;padding-top:18vh;height:100vh;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+      .modal{width:min(520px,80vw);background:#141414;border:1px solid #25C75E;border-radius:14px;padding:4px;box-shadow:0 16px 48px rgba(0,0,0,0.6)}
+      input{width:100%;background:transparent;border:none;border-radius:10px;padding:14px 16px;color:#e0e0e0;font-size:15px;font-family:inherit;outline:none;caret-color:#25C75E}
+      input::placeholder{color:#555}
+    </style></head><body>
+      <div class="modal"><input id="inp" placeholder="Type a command..." spellcheck="false" autocomplete="off" autofocus /></div>
+      <script>
+        const inp=document.getElementById("inp");
+        inp.focus();
+        document.addEventListener("keydown",e=>{
+          if(e.key==="Escape"){e.preventDefault();window.close()}
+          if(e.key==="Enter"){e.preventDefault();const v=inp.value.trim();if(v)console.log("__cmd__"+v);window.close()}
+        });
+        document.body.addEventListener("click",e=>{if(e.target===document.body)window.close()});
+      </script>
+    </body></html>`;
+    cmdPaletteWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    cmdPaletteWin.once("ready-to-show", () => {
+      if (cmdPaletteWin && !cmdPaletteWin.isDestroyed()) cmdPaletteWin.show();
+    });
+    cmdPaletteWin.webContents.on("console-message", (_e, _level, msg) => {
+      if (msg.startsWith("__cmd__")) {
+        const cmd = msg.slice(7);
+        const clean = cmd.startsWith(".") ? cmd.slice(1) : cmd;
+        mainWindow?.webContents.send("exec-command-from-palette", clean);
+      }
+    });
+    cmdPaletteWin.on("closed", () => { cmdPaletteWin = null; });
+  });
+
+  ipcMain.on("cmd-palette-close", () => closeCmdPalette());
+
   // IPC: Yo agent panel
   ipcMain.on("yo-panel-send", async (_e, message: string) => {
     const trimmed = message.trim();
@@ -2120,6 +2199,24 @@ async function boot() {
   });
   ipcMain.on("mcp-set-server-override", (_e, serverId: string, override: string) => {
     mcpManager.setServerOverride(serverId, override as "default" | "auto" | "ask");
+  });
+
+  // ── Connectors IPC ──────────────────────────────────────
+  ipcMain.handle("connectors-get-apps", async (_e, search?: string, offset?: number) => {
+    return connectorManager.getApps(search, offset);
+  });
+  ipcMain.handle("connectors-get-accounts", async () => {
+    return connectorManager.getAccounts();
+  });
+  ipcMain.handle("connectors-connect", async (_e, appSlug: string) => {
+    return connectorManager.connectApp(appSlug);
+  });
+  ipcMain.handle("connectors-disconnect", async (_e, accountId: string) => {
+    return connectorManager.disconnectAccount(accountId);
+  });
+  ipcMain.handle("connectors-refresh-mcp", async () => {
+    await connectorManager.refreshMcp();
+    return true;
   });
 
   // Renderer-initiated panel open (Cmd+.) — resize BrowserViews and focus renderer
@@ -2275,6 +2372,7 @@ async function boot() {
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
+  ipcMain.handle("apps-set-connected-slug", (_e, id: string, slug: string | null) => appConnector.updateConnectedSlug(id, slug));
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);
@@ -2761,6 +2859,8 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpManager?.disconnectAll().catch(() => {});
+  connectorManager?.cleanup();
+  ambientCapture?.stop();
   embedder?.cleanup();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
