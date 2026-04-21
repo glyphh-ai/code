@@ -1107,7 +1107,7 @@ async function openYoPanel(query: string) {
     addYoUserMessage(query);
     showYoStatus("");
     setYoThinking(true);
-  } else {
+  } else if (!yoPanelMessages.children.length) {
     showYoWelcome();
   }
   yoPanelInput.value = "";
