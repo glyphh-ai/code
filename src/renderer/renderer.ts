@@ -39,6 +39,11 @@ declare global {
       appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
       appsUpdateForceWeb: (id: string, forceWeb: boolean) => Promise<boolean>;
       appsSetConnectedSlug: (id: string, slug: string | null) => Promise<boolean>;
+      appsSetCommand: (id: string, key: string, mapping: { selector: string; action: string; description: string }) => Promise<boolean>;
+      appsRemoveCommand: (id: string, key: string) => Promise<boolean>;
+      appsTestCommand: (id: string, key: string) => Promise<string>;
+      startPicker: (panelId: string) => void;
+      onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
@@ -1409,7 +1414,6 @@ function finalizeYoMessage(fullText: string) {
     yoPanelMessages.appendChild(yoResponseEl);
   }
 
-  // Add copy-all action bar to completed response
   if (text.trim()) {
     const actions = document.createElement("div");
     actions.className = "yo-msg-actions";

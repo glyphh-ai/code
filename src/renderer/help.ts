@@ -317,8 +317,19 @@ export function initHelp() {
   document.getElementById("app-detail-close")!.addEventListener("click", closeAppDetail);
   appSearchInput.addEventListener("input", () => renderAppsList());
 
-
-
+  // DOM Picker
+  document.getElementById("app-pick-btn")!.addEventListener("click", pickElement);
+  document.getElementById("map-save-btn")!.addEventListener("click", saveMapping);
+  document.getElementById("map-cancel-btn")!.addEventListener("click", () => {
+    document.getElementById("app-map-command")!.classList.add("hidden");
+    pickerResult = null;
+  });
+  const mapKeySelect = document.getElementById("map-command-key") as HTMLSelectElement;
+  mapKeySelect.addEventListener("change", () => {
+    const customInput = document.getElementById("map-custom-key")!;
+    customInput.classList.toggle("hidden", mapKeySelect.value !== "__custom__");
+  });
+  window.yo.onPickerResult(onPickerResult);
 }
 
 // ── Layouts (Grid Builder) ──────────────────────────────────
@@ -637,7 +648,6 @@ const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
-const appsBrowseSection = document.getElementById("apps-browse-section")!;
 
 let currentAppId = "";
 
@@ -647,34 +657,20 @@ interface PanelApp {
   url: string;
   connectedSlug?: string;
   forceWeb?: boolean;
-}
-
-interface ConnectorAccount {
-  id: string;
-  appSlug: string;
-  appName: string;
-  createdAt: string;
-  healthy: boolean;
+  commands?: Record<string, { selector: string; action: string; description: string }>;
 }
 
 let panelApps: PanelApp[] = [];
-let connectedAccounts: ConnectorAccount[] = [];
 
 async function loadApps() {
   appDetail.classList.add("hidden");
   appsList.classList.remove("hidden");
   document.querySelector(".tab-toolbar")?.classList.remove("hidden");
 
-  // Fetch local panel apps
   try {
     const apps = await window.yo.appsList();
-    panelApps = apps.map((a: { id: string; name: string; url: string; connectedSlug?: string }) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug }));
+    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, commands: a.commands }));
   } catch { panelApps = []; }
-
-  // Fetch connected accounts (silently fail for non-Advanced)
-  try {
-    connectedAccounts = await window.yo.connectorsGetAccounts();
-  } catch { connectedAccounts = []; }
 
   renderAppsList();
 }
@@ -696,9 +692,9 @@ function renderAppsList() {
   }
 
   appsList.innerHTML = filtered.map((app) => {
-    const acct = connectedAccounts.find((a) => a.appSlug === app.connectedSlug || a.appSlug === app.id);
-    const badge = acct
-      ? `<span class="app-card-status connected">${acct.healthy ? "connected" : "unhealthy"}</span>`
+    const cmdCount = Object.keys(app.commands || {}).length;
+    const badge = cmdCount > 0
+      ? `<span class="app-card-status connected">${cmdCount} cmd${cmdCount > 1 ? "s" : ""}</span>`
       : `<span class="app-card-status panel">panel</span>`;
     return `
     <div class="app-card" data-app-id="${app.id}">
@@ -731,29 +727,118 @@ function openPanelAppDetail(app: PanelApp) {
   appDetailUrl.value = app.url;
   appDetailUrl.readOnly = false;
 
-  const deleteBtn = document.getElementById("app-detail-delete")!;
-  const connectBtn = document.getElementById("app-detail-connect")!;
-  const disconnectBtn = document.getElementById("app-detail-disconnect")!;
-  const connectionSection = document.getElementById("app-detail-connection")!;
-  const toolsSection = document.getElementById("app-detail-tools")!;
-
-  // Check if already connected
-  const acct = connectedAccounts.find((a) => a.appSlug === app.connectedSlug || a.appSlug === app.id);
-  if (acct) {
-    connectBtn.classList.add("hidden");
-    disconnectBtn.classList.remove("hidden");
-    connectionSection.classList.remove("hidden");
-    document.getElementById("app-detail-connection-status")!.textContent =
-      `Connected via Pipedream · ${acct.healthy ? "Healthy" : "Unhealthy"} · Since ${new Date(acct.createdAt).toLocaleDateString()}`;
-  } else {
-    connectBtn.classList.remove("hidden");
-    disconnectBtn.classList.add("hidden");
-    connectionSection.classList.add("hidden");
-  }
-  deleteBtn.classList.remove("hidden");
+  document.getElementById("app-detail-delete")!.classList.remove("hidden");
 
   const forceWebToggle = document.getElementById("app-detail-force-web") as HTMLInputElement;
   forceWebToggle.checked = !!app.forceWeb;
+
+  renderCommands();
+}
+
+async function renderCommands() {
+  const commandsList = document.getElementById("app-commands-list")!;
+  const apps = await window.yo.appsList();
+  const app = apps.find((a) => a.id === currentAppId);
+  const commands = app?.commands || {};
+  const keys = Object.keys(commands);
+
+  if (keys.length === 0) {
+    commandsList.innerHTML = `<div class="inline-empty" style="margin-top:12px;">No commands mapped. Click "Pick Element" to add one.</div>`;
+    return;
+  }
+
+  commandsList.innerHTML = keys.map((key) => {
+    const cmd = commands[key];
+    return `<div class="command-row" data-key="${key}">
+      <span class="command-key">.dip ${currentAppId} ${key}</span>
+      <span class="command-desc">${cmd.description || cmd.action}</span>
+      <span class="command-selector" title="${cmd.selector}">${cmd.selector.length > 40 ? cmd.selector.slice(0, 40) + "…" : cmd.selector}</span>
+      <div class="command-actions">
+        <button class="action-btn command-test-btn" title="Test">Test</button>
+        <button class="action-btn danger command-remove-btn" title="Remove">×</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  commandsList.querySelectorAll(".command-remove-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
+      await window.yo.appsRemoveCommand(currentAppId, key);
+      renderCommands();
+    });
+  });
+
+  commandsList.querySelectorAll(".command-test-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
+      const result = await window.yo.appsTestCommand(currentAppId, key);
+      const status = document.getElementById("app-connect-status")!;
+      status.textContent = result ? `✓ ${result.slice(0, 80)}` : "✓ executed";
+      status.className = "app-connect-status success";
+      setTimeout(() => { status.textContent = ""; status.className = "app-connect-status"; }, 3000);
+    });
+  });
+}
+
+let pickerResult: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean } | null = null;
+
+function pickElement() {
+  if (!currentAppId) return;
+  window.yo.startPicker(currentAppId);
+  const status = document.getElementById("app-connect-status")!;
+  status.textContent = "Click an element in the panel…";
+  status.className = "app-connect-status";
+}
+
+function onPickerResult(result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) {
+  pickerResult = result;
+  const mapPanel = document.getElementById("app-map-command")!;
+  mapPanel.classList.remove("hidden");
+
+  document.getElementById("map-selector")!.textContent = result.selector;
+  document.getElementById("map-element-info")!.textContent =
+    `${result.tag}${result.text ? " — " + result.text.slice(0, 50) : ""}`;
+
+  const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
+  if (result.isEditable) actionSelect.value = "setValue";
+  else if (result.isClickable) actionSelect.value = "click";
+  else actionSelect.value = "extractText";
+
+  const status = document.getElementById("app-connect-status")!;
+  status.textContent = "";
+  status.className = "app-connect-status";
+}
+
+async function saveMapping() {
+  if (!pickerResult || !currentAppId) return;
+
+  const keySelect = document.getElementById("map-command-key") as HTMLSelectElement;
+  const customKeyInput = document.getElementById("map-custom-key") as HTMLInputElement;
+  const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
+  const descInput = document.getElementById("map-description") as HTMLInputElement;
+
+  let key = keySelect.value;
+  if (key === "__custom__") {
+    key = customKeyInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!key) { customKeyInput.focus(); return; }
+  }
+  if (!key) { keySelect.focus(); return; }
+
+  await window.yo.appsSetCommand(currentAppId, key, {
+    selector: pickerResult.selector,
+    action: actionSelect.value,
+    description: descInput.value.trim() || key,
+  });
+
+  document.getElementById("app-map-command")!.classList.add("hidden");
+  pickerResult = null;
+  (document.getElementById("map-description") as HTMLInputElement).value = "";
+  (document.getElementById("map-command-key") as HTMLSelectElement).value = "";
+  (document.getElementById("map-custom-key") as HTMLInputElement).value = "";
+  (document.getElementById("map-custom-key") as HTMLInputElement).classList.add("hidden");
+  renderCommands();
 }
 
 
@@ -764,130 +849,7 @@ function closeAppDetail() {
   loadApps();
 }
 
-// Browse Pipedream app catalog
-let appsBrowseOffset = 0;
-let connectingForAppId = ""; // tracks which panel app we're connecting for
-
-async function openAppsBrowse(append = false) {
-  // Tier gate
-  const authStatus = await window.yo.getAuthStatus();
-  if (authStatus.tier !== "advanced") {
-    document.getElementById("apps-pro-gate")!.classList.remove("hidden");
-    return;
-  }
-
-  appsBrowseSection.classList.remove("hidden");
-
-  const grid = document.getElementById("apps-browse-grid")!;
-  const loading = document.getElementById("apps-browse-loading")!;
-  const searchInput = document.getElementById("apps-browse-search") as HTMLInputElement | null;
-
-  if (!append) {
-    grid.innerHTML = "";
-    appsBrowseOffset = 0;
-  }
-
-  const existingLoadMore = grid.querySelector(".connector-load-more");
-  if (existingLoadMore) existingLoadMore.remove();
-
-  loading.classList.remove("hidden");
-
-  const search = searchInput?.value.trim() || undefined;
-  const { apps, hasMore } = await window.yo.connectorsGetApps(search, appsBrowseOffset);
-  loading.classList.add("hidden");
-
-  if (apps.length === 0 && !append) {
-    grid.innerHTML = `<div class="help-item-empty" style="grid-column:1/-1;">No apps found.</div>`;
-    return;
-  }
-
-  for (const app of apps) {
-    const card = document.createElement("div");
-    card.className = "connector-app-card";
-
-    const icon = document.createElement("div");
-    icon.className = "connector-app-card-icon";
-    if (app.icon) {
-      const img = document.createElement("img");
-      img.src = app.icon;
-      img.alt = app.name;
-      icon.appendChild(img);
-    } else {
-      icon.textContent = app.name.charAt(0).toUpperCase();
-    }
-
-    const name = document.createElement("div");
-    name.className = "connector-app-card-name";
-    name.textContent = app.name;
-
-    const desc = document.createElement("div");
-    desc.className = "connector-app-card-desc";
-    desc.textContent = app.description || "";
-
-    card.appendChild(icon);
-    card.appendChild(name);
-    card.appendChild(desc);
-
-    card.addEventListener("click", async () => {
-      card.style.opacity = "0.5";
-      card.style.pointerEvents = "none";
-      const result = await window.yo.connectorsConnect(app.id);
-      card.style.opacity = "1";
-      card.style.pointerEvents = "auto";
-      if (result.ok) {
-        // Save the Pipedream slug association, refresh, show detail
-        appsBrowseSection.classList.add("hidden");
-        if (connectingForAppId) {
-          await window.yo.appsSetConnectedSlug(connectingForAppId, app.id);
-          // Update local state
-          const panelApp = panelApps.find((a) => a.id === connectingForAppId);
-          if (panelApp) panelApp.connectedSlug = app.id;
-        }
-        try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
-        if (connectingForAppId) {
-          const panelApp = panelApps.find((a) => a.id === connectingForAppId);
-          connectingForAppId = "";
-          if (panelApp) openPanelAppDetail(panelApp);
-        }
-      } else if (result.error) {
-        card.style.borderColor = "#ff4444";
-        setTimeout(() => { card.style.borderColor = ""; }, 2000);
-      }
-    });
-
-    grid.appendChild(card);
-  }
-
-  appsBrowseOffset += apps.length;
-
-  if (hasMore) {
-    const loadMoreBtn = document.createElement("div");
-    loadMoreBtn.className = "connector-load-more";
-    loadMoreBtn.textContent = "Load more";
-    loadMoreBtn.addEventListener("click", () => openAppsBrowse(true));
-    grid.appendChild(loadMoreBtn);
-  }
-}
-
 function initApps() {
-  const closeBrowseModal = () => {
-    appsBrowseSection.classList.add("hidden");
-    connectingForAppId = "";
-  };
-  document.getElementById("apps-browse-cancel")!.addEventListener("click", closeBrowseModal);
-
-  // Browse search
-  let browseSearchTimeout: ReturnType<typeof setTimeout>;
-  const browseSearchInput = document.getElementById("apps-browse-search") as HTMLInputElement;
-  browseSearchInput.addEventListener("input", () => {
-    clearTimeout(browseSearchTimeout);
-    browseSearchTimeout = setTimeout(() => openAppsBrowse(), 300);
-  });
-
-  document.getElementById("apps-upgrade-btn")!.addEventListener("click", () => {
-    window.yo.openBilling();
-  });
-
   // Add panel app from inline form
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
@@ -936,30 +898,6 @@ function initApps() {
     closeAppDetail();
   });
 
-  // Connect — opens Pipedream catalog so user can pick the right app
-  document.getElementById("app-detail-connect")!.addEventListener("click", () => {
-    if (!currentAppId) return;
-    connectingForAppId = currentAppId;
-    openAppsBrowse();
-  });
-
-  document.getElementById("app-detail-disconnect")!.addEventListener("click", async () => {
-    if (!currentAppId) return;
-    const panelApp = panelApps.find((a) => a.id === currentAppId);
-    const slug = panelApp?.connectedSlug || currentAppId;
-    const acct = connectedAccounts.find((a) => a.appSlug === slug);
-    if (acct) {
-      await window.yo.connectorsDisconnect(acct.id);
-      await window.yo.appsSetConnectedSlug(currentAppId, null);
-      if (panelApp) panelApp.connectedSlug = undefined;
-      loadApps();
-    }
-  });
-
-  // Listen for connector changes
-  window.yo.onConnectorsChanged(() => {
-    loadApps();
-  });
 }
 
 // ── Settings ─────────────────────────────────────────────

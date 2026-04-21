@@ -72,6 +72,16 @@ contextBridge.exposeInMainWorld("yo", {
   appsUpdateUrl: (id: string, url: string) => ipcRenderer.invoke("apps-update-url", id, url) as Promise<boolean>,
   appsUpdateForceWeb: (id: string, forceWeb: boolean) => ipcRenderer.invoke("apps-update-force-web", id, forceWeb) as Promise<boolean>,
   appsSetConnectedSlug: (id: string, slug: string | null) => ipcRenderer.invoke("apps-set-connected-slug", id, slug) as Promise<boolean>,
+  appsSetCommand: (id: string, key: string, mapping: { selector: string; action: string; description: string }) =>
+    ipcRenderer.invoke("apps-set-command", id, key, mapping) as Promise<boolean>,
+  appsRemoveCommand: (id: string, key: string) =>
+    ipcRenderer.invoke("apps-remove-command", id, key) as Promise<boolean>,
+  appsTestCommand: (id: string, key: string) =>
+    ipcRenderer.invoke("apps-test-command", id, key) as Promise<string>,
+  startPicker: (panelId: string) => ipcRenderer.send("start-picker", panelId),
+  onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => {
+    ipcRenderer.on("picker-result", (_e, result) => cb(result));
+  },
 
   // Onboarding complete — triggers panel restore
   onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),

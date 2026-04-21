@@ -1854,6 +1854,122 @@ ol.docs-list li::before {
 
 .app-detail-actions { gap: 8px; }
 
+.app-detail-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #999;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.app-detail-option input[type="checkbox"] { accent-color: #25C75E; }
+.app-detail-option-hint { color: #555; }
+
+.app-connect-status {
+  font-size: 12px;
+  color: #999;
+  margin-top: 8px;
+  min-height: 18px;
+}
+.app-connect-status.success { color: #25C75E; }
+
+/* ── App command rows ───────────────────────────────────── */
+.command-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #1e1e1e;
+  border-radius: 6px;
+  margin-top: 6px;
+  transition: border-color 0.15s;
+}
+.command-row:hover { border-color: #333; }
+
+.command-key {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #25C75E;
+  white-space: nowrap;
+  min-width: 140px;
+}
+.command-desc {
+  font-size: 12px;
+  color: #999;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-selector {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #555;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.command-row:hover .command-actions { opacity: 1; }
+
+/* ── Map command form ───────────────────────────────────── */
+#app-map-command {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  background: #111;
+}
+.map-command-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+  margin-bottom: 8px;
+}
+.map-command-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+#map-selector {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #a855f7;
+  word-break: break-all;
+}
+#map-element-info {
+  font-size: 11px;
+  color: #666;
+}
+.map-command-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.map-command-form select,
+.map-command-form input[type="text"] {
+  font-size: 12px;
+  padding: 5px 8px;
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #ccc;
+  outline: none;
+  font-family: var(--font-mono);
+}
+.map-command-form select:focus,
+.map-command-form input[type="text"]:focus { border-color: #25C75E; }
+#map-description { flex: 1; min-width: 120px; }
+
 /* ── Apps browse inline ───────────────────────────────────── */
 /* ── Panel container ─────────────────────────────────────── */
 

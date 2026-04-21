@@ -238,11 +238,11 @@ export class CommandParser {
     return `${Math.floor(seconds / 86400)}d ago`;
   }
 
-  // ── dip: switch panels ──────────────────────────────────────
+  // ── dip: switch panels + execute app commands ───────────────
 
-  private handleDip(args: string[], sourcePanelId?: string): string {
+  private async handleDip(args: string[], sourcePanelId?: string): Promise<string> {
     if (args.length === 0) {
-      return "Usage: dip <panel> | dip . <panel> | dip split <a> <b> | dip grid <cells> | dip back | dip add <url>";
+      return "Usage: dip <panel> [cmd1 cmd2 ...] | dip split <a> <b> | dip save <name> | dip back";
     }
 
     const sub = args[0].toLowerCase();
@@ -329,6 +329,29 @@ export class CommandParser {
       return `Added: ${id} → ${url}`;
     }
 
+    if (sub === "save") {
+      const name = args[1]?.trim();
+      if (!name) return "Usage: dip save <name>";
+      const grid = this.layouts.getGridInfo();
+      if (!grid) return "No active layout to save. Use .dip split first.";
+      this.layouts.saveLayout({
+        name,
+        version: 2,
+        cols: grid.cols,
+        rows: grid.rows,
+        colWidths: grid.colWidths,
+        rowHeights: grid.rowHeights,
+        cells: grid.cells.map((c) => ({
+          panelId: c.panelId,
+          col: c.col,
+          row: c.row,
+          colSpan: c.colSpan,
+          rowSpan: c.rowSpan,
+        })),
+      });
+      return `Layout saved: ${name}`;
+    }
+
     // dip split <panel1> <panel2> [<panel3> ...] [/ <row2panels> ...]
     if (sub === "split" && args.length >= 3) {
       return this.handleDipSplit(args.slice(1), win);
@@ -346,13 +369,38 @@ export class CommandParser {
       return ok ? `Layout: ${sub}` : `Failed to apply layout: ${sub}`;
     }
 
-    // dip <panel-id> — single panel, clear any split
+    // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands
     this.layouts.clearSplit();
     const switched = this.panels.switchTo(sub, win);
-    if (switched) setPreference("lastView", { type: "panel", id: sub });
-    return switched
-      ? `Switched to ${sub}`
-      : `Unknown panel: ${sub}. Try: dip list`;
+    if (!switched) return `Unknown panel: ${sub}. Try: dip list`;
+    setPreference("lastView", { type: "panel", id: sub });
+
+    // No commands to run — just a switch
+    const commands = args.slice(1);
+    if (commands.length === 0) return `Switched to ${sub}`;
+
+    // Execute commands sequentially on this panel
+    const app = this.appConnector.get(sub);
+    if (!app) return `Switched to ${sub} (no commands mapped)`;
+
+    const wc = this.wcGetter?.(sub);
+    if (!wc || wc.isDestroyed()) return `Switched to ${sub} (panel not loaded)`;
+
+    const results: string[] = [`→ ${sub}`];
+    for (const cmd of commands) {
+      const key = cmd.toLowerCase();
+      const mapping = app.commands[key];
+      if (!mapping) {
+        const available = Object.keys(app.commands);
+        results.push(`Unknown command "${key}"${available.length > 0 ? `. Available: ${available.join(", ")}` : ""}`);
+        break;
+      }
+      // Small delay between commands to let UI settle
+      if (results.length > 1) await new Promise((r) => setTimeout(r, 300));
+      await executeCommand(wc, mapping);
+      results.push(mapping.description || key);
+    }
+    return results.join(" → ");
   }
 
   // ── dip split ────────────────────────────────────────────────
@@ -500,70 +548,11 @@ export class CommandParser {
     return `Grid: ${label}`;
   }
 
-  // ── waz: execute app commands + save layouts ─────────────────
+  // ── waz: MCP tool execution (coming soon) ────────────────────
 
   private async handleWaz(args: string[]): Promise<string> {
-    if (args.length === 0) return "Usage: waz <tool> [json_args] | waz <app> <command> | waz layout <name>";
-
-    const first = args[0].toLowerCase();
-
-    // .waz layout <name> — save current layout
-    if (first === "layout") {
-      const name = args[1]?.trim();
-      if (!name) return "Usage: waz layout <name>";
-      const grid = this.layouts.getGridInfo();
-      if (!grid) return "No active layout to save. Use .dip split first.";
-      this.layouts.saveLayout({
-        name,
-        version: 2,
-        cols: grid.cols,
-        rows: grid.rows,
-        colWidths: grid.colWidths,
-        rowHeights: grid.rowHeights,
-        cells: grid.cells.map((c) => ({
-          panelId: c.panelId,
-          col: c.col,
-          row: c.row,
-          colSpan: c.colSpan,
-          rowSpan: c.rowSpan,
-        })),
-      });
-      return `Layout saved: ${name}`;
-    }
-
-    // Determine target app + command
-    let appId: string;
-    let commandKey: string;
-
-    if (args.length >= 2 && this.appConnector.get(first)) {
-      // .waz <app> <command> — targeted
-      appId = first;
-      commandKey = args.slice(1).join(" ").toLowerCase();
-    } else {
-      // .waz <command> — run on active panel
-      appId = this.panels.activePanelId || "";
-      commandKey = args.join(" ").toLowerCase();
-    }
-
-    if (!appId) return "No active panel.";
-
-    const app = this.appConnector.get(appId);
-    if (!app) return `Unknown: ${first}. Not a tool, app, or command.`;
-
-    const mapping = app.commands[commandKey];
-    if (!mapping) {
-      const available = Object.keys(app.commands);
-      if (available.length === 0) return `${app.name} has no mapped commands. Connect it in Settings > Apps.`;
-      return `Unknown command "${commandKey}" for ${app.name}. Available: ${available.join(", ")}`;
-    }
-
-    const wc = this.wcGetter?.(appId);
-    if (!wc || wc.isDestroyed()) return `Panel "${appId}" is not loaded.`;
-
-    const result = await executeCommand(wc, mapping);
-    if (mapping.action === "click") return `Clicked: ${mapping.description || commandKey}`;
-    if (mapping.action === "setValue") return `Set: ${mapping.description || commandKey}`;
-    return result || `Done: ${commandKey}`;
+    if (args.length === 0) return "Usage: waz <tool> [args] — call an MCP tool. Connect tools in Settings.";
+    return "MCP tools coming soon. Connect servers in Settings.";
   }
 
   // ── council: multi-model council ─────────────────────────────

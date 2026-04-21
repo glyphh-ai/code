@@ -39,6 +39,7 @@ export class YoInterceptor {
   private panelOpener: ((query: string, sourcePanelId?: string) => void) | null = null;
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
   private modeColor = "#25C75E"; // current agent mode color (ask=green, plan=blue, auto=orange)
+  private lastAgentResult: (() => string) | null = null;
 
   constructor(
     private appConnector: AppConnector,
@@ -52,6 +53,7 @@ export class YoInterceptor {
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
   setYoClearer(fn: () => void): void { this.yoClearer = fn; }
   setPanelOpener(fn: (query: string, sourcePanelId?: string) => void): void { this.panelOpener = fn; }
+  setLastAgentResult(fn: () => string): void { this.lastAgentResult = fn; }
   setModeColor(color: string): void { this.modeColor = color; }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
 
@@ -299,6 +301,21 @@ window.addEventListener('beforeunload',function(e){
       await this.commandHandler("sup", appId);
       await this.clearNotify(wc);
       this.notify(wc, "captured", "success");
+      return;
+    }
+
+    // .sup .. → capture last agent result
+    if (instruction.trim() === "..") {
+      const result = this.lastAgentResult?.();
+      if (!result) {
+        this.notify(wc, "No agent result yet. Use .yo first.", "error");
+        return;
+      }
+      const ts = this.timestamp();
+      this.session.capture("yo-agent", result, `agent ${ts}`, `agent-${ts}`);
+      this.session.copyToClipboard();
+      this.sessionNotifier?.();
+      this.notify(wc, "agent result captured", "success");
       return;
     }
 

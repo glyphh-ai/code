@@ -54,6 +54,73 @@ let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 
+// ── DOM Picker script (injected into panel webContents) ─────
+const PICKER_SCRIPT = `(function(){
+  if(document.getElementById('__yo_picker__')) return;
+  const overlay=document.createElement('div');
+  overlay.id='__yo_picker__';
+  overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;cursor:crosshair;';
+  const highlight=document.createElement('div');
+  highlight.style.cssText='position:fixed;pointer-events:none;border:2px solid #a855f7;background:rgba(168,85,247,0.08);z-index:2147483646;transition:all 0.05s;display:none;';
+  const label=document.createElement('div');
+  label.style.cssText='position:fixed;pointer-events:none;z-index:2147483647;background:#a855f7;color:#fff;font:11px/1.3 monospace;padding:2px 6px;border-radius:3px;display:none;max-width:300px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
+  document.body.appendChild(highlight);
+  document.body.appendChild(label);
+  document.body.appendChild(overlay);
+  let current=null;
+  function buildSelector(el){
+    if(el.dataset && el.dataset.testid) return '[data-testid="'+el.dataset.testid+'"]';
+    if(el.getAttribute('role')&&el.getAttribute('aria-label')) return '[role="'+el.getAttribute('role')+'"][aria-label="'+el.getAttribute('aria-label')+'"]';
+    if(el.id&&!/\\d{4,}/.test(el.id)&&!/^(ember|react|ng|mat-|cdk-)/.test(el.id)) return '#'+CSS.escape(el.id);
+    if(el.getAttribute('placeholder')) return el.tagName.toLowerCase()+'[placeholder="'+el.getAttribute('placeholder')+'"]';
+    if(el.getAttribute('aria-label')) return '[aria-label="'+el.getAttribute('aria-label')+'"]';
+    if(el.getAttribute('name')&&!el.getAttribute('name').match(/\\d{4,}/)) return el.tagName.toLowerCase()+'[name="'+el.getAttribute('name')+'"]';
+    const parts=[];
+    let node=el;
+    while(node&&node!==document.body){
+      let tag=node.tagName.toLowerCase();
+      const parent=node.parentElement;
+      if(parent){
+        const siblings=Array.from(parent.children).filter(c=>c.tagName===node.tagName);
+        if(siblings.length>1) tag+=':nth-of-type('+(siblings.indexOf(node)+1)+')';
+      }
+      parts.unshift(tag);
+      node=parent;
+      if(parts.length>=4) break;
+    }
+    return parts.join(' > ');
+  }
+  overlay.addEventListener('mousemove',function(e){
+    overlay.style.pointerEvents='none';
+    const target=document.elementFromPoint(e.clientX,e.clientY);
+    overlay.style.pointerEvents='auto';
+    if(!target||target===overlay||target===highlight||target===label){highlight.style.display='none';label.style.display='none';current=null;return;}
+    current=target;
+    const r=target.getBoundingClientRect();
+    highlight.style.display='block';
+    highlight.style.left=r.left+'px';highlight.style.top=r.top+'px';highlight.style.width=r.width+'px';highlight.style.height=r.height+'px';
+    const sel=buildSelector(target);
+    const txt=(target.textContent||'').trim().slice(0,40);
+    label.textContent=target.tagName.toLowerCase()+(txt?' — '+txt:'');
+    label.style.display='block';
+    label.style.left=Math.min(r.left,window.innerWidth-310)+'px';
+    label.style.top=Math.max(0,r.top-22)+'px';
+  });
+  overlay.addEventListener('click',function(e){
+    e.preventDefault();e.stopPropagation();
+    if(!current) return;
+    const sel=buildSelector(current);
+    const tag=current.tagName.toLowerCase();
+    const txt=(current.textContent||'').trim().slice(0,80);
+    const isEditable=tag==='input'||tag==='textarea'||current.isContentEditable||current.getAttribute('role')==='textbox';
+    const isClickable=tag==='button'||tag==='a'||current.getAttribute('role')==='button'||current.onclick!=null||window.getComputedStyle(current).cursor==='pointer';
+    console.log('__YO_PICK__:'+JSON.stringify({selector:sel,tag:tag,text:txt,isEditable:isEditable,isClickable:isClickable}));
+    overlay.remove();highlight.remove();label.remove();
+  });
+  overlay.addEventListener('contextmenu',function(e){e.preventDefault();overlay.remove();highlight.remove();label.remove();});
+  document.addEventListener('keydown',function esc(e){if(e.key==='Escape'){overlay.remove();highlight.remove();label.remove();document.removeEventListener('keydown',esc);}});
+})()`;
+
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
 // don't repaint with JS-driven animation.
@@ -876,6 +943,7 @@ async function boot() {
     mainWindow.webContents.focus();
   };
   yoInterceptor.setPanelOpener(openYoPanel);
+  yoInterceptor.setLastAgentResult(() => yoAgent.getLastResponse());
   callbacks.openYoPanel = openYoPanel;
 
   yoChat.setCommandCallback(execCommand);
@@ -1620,6 +1688,40 @@ async function boot() {
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
   ipcMain.handle("apps-set-connected-slug", () => false);
+
+  // IPC: app command mapping (DOM picker)
+  ipcMain.handle("apps-set-command", (_e, id: string, key: string, mapping: { selector: string; action: string; description: string }) => {
+    return appConnector.setCommand(id, key, mapping as any);
+  });
+  ipcMain.handle("apps-remove-command", (_e, id: string, key: string) => {
+    return appConnector.removeCommand(id, key);
+  });
+  ipcMain.handle("apps-test-command", async (_e, id: string, key: string) => {
+    const app = appConnector.get(id);
+    if (!app) return "App not found";
+    const mapping = app.commands[key];
+    if (!mapping) return "Command not found";
+    const wc = panelManager.getWebContents(id);
+    if (!wc) return "Panel not open";
+    const { executeCommand: execCmd } = await import("./dom-bridge");
+    return execCmd(wc, mapping);
+  });
+
+  ipcMain.on("start-picker", (_e, panelId: string) => {
+    const wc = panelManager.getWebContents(panelId);
+    if (!wc) return;
+    wc.executeJavaScript(PICKER_SCRIPT).catch(() => {});
+    const onConsole = (_ev: Electron.Event, _level: number, message: string) => {
+      if (!message.startsWith("__YO_PICK__:")) return;
+      try {
+        const result = JSON.parse(message.slice("__YO_PICK__:".length));
+        mainWindow?.webContents.send("picker-result", result);
+      } catch {}
+      wc.off("console-message", onConsole);
+    };
+    wc.on("console-message", onConsole);
+  });
+
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);

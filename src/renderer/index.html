@@ -606,34 +606,49 @@
                 <input id="app-detail-name" class="app-detail-title-input" spellcheck="false" />
               </div>
               <div class="action-btns app-detail-actions">
-                <button id="app-detail-connect" class="action-btn primary hidden">Connect</button>
-                <button id="app-detail-disconnect" class="action-btn danger hidden">Disconnect</button>
+                <button id="app-pick-btn" class="action-btn primary">Pick Element</button>
                 <button id="app-detail-delete" class="action-btn danger hidden">Delete</button>
                 <button id="app-detail-close" class="action-btn">Back</button>
               </div>
             </div>
             <input id="app-detail-url" class="app-detail-url" spellcheck="false" placeholder="https://..." />
-            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#999;cursor:pointer;user-select:none;">
-              <input type="checkbox" id="app-detail-force-web" style="accent-color:#25C75E;cursor:pointer;" />
-              Force web mode <span style="color:#666;">— block native app redirects and desktop prompts</span>
+            <label class="app-detail-option">
+              <input type="checkbox" id="app-detail-force-web" />
+              Force web mode <span class="app-detail-option-hint">— block native app redirects</span>
             </label>
-            <div id="app-detail-connection" class="hidden" style="margin-top:12px;padding:12px;background:#111;border:1px solid #2a2a2a;border-radius:8px;">
-              <div id="app-detail-connection-status" style="font-size:12px;color:#888;"></div>
-            </div>
-            <div id="app-detail-tools" class="hidden" style="margin-top:12px;">
-              <h4 style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#888;margin-bottom:8px;">Available Tools</h4>
-              <div id="app-detail-tools-list"></div>
-            </div>
 
-            <!-- Inline browse: Pipedream app catalog (shown when Connect is clicked) -->
-            <div id="apps-browse-section" class="hidden" style="margin-top:16px;">
-              <div class="apps-browse-inline-header">
-                <h4 class="apps-browse-inline-title">Pick a service to connect</h4>
-                <button id="apps-browse-cancel" class="apps-browse-inline-close">&times;</button>
+            <div id="app-connect-status"></div>
+            <div id="app-commands-list"></div>
+
+            <!-- Manual command mapping (after pick) -->
+            <div id="app-map-command" class="hidden">
+              <div class="map-command-header">Map to Command</div>
+              <div class="map-command-info">
+                <span id="map-selector"></span>
+                <span id="map-element-info"></span>
               </div>
-              <input id="apps-browse-search" type="text" placeholder="Search apps..." spellcheck="false" autocomplete="off" class="apps-browse-inline-search" />
-              <div id="apps-browse-grid" class="mcp-preset-grid apps-browse-inline-grid"></div>
-              <div id="apps-browse-loading" class="hidden" style="text-align:center;padding:16px;color:#888;">Loading apps...</div>
+              <div class="map-command-form">
+                <select id="map-command-key">
+                  <option value="">Select command...</option>
+                  <option value="new">new</option>
+                  <option value="search">search</option>
+                  <option value="submit">submit</option>
+                  <option value="grab">grab</option>
+                  <option value="input">input</option>
+                  <option value="__custom__">+ custom command</option>
+                </select>
+                <input id="map-custom-key" type="text" placeholder="command name" class="hidden" spellcheck="false" />
+                <select id="map-action">
+                  <option value="click">Click</option>
+                  <option value="extractText">Extract Text</option>
+                  <option value="extractHTML">Extract HTML</option>
+                  <option value="setValue">Set Value</option>
+                  <option value="custom">Custom Script</option>
+                </select>
+                <input id="map-description" type="text" placeholder="description" spellcheck="false" />
+                <button id="map-save-btn" class="action-btn primary">Save</button>
+                <button id="map-cancel-btn" class="action-btn">Cancel</button>
+              </div>
             </div>
           </div>
         </div>
