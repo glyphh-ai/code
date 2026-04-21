@@ -33,6 +33,7 @@ import { YoAgent } from "./yo-agent";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
+import { UnifiedStore } from "./unified-store";
 import { Embedder } from "./embedder";
 import { Transcriber } from "./transcriber";
 import { VoiceRelay } from "./voice-relay";
@@ -543,6 +544,9 @@ async function boot() {
 
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
+  session.setOnCapture((appId, content) => {
+    unifiedStore.ingest({ type: "capture", source: appId, content, appId }).catch(() => {});
+  });
 
   // yo/dip/drip interceptor — injected into ALL app panels
   const MODE_COLORS: Record<string, string> = {
@@ -740,8 +744,10 @@ async function boot() {
   noteStore = new NoteStore();
   const memoryStore = new MemoryStore();
   const embedder = new Embedder();
+  const unifiedStore = new UnifiedStore();
   noteStore.setEmbedder(embedder);
   memoryStore.setEmbedder(embedder);
+  unifiedStore.setEmbedder(embedder);
   // Load embedding model in background — doesn't block app startup
   embedder.init()
     .catch((err) => {
@@ -859,6 +865,7 @@ async function boot() {
   yoAgent = new YoAgent();
   yoAgent.setNoteStore(noteStore);
   yoAgent.setMemoryStore(memoryStore);
+  yoAgent.setUnifiedStore(unifiedStore);
   yoAgent.setAppConnector(appConnector);
   yoAgent.setSkillCallbacks({
     list: () => skillEngine.listSkills(),

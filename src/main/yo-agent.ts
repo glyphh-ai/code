@@ -41,27 +41,32 @@ export interface YoAgentCallbacks {
 
 const SYSTEM_BASE = `You are yo, a workspace orchestrator. Act immediately, never ask for clarification.
 
-ACTION PRIORITY (use in this order):
-1. MCP tools — PRIMARY for all actions (send_email, create_event, list_messages, etc.). Structured, cheap, reliable.
+ACTION PRIORITY (strict — follow this order):
+1. MCP tools — for data access and actions (email, calendar, messages, files, etc.). Pennies per call, structured, reliable.
 2. Skills — reusable prompts for complex workflows (/skillname)
-3. Navigation — scan_panel, click_element, type_text for visual interaction
-4. grab_panel — LAST RESORT only. Expensive (~10KB per call). Only when user explicitly asks via .sup or you truly need page text.
+3. Navigation — scan_panel → click_element → type_text for visual interaction only (UI that has no MCP equivalent)
+4. grab_panel — LAST RESORT. Costs ~10K tokens per call. ONLY when user explicitly asks via .sup or you truly need full page text that no MCP tool can provide.
+
+CRITICAL: If an MCP tool exists for the task, ALWAYS use it instead of navigating a panel. Examples:
+- "find emails from anthropic" → use MCP gmail tool, NOT open Gmail panel + grab
+- "create a calendar event" → use MCP calendar tool, NOT navigate to Google Calendar
+- "send a slack message" → use MCP slack tool, NOT open Slack panel + type
 
 TOOLS:
-- ask_panel: send a prompt to AI chat panels and get real responses. Modes: ask (independent), chain (sequential), debate (multi-round).
-- delegate_navigator: scan, click, type in live panels. Use scan_panel for discovery, click/type for interaction.
+- delegate_navigator: scan, click, type in panels. For VISUAL interaction only — not for reading data that MCP tools can provide.
 - delegate_layout: arrange panels on screen — splits, grids, tabs, zoom.
 - delegate_researcher: notes and file search
 - delegate_manager: skills, apps CRUD
 - delegate_skill: run a named skill (/skillname)
 - delegate_coder: write code, edit files, run shell commands
-- pipe: grab from one panel → transform → push to another
+- ask_panel: send a prompt to AI chat panels. Modes: ask (independent), chain (sequential), debate (multi-round).
+- pipe: cross-panel data flow (grab → transform → push)
 - inject_text: paste into the input where user typed .yo
 - search_chats: search your own past conversation history for topics/keywords
 - web_search, fetch_page, save_memory, clipboard_read, clipboard_write, set_reminder, run_command
 
 RULES:
-- Always try MCP tools FIRST before falling back to panel navigation.
+- MCP tools FIRST. Navigation ONLY when no MCP tool covers the task.
 - Use ask_panel to interact with AI apps. Use delegate_navigator for non-AI panel interactions.
 - Check AVAILABLE PANELS and Current layout before acting. Arrange panels the user needs to see.
 - Delegate in parallel when tasks are independent.
@@ -70,7 +75,7 @@ RULES:
 const TOOLS = [
   {
     name: "delegate_navigator",
-    description: "Delegate a navigation task to the panel specialist. Use for viewing, clicking, navigating, or typing in live app panels (Gmail, Claude, GPT, etc). Provide a clear instruction of what to find or do.",
+    description: "Delegate a visual interaction task to the panel specialist. Use for clicking, navigating, or typing in live app panels — NOT for reading data that MCP tools can provide. If an MCP tool exists (email, calendar, messages), use that instead.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -163,8 +168,21 @@ const TOOLS = [
     },
   },
   {
+    name: "search_store",
+    description: "Search all past interactions — captures (.sup), MCP tool results, council exchanges, and chat history. This is your PRIMARY recall tool. Use when the user says 'what did I email', 'find that thing from yesterday', 'what did Claude say', etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string" as const, description: "Search query — topic, keyword, or phrase" },
+        type: { type: "string" as const, enum: ["capture", "mcp", "council", "chat"], description: "Optional: filter by entry type" },
+        limit: { type: "number" as const, description: "Max results (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "search_chats",
-    description: "Search your own past conversation history for a topic, keyword, or phrase. Returns matching chat titles and excerpts. Use when the user says 'pull up', 'find our discussion', 'remember when we talked about', etc.",
+    description: "Search past conversation history by chat titles and message text. Fallback if search_store doesn't find what you need.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -315,6 +333,9 @@ export class YoAgent {
 
   // MCP server manager
   private mcpManager: McpManager | null = null;
+
+  // Unified store for persistent interaction history
+  private unifiedStore: import("./unified-store").UnifiedStore | null = null;
 
   // Direct tool callbacks — new tools
   private _panelGrabber: ((panelId: string) => Promise<string | null>) | null = null;
@@ -501,6 +522,7 @@ export class YoAgent {
   }
 
   setMcpManager(mgr: McpManager): void { this.mcpManager = mgr; }
+  setUnifiedStore(store: import("./unified-store").UnifiedStore): void { this.unifiedStore = store; }
 
 
   setLayoutCallbacks(cbs: {
@@ -728,7 +750,7 @@ export class YoAgent {
 
     // Active panel context: tell the agent where the user is
     if (this._activePanel) {
-      prompt += `\n\nACTIVE PANEL: The user is currently viewing the "${this._activePanel}" panel. When they say "the same question", "this conversation", "what's here", etc., they mean content on this panel. Grab it first.`;
+      prompt += `\n\nACTIVE PANEL: The user is currently viewing the "${this._activePanel}" panel. When they say "the same question", "this conversation", "what's here", etc., they mean this panel. Use MCP tools for this app if available — only grab_panel as last resort.`;
     }
 
     // Self-awareness: don't use your own app panel to answer questions
@@ -952,6 +974,16 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
           const contentScan = scanForInjection(result);
           const safeResult = contentScan.blocked ? `[content blocked by firewall: ${contentScan.reason}]` : result;
           cb.onToolResult?.(block.id, safeResult.slice(0, 500));
+          // Ingest MCP result into unified store (non-blocking)
+          if (this.unifiedStore && !contentScan.blocked) {
+            this.unifiedStore.ingest({
+              type: "mcp",
+              source: block.name,
+              content: safeResult,
+              toolName: block.name,
+              toolArgs: block.input as Record<string, unknown>,
+            }).catch(() => {});
+          }
           return { type: "tool_result", tool_use_id: block.id, content: safeResult };
         });
         const mcpResults = await Promise.all(mcpPromises);
@@ -1097,6 +1129,7 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
         case "inject_text": return await this.toolInjectText(input);
         case "run_command": return await this.toolRunCommand(input);
         case "save_memory": return await this.toolSaveMemory(input);
+        case "search_store": return await this.toolSearchStore(input);
         case "search_chats": return this.toolSearchChats(input);
         case "web_search": return await this.toolWebSearch(input);
         case "fetch_page": return await this.toolFetchPage(input);
@@ -1136,6 +1169,22 @@ You are in plan mode. DO NOT call any tools. Instead, outline your plan as a con
     if (!this.memoryStore) return "Memory not available.";
     const id = await this.memoryStore.save(content, category || "context");
     return `Memory saved (${id}).`;
+  }
+
+  private async toolSearchStore(input: Record<string, unknown>): Promise<string> {
+    const query = input.query as string;
+    if (!query) return "No query provided.";
+    if (!this.unifiedStore) return "Store not available.";
+    const type = input.type as import("./unified-store").EntryType | undefined;
+    const limit = (input.limit as number) || 10;
+    const results = await this.unifiedStore.search(query, type, limit);
+    if (results.length === 0) return `No stored interactions found matching "${query}".`;
+    return results.map((r) => {
+      const date = new Date(r.meta.created).toLocaleString();
+      const label = r.meta.toolName || r.meta.source;
+      const snippet = r.content.length > 500 ? r.content.slice(0, 500) + "…" : r.content;
+      return `[${r.meta.type}] ${label} (${date})\n${snippet}`;
+    }).join("\n\n---\n\n");
   }
 
   private toolSearchChats(input: Record<string, unknown>): string {
@@ -1713,6 +1762,21 @@ Rules:
     lines.push("```");
 
     fs.writeFileSync(path.join(CHATS_DIR, `${this.chatId}.md`), lines.join("\n"), "utf-8");
+
+    // Ingest chat text into unified store (non-blocking)
+    if (this.unifiedStore) {
+      const chatText = this.history
+        .filter((m) => typeof m.content === "string")
+        .map((m) => `${m.role}: ${m.content}`)
+        .join("\n");
+      if (chatText.length > 0) {
+        this.unifiedStore.ingest({
+          type: "chat",
+          source: this.chatId!,
+          content: `# ${this.chatTitle}\n\n${chatText}`,
+        }).catch(() => {});
+      }
+    }
   }
 
   private parseChatFile(raw: string): { title: string; history: any[] } {

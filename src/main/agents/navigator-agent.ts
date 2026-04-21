@@ -48,9 +48,12 @@ export class NavigatorAgent extends BaseSubAgent {
   get systemPrompt(): string {
     return `You are a navigation specialist for workspace panels (Gmail, Claude, GPT, Gemini, Slack, etc).
 
+You handle VISUAL interaction — clicking, typing, navigating UI. Data retrieval (emails, events, messages) should use MCP tools at the orchestrator level, not panel grabbing.
+
 RULES:
 - scan_panel FIRST for element discovery (~5ms, zero cost). Use click_element/type_text with those selectors.
-- grab_panel is EXPENSIVE (sends full page text to LLM context). Only use when you specifically need text content that scan_panel doesn't provide.
+- grab_panel is EXPENSIVE (~10K tokens per call). ONLY use when explicitly asked for page text or when no other tool can get the information.
+- After clicking, use scan_panel to verify the result — NOT grab_panel.
 - Prefer run_command when scan shows MAPPED COMMANDS (grab, input, submit, new, search, read-latest, etc).
 - Use panel IDs directly. NEVER open_panel for apps already in available panels.
 - type_text with submit=true for Enter. Use wait_for_response after submitting to AI chat panels.
@@ -88,7 +91,7 @@ RULES:
       },
       {
         name: "click_element",
-        description: "Click an element on a panel by visible text or CSS selector. After clicking, use grab_panel to see the result.",
+        description: "Click an element on a panel by visible text or CSS selector. After clicking, use scan_panel to verify the result.",
         input_schema: {
           type: "object",
           properties: {

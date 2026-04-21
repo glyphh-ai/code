@@ -28,6 +28,12 @@ export class SessionCache {
   private combined = "";
   private _label = "";
   private _fileName = "";
+  private _onCapture: ((appId: string, content: string) => void) | null = null;
+
+  /** Register callback fired on every capture (for unified store ingestion). */
+  setOnCapture(fn: (appId: string, content: string) => void): void {
+    this._onCapture = fn;
+  }
 
   /** Add captured content from a panel. Replaces any existing entry from the same app. */
   capture(appId: string, content: string, label?: string, fileName?: string): void {
@@ -42,6 +48,7 @@ export class SessionCache {
     this._label = label || appId;
     this._fileName = fileName || "";
     this.rebuildCombined();
+    if (this._onCapture) this._onCapture(appId, content);
   }
 
   /** Get the combined session content (what sup uses). */
