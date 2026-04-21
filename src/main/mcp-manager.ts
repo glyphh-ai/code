@@ -14,7 +14,7 @@ import { EventEmitter } from "events";
 export interface McpServerConfig {
   id: string;
   name: string;
-  transport: "stdio" | "sse";
+  transport: "stdio" | "sse" | "streamable-http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -33,7 +33,7 @@ export interface McpServerState {
 export type McpToolOverride = "default" | "auto" | "ask";
 
 /** Branded preset servers that users can add with one click. */
-export const MCP_PRESETS: Array<{ id: string; name: string; description: string; transport: "stdio" | "sse"; command: string; args: string[]; configHint?: string }> = [
+export const MCP_PRESETS: Array<{ id: string; name: string; description: string; transport: "stdio" | "sse" | "streamable-http"; command: string; args: string[]; configHint?: string }> = [
   {
     id: "filesystem",
     name: "Filesystem",

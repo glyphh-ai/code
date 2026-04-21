@@ -703,6 +703,7 @@ document.addEventListener('keydown',window.__yoWidgetEsc,true);
 (function(){
 var _n=${nonceJs};
 if(window.__yoNoteIv){clearInterval(window.__yoNoteIv);window.__yoNoteIv=null;}
+if(window.__yoLastEl&&window.__yoLastEl.isConnected&&window.__yoOrigIndent!==undefined){window.__yoLastEl.style.textIndent=window.__yoOrigIndent;window.__yoOrigIndent=undefined;}
 var el=window.__yoLastEl;
 if(!el||!el.isConnected){el=document.activeElement;if(!el||el===document.body)el=null;
 if(!el){var fb=['[role="textbox"]','[contenteditable]:not([contenteditable="false"])','textarea','input[type="text"]'];
@@ -740,6 +741,10 @@ if(isLoading){
   var lastSwap=Date.now();
   function pickNext(){var w=words[Math.floor(Math.random()*words.length)];while(w===curWord&&words.length>1)w=words[Math.floor(Math.random()*words.length)];return w;}
   function cursorHome(){try{if(el.setSelectionRange)el.setSelectionRange(0,0);else{var s=window.getSelection();if(s){var r=document.createRange();r.setStart(el,0);r.collapse(true);s.removeAllRanges();s.addRange(r);}}}catch(e){}}
+  // Indent text to make room for stop button
+  var origIndent=el.style.textIndent||'';
+  el.style.textIndent='26px';
+  window.__yoOrigIndent=origIndent;
   setText(isContentEditable?curWord+'   ':frames[0]+' '+curWord+'   ',isContentEditable?frames[0]:null);
   cursorHome();
   // Stop button
@@ -747,12 +752,12 @@ if(isLoading){
   stopBtn.id='__yo-stop';
   stopBtn.innerHTML='\\u25A0';
   stopBtn.title='Stop';
-  stopBtn.style.cssText='position:fixed;z-index:999999;width:24px;height:24px;border-radius:6px;background:#333;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;';
-  stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';};
-  stopBtn.onmouseleave=function(){stopBtn.style.background='#333';};
+  stopBtn.style.cssText='position:fixed;z-index:999999;width:18px;height:18px;border-radius:5px;background:'+modeColor+';color:#fff;font-size:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s;user-select:none;opacity:0.8;';
+  stopBtn.onmouseenter=function(){stopBtn.style.background='#ff5f57';stopBtn.style.opacity='1';};
+  stopBtn.onmouseleave=function(){stopBtn.style.background=modeColor;stopBtn.style.opacity='0.8';};
   stopBtn.onclick=function(){console.log('${PREFIX}'+JSON.stringify({type:'cancel',_nonce:_n}));};
-  // Position just right of the input element
-  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-12)+'px';stopBtn.style.left=(rect.right+8)+'px';}catch(e){}
+  // Position to the left of the spinner text
+  try{var rect=el.getBoundingClientRect();stopBtn.style.top=(rect.top+rect.height/2-9)+'px';stopBtn.style.left=(rect.left+4)+'px';}catch(e){}
   var old=document.getElementById('__yo-stop');if(old)old.remove();
   document.body.appendChild(stopBtn);
   // Escape key also cancels
@@ -818,6 +823,7 @@ var stop=document.getElementById('__yo-stop');if(stop)stop.remove();
 if(window.__yoStopEsc){document.removeEventListener('keydown',window.__yoStopEsc,true);window.__yoStopEsc=null;}
 if(window.__yoResultEsc){document.removeEventListener('keydown',window.__yoResultEsc,true);window.__yoResultEsc=null;}
 var el=window.__yoLastEl;
+if(el&&el.isConnected&&window.__yoOrigIndent!==undefined){el.style.textIndent=window.__yoOrigIndent;window.__yoOrigIndent=undefined;}
 if(el&&el.isConnected){
 if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){
   var p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;

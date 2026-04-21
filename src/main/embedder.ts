@@ -1,57 +1,120 @@
 /**
  * Embedder — local vector embeddings via Qwen3-Embedding-0.6B (ONNX).
  *
- * Downloads the model on first use (~600MB), caches in ~/yo/models/.
- * Produces 384-dimension normalized embeddings via MRL truncation.
- * All inference runs locally — no API calls.
+ * ONNX inference runs in a forked child process for crash isolation.
+ * If the worker OOMs or crashes, the main app survives and search
+ * falls back to keyword matching.
  */
 
 import path from "path";
-import os from "os";
-import { BrowserWindow } from "electron";
+import { fork, type ChildProcess } from "child_process";
+import { BrowserWindow, app } from "electron";
 
-const MODEL_ID = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
 const EMBED_DIM = 384;
+const WORKER_SCRIPT = path.join(__dirname, "embedder-worker.js");
+
+interface PendingEmbed {
+  resolve: (vec: Float32Array) => void;
+  reject: (err: Error) => void;
+}
 
 export class Embedder {
-  private pipe: any = null;
-  private loading: Promise<void> | null = null;
+  private worker: ChildProcess | null = null;
+  private pending = new Map<string, PendingEmbed>();
+  private nextId = 0;
   private _ready = false;
+  private loading: Promise<void> | null = null;
+  private crashed = false;
 
   get isReady(): boolean { return this._ready; }
 
-  /** Start loading the model. Safe to call multiple times. */
   async init(): Promise<void> {
-    if (this._ready) return;
+    if (this._ready || this.crashed) return;
     if (this.loading) return this.loading;
-    this.loading = this._load();
+    this.loading = this.spawnWorker();
     return this.loading;
   }
 
-  private async _load(): Promise<void> {
-    this.sendStatus("loading", "initializing...");
+  private spawnWorker(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.sendStatus("loading", "initializing...");
 
-    // Dynamic import — @huggingface/transformers is ESM-only in v3
-    const { pipeline, env } = await import("@huggingface/transformers");
-    env.cacheDir = path.join(os.homedir(), "yo", "models");
+      this.worker = fork(WORKER_SCRIPT, [], {
+        stdio: ["pipe", "pipe", "pipe", "ipc"],
+      });
 
-    console.log("[embedder] loading Qwen3-Embedding-0.6B…");
-    this.pipe = await pipeline("feature-extraction", MODEL_ID, {
-      dtype: "q8",
-      progress_callback: (progress: any) => {
-        if (progress.status === "download" || progress.status === "progress") {
-          this.sendStatus("downloading", undefined, progress.progress);
-        } else if (progress.status === "done") {
-          this.sendStatus("loading", "loading model...");
+      this.worker.stdout?.on("data", (chunk: Buffer) => {
+        console.log(`[embedder-worker] ${chunk.toString().trim()}`);
+      });
+      this.worker.stderr?.on("data", (chunk: Buffer) => {
+        console.error(`[embedder-worker] ${chunk.toString().trim()}`);
+      });
+
+      this.worker.on("message", (msg: any) => {
+        if (msg.type === "status") {
+          this.sendStatus(msg.state, msg.message, msg.progress);
+        } else if (msg.type === "ready") {
+          this._ready = true;
+          this.sendStatus("ready");
+          resolve();
+        } else if (msg.type === "result") {
+          const p = this.pending.get(msg.id);
+          if (p) {
+            this.pending.delete(msg.id);
+            p.resolve(new Float32Array(msg.vector));
+          }
+        } else if (msg.type === "error") {
+          if (msg.id) {
+            const p = this.pending.get(msg.id);
+            if (p) {
+              this.pending.delete(msg.id);
+              p.reject(new Error(msg.message));
+            }
+          } else {
+            this.sendStatus("error", "model unavailable — search disabled");
+            reject(new Error(msg.message));
+          }
         }
-      },
+      });
+
+      this.worker.on("exit", (code) => {
+        const wasReady = this._ready;
+        this._ready = false;
+        this.worker = null;
+
+        for (const [, p] of this.pending) {
+          p.reject(new Error("Embedder worker crashed"));
+        }
+        this.pending.clear();
+
+        if (wasReady) {
+          console.error(`[embedder] worker exited (code ${code}) — attempting restart`);
+          this.loading = null;
+          this.restartAfterDelay();
+        } else {
+          console.error(`[embedder] worker failed to start (code ${code})`);
+          this.crashed = true;
+          this.sendStatus("error", "model unavailable — search disabled");
+        }
+      });
+
+      this.worker.send({ type: "init" });
     });
-    this._ready = true;
-    console.log("[embedder] ready");
-    this.sendStatus("ready");
   }
 
-  /** Send status to the renderer for splash screen updates. */
+  private restartAfterDelay(): void {
+    setTimeout(() => {
+      if (!this._ready && !this.crashed) {
+        console.log("[embedder] restarting worker...");
+        this.init().catch((err) => {
+          console.error("[embedder] restart failed:", err);
+          this.crashed = true;
+          this.sendStatus("error", "model unavailable — search disabled");
+        });
+      }
+    }, 5000);
+  }
+
   private sendStatus(state: string, message?: string, progress?: number): void {
     try {
       const win = BrowserWindow.getAllWindows()[0];
@@ -61,14 +124,26 @@ export class Embedder {
     } catch { /* window may not exist yet */ }
   }
 
-  /** Embed a single text. Returns a normalized 384-dim Float32Array. */
   async embed(text: string): Promise<Float32Array> {
     if (!this._ready) await this.init();
-    const output = await this.pipe(text, { pooling: "mean", normalize: true });
-    return this.truncate(output.tolist()[0] as number[]);
+    if (!this.worker || this.crashed) throw new Error("Embedder not available");
+
+    const id = String(this.nextId++);
+    return new Promise<Float32Array>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error("Embed timed out"));
+      }, 30000);
+
+      this.pending.set(id, {
+        resolve: (vec) => { clearTimeout(timeout); resolve(vec); },
+        reject: (err) => { clearTimeout(timeout); reject(err); },
+      });
+
+      this.worker!.send({ type: "embed", id, text });
+    });
   }
 
-  /** Embed multiple texts sequentially. */
   async embedBatch(texts: string[]): Promise<Float32Array[]> {
     const results: Float32Array[] = [];
     for (const t of texts) {
@@ -77,17 +152,13 @@ export class Embedder {
     return results;
   }
 
-  /** MRL truncation: take first EMBED_DIM dims and re-normalize. */
-  private truncate(data: number[]): Float32Array {
-    if (data.length <= EMBED_DIM) {
-      return new Float32Array(data);
+  cleanup(): void {
+    if (this.worker) {
+      this.crashed = true;
+      this.worker.kill();
+      this.worker = null;
     }
-    const slice = data.slice(0, EMBED_DIM);
-    const norm = Math.sqrt(slice.reduce((s, v) => s + v * v, 0));
-    if (norm === 0) return new Float32Array(EMBED_DIM);
-    return new Float32Array(slice.map((v) => v / norm));
   }
 }
 
-/** Dimension of embeddings produced by this embedder. */
 export const EMBEDDING_DIM = EMBED_DIM;

@@ -629,7 +629,7 @@ async function saveLayout() {
   loadLayouts();
 }
 
-// ── Apps (unified: local apps + Pipedream connections) ───
+// ── Apps ────────────────────────────────────────────────
 
 let appsPage = 0;
 const appsList = document.getElementById("apps-list")!;
@@ -637,7 +637,6 @@ const appDetail = document.getElementById("app-detail")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
-const appsBrowseSection = document.getElementById("apps-browse-section")!;
 
 let currentAppId = "";
 
@@ -645,20 +644,10 @@ interface PanelApp {
   id: string;
   name: string;
   url: string;
-  connectedSlug?: string;
   forceWeb?: boolean;
 }
 
-interface ConnectorAccount {
-  id: string;
-  appSlug: string;
-  appName: string;
-  createdAt: string;
-  healthy: boolean;
-}
-
 let panelApps: PanelApp[] = [];
-let connectedAccounts: ConnectorAccount[] = [];
 
 async function loadApps() {
   appDetail.classList.add("hidden");
@@ -668,13 +657,8 @@ async function loadApps() {
   // Fetch local panel apps
   try {
     const apps = await window.yo.appsList();
-    panelApps = apps.map((a: { id: string; name: string; url: string; connectedSlug?: string }) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug }));
+    panelApps = apps.map((a: { id: string; name: string; url: string }) => ({ id: a.id, name: a.name, url: a.url }));
   } catch { panelApps = []; }
-
-  // Fetch connected accounts (silently fail for non-Advanced)
-  try {
-    connectedAccounts = await window.yo.connectorsGetAccounts();
-  } catch { connectedAccounts = []; }
 
   renderAppsList();
 }
@@ -696,15 +680,11 @@ function renderAppsList() {
   }
 
   appsList.innerHTML = filtered.map((app) => {
-    const acct = connectedAccounts.find((a) => a.appSlug === app.connectedSlug || a.appSlug === app.id);
-    const badge = acct
-      ? `<span class="app-card-status connected">${acct.healthy ? "connected" : "unhealthy"}</span>`
-      : `<span class="app-card-status panel">panel</span>`;
     return `
     <div class="app-card" data-app-id="${app.id}">
       <div class="app-card-header">
         <span class="app-card-name">${app.name}</span>
-        ${badge}
+        <span class="app-card-status panel">panel</span>
       </div>
       <div class="app-card-url">${app.url}</div>
     </div>`;
@@ -737,19 +717,9 @@ function openPanelAppDetail(app: PanelApp) {
   const connectionSection = document.getElementById("app-detail-connection")!;
   const toolsSection = document.getElementById("app-detail-tools")!;
 
-  // Check if already connected
-  const acct = connectedAccounts.find((a) => a.appSlug === app.connectedSlug || a.appSlug === app.id);
-  if (acct) {
-    connectBtn.classList.add("hidden");
-    disconnectBtn.classList.remove("hidden");
-    connectionSection.classList.remove("hidden");
-    document.getElementById("app-detail-connection-status")!.textContent =
-      `Connected via Pipedream · ${acct.healthy ? "Healthy" : "Unhealthy"} · Since ${new Date(acct.createdAt).toLocaleDateString()}`;
-  } else {
-    connectBtn.classList.remove("hidden");
-    disconnectBtn.classList.add("hidden");
-    connectionSection.classList.add("hidden");
-  }
+  connectBtn.classList.add("hidden");
+  disconnectBtn.classList.add("hidden");
+  connectionSection.classList.add("hidden");
   deleteBtn.classList.remove("hidden");
   toolsSection.classList.add("hidden");
 
@@ -766,130 +736,7 @@ function closeAppDetail() {
   loadApps();
 }
 
-// Browse Pipedream app catalog
-let appsBrowseOffset = 0;
-let connectingForAppId = ""; // tracks which panel app we're connecting for
-
-async function openAppsBrowse(append = false) {
-  // Tier gate
-  const authStatus = await window.yo.getAuthStatus();
-  if (authStatus.tier !== "advanced") {
-    document.getElementById("apps-pro-gate")!.classList.remove("hidden");
-    return;
-  }
-
-  appsBrowseSection.classList.remove("hidden");
-
-  const grid = document.getElementById("apps-browse-grid")!;
-  const loading = document.getElementById("apps-browse-loading")!;
-  const searchInput = document.getElementById("apps-browse-search") as HTMLInputElement | null;
-
-  if (!append) {
-    grid.innerHTML = "";
-    appsBrowseOffset = 0;
-  }
-
-  const existingLoadMore = grid.querySelector(".connector-load-more");
-  if (existingLoadMore) existingLoadMore.remove();
-
-  loading.classList.remove("hidden");
-
-  const search = searchInput?.value.trim() || undefined;
-  const { apps, hasMore } = await window.yo.connectorsGetApps(search, appsBrowseOffset);
-  loading.classList.add("hidden");
-
-  if (apps.length === 0 && !append) {
-    grid.innerHTML = `<div class="help-item-empty" style="grid-column:1/-1;">No apps found.</div>`;
-    return;
-  }
-
-  for (const app of apps) {
-    const card = document.createElement("div");
-    card.className = "connector-app-card";
-
-    const icon = document.createElement("div");
-    icon.className = "connector-app-card-icon";
-    if (app.icon) {
-      const img = document.createElement("img");
-      img.src = app.icon;
-      img.alt = app.name;
-      icon.appendChild(img);
-    } else {
-      icon.textContent = app.name.charAt(0).toUpperCase();
-    }
-
-    const name = document.createElement("div");
-    name.className = "connector-app-card-name";
-    name.textContent = app.name;
-
-    const desc = document.createElement("div");
-    desc.className = "connector-app-card-desc";
-    desc.textContent = app.description || "";
-
-    card.appendChild(icon);
-    card.appendChild(name);
-    card.appendChild(desc);
-
-    card.addEventListener("click", async () => {
-      card.style.opacity = "0.5";
-      card.style.pointerEvents = "none";
-      const result = await window.yo.connectorsConnect(app.id);
-      card.style.opacity = "1";
-      card.style.pointerEvents = "auto";
-      if (result.ok) {
-        // Save the Pipedream slug association, refresh, show detail
-        appsBrowseSection.classList.add("hidden");
-        if (connectingForAppId) {
-          await window.yo.appsSetConnectedSlug(connectingForAppId, app.id);
-          // Update local state
-          const panelApp = panelApps.find((a) => a.id === connectingForAppId);
-          if (panelApp) panelApp.connectedSlug = app.id;
-        }
-        try { connectedAccounts = await window.yo.connectorsGetAccounts(); } catch { /* */ }
-        if (connectingForAppId) {
-          const panelApp = panelApps.find((a) => a.id === connectingForAppId);
-          connectingForAppId = "";
-          if (panelApp) openPanelAppDetail(panelApp);
-        }
-      } else if (result.error) {
-        card.style.borderColor = "#ff4444";
-        setTimeout(() => { card.style.borderColor = ""; }, 2000);
-      }
-    });
-
-    grid.appendChild(card);
-  }
-
-  appsBrowseOffset += apps.length;
-
-  if (hasMore) {
-    const loadMoreBtn = document.createElement("div");
-    loadMoreBtn.className = "connector-load-more";
-    loadMoreBtn.textContent = "Load more";
-    loadMoreBtn.addEventListener("click", () => openAppsBrowse(true));
-    grid.appendChild(loadMoreBtn);
-  }
-}
-
 function initApps() {
-  const closeBrowseModal = () => {
-    appsBrowseSection.classList.add("hidden");
-    connectingForAppId = "";
-  };
-  document.getElementById("apps-browse-cancel")!.addEventListener("click", closeBrowseModal);
-
-  // Browse search
-  let browseSearchTimeout: ReturnType<typeof setTimeout>;
-  const browseSearchInput = document.getElementById("apps-browse-search") as HTMLInputElement;
-  browseSearchInput.addEventListener("input", () => {
-    clearTimeout(browseSearchTimeout);
-    browseSearchTimeout = setTimeout(() => openAppsBrowse(), 300);
-  });
-
-  document.getElementById("apps-upgrade-btn")!.addEventListener("click", () => {
-    window.yo.openBilling();
-  });
-
   // Add panel app from inline form
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
@@ -936,31 +783,6 @@ function initApps() {
     if (!currentAppId) return;
     await window.yo.appsRemove(currentAppId);
     closeAppDetail();
-  });
-
-  // Connect — opens Pipedream catalog so user can pick the right app
-  document.getElementById("app-detail-connect")!.addEventListener("click", () => {
-    if (!currentAppId) return;
-    connectingForAppId = currentAppId;
-    openAppsBrowse();
-  });
-
-  document.getElementById("app-detail-disconnect")!.addEventListener("click", async () => {
-    if (!currentAppId) return;
-    const panelApp = panelApps.find((a) => a.id === currentAppId);
-    const slug = panelApp?.connectedSlug || currentAppId;
-    const acct = connectedAccounts.find((a) => a.appSlug === slug);
-    if (acct) {
-      await window.yo.connectorsDisconnect(acct.id);
-      await window.yo.appsSetConnectedSlug(currentAppId, null);
-      if (panelApp) panelApp.connectedSlug = undefined;
-      loadApps();
-    }
-  });
-
-  // Listen for connector changes
-  window.yo.onConnectorsChanged(() => {
-    loadApps();
   });
 }
 

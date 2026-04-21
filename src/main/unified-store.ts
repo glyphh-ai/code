@@ -249,6 +249,8 @@ export class UnifiedStore {
       } catch {
         // Non-fatal — entry still searchable via keywords
       }
+      // Yield between embeds to let GC run and reduce memory pressure
+      await new Promise((r) => setTimeout(r, 50));
     }
 
     this.draining = false;

@@ -26,7 +26,7 @@ import { getPreference, setPreference } from "./preferences";
 import { getAgentMode, getToolRegistry, getToolOverrides, TOOL_LABELS, setMcpManager } from "./action-gate";
 import type { AgentMode, ToolOverride } from "./action-gate";
 import { McpManager, MCP_PRESETS, McpServerConfig } from "./mcp-manager";
-import { ConnectorManager } from "./connectors";
+
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { YoAgent } from "./yo-agent";
@@ -59,7 +59,7 @@ let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let mcpManager: McpManager;
-let connectorManager: ConnectorManager;
+let embedder: Embedder | null = null;
 
 // ── Drip effects ────────────────────────────────────────────
 // All CSS-animation-only (no JS rAF) — macOS transparent windows
@@ -743,7 +743,7 @@ async function boot() {
   // Note store + memory store + embedder (flat files with vector search)
   noteStore = new NoteStore();
   const memoryStore = new MemoryStore();
-  const embedder = new Embedder();
+  embedder = new Embedder();
   const unifiedStore = new UnifiedStore();
   noteStore.setEmbedder(embedder);
   memoryStore.setEmbedder(embedder);
@@ -1402,17 +1402,6 @@ async function boot() {
   });
   mcpManager.init().catch((err) => {
     console.error("MCP init error:", err);
-  });
-
-  // Connectors (Pipedream Connect) — Pro-only managed OAuth
-  connectorManager = new ConnectorManager();
-  connectorManager.setMcpManager(mcpManager);
-  yoAgent.setConnectorManager(connectorManager);
-  connectorManager.on("changed", () => {
-    mainWindow?.webContents.send("connectors-changed");
-  });
-  connectorManager.init().catch((err) => {
-    console.error("Connectors init error:", err);
   });
 
   // Wire tool executor for .waz direct tool execution
@@ -2133,24 +2122,6 @@ async function boot() {
     mcpManager.setServerOverride(serverId, override as "default" | "auto" | "ask");
   });
 
-  // ── Connectors IPC ──────────────────────────────────────
-  ipcMain.handle("connectors-get-apps", async (_e, search?: string, offset?: number) => {
-    return connectorManager.getApps(search, offset);
-  });
-  ipcMain.handle("connectors-get-accounts", async () => {
-    return connectorManager.getAccounts();
-  });
-  ipcMain.handle("connectors-connect", async (_e, appSlug: string) => {
-    return connectorManager.connectApp(appSlug);
-  });
-  ipcMain.handle("connectors-disconnect", async (_e, accountId: string) => {
-    return connectorManager.disconnectAccount(accountId);
-  });
-  ipcMain.handle("connectors-refresh-mcp", async () => {
-    await connectorManager.refreshMcp();
-    return true;
-  });
-
   // Renderer-initiated panel open (Cmd+.) — resize BrowserViews and focus renderer
   ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
     panelManager.setRightInset(yoPanelWidth());
@@ -2304,7 +2275,6 @@ async function boot() {
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
-  ipcMain.handle("apps-set-connected-slug", (_e, id: string, slug: string | null) => appConnector.updateConnectedSlug(id, slug));
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);
@@ -2791,7 +2761,7 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpManager?.disconnectAll().catch(() => {});
-  connectorManager?.cleanup();
+  embedder?.cleanup();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

@@ -30,13 +30,12 @@ declare global {
       skillsRemove: (name: string) => Promise<boolean>;
       skillsGenerate: (name: string, description: string) => Promise<string>;
       // Apps
-      appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; forceWeb?: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
+      appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; forceWeb?: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
       appsRemove: (id: string) => Promise<boolean>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
       appsUpdateForceWeb: (id: string, forceWeb: boolean) => Promise<boolean>;
-      appsSetConnectedSlug: (id: string, slug: string | null) => Promise<boolean>;
 
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
@@ -163,13 +162,6 @@ declare global {
       mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
       mcpSetServerOverride: (serverId: string, override: string) => void;
       onMcpChanged: (cb: () => void) => void;
-      // Connectors (Pipedream Connect)
-      connectorsGetApps: (search?: string, offset?: number) => Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>;
-      connectorsGetAccounts: () => Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>;
-      connectorsConnect: (appSlug: string) => Promise<{ ok: boolean; error?: string }>;
-      connectorsDisconnect: (accountId: string) => Promise<boolean>;
-      connectorsRefreshMcp: () => Promise<boolean>;
-      onConnectorsChanged: (cb: () => void) => void;
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;
@@ -1416,6 +1408,7 @@ function finalizeYoMessage(fullText: string) {
   }
 
   yoScroll();
+  yoPanelInput.focus();
 }
 
 function showPlanActions() {
