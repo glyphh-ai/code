@@ -104,6 +104,9 @@ contextBridge.exposeInMainWorld("yo", {
   appsUpdateUrl: (id: string, url: string) => ipcRenderer.invoke("apps-update-url", id, url) as Promise<boolean>,
   appsUpdateForceWeb: (id: string, forceWeb: boolean) => ipcRenderer.invoke("apps-update-force-web", id, forceWeb) as Promise<boolean>,
   appsUpdateDoNotRecord: (id: string, doNotRecord: boolean) => ipcRenderer.invoke("apps-update-do-not-record", id, doNotRecord) as Promise<boolean>,
+  appsUpdateCapturePolicy: (id: string, policy: { type: string; maxVersions?: number; windowHours?: number; minDeltaChars?: number }) =>
+    ipcRenderer.invoke("apps-update-capture-policy", id, policy) as Promise<boolean>,
+  appsGetCapturePolicy: (id: string) => ipcRenderer.invoke("apps-get-capture-policy", id) as Promise<{ type: string; maxVersions?: number; windowHours?: number; minDeltaChars?: number }>,
   appsSetConnectedSlug: (id: string, slug: string | null) => ipcRenderer.invoke("apps-set-connected-slug", id, slug) as Promise<boolean>,
   appsSetCommand: (id: string, key: string, mapping: { selector: string; action: string; description: string }) =>
     ipcRenderer.invoke("apps-set-command", id, key, mapping) as Promise<boolean>,

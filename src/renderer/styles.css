@@ -1773,6 +1773,7 @@ ol.docs-list li::before {
 .dash-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 .dash-header h2 { margin: 0; }
 .dash-provider { font-size: 11px; color: #666; background: #161616; padding: 4px 10px; border-radius: 6px; margin-left: auto; }
+.dash-header #dash-refresh { font-size: 16px; padding: 2px 8px; line-height: 1; }
 .dash-stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
 .dash-stat-card { background: #111; border: 1px solid #1a1a1a; border-radius: 10px; padding: 16px 18px; }
 .dash-stat-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }

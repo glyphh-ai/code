@@ -784,6 +784,8 @@ function closeDashPromptDetail() {
 let dashPromptSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 function initDashboardEvents() {
+  document.getElementById("dash-refresh")?.addEventListener("click", () => loadDashboard());
+
   document.getElementById("dash-range-7")?.addEventListener("click", () => {
     dashRangeMode = "7";
     document.getElementById("dash-range-7")!.classList.add("active");
@@ -1497,6 +1499,39 @@ function renderAppsList() {
 }
 
 
+const policySelect = document.getElementById("app-detail-capture-policy") as HTMLSelectElement;
+const policyParam = document.getElementById("app-detail-policy-param") as HTMLInputElement;
+const policyDesc = document.getElementById("app-detail-policy-desc")!;
+
+const POLICY_DESCRIPTIONS: Record<string, string> = {
+  append: "Every capture is stored as-is. Best for chat streams and logs.",
+  versioned: "Keeps the last N versions of the content. Older versions are pruned automatically.",
+  deduplicate: "Skips if content is identical to last capture. Replaces if changed.",
+  incremental: "Diffs against the last capture and only stores new lines. Ideal for conversations.",
+  "sliding-window": "Auto-prunes captures older than N hours. Good for ephemeral feeds.",
+  manual: "No automatic capture. Only explicit .sup commands are stored.",
+};
+
+const POLICY_PARAM_LABELS: Record<string, string> = {
+  versioned: "Versions",
+  "sliding-window": "Hours",
+  incremental: "Min chars",
+};
+
+function updatePolicyUI() {
+  const type = policySelect.value;
+  policyDesc.textContent = POLICY_DESCRIPTIONS[type] || "";
+  const paramLabel = POLICY_PARAM_LABELS[type];
+  if (paramLabel) {
+    policyParam.style.display = "";
+    policyParam.placeholder = paramLabel;
+    policyParam.title = paramLabel;
+  } else {
+    policyParam.style.display = "none";
+    policyParam.value = "";
+  }
+}
+
 async function openPanelAppDetail(app: PanelApp) {
   currentAppId = app.id;
   appDetailId.value = app.id;
@@ -1506,6 +1541,12 @@ async function openPanelAppDetail(app: PanelApp) {
   appDoNotRecord.checked = !!app.doNotRecord;
   appConnectStatus.textContent = "";
   appMapCommand.classList.add("hidden");
+
+  const policy = await window.yo.appsGetCapturePolicy(app.id);
+  policySelect.value = policy.type;
+  const paramVal = policy.maxVersions ?? policy.windowHours ?? policy.minDeltaChars;
+  policyParam.value = paramVal ? String(paramVal) : "";
+  updatePolicyUI();
 
   appPreview.partition = "persist:yo";
   appPreview.src = app.url;
@@ -1741,6 +1782,8 @@ function initApps() {
   document.getElementById("app-add-cancel")!.addEventListener("click", () => loadApps());
   document.getElementById("app-add-cancel-btn")!.addEventListener("click", () => loadApps());
 
+  policySelect.addEventListener("change", updatePolicyUI);
+
   // Detail save — persist name, url, forceWeb and go back
   document.getElementById("app-detail-save")!.addEventListener("click", async () => {
     if (!currentAppId) return;
@@ -1755,6 +1798,15 @@ function initApps() {
     if (url) await window.yo.appsUpdateUrl(currentAppId, url);
     await window.yo.appsUpdateForceWeb(currentAppId, appForceWeb.checked);
     await window.yo.appsUpdateDoNotRecord(currentAppId, appDoNotRecord.checked);
+
+    const pType = policySelect.value;
+    const pVal = parseInt(policyParam.value, 10) || undefined;
+    const policy: Record<string, unknown> = { type: pType };
+    if (pType === "versioned" && pVal) policy.maxVersions = pVal;
+    if (pType === "sliding-window" && pVal) policy.windowHours = pVal;
+    if (pType === "incremental" && pVal) policy.minDeltaChars = pVal;
+    await window.yo.appsUpdateCapturePolicy(currentAppId, policy as any);
+
     closeAppDetail();
   });
 

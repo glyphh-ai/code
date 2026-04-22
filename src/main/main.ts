@@ -233,6 +233,7 @@ async function boot() {
 
   const captureStore = new CaptureStore();
   captureStore.setEmbedder(embedder);
+  captureStore.setPolicyResolver((source) => appConnector.getCapturePolicy(source));
 
   // Action-driven capture — grabs content on blur/navigate
   const actionGrabber = new ActionGrabber();
@@ -1375,6 +1376,9 @@ async function boot() {
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
   ipcMain.handle("apps-update-do-not-record", (_e, id: string, doNotRecord: boolean) => appConnector.updateDoNotRecord(id, doNotRecord));
+  ipcMain.handle("apps-update-capture-policy", (_e, id: string, policy: { type: string; maxVersions?: number; windowHours?: number; minDeltaChars?: number }) =>
+    appConnector.updateCapturePolicy(id, policy as any));
+  ipcMain.handle("apps-get-capture-policy", (_e, id: string) => appConnector.getCapturePolicy(id));
   ipcMain.handle("apps-set-connected-slug", () => false);
 
   // IPC: app command mapping (DOM picker)

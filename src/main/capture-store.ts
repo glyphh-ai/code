@@ -16,6 +16,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import type { Embedder } from "./embedder";
+import type { CapturePolicy } from "./app-connector";
 
 const STORE_DIR = path.join(os.homedir(), "yo", "store");
 const INDEX_FILE = path.join(STORE_DIR, "index.json");
@@ -29,6 +30,8 @@ export interface CaptureEntryMeta {
   source: string;
   created: number;
   chunkParent?: string;
+  contentHash?: string;
+  version?: number;
 }
 
 export class CaptureStore {
@@ -36,6 +39,7 @@ export class CaptureStore {
   private embedder: Embedder | null = null;
   private embedQueue: CaptureEntryMeta[] = [];
   private draining = false;
+  private policyResolver: ((source: string) => CapturePolicy) | null = null;
 
   constructor() {
     fs.mkdirSync(STORE_DIR, { recursive: true });
@@ -48,9 +52,41 @@ export class CaptureStore {
     if (this.embedQueue.length > 0) this.drainEmbedQueue();
   }
 
+  setPolicyResolver(resolver: (source: string) => CapturePolicy): void {
+    this.policyResolver = resolver;
+  }
+
   // ── Ingest ─────────────────────────────────────────────
 
+  private hashContent(content: string): string {
+    return crypto.createHash("sha256").update(content).digest("hex").slice(0, 16);
+  }
+
   async ingest(appId: string, content: string): Promise<string> {
+    const policy = this.policyResolver?.(appId) ?? { type: "deduplicate" as const };
+
+    switch (policy.type) {
+      case "manual":
+        return "";
+      case "deduplicate":
+        return this.ingestDeduplicate(appId, content);
+      case "versioned":
+        return this.ingestVersioned(appId, content, policy.maxVersions ?? 3);
+      case "incremental":
+        return this.ingestIncremental(appId, content, policy.minDeltaChars ?? 50);
+      case "sliding-window":
+        this.pruneWindow(appId, policy.windowHours ?? 24);
+        return this.ingestRaw(appId, content);
+      case "append":
+      default:
+        return this.ingestRaw(appId, content);
+    }
+  }
+
+  /** Append — always write, no dedup. */
+  private async ingestRaw(appId: string, content: string): Promise<string> {
+    const hash = this.hashContent(content);
+
     if (content.length > CHUNK_THRESHOLD) {
       const chunks = this.chunkContent(content);
       const parentId = crypto.randomBytes(6).toString("hex");
@@ -58,10 +94,8 @@ export class CaptureStore {
       for (let i = 0; i < chunks.length; i++) {
         const chunkId = `${parentId}-${i}`;
         const meta: CaptureEntryMeta = {
-          id: chunkId,
-          source: appId,
-          created: Date.now(),
-          chunkParent: parentId,
+          id: chunkId, source: appId, created: Date.now(),
+          chunkParent: parentId, contentHash: hash,
         };
         this.writeEntry(chunkId, chunks[i], meta);
         this.index.push(meta);
@@ -75,18 +109,122 @@ export class CaptureStore {
 
     const id = crypto.randomBytes(6).toString("hex");
     const meta: CaptureEntryMeta = {
-      id,
-      source: appId,
-      created: Date.now(),
+      id, source: appId, created: Date.now(), contentHash: hash,
     };
     this.writeEntry(id, content, meta);
     this.index.push(meta);
     this.persistIndex();
-
     this.embedQueue.push(meta);
     this.drainEmbedQueue();
-
     return id;
+  }
+
+  /** Deduplicate — skip if content hash matches most recent from same source, otherwise replace. */
+  private async ingestDeduplicate(appId: string, content: string): Promise<string> {
+    const hash = this.hashContent(content);
+    const existing = this.entriesForSource(appId);
+    if (existing.length > 0 && existing[0].contentHash === hash) return "";
+    if (existing.length > 0) this.deleteEntriesForSource(appId);
+    return this.ingestRaw(appId, content);
+  }
+
+  /** Versioned — keep last N ingestions, prune oldest. */
+  private async ingestVersioned(appId: string, content: string, maxVersions: number): Promise<string> {
+    const hash = this.hashContent(content);
+    const existing = this.entriesForSource(appId);
+    if (existing.length > 0 && existing[0].contentHash === hash) return "";
+
+    const versions = this.getVersionGroups(appId);
+    if (versions.length >= maxVersions) {
+      const toPrune = versions.slice(maxVersions - 1);
+      for (const group of toPrune) {
+        for (const meta of group) this.deleteEntry(meta.id);
+      }
+    }
+
+    return this.ingestRaw(appId, content);
+  }
+
+  /** Incremental — diff against last capture, only store new content. */
+  private async ingestIncremental(appId: string, content: string, minDelta: number): Promise<string> {
+    const existing = this.entriesForSource(appId);
+    if (existing.length > 0) {
+      const lastContent = this.readAllForSource(appId);
+      if (lastContent) {
+        const delta = this.extractDelta(lastContent, content);
+        if (delta.length < minDelta) return "";
+        return this.ingestRaw(appId, delta);
+      }
+    }
+    return this.ingestRaw(appId, content);
+  }
+
+  /** Prune entries older than windowHours for a source. */
+  private pruneWindow(appId: string, windowHours: number): void {
+    const cutoff = Date.now() - windowHours * 3600000;
+    const toDelete = this.index.filter((m) => m.source === appId && m.created < cutoff);
+    for (const meta of toDelete) {
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.md`)); } catch {}
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.vec`)); } catch {}
+    }
+    if (toDelete.length > 0) {
+      this.index = this.index.filter((m) => !(m.source === appId && m.created < cutoff));
+      this.persistIndex();
+    }
+  }
+
+  /** Get all entries for a source, newest first. */
+  private entriesForSource(appId: string): CaptureEntryMeta[] {
+    return this.index.filter((m) => m.source === appId).sort((a, b) => b.created - a.created);
+  }
+
+  /** Delete all entries for a source. */
+  private deleteEntriesForSource(appId: string): void {
+    const toDelete = this.index.filter((m) => m.source === appId);
+    for (const meta of toDelete) {
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.md`)); } catch {}
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.vec`)); } catch {}
+    }
+    this.index = this.index.filter((m) => m.source !== appId);
+  }
+
+  /** Group entries by version (chunkParent or individual). Newest first. */
+  private getVersionGroups(appId: string): CaptureEntryMeta[][] {
+    const entries = this.entriesForSource(appId);
+    const groups = new Map<string, CaptureEntryMeta[]>();
+    for (const e of entries) {
+      const key = e.chunkParent || e.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    }
+    const sorted = Array.from(groups.values()).sort((a, b) => {
+      const aTs = Math.max(...a.map((e) => e.created));
+      const bTs = Math.max(...b.map((e) => e.created));
+      return bTs - aTs;
+    });
+    return sorted;
+  }
+
+  /** Read all content for a source, concatenated. */
+  private readAllForSource(appId: string): string | null {
+    const entries = this.entriesForSource(appId);
+    if (entries.length === 0) return null;
+    const parts: string[] = [];
+    for (const e of entries) {
+      const c = this.readContent(e.id);
+      if (c) parts.push(c);
+    }
+    return parts.join("\n\n");
+  }
+
+  /** Extract new content that wasn't in the previous capture. */
+  private extractDelta(previous: string, current: string): string {
+    const prevLines = new Set(previous.split("\n").map((l) => l.trim()).filter(Boolean));
+    const newLines = current.split("\n").filter((l) => {
+      const trimmed = l.trim();
+      return trimmed && !prevLines.has(trimmed);
+    });
+    return newLines.join("\n");
   }
 
   // ── Search ─────────────────────────────────────────────

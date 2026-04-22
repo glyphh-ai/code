@@ -37,6 +37,15 @@ export interface CommandMapping {
   guide?: CommandGuide;
 }
 
+export type CapturePolicyType = "append" | "versioned" | "deduplicate" | "incremental" | "sliding-window" | "manual";
+
+export interface CapturePolicy {
+  type: CapturePolicyType;
+  maxVersions?: number;    // versioned: keep last N ingestions (default 3)
+  windowHours?: number;    // sliding-window: prune entries older than N hours (default 24)
+  minDeltaChars?: number;  // incremental: minimum new chars to store (default 50)
+}
+
 export interface AppConfig {
   id: string;
   name: string;
@@ -47,6 +56,8 @@ export interface AppConfig {
   forceWeb?: boolean;
   /** When true, action grabber will never capture this app's content */
   doNotRecord?: boolean;
+  /** Controls how captures are stored — dedup, versioning, diffing, etc. */
+  capturePolicy?: CapturePolicy;
   meta?: {
     description: string;
     category?: string;
@@ -195,6 +206,54 @@ const DO_NOT_RECORD_DOMAINS = [
   "irs.gov", "turbotax.intuit.com", "hrblock.com", "ssa.gov",
 ];
 
+// Conversational apps — multiple grabs of the same window should diff, not duplicate
+const CONVERSATIONAL_DOMAINS = [
+  "chatgpt.com", "claude.ai", "gemini.google.com", "grok.com", "perplexity.ai",
+  "app.slack.com", "discord.com", "teams.microsoft.com", "messages.google.com",
+  "web.whatsapp.com", "messenger.com",
+];
+
+// Feed/dashboard apps — content is ephemeral, keep a sliding window
+const EPHEMERAL_DOMAINS = [
+  "youtube.com", "twitter.com", "x.com", "reddit.com", "news.ycombinator.com",
+  "linkedin.com/feed",
+];
+
+// Document apps — static content, deduplicate
+const DOCUMENT_DOMAINS = [
+  "docs.google.com", "sheets.google.com", "slides.google.com",
+  "notion.so", "notebooklm.google.com", "figma.com",
+  "mail.google.com", "outlook.live.com", "calendar.google.com",
+];
+
+function inferCapturePolicy(source: string, url?: string): CapturePolicy {
+  const domain = url || source;
+
+  // Code file sources from the sup hook (e.g. "help.ts", "main.ts")
+  if (/\.\w{1,5}$/.test(source) && !source.includes("/")) {
+    return { type: "versioned", maxVersions: 3 };
+  }
+
+  if (CONVERSATIONAL_DOMAINS.some((d) => domain.includes(d))) {
+    return { type: "incremental", minDeltaChars: 50 };
+  }
+
+  if (EPHEMERAL_DOMAINS.some((d) => domain.includes(d))) {
+    return { type: "sliding-window", windowHours: 48 };
+  }
+
+  if (DOCUMENT_DOMAINS.some((d) => domain.includes(d))) {
+    return { type: "deduplicate" };
+  }
+
+  // MCP / external pushes
+  if (source === "cloud-sync") return { type: "append" };
+  if (source.startsWith("council:")) return { type: "append" };
+
+  // Default: deduplicate is safe for unknown sources
+  return { type: "deduplicate" };
+}
+
 // ── AppConnector ───────────────────────────────────────
 
 export class AppConnector {
@@ -327,6 +386,23 @@ export class AppConnector {
     // Check domain blocklist against panel URL
     if (app?.url) return DO_NOT_RECORD_DOMAINS.some((d) => app.url.includes(d));
     return false;
+  }
+
+  /** Get the capture policy for a source. Falls back to smart defaults. */
+  getCapturePolicy(source: string): CapturePolicy {
+    const app = this.apps.get(source);
+    if (app?.capturePolicy) return app.capturePolicy;
+    if (app?.doNotRecord) return { type: "manual" };
+    return inferCapturePolicy(source, app?.url);
+  }
+
+  /** Update an app's capture policy */
+  updateCapturePolicy(id: string, policy: CapturePolicy): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    app.capturePolicy = policy;
+    this.save(app);
+    return true;
   }
 
   /** Update an app's ID (renames file and map entry) */

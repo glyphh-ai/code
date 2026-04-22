@@ -156,6 +156,7 @@
           <div class="dash-header">
             <h2><span class="dot">.</span>Yo Dashboard</h2>
             <div class="dash-provider" id="dash-provider">—</div>
+            <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
 
           <div class="dash-split-row">
@@ -974,6 +975,22 @@
                     <span class="toggle-desc">Never capture this app's content (banking, health, passwords)</span>
                   </div>
                 </label>
+
+                <div class="settings-field" style="margin-top:8px;">
+                  <label class="settings-label">Capture policy</label>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <select id="app-detail-capture-policy" class="settings-select" style="flex:1;">
+                      <option value="append">Append — always store, never replace</option>
+                      <option value="versioned">Versioned — keep last N versions</option>
+                      <option value="deduplicate">Deduplicate — skip identical, replace changed</option>
+                      <option value="incremental">Incremental — diff, store only new content</option>
+                      <option value="sliding-window">Sliding window — prune older than N hours</option>
+                      <option value="manual">Manual — only explicit .sup captures</option>
+                    </select>
+                    <input type="number" id="app-detail-policy-param" class="settings-input" style="width:60px;" min="1" placeholder="N" title="maxVersions / windowHours / minDeltaChars" />
+                  </div>
+                  <span class="toggle-desc" id="app-detail-policy-desc" style="margin-top:4px;display:block;"></span>
+                </div>
 
                 <div style="border-top:1px solid #2a2a2a;margin:12px 0 8px;"></div>
 

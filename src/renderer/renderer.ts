@@ -39,6 +39,8 @@ declare global {
       appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
       appsUpdateForceWeb: (id: string, forceWeb: boolean) => Promise<boolean>;
       appsUpdateDoNotRecord: (id: string, doNotRecord: boolean) => Promise<boolean>;
+      appsUpdateCapturePolicy: (id: string, policy: { type: string; maxVersions?: number; windowHours?: number; minDeltaChars?: number }) => Promise<boolean>;
+      appsGetCapturePolicy: (id: string) => Promise<{ type: string; maxVersions?: number; windowHours?: number; minDeltaChars?: number }>;
       appsSetConnectedSlug: (id: string, slug: string | null) => Promise<boolean>;
       appsSetCommand: (id: string, key: string, mapping: { selector: string; action: string; description: string }) => Promise<boolean>;
       appsRemoveCommand: (id: string, key: string) => Promise<boolean>;
