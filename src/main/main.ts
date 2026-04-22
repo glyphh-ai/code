@@ -959,7 +959,9 @@ async function boot() {
       }
 
       mainWindow?.webContents.send("agent-mode-changed", "council");
-      callbacks.openYoPanel?.(`Council with ${councilParticipants.join(", ")} — enter your topic`);
+      callbacks.openYoPanel?.("");
+      mainWindow?.webContents.send("yo-panel-token", `Council ready: ${councilParticipants.join(", ")}\nEnter your topic below.`);
+      mainWindow?.webContents.send("yo-panel-done", "");
       return "";
     }
 
@@ -1548,7 +1550,9 @@ async function boot() {
       if (firstWord && ["dip", "drip", "sup", "waz", "council"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
-          mainWindow?.webContents.send("yo-panel-done", result || "done.");
+          if (firstWord !== "council") {
+            mainWindow?.webContents.send("yo-panel-done", result || "done.");
+          }
         } catch (err: any) {
           mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
         }
