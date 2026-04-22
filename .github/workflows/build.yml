@@ -87,3 +87,26 @@ jobs:
           files: |
             artifacts/yo-mac/*
             artifacts/yo-win/*
+
+  mirror-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish to yo-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --repo glyphh-ai/yo-releases \
+            --title "$TAG" \
+            --notes "Yo desktop app $TAG" \
+            artifacts/yo-mac/*.dmg \
+            artifacts/yo-mac/*.zip \
+            artifacts/yo-win/*.exe
