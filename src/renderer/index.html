@@ -774,40 +774,31 @@
               <a class="crud-breadcrumb-back" id="mcp-custom-back">← MCP Servers</a>
               <div class="crud-spacer"></div>
             </div>
-            <div class="settings-form">
-              <label class="settings-label">Name</label>
-              <input id="mcp-custom-name" type="text" class="settings-input" placeholder="My Server" spellcheck="false" autocomplete="off" />
-
-              <label class="settings-label">ID</label>
-              <input id="mcp-custom-id" type="text" class="settings-input" placeholder="my-server" spellcheck="false" autocomplete="off" />
-
-              <label class="settings-label">Transport</label>
-              <select id="mcp-custom-transport" class="settings-input settings-input-md">
-                <option value="stdio">stdio (local process)</option>
-                <option value="sse">SSE (HTTP server)</option>
-              </select>
-
-              <div id="mcp-stdio-fields">
-                <label class="settings-label">Command</label>
-                <input id="mcp-custom-command" type="text" class="settings-input" placeholder="npx -y @modelcontextprotocol/server-..." spellcheck="false" autocomplete="off" />
-
-                <label class="settings-label">Arguments <span style="color:#555;font-weight:400;">(space-separated)</span></label>
-                <input id="mcp-custom-args" type="text" class="settings-input" placeholder="--flag value" spellcheck="false" autocomplete="off" />
-
-                <label class="settings-label">Environment Variables <span style="color:#555;font-weight:400;">(KEY=VALUE, one per line)</span></label>
-                <textarea id="mcp-custom-env" class="settings-input" rows="3" placeholder="API_KEY=sk-..." spellcheck="false" style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
-              </div>
-
-              <div id="mcp-sse-fields" class="hidden">
-                <label class="settings-label">Server URL</label>
-                <input id="mcp-custom-url" type="text" class="settings-input" placeholder="http://localhost:3000/sse" spellcheck="false" autocomplete="off" />
-              </div>
-
-              <div class="settings-actions" style="margin-top:12px;">
-                <span id="mcp-custom-status" style="flex:1;font-size:12px;color:#cc5555;"></span>
-                <button id="mcp-custom-cancel" class="action-btn">Cancel</button>
-                <button id="mcp-custom-save" class="action-btn primary">Add Server</button>
-              </div>
+            <label class="settings-label">Name</label>
+            <input id="mcp-custom-name" type="text" class="settings-input" placeholder="My Server" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">ID</label>
+            <input id="mcp-custom-id" type="text" class="settings-input" placeholder="my-server" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">Transport</label>
+            <select id="mcp-custom-transport" class="settings-input">
+              <option value="stdio">stdio (local process)</option>
+              <option value="sse">SSE (HTTP server)</option>
+            </select>
+            <div id="mcp-stdio-fields" style="display:flex;flex-direction:column;gap:10px;">
+              <label class="settings-label">Command</label>
+              <input id="mcp-custom-command" type="text" class="settings-input" placeholder="npx -y @modelcontextprotocol/server-..." spellcheck="false" autocomplete="off" />
+              <label class="settings-label">Arguments <span style="color:#555;font-weight:400;">(space-separated)</span></label>
+              <input id="mcp-custom-args" type="text" class="settings-input" placeholder="--flag value" spellcheck="false" autocomplete="off" />
+              <label class="settings-label">Environment Variables <span style="color:#555;font-weight:400;">(KEY=VALUE, one per line)</span></label>
+              <textarea id="mcp-custom-env" class="settings-input" rows="3" placeholder="API_KEY=sk-..." spellcheck="false" style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
+            </div>
+            <div id="mcp-sse-fields" class="hidden">
+              <label class="settings-label">Server URL</label>
+              <input id="mcp-custom-url" type="text" class="settings-input" placeholder="http://localhost:3000/sse" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="settings-actions" style="margin-top:8px;">
+              <span id="mcp-custom-status" style="flex:1;font-size:12px;color:#cc5555;"></span>
+              <button id="mcp-custom-cancel" class="action-btn">Cancel</button>
+              <button id="mcp-custom-save" class="action-btn primary">Add Server</button>
             </div>
           </div>
 
