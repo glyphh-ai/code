@@ -1729,9 +1729,6 @@ ol.docs-list li::before {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #1e1e1e;
 }
 .crud-inline-form .settings-actions {
   justify-content: flex-end;
@@ -1741,13 +1738,22 @@ ol.docs-list li::before {
   align-items: center;
   gap: 8px;
 }
-.crud-inline-title {
+.crud-breadcrumb {
   font-size: 14px;
-  font-weight: 600;
-  color: #ccc;
-  margin: 0;
+  color: #888;
   flex: 1;
 }
+.crud-breadcrumb-back {
+  color: #999;
+  cursor: pointer;
+  transition: color 0.15s;
+  text-decoration: none;
+  font-size: 14px;
+}
+.crud-breadcrumb-back:hover { color: #fff; }
+.crud-breadcrumb-back .back-arrow { margin-right: 4px; }
+.crud-breadcrumb-sep { color: #444; margin: 0 4px; }
+.crud-breadcrumb span:last-child { color: #ccc; font-weight: 600; }
 
 .crud-spacer { flex: 1; }
 
@@ -2415,206 +2421,89 @@ ol.docs-list li::before {
 .rip-run-action:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; opacity: 1; color: #fff; }
 .rip-run-action:disabled { opacity: 0.4; }
 
-/* Steps section */
-.rip-steps-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.rip-steps-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.rip-steps-badge {
-  font-size: 11px;
-  color: #555;
-  background: #1a1a1a;
-  padding: 1px 7px;
-  border-radius: 10px;
-}
+/* Step list */
+#rip-steps-list { display: flex; flex-direction: column; gap: 4px; }
 
-/* Step cards */
-.rip-steps-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.rip-step-card {
-  display: flex;
-  align-items: flex-start;
-  padding: 10px 12px;
+/* Collapsed step */
+.rip-step {
   background: #141414;
   border: 1px solid #1e1e1e;
-  border-radius: 8px;
-  gap: 10px;
-  cursor: grab;
-  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
-}
-.rip-step-card:hover { background: #1a1a1a; border-color: #2a2a2a; }
-.rip-step-card:active { cursor: grabbing; }
-.rip-step-card.dragging { opacity: 0.3; }
-.rip-step-card.drag-over { border-top: 2px solid #25C75E; }
-
-.rip-step-num {
-  font-size: 11px;
-  color: #555;
-  font-weight: 600;
-  min-width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #1a1a1a;
-  border-radius: 4px;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.rip-step-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.rip-step-label {
-  font-size: 13px;
-  color: #ccc;
-}
-.rip-step-label .rip-step-type-tag {
-  color: #25C75E;
-  font-weight: 500;
-}
-.rip-step-detail {
-  font-size: 11px;
-  color: #666;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 40px;
+  border-radius: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: grab;
+  transition: opacity 0.15s, border-color 0.15s;
 }
-.rip-step-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 2px;
-}
-.rip-step-tag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: #1a1a1a;
-  color: #888;
-}
-.rip-step-tag.tag-delay { color: #a78bfa; }
-.rip-step-tag.tag-output { color: #25C75E; background: rgba(37, 199, 94, 0.08); }
+.rip-step:hover { border-color: #2a2a2a; }
+.rip-step.dragging { opacity: 0.3; }
+.rip-step.drag-over { border-top: 2px solid #25C75E; }
 
-.rip-step-actions {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.rip-step-card:hover .rip-step-actions { opacity: 1; }
-
-/* Add step form */
-.rip-step-add {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px dashed #2a2a2a;
-  border-radius: 8px;
-}
-.rip-step-add .rip-add-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.rip-step-select {
-  height: 32px;
-  min-width: 100px;
-  background: #141414;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  padding: 0 8px;
-  color: #ccc;
-  font-size: 12px;
-  outline: none;
-}
-.rip-step-select:focus { border-color: #25C75E; }
-#rip-step-type { min-width: 80px; }
-.rip-step-input {
-  height: 32px;
-  width: 60px;
-  background: #141414;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  padding: 0 8px;
-  color: #ccc;
-  font-size: 12px;
-  font-family: var(--font-mono);
-  outline: none;
-  text-align: right;
-}
-.rip-step-input:focus { border-color: #25C75E; }
-.rip-step-input::placeholder { color: #555; }
-#rip-output-field { text-align: left; min-width: 70px; max-width: 100px; }
-.rip-step-add .rip-add-row #rip-output-add-btn {
-  margin-left: auto;
-}
-.rip-add-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 2px;
-}
-.rip-add-step-btn {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed #2a2a2a;
-  border-radius: 6px;
-  color: #666;
-  font-size: 12px;
-  padding: 6px 14px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.rip-add-step-btn:hover { color: #999; border-color: #444; }
-.rip-step-textarea {
-  width: 100%;
-  background: #141414;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  padding: 8px 10px;
-  color: #e0e0e0;
-  font-size: 12px;
-  font-family: var(--font-mono);
-  outline: none;
-  resize: vertical;
-  box-sizing: border-box;
-}
-.rip-step-textarea:focus { border-color: #25C75E; }
-.rip-step-textarea::placeholder { color: #555; }
-
-#rip-outputs-section { margin-top: 4px; }
-#rip-outputs-list { margin-bottom: 6px; }
-#rip-outputs-list .rip-output-row {
+.rip-step-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
-  color: #ccc;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
 }
-#rip-outputs-list .output-field { color: #25C75E; min-width: 50px; }
-#rip-outputs-list .output-target { color: #888; }
-#rip-outputs-list .action-btn { font-size: 11px; padding: 1px 5px; }
-#rip-add-output-row select { height: 28px; }
+.rip-step-header:hover { background: #1a1a1a; }
+
+.rip-step-num {
+  font-size: 10px; color: #555; font-weight: 600;
+  min-width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: #1a1a1a; border-radius: 3px; flex-shrink: 0;
+}
+.rip-step-summary { flex: 1; font-size: 12px; color: #ccc; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rip-step-summary .rip-step-type-tag { color: #25C75E; font-weight: 500; }
+.rip-step-summary .rip-step-meta { color: #555; margin-left: 6px; font-size: 11px; }
+
+.rip-step-remove {
+  opacity: 0; transition: opacity 0.15s; flex-shrink: 0;
+}
+.rip-step-header:hover .rip-step-remove { opacity: 1; }
+
+/* Expanded step body */
+.rip-step-body {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+.rip-step.expanded .rip-step-body { display: flex; }
+
+.rip-step-body .rip-step-row {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+}
+.rip-step-body select {
+  height: 30px; min-width: 90px;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 5px;
+  padding: 0 8px; color: #ccc; font-size: 12px; outline: none;
+}
+.rip-step-body select:focus { border-color: #25C75E; }
+.rip-step-body input[type="number"] {
+  height: 30px; width: 50px;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 5px;
+  padding: 0 6px; color: #ccc; font-size: 12px; font-family: var(--font-mono);
+  outline: none; text-align: right;
+}
+.rip-step-body input[type="number"]:focus { border-color: #25C75E; }
+.rip-step-body input[type="number"]::placeholder { color: #555; }
+.rip-step-body textarea {
+  width: 100%; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 5px;
+  padding: 6px 8px; color: #e0e0e0; font-size: 12px; font-family: var(--font-mono);
+  outline: none; resize: vertical; box-sizing: border-box;
+}
+.rip-step-body textarea:focus { border-color: #25C75E; }
+.rip-step-body textarea::placeholder { color: #555; }
+
+/* + Step button */
+.rip-add-step-btn {
+  align-self: flex-start;
+  background: none; border: 1px dashed #2a2a2a; border-radius: 6px;
+  color: #666; font-size: 12px; padding: 6px 14px;
+  cursor: pointer; transition: color 0.15s, border-color 0.15s;
+}
+.rip-add-step-btn:hover { color: #999; border-color: #444; }
 
 /* ── Panel container ─────────────────────────────────────── */
 

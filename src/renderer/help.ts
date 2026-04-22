@@ -308,6 +308,7 @@ export function initHelp() {
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
   document.getElementById("layout-save-btn")!.addEventListener("click", saveLayout);
   document.getElementById("layout-cancel-btn")!.addEventListener("click", cancelLayout);
+  document.getElementById("layout-back-link")!.addEventListener("click", cancelLayout);
   document.getElementById("layout-delete-btn")!.addEventListener("click", deleteLayout);
   layoutSearchInput.addEventListener("input", () => { layoutsPage = 0; renderLayoutsList(); });
 
@@ -345,6 +346,7 @@ export function initHelp() {
   document.getElementById("skill-new-btn")!.addEventListener("click", () => openSkillEditor("", ""));
   document.getElementById("skill-save")!.addEventListener("click", saveSkill);
   document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
+  document.getElementById("skill-back-link")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
   document.getElementById("skill-generate")!.addEventListener("click", generateSkillPrompt);
   skillSearchInput.addEventListener("input", () => { skillsPage = 0; renderSkillsList(); });
@@ -659,10 +661,11 @@ async function editLayout(name: string) {
   gridRowsSelect.value = String(builderRows);
   layoutNameInput.value = name;
   layoutDeleteBtn.style.display = "";
-  layoutEditorTitle.textContent = `Edit: ${name}`;
+  layoutEditorTitle.textContent = name;
   layoutFormError.classList.add("hidden");
+  layoutsList.classList.add("hidden");
+  layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
-  layoutEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   renderGridPreview();
 }
 
@@ -677,14 +680,17 @@ async function newLayout() {
   layoutDeleteBtn.style.display = "none";
   layoutEditorTitle.textContent = "New Layout";
   layoutFormError.classList.add("hidden");
+  layoutsList.classList.add("hidden");
+  layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
-  layoutEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   layoutNameInput.focus();
   renderGridPreview();
 }
 
 function cancelLayout() {
   layoutEditor.classList.add("hidden");
+  layoutsList.classList.remove("hidden");
+  layoutsToolbar.classList.remove("hidden");
   editingLayoutName = null;
   loadLayouts();
 }
@@ -1093,24 +1099,13 @@ const ripEditor = document.getElementById("rip-editor")!;
 const ripNameInput = document.getElementById("rip-name") as HTMLInputElement;
 const ripDescInput = document.getElementById("rip-desc") as HTMLInputElement;
 const ripStepsList = document.getElementById("rip-steps-list")!;
-const ripStepApp = document.getElementById("rip-step-app") as HTMLSelectElement;
-const ripStepCommand = document.getElementById("rip-step-command") as HTMLSelectElement;
-const ripStepPrompt = document.getElementById("rip-step-prompt") as HTMLTextAreaElement;
 const ripStatus = document.getElementById("rip-status")!;
-const ripOutputsList = document.getElementById("rip-outputs-list")!;
-const ripOutputsSection = document.getElementById("rip-outputs-section")!;
-const ripOutputField = document.getElementById("rip-output-field") as HTMLInputElement;
-const ripOutputApp = document.getElementById("rip-output-app") as HTMLSelectElement;
-const ripOutputCommand = document.getElementById("rip-output-command") as HTMLSelectElement;
 const ripsToolbar = document.getElementById("rips-toolbar")!;
 const ripSearchInput = document.getElementById("rip-search") as HTMLInputElement;
 const ripFormError = document.getElementById("rip-form-error")!;
-const ripStepsCount = document.getElementById("rip-steps-count")!;
-const ripAddStepForm = document.getElementById("rip-add-step-form")!;
-const ripAddStepBtn = document.getElementById("rip-step-add-btn")!;
 const ripEditorTitle = document.getElementById("rip-editor-title")!;
-
-let pendingOutputs: RipOutput[] = [];
+let expandedStepIdx: number | null = null;
+let cachedApps: Array<{ id: string; name: string; commands?: Record<string, { action: string }> }> = [];
 
 interface RipOutput {
   field: string;
@@ -1136,7 +1131,6 @@ interface RipData {
 let editingRip: RipData | null = null;
 let editingRipSteps: RipStep[] = [];
 let allRips: RipData[] = [];
-let editingStepBackup: { index: number; step: RipStep } | null = null;
 
 async function loadRips() {
   ripEditor.classList.add("hidden");
@@ -1205,190 +1199,215 @@ async function openRipEditor(rip?: RipData) {
 
   const deleteBtn = document.getElementById("rip-delete-btn") as HTMLButtonElement;
   deleteBtn.style.display = editingRip ? "" : "none";
-  ripEditorTitle.textContent = editingRip ? `Edit: ${editingRip.name}` : "New Rip";
+  ripEditorTitle.textContent = editingRip ? editingRip.name : "New Rip";
 
-  // Populate app dropdowns from full app list
-  const apps = await window.yo.appsList();
-  const appOptions = apps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
-  ripStepApp.innerHTML = appOptions;
-  ripOutputApp.innerHTML = appOptions;
-  await updateRipCommandDropdown();
-  await updateOutputCommandDropdown();
+  cachedApps = await window.yo.appsList();
+  expandedStepIdx = null;
 
-  // Reset pending outputs and outputs section visibility
-  pendingOutputs = [];
-  renderPendingOutputs();
-  ripOutputsSection.classList.add("hidden");
-
-  ripAddStepForm.classList.add("hidden");
-  ripAddStepBtn.classList.remove("hidden");
-
+  ripsListEl.classList.add("hidden");
+  ripsToolbar.classList.add("hidden");
   ripEditor.classList.remove("hidden");
-  ripEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   renderRipSteps();
-}
-
-async function updateRipCommandDropdown() {
-  const appId = ripStepApp.value;
-  if (!appId) { ripStepCommand.innerHTML = ""; return; }
-  const apps = await window.yo.appsList();
-  const app = apps.find((a) => a.id === appId);
-  const commands = app?.commands || {};
-  const keys = Object.keys(commands);
-  if (keys.length === 0) {
-    ripStepCommand.innerHTML = `<option value="">no commands</option>`;
-    return;
-  }
-  ripStepCommand.innerHTML = keys.map((k) =>
-    `<option value="${k}">${k} (${commands[k].action})</option>`
-  ).join("");
 }
 
 let dragSrcIdx: number | null = null;
 
+function appCommandOptions(appId: string): string {
+  const app = cachedApps.find((a) => a.id === appId);
+  const cmds = app?.commands || {};
+  const keys = Object.keys(cmds);
+  if (keys.length === 0) return `<option value="">no commands</option>`;
+  return keys.map((k) => `<option value="${k}">${k} (${cmds[k].action})</option>`).join("");
+}
+
+function stepSummary(step: RipStep): string {
+  if (step.type === "agent") return `<span class="rip-step-type-tag">agent</span>`;
+  return `${escHtml(step.app || "")}.<span style="color:#888;">${escHtml(step.command || "")}</span>`;
+}
+
+function stepMeta(step: RipStep): string {
+  const parts: string[] = [];
+  if (step.prompt) parts.push(escHtml(step.prompt.slice(0, 40)));
+  if (step.delay) parts.push(`${step.delay}ms`);
+  return parts.length ? `<span class="rip-step-meta">${parts.join(" · ")}</span>` : "";
+}
+
 function renderRipSteps() {
-  ripStepsCount.textContent = String(editingRipSteps.length);
-  if (editingRipSteps.length === 0) {
-    ripStepsList.innerHTML = `<div class="crud-empty" style="padding:12px 0;">No steps yet. Add steps below.</div>`;
-    return;
-  }
+  const appOptions = cachedApps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
 
   ripStepsList.innerHTML = editingRipSteps.map((step, i) => {
-    const label = step.type === "agent"
-      ? `<span class="rip-step-type-tag">agent</span>`
-      : `${escHtml(step.app || "")}<span style="color:#555;">.</span>${escHtml(step.command || "")}`;
-    const detail = step.prompt ? `<div class="rip-step-detail">${escHtml(step.prompt)}</div>` : "";
-    const tags: string[] = [];
-    if (step.delay) tags.push(`<span class="rip-step-tag tag-delay">${step.delay}ms</span>`);
-    if (step.outputs && step.outputs.length > 0) {
-      step.outputs.forEach((o) => tags.push(`<span class="rip-step-tag tag-output">[${escHtml(o.field)}] → ${escHtml(o.app)}.${escHtml(o.command)}</span>`));
-    }
-    const tagsHtml = tags.length > 0 ? `<div class="rip-step-tags">${tags.join("")}</div>` : "";
-    return `
-    <div class="rip-step-card" data-index="${i}" draggable="true">
-      <span class="rip-step-num">${i + 1}</span>
-      <div class="rip-step-info">
-        <span class="rip-step-label">${label}</span>
-        ${detail}
-        ${tagsHtml}
-      </div>
-      <div class="rip-step-actions">
-        <button class="crud-card-btn rip-step-edit" title="Edit">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-        </button>
+    const expanded = i === expandedStepIdx;
+    const isAgent = step.type === "agent";
+    const cmdOpts = step.app ? appCommandOptions(step.app) : "";
+
+    return `<div class="rip-step${expanded ? " expanded" : ""}" data-index="${i}" draggable="true">
+      <div class="rip-step-header">
+        <span class="rip-step-num">${i + 1}</span>
+        <span class="rip-step-summary">${stepSummary(step)}${stepMeta(step)}</span>
         <button class="crud-card-btn danger rip-step-remove" title="Remove">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </button>
       </div>
+      <div class="rip-step-body">
+        <div class="rip-step-row">
+          <select class="rs-type" style="min-width:72px;">
+            <option value="app"${!isAgent ? " selected" : ""}>App</option>
+            <option value="agent"${isAgent ? " selected" : ""}>Agent</option>
+          </select>
+          <select class="rs-app"${isAgent ? ' style="display:none"' : ""}>${appOptions}</select>
+          <select class="rs-cmd"${isAgent ? ' style="display:none"' : ""}>${cmdOpts}</select>
+          <input type="number" class="rs-delay" min="0" step="100" placeholder="ms" title="Delay (ms)" value="${step.delay || ""}" />
+        </div>
+        <textarea class="rs-prompt" rows="2" placeholder="${isAgent ? "skill or prompt (required)" : "skill or prompt (optional)"}" spellcheck="false">${escHtml(step.prompt || "")}</textarea>
+        <div class="rs-outputs"${!isAgent ? ' style="display:none"' : ""}>
+          <label style="font-size:11px;color:#888;margin-top:2px;">Outputs — map [field] to app.command</label>
+          <div class="rs-outputs-list">${(step.outputs || []).map((o, oi) =>
+            `<div class="rs-output-row" data-oidx="${oi}">
+              <span style="color:#25C75E;font-size:12px;">[${escHtml(o.field)}]</span>
+              <span style="color:#888;font-size:12px;">→ ${escHtml(o.app)}.${escHtml(o.command)}</span>
+              <button class="crud-card-btn danger rs-output-remove" title="Remove" style="margin-left:auto;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+              </button>
+            </div>`).join("")}</div>
+          <div class="rip-step-row" style="margin-top:4px;">
+            <input type="text" class="rs-out-field" placeholder="field" style="width:60px;height:26px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;" />
+            <select class="rs-out-app" style="height:26px;min-width:80px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;">${appOptions}</select>
+            <select class="rs-out-cmd" style="height:26px;min-width:80px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;"></select>
+            <button class="action-btn rs-out-add" style="font-size:11px;padding:3px 8px;">+</button>
+          </div>
+        </div>
+      </div>
     </div>`;
   }).join("");
 
-  // Drag-and-drop reordering
-  ripStepsList.querySelectorAll<HTMLElement>(".rip-step-card").forEach((row) => {
-    row.addEventListener("dragstart", (e) => {
-      dragSrcIdx = parseInt(row.dataset.index!, 10);
-      row.classList.add("dragging");
+  // Wire up each step
+  ripStepsList.querySelectorAll<HTMLElement>(".rip-step").forEach((el) => {
+    const idx = parseInt(el.dataset.index!, 10);
+    const step = editingRipSteps[idx];
+
+    // Set selected values after render
+    const appSel = el.querySelector(".rs-app") as HTMLSelectElement;
+    const cmdSel = el.querySelector(".rs-cmd") as HTMLSelectElement;
+    if (step.app && appSel) appSel.value = step.app;
+    if (step.command && cmdSel) cmdSel.value = step.command;
+
+    // Toggle expand on header click
+    el.querySelector(".rip-step-header")!.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".rip-step-remove")) return;
+      expandedStepIdx = expandedStepIdx === idx ? null : idx;
+      renderRipSteps();
+    });
+
+    // Remove
+    el.querySelector(".rip-step-remove")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editingRipSteps.splice(idx, 1);
+      if (expandedStepIdx === idx) expandedStepIdx = null;
+      else if (expandedStepIdx !== null && expandedStepIdx > idx) expandedStepIdx--;
+      renderRipSteps();
+    });
+
+    // Type change
+    const typeSel = el.querySelector(".rs-type") as HTMLSelectElement;
+    typeSel.addEventListener("change", () => {
+      step.type = typeSel.value as "app" | "agent";
+      if (step.type === "app") { step.outputs = undefined; }
+      renderRipSteps();
+    });
+
+    // App change
+    if (appSel) appSel.addEventListener("change", () => {
+      step.app = appSel.value;
+      cmdSel.innerHTML = appCommandOptions(appSel.value);
+      step.command = cmdSel.value;
+    });
+
+    // Command change
+    if (cmdSel) cmdSel.addEventListener("change", () => { step.command = cmdSel.value; });
+
+    // Delay
+    const delayInput = el.querySelector(".rs-delay") as HTMLInputElement;
+    delayInput.addEventListener("change", () => {
+      const v = parseInt(delayInput.value, 10);
+      step.delay = v > 0 ? v : undefined;
+    });
+
+    // Prompt
+    const promptArea = el.querySelector(".rs-prompt") as HTMLTextAreaElement;
+    promptArea.addEventListener("input", () => { step.prompt = promptArea.value.trim() || undefined; });
+
+    // Agent outputs
+    const outputsDiv = el.querySelector(".rs-outputs") as HTMLElement | null;
+    if (outputsDiv) {
+      const outAppSel = outputsDiv.querySelector(".rs-out-app") as HTMLSelectElement;
+      const outCmdSel = outputsDiv.querySelector(".rs-out-cmd") as HTMLSelectElement;
+
+      const populateOutCmd = (appId: string) => {
+        const app = cachedApps.find((a) => a.id === appId);
+        const cmds = app?.commands || {};
+        const svKeys = Object.keys(cmds).filter((k) => cmds[k].action === "setValue");
+        outCmdSel.innerHTML = svKeys.length
+          ? svKeys.map((k) => `<option value="${k}">${k}</option>`).join("")
+          : `<option value="">no setValue commands</option>`;
+      };
+
+      if (outAppSel && outCmdSel) {
+        populateOutCmd(outAppSel.value);
+        outAppSel.addEventListener("change", () => populateOutCmd(outAppSel.value));
+      }
+
+      outputsDiv.querySelector(".rs-out-add")?.addEventListener("click", () => {
+        const field = (outputsDiv.querySelector(".rs-out-field") as HTMLInputElement).value.trim();
+        const app = outAppSel.value;
+        const command = outCmdSel.value;
+        if (!field || !app || !command) return;
+        if (!step.outputs) step.outputs = [];
+        step.outputs.push({ field, app, command });
+        renderRipSteps();
+      });
+
+      outputsDiv.querySelectorAll<HTMLElement>(".rs-output-remove").forEach((btn) => {
+        const row = btn.closest(".rs-output-row") as HTMLElement;
+        const oidx = parseInt(row.dataset.oidx!, 10);
+        btn.addEventListener("click", () => {
+          if (step.outputs) step.outputs.splice(oidx, 1);
+          renderRipSteps();
+        });
+      });
+    }
+
+    // Drag-and-drop
+    el.addEventListener("dragstart", (e) => {
+      dragSrcIdx = idx;
+      el.classList.add("dragging");
       e.dataTransfer!.effectAllowed = "move";
     });
-    row.addEventListener("dragend", () => {
-      row.classList.remove("dragging");
+    el.addEventListener("dragend", () => {
+      el.classList.remove("dragging");
       dragSrcIdx = null;
-      ripStepsList.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+      ripStepsList.querySelectorAll(".drag-over").forEach((d) => d.classList.remove("drag-over"));
     });
-    row.addEventListener("dragover", (e) => {
+    el.addEventListener("dragover", (e) => {
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
-      ripStepsList.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
-      row.classList.add("drag-over");
+      ripStepsList.querySelectorAll(".drag-over").forEach((d) => d.classList.remove("drag-over"));
+      el.classList.add("drag-over");
     });
-    row.addEventListener("dragleave", () => { row.classList.remove("drag-over"); });
-    row.addEventListener("drop", (e) => {
+    el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
+    el.addEventListener("drop", (e) => {
       e.preventDefault();
-      const targetIdx = parseInt(row.dataset.index!, 10);
-      if (dragSrcIdx !== null && dragSrcIdx !== targetIdx) {
+      if (dragSrcIdx !== null && dragSrcIdx !== idx) {
         const [moved] = editingRipSteps.splice(dragSrcIdx, 1);
-        editingRipSteps.splice(targetIdx, 0, moved);
+        editingRipSteps.splice(idx, 0, moved);
+        expandedStepIdx = idx;
         renderRipSteps();
       }
-    });
-  });
-
-  ripStepsList.querySelectorAll(".rip-step-edit").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const idx = parseInt((btn.closest(".rip-step-card") as HTMLElement).dataset.index!, 10);
-      const step = editingRipSteps[idx];
-      const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
-      ripStepType.value = step.type;
-      ripStepType.dispatchEvent(new Event("change"));
-      if (step.type === "app" && step.app) {
-        ripStepApp.value = step.app;
-        await updateRipCommandDropdown();
-        if (step.command) ripStepCommand.value = step.command;
-      }
-      ripStepPrompt.value = step.prompt || "";
-      (document.getElementById("rip-step-delay") as HTMLInputElement).value = step.delay ? String(step.delay) : "";
-      if (step.type === "agent" && step.outputs) {
-        pendingOutputs = [...step.outputs];
-        renderPendingOutputs();
-      }
-      editingStepBackup = { index: idx, step: { ...step, outputs: step.outputs ? [...step.outputs] : undefined } };
-      editingRipSteps.splice(idx, 1);
-      ripAddStepForm.classList.remove("hidden");
-      ripAddStepBtn.classList.add("hidden");
-      renderRipSteps();
-      ripStepPrompt.focus();
-    });
-  });
-
-  ripStepsList.querySelectorAll(".rip-step-remove").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const idx = parseInt((btn.closest(".rip-step-card") as HTMLElement).dataset.index!, 10);
-      editingRipSteps.splice(idx, 1);
-      renderRipSteps();
     });
   });
 }
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function renderPendingOutputs() {
-  if (pendingOutputs.length === 0) {
-    ripOutputsList.innerHTML = "";
-    return;
-  }
-  ripOutputsList.innerHTML = pendingOutputs.map((out, i) => `
-    <div class="rip-output-row" data-oidx="${i}">
-      <span class="output-field">[${escHtml(out.field)}]</span>
-      <span class="output-target">→ ${escHtml(out.app)}.${escHtml(out.command)}</span>
-      <button class="action-btn danger rip-output-remove" title="Remove">×</button>
-    </div>
-  `).join("");
-  ripOutputsList.querySelectorAll(".rip-output-remove").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const oidx = parseInt((btn.closest(".rip-output-row") as HTMLElement).dataset.oidx!, 10);
-      pendingOutputs.splice(oidx, 1);
-      renderPendingOutputs();
-    });
-  });
-}
-
-async function updateOutputCommandDropdown() {
-  const appId = ripOutputApp.value;
-  if (!appId) { ripOutputCommand.innerHTML = ""; return; }
-  const apps = await window.yo.appsList();
-  const app = apps.find((a) => a.id === appId);
-  const commands = app?.commands || {};
-  const keys = Object.keys(commands).filter((k) => commands[k].action === "setValue");
-  if (keys.length === 0) {
-    ripOutputCommand.innerHTML = `<option value="">no setValue commands</option>`;
-    return;
-  }
-  ripOutputCommand.innerHTML = keys.map((k) => `<option value="${k}">${k}</option>`).join("");
 }
 
 async function saveRip() {
@@ -1408,7 +1427,6 @@ async function saveRip() {
     steps: editingRipSteps,
   };
 
-  // If renaming, remove old
   if (editingRip && editingRip.name !== name) {
     await window.yo.ripsRemove(editingRip.name);
   }
@@ -1419,40 +1437,22 @@ async function saveRip() {
 }
 
 function initRips() {
-  const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
-
-  // Toggle app/command/outputs visibility based on step type
-  ripStepType.addEventListener("change", () => {
-    const isAgent = ripStepType.value === "agent";
-    ripStepApp.style.display = isAgent ? "none" : "";
-    ripStepCommand.style.display = isAgent ? "none" : "";
-    ripStepPrompt.placeholder = isAgent ? "skill or prompt (required)" : "skill or prompt (optional)";
-    ripOutputsSection.classList.toggle("hidden", !isAgent);
-    if (!isAgent) { pendingOutputs = []; renderPendingOutputs(); }
-  });
-
-  // Output app dropdown → update output command dropdown
-  ripOutputApp.addEventListener("change", updateOutputCommandDropdown);
-
-  // Add output button
-  document.getElementById("rip-output-add-btn")!.addEventListener("click", () => {
-    const field = ripOutputField.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
-    const app = ripOutputApp.value;
-    const command = ripOutputCommand.value;
-    if (!field || !app || !command) { if (!field) ripOutputField.focus(); return; }
-    pendingOutputs.push({ field, app, command });
-    ripOutputField.value = "";
-    renderPendingOutputs();
-  });
-
   document.getElementById("rip-new-btn")!.addEventListener("click", () => {
     openRipEditor({ name: "", steps: [] });
   });
-  document.getElementById("rip-editor-back")!.addEventListener("click", () => {
+  document.getElementById("rip-back-link")!.addEventListener("click", () => {
     ripEditor.classList.add("hidden");
+    ripsListEl.classList.remove("hidden");
+    ripsToolbar.classList.remove("hidden");
     loadRips();
   });
   ripSearchInput.addEventListener("input", () => renderRipsList());
+  document.getElementById("rip-cancel-btn")!.addEventListener("click", () => {
+    ripEditor.classList.add("hidden");
+    ripsListEl.classList.remove("hidden");
+    ripsToolbar.classList.remove("hidden");
+    loadRips();
+  });
   document.getElementById("rip-save-btn")!.addEventListener("click", saveRip);
   document.getElementById("rip-delete-btn")!.addEventListener("click", async () => {
     if (!editingRip) return;
@@ -1473,68 +1473,15 @@ function initRips() {
       : `Failed: ${result.log[result.log.length - 1] || "unknown error"}`;
     setTimeout(() => { ripStatus.textContent = ""; }, 5000);
   });
-  const ripStepDelay = document.getElementById("rip-step-delay") as HTMLInputElement;
 
-  function resetAddStepForm() {
-    const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
-    ripStepType.value = "app";
-    ripStepType.dispatchEvent(new Event("change"));
-    ripStepPrompt.value = "";
-    ripStepDelay.value = "";
-    pendingOutputs = [];
-    renderPendingOutputs();
-  }
-
-  ripAddStepBtn.addEventListener("click", async () => {
-    editingStepBackup = null;
-    const apps = await window.yo.appsList();
-    const appOptions = apps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
-    ripStepApp.innerHTML = appOptions;
-    ripOutputApp.innerHTML = appOptions;
-    await updateRipCommandDropdown();
-    await updateOutputCommandDropdown();
-    resetAddStepForm();
-    ripAddStepForm.classList.remove("hidden");
-    ripAddStepBtn.classList.add("hidden");
-  });
-
-  document.getElementById("rip-step-cancel-btn")!.addEventListener("click", () => {
-    if (editingStepBackup) {
-      editingRipSteps.splice(editingStepBackup.index, 0, editingStepBackup.step);
-      editingStepBackup = null;
-      renderRipSteps();
-    }
-    ripAddStepForm.classList.add("hidden");
-    ripAddStepBtn.classList.remove("hidden");
-  });
-
-  document.getElementById("rip-step-confirm-btn")!.addEventListener("click", () => {
-    const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
-    const stepType = ripStepType.value as "app" | "agent";
-    const prompt = ripStepPrompt.value.trim() || undefined;
-    const delayVal = parseInt(ripStepDelay.value, 10);
-    const delay = delayVal > 0 ? delayVal : undefined;
-
-    if (stepType === "agent") {
-      if (!prompt) { ripStepPrompt.focus(); return; }
-      const outputs = pendingOutputs.length > 0 ? [...pendingOutputs] : undefined;
-      editingRipSteps.push({ type: "agent", prompt, outputs, delay });
-      pendingOutputs = [];
-      renderPendingOutputs();
-    } else {
-      const app = ripStepApp.value;
-      const command = ripStepCommand.value;
-      if (!app || !command) return;
-      editingRipSteps.push({ type: "app", app, command, prompt, delay });
-    }
-
-    editingStepBackup = null;
-    ripAddStepForm.classList.add("hidden");
-    ripAddStepBtn.classList.remove("hidden");
+  document.getElementById("rip-step-add-btn")!.addEventListener("click", () => {
+    const defaultApp = cachedApps.length > 0 ? cachedApps[0].id : "";
+    const cmds = cachedApps.find((a) => a.id === defaultApp)?.commands || {};
+    const defaultCmd = Object.keys(cmds)[0] || "";
+    editingRipSteps.push({ type: "app", app: defaultApp, command: defaultCmd });
+    expandedStepIdx = editingRipSteps.length - 1;
     renderRipSteps();
   });
-
-  ripStepApp.addEventListener("change", updateRipCommandDropdown);
 }
 
 // ── Settings ─────────────────────────────────────────────
@@ -1984,16 +1931,19 @@ function openSkillEditor(name: string, prompt: string) {
   skillDescInput.value = "";
   skillPromptArea.value = prompt;
   skillDeleteBtn.style.display = name ? "" : "none";
-  skillEditorTitle.textContent = name ? `Edit: ${name}` : "New Skill";
+  skillEditorTitle.textContent = name ? name : "New Skill";
   skillFormError.classList.add("hidden");
 
+  skillsListEl.classList.add("hidden");
+  skillsToolbar.classList.add("hidden");
   skillEditor.classList.remove("hidden");
-  skillEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   skillNameInput.focus();
 }
 
 function closeSkillEditor() {
   skillEditor.classList.add("hidden");
+  skillsListEl.classList.remove("hidden");
+  skillsToolbar.classList.remove("hidden");
   editingSkillName = null;
   loadSkills();
 }
