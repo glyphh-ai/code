@@ -55,7 +55,7 @@ export class Council {
 
   async start(config: CouncilConfig, onProgress?: ProgressFn): Promise<CouncilResult> {
     if (this.active) return { status: "error", rounds: 0, participants: [], totalCaptures: 0, responses: new Map() };
-    if (!this.wcGetter || !this.panelSwitcher) {
+    if (!this.wcGetter) {
       return { status: "error", rounds: 0, participants: config.participants, totalCaptures: 0, responses: new Map() };
     }
 
@@ -65,46 +65,56 @@ export class Council {
     for (const p of participants) responses.set(p, []);
     let totalCaptures = 0;
 
+    // Resolve webContents for all participants upfront
+    const participantWc = new Map<string, WebContents>();
+    for (const p of participants) {
+      const wc = this.wcGetter(p);
+      if (wc && !wc.isDestroyed()) {
+        participantWc.set(p, wc);
+      } else {
+        onProgress?.(`Skipping ${p} — panel not loaded`);
+      }
+    }
+
+    if (participantWc.size === 0) {
+      this.active = false;
+      return { status: "error", rounds: 0, participants, totalCaptures: 0, responses };
+    }
+
     try {
       for (let round = 1; round <= rounds; round++) {
         if (!this.active) break;
-        onProgress?.(`Round ${round}/${rounds}`);
+        onProgress?.(`Round ${round}/${rounds} — sending to all participants...`);
 
-        for (const participant of participants) {
-          if (!this.active) break;
-          onProgress?.(`Round ${round}/${rounds} — ${participant}`);
-
+        // Build prompts and snapshot hashes in parallel
+        const tasks: Array<{ participant: string; wc: WebContents; prompt: string; hashBefore: string | null }> = [];
+        for (const [participant, wc] of participantWc) {
+          if (wc.isDestroyed()) continue;
           const roundPrompt = round === 1
             ? prompt
             : this.crossPollinate(prompt, round, participant, responses);
-
-          // Switch to the participant panel
-          const switched = this.panelSwitcher(participant);
-          if (!switched) {
-            onProgress?.(`Skipping ${participant} — panel not found`);
-            continue;
-          }
-          await sleep(SWITCH_DELAY_MS);
-
-          // Get the guest webContents (where the actual AI chat lives)
-          const wc = this.wcGetter(participant);
-          if (!wc || wc.isDestroyed()) {
-            onProgress?.(`Skipping ${participant} — not loaded`);
-            continue;
-          }
-
-          // Snapshot content hash before injection
           const hashBefore = await contentHash(wc);
+          tasks.push({ participant, wc, prompt: roundPrompt, hashBefore });
+        }
 
-          // Inject prompt and submit
-          await this.injectAndSubmit(wc, roundPrompt);
+        // Inject prompts into ALL participants in parallel
+        await Promise.all(tasks.map(t => this.injectAndSubmit(t.wc, t.prompt)));
 
-          // Wait for the AI to finish responding
-          const response = await this.waitForResponse(wc, hashBefore);
+        onProgress?.(`Round ${round}/${rounds} — waiting for responses...`);
 
+        // Wait for ALL responses in parallel
+        const results = await Promise.all(tasks.map(async (t) => {
+          if (!this.active) return { participant: t.participant, response: null };
+          const response = await this.waitForResponse(t.wc, t.hashBefore);
+          return { participant: t.participant, response };
+        }));
+
+        // Collect responses
+        for (const { participant, response } of results) {
           if (response) {
             responses.get(participant)!.push(response);
             totalCaptures++;
+            onProgress?.(`Round ${round}/${rounds} — captured ${participant}`);
 
             if (this.captureStore) {
               try {
@@ -112,7 +122,7 @@ export class Council {
               } catch {}
             }
           } else {
-            onProgress?.(`No response captured from ${participant}`);
+            onProgress?.(`Round ${round}/${rounds} — no response from ${participant}`);
           }
         }
       }
