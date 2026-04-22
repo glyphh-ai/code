@@ -131,6 +131,12 @@ export class McpManager extends EventEmitter {
       state.tools = tools;
       state.error = undefined;
 
+      // Mark enabled so it auto-reconnects on restart
+      if (!config.enabled) {
+        this.updateServer(config.id, { enabled: true });
+        config.enabled = true;
+      }
+
       client.on("disconnected", () => {
         state.status = "disconnected";
         state.tools = [];
@@ -155,6 +161,7 @@ export class McpManager extends EventEmitter {
   async disconnectServer(id: string): Promise<void> {
     const entry = this.servers.get(id);
     if (!entry) return;
+    this.updateServer(id, { enabled: false });
     await entry.client.disconnect();
     entry.state.status = "disconnected";
     entry.state.tools = [];
