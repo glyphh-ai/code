@@ -2273,7 +2273,7 @@ function openMcpCustom(editServer?: McpServerData) {
   mcpCustomPanel.classList.remove("hidden");
 
   mcpEditMode = !!editServer;
-  (document.getElementById("mcp-custom-save") as HTMLButtonElement).textContent = editServer ? "Save" : "Add Server";
+  (document.getElementById("mcp-custom-save") as HTMLButtonElement).textContent = "Save";
 
   const nameInput = document.getElementById("mcp-custom-name") as HTMLInputElement;
   const idInput = document.getElementById("mcp-custom-id") as HTMLInputElement;
