@@ -608,7 +608,7 @@ export class CommandParser {
     if (!result.ok) {
       return `Rip "${name}" failed:\n${result.log.join("\n")}`;
     }
-    return `Rip "${name}" complete (${rip.steps.length} steps)\n${result.log.join("\n")}`;
+    return result.context || `Rip "${name}" complete (${rip.steps.length} steps)`;
   }
 
   // ── waz: MCP tool execution (coming soon) ────────────────────

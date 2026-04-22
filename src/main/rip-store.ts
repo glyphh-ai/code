@@ -218,7 +218,7 @@ export async function runRip(rip: Rip, deps: RipRunnerDeps, initialContext = "")
         return { ok: false, context, log };
       }
 
-      const args = { ...(step.mcpArgs || {}), ...(context ? { input: context } : {}) };
+      const args = step.mcpArgs || {};
       const result = await deps.mcpManager.callToolDirect(step.mcpServer, step.mcpTool, args);
       context = result;
       log.push(`Step ${i + 1}: mcp → ${step.mcpServer}.${step.mcpTool} (${result.length} chars)`);
