@@ -118,9 +118,9 @@
             <button class="help-nav-sub-item" data-section="docs" data-sub="agent">Agent</button>
           </div>
         </div>
-        <button class="help-nav-item" data-section="skills">Skills</button>
-        <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
+        <button class="help-nav-item" data-section="layouts">Layouts</button>
+        <button class="help-nav-item" data-section="skills">Skills</button>
         <button class="help-nav-item" data-section="rips">Rips</button>
         <button class="help-nav-item" data-section="mcp">MCP Servers</button>
         <div class="help-nav-group">
@@ -509,37 +509,40 @@
         <!-- Skills -->
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
-          <p class="section-desc">Prompt templates for .sup processing. The .yo agent can also create and manage skills.</p>
-          <div id="skills-toolbar" style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+          <p class="section-desc">Prompt templates for .sup processing.</p>
+          <div id="skills-toolbar" class="crud-toolbar">
+            <input id="skill-search" type="text" class="crud-search" placeholder="Search skills..." spellcheck="false" autocomplete="off" />
             <button id="skill-new-btn" class="action-btn primary">+ New</button>
           </div>
-          <div id="skills-list" class="help-item-list"></div>
+          <div id="skills-list" class="crud-cards"></div>
 
-          <!-- Skill editor (hidden by default) -->
-          <div id="skill-editor" class="hidden">
-            <div class="skill-field">
-              <label class="skill-label">Name</label>
-              <input type="text" id="skill-name" class="skill-input" placeholder="skill name" spellcheck="false" autocomplete="off" />
+          <!-- Skill editor -->
+          <div id="skill-editor" class="crud-form hidden">
+            <div id="skill-form-error" class="crud-form-error hidden"></div>
+            <div class="crud-form-field">
+              <label class="crud-form-label">Name</label>
+              <input type="text" id="skill-name" class="crud-input" placeholder="skill name" spellcheck="false" autocomplete="off" />
             </div>
-            <div class="skill-field">
-              <label class="skill-label">
+            <div class="crud-form-field">
+              <label class="crud-form-label">
                 <svg class="skill-ai-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
                 Describe what this skill should do
               </label>
-              <textarea id="skill-desc" class="skill-input" rows="2" placeholder="e.g. rewrite text as formal business email" spellcheck="false"></textarea>
+              <textarea id="skill-desc" class="crud-input" rows="2" placeholder="e.g. rewrite text as formal business email" spellcheck="false"></textarea>
               <button id="skill-generate" class="action-btn skill-generate-btn" title="Generate prompt with AI">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
                 Generate
               </button>
             </div>
-            <div class="skill-field skill-field-grow">
-              <label class="skill-label">Prompt</label>
-              <textarea id="skill-prompt" class="skill-prompt-area" placeholder="System prompt for this skill..." spellcheck="false"></textarea>
+            <div class="crud-form-field crud-form-field-grow">
+              <label class="crud-form-label">Prompt</label>
+              <textarea id="skill-prompt" class="crud-textarea-grow" placeholder="System prompt for this skill..." spellcheck="false"></textarea>
             </div>
-            <div style="display:flex;gap:8px;">
-              <button id="skill-save" class="action-btn primary">Save</button>
+            <div class="crud-form-actions">
+              <button id="skill-delete" class="action-btn danger">Delete</button>
+              <div class="crud-spacer"></div>
               <button id="skill-cancel" class="action-btn">Cancel</button>
-              <button id="skill-delete" class="action-btn danger" style="margin-left:auto;">Delete</button>
+              <button id="skill-save" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>
@@ -548,15 +551,16 @@
         <div class="help-section" data-section="layouts">
           <h2>Layouts</h2>
           <p class="section-desc">Custom panel arrangements. Use <code>.dip &lt;name&gt;</code> to activate.</p>
-          <div class="tab-toolbar">
-            <input id="layout-new-name" type="text" placeholder="layout name" spellcheck="false" />
-            <button id="layout-new-btn" class="action-btn primary">+ New Layout</button>
+          <div id="layouts-toolbar" class="crud-toolbar">
+            <input id="layout-search" type="text" class="crud-search" placeholder="Search layouts..." spellcheck="false" autocomplete="off" />
+            <button id="layout-new-btn" class="action-btn primary">+ New</button>
           </div>
-          <div id="layouts-list" class="item-list"></div>
-          <div id="layout-editor" class="editor-area hidden">
-            <div class="editor-header">
-              <span id="layout-edit-name"></span>
-              <button id="layout-save-btn" class="action-btn primary">Save</button>
+          <div id="layouts-list" class="crud-cards"></div>
+          <div id="layout-editor" class="crud-form hidden">
+            <div id="layout-form-error" class="crud-form-error hidden"></div>
+            <div class="crud-form-field">
+              <label class="crud-form-label">Name</label>
+              <input id="layout-new-name" type="text" class="crud-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
             </div>
             <div class="grid-builder">
               <div class="grid-dims">
@@ -579,13 +583,19 @@
               </div>
               <div id="grid-preview"></div>
             </div>
+            <div class="crud-form-actions">
+              <button id="layout-delete-btn" class="action-btn danger">Delete</button>
+              <div class="crud-spacer"></div>
+              <button id="layout-cancel-btn" class="action-btn">Cancel</button>
+              <button id="layout-save-btn" class="action-btn primary">Save</button>
+            </div>
           </div>
         </div>
 
         <!-- Apps -->
         <div class="help-section" data-section="apps">
           <h2>Apps</h2>
-          <p class="section-desc">Browse and connect apps. Connected apps provide MCP tools for the .yo agent. <span style="color:#b79cff;">Connections require Advanced.</span></p>
+          <p class="section-desc">Browse and connect apps. Connected apps provide MCP tools for the .yo agent.</p>
 
           <!-- Upgrade gate (shown for non-Advanced when trying to connect) -->
           <div id="apps-pro-gate" class="hidden" style="text-align:center;padding:32px 16px;">
@@ -593,15 +603,30 @@
             <button id="apps-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
           </div>
 
-          <div id="apps-toolbar" class="tab-toolbar">
-            <input id="app-search" type="text" placeholder="Search..." spellcheck="false" autocomplete="off" />
-            <input id="app-add-name" type="text" placeholder="Name" spellcheck="false" autocomplete="off" />
-            <input id="app-add-url" type="text" placeholder="https://..." spellcheck="false" autocomplete="off" />
-            <button id="apps-add-btn" class="action-btn primary">Add</button>
+          <div id="apps-toolbar" class="crud-toolbar">
+            <input id="app-search" type="text" class="crud-search" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
+            <button id="apps-add-btn" class="action-btn primary">+ New</button>
           </div>
 
-          <!-- Panel apps + connected accounts (merged list) -->
-          <div id="apps-list"></div>
+          <div id="apps-list" class="crud-cards"></div>
+
+          <!-- App add form -->
+          <div id="app-add-form" class="crud-form hidden">
+            <div id="app-form-error" class="crud-form-error hidden"></div>
+            <div class="crud-form-field">
+              <label class="crud-form-label">Name</label>
+              <input id="app-add-name" type="text" class="crud-input" placeholder="e.g. Gmail" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="crud-form-field">
+              <label class="crud-form-label">URL</label>
+              <input id="app-add-url" type="text" class="crud-input" placeholder="https://..." spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="crud-form-actions">
+              <div class="crud-spacer"></div>
+              <button id="app-add-cancel" class="action-btn">Cancel</button>
+              <button id="app-add-save" class="action-btn primary">Add App</button>
+            </div>
+          </div>
 
           <!-- App detail -->
           <div id="app-detail" class="hidden">
@@ -673,54 +698,68 @@
           <h2>Rips</h2>
           <p class="section-desc">Cross-app action sequences. Chain commands across apps with optional skill processing between steps. Use <code>.rip &lt;name&gt;</code> to run.</p>
 
-          <div id="rips-toolbar" class="tab-toolbar">
-            <input id="rip-new-name" type="text" placeholder="rip name" spellcheck="false" autocomplete="off" />
-            <button id="rip-new-btn" class="action-btn primary">+ New Rip</button>
+          <div id="rips-toolbar" class="crud-toolbar">
+            <input id="rip-search" type="text" class="crud-search" placeholder="Search rips..." spellcheck="false" autocomplete="off" />
+            <button id="rip-new-btn" class="action-btn primary">+ New</button>
           </div>
 
-          <div id="rips-list" class="item-list"></div>
+          <div id="rips-list" class="crud-cards"></div>
 
           <!-- Rip Editor -->
-          <div id="rip-editor" class="editor-area hidden">
-            <div class="editor-header">
-              <span id="rip-edit-name"></span>
-              <button id="rip-editor-back" class="action-btn">Back</button>
+          <div id="rip-editor" class="crud-form hidden">
+            <div id="rip-form-error" class="crud-form-error hidden"></div>
+            <div class="crud-form-field">
+              <label class="crud-form-label">Name</label>
+              <input id="rip-name" type="text" class="crud-input" placeholder="rip name" spellcheck="false" autocomplete="off" />
             </div>
-            <input id="rip-name" type="text" placeholder="rip name" spellcheck="false" autocomplete="off" />
-            <input id="rip-desc" type="text" placeholder="description (optional)" spellcheck="false" autocomplete="off" />
+            <div class="crud-form-field">
+              <label class="crud-form-label">Description</label>
+              <input id="rip-desc" type="text" class="crud-input" placeholder="description (optional)" spellcheck="false" autocomplete="off" />
+            </div>
 
-            <div id="rip-steps-list"></div>
-
-            <div id="rip-add-step">
-              <div class="rip-add-row">
-                <select id="rip-step-type">
-                  <option value="app">App</option>
-                  <option value="agent">Agent</option>
-                </select>
-                <select id="rip-step-app"></select>
-                <select id="rip-step-command"></select>
-                <input type="number" id="rip-step-delay" min="0" step="100" placeholder="ms" title="Delay after step (ms)" />
-                <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
+            <!-- Steps sub-list -->
+            <div class="crud-sub-list">
+              <div class="crud-sub-header" id="rip-steps-header">
+                <span class="crud-sub-title">Steps</span>
+                <span class="crud-sub-count" id="rip-steps-count">0</span>
               </div>
-              <textarea id="rip-step-prompt" rows="3" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
-              <div id="rip-outputs-section" class="hidden">
-                <label class="skill-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
-                <div id="rip-outputs-list"></div>
-                <div class="rip-add-row" id="rip-add-output-row">
-                  <input type="text" id="rip-output-field" placeholder="field name" spellcheck="false" autocomplete="off" />
-                  <select id="rip-output-app"></select>
-                  <select id="rip-output-command"></select>
-                  <button id="rip-output-add-btn" class="action-btn">+ Output</button>
+              <div class="crud-sub-body" id="rip-steps-body">
+                <div id="rip-steps-list"></div>
+
+                <div id="rip-add-step" class="crud-sub-add-form">
+                  <div class="rip-add-row">
+                    <select id="rip-step-type" class="crud-input">
+                      <option value="app">App</option>
+                      <option value="agent">Agent</option>
+                    </select>
+                    <select id="rip-step-app" class="crud-input"></select>
+                    <select id="rip-step-command" class="crud-input"></select>
+                    <input type="number" id="rip-step-delay" class="crud-input" min="0" step="100" placeholder="ms" title="Delay after step (ms)" />
+                    <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
+                  </div>
+                  <textarea id="rip-step-prompt" class="crud-input" rows="3" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
+                  <div id="rip-outputs-section" class="hidden">
+                    <label class="crud-form-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
+                    <div id="rip-outputs-list"></div>
+                    <div class="rip-add-row" id="rip-add-output-row">
+                      <input type="text" id="rip-output-field" class="crud-input" placeholder="field name" spellcheck="false" autocomplete="off" />
+                      <select id="rip-output-app" class="crud-input"></select>
+                      <select id="rip-output-command" class="crud-input"></select>
+                      <button id="rip-output-add-btn" class="action-btn">+ Output</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div class="editor-actions">
-              <button id="rip-save-btn" class="action-btn primary">Save</button>
-              <button id="rip-run-btn" class="action-btn">Run</button>
+            <div id="rip-status" class="crud-form-status"></div>
+            <div class="crud-form-actions">
               <button id="rip-delete-btn" class="action-btn danger">Delete</button>
+              <button id="rip-run-btn" class="action-btn">Run</button>
+              <div class="crud-spacer"></div>
+              <button id="rip-editor-back" class="action-btn">Cancel</button>
+              <button id="rip-save-btn" class="action-btn primary">Save</button>
             </div>
-            <div id="rip-status"></div>
           </div>
         </div>
 
@@ -729,12 +768,13 @@
           <h2>MCP Servers</h2>
           <p class="section-desc">Connect external tool servers via the Model Context Protocol. Tools from connected servers become available to the .yo agent.</p>
 
-          <div id="mcp-toolbar" style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+          <div id="mcp-toolbar" class="crud-toolbar">
+            <input id="mcp-search" type="text" class="crud-search" placeholder="Search servers..." spellcheck="false" autocomplete="off" />
             <button id="mcp-add-preset-btn" class="action-btn">+ Branded</button>
             <button id="mcp-add-custom-btn" class="action-btn primary">+ Custom</button>
           </div>
 
-          <div id="mcp-servers-list" class="help-item-list"></div>
+          <div id="mcp-servers-list" class="crud-cards"></div>
 
           <!-- Add Preset panel (hidden by default) -->
           <div id="mcp-preset-panel" class="hidden">

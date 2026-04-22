@@ -307,6 +307,9 @@ export function initHelp() {
   // Layouts
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
   document.getElementById("layout-save-btn")!.addEventListener("click", saveLayout);
+  document.getElementById("layout-cancel-btn")!.addEventListener("click", cancelLayout);
+  document.getElementById("layout-delete-btn")!.addEventListener("click", deleteLayout);
+  layoutSearchInput.addEventListener("input", () => { layoutsPage = 0; renderLayoutsList(); });
 
   // Grid builder dimension controls
   gridColsSelect.addEventListener("change", () => {
@@ -344,10 +347,10 @@ export function initHelp() {
   document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
   document.getElementById("skill-generate")!.addEventListener("click", generateSkillPrompt);
+  skillSearchInput.addEventListener("input", () => { skillsPage = 0; renderSkillsList(); });
 
   // Apps
   document.getElementById("app-detail-close")!.addEventListener("click", closeAppDetail);
-  appSearchInput.addEventListener("input", () => renderAppsList());
 
   // DOM Picker
   document.getElementById("app-pick-btn")!.addEventListener("click", pickElement);
@@ -367,9 +370,15 @@ export function initHelp() {
 // ── Layouts (Grid Builder) ──────────────────────────────────
 
 let layoutsPage = 0;
+let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }> }> = [];
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
-const layoutEditName = document.getElementById("layout-edit-name")!;
+const layoutsToolbar = document.getElementById("layouts-toolbar")!;
+const layoutSearchInput = document.getElementById("layout-search") as HTMLInputElement;
+const layoutNameInput = document.getElementById("layout-new-name") as HTMLInputElement;
+const layoutFormError = document.getElementById("layout-form-error")!;
+const layoutDeleteBtn = document.getElementById("layout-delete-btn") as HTMLButtonElement;
+let editingLayoutName: string | null = null;
 const gridPreview = document.getElementById("grid-preview")!;
 const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
 const gridRowsSelect = document.getElementById("grid-rows") as HTMLSelectElement;
@@ -564,61 +573,76 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
 
 async function loadLayouts() {
   layoutEditor.classList.add("hidden");
-  const items = await window.yo.layoutsList();
-  if (items.length === 0) {
-    layoutsList.innerHTML = `<div class="inline-empty">No layouts yet. Create one to arrange panels your way.</div>`;
-    return;
-  }
-  renderLayoutsList(items);
+  layoutsList.classList.remove("hidden");
+  layoutsToolbar.classList.remove("hidden");
+  layoutFormError.classList.add("hidden");
+  allLayouts = await window.yo.layoutsList();
+  renderLayoutsList();
 }
 
-function renderLayoutsList(items: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }> }>) {
-  const { items: layouts, state } = paginate(items, layoutsPage);
+function renderLayoutsList() {
+  const query = layoutSearchInput.value.trim().toLowerCase();
+  const filtered = query ? allLayouts.filter((l) => l.name.toLowerCase().includes(query)) : allLayouts;
+
+  if (allLayouts.length === 0) {
+    layoutsList.innerHTML = `<div class="crud-empty">No layouts yet. Click "+ New" to create one.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    layoutsList.innerHTML = `<div class="crud-empty">No layouts matching "${query}"</div>`;
+    return;
+  }
+
+  const { items: layouts, state } = paginate(filtered, layoutsPage);
   layoutsPage = state.page;
+  layoutsList.innerHTML = "";
 
-  layoutsList.innerHTML = layouts
-    .map(
-      (layout) => `
-    <div class="item-row" data-name="${layout.name}">
-      <span class="item-name">${layout.name}</span>
-      <span class="item-meta">${layout.splits.map((s) => s.panelId).join(" | ")}</span>
-      <div class="action-btns">
-        <button class="action-btn edit-btn">Edit</button>
-        <button class="action-btn danger delete-btn">Delete</button>
+  for (const layout of layouts) {
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    const panels = layout.splits.map((s) => s.panelId).filter(Boolean).join(" | ");
+    card.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name">${layout.name}</span>
+        <span class="crud-card-meta">${panels || "empty"}</span>
       </div>
-    </div>`,
-    )
-    .join("");
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>`;
 
-  layoutsList.appendChild(renderPaginationBar(state, (p) => { layoutsPage = p; renderLayoutsList(items); }));
-
-  layoutsList.querySelectorAll(".item-row").forEach((row) => {
-    row.addEventListener("click", () => editLayout((row as HTMLElement).dataset.name!));
-  });
-  layoutsList.querySelectorAll(".edit-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
       e.stopPropagation();
-      editLayout((btn.closest(".item-row") as HTMLElement).dataset.name!);
+      editLayout(layout.name);
     });
-  });
-  layoutsList.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
+
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await window.yo.layoutsDelete((btn.closest(".item-row") as HTMLElement).dataset.name!);
+      const confirmed = await confirmAction(`Delete layout "${layout.name}"?`);
+      if (!confirmed) return;
+      await window.yo.layoutsDelete(layout.name);
       loadLayouts();
     });
-  });
+
+    card.addEventListener("click", () => editLayout(layout.name));
+    layoutsList.appendChild(card);
+  }
+
+  layoutsList.appendChild(renderPaginationBar(state, (p) => { layoutsPage = p; renderLayoutsList(); }));
 }
 
 async function editLayout(name: string) {
+  editingLayoutName = name;
   const layouts = await window.yo.layoutsList();
   const layout = layouts.find((l) => l.name === name);
   if (layout) {
-    // Restore full grid state from saved layout
     builderCols = layout.cols || 2;
     builderRows = layout.rows || 1;
     initBuilderCells();
-    // Place panels in their saved grid positions
     for (const s of layout.splits) {
       const cell = builderCells.find((c) => c.col === s.col && c.row === s.row);
       if (cell) {
@@ -634,32 +658,60 @@ async function editLayout(name: string) {
   }
   gridColsSelect.value = String(builderCols);
   gridRowsSelect.value = String(builderRows);
-  layoutEditName.textContent = name;
+  layoutNameInput.value = name;
+  layoutDeleteBtn.style.display = "";
+  layoutFormError.classList.add("hidden");
+  layoutsList.classList.add("hidden");
+  layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
-  layoutEditor.dataset.name = name;
   renderGridPreview();
 }
 
 async function newLayout() {
-  const input = document.getElementById("layout-new-name") as HTMLInputElement;
-  const name = input.value.trim();
-  if (!name) return;
+  editingLayoutName = null;
   builderCols = 2;
   builderRows = 1;
   initBuilderCells();
   gridColsSelect.value = "2";
   gridRowsSelect.value = "1";
-  layoutEditName.textContent = name;
+  layoutNameInput.value = "";
+  layoutDeleteBtn.style.display = "none";
+  layoutFormError.classList.add("hidden");
+  layoutsList.classList.add("hidden");
+  layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
-  layoutEditor.dataset.name = name;
-  input.value = "";
+  layoutNameInput.focus();
   renderGridPreview();
 }
 
+function cancelLayout() {
+  layoutEditor.classList.add("hidden");
+  layoutsList.classList.remove("hidden");
+  layoutsToolbar.classList.remove("hidden");
+  editingLayoutName = null;
+  loadLayouts();
+}
+
 async function saveLayout() {
-  const name = layoutEditor.dataset.name!;
+  const name = layoutNameInput.value.trim();
+  if (!name) {
+    layoutNameInput.classList.add("invalid");
+    clearInvalid(layoutNameInput);
+    layoutFormError.textContent = "Layout name is required.";
+    layoutFormError.classList.remove("hidden");
+    return;
+  }
   const assignedCells = builderCells.filter((c) => c.panelId);
-  if (assignedCells.length < 1) return;
+  if (assignedCells.length < 1) {
+    layoutFormError.textContent = "Assign at least one panel to the grid.";
+    layoutFormError.classList.remove("hidden");
+    return;
+  }
+
+  if (editingLayoutName && editingLayoutName !== name) {
+    await window.yo.layoutsDelete(editingLayoutName);
+  }
+
   await window.yo.layoutsSaveGrid({
     name,
     cols: builderCols,
@@ -668,8 +720,15 @@ async function saveLayout() {
     rowHeights: Array(builderRows).fill(1 / builderRows),
     cells: assignedCells,
   });
-  layoutEditor.classList.add("hidden");
-  loadLayouts();
+  cancelLayout();
+}
+
+async function deleteLayout() {
+  if (!editingLayoutName) return;
+  const confirmed = await confirmAction(`Delete layout "${editingLayoutName}"?`);
+  if (!confirmed) return;
+  await window.yo.layoutsDelete(editingLayoutName);
+  cancelLayout();
 }
 
 // ── Apps (unified: local apps + Pipedream connections) ───
@@ -677,6 +736,7 @@ async function saveLayout() {
 let appsPage = 0;
 const appsList = document.getElementById("apps-list")!;
 const appDetail = document.getElementById("app-detail")!;
+const appAddForm = document.getElementById("app-add-form")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url")!;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
@@ -689,6 +749,8 @@ const appPreview = document.getElementById("app-preview") as HTMLElement & {
   getWebContentsId: () => number;
   reload: () => void;
 };
+const appsToolbar = document.getElementById("apps-toolbar")!;
+const appFormError = document.getElementById("app-form-error")!;
 
 let currentAppId = "";
 
@@ -705,8 +767,9 @@ let panelApps: PanelApp[] = [];
 
 async function loadApps() {
   appDetail.classList.add("hidden");
+  appAddForm.classList.add("hidden");
   appsList.classList.remove("hidden");
-  document.querySelector(".tab-toolbar")?.classList.remove("hidden");
+  appsToolbar.classList.remove("hidden");
 
   try {
     const apps = await window.yo.appsList();
@@ -724,36 +787,55 @@ function renderAppsList() {
     : panelApps;
 
   if (panelApps.length === 0) {
-    appsList.innerHTML = `<div class="inline-empty">No apps yet. Add one above.</div>`;
+    appsList.innerHTML = `<div class="crud-empty">No apps yet. Click "+ New" to add one.</div>`;
     return;
   }
   if (filtered.length === 0) {
-    appsList.innerHTML = `<div class="inline-empty">No apps matching "${query}"</div>`;
+    appsList.innerHTML = `<div class="crud-empty">No apps matching "${query}"</div>`;
     return;
   }
 
-  appsList.innerHTML = filtered.map((app) => {
-    const cmdCount = Object.keys(app.commands || {}).length;
-    const badge = cmdCount > 0
-      ? `<span class="app-card-status connected">${cmdCount} cmd${cmdCount > 1 ? "s" : ""}</span>`
-      : `<span class="app-card-status panel">panel</span>`;
-    return `
-    <div class="app-card" data-app-id="${app.id}">
-      <div class="app-card-header">
-        <span class="app-card-name">${app.name}</span>
-        ${badge}
-      </div>
-      <div class="app-card-url">${app.url}</div>
-    </div>`;
-  }).join("");
+  const { items: pageApps, state } = paginate(filtered, appsPage);
+  appsPage = state.page;
+  appsList.innerHTML = "";
 
-  appsList.querySelectorAll(".app-card[data-app-id]").forEach((card) => {
-    const appId = (card as HTMLElement).dataset.appId!;
-    card.addEventListener("click", () => {
-      const app = panelApps.find((a) => a.id === appId);
-      if (app) openPanelAppDetail(app);
+  for (const app of pageApps) {
+    const cmdCount = Object.keys(app.commands || {}).length;
+    const meta = cmdCount > 0 ? `${app.url} — ${cmdCount} cmd${cmdCount > 1 ? "s" : ""}` : app.url;
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    card.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name">${app.name}</span>
+        <span class="crud-card-meta">${meta}</span>
+      </div>
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>`;
+
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openPanelAppDetail(app);
     });
-  });
+
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await confirmAction(`Delete app "${app.name}"?`);
+      if (!confirmed) return;
+      await window.yo.appsRemove(app.id);
+      loadApps();
+    });
+
+    card.addEventListener("click", () => openPanelAppDetail(app));
+    appsList.appendChild(card);
+  }
+
+  appsList.appendChild(renderPaginationBar(state, (p) => { appsPage = p; renderAppsList(); }));
 }
 
 
@@ -764,13 +846,13 @@ async function openPanelAppDetail(app: PanelApp) {
   appConnectStatus.textContent = "";
   appMapCommand.classList.add("hidden");
 
-  // Load app in the embedded webview preview
   appPreview.partition = "persist:yo";
   appPreview.src = app.url;
 
   await refreshCommands();
   appsList.classList.add("hidden");
-  document.getElementById("apps-toolbar")?.classList.add("hidden");
+  appsToolbar.classList.add("hidden");
+  appAddForm.classList.add("hidden");
   appDetail.classList.remove("hidden");
 }
 
@@ -947,27 +1029,44 @@ function closeAppDetail() {
   appMapCommand.classList.add("hidden");
   appDetail.classList.add("hidden");
   appsList.classList.remove("hidden");
-  document.getElementById("apps-toolbar")?.classList.remove("hidden");
+  appsToolbar.classList.remove("hidden");
   loadApps();
 }
 
 function initApps() {
-  // Add panel app from inline form
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
-  const addApp = async () => {
-    const name = addNameInput.value.trim();
-    const url = addUrlInput.value.trim();
-    if (!name || !url) return;
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
-    await window.yo.appsAdd(id, name, url);
+
+  // + New opens the add form
+  document.getElementById("apps-add-btn")!.addEventListener("click", () => {
     addNameInput.value = "";
     addUrlInput.value = "";
-    await loadApps();
-  };
-  document.getElementById("apps-add-btn")!.addEventListener("click", addApp);
-  addUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addApp(); });
-  addNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addUrlInput.focus(); });
+    appFormError.classList.add("hidden");
+    appsList.classList.add("hidden");
+    appsToolbar.classList.add("hidden");
+    appAddForm.classList.remove("hidden");
+    addNameInput.focus();
+  });
+
+  // Add form save
+  document.getElementById("app-add-save")!.addEventListener("click", async () => {
+    let valid = true;
+    const name = addNameInput.value.trim();
+    const url = addUrlInput.value.trim();
+    if (!name) { addNameInput.classList.add("invalid"); clearInvalid(addNameInput); valid = false; }
+    if (!url) { addUrlInput.classList.add("invalid"); clearInvalid(addUrlInput); valid = false; }
+    if (!valid) {
+      appFormError.textContent = "Name and URL are required.";
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+    await window.yo.appsAdd(id, name, url);
+    loadApps();
+  });
+
+  // Add form cancel
+  document.getElementById("app-add-cancel")!.addEventListener("click", () => loadApps());
 
   // Edit name on blur
   appDetailName.addEventListener("blur", async () => {
@@ -978,12 +1077,16 @@ function initApps() {
   });
   appDetailName.addEventListener("keydown", (e) => { if (e.key === "Enter") appDetailName.blur(); });
 
-  // Delete panel app
+  // Delete panel app (from detail view)
   document.getElementById("app-detail-delete")!.addEventListener("click", async () => {
     if (!currentAppId) return;
+    const confirmed = await confirmAction(`Delete app "${appDetailName.value}"?`);
+    if (!confirmed) return;
     await window.yo.appsRemove(currentAppId);
     closeAppDetail();
   });
+
+  appSearchInput.addEventListener("input", () => { appsPage = 0; renderAppsList(); });
 }
 
 // ── Rips (cross-app action sequences) ───────────────────
@@ -1002,6 +1105,10 @@ const ripOutputsSection = document.getElementById("rip-outputs-section")!;
 const ripOutputField = document.getElementById("rip-output-field") as HTMLInputElement;
 const ripOutputApp = document.getElementById("rip-output-app") as HTMLSelectElement;
 const ripOutputCommand = document.getElementById("rip-output-command") as HTMLSelectElement;
+const ripsToolbar = document.getElementById("rips-toolbar")!;
+const ripSearchInput = document.getElementById("rip-search") as HTMLInputElement;
+const ripFormError = document.getElementById("rip-form-error")!;
+const ripStepsCount = document.getElementById("rip-steps-count")!;
 
 let pendingOutputs: RipOutput[] = [];
 
@@ -1028,64 +1135,65 @@ interface RipData {
 
 let editingRip: RipData | null = null;
 let editingRipSteps: RipStep[] = [];
+let allRips: RipData[] = [];
 
 async function loadRips() {
   ripEditor.classList.add("hidden");
   ripsListEl.classList.remove("hidden");
-  document.getElementById("rips-toolbar")?.classList.remove("hidden");
+  ripsToolbar.classList.remove("hidden");
+  ripFormError.classList.add("hidden");
+  allRips = await window.yo.ripsList();
+  renderRipsList();
+}
 
-  const rips = await window.yo.ripsList();
-  if (rips.length === 0) {
-    ripsListEl.innerHTML = `<div class="inline-empty">No rips yet. Create one to chain commands across apps.</div>`;
+function renderRipsList() {
+  const query = ripSearchInput.value.trim().toLowerCase();
+  const filtered = query ? allRips.filter((r) => r.name.toLowerCase().includes(query)) : allRips;
+
+  if (allRips.length === 0) {
+    ripsListEl.innerHTML = `<div class="crud-empty">No rips yet. Click "+ New" to create one.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    ripsListEl.innerHTML = `<div class="crud-empty">No rips matching "${query}"</div>`;
     return;
   }
 
-  ripsListEl.innerHTML = rips.map((rip) => `
-    <div class="item-row" data-rip="${rip.name}">
-      <span class="item-name">${rip.name}</span>
-      <span class="item-meta">${rip.steps.map((s) => s.type === "agent" ? "agent" : s.app + "." + s.command).join(" → ")}</span>
-      <div class="action-btns">
-        <button class="action-btn rip-run-btn" title="Run">Run</button>
-        <button class="action-btn rip-edit-btn">Edit</button>
-        <button class="action-btn danger rip-delete-btn">Delete</button>
+  ripsListEl.innerHTML = "";
+  for (const rip of filtered) {
+    const stepsDesc = rip.steps.map((s) => s.type === "agent" ? "agent" : s.app + "." + s.command).join(" → ");
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    card.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name">${rip.name}</span>
+        <span class="crud-card-meta">${stepsDesc}</span>
       </div>
-    </div>
-  `).join("");
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>`;
 
-  ripsListEl.querySelectorAll(".rip-edit-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
       e.stopPropagation();
-      const name = (btn.closest(".item-row") as HTMLElement).dataset.rip!;
-      const rip = rips.find((r) => r.name === name);
-      if (rip) openRipEditor(rip);
+      openRipEditor(rip);
     });
-  });
 
-  ripsListEl.querySelectorAll(".rip-run-btn").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const name = (btn.closest(".item-row") as HTMLElement).dataset.rip!;
-      (btn as HTMLButtonElement).textContent = "Running...";
-      (btn as HTMLButtonElement).disabled = true;
-      const result = await window.yo.ripsRun(name);
-      (btn as HTMLButtonElement).textContent = "Run";
-      (btn as HTMLButtonElement).disabled = false;
-      if (!result.ok) {
-        alert("Rip failed:\n" + result.log.join("\n"));
-      }
-    });
-  });
-
-  ripsListEl.querySelectorAll(".rip-delete-btn").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const name = (btn.closest(".item-row") as HTMLElement).dataset.rip!;
-      const confirmed = await confirmAction(`Delete rip "${name}"?`);
+      const confirmed = await confirmAction(`Delete rip "${rip.name}"?`);
       if (!confirmed) return;
-      await window.yo.ripsRemove(name);
+      await window.yo.ripsRemove(rip.name);
       loadRips();
     });
-  });
+
+    card.addEventListener("click", () => openRipEditor(rip));
+    ripsListEl.appendChild(card);
+  }
 }
 
 async function openRipEditor(rip?: RipData) {
@@ -1094,7 +1202,7 @@ async function openRipEditor(rip?: RipData) {
   ripNameInput.value = rip?.name || "";
   ripDescInput.value = rip?.description || "";
   ripStatus.textContent = "";
-  document.getElementById("rip-edit-name")!.textContent = rip?.name || "New Rip";
+  ripFormError.classList.add("hidden");
 
   const deleteBtn = document.getElementById("rip-delete-btn") as HTMLButtonElement;
   deleteBtn.style.display = editingRip ? "" : "none";
@@ -1113,7 +1221,7 @@ async function openRipEditor(rip?: RipData) {
   ripOutputsSection.classList.add("hidden");
 
   ripsListEl.classList.add("hidden");
-  document.getElementById("rips-toolbar")?.classList.add("hidden");
+  ripsToolbar.classList.add("hidden");
   ripEditor.classList.remove("hidden");
   renderRipSteps();
 }
@@ -1137,8 +1245,9 @@ async function updateRipCommandDropdown() {
 let dragSrcIdx: number | null = null;
 
 function renderRipSteps() {
+  ripStepsCount.textContent = String(editingRipSteps.length);
   if (editingRipSteps.length === 0) {
-    ripStepsList.innerHTML = `<div class="inline-empty" style="padding:8px 0;">No steps yet. Add steps below.</div>`;
+    ripStepsList.innerHTML = `<div class="crud-empty" style="padding:12px 0;">No steps yet. Add steps below.</div>`;
     return;
   }
 
@@ -1267,8 +1376,14 @@ async function updateOutputCommandDropdown() {
 
 async function saveRip() {
   const name = ripNameInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+$/, "");
-  if (!name) { ripNameInput.focus(); return; }
-  if (editingRipSteps.length === 0) { ripStatus.textContent = "Add at least one step."; return; }
+  let valid = true;
+  if (!name) { ripNameInput.classList.add("invalid"); clearInvalid(ripNameInput); valid = false; }
+  if (editingRipSteps.length === 0) { valid = false; }
+  if (!valid) {
+    ripFormError.textContent = !name ? "Name is required." : "Add at least one step.";
+    ripFormError.classList.remove("hidden");
+    return;
+  }
 
   const rip: RipData = {
     name,
@@ -1313,17 +1428,19 @@ function initRips() {
     renderPendingOutputs();
   });
 
+  // Steps sub-list collapse toggle
+  document.getElementById("rip-steps-header")!.addEventListener("click", () => {
+    document.getElementById("rip-steps-body")!.classList.toggle("collapsed");
+  });
+
   document.getElementById("rip-new-btn")!.addEventListener("click", () => {
-    const nameInput = document.getElementById("rip-new-name") as HTMLInputElement;
-    const name = nameInput.value.trim();
-    if (!name) { nameInput.focus(); return; }
-    nameInput.value = "";
-    openRipEditor({ name, steps: [] });
+    openRipEditor({ name: "", steps: [] });
   });
   document.getElementById("rip-editor-back")!.addEventListener("click", () => {
     ripEditor.classList.add("hidden");
     loadRips();
   });
+  ripSearchInput.addEventListener("input", () => renderRipsList());
   document.getElementById("rip-save-btn")!.addEventListener("click", saveRip);
   document.getElementById("rip-delete-btn")!.addEventListener("click", async () => {
     if (!editingRip) return;
@@ -1734,6 +1851,7 @@ async function saveSettings() {
 // ── Skills ────────────────────────────────────────────────
 
 let skillsPage = 0;
+let allSkills: string[] = [];
 const skillsListEl = document.getElementById("skills-list")!;
 const skillsToolbar = document.getElementById("skills-toolbar")!;
 const skillEditor = document.getElementById("skill-editor")!;
@@ -1741,46 +1859,75 @@ const skillNameInput = document.getElementById("skill-name") as HTMLInputElement
 const skillDescInput = document.getElementById("skill-desc") as HTMLTextAreaElement;
 const skillPromptArea = document.getElementById("skill-prompt") as HTMLTextAreaElement;
 const skillDeleteBtn = document.getElementById("skill-delete") as HTMLButtonElement;
+const skillSearchInput = document.getElementById("skill-search") as HTMLInputElement;
+const skillFormError = document.getElementById("skill-form-error")!;
 let editingSkillName: string | null = null;
 
 async function loadSkills() {
   skillEditor.classList.add("hidden");
   skillsListEl.classList.remove("hidden");
   skillsToolbar.classList.remove("hidden");
-  const skills = await window.yo.skillsList();
-  if (skills.length === 0) {
-    skillsListEl.innerHTML = `<div class="help-item-empty">No skills yet. Click "+ New" to create one.</div>`;
-    return;
-  }
-  renderSkillsList(skills);
+  skillFormError.classList.add("hidden");
+  allSkills = await window.yo.skillsList();
+  renderSkillsList();
 }
 
-function renderSkillsList(skills: string[]) {
-  const { items, state } = paginate(skills, skillsPage);
+function renderSkillsList() {
+  const query = skillSearchInput.value.trim().toLowerCase();
+  const filtered = query ? allSkills.filter((s) => s.toLowerCase().includes(query)) : allSkills;
+
+  if (allSkills.length === 0) {
+    skillsListEl.innerHTML = `<div class="crud-empty">No skills yet. Click "+ New" to create one.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    skillsListEl.innerHTML = `<div class="crud-empty">No skills matching "${query}"</div>`;
+    return;
+  }
+
+  const { items, state } = paginate(filtered, skillsPage);
   skillsPage = state.page;
   skillsListEl.innerHTML = "";
+
   for (const name of items) {
-    const row = document.createElement("div");
-    row.className = "help-item-row";
     const cleanName = name.replace(/\.md$/i, "");
-    row.innerHTML = `
-      <div class="help-item-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    card.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name">${cleanName}</span>
       </div>
-      <span class="help-item-name">${cleanName}</span>
-      <div class="help-item-actions">
-        <button class="action-btn skill-edit" title="Edit">Edit</button>
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
       </div>`;
 
-    row.querySelector(".skill-edit")!.addEventListener("click", async (e) => {
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
       const prompt = await window.yo.skillsRead(name);
       openSkillEditor(cleanName, prompt || "");
     });
 
-    skillsListEl.appendChild(row);
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await confirmAction(`Delete skill "${cleanName}"?`);
+      if (!confirmed) return;
+      await window.yo.skillsRemove(name);
+      loadSkills();
+    });
+
+    card.addEventListener("click", async () => {
+      const prompt = await window.yo.skillsRead(name);
+      openSkillEditor(cleanName, prompt || "");
+    });
+
+    skillsListEl.appendChild(card);
   }
-  skillsListEl.appendChild(renderPaginationBar(state, (p) => { skillsPage = p; renderSkillsList(skills); }));
+  skillsListEl.appendChild(renderPaginationBar(state, (p) => { skillsPage = p; renderSkillsList(); }));
 }
 
 function openSkillEditor(name: string, prompt: string) {
@@ -1788,7 +1935,8 @@ function openSkillEditor(name: string, prompt: string) {
   skillNameInput.value = name;
   skillDescInput.value = "";
   skillPromptArea.value = prompt;
-  skillDeleteBtn.style.display = name ? "block" : "none";
+  skillDeleteBtn.style.display = name ? "" : "none";
+  skillFormError.classList.add("hidden");
 
   skillsListEl.classList.add("hidden");
   skillsToolbar.classList.add("hidden");
@@ -1811,7 +1959,11 @@ async function saveSkill() {
 
   if (!name) { skillNameInput.classList.add("invalid"); clearInvalid(skillNameInput); valid = false; }
   if (!prompt) { skillPromptArea.classList.add("invalid"); clearInvalid(skillPromptArea); valid = false; }
-  if (!valid) return;
+  if (!valid) {
+    skillFormError.textContent = "Please fill in all required fields.";
+    skillFormError.classList.remove("hidden");
+    return;
+  }
 
   if (editingSkillName && editingSkillName !== name) {
     await window.yo.skillsRemove(editingSkillName);
@@ -1862,52 +2014,79 @@ const mcpServersList = document.getElementById("mcp-servers-list")!;
 const mcpPresetPanel = document.getElementById("mcp-preset-panel")!;
 const mcpCustomPanel = document.getElementById("mcp-custom-panel")!;
 const mcpDetailPanel = document.getElementById("mcp-detail-panel")!;
+const mcpToolbar = document.getElementById("mcp-toolbar")!;
+const mcpSearchInput = document.getElementById("mcp-search") as HTMLInputElement;
 let mcpCurrentServerId: string | null = null;
 let mcpEditMode = false;
+let allMcpServers: McpServerData[] = [];
 
 async function loadMcp() {
   mcpPresetPanel.classList.add("hidden");
   mcpCustomPanel.classList.add("hidden");
   mcpDetailPanel.classList.add("hidden");
   mcpServersList.classList.remove("hidden");
-  document.getElementById("mcp-toolbar")!.classList.remove("hidden");
+  mcpToolbar.classList.remove("hidden");
 
-  const servers: McpServerData[] = await window.yo.mcpGetServers();
-  if (servers.length === 0) {
-    mcpServersList.innerHTML = `<div class="help-item-empty">No MCP servers configured. Add a branded preset or custom server to get started.</div>`;
+  allMcpServers = await window.yo.mcpGetServers();
+  renderMcpList();
+}
+
+function renderMcpList() {
+  const query = mcpSearchInput.value.trim().toLowerCase();
+  const filtered = query ? allMcpServers.filter((s) => s.config.name.toLowerCase().includes(query)) : allMcpServers;
+
+  if (allMcpServers.length === 0) {
+    mcpServersList.innerHTML = `<div class="crud-empty">No MCP servers configured. Add a branded preset or custom server.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    mcpServersList.innerHTML = `<div class="crud-empty">No servers matching "${query}"</div>`;
     return;
   }
 
   mcpServersList.innerHTML = "";
-  for (const s of servers) {
-    const row = document.createElement("div");
-    row.className = "mcp-server-row";
+  for (const s of filtered) {
+    const card = document.createElement("div");
+    card.className = "crud-card";
 
-    const name = document.createElement("span");
-    name.className = "mcp-server-name";
-    name.textContent = s.config.name;
+    const toolsText = s.status === "connected" ? `${s.tools.length} tools` : s.status;
+    card.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name">${s.config.name}</span>
+        <span class="crud-card-meta">${toolsText}${s.error ? ` — ${s.error}` : ""}</span>
+      </div>
+      <span class="mcp-status-badge status-${s.status}" style="flex-shrink:0;">${s.status}</span>
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Remove">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>`;
 
-    const tools = document.createElement("span");
-    tools.className = "mcp-server-tools";
-    tools.textContent = s.status === "connected" ? `${s.tools.length} tools` : "";
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openMcpDetail(s.config.id);
+    });
 
-    const badge = document.createElement("span");
-    badge.className = `mcp-status-badge status-${s.status}`;
-    badge.textContent = s.status;
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await confirmAction(`Remove server "${s.config.name}"?`);
+      if (!confirmed) return;
+      await window.yo.mcpRemoveServer(s.config.id);
+      loadMcp();
+    });
 
-    row.appendChild(name);
-    row.appendChild(tools);
-    row.appendChild(badge);
-
-    row.addEventListener("click", () => openMcpDetail(s.config.id));
-    mcpServersList.appendChild(row);
+    card.addEventListener("click", () => openMcpDetail(s.config.id));
+    mcpServersList.appendChild(card);
   }
 }
 
 async function openMcpDetail(serverId: string) {
   mcpCurrentServerId = serverId;
   mcpServersList.classList.add("hidden");
-  document.getElementById("mcp-toolbar")!.classList.add("hidden");
+  mcpToolbar.classList.add("hidden");
   mcpPresetPanel.classList.add("hidden");
   mcpCustomPanel.classList.add("hidden");
   mcpDetailPanel.classList.remove("hidden");
@@ -1987,7 +2166,7 @@ async function openMcpDetail(serverId: string) {
 
 function openMcpPresets() {
   mcpServersList.classList.add("hidden");
-  document.getElementById("mcp-toolbar")!.classList.add("hidden");
+  mcpToolbar.classList.add("hidden");
   mcpCustomPanel.classList.add("hidden");
   mcpDetailPanel.classList.add("hidden");
   mcpPresetPanel.classList.remove("hidden");
@@ -2050,7 +2229,7 @@ async function renderMcpPresets() {
 
 function openMcpCustom(editServer?: McpServerData) {
   mcpServersList.classList.add("hidden");
-  document.getElementById("mcp-toolbar")!.classList.add("hidden");
+  mcpToolbar.classList.add("hidden");
   mcpPresetPanel.classList.add("hidden");
   mcpDetailPanel.classList.add("hidden");
   mcpCustomPanel.classList.remove("hidden");
@@ -2155,6 +2334,7 @@ async function saveMcpCustom() {
 function initMcp() {
   document.getElementById("mcp-add-preset-btn")!.addEventListener("click", openMcpPresets);
   document.getElementById("mcp-add-custom-btn")!.addEventListener("click", () => openMcpCustom());
+  mcpSearchInput.addEventListener("input", () => renderMcpList());
   document.getElementById("mcp-preset-cancel")!.addEventListener("click", loadMcp);
   document.getElementById("mcp-custom-cancel")!.addEventListener("click", loadMcp);
   document.getElementById("mcp-custom-save")!.addEventListener("click", saveMcpCustom);

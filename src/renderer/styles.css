@@ -1269,6 +1269,9 @@ body {
 /* Sections with split detail views need full height */
 .help-section[data-section="apps"].active,
 .help-section[data-section="skills"].active,
+.help-section[data-section="layouts"].active,
+.help-section[data-section="rips"].active,
+.help-section[data-section="mcp"].active,
 .help-section[data-section="library"].active,
 .help-section[data-section="docs"].active,
 .help-section[data-section="settings"].active {
@@ -1499,9 +1502,6 @@ ol.docs-list li::before {
   outline: none;
   min-width: 0;
 }
-#app-search { flex: 0.7; }
-#app-add-name { flex: 0.8; }
-#app-add-url { flex: 1.5; }
 
 .tab-toolbar input:focus { border-color: #25C75E; }
 .tab-toolbar input::placeholder { color: #666; }
@@ -1537,6 +1537,248 @@ ol.docs-list li::before {
   color: #555;
 }
 
+/* ── Shared CRUD components ──────────────────────────────── */
+
+.crud-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.crud-search {
+  flex: 1;
+  height: 34px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #e0e0e0;
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+  transition: border-color 0.15s;
+}
+.crud-search:focus { border-color: #25C75E; }
+.crud-search::placeholder { color: #555; }
+
+.crud-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.crud-card {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: #141414;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  gap: 12px;
+}
+.crud-card:hover {
+  background: #1a1a1a;
+  border-color: #2a2a2a;
+}
+
+.crud-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.crud-card-name {
+  font-size: 14px;
+  color: #e0e0e0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crud-card-meta {
+  font-size: 12px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crud-card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.crud-card:hover .crud-card-actions { opacity: 1; }
+
+.crud-card-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.crud-card-btn:hover { background: #252525; color: #fff; }
+.crud-card-btn.danger { color: #885555; }
+.crud-card-btn.danger:hover { background: #2a1515; color: #ff5f57; }
+
+.crud-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #555;
+  font-size: 13px;
+}
+
+/* CRUD form */
+.crud-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.crud-form-error {
+  background: #2a1515;
+  border: 1px solid #551a1a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #ff6666;
+  font-size: 13px;
+}
+
+.crud-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crud-form-field-grow {
+  flex: 1;
+  min-height: 0;
+}
+
+.crud-form-label {
+  font-size: 12px;
+  color: #999;
+  font-weight: 500;
+}
+
+.crud-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.crud-input:focus { border-color: #25C75E; }
+.crud-input::placeholder { color: #555; -webkit-text-fill-color: #555; }
+
+.crud-textarea-grow {
+  width: 100%;
+  flex: 1;
+  min-height: 80px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  outline: none;
+  resize: vertical;
+  font-family: var(--font-mono);
+  transition: border-color 0.15s;
+}
+.crud-textarea-grow:focus { border-color: #25C75E; }
+.crud-textarea-grow::placeholder { color: #444; -webkit-text-fill-color: #444; }
+
+.crud-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #1e1e1e;
+  flex-shrink: 0;
+}
+
+.crud-spacer { flex: 1; }
+
+.crud-form-status {
+  font-size: 12px;
+  color: #999;
+  min-height: 18px;
+}
+
+/* Sub-list (collapsible steps/items) */
+.crud-sub-list {
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.crud-sub-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: #141414;
+  cursor: pointer;
+  user-select: none;
+  gap: 8px;
+}
+
+.crud-sub-title {
+  font-size: 13px;
+  color: #ccc;
+  font-weight: 500;
+}
+
+.crud-sub-count {
+  font-size: 11px;
+  color: #555;
+  background: #1a1a1a;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.crud-sub-body {
+  border-top: 1px solid #1e1e1e;
+}
+
+.crud-sub-body.collapsed {
+  display: none;
+}
+
+.crud-sub-add-form {
+  padding: 10px 14px;
+  border-top: 1px solid #1e1e1e;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ── Standard action buttons ────────────────────────────── */
 
 .action-btns {
@@ -1558,7 +1800,7 @@ ol.docs-list li::before {
 
 .action-btn:hover:not(:disabled) { color: #fff; background: #252525; border-color: #444; }
 .action-btn:disabled { opacity: 0.3; cursor: default; }
-.action-btn.danger { color: #885; border-color: #2a1a1a; }
+.action-btn.danger { color: #cc5555; border-color: #3a1a1a; }
 .action-btn.danger:hover { color: #ff5f57; background: #1f0f0f; border-color: #5a2020; }
 .action-btn.primary { background: #25C75E; border-color: #25C75E; color: #000; }
 .action-btn.primary:hover { opacity: 0.85; }
@@ -2133,22 +2375,6 @@ ol.docs-list li::before {
 .help-select:focus { border-color: #25C75E; }
 
 /* ── Rips ─────────────────────────────────────────────── */
-#rip-editor input[type="text"] {
-  width: 100%;
-  height: 30px;
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  padding: 0 10px;
-  color: #f0f0f0;
-  font-size: 13px;
-  font-family: var(--font-mono);
-  outline: none;
-  margin-bottom: 8px;
-  box-sizing: border-box;
-}
-#rip-editor input[type="text"]:focus { border-color: #25C75E; }
-#rip-editor input[type="text"]::placeholder { color: #666; }
 
 #rip-steps-list {
   min-height: 40px;
