@@ -2376,138 +2376,200 @@ ol.docs-list li::before {
 
 /* ── Rips ─────────────────────────────────────────────── */
 
-#rip-steps-list {
-  min-height: 40px;
-  margin-bottom: 8px;
-}
-#rip-steps-list .command-row {
-  cursor: grab;
-  transition: opacity 0.15s, background 0.15s;
-}
-#rip-steps-list .command-row:active { cursor: grabbing; }
-#rip-steps-list .command-row.dragging {
-  opacity: 0.3;
-}
-#rip-steps-list .command-row.drag-over {
-  border-top: 2px solid #25C75E;
-}
-#rip-steps-list .command-row .drag-handle {
-  cursor: grab;
-  color: #444;
-  font-size: 14px;
-  padding: 0 4px;
-  user-select: none;
-}
-#rip-steps-list .command-row .drag-handle:hover { color: #888; }
-#rip-steps-list .command-row .command-key {
-  min-width: 24px;
-  text-align: center;
-  color: #555;
-}
-#rip-steps-list .command-row .step-prompt {
-  display: block;
-  margin-top: 4px;
-  padding: 4px 8px;
-  font-size: 11px;
-  color: #888;
-  background: #1a1a1a;
-  border-radius: 4px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-#rip-steps-list .step-delay {
-  font-size: 10px;
-  color: #666;
-  margin-left: 6px;
-}
-#rip-steps-list .step-outputs {
+/* Top bar: error + run button */
+.rip-editor-top {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
+  align-items: center;
+  gap: 8px;
 }
-#rip-steps-list .step-output {
-  font-size: 11px;
-  color: #25C75E;
-  background: rgba(37, 199, 94, 0.08);
-  padding: 2px 8px;
-  border-radius: 4px;
+.rip-editor-top .crud-form-error { flex: 1; }
+.rip-editor-top .crud-form-status { flex: 1; }
+.rip-run-action {
+  margin-left: auto;
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  font-weight: 500;
+  flex-shrink: 0;
 }
-#rip-steps-list .command-actions {
-  opacity: 1;
-}
-#rip-steps-list .command-actions .action-btn {
-  font-size: 12px;
-  padding: 2px 6px;
-}
-#rip-add-step {
+.rip-run-action:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; opacity: 1; color: #fff; }
+.rip-run-action:disabled { opacity: 0.4; }
+
+/* Steps section */
+.rip-steps-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px dashed #2a2a2a;
-  border-radius: 6px;
-  margin-bottom: 12px;
 }
-#rip-add-step .rip-add-row {
+.rip-steps-toolbar {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
 }
-#rip-step-delay {
-  width: 60px;
-  height: 30px;
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
+.rip-steps-badge {
+  font-size: 11px;
+  color: #555;
+  background: #1a1a1a;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+/* Step cards */
+.rip-steps-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rip-step-card {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: #141414;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  gap: 10px;
+  cursor: grab;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+}
+.rip-step-card:hover { background: #1a1a1a; border-color: #2a2a2a; }
+.rip-step-card:active { cursor: grabbing; }
+.rip-step-card.dragging { opacity: 0.3; }
+.rip-step-card.drag-over { border-top: 2px solid #25C75E; }
+
+.rip-step-num {
+  font-size: 11px;
+  color: #555;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.rip-step-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rip-step-label {
+  font-size: 13px;
+  color: #ccc;
+}
+.rip-step-label .rip-step-type-tag {
+  color: #25C75E;
+  font-weight: 500;
+}
+.rip-step-detail {
+  font-size: 11px;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rip-step-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.rip-step-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #1a1a1a;
+  color: #888;
+}
+.rip-step-tag.tag-delay { color: #a78bfa; }
+.rip-step-tag.tag-output { color: #25C75E; background: rgba(37, 199, 94, 0.08); }
+
+.rip-step-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.rip-step-card:hover .rip-step-actions { opacity: 1; }
+
+/* Add step form */
+.rip-step-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed #2a2a2a;
+  border-radius: 8px;
+}
+.rip-step-add .rip-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.rip-step-select {
+  height: 32px;
+  min-width: 100px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
   border-radius: 6px;
-  padding: 0 6px;
+  padding: 0 8px;
   color: #ccc;
   font-size: 12px;
-  font-family: var(--font-mono);
   outline: none;
-  text-align: right;
 }
-#rip-step-delay:focus { border-color: #25C75E; }
-#rip-step-delay::placeholder { color: #555; }
-#rip-add-step .rip-add-row #rip-step-add-btn {
-  margin-left: auto;
-}
-#rip-step-type {
-  min-width: 80px !important;
-}
-#rip-add-step select {
-  height: 30px;
-  min-width: 120px;
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
+.rip-step-select:focus { border-color: #25C75E; }
+#rip-step-type { min-width: 80px; }
+.rip-step-input {
+  height: 32px;
+  width: 60px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
   border-radius: 6px;
   padding: 0 8px;
   color: #ccc;
   font-size: 12px;
   font-family: var(--font-mono);
   outline: none;
+  text-align: right;
 }
-#rip-add-step select:focus { border-color: #25C75E; }
-#rip-add-step textarea {
+.rip-step-input:focus { border-color: #25C75E; }
+.rip-step-input::placeholder { color: #555; }
+#rip-output-field { text-align: left; min-width: 70px; max-width: 100px; }
+.rip-step-add .rip-add-row #rip-step-add-btn,
+.rip-step-add .rip-add-row #rip-output-add-btn {
+  margin-left: auto;
+}
+.rip-step-textarea {
   width: 100%;
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
+  background: #141414;
+  border: 1px solid #2a2a2a;
   border-radius: 6px;
-  padding: 6px 10px;
-  color: #f0f0f0;
+  padding: 8px 10px;
+  color: #e0e0e0;
   font-size: 12px;
   font-family: var(--font-mono);
   outline: none;
   resize: vertical;
   box-sizing: border-box;
 }
-#rip-add-step textarea:focus { border-color: #25C75E; }
-#rip-add-step textarea::placeholder { color: #666; }
+.rip-step-textarea:focus { border-color: #25C75E; }
+.rip-step-textarea::placeholder { color: #555; }
 
 #rip-outputs-section { margin-top: 4px; }
-#rip-outputs-list {
-  margin-bottom: 6px;
-}
+#rip-outputs-list { margin-bottom: 6px; }
 #rip-outputs-list .rip-output-row {
   display: flex;
   align-items: center;
@@ -2516,52 +2578,10 @@ ol.docs-list li::before {
   font-size: 12px;
   color: #ccc;
 }
-#rip-outputs-list .rip-output-row .output-field {
-  color: #25C75E;
-  min-width: 60px;
-}
-#rip-outputs-list .rip-output-row .output-target {
-  color: #888;
-}
-#rip-outputs-list .rip-output-row .action-btn {
-  font-size: 11px;
-  padding: 1px 5px;
-}
-#rip-add-output-row input[type="text"] {
-  height: 28px;
-  min-width: 80px;
-  max-width: 100px;
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  padding: 0 8px;
-  color: #f0f0f0;
-  font-size: 12px;
-  font-family: var(--font-mono);
-  outline: none;
-}
-#rip-add-output-row input[type="text"]:focus { border-color: #25C75E; }
-#rip-add-output-row input[type="text"]::placeholder { color: #666; }
-#rip-add-output-row select {
-  height: 28px;
-}
-#rip-add-output-row #rip-output-add-btn {
-  margin-left: auto;
-}
-
-.editor-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
-.editor-actions .danger { margin-left: auto; }
-
-#rip-status {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #888;
-  min-height: 18px;
-}
+#rip-outputs-list .output-field { color: #25C75E; min-width: 50px; }
+#rip-outputs-list .output-target { color: #888; }
+#rip-outputs-list .action-btn { font-size: 11px; padding: 1px 5px; }
+#rip-add-output-row select { height: 28px; }
 
 /* ── Panel container ─────────────────────────────────────── */
 

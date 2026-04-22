@@ -707,7 +707,14 @@
 
           <!-- Rip Editor -->
           <div id="rip-editor" class="crud-form hidden">
-            <div id="rip-form-error" class="crud-form-error hidden"></div>
+            <div class="rip-editor-top">
+              <div id="rip-form-error" class="crud-form-error hidden"></div>
+              <div id="rip-status" class="crud-form-status"></div>
+              <button id="rip-run-btn" class="action-btn rip-run-action">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run
+              </button>
+            </div>
             <div class="crud-form-field">
               <label class="crud-form-label">Name</label>
               <input id="rip-name" type="text" class="crud-input" placeholder="rip name" spellcheck="false" autocomplete="off" />
@@ -717,45 +724,40 @@
               <input id="rip-desc" type="text" class="crud-input" placeholder="description (optional)" spellcheck="false" autocomplete="off" />
             </div>
 
-            <!-- Steps sub-list -->
-            <div class="crud-sub-list">
-              <div class="crud-sub-header" id="rip-steps-header">
-                <span class="crud-sub-title">Steps</span>
-                <span class="crud-sub-count" id="rip-steps-count">0</span>
+            <!-- Steps -->
+            <div class="rip-steps-section">
+              <div class="rip-steps-toolbar">
+                <span class="crud-form-label">Steps</span>
+                <span class="rip-steps-badge" id="rip-steps-count">0</span>
               </div>
-              <div class="crud-sub-body" id="rip-steps-body">
-                <div id="rip-steps-list"></div>
-
-                <div id="rip-add-step" class="crud-sub-add-form">
-                  <div class="rip-add-row">
-                    <select id="rip-step-type" class="crud-input">
-                      <option value="app">App</option>
-                      <option value="agent">Agent</option>
-                    </select>
-                    <select id="rip-step-app" class="crud-input"></select>
-                    <select id="rip-step-command" class="crud-input"></select>
-                    <input type="number" id="rip-step-delay" class="crud-input" min="0" step="100" placeholder="ms" title="Delay after step (ms)" />
-                    <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
-                  </div>
-                  <textarea id="rip-step-prompt" class="crud-input" rows="3" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
-                  <div id="rip-outputs-section" class="hidden">
-                    <label class="crud-form-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
-                    <div id="rip-outputs-list"></div>
-                    <div class="rip-add-row" id="rip-add-output-row">
-                      <input type="text" id="rip-output-field" class="crud-input" placeholder="field name" spellcheck="false" autocomplete="off" />
-                      <select id="rip-output-app" class="crud-input"></select>
-                      <select id="rip-output-command" class="crud-input"></select>
-                      <button id="rip-output-add-btn" class="action-btn">+ Output</button>
-                    </div>
+              <div id="rip-steps-list" class="rip-steps-cards"></div>
+              <div id="rip-add-step" class="rip-step-add">
+                <div class="rip-add-row">
+                  <select id="rip-step-type" class="rip-step-select">
+                    <option value="app">App</option>
+                    <option value="agent">Agent</option>
+                  </select>
+                  <select id="rip-step-app" class="rip-step-select"></select>
+                  <select id="rip-step-command" class="rip-step-select"></select>
+                  <input type="number" id="rip-step-delay" class="rip-step-input" min="0" step="100" placeholder="ms" title="Delay (ms)" />
+                  <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
+                </div>
+                <textarea id="rip-step-prompt" class="rip-step-textarea" rows="2" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
+                <div id="rip-outputs-section" class="hidden">
+                  <label class="crud-form-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
+                  <div id="rip-outputs-list"></div>
+                  <div class="rip-add-row" id="rip-add-output-row">
+                    <input type="text" id="rip-output-field" class="rip-step-input" placeholder="field" spellcheck="false" autocomplete="off" />
+                    <select id="rip-output-app" class="rip-step-select"></select>
+                    <select id="rip-output-command" class="rip-step-select"></select>
+                    <button id="rip-output-add-btn" class="action-btn">+ Output</button>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div id="rip-status" class="crud-form-status"></div>
             <div class="crud-form-actions">
               <button id="rip-delete-btn" class="action-btn danger">Delete</button>
-              <button id="rip-run-btn" class="action-btn">Run</button>
               <div class="crud-spacer"></div>
               <button id="rip-editor-back" class="action-btn">Cancel</button>
               <button id="rip-save-btn" class="action-btn primary">Save</button>

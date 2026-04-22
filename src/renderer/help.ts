@@ -1253,24 +1253,36 @@ function renderRipSteps() {
 
   ripStepsList.innerHTML = editingRipSteps.map((step, i) => {
     const label = step.type === "agent"
-      ? `<span style="color:#25C75E;">agent</span>`
-      : `${step.app}<span style="color:#555;">.</span>${step.command}`;
+      ? `<span class="rip-step-type-tag">agent</span>`
+      : `${escHtml(step.app || "")}<span style="color:#555;">.</span>${escHtml(step.command || "")}`;
+    const detail = step.prompt ? `<div class="rip-step-detail">${escHtml(step.prompt)}</div>` : "";
+    const tags: string[] = [];
+    if (step.delay) tags.push(`<span class="rip-step-tag tag-delay">${step.delay}ms</span>`);
+    if (step.outputs && step.outputs.length > 0) {
+      step.outputs.forEach((o) => tags.push(`<span class="rip-step-tag tag-output">[${escHtml(o.field)}] → ${escHtml(o.app)}.${escHtml(o.command)}</span>`));
+    }
+    const tagsHtml = tags.length > 0 ? `<div class="rip-step-tags">${tags.join("")}</div>` : "";
     return `
-    <div class="command-row" data-index="${i}" draggable="true">
-      <span class="drag-handle">⠿</span>
-      <span class="command-key" style="min-width:auto;">${i + 1}</span>
-      <span class="command-desc" style="color:#ccc;">${label}</span>${step.delay ? `<span class="step-delay">${step.delay}ms</span>` : ""}
-      <div class="command-actions">
-        <button class="action-btn rip-step-edit" title="Edit">Edit</button>
-        <button class="action-btn danger rip-step-remove" title="Remove">×</button>
+    <div class="rip-step-card" data-index="${i}" draggable="true">
+      <span class="rip-step-num">${i + 1}</span>
+      <div class="rip-step-info">
+        <span class="rip-step-label">${label}</span>
+        ${detail}
+        ${tagsHtml}
       </div>
-      ${step.prompt ? `<span class="step-prompt">${escHtml(step.prompt)}</span>` : ""}
-      ${step.outputs && step.outputs.length > 0 ? `<div class="step-outputs">${step.outputs.map((o) => `<span class="step-output">[${escHtml(o.field)}] → ${escHtml(o.app)}.${escHtml(o.command)}</span>`).join("")}</div>` : ""}
+      <div class="rip-step-actions">
+        <button class="crud-card-btn rip-step-edit" title="Edit">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger rip-step-remove" title="Remove">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>
     </div>`;
   }).join("");
 
   // Drag-and-drop reordering
-  ripStepsList.querySelectorAll<HTMLElement>(".command-row").forEach((row) => {
+  ripStepsList.querySelectorAll<HTMLElement>(".rip-step-card").forEach((row) => {
     row.addEventListener("dragstart", (e) => {
       dragSrcIdx = parseInt(row.dataset.index!, 10);
       row.classList.add("dragging");
@@ -1302,7 +1314,7 @@ function renderRipSteps() {
   ripStepsList.querySelectorAll(".rip-step-edit").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const idx = parseInt((btn.closest(".command-row") as HTMLElement).dataset.index!, 10);
+      const idx = parseInt((btn.closest(".rip-step-card") as HTMLElement).dataset.index!, 10);
       const step = editingRipSteps[idx];
       const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
       ripStepType.value = step.type;
@@ -1327,7 +1339,7 @@ function renderRipSteps() {
   ripStepsList.querySelectorAll(".rip-step-remove").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const idx = parseInt((btn.closest(".command-row") as HTMLElement).dataset.index!, 10);
+      const idx = parseInt((btn.closest(".rip-step-card") as HTMLElement).dataset.index!, 10);
       editingRipSteps.splice(idx, 1);
       renderRipSteps();
     });
@@ -1426,11 +1438,6 @@ function initRips() {
     pendingOutputs.push({ field, app, command });
     ripOutputField.value = "";
     renderPendingOutputs();
-  });
-
-  // Steps sub-list collapse toggle
-  document.getElementById("rip-steps-header")!.addEventListener("click", () => {
-    document.getElementById("rip-steps-body")!.classList.toggle("collapsed");
   });
 
   document.getElementById("rip-new-btn")!.addEventListener("click", () => {
