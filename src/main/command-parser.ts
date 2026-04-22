@@ -367,37 +367,34 @@ export class CommandParser {
       if (!ok) return `Failed to apply layout: ${sub}`;
       setPreference("lastView", { type: "layout", name: sub });
 
-      // If extra args, run them as commands on the first matching panel in the layout
+      // If extra args, run them as commands on every matching panel in the layout
       const commands = args.slice(1);
       if (commands.length > 0) {
         const layout = this.layouts.getLayout(sub);
         if (layout) {
+          const allResults: string[] = [`Layout: ${sub}`];
           for (const cell of layout.cells) {
             const app = this.appConnector.get(cell.panelId);
             if (!app) continue;
             const firstCmd = commands[0].toLowerCase();
             if (!(firstCmd in app.commands)) continue;
 
-            // Found a panel with the command — switch to it and execute
             const wc = this.wcGetter?.(cell.panelId);
             if (!wc || wc.isDestroyed()) continue;
 
-            const results: string[] = [`Layout: ${sub} → ${cell.panelId}`];
+            const panelResults: string[] = [cell.panelId];
             for (const cmd of commands) {
               const key = cmd.toLowerCase();
               const mapping = app.commands[key];
-              if (!mapping) {
-                const available = Object.keys(app.commands);
-                results.push(`Unknown command "${key}"${available.length > 0 ? `. Available: ${available.join(", ")}` : ""}`);
-                break;
-              }
-              if (results.length > 1) await new Promise((r) => setTimeout(r, 300));
+              if (!mapping) break;
+              if (panelResults.length > 1) await new Promise((r) => setTimeout(r, 300));
               await executeCommand(wc, mapping);
-              results.push(mapping.description || key);
+              panelResults.push(mapping.description || key);
             }
-            return results.join(" → ");
+            allResults.push(panelResults.join(" → "));
           }
-          return `Layout: ${sub} (no panel has command "${commands[0]}")`;
+          if (allResults.length === 1) return `Layout: ${sub} (no panel has command "${commands[0]}")`;
+          return allResults.join("\n");
         }
       }
       return `Layout: ${sub}`;
