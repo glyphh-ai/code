@@ -146,7 +146,6 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
-  { id: "dashboard", name: "Dashboard", url: "yo://dashboard" },
   { id: "browser", name: "Browser", url: "yo://browser" },
 ];
 

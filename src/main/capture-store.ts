@@ -129,6 +129,77 @@ export class CaptureStore {
 
   get count(): number { return this.index.length; }
 
+  stats(): { count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number } {
+    const sources: Record<string, number> = {};
+    let diskBytes = 0;
+    let oldestTs = Infinity;
+    let newestTs = 0;
+    let embeddedCount = 0;
+
+    for (const meta of this.index) {
+      sources[meta.source] = (sources[meta.source] || 0) + 1;
+      if (meta.created < oldestTs) oldestTs = meta.created;
+      if (meta.created > newestTs) newestTs = meta.created;
+      const mdPath = path.join(ENTRIES_DIR, `${meta.id}.md`);
+      const vecPath = path.join(ENTRIES_DIR, `${meta.id}.vec`);
+      try { diskBytes += fs.statSync(mdPath).size; } catch {}
+      if (fs.existsSync(vecPath)) {
+        try { diskBytes += fs.statSync(vecPath).size; } catch {}
+        embeddedCount++;
+      }
+    }
+    try { diskBytes += fs.statSync(INDEX_FILE).size; } catch {}
+
+    return {
+      count: this.index.length,
+      sources,
+      diskBytes,
+      oldestTs: this.index.length > 0 ? oldestTs : 0,
+      newestTs,
+      embeddedCount,
+    };
+  }
+
+  listEntries(offset = 0, limit = 50): Array<{ meta: CaptureEntryMeta; snippet: string }> {
+    const sorted = [...this.index].sort((a, b) => b.created - a.created);
+    return sorted.slice(offset, offset + limit).map((meta) => {
+      const content = this.readContent(meta.id) || "";
+      return { meta, snippet: content.slice(0, 200) };
+    });
+  }
+
+  deleteEntry(id: string): boolean {
+    const idx = this.index.findIndex((m) => m.id === id);
+    if (idx === -1) return false;
+    this.index.splice(idx, 1);
+    this.persistIndex();
+    try { fs.unlinkSync(path.join(ENTRIES_DIR, `${id}.md`)); } catch {}
+    try { fs.unlinkSync(path.join(ENTRIES_DIR, `${id}.vec`)); } catch {}
+    return true;
+  }
+
+  deleteBySource(source: string): number {
+    const toDelete = this.index.filter((m) => m.source === source);
+    for (const meta of toDelete) {
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.md`)); } catch {}
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.vec`)); } catch {}
+    }
+    this.index = this.index.filter((m) => m.source !== source);
+    this.persistIndex();
+    return toDelete.length;
+  }
+
+  clear(): number {
+    const count = this.index.length;
+    for (const meta of this.index) {
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.md`)); } catch {}
+      try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.vec`)); } catch {}
+    }
+    this.index = [];
+    this.persistIndex();
+    return count;
+  }
+
   // ── Chunking ───────────────────────────────────────────
 
   private chunkContent(content: string): string[] {

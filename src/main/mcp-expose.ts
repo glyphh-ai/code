@@ -1,13 +1,12 @@
 /**
- * McpExpose — read-only MCP server exposing the capture store.
+ * McpExpose — local MCP server for the capture store.
  *
- * Pro feature. Runs a local HTTP+SSE server that any MCP client
+ * Runs a local HTTP+SSE server that any MCP client
  * (Claude Desktop, Cursor, etc.) can connect to. Exposes:
- *   - search_captures: vector/keyword search across all captures
- *   - recent_captures: most recent captures by timestamp
+ *   - yo: search across all captured content (vector + keyword)
+ *   - sup: push content into the capture store (chunk + embed + index)
  *
  * Protected by bearer tokens configured in Advanced settings.
- * Only exposes data — never consumes external tools.
  */
 
 import http from "http";
@@ -167,10 +166,16 @@ export class McpExpose {
       return;
     }
 
+    // REST endpoint — simple POST to ingest content (used by hooks)
+    if (url === "/api/sup" && req.method === "POST") {
+      this.handleApiSup(req, res);
+      return;
+    }
+
     // Health check
     if (url === "/" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ name: "yo-capture-store", version: "1.0.0", status: "ok" }));
+      res.end(JSON.stringify({ name: "yo", version: "1.0.0", status: "ok" }));
       return;
     }
 
@@ -265,7 +270,7 @@ export class McpExpose {
           result: {
             protocolVersion: "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "yo-capture-store", version: "1.0.0" },
+            serverInfo: { name: "yo", version: "1.0.0" },
           },
         };
 
@@ -279,25 +284,27 @@ export class McpExpose {
           result: {
             tools: [
               {
-                name: "search_captures",
-                description: "Search across all captured content from the user's active apps. Uses vector similarity and keyword matching.",
+                name: "yo",
+                description: "Search the user's .Yo capture store. Returns context from across all the user's apps — conversations, code, emails, docs, anything they've worked on. Uses vector similarity for semantic search with keyword fallback. Use descriptive natural language queries, not keywords.",
                 inputSchema: {
                   type: "object",
                   properties: {
-                    query: { type: "string", description: "Natural language search query" },
+                    query: { type: "string", description: "Natural language search query — describe what you're looking for, not just keywords" },
                     limit: { type: "number", description: "Max results to return (default 10)" },
                   },
                   required: ["query"],
                 },
               },
               {
-                name: "recent_captures",
-                description: "Get the most recently captured content, ordered by time.",
+                name: "sup",
+                description: "Push context into the user's .Yo capture store. The content will be chunked, embedded, and indexed for future search via the 'yo' tool. Use this to share code, conversation snippets, research, notes, or any context the user might want to recall later.",
                 inputSchema: {
                   type: "object",
                   properties: {
-                    limit: { type: "number", description: "Number of captures to return (default 10)" },
+                    name: { type: "string", description: "Short label for this context (e.g. 'pricing-thread', 'auth-refactor', 'meeting-notes')" },
+                    content: { type: "string", description: "The content to store — markdown, code, conversation text, etc." },
                   },
+                  required: ["name", "content"],
                 },
               },
             ],
@@ -319,6 +326,39 @@ export class McpExpose {
     }
   }
 
+  private async handleApiSup(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.captureStore) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Capture store not available" }));
+      return;
+    }
+
+    let body = "";
+    for await (const chunk of req) body += chunk;
+
+    let data: { name?: string; content?: string };
+    try {
+      data = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON" }));
+      return;
+    }
+
+    const name = String(data.name || "").trim();
+    const content = String(data.content || "").trim();
+
+    if (!name || !content) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Both name and content are required" }));
+      return;
+    }
+
+    const entryId = await this.captureStore.ingest(name, content);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, id: entryId }));
+  }
+
   private async handleToolCall(
     id: string | number | undefined,
     params: { name: string; arguments?: Record<string, unknown> },
@@ -334,7 +374,7 @@ export class McpExpose {
     const args = params.arguments || {};
 
     switch (params.name) {
-      case "search_captures": {
+      case "yo": {
         const query = String(args.query || "");
         const limit = Number(args.limit) || 10;
 
@@ -347,25 +387,35 @@ export class McpExpose {
         }
 
         const results = await this.captureStore.search(query, limit);
-        const text = results.length === 0
-          ? "No captures found."
-          : results.map((r) =>
-            `[${r.meta.source}] (${new Date(r.meta.created).toLocaleString()})\n${r.content}`,
-          ).join("\n\n---\n\n");
+        if (results.length === 0) {
+          return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `No results for "${query}".` }] } };
+        }
+
+        const text = results.map((r) =>
+          `[${r.meta.source}] (score: ${r.score.toFixed(2)}) ${new Date(r.meta.created).toLocaleString()}\n${r.content}`,
+        ).join("\n\n---\n\n");
 
         return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } };
       }
 
-      case "recent_captures": {
-        const limit = Number(args.limit) || 10;
-        const results = this.captureStore.recentCaptures(limit);
-        const text = results.length === 0
-          ? "No captures yet."
-          : results.map((r) =>
-            `[${r.meta.source}] (${new Date(r.meta.created).toLocaleString()})\n${r.content}`,
-          ).join("\n\n---\n\n");
+      case "sup": {
+        const name = String(args.name || "").trim();
+        const content = String(args.content || "").trim();
 
-        return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } };
+        if (!name || !content) {
+          return {
+            jsonrpc: "2.0",
+            id,
+            result: { content: [{ type: "text", text: "Both name and content are required." }], isError: true },
+          };
+        }
+
+        const entryId = await this.captureStore.ingest(name, content);
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: { content: [{ type: "text", text: `Stored "${name}" (id: ${entryId}). Content chunked, embedded, and indexed.` }] },
+        };
       }
 
       default:

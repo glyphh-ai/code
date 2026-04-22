@@ -105,7 +105,8 @@
     <div id="help-layout">
       <nav id="help-nav">
         <div class="help-brand"><span class="dot">.</span>Yo</div>
-        <button class="help-nav-item active" data-section="guide">Guide</button>
+        <button class="help-nav-item active" data-section="dashboard">Dashboard</button>
+        <button class="help-nav-item" data-section="guide">Guide</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="docs">Docs</button>
           <div class="help-nav-sub">
@@ -121,6 +122,7 @@
         </div>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
+        <button class="help-nav-item" data-section="drips">Drips</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
@@ -149,8 +151,163 @@
       <main id="help-content">
         <button id="help-close" class="help-close-x" aria-label="Close">&times;</button>
 
+        <!-- Dashboard (Landing Page) -->
+        <div class="help-section active" data-section="dashboard">
+          <div class="dash-header">
+            <h2><span class="dot">.</span>Yo Dashboard</h2>
+            <div class="dash-provider" id="dash-provider">—</div>
+          </div>
+
+          <!-- Token usage stat cards -->
+          <div class="dash-stat-row">
+            <div class="dash-stat-card">
+              <div class="dash-stat-label">Today</div>
+              <div class="dash-stat-values">
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num green" id="dash-today-input">0</div>
+                  <div class="dash-stat-sub">Input tokens</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-today-output">0</div>
+                  <div class="dash-stat-sub">Output tokens</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-today-calls">0</div>
+                  <div class="dash-stat-sub">Calls</div>
+                </div>
+              </div>
+            </div>
+            <div class="dash-stat-card">
+              <div class="dash-stat-label">All Time</div>
+              <div class="dash-stat-values">
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num green" id="dash-alltime-input">0</div>
+                  <div class="dash-stat-sub">Input tokens</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-alltime-output">0</div>
+                  <div class="dash-stat-sub">Output tokens</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-alltime-calls">0</div>
+                  <div class="dash-stat-sub">Calls</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Capture store stat cards -->
+          <div class="dash-stat-row">
+            <div class="dash-stat-card">
+              <div class="dash-stat-label">Capture Store</div>
+              <div class="dash-stat-values">
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num green" id="dash-captures">—</div>
+                  <div class="dash-stat-sub">Captures</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-embedded">—</div>
+                  <div class="dash-stat-sub">Embedded</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-sources">—</div>
+                  <div class="dash-stat-sub">Sources</div>
+                </div>
+              </div>
+            </div>
+            <div class="dash-stat-card">
+              <div class="dash-stat-label">Store Info</div>
+              <div class="dash-stat-values">
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-disk">—</div>
+                  <div class="dash-stat-sub">Disk</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-oldest">—</div>
+                  <div class="dash-stat-sub">Oldest</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="dash-newest">—</div>
+                  <div class="dash-stat-sub">Newest</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Source breakdown -->
+          <div id="dash-sources-bar" class="dash-sources-bar"></div>
+
+          <!-- Charts -->
+          <div class="dash-chart-row">
+            <div class="dash-chart-container">
+              <div class="dash-stat-label">Token Usage by Agent</div>
+              <div class="dash-chart-box"><canvas id="dash-chart-agents"></canvas></div>
+            </div>
+            <div class="dash-chart-container">
+              <div style="display:flex;align-items:center;margin-bottom:8px;">
+                <div class="dash-stat-label" style="margin-bottom:0">Usage History</div>
+                <div class="dash-range-toggle" style="margin-left:auto">
+                  <button class="dash-range-btn active" id="dash-range-7">7d</button>
+                  <button class="dash-range-btn" id="dash-range-30">30d</button>
+                </div>
+              </div>
+              <div class="dash-chart-box"><canvas id="dash-chart-history"></canvas></div>
+            </div>
+          </div>
+
+          <!-- Prompts + Data Store (side by side) -->
+          <div class="dash-split-row">
+            <!-- Left: Prompts -->
+            <div class="dash-split-col">
+              <div class="dash-split-header">Prompts</div>
+              <div id="dash-prompts-toolbar" class="crud-toolbar">
+                <input id="dash-prompts-search" type="text" class="crud-search" placeholder="Search prompts..." spellcheck="false" autocomplete="off" />
+              </div>
+              <div id="dash-prompts-list" class="crud-cards"></div>
+
+              <!-- Prompt detail (replaces list inline) -->
+              <div id="dash-prompt-detail" class="crud-inline-form hidden">
+                <div class="crud-inline-header">
+                  <a class="crud-breadcrumb-back" id="dash-prompt-back">&larr; Prompts</a>
+                  <div class="crud-spacer"></div>
+                </div>
+                <div class="dash-prompt-meta-grid" id="dash-prompt-meta"></div>
+                <label class="settings-label" style="margin-top:12px;">Prompt</label>
+                <pre id="dash-prompt-text" class="dash-pre-block"></pre>
+                <label class="settings-label" style="margin-top:12px;">Response</label>
+                <pre id="dash-prompt-response" class="dash-pre-block"></pre>
+                <div class="settings-actions" style="margin-top:12px;">
+                  <button id="dash-prompt-cancel" class="action-btn">Cancel</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Data Store -->
+            <div class="dash-split-col">
+              <div class="dash-split-header">Data Store</div>
+              <div id="data-toolbar" class="crud-toolbar">
+                <input id="data-search" type="text" class="crud-search" placeholder="Search captures..." spellcheck="false" autocomplete="off" />
+                <button id="data-clear-btn" class="action-btn danger">Clear all</button>
+              </div>
+              <div id="data-sources-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+              <div id="data-list" class="crud-cards"></div>
+
+              <!-- Capture detail (replaces list inline) -->
+              <div id="data-detail" class="crud-inline-form hidden">
+                <div class="crud-inline-header">
+                  <a class="crud-breadcrumb-back" id="data-back-link">&larr; Data Store</a>
+                  <div class="crud-spacer"></div>
+                  <button id="data-delete-btn" class="action-btn danger">Delete</button>
+                </div>
+                <div id="data-detail-meta" style="font-size:11px;color:#999;margin-bottom:8px;"></div>
+                <pre id="data-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Guide -->
-        <div class="help-section active" data-section="guide">
+        <div class="help-section" data-section="guide">
           <h2>Just talk.</h2>
 
           <div class="help-group">
@@ -674,6 +831,54 @@
             <div class="settings-actions" style="margin-top:8px;">
               <button id="layout-cancel-btn" class="action-btn">Cancel</button>
               <button id="layout-save-btn" class="action-btn primary">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Drips -->
+        <div class="help-section" data-section="drips">
+          <h2>Drips</h2>
+          <p class="section-desc">Custom effect presets. Use <code>.drip &lt;name&gt;</code> to play.</p>
+          <div id="drips-toolbar" class="crud-toolbar">
+            <input id="drip-search" type="text" class="crud-search" placeholder="Search drips..." spellcheck="false" autocomplete="off" />
+            <button id="drip-new-btn" class="action-btn primary">+ New</button>
+          </div>
+          <div id="drips-list" class="crud-cards"></div>
+          <div id="drip-editor" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="drip-back-link">&larr; Drips</a>
+              <div class="crud-spacer"></div>
+              <button id="drip-delete-btn" class="action-btn danger">Delete</button>
+            </div>
+            <div id="drip-form-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input type="text" id="drip-name" class="settings-input" placeholder="preset name" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Mode</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="drip-mode" class="settings-input" style="width:auto;">
+                <option value="oneshot">One-shot</option>
+                <option value="counted">Counted</option>
+                <option value="persistent">Persistent (toggle on/off)</option>
+              </select>
+              <input type="number" id="drip-count" class="settings-input hidden" min="2" max="10" value="3" style="width:70px;" />
+            </div>
+
+            <label class="settings-label" style="margin-top:8px;">Effects</label>
+            <div id="drip-effects-builder" style="display:flex;flex-direction:column;gap:6px;">
+              <div id="drip-effects-list"></div>
+              <button id="drip-add-effect" class="action-btn" style="align-self:flex-start;">+ Add effect</button>
+            </div>
+
+            <label class="settings-label" style="margin-top:8px;">Recipe preview</label>
+            <code id="drip-recipe-preview" style="display:block;padding:8px 10px;background:#0a0a0a;border:1px solid #222;border-radius:6px;color:#999;font-size:12px;font-family:var(--font-mono);">&mdash;</code>
+
+            <div style="margin-top:8px;">
+              <button id="drip-preview-btn" class="action-btn">&#9654; Play</button>
+            </div>
+            <div class="settings-actions" style="margin-top:8px;">
+              <button id="drip-cancel-btn" class="action-btn">Cancel</button>
+              <button id="drip-save-btn" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>
@@ -1292,14 +1497,7 @@
 
   <div id="panel-container"></div>
 
-  <!-- Command palette (Cmd+K) -->
-  <div id="cmd-palette" class="cmd-palette hidden">
-    <div class="cmd-palette-backdrop"></div>
-    <div class="cmd-palette-modal">
-      <input id="cmd-palette-input" class="cmd-palette-input" placeholder="Type a command..." spellcheck="false" autocomplete="off" />
-    </div>
-  </div>
-
+  <script src="chart.umd.min.js"></script>
   <script type="module" src="renderer.js"></script>
 </body>
 </html>

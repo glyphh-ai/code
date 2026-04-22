@@ -4,6 +4,8 @@
 
 import { showOnboarding } from "./onboarding.js";
 
+declare const Chart: any;
+
 // ── Confirm modal ──────────────────────────────────────────
 
 function confirmAction(message: string): Promise<boolean> {
@@ -159,6 +161,16 @@ export function isHelpOpen(): boolean {
 // ── Navigation ───────────────────────────────────────────
 
 function resetEditors() {
+  // Dashboard prompt detail
+  const pd = document.getElementById("dash-prompt-detail");
+  if (pd && !pd.classList.contains("hidden")) {
+    closeDashPromptDetail();
+  }
+  // Data Store (inside dashboard split)
+  const sd = document.getElementById("data-detail");
+  if (sd && !sd.classList.contains("hidden")) {
+    closeDataDetail();
+  }
   // Skills
   const se = document.getElementById("skill-editor");
   if (se && !se.classList.contains("hidden")) {
@@ -179,6 +191,13 @@ function resetEditors() {
     re.classList.add("hidden");
     document.getElementById("rips-list")?.classList.remove("hidden");
     document.getElementById("rips-toolbar")?.classList.remove("hidden");
+  }
+  // Drips
+  const de = document.getElementById("drip-editor");
+  if (de && !de.classList.contains("hidden")) {
+    de.classList.add("hidden");
+    document.getElementById("drips-list")?.classList.remove("hidden");
+    document.getElementById("drips-toolbar")?.classList.remove("hidden");
   }
   // Apps
   const ad = document.getElementById("app-detail");
@@ -306,7 +325,9 @@ function activeSection(): string {
 
 function loadActiveSection() {
   const sec = activeSection();
-  if (sec === "skills") loadSkills();
+  if (sec === "dashboard") loadDashboard();
+  else if (sec === "skills") loadSkills();
+  else if (sec === "drips") loadDrips();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
@@ -338,6 +359,9 @@ export function initHelp() {
 
   // Apps (unified: local apps + connections)
   initApps();
+
+  // Dashboard (includes prompts + data store)
+  initDashboardEvents();
 
   // Layouts
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
@@ -377,6 +401,24 @@ export function initHelp() {
     }
   });
 
+  // Drips
+  document.getElementById("drip-new-btn")!.addEventListener("click", () => openDripEditor("", ""));
+  document.getElementById("drip-save-btn")!.addEventListener("click", saveDrip);
+  document.getElementById("drip-cancel-btn")!.addEventListener("click", closeDripEditor);
+  document.getElementById("drip-back-link")!.addEventListener("click", closeDripEditor);
+  document.getElementById("drip-delete-btn")!.addEventListener("click", deleteDrip);
+  document.getElementById("drip-preview-btn")!.addEventListener("click", () => {
+    const recipe = buildDripRecipe();
+    if (recipe) window.yo.dripsPreview(recipe);
+  });
+  dripModeSelect.addEventListener("change", () => {
+    dripCountInput.classList.toggle("hidden", dripModeSelect.value !== "counted");
+    updateDripRecipePreview();
+  });
+  dripCountInput.addEventListener("input", updateDripRecipePreview);
+  document.getElementById("drip-add-effect")!.addEventListener("click", () => addEffectRow());
+  dripSearchInput.addEventListener("input", () => { dripsPage = 0; renderDripsList(); });
+
   // Skills
   document.getElementById("skill-new-btn")!.addEventListener("click", () => openSkillEditor("", ""));
   document.getElementById("skill-save")!.addEventListener("click", saveSkill);
@@ -402,6 +444,513 @@ export function initHelp() {
   document.getElementById("app-preview-refresh")!.addEventListener("click", () => {
     appPreview.reload();
   });
+}
+
+// ── Dashboard ─────────────────────────────────────────────
+
+const AGENT_COLORS: Record<string, string> = {
+  orchestrator: "#25C75E", navigator: "#48dbfb", researcher: "#feca57",
+  coder: "#ff6b6b", "skill-runner": "#cc5de8", manager: "#ff9f43",
+};
+const AGENT_LABELS: Record<string, string> = {
+  orchestrator: "Orchestrator", navigator: "Navigator", researcher: "Researcher",
+  coder: "Coder", "skill-runner": "Skill Runner", manager: "Manager",
+};
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+let dashAgentChart: any = null;
+let dashHistoryChart: any = null;
+let dashRangeMode: "7" | "30" = "7";
+
+async function loadDashboard() {
+  const [today, allTime, llmInfo, captureStats] = await Promise.all([
+    window.yo.dashboardToday(),
+    window.yo.dashboardAllTime(),
+    window.yo.dashboardLLMInfo(),
+    window.yo.capturesStats(),
+  ]);
+
+  document.getElementById("dash-provider")!.textContent = `${llmInfo.provider} / ${llmInfo.model}`;
+
+  const todayInput = today?.total?.input || 0;
+  const todayOutput = today?.total?.output || 0;
+  const todayCalls = today?.total?.calls || 0;
+  document.getElementById("dash-today-input")!.textContent = formatTokens(todayInput);
+  document.getElementById("dash-today-output")!.textContent = formatTokens(todayOutput);
+  document.getElementById("dash-today-calls")!.textContent = String(todayCalls);
+
+  document.getElementById("dash-alltime-input")!.textContent = formatTokens(allTime.total.input);
+  document.getElementById("dash-alltime-output")!.textContent = formatTokens(allTime.total.output);
+  document.getElementById("dash-alltime-calls")!.textContent = String(allTime.total.calls);
+
+  document.getElementById("dash-captures")!.textContent = String(captureStats.count);
+  document.getElementById("dash-embedded")!.textContent = String(captureStats.embeddedCount);
+  document.getElementById("dash-sources")!.textContent = String(Object.keys(captureStats.sources).length);
+  document.getElementById("dash-disk")!.textContent = formatBytes(captureStats.diskBytes);
+  document.getElementById("dash-oldest")!.textContent = relativeTime(captureStats.oldestTs);
+  document.getElementById("dash-newest")!.textContent = relativeTime(captureStats.newestTs);
+
+  const sourcesBar = document.getElementById("dash-sources-bar")!;
+  sourcesBar.innerHTML = "";
+  const sorted = Object.entries(captureStats.sources).sort((a, b) => b[1] - a[1]);
+  for (const [source, count] of sorted) {
+    const chip = document.createElement("span");
+    chip.className = "store-source-chip";
+    chip.textContent = `${source} (${count})`;
+    sourcesBar.appendChild(chip);
+  }
+
+  renderDashAgentChart(allTime);
+  renderDashHistoryChart();
+  renderDashPrompts();
+  loadData();
+}
+
+function renderDashAgentChart(allTime: { agents: Record<string, any>; total: any }) {
+  const agents = Object.keys(allTime.agents);
+  const canvas = document.getElementById("dash-chart-agents") as HTMLCanvasElement | null;
+  if (!canvas) return;
+  if (agents.length === 0) {
+    if (dashAgentChart) { dashAgentChart.destroy(); dashAgentChart = null; }
+    return;
+  }
+
+  const labels = agents.map(a => AGENT_LABELS[a] || a);
+  const data = agents.map(a => (allTime.agents[a].input || 0) + (allTime.agents[a].output || 0));
+  const colors = agents.map(a => AGENT_COLORS[a] || "#888");
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashAgentChart) dashAgentChart.destroy();
+
+  dashAgentChart = new Chart(ctx, {
+    type: "doughnut",
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "65%",
+      plugins: {
+        legend: { position: "right", labels: { color: "#aaa", font: { size: 11 }, padding: 10, usePointStyle: true, pointStyleWidth: 8 } },
+        tooltip: { callbacks: { label: (c: any) => `${c.label}: ${formatTokens(c.parsed)} tokens` } },
+      },
+    },
+  });
+}
+
+async function renderDashHistoryChart() {
+  const days = parseInt(dashRangeMode);
+  const history = await window.yo.dashboardHistory(days);
+  const canvas = document.getElementById("dash-chart-history") as HTMLCanvasElement | null;
+  if (!canvas) return;
+  if (history.length === 0) {
+    if (dashHistoryChart) { dashHistoryChart.destroy(); dashHistoryChart = null; }
+    return;
+  }
+
+  const dateMap = new Map(history.map((d: any) => [d.date, d]));
+  const labels: string[] = [];
+  const inputData: number[] = [];
+  const outputData: number[] = [];
+
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    labels.push(d.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    const entry = dateMap.get(key);
+    inputData.push(entry?.total?.input || 0);
+    outputData.push(entry?.total?.output || 0);
+  }
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashHistoryChart) dashHistoryChart.destroy();
+
+  dashHistoryChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Input tokens", data: inputData, borderColor: "#25C75E", backgroundColor: "rgba(37,199,94,0.1)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+        { label: "Output tokens", data: outputData, borderColor: "#48dbfb", backgroundColor: "rgba(72,219,251,0.05)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: "#666", font: { size: 10 }, maxRotation: 0 }, grid: { color: "rgba(255,255,255,0.04)" } },
+        y: { ticks: { color: "#666", font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: "rgba(255,255,255,0.04)" } },
+      },
+      plugins: {
+        legend: { labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${formatTokens(c.parsed.y)}` } },
+      },
+    },
+  });
+}
+
+let dashPromptsOffset = 0;
+
+async function renderDashPrompts() {
+  const query = (document.getElementById("dash-prompts-search") as HTMLInputElement)?.value.trim() || "";
+  const container = document.getElementById("dash-prompts-list")!;
+
+  let entries: Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>;
+
+  if (query) {
+    entries = await window.yo.promptsSearch(query, 50);
+  } else {
+    entries = await window.yo.promptsList(dashPromptsOffset, 50);
+  }
+
+  container.innerHTML = "";
+  if (entries.length === 0) {
+    container.innerHTML = `<div class="dash-empty-hint">${query ? "No prompts matching search." : "No prompts yet."}</div>`;
+    return;
+  }
+
+  for (const e of entries) {
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    card.style.cursor = "pointer";
+
+    const info = document.createElement("div");
+    info.className = "crud-card-info";
+    info.style.cssText = "min-width:0;";
+
+    const nameRow = document.createElement("div");
+    nameRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+
+    const promptSnip = document.createElement("span");
+    promptSnip.className = "crud-card-name";
+    promptSnip.textContent = e.prompt.slice(0, 80).replace(/\n/g, " ");
+    nameRow.appendChild(promptSnip);
+
+    const timeSpan = document.createElement("span");
+    timeSpan.style.cssText = "font-size:10px;color:#555;flex-shrink:0;";
+    timeSpan.textContent = relativeTime(e.startTs);
+    nameRow.appendChild(timeSpan);
+
+    const tokSpan = document.createElement("span");
+    tokSpan.style.cssText = "font-size:10px;color:#25C75E;flex-shrink:0;";
+    tokSpan.textContent = `${formatTokens(e.inputTokens + e.outputTokens)}`;
+    nameRow.appendChild(tokSpan);
+
+    info.appendChild(nameRow);
+
+    const meta = document.createElement("span");
+    meta.className = "crud-card-meta";
+    meta.textContent = e.response.slice(0, 120).replace(/\n/g, " ");
+    meta.style.cssText = "display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;";
+    info.appendChild(meta);
+
+    card.appendChild(info);
+    card.addEventListener("click", () => openDashPromptDetail(e.id));
+    container.appendChild(card);
+  }
+
+  if (!query) {
+    const nav = document.createElement("div");
+    nav.style.cssText = "display:flex;justify-content:space-between;padding:8px 0;";
+    if (dashPromptsOffset > 0) {
+      const prev = document.createElement("button");
+      prev.className = "action-btn";
+      prev.textContent = "← Newer";
+      prev.addEventListener("click", () => { dashPromptsOffset = Math.max(0, dashPromptsOffset - 50); renderDashPrompts(); });
+      nav.appendChild(prev);
+    } else {
+      nav.appendChild(document.createElement("span"));
+    }
+    if (entries.length === 50) {
+      const next = document.createElement("button");
+      next.className = "action-btn";
+      next.textContent = "Older →";
+      next.addEventListener("click", () => { dashPromptsOffset += 50; renderDashPrompts(); });
+      nav.appendChild(next);
+    }
+    container.appendChild(nav);
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  return `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`;
+}
+
+async function openDashPromptDetail(id: string) {
+  const entry = await window.yo.promptsGet(id);
+  if (!entry) return;
+
+  const detail = document.getElementById("dash-prompt-detail")!;
+  const list = document.getElementById("dash-prompts-list")!;
+  const toolbar = document.getElementById("dash-prompts-toolbar")!;
+
+  list.classList.add("hidden");
+  toolbar.classList.add("hidden");
+  detail.classList.remove("hidden");
+
+  const metaGrid = document.getElementById("dash-prompt-meta")!;
+  const duration = entry.endTs - entry.startTs;
+
+  const items = [
+    { label: "Input Tokens", value: formatTokens(entry.inputTokens) },
+    { label: "Output Tokens", value: formatTokens(entry.outputTokens) },
+    { label: "Model", value: entry.model },
+    { label: "Provider", value: entry.provider },
+    { label: "Mode", value: entry.mode },
+    { label: "Duration", value: formatDuration(duration) },
+    { label: "Start", value: new Date(entry.startTs).toLocaleString() },
+    { label: "End", value: new Date(entry.endTs).toLocaleString() },
+  ];
+  if (entry.toolsUsed.length > 0) {
+    items.push({ label: "Tools", value: entry.toolsUsed.join(", ") });
+  }
+
+  metaGrid.innerHTML = items.map(i =>
+    `<div class="dash-meta-item"><div class="dash-meta-label">${i.label}</div><div class="dash-meta-value">${i.value}</div></div>`
+  ).join("");
+
+  document.getElementById("dash-prompt-text")!.textContent = entry.prompt;
+  document.getElementById("dash-prompt-response")!.textContent = entry.response;
+}
+
+function closeDashPromptDetail() {
+  document.getElementById("dash-prompt-detail")!.classList.add("hidden");
+  document.getElementById("dash-prompts-list")!.classList.remove("hidden");
+  document.getElementById("dash-prompts-toolbar")!.classList.remove("hidden");
+}
+
+let dashPromptSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function initDashboardEvents() {
+  document.getElementById("dash-range-7")?.addEventListener("click", () => {
+    dashRangeMode = "7";
+    document.getElementById("dash-range-7")!.classList.add("active");
+    document.getElementById("dash-range-30")!.classList.remove("active");
+    renderDashHistoryChart();
+  });
+  document.getElementById("dash-range-30")?.addEventListener("click", () => {
+    dashRangeMode = "30";
+    document.getElementById("dash-range-30")!.classList.add("active");
+    document.getElementById("dash-range-7")!.classList.remove("active");
+    renderDashHistoryChart();
+  });
+
+  const promptSearch = document.getElementById("dash-prompts-search") as HTMLInputElement;
+  promptSearch?.addEventListener("input", () => {
+    if (dashPromptSearchTimer) clearTimeout(dashPromptSearchTimer);
+    dashPromptSearchTimer = setTimeout(() => { dashPromptsOffset = 0; renderDashPrompts(); }, 300);
+  });
+
+  document.getElementById("dash-prompt-back")?.addEventListener("click", closeDashPromptDetail);
+  document.getElementById("dash-prompt-cancel")?.addEventListener("click", closeDashPromptDetail);
+
+  // Data store (right column)
+  document.getElementById("data-back-link")?.addEventListener("click", closeDataDetail);
+  document.getElementById("data-delete-btn")?.addEventListener("click", deleteDataEntry);
+  document.getElementById("data-clear-btn")?.addEventListener("click", clearData);
+  dataSearchInput?.addEventListener("input", () => { dataSearchDebounce(); });
+}
+
+// ── Data Store ────────────────────────────────────────────
+
+const dataListEl = document.getElementById("data-list")!;
+const dataToolbar = document.getElementById("data-toolbar")!;
+const dataDetail = document.getElementById("data-detail")!;
+const dataSearchInput = document.getElementById("data-search") as HTMLInputElement;
+const dataDetailMeta = document.getElementById("data-detail-meta")!;
+const dataDetailContent = document.getElementById("data-detail-content")!;
+const dataSourcesBar = document.getElementById("data-sources-bar")!;
+let dataOffset = 0;
+let viewingEntryId: string | null = null;
+let dataSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function dataSearchDebounce() {
+  if (dataSearchTimer) clearTimeout(dataSearchTimer);
+  dataSearchTimer = setTimeout(() => { dataOffset = 0; renderDataList(); }, 300);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+function relativeTime(ts: number): string {
+  if (!ts) return "—";
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+async function loadData() {
+  dataDetail.classList.add("hidden");
+  dataListEl.classList.remove("hidden");
+  dataToolbar.classList.remove("hidden");
+
+  const stats = await window.yo.capturesStats();
+
+  dataSourcesBar.innerHTML = "";
+  const sorted = Object.entries(stats.sources).sort((a, b) => b[1] - a[1]);
+  for (const [source, count] of sorted) {
+    const chip = document.createElement("span");
+    chip.className = "store-source-chip";
+    chip.innerHTML = `${source} <span class="chip-count">${count}</span>`;
+    chip.title = `Click to delete all captures from ${source}`;
+    chip.addEventListener("click", async () => {
+      const confirmed = await confirmAction(`Delete all ${count} captures from "${source}"?`);
+      if (!confirmed) return;
+      await window.yo.capturesDeleteBySource(source);
+      loadData();
+    });
+    dataSourcesBar.appendChild(chip);
+  }
+
+  renderDataList();
+}
+
+async function renderDataList() {
+  const query = dataSearchInput.value.trim();
+
+  if (query) {
+    const results = await window.yo.capturesSearch(query, 50);
+    dataListEl.innerHTML = "";
+    if (results.length === 0) {
+      dataListEl.innerHTML = `<div class="crud-empty">No captures matching "${query}"</div>`;
+      return;
+    }
+    for (const r of results) {
+      dataListEl.appendChild(makeDataCard(r.meta.id, r.meta.source, r.meta.created, r.content.slice(0, 200), r.score));
+    }
+    return;
+  }
+
+  const entries = await window.yo.capturesList(dataOffset, 50);
+  dataListEl.innerHTML = "";
+  if (entries.length === 0 && dataOffset === 0) {
+    dataListEl.innerHTML = `<div class="crud-empty">No captures yet. Use .sup to capture panel content.</div>`;
+    return;
+  }
+
+  for (const e of entries) {
+    dataListEl.appendChild(makeDataCard(e.meta.id, e.meta.source, e.meta.created, e.snippet));
+  }
+
+  const nav = document.createElement("div");
+  nav.style.cssText = "display:flex;justify-content:space-between;padding:8px 0;";
+  if (dataOffset > 0) {
+    const prev = document.createElement("button");
+    prev.className = "action-btn";
+    prev.textContent = "← Newer";
+    prev.addEventListener("click", () => { dataOffset = Math.max(0, dataOffset - 50); renderDataList(); });
+    nav.appendChild(prev);
+  } else {
+    nav.appendChild(document.createElement("span"));
+  }
+  if (entries.length === 50) {
+    const next = document.createElement("button");
+    next.className = "action-btn";
+    next.textContent = "Older →";
+    next.addEventListener("click", () => { dataOffset += 50; renderDataList(); });
+    nav.appendChild(next);
+  }
+  dataListEl.appendChild(nav);
+}
+
+function makeDataCard(id: string, source: string, created: number, snippet: string, score?: number): HTMLElement {
+  const card = document.createElement("div");
+  card.className = "crud-card";
+  const info = document.createElement("div");
+  info.className = "crud-card-info";
+  info.style.cssText = "min-width:0;";
+
+  const nameRow = document.createElement("div");
+  nameRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+  const srcSpan = document.createElement("span");
+  srcSpan.className = "crud-card-name";
+  srcSpan.textContent = source;
+  nameRow.appendChild(srcSpan);
+  const timeSpan = document.createElement("span");
+  timeSpan.style.cssText = "font-size:10px;color:#555;";
+  timeSpan.textContent = relativeTime(created);
+  nameRow.appendChild(timeSpan);
+  if (score !== undefined) {
+    const scoreSpan = document.createElement("span");
+    scoreSpan.style.cssText = "font-size:10px;color:#25C75E;";
+    scoreSpan.textContent = `${(score * 100).toFixed(0)}%`;
+    nameRow.appendChild(scoreSpan);
+  }
+  info.appendChild(nameRow);
+
+  const meta = document.createElement("span");
+  meta.className = "crud-card-meta";
+  meta.textContent = snippet;
+  meta.style.cssText = "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;";
+  info.appendChild(meta);
+  card.appendChild(info);
+
+  const actions = document.createElement("div");
+  actions.className = "crud-card-actions";
+  const delBtn = document.createElement("button");
+  delBtn.className = "crud-card-btn danger crud-delete-btn";
+  delBtn.title = "Delete";
+  delBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+  delBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await window.yo.capturesDelete(id);
+    loadData();
+  });
+  actions.appendChild(delBtn);
+  card.appendChild(actions);
+
+  card.addEventListener("click", () => openDataDetail(id, source, created));
+  return card;
+}
+
+async function openDataDetail(id: string, source: string, created: number) {
+  viewingEntryId = id;
+  const content = await window.yo.capturesRead(id);
+  dataDetailMeta.textContent = `${source} · ${new Date(created).toLocaleString()} · ${id}`;
+  dataDetailContent.textContent = content || "(empty)";
+
+  dataListEl.classList.add("hidden");
+  dataToolbar.classList.add("hidden");
+  dataDetail.classList.remove("hidden");
+}
+
+function closeDataDetail() {
+  dataDetail.classList.add("hidden");
+  dataListEl.classList.remove("hidden");
+  dataToolbar.classList.remove("hidden");
+  viewingEntryId = null;
+  loadData();
+}
+
+async function deleteDataEntry() {
+  if (!viewingEntryId) return;
+  const confirmed = await confirmAction("Delete this capture?");
+  if (!confirmed) return;
+  await window.yo.capturesDelete(viewingEntryId);
+  closeDataDetail();
+}
+
+async function clearData() {
+  const confirmed = await confirmAction("Delete ALL captures? This cannot be undone.");
+  if (!confirmed) return;
+  await window.yo.capturesClear();
+  loadData();
 }
 
 // ── Layouts (Grid Builder) ──────────────────────────────────
@@ -1796,6 +2345,233 @@ async function generateSkillPrompt() {
 
   btn.textContent = "Generate";
   btn.disabled = false;
+}
+
+// ── Drips ─────────────────────────────────────────────────
+
+let dripsPage = 0;
+let allDrips: Array<{ name: string; recipe: string }> = [];
+let builtinEffects: string[] = [];
+const dripsListEl = document.getElementById("drips-list")!;
+const dripsToolbar = document.getElementById("drips-toolbar")!;
+const dripEditor = document.getElementById("drip-editor")!;
+const dripNameInput = document.getElementById("drip-name") as HTMLInputElement;
+const dripDeleteBtn = document.getElementById("drip-delete-btn") as HTMLButtonElement;
+const dripSearchInput = document.getElementById("drip-search") as HTMLInputElement;
+const dripFormError = document.getElementById("drip-form-error")!;
+const dripModeSelect = document.getElementById("drip-mode") as HTMLSelectElement;
+const dripCountInput = document.getElementById("drip-count") as HTMLInputElement;
+const dripEffectsList = document.getElementById("drip-effects-list")!;
+const dripRecipePreview = document.getElementById("drip-recipe-preview")!;
+let editingDripName: string | null = null;
+
+function buildDripRecipe(): string {
+  const mode = dripModeSelect.value;
+  const parts: string[] = [];
+  if (mode === "persistent") parts.push("-1");
+  else if (mode === "counted") parts.push(dripCountInput.value || "3");
+  const selects = dripEffectsList.querySelectorAll("select");
+  selects.forEach((sel) => { if ((sel as HTMLSelectElement).value) parts.push((sel as HTMLSelectElement).value); });
+  return parts.join(" ");
+}
+
+function updateDripRecipePreview() {
+  const recipe = buildDripRecipe();
+  dripRecipePreview.textContent = recipe || "—";
+}
+
+function addEffectRow(value?: string) {
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:6px;align-items:center;";
+  const sel = document.createElement("select");
+  sel.className = "settings-input";
+  sel.style.cssText = "flex:1;";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select effect...";
+  sel.appendChild(placeholder);
+  for (const eff of builtinEffects) {
+    const opt = document.createElement("option");
+    opt.value = eff;
+    opt.textContent = eff;
+    sel.appendChild(opt);
+  }
+  if (value) sel.value = value;
+  sel.addEventListener("change", updateDripRecipePreview);
+  row.appendChild(sel);
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "action-btn danger";
+  removeBtn.style.cssText = "padding:4px 8px;font-size:11px;flex-shrink:0;";
+  removeBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+  removeBtn.addEventListener("click", () => {
+    row.remove();
+    updateDripRecipePreview();
+  });
+  row.appendChild(removeBtn);
+
+  dripEffectsList.appendChild(row);
+  updateDripRecipePreview();
+}
+
+function parseRecipeIntoBuilder(recipe: string) {
+  dripEffectsList.innerHTML = "";
+  const tokens = recipe.trim().split(/\s+/);
+  let mode = "oneshot";
+  let idx = 0;
+
+  if (tokens[0] === "-1") { mode = "persistent"; idx = 1; }
+  else if (/^\d+$/.test(tokens[0]) && parseInt(tokens[0]) > 1) {
+    mode = "counted";
+    dripCountInput.value = tokens[0];
+    idx = 1;
+  }
+
+  dripModeSelect.value = mode;
+  dripCountInput.classList.toggle("hidden", mode !== "counted");
+
+  for (; idx < tokens.length; idx++) {
+    if (tokens[idx]) addEffectRow(tokens[idx]);
+  }
+  if (dripEffectsList.children.length === 0) addEffectRow();
+  updateDripRecipePreview();
+}
+
+async function loadDrips() {
+  dripEditor.classList.add("hidden");
+  dripFormError.classList.add("hidden");
+  if (builtinEffects.length === 0) {
+    builtinEffects = await window.yo.dripsBuiltinEffects();
+  }
+  allDrips = await window.yo.dripsList();
+  renderDripsList();
+}
+
+function renderDripsList() {
+  const query = dripSearchInput.value.trim().toLowerCase();
+  const filtered = query ? allDrips.filter((d) => d.name.toLowerCase().includes(query)) : allDrips;
+
+  if (allDrips.length === 0) {
+    dripsListEl.innerHTML = `<div class="crud-empty">No custom drips yet. Click "+ New" to create one.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    dripsListEl.innerHTML = `<div class="crud-empty">No drips matching "${query}"</div>`;
+    return;
+  }
+
+  const { items, state } = paginate(filtered, dripsPage);
+  dripsPage = state.page;
+  dripsListEl.innerHTML = "";
+
+  for (const drip of items) {
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    card.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name">${drip.name}</span>
+        <span class="crud-card-meta">${drip.recipe}</span>
+      </div>
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-play-btn" title="Play">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>`;
+
+    card.querySelector(".crud-play-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.yo.dripsPreview(drip.recipe);
+    });
+
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDripEditor(drip.name, drip.recipe);
+    });
+
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await confirmAction(`Delete drip "${drip.name}"?`);
+      if (!confirmed) return;
+      await window.yo.dripsDelete(drip.name);
+      loadDrips();
+    });
+
+    card.addEventListener("click", () => openDripEditor(drip.name, drip.recipe));
+
+    dripsListEl.appendChild(card);
+  }
+  dripsListEl.appendChild(renderPaginationBar(state, (p) => { dripsPage = p; renderDripsList(); }));
+}
+
+function openDripEditor(name: string, recipe: string) {
+  editingDripName = name || null;
+  dripNameInput.value = name;
+  dripDeleteBtn.style.display = name ? "" : "none";
+  dripFormError.classList.add("hidden");
+
+  if (recipe) {
+    parseRecipeIntoBuilder(recipe);
+  } else {
+    dripModeSelect.value = "oneshot";
+    dripCountInput.classList.add("hidden");
+    dripEffectsList.innerHTML = "";
+    addEffectRow();
+  }
+
+  dripsListEl.classList.add("hidden");
+  dripsToolbar.classList.add("hidden");
+  dripEditor.classList.remove("hidden");
+  dripNameInput.focus();
+}
+
+function closeDripEditor() {
+  dripEditor.classList.add("hidden");
+  dripsListEl.classList.remove("hidden");
+  dripsToolbar.classList.remove("hidden");
+  editingDripName = null;
+  loadDrips();
+}
+
+async function saveDrip() {
+  let valid = true;
+  const name = dripNameInput.value.trim().toLowerCase();
+  const recipe = buildDripRecipe();
+
+  if (!name) { dripNameInput.classList.add("invalid"); clearInvalid(dripNameInput); valid = false; }
+  const hasEffects = Array.from(dripEffectsList.querySelectorAll("select")).some((s) => (s as HTMLSelectElement).value);
+  if (!hasEffects) {
+    dripFormError.textContent = "Select at least one effect.";
+    dripFormError.classList.remove("hidden");
+    valid = false;
+  }
+  if (!valid) {
+    if (!dripFormError.textContent) {
+      dripFormError.textContent = "Please fill in all required fields.";
+      dripFormError.classList.remove("hidden");
+    }
+    return;
+  }
+
+  if (editingDripName && editingDripName !== name) {
+    await window.yo.dripsDelete(editingDripName);
+  }
+  await window.yo.dripsSave(name, recipe);
+  editingDripName = name;
+  closeDripEditor();
+}
+
+async function deleteDrip() {
+  if (!editingDripName) return;
+  const confirmed = await confirmAction(`Delete drip "${editingDripName}"?`);
+  if (!confirmed) return;
+  await window.yo.dripsDelete(editingDripName);
+  closeDripEditor();
 }
 
 // ── About ─────────────────────────────────────────────────

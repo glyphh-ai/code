@@ -20,7 +20,6 @@ declare global {
       panelsHide: () => void;
       panelsShow: () => void;
       cmdPaletteOpen: () => void;
-      cmdPaletteClose: () => void;
       capturePanels: () => Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>;
       panelsRefresh: (id?: string) => void;
       panelsZoom: (factor: number) => void;
@@ -75,7 +74,6 @@ declare global {
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
-      onOpenCmdPalette: (callback: () => void) => void;
       onExecCommandFromPalette: (callback: (cmd: string) => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
@@ -94,6 +92,35 @@ declare global {
       downloadShow: (filePath: string) => void;
       // Drip effects
       onDripEffect: (callback: (effect: string) => void) => void;
+      // Drips CRUD
+      dripsList: () => Promise<Array<{ name: string; recipe: string }>>;
+      dripsSave: (name: string, recipe: string) => Promise<string>;
+      dripsDelete: (name: string) => Promise<string>;
+      dripsPreview: (recipe: string) => Promise<string>;
+      dripsBuiltinEffects: () => Promise<string[]>;
+      // Dashboard
+      dashboardToday: () => Promise<any>;
+      dashboardHistory: (days?: number) => Promise<any[]>;
+      dashboardAllTime: () => Promise<{ agents: Record<string, any>; total: any }>;
+      dashboardApps: () => Promise<Array<{ name: string; path: string; modified: string }>>;
+      dashboardOpenApp: (name: string) => void;
+      dashboardDeleteApp: (name: string) => Promise<boolean>;
+      dashboardReminders: () => Promise<Array<{ id: string; message: string; fireAt: number }>>;
+      dashboardCancelReminder: (id: string) => Promise<boolean>;
+      dashboardLLMInfo: () => Promise<{ provider: string; model: string }>;
+      // Prompt log
+      promptsList: (offset?: number, limit?: number) => Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>;
+      promptsSearch: (query: string, limit?: number) => Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>;
+      promptsGet: (id: string) => Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>;
+      promptsCount: () => Promise<number>;
+      // Capture store
+      capturesStats: () => Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>;
+      capturesList: (offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string }>>;
+      capturesRead: (id: string) => Promise<string | null>;
+      capturesDelete: (id: string) => Promise<boolean>;
+      capturesDeleteBySource: (source: string) => Promise<number>;
+      capturesClear: () => Promise<number>;
+      capturesSearch: (query: string, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number }; content: string; score: number }>>;
       // LLM config
       getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
@@ -377,42 +404,6 @@ window.yo.onFocusInput(() => {
 
 
 
-// -- Command palette (Cmd+K) --
-
-const cmdPalette = document.getElementById("cmd-palette")!;
-const cmdPaletteInput = document.getElementById("cmd-palette-input") as HTMLInputElement;
-const cmdPaletteBackdrop = cmdPalette.querySelector(".cmd-palette-backdrop")!;
-
-function openCmdPalette() {
-  window.yo.cmdPaletteOpen();
-}
-
-function closeCmdPalette() {
-  cmdPalette.classList.add("hidden");
-  cmdPaletteInput.blur();
-}
-
-cmdPaletteBackdrop.addEventListener("click", closeCmdPalette);
-
-cmdPaletteInput.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    closeCmdPalette();
-  }
-  if (e.key === "Enter") {
-    e.preventDefault();
-    const cmd = cmdPaletteInput.value.trim();
-    if (!cmd) return;
-    closeCmdPalette();
-    // Strip leading dot if present, route through execCommand
-    const clean = cmd.startsWith(".") ? cmd.slice(1) : cmd;
-    window.yo.execCommand(clean);
-  }
-});
-
-// Cmd+K from BrowserView panels (intercepted by panel-manager, forwarded via IPC)
-window.yo.onOpenCmdPalette(() => openCmdPalette());
-
 // Commands submitted from the palette child window
 window.yo.onExecCommandFromPalette((cmd) => window.yo.execCommand(cmd));
 
@@ -424,20 +415,13 @@ document.addEventListener("keydown", (e) => {
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+K to open command palette (child window)
-  if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    openCmdPalette();
-  }
-
-  // Cmd+. to toggle yo agent panel
+  // Cmd+. — if yo agent panel is open, close it; otherwise open command palette
   if (e.key === "." && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     if (isYoPanelOpen()) {
       window.yo.yoPanelDismiss();
     } else {
-      window.yo.yoPanelOpen("");
-      openYoPanel("");
+      window.yo.cmdPaletteOpen();
     }
   }
 

@@ -11,6 +11,7 @@ import os from "os";
 import { execSync } from "child_process";
 import { LLMConfig, createStream, createCompletion } from "./llm-config";
 import { usageTracker } from "./usage-tracker";
+import { promptLog } from "./prompt-log";
 import type { MemoryStore } from "./memory-store";
 import type { CaptureStore } from "./capture-store";
 import type { SessionCache } from "./session-cache";
@@ -186,6 +187,9 @@ export class YoAgent {
   private _mode: AgentMode = getAgentMode();
   private _approvalCallback: ApprovalCallback | null = null;
   private council: Council | null = null;
+  private _sendInputTokens = 0;
+  private _sendOutputTokens = 0;
+  private _sendToolsUsed: string[] = [];
 
   // ── Setters ────────────────────────────────────────────
 
@@ -319,10 +323,36 @@ export class YoAgent {
 
     await this.recallMemories(message);
 
+    this._sendInputTokens = 0;
+    this._sendOutputTokens = 0;
+    this._sendToolsUsed = [];
+    const startTs = Date.now();
+
     try {
       await this.agentLoop(cb);
       this.saveChat();
       this.extractMemories().catch(() => {});
+
+      const endTs = Date.now();
+      const lastAssistant = [...this.history].reverse().find(m => m.role === "assistant");
+      let responseText = "";
+      if (lastAssistant) {
+        const blocks = Array.isArray(lastAssistant.content) ? lastAssistant.content : [];
+        responseText = blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+      }
+      promptLog.record({
+        id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
+        startTs,
+        endTs,
+        prompt: message.slice(0, 2000),
+        response: responseText.slice(0, 2000),
+        inputTokens: this._sendInputTokens,
+        outputTokens: this._sendOutputTokens,
+        model: this.llmConfig?.model || "unknown",
+        provider: this.llmConfig?.provider || "unknown",
+        mode: this._mode,
+        toolsUsed: [...new Set(this._sendToolsUsed)],
+      });
     } catch (err) {
       cb.onError(err instanceof Error ? err.message : String(err));
     }
@@ -403,6 +433,8 @@ export class YoAgent {
 
     if (response.usage) {
       usageTracker.record("orchestrator", response.usage);
+      this._sendInputTokens += response.usage.inputTokens;
+      this._sendOutputTokens += response.usage.outputTokens;
     }
 
     this.history.push({ role: "assistant", content: response.content });
@@ -425,6 +457,7 @@ export class YoAgent {
 
       for (const block of toolBlocks) {
         if (this.aborted) break;
+        this._sendToolsUsed.push(block.name);
 
         const decision = gate(block.name, this._mode);
         if (decision === "skip") {

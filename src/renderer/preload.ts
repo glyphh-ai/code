@@ -13,7 +13,6 @@ contextBridge.exposeInMainWorld("yo", {
   panelsHide: () => ipcRenderer.send("panels-hide"),
   panelsShow: () => ipcRenderer.send("panels-show"),
   cmdPaletteOpen: () => ipcRenderer.send("cmd-palette-open"),
-  cmdPaletteClose: () => ipcRenderer.send("cmd-palette-close"),
   capturePanels: () => ipcRenderer.invoke("capture-panels") as Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>,
   panelsRefresh: (id?: string) => ipcRenderer.send("panels-refresh", id),
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
@@ -32,6 +31,39 @@ contextBridge.exposeInMainWorld("yo", {
   layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) =>
     ipcRenderer.invoke("layouts-save-grid", grid) as Promise<boolean>,
   layoutsDelete: (name: string) => ipcRenderer.invoke("layouts-delete", name) as Promise<boolean>,
+
+  // Drips CRUD
+  dripsList: () => ipcRenderer.invoke("drips-list") as Promise<Array<{ name: string; recipe: string }>>,
+  dripsSave: (name: string, recipe: string) => ipcRenderer.invoke("drips-save", name, recipe) as Promise<string>,
+  dripsDelete: (name: string) => ipcRenderer.invoke("drips-delete", name) as Promise<string>,
+  dripsPreview: (recipe: string) => ipcRenderer.invoke("drips-preview", recipe) as Promise<string>,
+  dripsBuiltinEffects: () => ipcRenderer.invoke("drips-builtin-effects") as Promise<string[]>,
+
+  // Dashboard
+  dashboardToday: () => ipcRenderer.invoke("dashboard:today") as Promise<any>,
+  dashboardHistory: (days?: number) => ipcRenderer.invoke("dashboard:history", days) as Promise<any[]>,
+  dashboardAllTime: () => ipcRenderer.invoke("dashboard:all-time") as Promise<{ agents: Record<string, any>; total: any }>,
+  dashboardApps: () => ipcRenderer.invoke("dashboard:apps") as Promise<Array<{ name: string; path: string; modified: string }>>,
+  dashboardOpenApp: (name: string) => ipcRenderer.send("dashboard:open-app", name),
+  dashboardDeleteApp: (name: string) => ipcRenderer.invoke("dashboard:delete-app", name) as Promise<boolean>,
+  dashboardReminders: () => ipcRenderer.invoke("dashboard:reminders") as Promise<Array<{ id: string; message: string; fireAt: number }>>,
+  dashboardCancelReminder: (id: string) => ipcRenderer.invoke("dashboard:cancel-reminder", id) as Promise<boolean>,
+  dashboardLLMInfo: () => ipcRenderer.invoke("dashboard:llm-info") as Promise<{ provider: string; model: string }>,
+
+  // Prompt log
+  promptsList: (offset?: number, limit?: number) => ipcRenderer.invoke("prompts-list", offset, limit) as Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>,
+  promptsSearch: (query: string, limit?: number) => ipcRenderer.invoke("prompts-search", query, limit) as Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>,
+  promptsGet: (id: string) => ipcRenderer.invoke("prompts-get", id) as Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>,
+  promptsCount: () => ipcRenderer.invoke("prompts-count") as Promise<number>,
+
+  // Capture store
+  capturesStats: () => ipcRenderer.invoke("captures-stats") as Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>,
+  capturesList: (offset: number, limit: number) => ipcRenderer.invoke("captures-list", offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string }>>,
+  capturesRead: (id: string) => ipcRenderer.invoke("captures-read", id) as Promise<string | null>,
+  capturesDelete: (id: string) => ipcRenderer.invoke("captures-delete", id) as Promise<boolean>,
+  capturesDeleteBySource: (source: string) => ipcRenderer.invoke("captures-delete-source", source) as Promise<number>,
+  capturesClear: () => ipcRenderer.invoke("captures-clear") as Promise<number>,
+  capturesSearch: (query: string, limit: number) => ipcRenderer.invoke("captures-search", query, limit) as Promise<Array<{ meta: { id: string; source: string; created: number }; content: string; score: number }>>,
 
   // Grid resize
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
@@ -56,9 +88,6 @@ contextBridge.exposeInMainWorld("yo", {
   },
   onFocusInput: (callback: () => void) => {
     ipcRenderer.on("focus-command-input", () => callback());
-  },
-  onOpenCmdPalette: (callback: () => void) => {
-    ipcRenderer.on("open-cmd-palette", () => callback());
   },
   onExecCommandFromPalette: (callback: (cmd: string) => void) => {
     ipcRenderer.on("exec-command-from-palette", (_e, cmd: string) => callback(cmd));

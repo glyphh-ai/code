@@ -22,6 +22,7 @@ export class CommandParser {
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
+  private dripManager: import("./drip-manager").DripManager | null = null;
   private onCouncil: ((participants: string[]) => void) | null = null;
 
   // Sup conversation state
@@ -54,6 +55,10 @@ export class CommandParser {
   /** Register callback for drip effects */
   setDripHandler(fn: (effect: string) => void) {
     this.onDrip = fn;
+  }
+
+  setDripManager(mgr: import("./drip-manager").DripManager) {
+    this.dripManager = mgr;
   }
 
   /** Register callback for council chat */
@@ -619,8 +624,8 @@ export class CommandParser {
   // ── drip: CSS visual effects ────────────────────────────────
 
   private handleDrip(args: string[]): string {
-    const effect = args[0]?.toLowerCase() || "fireworks";
-    this.onDrip?.(effect);
+    if (this.dripManager) return this.dripManager.execute(args);
+    this.onDrip?.(args[0] || "fireworks");
     return "";
   }
 
