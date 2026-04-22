@@ -14,7 +14,7 @@
  */
 
 import type { WebContents, BrowserWindow } from "electron";
-import { grabLastResponse, contentHash } from "./smart-grab";
+import { contentHash } from "./smart-grab";
 import type { CaptureStore } from "./capture-store";
 
 export interface CouncilConfig {
@@ -86,15 +86,16 @@ export class Council {
         if (!this.active) break;
         onProgress?.(`Round ${round}/${rounds} — sending to all participants...`);
 
-        // Build prompts and snapshot hashes in parallel
-        const tasks: Array<{ participant: string; wc: WebContents; prompt: string; hashBefore: string | null }> = [];
+        // Build prompts, snapshot text + hashes before injection
+        const tasks: Array<{ participant: string; wc: WebContents; prompt: string; hashBefore: string | null; textBefore: string }> = [];
         for (const [participant, wc] of participantWc) {
           if (wc.isDestroyed()) continue;
           const roundPrompt = round === 1
             ? prompt
             : this.crossPollinate(prompt, round, participant, responses);
           const hashBefore = await contentHash(wc);
-          tasks.push({ participant, wc, prompt: roundPrompt, hashBefore });
+          const textBefore = await fullText(wc);
+          tasks.push({ participant, wc, prompt: roundPrompt, hashBefore, textBefore });
         }
 
         // Inject prompts into ALL participants in parallel
@@ -102,10 +103,12 @@ export class Council {
 
         onProgress?.(`Round ${round}/${rounds} — waiting for responses...`);
 
-        // Wait for ALL responses in parallel
+        // Wait for ALL responses in parallel, then diff text to extract new content
         const results = await Promise.all(tasks.map(async (t) => {
           if (!this.active) return { participant: t.participant, response: null };
-          const response = await this.waitForResponse(t.wc, t.hashBefore);
+          await this.waitForStable(t.wc, t.hashBefore);
+          const textAfter = await fullText(t.wc);
+          const response = extractNewContent(t.textBefore, textAfter);
           return { participant: t.participant, response };
         }));
 
@@ -215,7 +218,7 @@ export class Council {
 
   // ── Response detection ─────────────────────────────────
 
-  private async waitForResponse(wc: WebContents, hashBefore: string | null): Promise<string | null> {
+  private async waitForStable(wc: WebContents, hashBefore: string | null): Promise<void> {
     await sleep(SUBMIT_DELAY_MS);
 
     const deadline = Date.now() + RESPONSE_TIMEOUT_MS;
@@ -223,7 +226,7 @@ export class Council {
     let stableStart = 0;
 
     while (Date.now() < deadline) {
-      if (!this.active || wc.isDestroyed()) return null;
+      if (!this.active || wc.isDestroyed()) return;
 
       const hash = await contentHash(wc);
 
@@ -238,13 +241,55 @@ export class Council {
 
       await sleep(RESPONSE_POLL_MS);
     }
-
-    try {
-      return await grabLastResponse(wc);
-    } catch {
-      return null;
-    }
   }
+}
+
+/** Get full visible text from a webContents. */
+async function fullText(wc: WebContents): Promise<string> {
+  if (wc.isDestroyed()) return "";
+  try {
+    return await wc.executeJavaScript("document.body.innerText || ''");
+  } catch {
+    return "";
+  }
+}
+
+/** Extract new content by diffing before/after text snapshots. */
+function extractNewContent(before: string, after: string): string | null {
+  if (!after || after === before) return null;
+
+  // Find where the texts diverge
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+
+  let commonPrefix = 0;
+  while (
+    commonPrefix < beforeLines.length &&
+    commonPrefix < afterLines.length &&
+    beforeLines[commonPrefix] === afterLines[commonPrefix]
+  ) {
+    commonPrefix++;
+  }
+
+  // Everything after the common prefix is new content
+  const newLines = afterLines.slice(commonPrefix);
+
+  // Also trim any lines from the end that match the old suffix
+  // (UI elements that shifted down)
+  let commonSuffix = 0;
+  while (
+    commonSuffix < beforeLines.length - commonPrefix &&
+    commonSuffix < newLines.length &&
+    beforeLines[beforeLines.length - 1 - commonSuffix] === newLines[newLines.length - 1 - commonSuffix]
+  ) {
+    commonSuffix++;
+  }
+
+  const content = (commonSuffix > 0 ? newLines.slice(0, -commonSuffix) : newLines)
+    .join("\n")
+    .trim();
+
+  return content.length > 10 ? content : null;
 }
 
 function sleep(ms: number): Promise<void> {

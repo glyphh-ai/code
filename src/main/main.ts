@@ -1573,9 +1573,16 @@ async function boot() {
         { participants, prompt: trimmed, rounds: 2 },
         (progress) => wc.send("yo-panel-token", `\n${progress}`),
       ).then((result) => {
-        if (result.status === "complete") {
-          // Feed council results to the agent for synthesis
-          const summary = `Council complete. ${result.totalCaptures} responses captured from ${participants.join(", ")}. Synthesize the key findings.`;
+        if (result.status === "complete" && result.totalCaptures > 0) {
+          // Feed actual responses directly to the agent for synthesis
+          const responseParts: string[] = [`Council complete: ${result.totalCaptures} responses from ${participants.join(", ")}.\n\nOriginal question: ${trimmed}\n`];
+          for (const [participant, resps] of result.responses) {
+            for (let i = 0; i < resps.length; i++) {
+              responseParts.push(`--- ${participant} (round ${i + 1}) ---\n${resps[i]}\n`);
+            }
+          }
+          responseParts.push("\nSynthesize the key findings, areas of agreement, and notable differences between the participants. Be concise.");
+          const summary = responseParts.join("\n");
           yoAgent.send(summary, {
             onText: (delta) => wc.send("yo-panel-token", delta),
             onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
