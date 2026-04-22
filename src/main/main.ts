@@ -20,6 +20,7 @@ import { CloudSync } from "./cloud-sync";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
+import { canAddApp, canCreateSkill, canSaveLayout, canUseMcp, canUseSync, canUseVoice, getCurrentLimits } from "./entitlements";
 import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./preferences";
 import { YoInterceptor } from "./yo-interceptor";
@@ -241,10 +242,10 @@ async function boot() {
   actionGrabber.setCaptureStore(captureStore);
   actionGrabber.setAppConnector(appConnector);
 
-  // MCP expose — read-only server for external LLM tools (pro feature)
+  // MCP expose — read-only server for external LLM tools (Advanced tier)
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
-  if (getPreference<boolean>("mcpExposeEnabled", false)) {
+  if (getPreference<boolean>("mcpExposeEnabled", false) && canUseMcp().allowed) {
     mcpExpose.start().then((r) => {
       if (!r.ok) console.error("[mcp-expose] failed to start:", r.error);
     });
@@ -612,8 +613,8 @@ async function boot() {
   // Reminder registry
   const activeReminders = new Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>();
 
-  // Voice Relay — phone-to-desktop voice remote (feature-flagged, disabled by default)
-  if (getPreference<boolean>("voiceRemoteFeature", false)) {
+  // Voice Relay — phone-to-desktop voice remote (Advanced tier, feature-flagged)
+  if (getPreference<boolean>("voiceRemoteFeature", false) && canUseVoice().allowed) {
     voiceRelay = new VoiceRelay();
     if (getPreference<boolean>("remoteEnabled", false)) {
       voiceRelay.start();
@@ -634,7 +635,7 @@ async function boot() {
     }
   });
 
-  // Panel opener — called by interceptor or Cmd+. when user types .yo <query>
+  // Panel opener — called by interceptor or Cmd+> when user types .yo <query>
   const openYoPanel = (query: string, _sourcePanelId?: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send("yo-panel-open", query);
@@ -889,8 +890,8 @@ async function boot() {
     if (mainWindow) panelManager.hideActive(mainWindow);
   }
 
-  // Start cloud sync if authenticated
-  if (authenticated) {
+  // Start cloud sync if authenticated and tier allows it
+  if (authenticated && canUseSync().allowed) {
     cloudSyncInstance = new CloudSync(noteStore);
     cloudSyncInstance.setCaptureStore(captureStore);
     cloudSyncInstance.start();
@@ -1159,7 +1160,7 @@ async function boot() {
     council.stop();
   });
 
-  // Renderer-initiated panel open (Cmd+.)
+  // Renderer-initiated panel open (Cmd+> or .yo command)
   ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
     yoAgent.clear();
     panelManager.setRightInset(yoPanelWidth());
@@ -1261,6 +1262,8 @@ async function boot() {
     if (skillEngine.readSkill(name) !== null) {
       return skillEngine.updateSkill(name, prompt);
     }
+    const gate = canCreateSkill(skillEngine.listSkills().length);
+    if (!gate.allowed) return { error: gate.reason };
     skillEngine.createSkill(name, prompt);
     return true;
   });
@@ -1281,6 +1284,11 @@ async function boot() {
     }))
   );
   ipcMain.handle("layouts-save", (_e, name: string, panelIds: string[]) => {
+    const existing = layoutManager.listLayouts().find(l => l.name === name);
+    if (!existing) {
+      const gate = canSaveLayout(layoutManager.listLayouts().length);
+      if (!gate.allowed) return { error: gate.reason };
+    }
     const count = panelIds.length;
     layoutManager.saveLayout({
       name,
@@ -1300,6 +1308,11 @@ async function boot() {
     return true;
   });
   ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => {
+    const existing = layoutManager.listLayouts().find(l => l.name === grid.name);
+    if (!existing) {
+      const gate = canSaveLayout(layoutManager.listLayouts().length);
+      if (!gate.allowed) return { error: gate.reason };
+    }
     layoutManager.saveLayout({
       ...grid,
       version: 2,
@@ -1365,6 +1378,9 @@ async function boot() {
   // IPC: apps CRUD (panel apps)
   ipcMain.handle("apps-list", () => appConnector.list());
   ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
+    const userApps = appConnector.list().filter(a => !a.url.startsWith("yo://")).length;
+    const gate = canAddApp(userApps);
+    if (!gate.allowed) return { error: gate.reason };
     const app = appConnector.add(id, name, url);
     panelManager.addPanel(id, url);
     return app;
@@ -1383,6 +1399,9 @@ async function boot() {
     appConnector.updateCapturePolicy(id, policy as any));
   ipcMain.handle("apps-get-capture-policy", (_e, id: string) => appConnector.getCapturePolicy(id));
   ipcMain.handle("apps-set-connected-slug", () => false);
+
+  // IPC: entitlements — let renderer query current tier limits
+  ipcMain.handle("get-entitlements", () => getCurrentLimits());
 
   // IPC: app command mapping (DOM picker)
   ipcMain.handle("apps-set-command", (_e, id: string, key: string, mapping: { selector: string; action: string; description: string }) => {
@@ -1834,7 +1853,6 @@ async function boot() {
       authenticated: authStatus.authenticated,
       status: authStatus.status,
       tier: authStatus.tier,
-      daysRemaining: authStatus.daysRemaining,
       apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding: currentNeedsOnboarding,
       hideWelcome,

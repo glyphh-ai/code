@@ -132,7 +132,7 @@ contextBridge.exposeInMainWorld("yo", {
   logout: () => ipcRenderer.invoke("logout") as Promise<void>,
   validateApiKey: (key: string) => ipcRenderer.invoke("validate-api-key", key) as Promise<{ valid: boolean; error?: string }>,
   getApiKey: () => ipcRenderer.invoke("get-api-key") as Promise<string | null>,
-  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; daysRemaining?: number; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
+  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
   onSplashStatus: (callback: (msg: string) => void) => {
@@ -185,7 +185,7 @@ contextBridge.exposeInMainWorld("yo", {
   },
 
   // Account info
-  getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>,
+  getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string }>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   platformUrl: process.env.YO_PLATFORM_URL || "https://platform.yosup.dev",
   openAccountDashboard: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.yosup.dev")),

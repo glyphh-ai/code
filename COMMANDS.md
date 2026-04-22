@@ -3,6 +3,19 @@
 Three verbs: `.yo` (search/retrieve), `.sup` (capture), `.dip` (navigate).
 One effect: `.drip` (animations).
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| **Cmd+.** | Open command bar |
+| **Cmd+>** (Cmd+Shift+.) | Toggle the .Yo agent panel |
+| **Cmd+Y** | Summon / dismiss the app (global hotkey) |
+| **Cmd+L** | Focus the URL bar |
+| **Cmd+R** | Refresh the active panel |
+| **Cmd++** / **Cmd+-** | Zoom in / out |
+| **Cmd+0** | Reset zoom |
+| **Esc** | Close current overlay |
+
 ## `.yo` — Search & Retrieve (the brain)
 
 | Command | Action |

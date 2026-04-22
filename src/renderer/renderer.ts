@@ -72,7 +72,7 @@ declare global {
       logout: () => Promise<void>;
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
-      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; daysRemaining?: number; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
+      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
@@ -149,7 +149,7 @@ declare global {
       onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => void;
       onPanelUrlUpdate: (cb: (info: { id: string; url: string; favicon: string }) => void) => void;
       // Account info
-      getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>;
+      getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string }>;
       openExternal: (url: string) => void;
       platformUrl: string;
       openAccountDashboard: () => void;
@@ -396,14 +396,9 @@ window.yo.onUrlUpdate((info: { url: string; favicon: string; canGoBack?: boolean
 
 // -- Cmd+. command overlay --
 
-// Cmd+. from panel -> toggle yo agent panel
+// focus-command-input from main → open command palette
 window.yo.onFocusInput(() => {
-  if (isYoPanelOpen()) {
-    window.yo.yoPanelDismiss();
-  } else {
-    window.yo.yoPanelOpen("");
-    openYoPanel("");
-  }
+  window.yo.cmdPaletteOpen();
 });
 
 
@@ -419,13 +414,20 @@ document.addEventListener("keydown", (e) => {
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+. — if yo agent panel is open, close it; otherwise open command palette
+  // Cmd+. — always open command palette
   if (e.key === "." && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+    e.preventDefault();
+    window.yo.cmdPaletteOpen();
+  }
+
+  // Cmd+> (Cmd+Shift+.) — toggle yo agent panel
+  if ((e.key === ">" || (e.key === "." && e.shiftKey)) && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (isYoPanelOpen()) {
       window.yo.yoPanelDismiss();
     } else {
-      window.yo.cmdPaletteOpen();
+      window.yo.yoPanelOpen("");
+      openYoPanel("");
     }
   }
 
@@ -1091,6 +1093,7 @@ async function openYoPanel(query: string) {
   }
   const savedWidth = await window.yo.yoPanelGetWidth();
   yoPanel.style.width = `${savedWidth}px`;
+  document.body.style.setProperty("--right-inset", `${savedWidth}px`);
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
@@ -1122,6 +1125,7 @@ async function openYoPanel(query: string) {
 
 function closeYoPanel() {
   yoPanel.classList.remove("open");
+  document.body.style.setProperty("--right-inset", "0px");
   setTimeout(() => {
     yoPanel.classList.add("hidden");
     yoPanelMessages.innerHTML = "";
@@ -1897,6 +1901,7 @@ document.addEventListener("mousemove", (e) => {
   if (!yoPanelDragging) return;
   const newWidth = Math.max(280, Math.min(window.innerWidth * 0.6, window.innerWidth - e.clientX));
   yoPanel.style.width = `${newWidth}px`;
+  document.body.style.setProperty("--right-inset", `${newWidth}px`);
   window.yo.yoPanelResize(newWidth);
 });
 

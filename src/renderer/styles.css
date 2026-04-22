@@ -446,7 +446,7 @@ body {
   position: fixed;
   top: 38px;
   left: 0;
-  right: 0;
+  right: var(--right-inset, 0px);
   height: 34px;
   background: #111;
   border-bottom: 1px solid #222;
@@ -455,6 +455,7 @@ body {
   gap: 6px;
   padding: 0 10px;
   z-index: 50;
+  transition: right 0.2s ease;
   -webkit-app-region: no-drag;
 }
 

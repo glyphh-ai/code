@@ -641,8 +641,13 @@ setTimeout(function(){
   if(isInputEl(a)){currentEl=a;showTab();}
 },500);
 
-// Cmd+. opens/closes
+// Cmd+. opens command palette, Cmd+> opens agent panel
 document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&(e.key==='>'||(e.key==='.'&&e.shiftKey))){
+    e.preventDefault();e.stopPropagation();
+    console.log('${PREFIX}'+JSON.stringify({type:'yo-toggle-panel',_nonce:_n}));
+    return;
+  }
   if((e.metaKey||e.ctrlKey)&&e.key==='.'){
     e.preventDefault();e.stopPropagation();
     togglePop();
@@ -704,6 +709,9 @@ document.addEventListener('mousedown',function(e){
           const cmd = data.instruction ? `council ${data.instruction}` : "council";
           await this.commandHandler(cmd);
         }
+        break;
+      case "yo-toggle-panel":
+        if (this.panelOpener) this.panelOpener("", appId);
         break;
       case "cancel":
         this.opId++;

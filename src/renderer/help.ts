@@ -344,7 +344,7 @@ export function initHelp() {
   // User menu (bottom of help nav)
   document.getElementById("user-menu-platform")!.addEventListener("click", () => {
     closeHelp();
-    window.yo.urlBarNavigate(window.yo.platformUrl);
+    window.yo.openExternal(window.yo.platformUrl);
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
     await window.yo.logout();
@@ -2137,7 +2137,7 @@ function initSettings() {
   // Account dashboard — opens platform in a browser tab
   document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
     closeHelp();
-    window.yo.urlBarNavigate(window.yo.platformUrl);
+    window.yo.openExternal(window.yo.platformUrl);
   });
 
   // Sign out
@@ -2215,14 +2215,11 @@ async function loadSettings() {
     if (billingStatus === "active") {
       statusEl.textContent = "Active";
       statusEl.className = "license-value active";
-    } else if (authStatus.status === "trial" && authStatus.daysRemaining) {
-      statusEl.textContent = `Trial (${authStatus.daysRemaining} days left)`;
-      statusEl.className = "license-value";
     } else if (billingStatus === "expired" || authStatus.status === "expired") {
       statusEl.textContent = "Expired";
       statusEl.className = "license-value expired";
     } else {
-      statusEl.textContent = billingStatus;
+      statusEl.textContent = billingStatus === "none" ? "Free" : billingStatus;
       statusEl.className = "license-value";
     }
   } else {

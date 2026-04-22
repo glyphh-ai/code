@@ -7,7 +7,7 @@
  *   3. Web generates a one-time device code and redirects to /auth/callback?code=XXX
  *   4. We intercept the navigation, extract the code, exchange it for JWT tokens
  *   5. Tokens stored encrypted via safeStorage
- *   6. Heartbeat polls server every 4 hours for trial/tier/entitlements
+ *   6. Heartbeat polls server every 4 hours for tier/entitlements
  */
 
 import fs from "fs";
@@ -45,13 +45,12 @@ export interface AccountInfo {
 }
 
 export interface HeartbeatResult {
-  status: "active" | "trial" | "expired" | "disabled";
+  status: "active" | "expired" | "disabled";
   tier: string;
-  trialEndsAt: string | null;
   billingStatus: string;
-  daysRemaining?: number;
-  entitlements: string[];
-  org: { name: string; slug: string; tier: string };
+  entitlements: Record<string, unknown>;
+  org: { id: string; name: string; maxSeats: number } | null;
+  user: { id: string; email: string; firstName: string | null; lastName: string | null; role: string };
 }
 
 // ── State ────────────────────────────────────────────────────
@@ -226,9 +225,8 @@ export function getHeartbeatInfo(): HeartbeatResult | null {
  */
 export function getAuthStatus(): {
   authenticated: boolean;
-  status: "active" | "trial" | "expired" | "disabled" | "unauthenticated";
+  status: "active" | "expired" | "disabled" | "unauthenticated";
   tier?: string;
-  daysRemaining?: number;
 } {
   if (!isAuthenticated()) {
     return { authenticated: false, status: "unauthenticated" };
@@ -238,10 +236,8 @@ export function getAuthStatus(): {
       authenticated: true,
       status: cachedHeartbeat.status,
       tier: cachedHeartbeat.tier,
-      daysRemaining: cachedHeartbeat.daysRemaining,
     };
   }
-  // Authenticated but no heartbeat yet — assume active
   return { authenticated: true, status: "active" };
 }
 
