@@ -28,6 +28,8 @@ export interface RipStep {
   prompt?: string;
   /** Agent step outputs — map parsed [field] sections to app commands (setValue) */
   outputs?: RipOutput[];
+  /** Delay in ms to wait after this step completes (default 200) */
+  delay?: number;
 }
 
 export interface Rip {
@@ -189,7 +191,7 @@ export async function runRip(rip: Rip, deps: RipRunnerDeps, initialContext = "")
       }
 
       deps.onStep?.(i, step, "done");
-      if (i < rip.steps.length - 1) await new Promise((r) => setTimeout(r, 200));
+      if (i < rip.steps.length - 1) await new Promise((r) => setTimeout(r, step.delay ?? 200));
       continue;
     }
 
@@ -254,9 +256,8 @@ export async function runRip(rip: Rip, deps: RipRunnerDeps, initialContext = "")
 
     deps.onStep?.(i, step, "done");
 
-    // Small delay between steps to let UI settle
     if (i < rip.steps.length - 1) {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, step.delay ?? 200));
     }
   }
 

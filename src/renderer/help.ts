@@ -1017,6 +1017,7 @@ interface RipStep {
   command?: string;
   prompt?: string;
   outputs?: RipOutput[];
+  delay?: number;
 }
 
 interface RipData {
@@ -1149,7 +1150,7 @@ function renderRipSteps() {
     <div class="command-row" data-index="${i}" draggable="true">
       <span class="drag-handle">⠿</span>
       <span class="command-key" style="min-width:auto;">${i + 1}</span>
-      <span class="command-desc" style="color:#ccc;">${label}</span>
+      <span class="command-desc" style="color:#ccc;">${label}</span>${step.delay ? `<span class="step-delay">${step.delay}ms</span>` : ""}
       <div class="command-actions">
         <button class="action-btn rip-step-edit" title="Edit">Edit</button>
         <button class="action-btn danger rip-step-remove" title="Remove">×</button>
@@ -1203,6 +1204,7 @@ function renderRipSteps() {
         if (step.command) ripStepCommand.value = step.command;
       }
       ripStepPrompt.value = step.prompt || "";
+      (document.getElementById("rip-step-delay") as HTMLInputElement).value = step.delay ? String(step.delay) : "";
       if (step.type === "agent" && step.outputs) {
         pendingOutputs = [...step.outputs];
         renderPendingOutputs();
@@ -1342,24 +1344,29 @@ function initRips() {
       : `Failed: ${result.log[result.log.length - 1] || "unknown error"}`;
     setTimeout(() => { ripStatus.textContent = ""; }, 5000);
   });
+  const ripStepDelay = document.getElementById("rip-step-delay") as HTMLInputElement;
+
   document.getElementById("rip-step-add-btn")!.addEventListener("click", () => {
     const stepType = ripStepType.value as "app" | "agent";
     const prompt = ripStepPrompt.value.trim() || undefined;
+    const delayVal = parseInt(ripStepDelay.value, 10);
+    const delay = delayVal > 0 ? delayVal : undefined;
 
     if (stepType === "agent") {
       if (!prompt) { ripStepPrompt.focus(); return; }
       const outputs = pendingOutputs.length > 0 ? [...pendingOutputs] : undefined;
-      editingRipSteps.push({ type: "agent", prompt, outputs });
+      editingRipSteps.push({ type: "agent", prompt, outputs, delay });
       pendingOutputs = [];
       renderPendingOutputs();
     } else {
       const app = ripStepApp.value;
       const command = ripStepCommand.value;
       if (!app || !command) return;
-      editingRipSteps.push({ type: "app", app, command, prompt });
+      editingRipSteps.push({ type: "app", app, command, prompt, delay });
     }
 
     ripStepPrompt.value = "";
+    ripStepDelay.value = "";
     renderRipSteps();
   });
   ripStepApp.addEventListener("change", updateRipCommandDropdown);

@@ -46,8 +46,8 @@ declare global {
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
       // Rips
-      ripsList: () => Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }> }> }>>;
-      ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }> }> }) => Promise<boolean>;
+      ripsList: () => Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number }> }>>;
+      ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number }> }) => Promise<boolean>;
       ripsRemove: (name: string) => Promise<boolean>;
       ripsRun: (name: string) => Promise<{ ok: boolean; context: string; log: string[] }>;
 

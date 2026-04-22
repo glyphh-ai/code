@@ -1073,7 +1073,7 @@ body {
 
 #help-overlay {
   position: fixed;
-  top: var(--content-top);
+  top: 38px;
   left: 0;
   right: 0;
   bottom: 0;
@@ -2189,6 +2189,11 @@ ol.docs-list li::before {
   white-space: pre-wrap;
   word-break: break-word;
 }
+#rip-steps-list .step-delay {
+  font-size: 10px;
+  color: #666;
+  margin-left: 6px;
+}
 #rip-steps-list .step-outputs {
   display: flex;
   flex-wrap: wrap;
@@ -2223,6 +2228,21 @@ ol.docs-list li::before {
   gap: 8px;
   align-items: center;
 }
+#rip-step-delay {
+  width: 60px;
+  height: 30px;
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 0 6px;
+  color: #ccc;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  text-align: right;
+}
+#rip-step-delay:focus { border-color: #25C75E; }
+#rip-step-delay::placeholder { color: #555; }
 #rip-add-step .rip-add-row #rip-step-add-btn {
   margin-left: auto;
 }
