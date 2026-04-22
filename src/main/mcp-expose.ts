@@ -166,6 +166,12 @@ export class McpExpose {
       return;
     }
 
+    // Streamable HTTP endpoint — single URL for MCP clients like Claude Code
+    if (url === "/mcp" && req.method === "POST") {
+      this.handleStreamableHttp(req, res);
+      return;
+    }
+
     // REST endpoint — simple POST to ingest content (used by hooks)
     if (url === "/api/sup" && req.method === "POST") {
       this.handleApiSup(req, res);
@@ -173,10 +179,12 @@ export class McpExpose {
     }
 
     // Health check
-    if (url === "/" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ name: "yo", version: "1.0.0", status: "ok" }));
-      return;
+    if (url === "/" || url === "/mcp") {
+      if (req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ name: "yo", version: "1.0.0", status: "ok" }));
+        return;
+      }
     }
 
     res.writeHead(404);
@@ -225,7 +233,32 @@ export class McpExpose {
     } catch {}
   }
 
-  // ── JSON-RPC message handling ─────────────────────────────
+  // ── Streamable HTTP (single-endpoint MCP) ──────────────────
+
+  private async handleStreamableHttp(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+
+    let rpc: McpRequest;
+    try {
+      rpc = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON" }));
+      return;
+    }
+
+    const response = await this.processRpc(rpc);
+    if (response) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(response));
+    } else {
+      res.writeHead(202);
+      res.end();
+    }
+  }
+
+  // ── JSON-RPC message handling (legacy SSE transport) ──────
 
   private async handleMessage(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);

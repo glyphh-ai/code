@@ -51,37 +51,10 @@ const GRAB_SCRIPT = `(function() {
     } catch(e) {}
   }
 
-  if (messages.length === 0) {
-    // Fallback: find main content area
-    var mainEl = document.querySelector('[role="main"]')
-      || document.querySelector('main')
-      || document.querySelector('[data-testid*="conversation"]')
-      || document.querySelector('[data-testid*="chat"]')
-      || document.querySelector('[data-testid*="thread"]');
-    if (mainEl) {
-      var text = mainEl.innerText.trim();
-      if (text.length > 8000) text = text.slice(0, 8000) + '...';
-      lines.push(text);
-    } else {
-      // Last resort: strip noise
-      var clone = document.body.cloneNode(true);
-      var noise = clone.querySelectorAll(
-        'nav, header, footer, aside, [role="banner"], [role="navigation"], ' +
-        '[role="complementary"], [class*="sidebar"], [class*="Sidebar"], ' +
-        '[class*="nav-"], [class*="Nav-"], [class*="footer"], [class*="Footer"], ' +
-        '[class*="header"], [class*="Header"], [class*="toolbar"], [class*="Toolbar"], ' +
-        '[class*="menu"], [class*="Menu"], ' +
-        'script, style, noscript, [aria-hidden="true"]'
-      );
-      for (var i = 0; i < noise.length; i++) {
-        try { noise[i].remove(); } catch(e) {}
-      }
-      var text = clone.innerText.trim();
-      if (text.length > 8000) text = text.slice(0, 8000) + '...';
-      lines.push(text);
-    }
-  } else {
-    // Chat app — extract last N messages
+  // Build structured output from message selectors
+  var structured = "";
+  if (messages.length > 0) {
+    var parts = [];
     var recent = messages.slice(-15);
     for (var i = 0; i < recent.length; i++) {
       var msg = recent[i];
@@ -92,11 +65,43 @@ const GRAB_SCRIPT = `(function() {
       var text = msg.innerText.trim();
       if (text.length < 5) continue;
       if (text.length > 2000) text = text.slice(0, 2000) + '...';
-      if (role) lines.push("[" + role + "]");
-      lines.push(text);
-      lines.push("");
+      if (role) parts.push("[" + role + "]");
+      parts.push(text);
+      parts.push("");
     }
+    structured = parts.join("\\n");
   }
+
+  // Always grab main content area as fallback
+  var mainText = "";
+  var mainEl = document.querySelector('[role="main"]')
+    || document.querySelector('main')
+    || document.querySelector('[data-testid*="conversation"]')
+    || document.querySelector('[data-testid*="chat"]')
+    || document.querySelector('[data-testid*="thread"]');
+  if (mainEl) {
+    mainText = mainEl.innerText.trim();
+  }
+  if (!mainText) {
+    var clone = document.body.cloneNode(true);
+    var noise = clone.querySelectorAll(
+      'nav, header, footer, aside, [role="banner"], [role="navigation"], ' +
+      '[role="complementary"], [class*="sidebar"], [class*="Sidebar"], ' +
+      '[class*="nav-"], [class*="Nav-"], [class*="footer"], [class*="Footer"], ' +
+      '[class*="header"], [class*="Header"], [class*="toolbar"], [class*="Toolbar"], ' +
+      '[class*="menu"], [class*="Menu"], ' +
+      'script, style, noscript, [aria-hidden="true"]'
+    );
+    for (var i = 0; i < noise.length; i++) {
+      try { noise[i].remove(); } catch(e) {}
+    }
+    mainText = clone.innerText.trim();
+  }
+
+  // Use whichever captured more content — selectors can go stale
+  var content = (structured.length >= mainText.length) ? structured : mainText;
+  if (content.length > 8000) content = content.slice(-8000);
+  lines.push(content);
 
   return lines.join("\\n").trim();
 })()`;
