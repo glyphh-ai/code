@@ -1,6 +1,6 @@
 /**
- * CloudSync — polls yo.yo.dev/api/pending, pulls new items
- * to ~/yo/notes/, then ACKs so the cloud deletes them.
+ * CloudSync — polls api.yosup.dev/api/pending, pulls new items
+ * to local stores, then ACKs so the cloud deletes them.
  *
  * Cloud is transient. Local is source of truth.
  */
@@ -17,7 +17,7 @@ interface PendingItem {
 }
 
 const POLL_INTERVAL_MS = 7_000; // ~7 seconds
-const DEFAULT_SERVER = "https://yo.yo.dev";
+const DEFAULT_SERVER = "https://api.yosup.dev";
 
 export class CloudSync {
   private noteStore: NoteStore;
