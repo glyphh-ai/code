@@ -13,6 +13,7 @@ import os from "os";
 import type { WebContents } from "electron";
 import type { AppConnector, CommandMapping } from "./app-connector";
 import type { SkillEngine } from "./skill-engine";
+import type { McpManager } from "./mcp-manager";
 
 export interface RipOutput {
   field: string;
@@ -21,7 +22,7 @@ export interface RipOutput {
 }
 
 export interface RipStep {
-  type: "app" | "agent";
+  type: "app" | "agent" | "mcp";
   app?: string;
   command?: string;
   /** Skill name or inline text prompt — optional for app steps, required for agent steps */
@@ -30,6 +31,12 @@ export interface RipStep {
   outputs?: RipOutput[];
   /** Delay in ms to wait after this step completes (default 200) */
   delay?: number;
+  /** MCP step: server ID to call */
+  mcpServer?: string;
+  /** MCP step: tool name on the server */
+  mcpTool?: string;
+  /** MCP step: JSON args to pass to the tool */
+  mcpArgs?: Record<string, unknown>;
 }
 
 export interface Rip {
@@ -102,6 +109,7 @@ export interface RipRunnerDeps {
   appConnector: AppConnector;
   getWebContents: (appId: string) => WebContents | null;
   skillEngine: SkillEngine | null;
+  mcpManager: McpManager | null;
   onStep?: (index: number, step: RipStep, status: string) => void;
 }
 
@@ -189,6 +197,31 @@ export async function runRip(rip: Rip, deps: RipRunnerDeps, initialContext = "")
           await new Promise((r) => setTimeout(r, 150));
         }
       }
+
+      deps.onStep?.(i, step, "done");
+      if (i < rip.steps.length - 1) await new Promise((r) => setTimeout(r, step.delay ?? 200));
+      continue;
+    }
+
+    // MCP steps: call an MCP server tool
+    if (step.type === "mcp") {
+      if (!step.mcpServer || !step.mcpTool) {
+        const msg = `Step ${i + 1}: mcp step missing server or tool`;
+        log.push(msg);
+        deps.onStep?.(i, step, msg);
+        return { ok: false, context, log };
+      }
+      if (!deps.mcpManager) {
+        const msg = `Step ${i + 1}: no MCP manager available`;
+        log.push(msg);
+        deps.onStep?.(i, step, msg);
+        return { ok: false, context, log };
+      }
+
+      const args = { ...(step.mcpArgs || {}), ...(context ? { input: context } : {}) };
+      const result = await deps.mcpManager.callToolDirect(step.mcpServer, step.mcpTool, args);
+      context = result;
+      log.push(`Step ${i + 1}: mcp → ${step.mcpServer}.${step.mcpTool} (${result.length} chars)`);
 
       deps.onStep?.(i, step, "done");
       if (i < rip.steps.length - 1) await new Promise((r) => setTimeout(r, step.delay ?? 200));

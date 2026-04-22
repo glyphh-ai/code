@@ -36,6 +36,7 @@ export class CommandParser {
   private ripStore: RipStore = new RipStore();
   private tabCloser: ((id: string) => void) | null = null;
   private tabLister: (() => string[]) | null = null;
+  private mcpManager: import("./mcp-manager").McpManager | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -67,6 +68,11 @@ export class CommandParser {
   /** Set the LLM engine for inline processing. */
   setYoChat(chat: YoChat): void {
     this.yoChat = chat;
+  }
+
+  /** Set the MCP manager for rip MCP steps. */
+  setMcpManager(mgr: import("./mcp-manager").McpManager): void {
+    this.mcpManager = mgr;
   }
 
   /** Set the grabber callback — grabs content from visible panels. */
@@ -588,8 +594,9 @@ export class CommandParser {
         return this.wcGetter?.(appId) ?? null;
       },
       skillEngine: this.skillEngine,
+      mcpManager: this.mcpManager,
       onStep: (i, step, status) => {
-        const label = step.type === "agent" ? "agent" : `${step.app}.${step.command}`;
+        const label = step.type === "agent" ? "agent" : step.type === "mcp" ? `mcp:${step.mcpServer}.${step.mcpTool}` : `${step.app}.${step.command}`;
         if (status === "running") {
           win.webContents.send("rip-step", { index: i, label, status: "running" });
         } else if (status === "done") {

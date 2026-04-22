@@ -84,8 +84,8 @@ contextBridge.exposeInMainWorld("yo", {
   },
 
   // Rips
-  ripsList: () => ipcRenderer.invoke("rips-list") as Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number }> }>>,
-  ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number }> }) =>
+  ripsList: () => ipcRenderer.invoke("rips-list") as Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent" | "mcp"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number; mcpServer?: string; mcpTool?: string; mcpArgs?: Record<string, unknown> }> }>>,
+  ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent" | "mcp"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number; mcpServer?: string; mcpTool?: string; mcpArgs?: Record<string, unknown> }> }) =>
     ipcRenderer.invoke("rips-save", rip) as Promise<boolean>,
   ripsRemove: (name: string) => ipcRenderer.invoke("rips-remove", name) as Promise<boolean>,
   ripsRun: (name: string) => ipcRenderer.invoke("rips-run", name) as Promise<{ ok: boolean; context: string; log: string[] }>,
@@ -240,18 +240,21 @@ contextBridge.exposeInMainWorld("yo", {
   yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
   yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
 
-  // MCP + Connectors (removed — stubs for renderer compat)
-  mcpGetPresets: () => Promise.resolve([]),
-  mcpGetServers: () => Promise.resolve([]),
-  mcpAddServer: () => Promise.resolve(false),
-  mcpRemoveServer: () => Promise.resolve(false),
-  mcpUpdateServer: () => Promise.resolve(false),
-  mcpConnectServer: () => Promise.resolve({ ok: false, error: "MCP removed" }),
-  mcpDisconnectServer: () => Promise.resolve(false),
-  mcpGetToolOverride: () => Promise.resolve("default"),
-  mcpSetToolOverride: () => {},
-  mcpSetServerOverride: () => {},
-  onMcpChanged: () => {},
+  // MCP servers
+  mcpGetServers: () => ipcRenderer.invoke("mcp-get-servers"),
+  mcpAddServer: (config: any) => ipcRenderer.invoke("mcp-add-server", config),
+  mcpRemoveServer: (id: string) => ipcRenderer.invoke("mcp-remove-server", id),
+  mcpUpdateServer: (id: string, updates: any) => ipcRenderer.invoke("mcp-update-server", id, updates),
+  mcpConnectServer: (id: string) => ipcRenderer.invoke("mcp-connect-server", id) as Promise<{ ok: boolean; error?: string }>,
+  mcpDisconnectServer: (id: string) => ipcRenderer.invoke("mcp-disconnect-server", id),
+  mcpGetToolOverride: (serverId: string, toolName: string) => ipcRenderer.invoke("mcp-get-tool-override", serverId, toolName) as Promise<string>,
+  mcpSetToolOverride: (serverId: string, toolName: string, override: string) => ipcRenderer.invoke("mcp-set-tool-override", serverId, toolName, override),
+  mcpSetServerOverride: (serverId: string, override: string) => ipcRenderer.invoke("mcp-set-server-override", serverId, override),
+  onMcpChanged: (cb: () => void) => {
+    ipcRenderer.on("mcp-changed", () => cb());
+  },
+
+  // Connectors (removed — stubs for renderer compat)
   connectorsGetApps: () => Promise.resolve({ apps: [], hasMore: false }),
   connectorsGetAccounts: () => Promise.resolve([]),
   connectorsConnect: () => Promise.resolve({ ok: false, error: "Connectors removed" }),

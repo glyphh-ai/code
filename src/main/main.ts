@@ -38,6 +38,7 @@ import { usageTracker } from "./usage-tracker";
 import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
+import { McpManager } from "./mcp-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -53,6 +54,7 @@ let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
+let mcpManager: McpManager | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
@@ -605,6 +607,10 @@ async function boot() {
   const captureStore = new CaptureStore();
   captureStore.setEmbedder(embedder);
 
+  // MCP manager — MCP server connections + tool discovery
+  mcpManager = new McpManager();
+  mcpManager.init().catch((err) => console.error("[mcp]", err));
+
   // Yo agent — capture search + format assistant
   const yoAgent = new YoAgent();
   yoAgent.setCaptureStore(captureStore);
@@ -877,6 +883,7 @@ async function boot() {
 
   // Give command parser access to panel WebContents for .waz
   commandParser.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
+  commandParser.setMcpManager(mcpManager!);
 
   // Push session state to renderer
   const sendSessionState = () => {
@@ -1747,7 +1754,50 @@ async function boot() {
         return panelManager.getGuestOrWebContents(appId);
       },
       skillEngine,
+      mcpManager,
     }, session.get());
+  });
+
+  // IPC: MCP servers
+  ipcMain.handle("mcp-get-servers", () => mcpManager!.getServerStates());
+  ipcMain.handle("mcp-add-server", (_e, config: any) => {
+    mcpManager!.addServer(config);
+    return true;
+  });
+  ipcMain.handle("mcp-remove-server", (_e, id: string) => {
+    mcpManager!.removeServer(id);
+    return true;
+  });
+  ipcMain.handle("mcp-update-server", (_e, id: string, updates: any) => {
+    mcpManager!.updateServer(id, updates);
+    return true;
+  });
+  ipcMain.handle("mcp-connect-server", async (_e, id: string) => {
+    const configs = mcpManager!.getConfigs();
+    const config = configs.find((c) => c.id === id);
+    if (!config) return { ok: false, error: "Server not found" };
+    try {
+      await mcpManager!.connectServer(config);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err.message || "Connection failed" };
+    }
+  });
+  ipcMain.handle("mcp-disconnect-server", async (_e, id: string) => {
+    await mcpManager!.disconnectServer(id);
+    return true;
+  });
+  ipcMain.handle("mcp-get-tool-override", (_e, serverId: string, toolName: string) =>
+    mcpManager!.getToolOverride(serverId, toolName),
+  );
+  ipcMain.handle("mcp-set-tool-override", (_e, serverId: string, toolName: string, override: string) => {
+    mcpManager!.setToolOverride(serverId, toolName, override as any);
+  });
+  ipcMain.handle("mcp-set-server-override", (_e, serverId: string, override: string) => {
+    mcpManager!.setServerOverride(serverId, override as any);
+  });
+  mcpManager!.on("changed", () => {
+    mainWindow?.webContents.send("mcp-changed");
   });
 
   // IPC: command execution (used by Cmd+. overlay)
@@ -2247,6 +2297,7 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   embedder?.cleanup();
+  mcpManager?.disconnectAll();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

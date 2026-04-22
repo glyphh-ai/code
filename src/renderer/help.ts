@@ -1206,12 +1206,15 @@ interface RipOutput {
 }
 
 interface RipStep {
-  type: "app" | "agent";
+  type: "app" | "agent" | "mcp";
   app?: string;
   command?: string;
   prompt?: string;
   outputs?: RipOutput[];
   delay?: number;
+  mcpServer?: string;
+  mcpTool?: string;
+  mcpArgs?: Record<string, unknown>;
 }
 
 interface RipData {
@@ -1223,6 +1226,7 @@ interface RipData {
 let editingRip: RipData | null = null;
 let editingRipSteps: RipStep[] = [];
 let allRips: RipData[] = [];
+let cachedMcpServers: Array<{ config: { id: string; name: string }; status: string; tools: Array<{ name: string; description?: string }> }> = [];
 
 async function loadRips() {
   ripEditor.classList.add("hidden");
@@ -1294,6 +1298,7 @@ async function openRipEditor(rip?: RipData) {
   if (ripEditorTitle) ripEditorTitle.textContent = editingRip ? editingRip.name : "New Rip";
 
   cachedApps = await window.yo.appsList();
+  cachedMcpServers = await window.yo.mcpGetServers();
   expandedStepIdx = null;
 
   ripsListEl.classList.add("hidden");
@@ -1314,6 +1319,7 @@ function appCommandOptions(appId: string): string {
 
 function stepSummary(step: RipStep): string {
   if (step.type === "agent") return `<span class="rip-step-type-tag">agent</span>`;
+  if (step.type === "mcp") return `<span class="rip-step-type-tag">mcp</span> ${escHtml(step.mcpServer || "")}.<span style="color:#888;">${escHtml(step.mcpTool || "")}</span>`;
   return `${escHtml(step.app || "")}.<span style="color:#888;">${escHtml(step.command || "")}</span>`;
 }
 
@@ -1324,13 +1330,27 @@ function stepMeta(step: RipStep): string {
   return parts.length ? `<span class="rip-step-meta">${parts.join(" · ")}</span>` : "";
 }
 
+function mcpServerOptions(): string {
+  return cachedMcpServers.map((s) => `<option value="${s.config.id}">${s.config.name}</option>`).join("");
+}
+
+function mcpToolOptions(serverId: string): string {
+  const server = cachedMcpServers.find((s) => s.config.id === serverId);
+  if (!server || server.tools.length === 0) return `<option value="">no tools</option>`;
+  return server.tools.map((t) => `<option value="${t.name}">${t.name}</option>`).join("");
+}
+
 function renderRipSteps() {
   const appOptions = cachedApps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+  const mcpOpts = mcpServerOptions();
 
   ripStepsList.innerHTML = editingRipSteps.map((step, i) => {
     const expanded = i === expandedStepIdx;
     const isAgent = step.type === "agent";
+    const isMcp = step.type === "mcp";
+    const isApp = step.type === "app";
     const cmdOpts = step.app ? appCommandOptions(step.app) : "";
+    const mcpToolOpts = step.mcpServer ? mcpToolOptions(step.mcpServer) : "";
 
     return `<div class="rip-step${expanded ? " expanded" : ""}" data-index="${i}" draggable="true">
       <div class="rip-step-header">
@@ -1343,14 +1363,18 @@ function renderRipSteps() {
       <div class="rip-step-body">
         <div class="rip-step-row">
           <select class="rs-type" style="min-width:72px;">
-            <option value="app"${!isAgent ? " selected" : ""}>App</option>
+            <option value="app"${isApp ? " selected" : ""}>App</option>
             <option value="agent"${isAgent ? " selected" : ""}>Agent</option>
+            <option value="mcp"${isMcp ? " selected" : ""}>MCP</option>
           </select>
-          <select class="rs-app"${isAgent ? ' style="display:none"' : ""}>${appOptions}</select>
-          <select class="rs-cmd"${isAgent ? ' style="display:none"' : ""}>${cmdOpts}</select>
+          <select class="rs-app"${!isApp ? ' style="display:none"' : ""}>${appOptions}</select>
+          <select class="rs-cmd"${!isApp ? ' style="display:none"' : ""}>${cmdOpts}</select>
+          <select class="rs-mcp-server"${!isMcp ? ' style="display:none"' : ""}>${mcpOpts}</select>
+          <select class="rs-mcp-tool"${!isMcp ? ' style="display:none"' : ""}>${mcpToolOpts}</select>
           <input type="number" class="rs-delay" min="0" step="100" placeholder="ms" title="Delay (ms)" value="${step.delay || ""}" />
         </div>
-        <textarea class="rs-prompt" rows="2" placeholder="${isAgent ? "skill or prompt (required)" : "skill or prompt (optional)"}" spellcheck="false">${escHtml(step.prompt || "")}</textarea>
+        <textarea class="rs-prompt"${isMcp ? ' style="display:none"' : ""} rows="2" placeholder="${isAgent ? "skill or prompt (required)" : "skill or prompt (optional)"}" spellcheck="false">${escHtml(step.prompt || "")}</textarea>
+        <textarea class="rs-mcp-args"${!isMcp ? ' style="display:none"' : ""} rows="2" placeholder="JSON args (optional)" spellcheck="false">${isMcp && step.mcpArgs ? escHtml(JSON.stringify(step.mcpArgs, null, 2)) : ""}</textarea>
         <div class="rs-outputs"${!isAgent ? ' style="display:none"' : ""}>
           <label style="font-size:11px;color:#888;margin-top:2px;">Outputs — map [field] to app.command</label>
           <div class="rs-outputs-list">${(step.outputs || []).map((o, oi) =>
@@ -1405,8 +1429,10 @@ function renderRipSteps() {
     // Type change
     const typeSel = el.querySelector(".rs-type") as HTMLSelectElement;
     typeSel.addEventListener("change", () => {
-      step.type = typeSel.value as "app" | "agent";
-      if (step.type === "app") { step.outputs = undefined; }
+      step.type = typeSel.value as "app" | "agent" | "mcp";
+      if (step.type === "app") { step.outputs = undefined; step.mcpServer = undefined; step.mcpTool = undefined; step.mcpArgs = undefined; }
+      if (step.type === "agent") { step.mcpServer = undefined; step.mcpTool = undefined; step.mcpArgs = undefined; }
+      if (step.type === "mcp") { step.outputs = undefined; step.app = undefined; step.command = undefined; }
       renderRipSteps();
     });
 
@@ -1419,6 +1445,34 @@ function renderRipSteps() {
 
     // Command change
     if (cmdSel) cmdSel.addEventListener("change", () => { step.command = cmdSel.value; });
+
+    // MCP server/tool change
+    const mcpServerSel = el.querySelector(".rs-mcp-server") as HTMLSelectElement | null;
+    const mcpToolSel = el.querySelector(".rs-mcp-tool") as HTMLSelectElement | null;
+    if (mcpServerSel) {
+      if (step.mcpServer) mcpServerSel.value = step.mcpServer;
+      mcpServerSel.addEventListener("change", () => {
+        step.mcpServer = mcpServerSel.value;
+        if (mcpToolSel) {
+          mcpToolSel.innerHTML = mcpToolOptions(mcpServerSel.value);
+          step.mcpTool = mcpToolSel.value;
+        }
+      });
+    }
+    if (mcpToolSel) {
+      if (step.mcpTool) mcpToolSel.value = step.mcpTool;
+      mcpToolSel.addEventListener("change", () => { step.mcpTool = mcpToolSel.value; });
+    }
+
+    // MCP args
+    const mcpArgsArea = el.querySelector(".rs-mcp-args") as HTMLTextAreaElement | null;
+    if (mcpArgsArea) {
+      mcpArgsArea.addEventListener("input", () => {
+        const val = mcpArgsArea.value.trim();
+        if (!val) { step.mcpArgs = undefined; return; }
+        try { step.mcpArgs = JSON.parse(val); } catch { /* leave as-is until valid */ }
+      });
+    }
 
     // Delay
     const delayInput = el.querySelector(".rs-delay") as HTMLInputElement;
