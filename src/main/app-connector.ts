@@ -388,6 +388,13 @@ export class AppConnector {
     return false;
   }
 
+  /** Check if a panel is a conversational app (chat, messaging). */
+  isConversational(panelId: string): boolean {
+    const app = this.apps.get(panelId);
+    const domain = app?.url || panelId;
+    return CONVERSATIONAL_DOMAINS.some((d) => domain.includes(d));
+  }
+
   /** Get the capture policy for a source. Falls back to smart defaults. */
   getCapturePolicy(source: string): CapturePolicy {
     const app = this.apps.get(source);

@@ -61,6 +61,7 @@ let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
 let dripManager: DripManager | null = null;
+let actionGrabber: ActionGrabber | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
@@ -235,8 +236,8 @@ async function boot() {
   captureStore.setEmbedder(embedder);
   captureStore.setPolicyResolver((source) => appConnector.getCapturePolicy(source));
 
-  // Action-driven capture — grabs content on blur/navigate
-  const actionGrabber = new ActionGrabber();
+  // Action-driven capture — grabs content on blur/navigate + polls chat panels
+  actionGrabber = new ActionGrabber();
   actionGrabber.setCaptureStore(captureStore);
   actionGrabber.setAppConnector(appConnector);
 
@@ -302,7 +303,7 @@ async function boot() {
         };
         childWc.on("did-navigate", (_e: unknown, url: string) => {
           trackChild(url);
-          actionGrabber.onPanelNavigate(id).catch(() => {});
+          actionGrabber?.onPanelNavigate(id).catch(() => {});
         });
         childWc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
           if (isMainFrame) trackChild(url);
@@ -329,7 +330,7 @@ async function boot() {
       };
       wc.on("did-navigate", (_e: unknown, url: string) => {
         trackDirect(url);
-        actionGrabber.onPanelNavigate(id).catch(() => {});
+        actionGrabber?.onPanelNavigate(id).catch(() => {});
       });
       wc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
         if (isMainFrame) trackDirect(url);
@@ -346,8 +347,10 @@ async function boot() {
     }
   });
 
-  // Wire action grabber to panel manager for webContents access
+  // Wire action grabber to panel manager for webContents access + polling
   actionGrabber.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
+  actionGrabber.setPanelIdGetter(() => panelManager.getLoadedPanelIds());
+  actionGrabber.startPolling();
 
   // Wire council to panel manager
   council.setPanelSwitcher((id) => panelManager.switchTo(id, mainWindow!));
@@ -831,7 +834,7 @@ async function boot() {
   panelManager.setOnPanelFocused((id: string) => {
     // Action capture: previous panel just lost focus — capture it
     if (lastFocusedPanel && lastFocusedPanel !== id) {
-      actionGrabber.onPanelBlur(lastFocusedPanel).catch(() => {});
+      actionGrabber?.onPanelBlur(lastFocusedPanel).catch(() => {});
     }
     lastFocusedPanel = id;
 
@@ -1938,6 +1941,7 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpExpose?.stop();
+  actionGrabber?.stopPolling();
   embedder?.cleanup();
   dripManager?.cleanup();
   usageTracker.flush();

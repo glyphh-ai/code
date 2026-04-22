@@ -1,13 +1,13 @@
 /**
- * ActionGrabber — event-driven capture for the context store.
+ * ActionGrabber — event-driven + polling capture for the context store.
  *
  * Captures content from panels on user actions:
  *   - Panel blur (user switches away)
  *   - Navigation (URL changes, page finished loading)
+ *   - Polling (conversational panels checked every POLL_INTERVAL_MS)
  *
  * Uses content hashing to detect deltas — only ingests when
  * the content has actually changed since the last capture.
- * No timer-based polling. No LLM in the write path.
  */
 
 import { WebContents } from "electron";
@@ -18,6 +18,9 @@ import type { AppConnector } from "./app-connector";
 /** Minimum ms between captures of the same panel. */
 const DEBOUNCE_MS = 3000;
 
+/** Polling interval for conversational panels. */
+const POLL_INTERVAL_MS = 8000;
+
 /** Panels to skip (internal yo:// panels, terminals, etc). */
 const SKIP_PREFIXES = ["yo:", "term", "devtools"];
 
@@ -27,6 +30,8 @@ export class ActionGrabber {
   private lastHashes = new Map<string, string>();
   private lastCaptureTimes = new Map<string, number>();
   private wcGetter: ((id: string) => WebContents | null) | null = null;
+  private panelIdGetter: (() => string[]) | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
@@ -40,6 +45,24 @@ export class ActionGrabber {
     this.wcGetter = fn;
   }
 
+  setPanelIdGetter(fn: () => string[]): void {
+    this.panelIdGetter = fn;
+  }
+
+  /** Start polling conversational panels for content changes. */
+  startPolling(): void {
+    if (this.pollTimer) return;
+    this.pollTimer = setInterval(() => this.pollConversationalPanels(), POLL_INTERVAL_MS);
+  }
+
+  /** Stop the polling loop. */
+  stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
   /** Called when a panel loses focus (user switched away). */
   async onPanelBlur(panelId: string): Promise<void> {
     await this.captureIfChanged(panelId);
@@ -49,6 +72,17 @@ export class ActionGrabber {
   async onPanelNavigate(panelId: string): Promise<void> {
     // Small delay to let the page render after navigation
     setTimeout(() => this.captureIfChanged(panelId), 1500);
+  }
+
+  private async pollConversationalPanels(): Promise<void> {
+    if (!this.panelIdGetter || !this.appConnector) return;
+
+    const ids = this.panelIdGetter();
+    for (const id of ids) {
+      if (this.shouldSkip(id)) continue;
+      if (!this.appConnector.isConversational(id)) continue;
+      this.captureIfChanged(id).catch(() => {});
+    }
   }
 
   private shouldSkip(panelId: string): boolean {
