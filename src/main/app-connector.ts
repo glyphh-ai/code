@@ -168,22 +168,12 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: bo
   { id: "gemini", name: "Gemini", url: "https://gemini.google.com" },
   { id: "grok", name: "Grok", url: "https://grok.com" },
   { id: "perplexity", name: "Perplexity", url: "https://perplexity.ai" },
-  // Google Workspace
+  // Productivity
   { id: "gmail", name: "Gmail", url: "https://mail.google.com" },
   { id: "calendar", name: "Google Calendar", url: "https://calendar.google.com" },
-  { id: "sheets", name: "Google Sheets", url: "https://sheets.google.com" },
-  { id: "docs", name: "Google Docs", url: "https://docs.google.com" },
-  { id: "slides", name: "Google Slides", url: "https://slides.google.com" },
-  { id: "notebooklm", name: "NotebookLM", url: "https://notebooklm.google.com" },
-  // Dev & Work
   { id: "github", name: "GitHub", url: "https://github.com" },
   { id: "slack", name: "Slack", url: "https://app.slack.com", forceWeb: true },
-  { id: "linear", name: "Linear", url: "https://linear.app" },
-  { id: "jira", name: "Jira", url: "https://atlassian.net", forceWeb: true },
   { id: "notion", name: "Notion", url: "https://notion.so", forceWeb: true },
-  // Other
-  { id: "figma", name: "Figma", url: "https://figma.com", forceWeb: true },
-  { id: "youtube", name: "YouTube", url: "https://youtube.com" },
 ];
 
 // Domains that default to doNotRecord — banking, health, finance, passwords
