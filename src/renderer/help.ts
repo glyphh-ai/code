@@ -119,7 +119,12 @@ const navSubItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-sub-
 
 // ── Open / close ─────────────────────────────────────────
 
+let helpTransitioning = false;
+
 export function openHelp() {
+  if (helpTransitioning) return;
+  helpTransitioning = true;
+  setTimeout(() => { helpTransitioning = false; }, 300);
   window.yo.panelsHide();
   overlay.classList.remove("hidden");
   loadActiveSection();
@@ -140,6 +145,9 @@ export function openSettings(sub?: string) {
 }
 
 export function closeHelp() {
+  if (helpTransitioning) return;
+  helpTransitioning = true;
+  setTimeout(() => { helpTransitioning = false; }, 300);
   overlay.classList.add("hidden");
   window.yo.panelsShow();
 }

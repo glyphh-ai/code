@@ -2096,7 +2096,7 @@ window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
 
 // Splash — minimum display time before dismissing
 const splashShownAt = Date.now();
-const SPLASH_MIN_MS = 2000;
+const SPLASH_MIN_MS = 3500;
 let booted = false;
 let bootData: any = null;
 let tutorialShowing = false;

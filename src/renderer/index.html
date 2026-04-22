@@ -116,6 +116,7 @@
             <button class="help-nav-sub-item" data-section="docs" data-sub="layouts">Layouts</button>
 
             <button class="help-nav-sub-item" data-section="docs" data-sub="agent">Agent</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="mcp">MCP</button>
           </div>
         </div>
         <button class="help-nav-item" data-section="apps">Apps</button>
@@ -344,6 +345,7 @@
               <button class="settings-nav-item" data-doc="layouts">Layouts</button>
 
               <button class="settings-nav-item" data-doc="agent">Agent</button>
+              <button class="settings-nav-item" data-doc="mcp">MCP</button>
             </nav>
             <div class="settings-panels docs-panels">
             <div class="docs-panel active" data-doc="navigation">
@@ -543,6 +545,59 @@
               <h4>Chat history</h4>
               <p>Click the hamburger menu (&#9776;) in the agent panel header to see your conversation history. Each conversation is saved automatically. Click <strong>+</strong> to start a new chat.</p>
             </div>
+
+            <div class="docs-panel" data-doc="mcp">
+              <h3>MCP (Model Context Protocol)</h3>
+              <p>.Yo supports MCP in two ways: as a <strong>server</strong> that exposes your captures to external tools, and as a way to configure <strong>local MCP servers</strong> for the agent to use.</p>
+
+              <h4>Yo MCP Server (expose captures)</h4>
+              <p>Enable in <strong>Settings &gt; General &gt; MCP Server</strong>. This runs a local MCP server that lets external AI tools search your capture store — your ambient captures, .sup snapshots, and notes.</p>
+              <p>Use this when you want Claude Desktop, Cursor, Windsurf, or other MCP-compatible tools to access everything you've captured in .Yo. The server runs on your machine and uses bearer tokens for auth.</p>
+
+              <h4>Connecting from Claude Desktop</h4>
+              <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
+              <pre class="docs-code">{
+  "mcpServers": {
+    "yo": {
+      "command": "curl",
+      "args": ["-N", "-H", "Authorization: Bearer YOUR_TOKEN",
+               "http://localhost:7860/sse"]
+    }
+  }
+}</pre>
+              <p>Replace <code>YOUR_TOKEN</code> with a token generated in Settings. The port defaults to 7860 but can be changed.</p>
+
+              <h4>Connecting from Cursor / Windsurf</h4>
+              <p>In your project's <code>.cursor/mcp.json</code> or MCP settings:</p>
+              <pre class="docs-code">{
+  "mcpServers": {
+    "yo": {
+      "url": "http://localhost:7860/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
+    }
+  }
+}</pre>
+
+              <h4>Cloud vs Local tokens</h4>
+              <p>The Yo MCP Server runs <strong>locally</strong> on your machine. External tools connect to it over localhost. No data leaves your computer — the MCP server just gives other tools a way to search your captures using the same vector index the .yo agent uses.</p>
+              <p>The tokens generated in Settings are <strong>local access tokens</strong> — they authenticate MCP clients connecting to your local server. These are separate from your LLM API keys (Anthropic, OpenAI, etc.) which are used by the .yo agent to generate responses.</p>
+              <ul class="docs-list">
+                <li><strong>MCP tokens</strong> — authenticate external tools connecting to your local Yo server. Free, no API costs.</li>
+                <li><strong>LLM API keys</strong> — power the .yo agent's responses. Costs depend on your provider.</li>
+              </ul>
+              <p>When Claude Desktop or Cursor calls your Yo MCP server, the search is local (no LLM tokens spent). But if those tools then use the search results in a prompt, that prompt uses <em>their</em> configured LLM — and those tokens come from <em>your</em> API key in that tool.</p>
+
+              <h4>Available MCP tools</h4>
+              <p>When connected, external tools can use:</p>
+              <ul class="docs-list">
+                <li><strong>search_captures</strong> — vector search across all your captured content</li>
+                <li><strong>search_notes</strong> — keyword search across saved notes</li>
+                <li><strong>read_note</strong> — read a specific note file</li>
+                <li><strong>get_session</strong> — get the current session context</li>
+              </ul>
+            </div>
           </div>
         </div>
         </div>
@@ -687,10 +742,6 @@
             <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="app-detail-close">← Apps</a>
               <div class="crud-spacer"></div>
-              <button id="app-pick-btn" class="action-btn rip-run-action">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                Pick Element
-              </button>
               <button id="app-detail-delete" class="action-btn danger">Delete</button>
             </div>
             <label class="settings-label">Name</label>
@@ -757,7 +808,14 @@
               <div class="app-builder-preview">
                 <div class="preview-toolbar">
                   <span class="preview-label">Live Preview</span>
-                  <button id="app-preview-refresh" class="preview-action">Refresh</button>
+                  <button id="app-preview-refresh" class="preview-action preview-action-visible">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                    Refresh
+                  </button>
+                  <button id="app-pick-btn" class="action-btn rip-run-action" style="height:24px;font-size:11px;padding:0 10px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    Pick Element
+                  </button>
                 </div>
                 <webview id="app-preview" partition="persist:yo" allowpopups></webview>
               </div>
