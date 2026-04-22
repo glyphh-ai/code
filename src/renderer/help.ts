@@ -837,6 +837,8 @@ function renderAppsList() {
     ? panelApps.filter((a) => a.name.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
     : panelApps;
 
+  appsList.className = "app-grid";
+
   if (panelApps.length === 0) {
     appsList.innerHTML = `<div class="crud-empty">No apps yet. Click "+ New" to add one.</div>`;
     return;
@@ -851,36 +853,22 @@ function renderAppsList() {
   appsList.innerHTML = "";
 
   for (const app of pageApps) {
-    const cmdCount = Object.keys(app.commands || {}).length;
-    const meta = cmdCount > 0 ? `${app.url} — ${cmdCount} cmd${cmdCount > 1 ? "s" : ""}` : app.url;
+    const isInternal = app.url.startsWith("yo://");
+    const faviconUrl = isInternal
+      ? ""
+      : `https://www.google.com/s2/favicons?domain=${new URL(app.url).hostname}&sz=64`;
+    const initial = app.name.charAt(0).toUpperCase();
+
     const card = document.createElement("div");
-    card.className = "crud-card";
+    card.className = "app-card";
     card.innerHTML = `
-      <div class="crud-card-info">
-        <span class="crud-card-name">${app.name} <span style="color:#999;font-size:11px;font-weight:400;margin-left:4px;">${app.id}</span></span>
-        <span class="crud-card-meta">${meta}</span>
+      <div class="app-card-icon">
+        ${faviconUrl
+          ? `<img src="${faviconUrl}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><span class="app-card-initial" style="display:none">${initial}</span>`
+          : `<span class="app-card-initial">${initial}</span>`}
       </div>
-      <div class="crud-card-actions">
-        <button class="crud-card-btn crud-edit-btn" title="Edit">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-        </button>
-        <button class="crud-card-btn danger crud-delete-btn" title="Delete">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-        </button>
-      </div>`;
-
-    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openPanelAppDetail(app);
-    });
-
-    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const confirmed = await confirmAction(`Delete app "${app.name}"?`);
-      if (!confirmed) return;
-      await window.yo.appsRemove(app.id);
-      loadApps();
-    });
+      <div class="app-card-name">${app.name}</div>
+      <div class="app-card-id">${app.id}</div>`;
 
     card.addEventListener("click", () => openPanelAppDetail(app));
     appsList.appendChild(card);
@@ -1165,6 +1153,36 @@ function initApps() {
 
   appSearchInput.addEventListener("input", () => { appsPage = 0; renderAppsList(); });
 
+  // Draggable split divider
+  const divider = document.getElementById("app-builder-divider")!;
+  const controls = document.querySelector(".app-builder-controls") as HTMLElement;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+
+  divider.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = controls.offsetWidth;
+    divider.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const w = Math.max(200, Math.min(800, startW + (e.clientX - startX)));
+    controls.style.width = w + "px";
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  });
 }
 
 // ── Settings ─────────────────────────────────────────────
