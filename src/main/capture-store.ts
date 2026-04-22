@@ -150,17 +150,20 @@ export class CaptureStore {
     return this.ingestRaw(appId, content);
   }
 
-  /** Incremental — diff against last capture, only store new content. */
+  /** Incremental — diff against a snapshot reference, only store new content. */
   private async ingestIncremental(appId: string, content: string, minDelta: number): Promise<string> {
-    const existing = this.entriesForSource(appId);
-    if (existing.length > 0) {
-      const lastContent = this.readAllForSource(appId);
-      if (lastContent) {
-        const delta = this.extractDelta(lastContent, content);
-        if (delta.length < minDelta) return "";
-        return this.ingestRaw(appId, delta);
-      }
+    const refPath = path.join(STORE_DIR, `ref-${appId}.txt`);
+    let previous = "";
+    try { previous = fs.readFileSync(refPath, "utf-8"); } catch {}
+
+    if (previous) {
+      const delta = this.extractDelta(previous, content);
+      if (delta.length < minDelta) return "";
+      fs.writeFileSync(refPath, content, "utf-8");
+      return this.ingestRaw(appId, delta);
     }
+
+    fs.writeFileSync(refPath, content, "utf-8");
     return this.ingestRaw(appId, content);
   }
 
@@ -222,14 +225,31 @@ export class CaptureStore {
     return parts.join("\n\n");
   }
 
-  /** Extract new content that wasn't in the previous capture. */
+  /** Extract new content by finding where previous content ends in current. */
   private extractDelta(previous: string, current: string): string {
-    const prevLines = new Set(previous.split("\n").map((l) => l.trim()).filter(Boolean));
-    const newLines = current.split("\n").filter((l) => {
-      const trimmed = l.trim();
-      return trimmed && !prevLines.has(trimmed);
+    if (!previous) return current;
+
+    // Find the best overlap: look for the tail of `previous` at the start/middle of `current`
+    // Use progressively shorter suffixes of `previous` to find the match point
+    const prevTrimmed = previous.trimEnd();
+    const searchLen = Math.min(prevTrimmed.length, 500);
+    const tail = prevTrimmed.slice(-searchLen);
+
+    const idx = current.indexOf(tail);
+    if (idx !== -1) {
+      const after = current.slice(idx + tail.length).trim();
+      return after;
+    }
+
+    // Fallback: paragraph-level diff — new paragraphs not in previous
+    const prevParas = new Set(
+      previous.split(/\n{2,}/).map((p) => p.trim().slice(0, 200)).filter(Boolean),
+    );
+    const newParas = current.split(/\n{2,}/).filter((p) => {
+      const key = p.trim().slice(0, 200);
+      return key && !prevParas.has(key);
     });
-    return newLines.join("\n");
+    return newParas.join("\n\n");
   }
 
   // ── Search ─────────────────────────────────────────────
