@@ -186,7 +186,7 @@ export class CaptureStore {
     return this.index.filter((m) => m.source === appId).sort((a, b) => b.created - a.created);
   }
 
-  /** Delete all entries for a source. */
+  /** Delete all entries for a source and persist index. */
   private deleteEntriesForSource(appId: string): void {
     const toDelete = this.index.filter((m) => m.source === appId);
     for (const meta of toDelete) {
@@ -194,6 +194,7 @@ export class CaptureStore {
       try { fs.unlinkSync(path.join(ENTRIES_DIR, `${meta.id}.vec`)); } catch {}
     }
     this.index = this.index.filter((m) => m.source !== appId);
+    this.persistIndex();
   }
 
   /** Group entries by version (chunkParent or individual). Newest first. */
