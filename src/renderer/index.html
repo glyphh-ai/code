@@ -511,17 +511,34 @@
               </ul>
 
               <h4>Agent modes</h4>
-              <p>The mode selector at the bottom of the agent panel controls how the agent behaves:</p>
-              <div class="cmd-row"><code>ask</code><span>Agent confirms before taking actions (default)</span></div>
-              <div class="cmd-row"><code>plan</code><span>Agent outlines a plan without executing</span></div>
-              <div class="cmd-row"><code>auto</code><span>Agent executes read-only tools immediately, confirms mutations</span></div>
-              <div class="cmd-row"><code>council</code><span>Multi-model debate mode (set via .council command)</span></div>
+              <p>The mode selector at the bottom of the agent panel controls how the agent uses its tools. Every tool is classified as either <strong>observe</strong> (read-only, safe) or <strong>mutate</strong> (has side effects). The mode determines what happens when the agent wants to use a tool.</p>
+
+              <div class="cmd-row"><code>ask</code><span>Every tool requires your approval before running (default)</span></div>
+              <p>The safest mode. The agent will describe what it wants to do and wait for you to approve or deny each action. Good for learning what the agent can do.</p>
+
+              <div class="cmd-row"><code>plan</code><span>No tools run — agent only outlines its plan</span></div>
+              <p>The agent thinks through what it would do and shows you a numbered plan, but never executes anything. Use this to preview the agent's approach before switching to ask or auto.</p>
+
+              <div class="cmd-row"><code>auto</code><span>Observe tools run immediately, mutate tools still ask</span></div>
+              <p>Read-only tools (search captures, get context, read files, run commands, list files, search notes) execute without confirmation. Tools that change state (start council, save memory) still require your approval. The balance between speed and safety.</p>
+
+              <div class="cmd-row"><code>council</code><span>Multi-model debate mode</span></div>
+              <p>Set automatically by the <code>.council</code> command. The agent orchestrates a debate across your AI panels, then synthesizes the results.</p>
+
+              <h4>Tool permissions</h4>
+              <p>You can override the mode for individual tools in <strong>Settings &gt; Agent &gt; Tool Permissions</strong>. Each tool can be set to:</p>
+              <ul class="docs-list">
+                <li><strong>Default</strong> — follows the global mode above</li>
+                <li><strong>Auto</strong> — always runs without asking, regardless of mode</li>
+                <li><strong>Ask</strong> — always asks for approval, even in auto mode</li>
+              </ul>
+              <p>For example, you might set search_captures to "auto" so the agent can always search freely, while keeping start_council on "ask" so it always confirms before fanning out to multiple models.</p>
 
               <h4>Ambient capture</h4>
-              <p>Content is automatically captured when you switch away from a panel (blur) or navigate to a new page. SmartGrab extracts the meaningful content and indexes it for search. Apps marked "Do Not Record" are excluded.</p>
+              <p>Content is automatically captured when you switch away from a panel (blur) or navigate to a new page. SmartGrab extracts the meaningful content and indexes it for vector search. Apps marked "Do Not Record" are excluded. This means the agent can search everything you've looked at without you ever typing <code>.sup</code>.</p>
 
               <h4>Model selection</h4>
-              <p>The model selector lets you choose which LLM powers the agent. Configure your API key and preferred provider in <strong>Settings &gt; Model Configuration</strong>.</p>
+              <p>The model selector lets you choose which LLM powers the agent. Configure your API key and preferred provider in <strong>Settings &gt; Model Configuration</strong>. Supports Anthropic, OpenAI, Google, xAI, and DeepSeek.</p>
 
               <h4>Chat history</h4>
               <p>Click the hamburger menu (&#9776;) in the agent panel header to see your conversation history. Each conversation is saved automatically. Click <strong>+</strong> to start a new chat.</p>
