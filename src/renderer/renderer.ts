@@ -1109,7 +1109,15 @@ async function openYoPanel(query: string) {
   yoToolsUsed = false;
   yoTimelineEl = null;
   yoSpinnerEl = null;
-  if (query) {
+  if (query.startsWith("__council__:")) {
+    // Council mode — show prompt message, don't auto-send
+    const parts = query.replace("__council__:", "").split(",");
+    hideYoWelcome();
+    const msg = document.createElement("div");
+    msg.className = "yo-msg yo-msg-assistant";
+    msg.innerHTML = formatYoText(`Council ready: ${parts.join(", ")}\nEnter your topic below.`);
+    yoPanelMessages.appendChild(msg);
+  } else if (query) {
     hideYoWelcome();
     addYoUserMessage(query);
     showYoStatus("");

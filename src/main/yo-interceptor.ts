@@ -3,6 +3,7 @@
  *
  *   yo <query>     → open agent panel
  *   yo . <skill>   → process last .sup capture with skill → inject result (requires capture)
+ *   yo > <prompt>  → search capture history → process → inject result
  *   yo help        → open help overlay
  *   sup            → capture active panel → context store + clipboard
  *   sup . <skill>  → capture + process with skill → inject result
@@ -19,6 +20,7 @@ import { SkillEngine } from "./skill-engine";
 import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import type { YoChat } from "./yo-chat";
+import type { CaptureStore } from "./capture-store";
 
 import crypto from "crypto";
 
@@ -40,6 +42,7 @@ export class YoInterceptor {
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
   private modeColor = "#25C75E"; // current agent mode color (ask=green, plan=blue, auto=orange)
   private lastAgentResult: (() => string) | null = null;
+  private captureStore: CaptureStore | null = null;
 
   constructor(
     private appConnector: AppConnector,
@@ -48,6 +51,7 @@ export class YoInterceptor {
   ) {}
 
   setYoChat(chat: YoChat): void { this.yoChat = chat; }
+  setCaptureStore(store: CaptureStore): void { this.captureStore = store; }
   setCommandHandler(handler: (input: string, sourcePanelId?: string) => Promise<string>): void { this.commandHandler = handler; }
   setVisiblePanelsGetter(getter: () => string[]): void { this.getVisiblePanelIds = getter; }
   setSessionNotifier(fn: () => void): void { this.sessionNotifier = fn; }
@@ -443,6 +447,14 @@ window.addEventListener('beforeunload',function(e){
       return;
     }
 
+    // .yo > <prompt> → search capture history, inject result into current panel
+    const pullMatch = raw.match(/^>\s*(.+)$/s);
+    if (pullMatch) {
+      const prompt = pullMatch[1].trim();
+      await this.handleYoPull(wc, appId, prompt);
+      return;
+    }
+
     // Regular .yo → open the agent side panel
     this.yoActiveWc = wc;
     if (this.panelOpener) {
@@ -480,6 +492,68 @@ window.addEventListener('beforeunload',function(e){
       try {
         await wc.executeJavaScript(
           `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(result)});}})()`,
+        );
+      } catch {}
+    } catch (err) {
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+      this.notify(wc, `Failed: ${err instanceof Error ? err.message : err}`, "error");
+    }
+  }
+
+  /**
+   * .yo > <prompt> — search capture history + inject result.
+   * Searches the capture store, passes results to LLM with the user's prompt,
+   * injects the processed result into the current text area.
+   */
+  private async handleYoPull(wc: WebContents, _appId: string, prompt: string): Promise<void> {
+    if (!this.captureStore) {
+      this.notify(wc, "Capture store not available.", "error");
+      return;
+    }
+    if (!this.yoChat) {
+      this.notify(wc, "Agent not ready.", "error");
+      return;
+    }
+
+    const myOp = ++this.opId;
+    this.notify(wc, "", "loading");
+
+    try {
+      // Search captures for relevant content
+      const results = await this.captureStore.search(prompt, 5);
+      if (!results || results.length === 0) {
+        if (this.opId !== myOp) return;
+        await this.clearNotify(wc);
+        this.notify(wc, "No matching captures found.", "error");
+        return;
+      }
+
+      // Build context from search results
+      const context = results
+        .map((r, i) =>
+          `[${i + 1}] (score: ${r.score.toFixed(2)}, source: ${r.meta.source})\n${r.content}`)
+        .join("\n\n---\n\n");
+
+      // Check if prompt is a skill name
+      const matchedSkill = /^\S+$/.test(prompt)
+        ? this.skillEngine.listSkills().find((s) => s.toLowerCase() === prompt.toLowerCase())
+        : undefined;
+
+      let finalResult: string;
+      if (matchedSkill) {
+        finalResult = await this.skillEngine.process(context, matchedSkill);
+      } else {
+        finalResult = await this.yoChat.executeProcess(prompt, context);
+      }
+
+      if (this.opId !== myOp) return;
+      await this.clearNotify(wc);
+
+      // Inject the result directly into the text area
+      try {
+        await wc.executeJavaScript(
+          `(function(){if(window.__yoInject){window.__yoInject(${JSON.stringify(finalResult)});}})()`,
         );
       } catch {}
     } catch (err) {

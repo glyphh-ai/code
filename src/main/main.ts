@@ -866,6 +866,7 @@ async function boot() {
   const yoChat = new YoChat(panelManager);
   applyLLMConfig(llmConfig);
   yoInterceptor.setYoChat(yoChat);
+  yoInterceptor.setCaptureStore(captureStore);
   commandParser.setYoChat(yoChat);
 
   // Wire yo agent dependencies
@@ -959,9 +960,12 @@ async function boot() {
       }
 
       mainWindow?.webContents.send("agent-mode-changed", "council");
-      callbacks.openYoPanel?.("");
-      mainWindow?.webContents.send("yo-panel-token", `Council ready: ${councilParticipants.join(", ")}\nEnter your topic below.`);
-      mainWindow?.webContents.send("yo-panel-done", "");
+      // Delay yo panel open to let the layout settle
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        panelManager.setRightInset(yoPanelWidth());
+        mainWindow.webContents.send("yo-panel-open", `__council__:${councilParticipants!.join(",")}`);
+      }, 400);
       return "";
     }
 
