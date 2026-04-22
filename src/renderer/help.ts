@@ -495,16 +495,6 @@ async function loadDashboard() {
   document.getElementById("dash-oldest")!.textContent = relativeTime(captureStats.oldestTs);
   document.getElementById("dash-newest")!.textContent = relativeTime(captureStats.newestTs);
 
-  const sourcesBar = document.getElementById("dash-sources-bar")!;
-  sourcesBar.innerHTML = "";
-  const sorted = Object.entries(captureStats.sources).sort((a, b) => b[1] - a[1]);
-  for (const [source, count] of sorted) {
-    const chip = document.createElement("span");
-    chip.className = "store-source-chip";
-    chip.textContent = `${source} (${count})`;
-    sourcesBar.appendChild(chip);
-  }
-
   renderDashAgentChart(allTime);
   renderDashHistoryChart();
   renderDashPrompts();
@@ -593,18 +583,53 @@ async function renderDashHistoryChart() {
   });
 }
 
+function buildPaginationBar(offset: number, pageSize: number, total: number, onNavigate: (newOffset: number) => void): HTMLElement {
+  const page = Math.floor(offset / pageSize) + 1;
+  const pages = Math.ceil(total / pageSize);
+  const bar = document.createElement("div");
+  bar.className = "pagination-bar";
+
+  const prev = document.createElement("button");
+  prev.className = "action-btn";
+  prev.textContent = "←";
+  prev.disabled = page <= 1;
+  prev.addEventListener("click", () => onNavigate(Math.max(0, offset - pageSize)));
+  bar.appendChild(prev);
+
+  const label = document.createElement("span");
+  label.className = "pagination-label";
+  label.textContent = `${page} / ${pages}`;
+  bar.appendChild(label);
+
+  const next = document.createElement("button");
+  next.className = "action-btn";
+  next.textContent = "→";
+  next.disabled = page >= pages;
+  next.addEventListener("click", () => onNavigate(offset + pageSize));
+  bar.appendChild(next);
+
+  return bar;
+}
+
 let dashPromptsOffset = 0;
+const PROMPTS_PAGE_SIZE = 20;
 
 async function renderDashPrompts() {
   const query = (document.getElementById("dash-prompts-search") as HTMLInputElement)?.value.trim() || "";
   const container = document.getElementById("dash-prompts-list")!;
 
   let entries: Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>;
+  let total = 0;
 
   if (query) {
-    entries = await window.yo.promptsSearch(query, 50);
+    entries = await window.yo.promptsSearch(query, 200);
+    total = entries.length;
+    entries = entries.slice(dashPromptsOffset, dashPromptsOffset + PROMPTS_PAGE_SIZE);
   } else {
-    entries = await window.yo.promptsList(dashPromptsOffset, 50);
+    [entries, total] = await Promise.all([
+      window.yo.promptsList(dashPromptsOffset, PROMPTS_PAGE_SIZE),
+      window.yo.promptsCount(),
+    ]);
   }
 
   container.innerHTML = "";
@@ -653,26 +678,11 @@ async function renderDashPrompts() {
     container.appendChild(card);
   }
 
-  if (!query) {
-    const nav = document.createElement("div");
-    nav.style.cssText = "display:flex;justify-content:space-between;padding:8px 0;";
-    if (dashPromptsOffset > 0) {
-      const prev = document.createElement("button");
-      prev.className = "action-btn";
-      prev.textContent = "← Newer";
-      prev.addEventListener("click", () => { dashPromptsOffset = Math.max(0, dashPromptsOffset - 50); renderDashPrompts(); });
-      nav.appendChild(prev);
-    } else {
-      nav.appendChild(document.createElement("span"));
-    }
-    if (entries.length === 50) {
-      const next = document.createElement("button");
-      next.className = "action-btn";
-      next.textContent = "Older →";
-      next.addEventListener("click", () => { dashPromptsOffset += 50; renderDashPrompts(); });
-      nav.appendChild(next);
-    }
-    container.appendChild(nav);
+  if (total > PROMPTS_PAGE_SIZE) {
+    container.appendChild(buildPaginationBar(dashPromptsOffset, PROMPTS_PAGE_SIZE, total, (newOffset) => {
+      dashPromptsOffset = newOffset;
+      renderDashPrompts();
+    }));
   }
 }
 
@@ -768,6 +778,7 @@ const dataDetailMeta = document.getElementById("data-detail-meta")!;
 const dataDetailContent = document.getElementById("data-detail-content")!;
 const dataSourcesBar = document.getElementById("data-sources-bar")!;
 let dataOffset = 0;
+const DATA_PAGE_SIZE = 20;
 let viewingEntryId: string | null = null;
 let dataSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -825,19 +836,31 @@ async function renderDataList() {
   const query = dataSearchInput.value.trim();
 
   if (query) {
-    const results = await window.yo.capturesSearch(query, 50);
+    const results = await window.yo.capturesSearch(query, 200);
+    const total = results.length;
+    const page = results.slice(dataOffset, dataOffset + DATA_PAGE_SIZE);
     dataListEl.innerHTML = "";
-    if (results.length === 0) {
+    if (page.length === 0) {
       dataListEl.innerHTML = `<div class="crud-empty">No captures matching "${query}"</div>`;
       return;
     }
-    for (const r of results) {
+    for (const r of page) {
       dataListEl.appendChild(makeDataCard(r.meta.id, r.meta.source, r.meta.created, r.content.slice(0, 200), r.score));
+    }
+    if (total > DATA_PAGE_SIZE) {
+      dataListEl.appendChild(buildPaginationBar(dataOffset, DATA_PAGE_SIZE, total, (newOffset) => {
+        dataOffset = newOffset;
+        renderDataList();
+      }));
     }
     return;
   }
 
-  const entries = await window.yo.capturesList(dataOffset, 50);
+  const [entries, stats] = await Promise.all([
+    window.yo.capturesList(dataOffset, DATA_PAGE_SIZE),
+    window.yo.capturesStats(),
+  ]);
+  const total = stats.count;
   dataListEl.innerHTML = "";
   if (entries.length === 0 && dataOffset === 0) {
     dataListEl.innerHTML = `<div class="crud-empty">No captures yet. Use .sup to capture panel content.</div>`;
@@ -848,25 +871,12 @@ async function renderDataList() {
     dataListEl.appendChild(makeDataCard(e.meta.id, e.meta.source, e.meta.created, e.snippet));
   }
 
-  const nav = document.createElement("div");
-  nav.style.cssText = "display:flex;justify-content:space-between;padding:8px 0;";
-  if (dataOffset > 0) {
-    const prev = document.createElement("button");
-    prev.className = "action-btn";
-    prev.textContent = "← Newer";
-    prev.addEventListener("click", () => { dataOffset = Math.max(0, dataOffset - 50); renderDataList(); });
-    nav.appendChild(prev);
-  } else {
-    nav.appendChild(document.createElement("span"));
+  if (total > DATA_PAGE_SIZE) {
+    dataListEl.appendChild(buildPaginationBar(dataOffset, DATA_PAGE_SIZE, total, (newOffset) => {
+      dataOffset = newOffset;
+      renderDataList();
+    }));
   }
-  if (entries.length === 50) {
-    const next = document.createElement("button");
-    next.className = "action-btn";
-    next.textContent = "Older →";
-    next.addEventListener("click", () => { dataOffset += 50; renderDataList(); });
-    nav.appendChild(next);
-  }
-  dataListEl.appendChild(nav);
 }
 
 function makeDataCard(id: string, source: string, created: number, snippet: string, score?: number): HTMLElement {

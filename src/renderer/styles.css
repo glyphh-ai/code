@@ -1782,6 +1782,7 @@ ol.docs-list li::before {
 .dash-stat-num.green { color: #25C75E; }
 .dash-stat-sub { font-size: 10px; color: #555; margin-top: 2px; }
 .dash-chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.dash-chart-stack { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
 .dash-chart-container { background: #111; border: 1px solid #1a1a1a; border-radius: 10px; padding: 18px; }
 .dash-chart-box { height: 200px; position: relative; }
 .dash-range-toggle { display: flex; gap: 0; }
@@ -1811,16 +1812,26 @@ ol.docs-list li::before {
 .dash-empty-hint { font-size: 12px; color: #444; padding: 16px; text-align: center; }
 .dash-sources-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
 
-/* Dashboard split columns (Prompts + Data Store) */
-.dash-split-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+/* Dashboard split columns (Token Metrics + Store Metrics) */
+.dash-split-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .dash-split-col {
   background: #111; border: 1px solid #1a1a1a; border-radius: 10px; padding: 16px;
-  min-height: 200px; max-height: 60vh; overflow-y: auto;
+  min-height: 200px;
 }
 .dash-split-header {
   font-size: 13px; font-weight: 600; color: #999; text-transform: uppercase;
-  letter-spacing: 0.5px; margin-bottom: 12px;
+  letter-spacing: 0.5px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #1e1e1e;
 }
+.dash-split-subhead {
+  font-size: 12px; font-weight: 600; color: #777; text-transform: uppercase;
+  letter-spacing: 0.4px; margin: 16px 0 10px; padding-top: 12px; border-top: 1px solid #1e1e1e;
+}
+.dash-split-col .dash-stat-row { gap: 8px; margin-bottom: 12px; }
+.dash-split-col .dash-stat-card { padding: 12px 14px; }
+.dash-split-col .dash-stat-num { font-size: 18px; }
+.dash-split-col .dash-stat-values { gap: 14px; }
+.dash-split-col .dash-chart-container { padding: 14px; }
+.dash-split-col .dash-chart-box { height: 160px; }
 .dash-split-col .crud-toolbar { margin-bottom: 10px; }
 .dash-split-col .crud-cards { gap: 3px; }
 .dash-split-col .crud-card { padding: 8px 12px; }
@@ -1828,6 +1839,13 @@ ol.docs-list li::before {
 .dash-split-col .crud-card-meta { font-size: 11px; }
 .dash-split-col .crud-inline-form { padding: 0; }
 .dash-split-col .crud-inline-header { margin-bottom: 10px; }
+
+.pagination-bar {
+  display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0;
+}
+.pagination-bar .action-btn { min-width: 32px; padding: 4px 8px; }
+.pagination-bar .action-btn:disabled { opacity: 0.25; pointer-events: none; }
+.pagination-label { font-size: 11px; color: #999; font-variant-numeric: tabular-nums; }
 
 .dash-pre-block {
   background: #0a0a0a; border: 1px solid #222; border-radius: 6px; padding: 12px;
