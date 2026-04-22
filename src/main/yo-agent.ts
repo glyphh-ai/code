@@ -17,6 +17,7 @@ import type { SkillEngine } from "./skill-engine";
 import type { NoteStore } from "./note-store";
 import { gate, getAgentMode } from "./action-gate";
 import type { AgentMode } from "./action-gate";
+import type { Council, CouncilConfig } from "./council";
 
 export type ApprovalCallback = (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
 
@@ -43,7 +44,8 @@ RULES:
 - search_notes is keyword search — use specific terms
 - read_file can read any file under ~/ but defaults to ~/yo/ for relative paths
 - Be concise. Return the actual content, not descriptions of it.
-- Use save_memory for user preferences and patterns you learn.`;
+- Use save_memory for user preferences and patterns you learn.
+- Use start_council when the user needs multiple AI perspectives — debates, brainstorming, comparing approaches. Council is zero-cost orchestration: each model runs on the user's own API key, responses are SmartGrabbed and indexed. After council completes, synthesize the captured results.`;
 
 const TOOLS = [
   {
@@ -127,6 +129,23 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "start_council",
+    description: "Convene a multi-model council. Opens AI chat panels (claude, chatgpt, gemini, grok, etc.), fans out the same prompt to all participants, captures their responses each round, and cross-pollinates between rounds. All orchestration is deterministic — no LLM tokens spent on coordination. Use this when the user would benefit from multiple AI perspectives on a topic. After council completes, use search_captures to retrieve and synthesize the results.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        participants: {
+          type: "array" as const,
+          items: { type: "string" as const },
+          description: "Panel IDs of AI models to include, e.g. [\"claude\", \"chatgpt\", \"gemini\", \"grok\"]",
+        },
+        prompt: { type: "string" as const, description: "The topic or question to debate" },
+        rounds: { type: "number" as const, description: "Number of debate rounds (default: 2). Round 1 is independent, subsequent rounds include other participants' responses." },
+      },
+      required: ["participants", "prompt"],
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -153,6 +172,7 @@ export class YoAgent {
   private activeMemories: string = "";
   private _mode: AgentMode = getAgentMode();
   private _approvalCallback: ApprovalCallback | null = null;
+  private council: Council | null = null;
 
   // ── Setters ────────────────────────────────────────────
 
@@ -166,6 +186,7 @@ export class YoAgent {
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void { this._mode = mode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
+  setCouncil(council: Council): void { this.council = council; }
 
   abort(): void { this.aborted = true; }
 
@@ -438,6 +459,7 @@ export class YoAgent {
         case "search_notes": return await this.toolSearchNotes(input);
         case "read_file": return this.toolReadFile(input);
         case "list_files": return this.toolListFiles(input);
+        case "start_council": return await this.toolStartCouncil(input);
         default: return `Unknown tool: ${name}`;
       }
     } catch (err) {
@@ -568,6 +590,41 @@ export class YoAgent {
     });
 
     if (entries.length > 100) lines.push(`... and ${entries.length - 100} more`);
+    return lines.join("\n");
+  }
+
+  private async toolStartCouncil(input: Record<string, unknown>): Promise<string> {
+    const participants = input.participants as string[];
+    const prompt = input.prompt as string;
+    const rounds = (input.rounds as number) || 2;
+
+    if (!participants || participants.length < 2) return "Council requires at least 2 participants.";
+    if (!prompt) return "No prompt provided.";
+    if (!this.council) return "Council not available.";
+
+    const result = await this.council.start(
+      { participants, prompt, rounds },
+      (msg) => console.log("[council]", msg),
+    );
+
+    if (result.status === "error") return "Council failed to start.";
+    if (result.status === "cancelled") return "Council was cancelled.";
+
+    const lines = [
+      `Council complete: ${result.rounds} round(s), ${result.participants.length} participants, ${result.totalCaptures} responses captured.`,
+      "",
+      "Participants: " + result.participants.join(", "),
+    ];
+
+    for (const [participant, resps] of result.responses) {
+      if (resps.length > 0) {
+        const lastResp = resps[resps.length - 1];
+        lines.push(`\n--- ${participant} (final response) ---`);
+        lines.push(lastResp.slice(0, 3000));
+      }
+    }
+
+    lines.push("\nAll responses are indexed in captures. Use search_captures with 'council' to retrieve specific responses.");
     return lines.join("\n");
   }
 

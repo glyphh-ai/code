@@ -39,6 +39,7 @@ import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
 import { ActionGrabber } from "./action-grabber";
+import { Council } from "./council";
 import { McpExpose } from "./mcp-expose";
 
 
@@ -623,10 +624,15 @@ async function boot() {
     });
   }
 
+  // Council — deterministic multi-model debate orchestrator
+  const council = new Council();
+  council.setCaptureStore(captureStore);
+
   // Yo agent — capture search + format assistant
   const yoAgent = new YoAgent();
   yoAgent.setCaptureStore(captureStore);
   yoAgent.setSkillEngine(skillEngine);
+  yoAgent.setCouncil(council);
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
@@ -715,6 +721,10 @@ async function boot() {
 
   // Wire action grabber to panel manager for webContents access
   actionGrabber.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
+
+  // Wire council to panel manager
+  council.setPanelSwitcher((id) => panelManager.switchTo(id, mainWindow!));
+  council.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
 
   // Persist zoom when changed via keyboard shortcut in panels
   panelManager.setOnZoomChange((factor) => {
@@ -913,6 +923,9 @@ async function boot() {
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const callbacks = { openYoPanel: null as ((query: string) => void) | null };
 
+  // Council state — participants set by .council command, consumed on next agent message
+  let councilParticipants: string[] | null = null;
+
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
     const result = await commandParser.execute(cmd, sourcePanelId);
 
@@ -920,6 +933,15 @@ async function boot() {
     if (result.startsWith("__YO_PANEL__")) {
       const query = result.replace(/^__YO_PANEL__:?/, "");
       callbacks.openYoPanel?.(query);
+      return "";
+    }
+
+    // .council — set council mode and open agent panel for prompt
+    if (result.startsWith("__COUNCIL__")) {
+      const participantsStr = result.replace(/^__COUNCIL__:?/, "");
+      councilParticipants = participantsStr.split(",").filter(Boolean);
+      mainWindow?.webContents.send("agent-mode-changed", "council");
+      callbacks.openYoPanel?.(`Council with ${councilParticipants.join(", ")} — enter your topic`);
       return "";
     }
 
@@ -1516,10 +1538,39 @@ async function boot() {
       }
     }
 
-    // Everything else goes to the yo agent
     const wc = mainWindow?.webContents;
     if (!wc || mainWindow!.isDestroyed()) return;
 
+    // Council mode — if participants are queued, start the council orchestrator
+    if (councilParticipants && councilParticipants.length >= 2) {
+      const participants = councilParticipants;
+      councilParticipants = null;
+      wc.send("yo-panel-token", `Starting council with ${participants.join(", ")}...\n`);
+
+      council.start(
+        { participants, prompt: trimmed, rounds: 2 },
+        (progress) => wc.send("yo-panel-token", `\n${progress}`),
+      ).then((result) => {
+        if (result.status === "complete") {
+          // Feed council results to the agent for synthesis
+          const summary = `Council complete. ${result.totalCaptures} responses captured from ${participants.join(", ")}. Synthesize the key findings.`;
+          yoAgent.send(summary, {
+            onText: (delta) => wc.send("yo-panel-token", delta),
+            onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
+            onToolResult: (id, detail) => wc.send("yo-panel-tool-result", id, detail),
+            onDone: (fullText) => wc.send("yo-panel-done", fullText),
+            onError: (err) => wc.send("yo-panel-error", err),
+          });
+        } else {
+          wc.send("yo-panel-done", `Council ${result.status}.`);
+        }
+      }).catch((err) => {
+        wc.send("yo-panel-error", err?.message || String(err));
+      });
+      return;
+    }
+
+    // Everything else goes to the yo agent
     yoAgent.send(trimmed, {
       onText: (delta) => wc.send("yo-panel-token", delta),
       onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
@@ -1531,6 +1582,7 @@ async function boot() {
 
   ipcMain.on("yo-panel-stop", () => {
     yoAgent.abort();
+    council.stop();
   });
 
   // Renderer-initiated panel open (Cmd+.)
