@@ -101,9 +101,17 @@ const GRAB_SCRIPT = `(function() {
   return lines.join("\\n").trim();
 })()`;
 
-/** Hash script — returns a quick content fingerprint for delta detection. */
+/** Hash script — returns a quick content fingerprint for delta detection.
+ *  Hashes title + first 2500 chars + last 2500 chars so both navigation
+ *  changes (top) and new chat messages (bottom) are detected. */
 const HASH_SCRIPT = `(function() {
-  var text = (document.title || "") + "\\n" + (document.body ? document.body.innerText.slice(0, 5000) : "");
+  var raw = document.body ? document.body.innerText : "";
+  var text = (document.title || "") + "\\n";
+  if (raw.length <= 8000) {
+    text += raw;
+  } else {
+    text += raw.slice(0, 3000) + raw.slice(-5000);
+  }
   // Simple FNV-1a 32-bit hash
   var hash = 0x811c9dc5;
   for (var i = 0; i < text.length; i++) {
