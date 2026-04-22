@@ -380,7 +380,7 @@ const layoutSearchInput = document.getElementById("layout-search") as HTMLInputE
 const layoutNameInput = document.getElementById("layout-new-name") as HTMLInputElement;
 const layoutFormError = document.getElementById("layout-form-error")!;
 const layoutDeleteBtn = document.getElementById("layout-delete-btn") as HTMLButtonElement;
-const layoutEditorTitle = document.getElementById("layout-editor-title")!;
+const layoutEditorTitle: HTMLElement | null = document.getElementById("layout-editor-title");
 let editingLayoutName: string | null = null;
 const gridPreview = document.getElementById("grid-preview")!;
 const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
@@ -661,7 +661,7 @@ async function editLayout(name: string) {
   gridRowsSelect.value = String(builderRows);
   layoutNameInput.value = name;
   layoutDeleteBtn.style.display = "";
-  layoutEditorTitle.textContent = name;
+  if (layoutEditorTitle) layoutEditorTitle.textContent = name;
   layoutFormError.classList.add("hidden");
   layoutsList.classList.add("hidden");
   layoutsToolbar.classList.add("hidden");
@@ -678,7 +678,7 @@ async function newLayout() {
   gridRowsSelect.value = "1";
   layoutNameInput.value = "";
   layoutDeleteBtn.style.display = "none";
-  layoutEditorTitle.textContent = "New Layout";
+  if (layoutEditorTitle) layoutEditorTitle.textContent = "New Layout";
   layoutFormError.classList.add("hidden");
   layoutsList.classList.add("hidden");
   layoutsToolbar.classList.add("hidden");
@@ -741,7 +741,8 @@ const appsList = document.getElementById("apps-list")!;
 const appDetail = document.getElementById("app-detail")!;
 const appAddForm = document.getElementById("app-add-form")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
-const appDetailUrl = document.getElementById("app-detail-url")!;
+const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
+const appForceWeb = document.getElementById("app-detail-force-web") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
 const appConnectStatus = document.getElementById("app-connect-status")!;
 const appCommandsList = document.getElementById("app-commands-list")!;
@@ -845,7 +846,8 @@ function renderAppsList() {
 async function openPanelAppDetail(app: PanelApp) {
   currentAppId = app.id;
   appDetailName.value = app.name;
-  appDetailUrl.textContent = app.url;
+  appDetailUrl.value = app.url;
+  appForceWeb.checked = !!app.forceWeb;
   appConnectStatus.textContent = "";
   appMapCommand.classList.add("hidden");
 
@@ -1039,11 +1041,13 @@ function closeAppDetail() {
 function initApps() {
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
+  const addForceWeb = document.getElementById("app-add-force-web") as HTMLInputElement;
 
   // + New opens the add form
   document.getElementById("apps-add-btn")!.addEventListener("click", () => {
     addNameInput.value = "";
     addUrlInput.value = "";
+    addForceWeb.checked = false;
     appFormError.classList.add("hidden");
     appsList.classList.add("hidden");
     appsToolbar.classList.add("hidden");
@@ -1051,7 +1055,7 @@ function initApps() {
     addNameInput.focus();
   });
 
-  // Add form save
+  // Add form save — create then open for editing
   document.getElementById("app-add-save")!.addEventListener("click", async () => {
     let valid = true;
     const name = addNameInput.value.trim();
@@ -1065,20 +1069,32 @@ function initApps() {
     }
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
     await window.yo.appsAdd(id, name, url);
-    loadApps();
+    if (addForceWeb.checked) await window.yo.appsUpdateForceWeb(id, true);
+    appAddForm.classList.add("hidden");
+    const apps = await window.yo.appsList();
+    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, commands: a.commands }));
+    const created = panelApps.find((a) => a.id === id);
+    if (created) openPanelAppDetail(created);
+    else loadApps();
   });
 
-  // Add form cancel
+  // Add form cancel (breadcrumb + button)
   document.getElementById("app-add-cancel")!.addEventListener("click", () => loadApps());
+  document.getElementById("app-add-cancel-btn")!.addEventListener("click", () => loadApps());
 
-  // Edit name on blur
-  appDetailName.addEventListener("blur", async () => {
+  // Detail save — persist name, url, forceWeb and go back
+  document.getElementById("app-detail-save")!.addEventListener("click", async () => {
+    if (!currentAppId) return;
     const name = appDetailName.value.trim();
-    if (currentAppId && name && panelApps.find((a) => a.id === currentAppId)) {
-      await window.yo.appsUpdateName(currentAppId, name);
-    }
+    const url = appDetailUrl.value.trim();
+    if (name) await window.yo.appsUpdateName(currentAppId, name);
+    if (url) await window.yo.appsUpdateUrl(currentAppId, url);
+    await window.yo.appsUpdateForceWeb(currentAppId, appForceWeb.checked);
+    closeAppDetail();
   });
-  appDetailName.addEventListener("keydown", (e) => { if (e.key === "Enter") appDetailName.blur(); });
+
+  // Detail cancel
+  document.getElementById("app-detail-cancel")!.addEventListener("click", () => closeAppDetail());
 
   // Delete panel app (from detail view)
   document.getElementById("app-detail-delete")!.addEventListener("click", async () => {
@@ -1090,6 +1106,37 @@ function initApps() {
   });
 
   appSearchInput.addEventListener("input", () => { appsPage = 0; renderAppsList(); });
+
+  // Draggable split divider
+  const divider = document.getElementById("app-builder-divider")!;
+  const controls = document.querySelector(".app-builder-controls") as HTMLElement;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+
+  divider.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = controls.offsetWidth;
+    divider.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const w = Math.max(200, Math.min(800, startW + (e.clientX - startX)));
+    controls.style.width = w + "px";
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  });
 }
 
 // ── Rips (cross-app action sequences) ───────────────────
@@ -1103,7 +1150,7 @@ const ripStatus = document.getElementById("rip-status")!;
 const ripsToolbar = document.getElementById("rips-toolbar")!;
 const ripSearchInput = document.getElementById("rip-search") as HTMLInputElement;
 const ripFormError = document.getElementById("rip-form-error")!;
-const ripEditorTitle = document.getElementById("rip-editor-title")!;
+const ripEditorTitle: HTMLElement | null = document.getElementById("rip-editor-title");
 let expandedStepIdx: number | null = null;
 let cachedApps: Array<{ id: string; name: string; commands?: Record<string, { action: string }> }> = [];
 
@@ -1199,7 +1246,7 @@ async function openRipEditor(rip?: RipData) {
 
   const deleteBtn = document.getElementById("rip-delete-btn") as HTMLButtonElement;
   deleteBtn.style.display = editingRip ? "" : "none";
-  ripEditorTitle.textContent = editingRip ? editingRip.name : "New Rip";
+  if (ripEditorTitle) ripEditorTitle.textContent = editingRip ? editingRip.name : "New Rip";
 
   cachedApps = await window.yo.appsList();
   expandedStepIdx = null;
@@ -1433,6 +1480,8 @@ async function saveRip() {
 
   await window.yo.ripsSave(rip);
   ripEditor.classList.add("hidden");
+  ripsListEl.classList.remove("hidden");
+  ripsToolbar.classList.remove("hidden");
   loadRips();
 }
 
@@ -1460,6 +1509,8 @@ function initRips() {
     if (!confirmed) return;
     await window.yo.ripsRemove(editingRip.name);
     ripEditor.classList.add("hidden");
+    ripsListEl.classList.remove("hidden");
+    ripsToolbar.classList.remove("hidden");
     loadRips();
   });
   document.getElementById("rip-run-btn")!.addEventListener("click", async () => {
@@ -1858,7 +1909,7 @@ const skillSearchInput = document.getElementById("skill-search") as HTMLInputEle
 const skillFormError = document.getElementById("skill-form-error")!;
 let editingSkillName: string | null = null;
 
-const skillEditorTitle = document.getElementById("skill-editor-title")!;
+const skillEditorTitle: HTMLElement | null = document.getElementById("skill-editor-title");
 
 async function loadSkills() {
   skillEditor.classList.add("hidden");
@@ -1931,7 +1982,7 @@ function openSkillEditor(name: string, prompt: string) {
   skillDescInput.value = "";
   skillPromptArea.value = prompt;
   skillDeleteBtn.style.display = name ? "" : "none";
-  skillEditorTitle.textContent = name ? name : "New Skill";
+  if (skillEditorTitle) skillEditorTitle.textContent = name ? name : "New Skill";
   skillFormError.classList.add("hidden");
 
   skillsListEl.classList.add("hidden");

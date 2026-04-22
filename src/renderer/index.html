@@ -519,10 +519,9 @@
           <!-- Skill editor -->
           <div id="skill-editor" class="crud-inline-form hidden">
             <div class="crud-inline-header">
-              <span class="crud-breadcrumb"><a class="crud-breadcrumb-back" id="skill-back-link"><span class="back-arrow">←</span> Skills</a> <span class="crud-breadcrumb-sep">›</span> <span id="skill-editor-title">New Skill</span></span>
-              <button id="skill-delete" class="crud-card-btn danger" title="Delete">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              </button>
+              <a class="crud-breadcrumb-back" id="skill-back-link">← Skills</a>
+              <div class="crud-spacer"></div>
+              <button id="skill-delete" class="action-btn danger">Delete</button>
             </div>
             <div id="skill-form-error" class="crud-form-error hidden"></div>
             <label class="settings-label">Name</label>
@@ -537,7 +536,7 @@
               Generate
             </button>
             <label class="settings-label">Prompt</label>
-            <textarea id="skill-prompt" class="settings-input" rows="6" placeholder="System prompt for this skill..." spellcheck="false" style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+            <textarea id="skill-prompt" class="settings-input" rows="3" placeholder="System prompt for this skill..." spellcheck="false" style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
             <div class="settings-actions" style="margin-top:8px;">
               <button id="skill-cancel" class="action-btn">Cancel</button>
               <button id="skill-save" class="action-btn primary">Save</button>
@@ -556,10 +555,9 @@
           <div id="layouts-list" class="crud-cards"></div>
           <div id="layout-editor" class="crud-inline-form hidden">
             <div class="crud-inline-header">
-              <span class="crud-breadcrumb"><a class="crud-breadcrumb-back" id="layout-back-link"><span class="back-arrow">←</span> Layouts</a> <span class="crud-breadcrumb-sep">›</span> <span id="layout-editor-title">New Layout</span></span>
-              <button id="layout-delete-btn" class="crud-card-btn danger" title="Delete">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              </button>
+              <a class="crud-breadcrumb-back" id="layout-back-link">← Layouts</a>
+              <div class="crud-spacer"></div>
+              <button id="layout-delete-btn" class="action-btn danger">Delete</button>
             </div>
             <div id="layout-form-error" class="crud-form-error hidden"></div>
             <label class="settings-label">Name</label>
@@ -611,36 +609,53 @@
           <div id="apps-list" class="crud-cards"></div>
 
           <!-- App add form -->
-          <div id="app-add-form" class="crud-form hidden">
-            <div id="app-form-error" class="crud-form-error hidden"></div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">Name</label>
-              <input id="app-add-name" type="text" class="crud-input" placeholder="e.g. Gmail" spellcheck="false" autocomplete="off" />
-            </div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">URL</label>
-              <input id="app-add-url" type="text" class="crud-input" placeholder="https://..." spellcheck="false" autocomplete="off" />
-            </div>
-            <div class="crud-form-actions">
+          <div id="app-add-form" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="app-add-cancel">← Apps</a>
               <div class="crud-spacer"></div>
-              <button id="app-add-cancel" class="action-btn">Cancel</button>
-              <button id="app-add-save" class="action-btn primary">Add App</button>
+            </div>
+            <div id="app-form-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input id="app-add-name" type="text" class="settings-input" placeholder="e.g. Gmail" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">URL</label>
+            <input id="app-add-url" type="text" class="settings-input" placeholder="https://..." spellcheck="false" autocomplete="off" />
+            <label class="settings-toggle" style="margin-top:4px;padding:8px 12px;">
+              <input type="checkbox" id="app-add-force-web" />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">Force web mode</span>
+                <span class="toggle-desc">Block native app redirects and desktop prompts</span>
+              </div>
+            </label>
+            <div class="settings-actions" style="margin-top:8px;">
+              <button id="app-add-cancel-btn" class="action-btn">Cancel</button>
+              <button id="app-add-save" class="action-btn primary">Save</button>
             </div>
           </div>
 
           <!-- App detail -->
           <div id="app-detail" class="hidden">
-            <div class="app-detail-header">
-              <div class="app-detail-info">
-                <input id="app-detail-name" class="app-detail-title-input" spellcheck="false" />
-                <span id="app-detail-url" class="app-detail-url-label"></span>
-              </div>
-              <div class="action-btns app-detail-actions">
-                <button id="app-pick-btn" class="action-btn primary">Pick Element</button>
-                <button id="app-detail-delete" class="action-btn danger">Delete</button>
-                <button id="app-detail-close" class="action-btn">Back</button>
-              </div>
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="app-detail-close">← Apps</a>
+              <div class="crud-spacer"></div>
+              <button id="app-pick-btn" class="action-btn rip-run-action">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                Pick Element
+              </button>
+              <button id="app-detail-delete" class="action-btn danger">Delete</button>
             </div>
+            <label class="settings-label">Name</label>
+            <input id="app-detail-name" class="settings-input" spellcheck="false" />
+            <label class="settings-label">URL</label>
+            <input id="app-detail-url" class="settings-input" spellcheck="false" placeholder="https://..." />
+            <label class="settings-toggle" style="margin-top:4px;padding:8px 12px;">
+              <input type="checkbox" id="app-detail-force-web" />
+              <span class="toggle-switch"></span>
+              <div class="toggle-info">
+                <span class="toggle-title">Force web mode</span>
+                <span class="toggle-desc">Block native app redirects and desktop prompts</span>
+              </div>
+            </label>
 
             <div class="app-builder-split">
               <!-- Left: commands + mapping -->
@@ -680,6 +695,7 @@
                 </div>
               </div>
 
+              <div class="app-builder-divider" id="app-builder-divider"></div>
               <!-- Right: live app preview -->
               <div class="app-builder-preview">
                 <div class="preview-toolbar">
@@ -688,6 +704,11 @@
                 </div>
                 <webview id="app-preview" partition="persist:yo" allowpopups></webview>
               </div>
+            </div>
+
+            <div class="settings-actions" style="margin-top:12px;">
+              <button id="app-detail-cancel" class="action-btn">Cancel</button>
+              <button id="app-detail-save" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>
@@ -708,15 +729,14 @@
           <!-- Rip Editor -->
           <div id="rip-editor" class="crud-inline-form hidden">
             <div class="crud-inline-header">
-              <span class="crud-breadcrumb"><a class="crud-breadcrumb-back" id="rip-back-link"><span class="back-arrow">←</span> Rips</a> <span class="crud-breadcrumb-sep">›</span> <span id="rip-editor-title">New Rip</span></span>
+              <a class="crud-breadcrumb-back" id="rip-back-link">← Rips</a>
+              <div class="crud-spacer"></div>
               <div id="rip-status" class="crud-form-status"></div>
               <button id="rip-run-btn" class="action-btn rip-run-action">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 Run
               </button>
-              <button id="rip-delete-btn" class="crud-card-btn danger" title="Delete">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              </button>
+              <button id="rip-delete-btn" class="action-btn danger">Delete</button>
             </div>
             <div id="rip-form-error" class="crud-form-error hidden"></div>
             <label class="settings-label">Name</label>
@@ -801,18 +821,19 @@
 
           <!-- Server detail / tools panel (hidden by default) -->
           <div id="mcp-detail-panel" class="hidden">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-              <h3 class="settings-subheading" id="mcp-detail-name" style="margin:0;flex:1;"></h3>
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="mcp-detail-back">← MCP Servers</a>
+              <div class="crud-spacer"></div>
               <span id="mcp-detail-status" class="mcp-status-badge"></span>
+              <button id="mcp-detail-remove" class="action-btn danger">Delete</button>
             </div>
+            <h3 class="settings-subheading" id="mcp-detail-name" style="margin:0 0 4px 0;"></h3>
             <p class="section-desc" id="mcp-detail-info"></p>
 
             <div style="display:flex;gap:8px;margin-bottom:16px;">
               <button id="mcp-detail-connect" class="action-btn primary">Connect</button>
               <button id="mcp-detail-disconnect" class="action-btn">Disconnect</button>
               <button id="mcp-detail-edit" class="action-btn">Edit</button>
-              <button id="mcp-detail-remove" class="action-btn danger">Remove</button>
-              <button id="mcp-detail-back" class="action-btn" style="margin-left:auto;">Back</button>
             </div>
 
             <!-- Server-level override -->
