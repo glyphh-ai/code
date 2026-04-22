@@ -466,6 +466,7 @@ function formatTokens(n: number): string {
 let dashAgentChart: any = null;
 let dashHistoryChart: any = null;
 let dashIntakeChart: any = null;
+let dashFlowChart: any = null;
 let dashRangeMode: "7" | "30" = "7";
 let storeRangeMode: "7" | "30" = "7";
 
@@ -499,6 +500,7 @@ async function loadDashboard() {
 
   renderDashAgentChart(allTime);
   renderDashHistoryChart();
+  renderDashFlowChart(captureStats);
   renderDashIntakeChart();
   renderDashPrompts();
   loadData();
@@ -623,6 +625,54 @@ async function renderDashIntakeChart() {
       plugins: {
         legend: { labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
         tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Bytes" ? `${c.dataset.label}: ${formatBytes(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } },
+      },
+    },
+  });
+}
+
+function renderDashFlowChart(captureStats: { ingestCount: number; searchCount: number; ingestBytes: number; count: number; embeddedCount: number }) {
+  const canvas = document.getElementById("dash-chart-flow") as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashFlowChart) dashFlowChart.destroy();
+
+  const supVal = captureStats.ingestCount || captureStats.count || 0;
+  const yoVal = captureStats.searchCount || 0;
+  const embedded = captureStats.embeddedCount || 0;
+
+  const hasData = supVal > 0 || yoVal > 0;
+
+  dashFlowChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: hasData ? [".sup  (captures in)", ".yo  (searches out)", "Embedded"] : ["No activity yet"],
+      datasets: [{
+        data: hasData ? [supVal, yoVal, embedded] : [1],
+        backgroundColor: hasData ? ["#25C75E", "#48dbfb", "#cc5de8"] : ["#222"],
+        borderColor: hasData ? ["#1a8a40", "#2a9abf", "#8a3d9e"] : ["#333"],
+        borderWidth: 2,
+        hoverOffset: 6,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: "60%",
+      plugins: {
+        legend: {
+          position: "right",
+          labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 10, padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: (c: any) => {
+              if (!hasData) return "No data yet";
+              const total = (c.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
+              const pct = total > 0 ? ((c.parsed / total) * 100).toFixed(0) : "0";
+              return `${c.label}: ${c.parsed} (${pct}%)`;
+            },
+          },
+        },
       },
     },
   });

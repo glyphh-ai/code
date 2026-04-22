@@ -40,6 +40,9 @@ export class CaptureStore {
   private embedQueue: CaptureEntryMeta[] = [];
   private draining = false;
   private policyResolver: ((source: string) => CapturePolicy) | null = null;
+  private _ingestCount = 0;
+  private _searchCount = 0;
+  private _ingestBytes = 0;
 
   constructor() {
     fs.mkdirSync(STORE_DIR, { recursive: true });
@@ -85,6 +88,8 @@ export class CaptureStore {
 
   /** Append — always write, no dedup. */
   private async ingestRaw(appId: string, content: string): Promise<string> {
+    this._ingestCount++;
+    this._ingestBytes += Buffer.byteLength(content, "utf-8");
     const hash = this.hashContent(content);
 
     if (content.length > CHUNK_THRESHOLD) {
@@ -230,6 +235,7 @@ export class CaptureStore {
   // ── Search ─────────────────────────────────────────────
 
   async search(query: string, limit = 10): Promise<Array<{ meta: CaptureEntryMeta; content: string; score: number }>> {
+    this._searchCount++;
     if (this.index.length === 0) return [];
 
     // Skip vector search if the embed queue is draining (would block behind it)
@@ -267,7 +273,7 @@ export class CaptureStore {
 
   get count(): number { return this.index.length; }
 
-  stats(): { count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number } {
+  stats(): { count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number; ingestCount: number; searchCount: number; ingestBytes: number } {
     const sources: Record<string, number> = {};
     let diskBytes = 0;
     let oldestTs = Infinity;
@@ -295,6 +301,9 @@ export class CaptureStore {
       oldestTs: this.index.length > 0 ? oldestTs : 0,
       newestTs,
       embeddedCount,
+      ingestCount: this._ingestCount,
+      searchCount: this._searchCount,
+      ingestBytes: this._ingestBytes,
     };
   }
 

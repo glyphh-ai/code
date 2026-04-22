@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld("yo", {
   promptsCount: () => ipcRenderer.invoke("prompts-count") as Promise<number>,
 
   // Capture store
-  capturesStats: () => ipcRenderer.invoke("captures-stats") as Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>,
+  capturesStats: () => ipcRenderer.invoke("captures-stats") as Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number; ingestCount: number; searchCount: number; ingestBytes: number }>,
   capturesList: (offset: number, limit: number) => ipcRenderer.invoke("captures-list", offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>,
   capturesRead: (id: string) => ipcRenderer.invoke("captures-read", id) as Promise<string | null>,
   capturesDelete: (id: string) => ipcRenderer.invoke("captures-delete", id) as Promise<boolean>,

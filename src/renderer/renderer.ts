@@ -116,7 +116,7 @@ declare global {
       promptsGet: (id: string) => Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>;
       promptsCount: () => Promise<number>;
       // Capture store
-      capturesStats: () => Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>;
+      capturesStats: () => Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number; ingestCount: number; searchCount: number; ingestBytes: number }>;
       capturesList: (offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>;
       capturesRead: (id: string) => Promise<string | null>;
       capturesDelete: (id: string) => Promise<boolean>;
