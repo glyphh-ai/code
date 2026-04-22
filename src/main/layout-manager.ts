@@ -273,6 +273,25 @@ export class LayoutManager {
     return this.layouts.get(name);
   }
 
+  /** Rename a panelId across all saved layouts and the active grid. */
+  renamePanelId(oldId: string, newId: string): void {
+    let changed = false;
+    for (const layout of this.layouts.values()) {
+      for (const cell of layout.cells) {
+        if (cell.panelId === oldId) {
+          cell.panelId = newId;
+          changed = true;
+        }
+      }
+    }
+    if (this.activeGrid) {
+      for (const cell of this.activeGrid.cells) {
+        if (cell.panelId === oldId) cell.panelId = newId;
+      }
+    }
+    if (changed) this.persist();
+  }
+
   /** Check if a name is a layout command */
   isLayout(name: string): boolean {
     return this.layouts.has(name);

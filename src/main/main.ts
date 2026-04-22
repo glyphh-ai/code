@@ -1364,7 +1364,11 @@ async function boot() {
     return app;
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
-  ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => appConnector.updateId(oldId, newId));
+  ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {
+    const ok = appConnector.updateId(oldId, newId);
+    if (ok) layoutManager.renamePanelId(oldId, newId);
+    return ok;
+  });
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
