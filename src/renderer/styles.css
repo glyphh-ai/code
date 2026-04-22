@@ -1816,7 +1816,7 @@ ol.docs-list li::before {
 .dash-split-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .dash-split-col {
   background: #111; border: 1px solid #1a1a1a; border-radius: 10px; padding: 16px;
-  min-height: 200px;
+  min-height: 200px; min-width: 0; overflow: hidden;
 }
 .dash-split-header {
   font-size: 13px; font-weight: 600; color: #999; text-transform: uppercase;
