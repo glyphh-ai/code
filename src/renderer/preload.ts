@@ -58,12 +58,14 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Capture store
   capturesStats: () => ipcRenderer.invoke("captures-stats") as Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>,
-  capturesList: (offset: number, limit: number) => ipcRenderer.invoke("captures-list", offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string }>>,
+  capturesList: (offset: number, limit: number) => ipcRenderer.invoke("captures-list", offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>,
   capturesRead: (id: string) => ipcRenderer.invoke("captures-read", id) as Promise<string | null>,
   capturesDelete: (id: string) => ipcRenderer.invoke("captures-delete", id) as Promise<boolean>,
   capturesDeleteBySource: (source: string) => ipcRenderer.invoke("captures-delete-source", source) as Promise<number>,
   capturesClear: () => ipcRenderer.invoke("captures-clear") as Promise<number>,
   capturesSearch: (query: string, limit: number) => ipcRenderer.invoke("captures-search", query, limit) as Promise<Array<{ meta: { id: string; source: string; created: number }; content: string; score: number }>>,
+  capturesDailyHistory: (days?: number) => ipcRenderer.invoke("captures-daily-history", days) as Promise<Array<{ date: string; count: number; bytes: number }>>,
+  capturesEntrySize: (id: string) => ipcRenderer.invoke("captures-entry-size", id) as Promise<number>,
 
   // Grid resize
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>

@@ -115,12 +115,14 @@ declare global {
       promptsCount: () => Promise<number>;
       // Capture store
       capturesStats: () => Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>;
-      capturesList: (offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string }>>;
+      capturesList: (offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>;
       capturesRead: (id: string) => Promise<string | null>;
       capturesDelete: (id: string) => Promise<boolean>;
       capturesDeleteBySource: (source: string) => Promise<number>;
       capturesClear: () => Promise<number>;
       capturesSearch: (query: string, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number }; content: string; score: number }>>;
+      capturesDailyHistory: (days?: number) => Promise<Array<{ date: string; count: number; bytes: number }>>;
+      capturesEntrySize: (id: string) => Promise<number>;
       // LLM config
       getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;

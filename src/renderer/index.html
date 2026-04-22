@@ -280,6 +280,19 @@
                 </div>
               </div>
 
+              <div class="dash-chart-stack">
+                <div class="dash-chart-container">
+                  <div style="display:flex;align-items:center;margin-bottom:8px;">
+                    <div class="dash-stat-label" style="margin-bottom:0">Daily Intake</div>
+                    <div class="dash-range-toggle" style="margin-left:auto">
+                      <button class="dash-range-btn active" id="store-range-7">7d</button>
+                      <button class="dash-range-btn" id="store-range-30">30d</button>
+                    </div>
+                  </div>
+                  <div class="dash-chart-box"><canvas id="dash-chart-intake"></canvas></div>
+                </div>
+              </div>
+
               <div class="dash-split-subhead">Data Store</div>
               <div id="data-toolbar" class="crud-toolbar">
                 <input id="data-search" type="text" class="crud-search" placeholder="Search captures..." spellcheck="false" autocomplete="off" />

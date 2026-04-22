@@ -465,7 +465,9 @@ function formatTokens(n: number): string {
 
 let dashAgentChart: any = null;
 let dashHistoryChart: any = null;
+let dashIntakeChart: any = null;
 let dashRangeMode: "7" | "30" = "7";
+let storeRangeMode: "7" | "30" = "7";
 
 async function loadDashboard() {
   const [today, allTime, llmInfo, captureStats] = await Promise.all([
@@ -497,6 +499,7 @@ async function loadDashboard() {
 
   renderDashAgentChart(allTime);
   renderDashHistoryChart();
+  renderDashIntakeChart();
   renderDashPrompts();
   loadData();
 }
@@ -578,6 +581,48 @@ async function renderDashHistoryChart() {
       plugins: {
         legend: { labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
         tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${formatTokens(c.parsed.y)}` } },
+      },
+    },
+  });
+}
+
+async function renderDashIntakeChart() {
+  const days = storeRangeMode === "30" ? 30 : 7;
+  const canvas = document.getElementById("dash-chart-intake") as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  const history = await window.yo.capturesDailyHistory(days);
+
+  const labels = history.map((d) => {
+    const dt = new Date(d.date + "T00:00:00");
+    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  });
+  const countData = history.map((d) => d.count);
+  const bytesData = history.map((d) => d.bytes);
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashIntakeChart) dashIntakeChart.destroy();
+
+  dashIntakeChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Captures", data: countData, backgroundColor: "rgba(37,199,94,0.6)", borderRadius: 3, yAxisID: "y" },
+        { label: "Bytes", data: bytesData, backgroundColor: "rgba(72,219,251,0.35)", borderRadius: 3, yAxisID: "y1" },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: "#666", font: { size: 10 }, maxRotation: 0 }, grid: { color: "rgba(255,255,255,0.04)" } },
+        y: { position: "left", ticks: { color: "#25C75E", font: { size: 10 }, stepSize: 1 }, grid: { color: "rgba(255,255,255,0.04)" }, title: { display: false } },
+        y1: { position: "right", ticks: { color: "#48dbfb", font: { size: 10 }, callback: (v: string | number) => formatBytes(Number(v)) }, grid: { drawOnChartArea: false } },
+      },
+      plugins: {
+        legend: { labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Bytes" ? `${c.dataset.label}: ${formatBytes(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } },
       },
     },
   });
@@ -752,6 +797,19 @@ function initDashboardEvents() {
     renderDashHistoryChart();
   });
 
+  document.getElementById("store-range-7")?.addEventListener("click", () => {
+    storeRangeMode = "7";
+    document.getElementById("store-range-7")!.classList.add("active");
+    document.getElementById("store-range-30")!.classList.remove("active");
+    renderDashIntakeChart();
+  });
+  document.getElementById("store-range-30")?.addEventListener("click", () => {
+    storeRangeMode = "30";
+    document.getElementById("store-range-30")!.classList.add("active");
+    document.getElementById("store-range-7")!.classList.remove("active");
+    renderDashIntakeChart();
+  });
+
   const promptSearch = document.getElementById("dash-prompts-search") as HTMLInputElement;
   promptSearch?.addEventListener("input", () => {
     if (dashPromptSearchTimer) clearTimeout(dashPromptSearchTimer);
@@ -868,7 +926,7 @@ async function renderDataList() {
   }
 
   for (const e of entries) {
-    dataListEl.appendChild(makeDataCard(e.meta.id, e.meta.source, e.meta.created, e.snippet));
+    dataListEl.appendChild(makeDataCard(e.meta.id, e.meta.source, e.meta.created, e.snippet, undefined, e.size));
   }
 
   if (total > DATA_PAGE_SIZE) {
@@ -879,7 +937,7 @@ async function renderDataList() {
   }
 }
 
-function makeDataCard(id: string, source: string, created: number, snippet: string, score?: number): HTMLElement {
+function makeDataCard(id: string, source: string, created: number, snippet: string, score?: number, size?: number): HTMLElement {
   const card = document.createElement("div");
   card.className = "crud-card";
   const info = document.createElement("div");
@@ -896,6 +954,12 @@ function makeDataCard(id: string, source: string, created: number, snippet: stri
   timeSpan.style.cssText = "font-size:10px;color:#555;";
   timeSpan.textContent = relativeTime(created);
   nameRow.appendChild(timeSpan);
+  if (size !== undefined && size > 0) {
+    const sizeSpan = document.createElement("span");
+    sizeSpan.style.cssText = "font-size:10px;color:#48dbfb;flex-shrink:0;";
+    sizeSpan.textContent = formatBytes(size);
+    nameRow.appendChild(sizeSpan);
+  }
   if (score !== undefined) {
     const scoreSpan = document.createElement("span");
     scoreSpan.style.cssText = "font-size:10px;color:#25C75E;";
@@ -931,12 +995,16 @@ function makeDataCard(id: string, source: string, created: number, snippet: stri
 
 async function openDataDetail(id: string, source: string, created: number) {
   viewingEntryId = id;
-  const content = await window.yo.capturesRead(id);
-  dataDetailMeta.textContent = `${source} · ${new Date(created).toLocaleString()} · ${id}`;
+  const [content, size] = await Promise.all([
+    window.yo.capturesRead(id),
+    window.yo.capturesEntrySize(id),
+  ]);
+  dataDetailMeta.textContent = `${source} · ${new Date(created).toLocaleString()} · ${formatBytes(size)} · ${id}`;
   dataDetailContent.textContent = content || "(empty)";
 
   dataListEl.classList.add("hidden");
   dataToolbar.classList.add("hidden");
+  dataSourcesBar.classList.add("hidden");
   dataDetail.classList.remove("hidden");
 }
 
@@ -944,6 +1012,7 @@ function closeDataDetail() {
   dataDetail.classList.add("hidden");
   dataListEl.classList.remove("hidden");
   dataToolbar.classList.remove("hidden");
+  dataSourcesBar.classList.remove("hidden");
   viewingEntryId = null;
   loadData();
 }

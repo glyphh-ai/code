@@ -1325,6 +1325,8 @@ async function boot() {
   ipcMain.handle("captures-delete-source", (_e, source: string) => captureStore.deleteBySource(source));
   ipcMain.handle("captures-clear", () => captureStore.clear());
   ipcMain.handle("captures-search", async (_e, query: string, limit: number) => captureStore.search(query, limit));
+  ipcMain.handle("captures-daily-history", (_e, days: number) => captureStore.dailyHistory(days));
+  ipcMain.handle("captures-entry-size", (_e, id: string) => captureStore.entrySize(id));
 
   // IPC: grid resize (drag dividers)
   ipcMain.on("grid-drag-end", (_e, type: "col" | "row", index: number, fraction: number) => {

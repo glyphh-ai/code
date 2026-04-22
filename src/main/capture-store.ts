@@ -160,12 +160,38 @@ export class CaptureStore {
     };
   }
 
-  listEntries(offset = 0, limit = 50): Array<{ meta: CaptureEntryMeta; snippet: string }> {
+  listEntries(offset = 0, limit = 50): Array<{ meta: CaptureEntryMeta; snippet: string; size: number }> {
     const sorted = [...this.index].sort((a, b) => b.created - a.created);
     return sorted.slice(offset, offset + limit).map((meta) => {
       const content = this.readContent(meta.id) || "";
-      return { meta, snippet: content.slice(0, 200) };
+      let size = 0;
+      try { size = fs.statSync(path.join(ENTRIES_DIR, `${meta.id}.md`)).size; } catch {}
+      return { meta, snippet: content.slice(0, 200), size };
     });
+  }
+
+  entrySize(id: string): number {
+    try { return fs.statSync(path.join(ENTRIES_DIR, `${id}.md`)).size; } catch { return 0; }
+  }
+
+  dailyHistory(days = 30): Array<{ date: string; count: number; bytes: number }> {
+    const now = new Date();
+    const buckets = new Map<string, { count: number; bytes: number }>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      buckets.set(d.toISOString().slice(0, 10), { count: 0, bytes: 0 });
+    }
+    const cutoff = now.getTime() - days * 86400000;
+    for (const meta of this.index) {
+      if (meta.created < cutoff) continue;
+      const key = new Date(meta.created).toISOString().slice(0, 10);
+      const b = buckets.get(key);
+      if (!b) continue;
+      b.count++;
+      try { b.bytes += fs.statSync(path.join(ENTRIES_DIR, `${meta.id}.md`)).size; } catch {}
+    }
+    return Array.from(buckets.entries()).map(([date, v]) => ({ date, ...v }));
   }
 
   deleteEntry(id: string): boolean {
