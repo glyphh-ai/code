@@ -1527,7 +1527,7 @@ async function boot() {
     // Route dot-commands (.dip, .drip, .sup, .waz) through command parser
     if (trimmed.startsWith(".")) {
       const firstWord = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase();
-      if (firstWord && ["dip", "drip", "rip", "sup", "waz"].includes(firstWord)) {
+      if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
           mainWindow?.webContents.send("yo-panel-done", result || "done.");

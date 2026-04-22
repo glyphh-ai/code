@@ -183,7 +183,7 @@
 
           <div class="help-group">
             <h3>.sup <span class="cmd-desc">— capture</span></h3>
-            <p class="cmd-intro">Capture the active panel into memory. Use <code>.sup .</code> to also process it with a skill or prompt.</p>
+            <p class="cmd-intro">Capture the active panel into memory. Panels also auto-capture on blur and navigation. Use <code>.sup .</code> to process with a skill or prompt.</p>
             <div class="cmd-row">
               <code>.sup</code>
               <span>Capture active panel to memory + clipboard</span>
@@ -191,6 +191,10 @@
             <div class="cmd-row">
               <code>.sup . formalize</code>
               <span>Capture + process with a skill inline</span>
+            </div>
+            <div class="cmd-row">
+              <code>.sup ..</code>
+              <span>Capture last agent result into the text field</span>
             </div>
           </div>
 
@@ -209,7 +213,7 @@
 
           <div class="help-group">
             <h3>.dip <span class="cmd-desc">— navigate</span></h3>
-            <p class="cmd-intro">Switch between panels, layouts, and connected apps.</p>
+            <p class="cmd-intro">Switch between panels, layouts, and connected apps. Chain app commands after the panel ID.</p>
             <div class="cmd-row">
               <code>.dip claude</code>
               <span>Switch to a panel</span>
@@ -225,6 +229,14 @@
             <div class="cmd-row">
               <code>.dip split claude gpt / gemini code</code>
               <span>Multi-row grid — <code>/</code> separates rows</span>
+            </div>
+            <div class="cmd-row">
+              <code>.dip claude new</code>
+              <span>Switch to Claude + run its "new" command</span>
+            </div>
+            <div class="cmd-row">
+              <code>.dip gmail compose</code>
+              <span>Switch to Gmail + open compose</span>
             </div>
           </div>
 
@@ -288,14 +300,14 @@
           </div>
 
           <div class="help-group">
-            <h3>.council <span class="cmd-desc">— AI council</span></h3>
-            <p class="cmd-intro">Convene an AI council. All participants respond to each message in parallel.</p>
+            <h3>.council <span class="cmd-desc">— multi-model debate</span></h3>
+            <p class="cmd-intro">Convene multiple AI models to debate a topic. Each model runs on your own API key. Responses are captured, cross-pollinated between rounds, and synthesized by the agent.</p>
             <div class="cmd-row">
               <code>.council claude gemini grok</code>
-              <span>Summon Claude, Gemini, and Grok to the council</span>
+              <span>Start a council — enter your topic when prompted</span>
             </div>
             <div class="cmd-row">
-              <code>.council claude gpt</code>
+              <code>.council claude chatgpt</code>
               <span>Two-model council</span>
             </div>
           </div>
@@ -365,30 +377,33 @@
 
             <div class="docs-panel" data-doc="commands">
               <h3>Commands</h3>
-              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+.) or chain them together. Every command starts with a dot.</p>
+              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+.), inside any panel, or chain them together. Every command starts with a dot.</p>
 
               <h4>.yo — Agent</h4>
-              <p>Opens the AI agent panel. The agent can search your notes, navigate panels, click through apps, create skills, manage layouts, and more. Ask it anything in natural language.</p>
+              <p>Opens the AI agent panel. The agent can search your captures, run shell commands, navigate panels, start councils, and more. Works from any panel.</p>
               <div class="cmd-row"><code>.yo</code><span>Open the agent panel</span></div>
               <div class="cmd-row"><code>.yo find my notes about pricing</code><span>Agent searches your captures</span></div>
-              <div class="cmd-row"><code>.yo open gmail and claude side by side</code><span>Agent navigates and arranges panels</span></div>
+              <div class="cmd-row"><code>.yo what was my last git commit</code><span>Agent runs read-only shell commands</span></div>
 
               <h4>.yo . — Inline process</h4>
               <p>Processes the last <code>.sup</code> capture with a prompt and injects the result directly into the active text field. No agent panel — just capture, switch, and process.</p>
               <div class="cmd-row"><code>.yo . summarize this</code><span>Summarize and inject into text field</span></div>
-              <div class="cmd-row"><code>.yo . rewrite as bullet points</code><span>Transform and inject</span></div>
+              <div class="cmd-row"><code>.yo . rewrite as bullet points</code><span>Transform captured content inline</span></div>
 
               <h4>.sup — Capture</h4>
-              <p>Captures the visible content of the active panel into memory and your clipboard. Use <code>.sup .</code> to also run a skill or prompt on the capture.</p>
+              <p>Manually captures the active panel into memory and your clipboard. Panels also auto-capture on blur and navigation — this is for explicit capture or processing.</p>
               <div class="cmd-row"><code>.sup</code><span>Capture to memory + clipboard</span></div>
               <div class="cmd-row"><code>.sup . formalize</code><span>Capture + run the "formalize" skill</span></div>
               <div class="cmd-row"><code>.sup . translate to spanish</code><span>Capture + run a freeform prompt</span></div>
+              <div class="cmd-row"><code>.sup ..</code><span>Capture last agent result into the text field</span></div>
 
               <h4>.dip — Navigate</h4>
-              <p>Switches panels, creates split views, and restores saved layouts.</p>
+              <p>Switches panels, creates split views, restores layouts, and chains app commands.</p>
               <div class="cmd-row"><code>.dip claude</code><span>Switch to a panel</span></div>
               <div class="cmd-row"><code>.dip split claude gpt</code><span>Side by side</span></div>
               <div class="cmd-row"><code>.dip layout workspace</code><span>Restore a saved layout</span></div>
+              <div class="cmd-row"><code>.dip claude new</code><span>Switch + run app commands</span></div>
+              <div class="cmd-row"><code>.dip gmail compose</code><span>Switch to Gmail + open compose</span></div>
 
               <h4>.waz — Execute</h4>
               <p>Runs mapped commands on apps. Each app has commands like grab, compose, search, new, etc.</p>
@@ -396,13 +411,16 @@
               <div class="cmd-row"><code>.waz claude new</code><span>Run "new" on Claude</span></div>
               <div class="cmd-row"><code>.waz layout workspace</code><span>Save current layout</span></div>
 
+              <h4>.council — Multi-model debate</h4>
+              <p>Convene a council of AI models. Fans out your prompt, captures responses, cross-pollinates between rounds, and synthesizes the results. All model calls are on your own API keys.</p>
+              <div class="cmd-row"><code>.council claude gemini grok</code><span>Start a 3-model council</span></div>
+
               <h4>.drip — Effects</h4>
               <p>Visual celebration effects. Reward yourself.</p>
               <div class="cmd-row"><code>.drip</code><span>Default fireworks effect</span></div>
-              <div class="cmd-row"><code>.drip fireworks</code><span>Particle burst</span></div>
 
               <h4>Chaining</h4>
-              <p>Commands can be chained together with spaces. Each command runs in sequence.</p>
+              <p>Commands can be chained together. Each command runs in sequence.</p>
               <div class="cmd-row"><code>.dip claude .waz new</code><span>Switch to Claude, then start new chat</span></div>
               <div class="cmd-row"><code>.sup .dip gpt .yo . explain this</code><span>Capture, switch to GPT, process inline</span></div>
             </div>
@@ -429,6 +447,9 @@
 
               <h4>Force web mode</h4>
               <p>Some apps (like ChatGPT, Claude, Gmail) need to run in a web view instead of Electron's BrowserView. This is the "Force Web" toggle — enable it if the app doesn't render correctly.</p>
+
+              <h4>Do Not Record</h4>
+              <p>Prevents ambient capture of sensitive apps. When enabled, the app's content is never captured on blur or navigation. Banking, health, password manager, and tax/gov domains are blocked by default. Toggle per-app in the app detail view.</p>
             </div>
 
             <div class="docs-panel" data-doc="skills">
@@ -476,23 +497,28 @@
 
             <div class="docs-panel" data-doc="agent">
               <h3>The .Yo Agent</h3>
-              <p>The agent is your AI assistant that lives in the side panel. It can see your panels, navigate apps, search your captures, and execute commands — all through natural language.</p>
+              <p>The agent is your AI assistant that lives in the side panel. It searches your captures, runs shell commands, starts councils, and executes workspace operations — all through natural language.</p>
 
               <h4>What it can do</h4>
               <ul class="docs-list">
-                <li><strong>Navigate</strong> — switch panels, create layouts, open apps</li>
-                <li><strong>Read</strong> — grab content from any panel, extract specific elements</li>
-                <li><strong>Click &amp; type</strong> — interact with web apps on your behalf</li>
-                <li><strong>Search</strong> — find content in your captured notes and local files</li>
-                <li><strong>Create</strong> — make new skills, layouts, and app configurations</li>
-                <li><strong>Write notes</strong> — save information to your local note store</li>
+                <li><strong>Search captures</strong> — vector search across all ambient and manual captures</li>
+                <li><strong>Run commands</strong> — read-only shell commands (git log, ls, cat, etc.)</li>
+                <li><strong>Start council</strong> — convene multi-model debates across your AI panels</li>
+                <li><strong>Read files</strong> — read any file under your home directory</li>
+                <li><strong>Search notes</strong> — keyword search across saved notes in ~/yo/notes/</li>
+                <li><strong>Format</strong> — apply skills to transform content</li>
+                <li><strong>Save memory</strong> — remember preferences and patterns for future conversations</li>
               </ul>
 
               <h4>Agent modes</h4>
               <p>The mode selector at the bottom of the agent panel controls how the agent behaves:</p>
               <div class="cmd-row"><code>ask</code><span>Agent confirms before taking actions (default)</span></div>
-              <div class="cmd-row"><code>plan</code><span>Agent drafts a plan before executing</span></div>
-              <div class="cmd-row"><code>auto</code><span>Agent executes immediately without confirmation</span></div>
+              <div class="cmd-row"><code>plan</code><span>Agent outlines a plan without executing</span></div>
+              <div class="cmd-row"><code>auto</code><span>Agent executes read-only tools immediately, confirms mutations</span></div>
+              <div class="cmd-row"><code>council</code><span>Multi-model debate mode (set via .council command)</span></div>
+
+              <h4>Ambient capture</h4>
+              <p>Content is automatically captured when you switch away from a panel (blur) or navigate to a new page. SmartGrab extracts the meaningful content and indexes it for search. Apps marked "Do Not Record" are excluded.</p>
 
               <h4>Model selection</h4>
               <p>The model selector lets you choose which LLM powers the agent. Configure your API key and preferred provider in <strong>Settings &gt; Model Configuration</strong>.</p>
@@ -1106,7 +1132,7 @@
             </div>
           </div>
           <div class="tutorial-cmd">&#8984;.</div>
-          <div class="tutorial-desc">Press <strong>Cmd+.</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip, .waz, .drip — or just start talking to the agent.</div>
+          <div class="tutorial-desc">Press <strong>Cmd+.</strong> anytime to open the command bar. Type any command — .yo, .sup, .dip, .waz, .council, .drip — or just start talking to the agent.</div>
         </div>
       </div>
 

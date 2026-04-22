@@ -8,6 +8,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { execSync } from "child_process";
 import { LLMConfig, createStream, createCompletion } from "./llm-config";
 import { usageTracker } from "./usage-tracker";
 import type { MemoryStore } from "./memory-store";
@@ -127,6 +128,18 @@ const TOOLS = [
         path: { type: "string" as const, description: "Directory path. Defaults to ~/yo/notes/" },
         pattern: { type: "string" as const, description: "Glob filter, e.g. '*.md' (default: all files)" },
       },
+    },
+  },
+  {
+    name: "run_command",
+    description: "Run a read-only shell command. Allowed commands: git (log, diff, status, show, branch), ls, cat, head, tail, wc, find, which, echo. Use this for checking git history, file contents, or system info. Max 30 second timeout.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        command: { type: "string" as const, description: "The shell command to run, e.g. 'git log --oneline -5' or 'ls -la ~/projects'" },
+        cwd: { type: "string" as const, description: "Working directory (defaults to ~/)" },
+      },
+      required: ["command"],
     },
   },
   {
@@ -459,6 +472,7 @@ export class YoAgent {
         case "search_notes": return await this.toolSearchNotes(input);
         case "read_file": return this.toolReadFile(input);
         case "list_files": return this.toolListFiles(input);
+        case "run_command": return this.toolRunCommand(input);
         case "start_council": return await this.toolStartCouncil(input);
         default: return `Unknown tool: ${name}`;
       }
@@ -591,6 +605,45 @@ export class YoAgent {
 
     if (entries.length > 100) lines.push(`... and ${entries.length - 100} more`);
     return lines.join("\n");
+  }
+
+  private toolRunCommand(input: Record<string, unknown>): string {
+    const command = input.command as string;
+    if (!command) return "No command provided.";
+
+    // Allowlist of safe read-only commands
+    const firstWord = command.trim().split(/\s+/)[0];
+    const allowed = new Set(["git", "ls", "cat", "head", "tail", "wc", "find", "which", "echo", "pwd", "date"]);
+    if (!firstWord || !allowed.has(firstWord)) {
+      return `Command not allowed: ${firstWord}. Allowed: ${[...allowed].join(", ")}`;
+    }
+
+    // Block destructive git subcommands
+    if (firstWord === "git") {
+      const subCmd = command.trim().split(/\s+/)[1];
+      const destructive = new Set(["push", "reset", "clean", "checkout", "rebase", "merge", "commit", "stash", "rm", "mv"]);
+      if (subCmd && destructive.has(subCmd)) {
+        return `Destructive git command not allowed: git ${subCmd}`;
+      }
+    }
+
+    let cwd = (input.cwd as string) || os.homedir();
+    if (!path.isAbsolute(cwd)) {
+      cwd = path.join(os.homedir(), cwd);
+    }
+
+    try {
+      const output = execSync(command, {
+        cwd,
+        timeout: 30_000,
+        maxBuffer: 512 * 1024,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return output.slice(0, 10_000) || "(no output)";
+    } catch (err: any) {
+      return `Command failed: ${err.stderr || err.message || err}`.slice(0, 2000);
+    }
   }
 
   private async toolStartCouncil(input: Record<string, unknown>): Promise<string> {

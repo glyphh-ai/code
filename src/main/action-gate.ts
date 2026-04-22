@@ -22,6 +22,7 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   search_notes:    "observe",
   read_file:       "observe",
   list_files:      "observe",
+  run_command:     "observe",
   start_council:   "mutate",
 };
 
@@ -33,6 +34,7 @@ export const TOOL_LABELS: Record<string, string> = {
   search_notes:    "Search notes",
   read_file:       "Read file",
   list_files:      "List files",
+  run_command:     "Run command",
   start_council:   "Start council",
 };
 
@@ -44,6 +46,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   search_notes:    "Keyword search across saved notes in ~/yo/notes/",
   read_file:       "Read a file from the local filesystem",
   list_files:      "List files in a directory",
+  run_command:     "Run a read-only shell command (git log, ls, etc.)",
   start_council:   "Convene a multi-model council debate across AI panels",
 };
 
