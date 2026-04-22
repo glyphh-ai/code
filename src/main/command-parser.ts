@@ -364,8 +364,43 @@ export class CommandParser {
     // Check for saved layout
     if (this.layouts.isLayout(sub)) {
       const ok = this.layouts.apply(sub, win);
-      if (ok) setPreference("lastView", { type: "layout", name: sub });
-      return ok ? `Layout: ${sub}` : `Failed to apply layout: ${sub}`;
+      if (!ok) return `Failed to apply layout: ${sub}`;
+      setPreference("lastView", { type: "layout", name: sub });
+
+      // If extra args, run them as commands on the first matching panel in the layout
+      const commands = args.slice(1);
+      if (commands.length > 0) {
+        const layout = this.layouts.getLayout(sub);
+        if (layout) {
+          for (const cell of layout.cells) {
+            const app = this.appConnector.get(cell.panelId);
+            if (!app) continue;
+            const firstCmd = commands[0].toLowerCase();
+            if (!(firstCmd in app.commands)) continue;
+
+            // Found a panel with the command — switch to it and execute
+            const wc = this.wcGetter?.(cell.panelId);
+            if (!wc || wc.isDestroyed()) continue;
+
+            const results: string[] = [`Layout: ${sub} → ${cell.panelId}`];
+            for (const cmd of commands) {
+              const key = cmd.toLowerCase();
+              const mapping = app.commands[key];
+              if (!mapping) {
+                const available = Object.keys(app.commands);
+                results.push(`Unknown command "${key}"${available.length > 0 ? `. Available: ${available.join(", ")}` : ""}`);
+                break;
+              }
+              if (results.length > 1) await new Promise((r) => setTimeout(r, 300));
+              await executeCommand(wc, mapping);
+              results.push(mapping.description || key);
+            }
+            return results.join(" → ");
+          }
+          return `Layout: ${sub} (no panel has command "${commands[0]}")`;
+        }
+      }
+      return `Layout: ${sub}`;
     }
 
     // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands
