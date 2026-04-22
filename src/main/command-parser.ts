@@ -400,6 +400,28 @@ export class CommandParser {
       return `Layout: ${sub}`;
     }
 
+    // dip <url> — navigate the active panel to a URL
+    const rawUrl = args[0];
+    if (/^https?:\/\//i.test(rawUrl) || /^localhost(:\d+)?(\/|$)/i.test(rawUrl) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(rawUrl)) {
+      let target = rawUrl;
+      if (!/^https?:\/\//i.test(target)) target = "http://" + target;
+      const activeId = this.panels.activePanelId;
+      const wc = this.panels.activeWebContents;
+      if (!wc || wc.isDestroyed()) return "No active panel to navigate";
+      const isBrowser = activeId === "browser" || activeId?.startsWith("browse-");
+      if (isBrowser) {
+        wc.executeJavaScript(`(function(){
+          const wv = document.querySelector("webview");
+          if (wv) { wv.loadURL(${JSON.stringify(target)}); }
+          const bar = document.getElementById("url");
+          if (bar) bar.value = ${JSON.stringify(target)};
+        })()`).catch(() => {});
+      } else {
+        wc.loadURL(target).catch(() => {});
+      }
+      return `Navigating to ${target}`;
+    }
+
     // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands
     this.layouts.clearSplit();
     const switched = this.panels.switchTo(sub, win);

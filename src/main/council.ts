@@ -14,7 +14,7 @@
  */
 
 import type { WebContents, BrowserWindow } from "electron";
-import { smartGrab, contentHash } from "./smart-grab";
+import { grabLastResponse, contentHash } from "./smart-grab";
 import type { CaptureStore } from "./capture-store";
 
 export interface CouncilConfig {
@@ -230,7 +230,7 @@ export class Council {
     }
 
     try {
-      return await smartGrab(wc);
+      return await grabLastResponse(wc);
     } catch {
       return null;
     }

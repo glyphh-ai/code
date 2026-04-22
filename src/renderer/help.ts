@@ -322,17 +322,8 @@ export function initHelp() {
 
   // User menu (bottom of help nav)
   document.getElementById("user-menu-platform")!.addEventListener("click", () => {
-    const modal = document.getElementById("platform-modal")!;
-    const iframe = document.getElementById("platform-iframe") as HTMLIFrameElement;
-    const platformUrl = "https://platform.yosup.dev";
-    iframe.src = platformUrl;
-    modal.classList.remove("hidden");
-  });
-  document.getElementById("platform-modal-close")!.addEventListener("click", () => {
-    const modal = document.getElementById("platform-modal")!;
-    const iframe = document.getElementById("platform-iframe") as HTMLIFrameElement;
-    modal.classList.add("hidden");
-    iframe.src = "";
+    closeHelp();
+    window.yo.urlBarNavigate(window.yo.platformUrl);
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
     await window.yo.logout();
@@ -1413,12 +1404,10 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // Account dashboard — opens platform in modal
+  // Account dashboard — opens platform in a browser tab
   document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
-    const modal = document.getElementById("platform-modal")!;
-    const iframe = document.getElementById("platform-iframe") as HTMLIFrameElement;
-    iframe.src = "https://platform.yosup.dev";
-    modal.classList.remove("hidden");
+    closeHelp();
+    window.yo.urlBarNavigate(window.yo.platformUrl);
   });
 
   // Sign out

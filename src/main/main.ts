@@ -685,6 +685,7 @@ async function boot() {
         childWc.on("page-favicon-updated" as any, (_e: unknown, favicons: string[]) => {
           if (favicons?.length) {
             panelFavicons[id] = favicons[0];
+            setPreference("panelFavicons", { ...panelFavicons });
             if (panelManager.activePanelId === id) sendUrlUpdate();
             sendPanelUrl(id);
             sendTabState();
@@ -711,6 +712,7 @@ async function boot() {
       wc.on("page-favicon-updated" as any, (_e: unknown, favicons: string[]) => {
         if (favicons?.length) {
           panelFavicons[id] = favicons[0];
+          setPreference("panelFavicons", { ...panelFavicons });
           if (panelManager.activePanelId === id) sendUrlUpdate();
           sendPanelUrl(id);
           sendTabState();
@@ -936,10 +938,26 @@ async function boot() {
       return "";
     }
 
-    // .council — set council mode and open agent panel for prompt
+    // .council — arrange panels side-by-side, set council mode, open agent panel
     if (result.startsWith("__COUNCIL__")) {
       const participantsStr = result.replace(/^__COUNCIL__:?/, "");
       councilParticipants = participantsStr.split(",").filter(Boolean);
+
+      // Arrange participant panels side by side
+      if (mainWindow && !mainWindow.isDestroyed() && councilParticipants.length >= 2) {
+        if (councilParticipants.length === 2) {
+          layoutManager.splitTwo(councilParticipants[0], councilParticipants[1], mainWindow);
+        } else {
+          layoutManager.splitN(councilParticipants, mainWindow);
+        }
+        const gridInfo = layoutManager.getGridInfo();
+        mainWindow.webContents.send("split-state", gridInfo);
+        if (gridInfo) {
+          for (const id of gridInfo.panelIds) ensureTab(id);
+        }
+        sendTabState();
+      }
+
       mainWindow?.webContents.send("agent-mode-changed", "council");
       callbacks.openYoPanel?.(`Council with ${councilParticipants.join(", ")} — enter your topic`);
       return "";
@@ -1130,7 +1148,7 @@ async function boot() {
 
   // Per-panel URL + favicon tracking
   const panelUrls: Record<string, string> = {};
-  const panelFavicons: Record<string, string> = {};
+  const panelFavicons: Record<string, string> = getPreference<Record<string, string>>("panelFavicons", {});
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
 
   function getTabName(id: string): string {
@@ -1527,7 +1545,7 @@ async function boot() {
     // Route dot-commands (.dip, .drip, .sup, .waz) through command parser
     if (trimmed.startsWith(".")) {
       const firstWord = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase();
-      if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
+      if (firstWord && ["dip", "drip", "sup", "waz", "council"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
           mainWindow?.webContents.send("yo-panel-done", result || "done.");
@@ -2044,10 +2062,14 @@ async function boot() {
     const id = panelManager.activePanelId;
     if (!id) return;
 
-    // Normalize: add https:// if no protocol
+    // Normalize: add protocol if missing
     let target = url.trim();
     if (target && !/^https?:\/\//i.test(target)) {
-      target = "https://" + target;
+      if (/^localhost(:\d+)?(\/|$)/i.test(target) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(target)) {
+        target = "http://" + target;
+      } else {
+        target = "https://" + target;
+      }
     }
 
     const isBrowser = id === "browser" || id.startsWith("browse-");

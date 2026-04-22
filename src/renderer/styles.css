@@ -2101,65 +2101,9 @@ ol.docs-list li::before {
 /* ── Apps ────────────────────────────────────────────────── */
 
 #apps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-}
-
-.app-card {
-  background: #141414;
-  border: 1px solid #1e1e1e;
-  border-radius: 8px;
-  padding: 14px 16px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.app-card:hover {
-  border-color: #333;
-  background: #1a1a1a;
-}
-
-.app-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.app-card-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.app-card-status {
-  font-size: 11px;
-  color: #555;
-  padding: 2px 8px;
-  border-radius: 10px;
-  border: 1px solid #2a2a2a;
-}
-
-.app-card-status.connected {
-  color: #28c840;
-  border-color: #1a3a1e;
-  background: #0d1f10;
-}
-.app-card-status.panel {
-  color: #999;
-  border-color: #333;
-  background: #1a1a1a;
-}
-
-.app-card-url {
-  font-size: 11px;
-  color: #777;
-  font-family: var(--font-mono);
-  margin-bottom: 8px;
 }
 
 

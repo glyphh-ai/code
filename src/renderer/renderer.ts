@@ -120,6 +120,7 @@ declare global {
       // Account info
       getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string; daysRemaining?: number }>;
       openExternal: (url: string) => void;
+      platformUrl: string;
       openAccountDashboard: () => void;
       openBilling: () => void;
       // Support
