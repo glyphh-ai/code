@@ -266,7 +266,10 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
     const label = document.createElement("span");
     label.className = "tab-label";
     label.textContent = tab.name;
-    label.addEventListener("click", () => window.yo.tabSwitch(tab.id));
+    label.addEventListener("click", () => {
+      if (isHelpOpen()) { closeHelp(); return; }
+      window.yo.tabSwitch(tab.id);
+    });
     el.appendChild(label);
 
     // Close
@@ -276,6 +279,7 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
     close.innerHTML = "&times;";
     close.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (isHelpOpen()) { closeHelp(); return; }
       window.yo.tabClose(tab.id);
     });
     el.appendChild(close);
@@ -286,7 +290,10 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
   tabBar.appendChild(tabNewBtn);
 }
 
-tabNewBtn.addEventListener("click", () => window.yo.tabNew());
+tabNewBtn.addEventListener("click", () => {
+  if (isHelpOpen()) { closeHelp(); return; }
+  window.yo.tabNew();
+});
 
 const emptyState = document.getElementById("empty-state")!;
 

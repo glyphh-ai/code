@@ -1724,6 +1724,31 @@ ol.docs-list li::before {
   flex-shrink: 0;
 }
 
+.crud-inline-form {
+  max-width: 530px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #1e1e1e;
+}
+.crud-inline-form .settings-actions {
+  justify-content: flex-end;
+}
+.crud-inline-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crud-inline-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ccc;
+  margin: 0;
+  flex: 1;
+}
+
 .crud-spacer { flex: 1; }
 
 .crud-form-status {
@@ -2376,16 +2401,7 @@ ol.docs-list li::before {
 
 /* ── Rips ─────────────────────────────────────────────── */
 
-/* Top bar: error + run button */
-.rip-editor-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.rip-editor-top .crud-form-error { flex: 1; }
-.rip-editor-top .crud-form-status { flex: 1; }
 .rip-run-action {
-  margin-left: auto;
   background: #2563eb;
   border-color: #2563eb;
   color: #fff;
@@ -2548,10 +2564,27 @@ ol.docs-list li::before {
 .rip-step-input:focus { border-color: #25C75E; }
 .rip-step-input::placeholder { color: #555; }
 #rip-output-field { text-align: left; min-width: 70px; max-width: 100px; }
-.rip-step-add .rip-add-row #rip-step-add-btn,
 .rip-step-add .rip-add-row #rip-output-add-btn {
   margin-left: auto;
 }
+.rip-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+.rip-add-step-btn {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed #2a2a2a;
+  border-radius: 6px;
+  color: #666;
+  font-size: 12px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.rip-add-step-btn:hover { color: #999; border-color: #444; }
 .rip-step-textarea {
   width: 100%;
   background: #141414;

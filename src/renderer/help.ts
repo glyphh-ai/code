@@ -378,6 +378,7 @@ const layoutSearchInput = document.getElementById("layout-search") as HTMLInputE
 const layoutNameInput = document.getElementById("layout-new-name") as HTMLInputElement;
 const layoutFormError = document.getElementById("layout-form-error")!;
 const layoutDeleteBtn = document.getElementById("layout-delete-btn") as HTMLButtonElement;
+const layoutEditorTitle = document.getElementById("layout-editor-title")!;
 let editingLayoutName: string | null = null;
 const gridPreview = document.getElementById("grid-preview")!;
 const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
@@ -573,8 +574,6 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
 
 async function loadLayouts() {
   layoutEditor.classList.add("hidden");
-  layoutsList.classList.remove("hidden");
-  layoutsToolbar.classList.remove("hidden");
   layoutFormError.classList.add("hidden");
   allLayouts = await window.yo.layoutsList();
   renderLayoutsList();
@@ -660,10 +659,10 @@ async function editLayout(name: string) {
   gridRowsSelect.value = String(builderRows);
   layoutNameInput.value = name;
   layoutDeleteBtn.style.display = "";
+  layoutEditorTitle.textContent = `Edit: ${name}`;
   layoutFormError.classList.add("hidden");
-  layoutsList.classList.add("hidden");
-  layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
+  layoutEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   renderGridPreview();
 }
 
@@ -676,18 +675,16 @@ async function newLayout() {
   gridRowsSelect.value = "1";
   layoutNameInput.value = "";
   layoutDeleteBtn.style.display = "none";
+  layoutEditorTitle.textContent = "New Layout";
   layoutFormError.classList.add("hidden");
-  layoutsList.classList.add("hidden");
-  layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
+  layoutEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   layoutNameInput.focus();
   renderGridPreview();
 }
 
 function cancelLayout() {
   layoutEditor.classList.add("hidden");
-  layoutsList.classList.remove("hidden");
-  layoutsToolbar.classList.remove("hidden");
   editingLayoutName = null;
   loadLayouts();
 }
@@ -1109,6 +1106,9 @@ const ripsToolbar = document.getElementById("rips-toolbar")!;
 const ripSearchInput = document.getElementById("rip-search") as HTMLInputElement;
 const ripFormError = document.getElementById("rip-form-error")!;
 const ripStepsCount = document.getElementById("rip-steps-count")!;
+const ripAddStepForm = document.getElementById("rip-add-step-form")!;
+const ripAddStepBtn = document.getElementById("rip-step-add-btn")!;
+const ripEditorTitle = document.getElementById("rip-editor-title")!;
 
 let pendingOutputs: RipOutput[] = [];
 
@@ -1136,11 +1136,10 @@ interface RipData {
 let editingRip: RipData | null = null;
 let editingRipSteps: RipStep[] = [];
 let allRips: RipData[] = [];
+let editingStepBackup: { index: number; step: RipStep } | null = null;
 
 async function loadRips() {
   ripEditor.classList.add("hidden");
-  ripsListEl.classList.remove("hidden");
-  ripsToolbar.classList.remove("hidden");
   ripFormError.classList.add("hidden");
   allRips = await window.yo.ripsList();
   renderRipsList();
@@ -1206,6 +1205,7 @@ async function openRipEditor(rip?: RipData) {
 
   const deleteBtn = document.getElementById("rip-delete-btn") as HTMLButtonElement;
   deleteBtn.style.display = editingRip ? "" : "none";
+  ripEditorTitle.textContent = editingRip ? `Edit: ${editingRip.name}` : "New Rip";
 
   // Populate app dropdowns from full app list
   const apps = await window.yo.appsList();
@@ -1220,9 +1220,11 @@ async function openRipEditor(rip?: RipData) {
   renderPendingOutputs();
   ripOutputsSection.classList.add("hidden");
 
-  ripsListEl.classList.add("hidden");
-  ripsToolbar.classList.add("hidden");
+  ripAddStepForm.classList.add("hidden");
+  ripAddStepBtn.classList.remove("hidden");
+
   ripEditor.classList.remove("hidden");
+  ripEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   renderRipSteps();
 }
 
@@ -1330,7 +1332,10 @@ function renderRipSteps() {
         pendingOutputs = [...step.outputs];
         renderPendingOutputs();
       }
+      editingStepBackup = { index: idx, step: { ...step, outputs: step.outputs ? [...step.outputs] : undefined } };
       editingRipSteps.splice(idx, 1);
+      ripAddStepForm.classList.remove("hidden");
+      ripAddStepBtn.classList.add("hidden");
       renderRipSteps();
       ripStepPrompt.focus();
     });
@@ -1470,7 +1475,41 @@ function initRips() {
   });
   const ripStepDelay = document.getElementById("rip-step-delay") as HTMLInputElement;
 
-  document.getElementById("rip-step-add-btn")!.addEventListener("click", () => {
+  function resetAddStepForm() {
+    const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
+    ripStepType.value = "app";
+    ripStepType.dispatchEvent(new Event("change"));
+    ripStepPrompt.value = "";
+    ripStepDelay.value = "";
+    pendingOutputs = [];
+    renderPendingOutputs();
+  }
+
+  ripAddStepBtn.addEventListener("click", async () => {
+    editingStepBackup = null;
+    const apps = await window.yo.appsList();
+    const appOptions = apps.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+    ripStepApp.innerHTML = appOptions;
+    ripOutputApp.innerHTML = appOptions;
+    await updateRipCommandDropdown();
+    await updateOutputCommandDropdown();
+    resetAddStepForm();
+    ripAddStepForm.classList.remove("hidden");
+    ripAddStepBtn.classList.add("hidden");
+  });
+
+  document.getElementById("rip-step-cancel-btn")!.addEventListener("click", () => {
+    if (editingStepBackup) {
+      editingRipSteps.splice(editingStepBackup.index, 0, editingStepBackup.step);
+      editingStepBackup = null;
+      renderRipSteps();
+    }
+    ripAddStepForm.classList.add("hidden");
+    ripAddStepBtn.classList.remove("hidden");
+  });
+
+  document.getElementById("rip-step-confirm-btn")!.addEventListener("click", () => {
+    const ripStepType = document.getElementById("rip-step-type") as HTMLSelectElement;
     const stepType = ripStepType.value as "app" | "agent";
     const prompt = ripStepPrompt.value.trim() || undefined;
     const delayVal = parseInt(ripStepDelay.value, 10);
@@ -1489,10 +1528,12 @@ function initRips() {
       editingRipSteps.push({ type: "app", app, command, prompt, delay });
     }
 
-    ripStepPrompt.value = "";
-    ripStepDelay.value = "";
+    editingStepBackup = null;
+    ripAddStepForm.classList.add("hidden");
+    ripAddStepBtn.classList.remove("hidden");
     renderRipSteps();
   });
+
   ripStepApp.addEventListener("change", updateRipCommandDropdown);
 }
 
@@ -1870,10 +1911,10 @@ const skillSearchInput = document.getElementById("skill-search") as HTMLInputEle
 const skillFormError = document.getElementById("skill-form-error")!;
 let editingSkillName: string | null = null;
 
+const skillEditorTitle = document.getElementById("skill-editor-title")!;
+
 async function loadSkills() {
   skillEditor.classList.add("hidden");
-  skillsListEl.classList.remove("hidden");
-  skillsToolbar.classList.remove("hidden");
   skillFormError.classList.add("hidden");
   allSkills = await window.yo.skillsList();
   renderSkillsList();
@@ -1943,18 +1984,16 @@ function openSkillEditor(name: string, prompt: string) {
   skillDescInput.value = "";
   skillPromptArea.value = prompt;
   skillDeleteBtn.style.display = name ? "" : "none";
+  skillEditorTitle.textContent = name ? `Edit: ${name}` : "New Skill";
   skillFormError.classList.add("hidden");
 
-  skillsListEl.classList.add("hidden");
-  skillsToolbar.classList.add("hidden");
   skillEditor.classList.remove("hidden");
+  skillEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   skillNameInput.focus();
 }
 
 function closeSkillEditor() {
   skillEditor.classList.add("hidden");
-  skillsListEl.classList.remove("hidden");
-  skillsToolbar.classList.remove("hidden");
   editingSkillName = null;
   loadSkills();
 }

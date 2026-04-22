@@ -517,30 +517,28 @@
           <div id="skills-list" class="crud-cards"></div>
 
           <!-- Skill editor -->
-          <div id="skill-editor" class="crud-form hidden">
-            <div id="skill-form-error" class="crud-form-error hidden"></div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">Name</label>
-              <input type="text" id="skill-name" class="crud-input" placeholder="skill name" spellcheck="false" autocomplete="off" />
-            </div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">
-                <svg class="skill-ai-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
-                Describe what this skill should do
-              </label>
-              <textarea id="skill-desc" class="crud-input" rows="2" placeholder="e.g. rewrite text as formal business email" spellcheck="false"></textarea>
-              <button id="skill-generate" class="action-btn skill-generate-btn" title="Generate prompt with AI">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
-                Generate
+          <div id="skill-editor" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <h3 class="crud-inline-title" id="skill-editor-title">New Skill</h3>
+              <button id="skill-delete" class="crud-card-btn danger" title="Delete">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
               </button>
             </div>
-            <div class="crud-form-field crud-form-field-grow">
-              <label class="crud-form-label">Prompt</label>
-              <textarea id="skill-prompt" class="crud-textarea-grow" placeholder="System prompt for this skill..." spellcheck="false"></textarea>
-            </div>
-            <div class="crud-form-actions">
-              <button id="skill-delete" class="action-btn danger">Delete</button>
-              <div class="crud-spacer"></div>
+            <div id="skill-form-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input type="text" id="skill-name" class="settings-input" placeholder="skill name" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">
+              <svg class="skill-ai-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
+              Describe what this skill should do
+            </label>
+            <textarea id="skill-desc" class="settings-input" rows="2" placeholder="e.g. rewrite text as formal business email" spellcheck="false"></textarea>
+            <button id="skill-generate" class="action-btn skill-generate-btn" title="Generate prompt with AI">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
+              Generate
+            </button>
+            <label class="settings-label">Prompt</label>
+            <textarea id="skill-prompt" class="settings-input" rows="6" placeholder="System prompt for this skill..." spellcheck="false" style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+            <div class="settings-actions" style="margin-top:8px;">
               <button id="skill-cancel" class="action-btn">Cancel</button>
               <button id="skill-save" class="action-btn primary">Save</button>
             </div>
@@ -556,12 +554,16 @@
             <button id="layout-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="layouts-list" class="crud-cards"></div>
-          <div id="layout-editor" class="crud-form hidden">
-            <div id="layout-form-error" class="crud-form-error hidden"></div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">Name</label>
-              <input id="layout-new-name" type="text" class="crud-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
+          <div id="layout-editor" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <h3 class="crud-inline-title" id="layout-editor-title">New Layout</h3>
+              <button id="layout-delete-btn" class="crud-card-btn danger" title="Delete">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              </button>
             </div>
+            <div id="layout-form-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input id="layout-new-name" type="text" class="settings-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
             <div class="grid-builder">
               <div class="grid-dims">
                 <label>Cols <select id="grid-cols">
@@ -583,9 +585,7 @@
               </div>
               <div id="grid-preview"></div>
             </div>
-            <div class="crud-form-actions">
-              <button id="layout-delete-btn" class="action-btn danger">Delete</button>
-              <div class="crud-spacer"></div>
+            <div class="settings-actions" style="margin-top:8px;">
               <button id="layout-cancel-btn" class="action-btn">Cancel</button>
               <button id="layout-save-btn" class="action-btn primary">Save</button>
             </div>
@@ -706,32 +706,32 @@
           <div id="rips-list" class="crud-cards"></div>
 
           <!-- Rip Editor -->
-          <div id="rip-editor" class="crud-form hidden">
-            <div class="rip-editor-top">
-              <div id="rip-form-error" class="crud-form-error hidden"></div>
+          <div id="rip-editor" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <h3 class="crud-inline-title" id="rip-editor-title">New Rip</h3>
               <div id="rip-status" class="crud-form-status"></div>
               <button id="rip-run-btn" class="action-btn rip-run-action">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 Run
               </button>
+              <button id="rip-delete-btn" class="crud-card-btn danger" title="Delete">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              </button>
             </div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">Name</label>
-              <input id="rip-name" type="text" class="crud-input" placeholder="rip name" spellcheck="false" autocomplete="off" />
-            </div>
-            <div class="crud-form-field">
-              <label class="crud-form-label">Description</label>
-              <input id="rip-desc" type="text" class="crud-input" placeholder="description (optional)" spellcheck="false" autocomplete="off" />
-            </div>
+            <div id="rip-form-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input id="rip-name" type="text" class="settings-input" placeholder="rip name" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">Description</label>
+            <input id="rip-desc" type="text" class="settings-input" placeholder="description (optional)" spellcheck="false" autocomplete="off" />
 
             <!-- Steps -->
             <div class="rip-steps-section">
               <div class="rip-steps-toolbar">
-                <span class="crud-form-label">Steps</span>
+                <span class="settings-label" style="margin:0;">Steps</span>
                 <span class="rip-steps-badge" id="rip-steps-count">0</span>
               </div>
               <div id="rip-steps-list" class="rip-steps-cards"></div>
-              <div id="rip-add-step" class="rip-step-add">
+              <div id="rip-add-step-form" class="rip-step-add hidden">
                 <div class="rip-add-row">
                   <select id="rip-step-type" class="rip-step-select">
                     <option value="app">App</option>
@@ -740,11 +740,10 @@
                   <select id="rip-step-app" class="rip-step-select"></select>
                   <select id="rip-step-command" class="rip-step-select"></select>
                   <input type="number" id="rip-step-delay" class="rip-step-input" min="0" step="100" placeholder="ms" title="Delay (ms)" />
-                  <button id="rip-step-add-btn" class="action-btn primary">+ Step</button>
                 </div>
                 <textarea id="rip-step-prompt" class="rip-step-textarea" rows="2" placeholder="skill or prompt (optional)" spellcheck="false"></textarea>
                 <div id="rip-outputs-section" class="hidden">
-                  <label class="crud-form-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
+                  <label class="settings-label" style="margin-top:4px;">Outputs — map [field] sections to app commands</label>
                   <div id="rip-outputs-list"></div>
                   <div class="rip-add-row" id="rip-add-output-row">
                     <input type="text" id="rip-output-field" class="rip-step-input" placeholder="field" spellcheck="false" autocomplete="off" />
@@ -753,12 +752,15 @@
                     <button id="rip-output-add-btn" class="action-btn">+ Output</button>
                   </div>
                 </div>
+                <div class="rip-add-actions">
+                  <button id="rip-step-cancel-btn" class="action-btn">Cancel</button>
+                  <button id="rip-step-confirm-btn" class="action-btn primary">Add</button>
+                </div>
               </div>
+              <button id="rip-step-add-btn" class="rip-add-step-btn">+ Step</button>
             </div>
 
-            <div class="crud-form-actions">
-              <button id="rip-delete-btn" class="action-btn danger">Delete</button>
-              <div class="crud-spacer"></div>
+            <div class="settings-actions" style="margin-top:8px;">
               <button id="rip-editor-back" class="action-btn">Cancel</button>
               <button id="rip-save-btn" class="action-btn primary">Save</button>
             </div>
