@@ -84,7 +84,7 @@ body {
 
 .splash-logo .splash-dot {
   display: inline-block;
-  font-size: 80px;
+  font-size: 96px;
   vertical-align: baseline;
   animation: dot-dance 3s ease-in-out infinite;
 }
@@ -2169,10 +2169,22 @@ ol.docs-list li::before {
 }
 
 .app-builder-controls {
-  width: 360px;
+  width: 380px;
   flex-shrink: 0;
   overflow-y: auto;
-  padding: 12px 16px 12px 0;
+  padding: 12px 16px;
+}
+.app-detail-preview-wrap {
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 320px;
+}
+.app-detail-preview-wrap webview {
+  flex: 1;
+  min-height: 0;
 }
 
 .app-builder-divider {

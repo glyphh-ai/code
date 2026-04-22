@@ -160,10 +160,10 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: bo
   { id: "perplexity", name: "Perplexity", url: "https://perplexity.ai" },
   // Google Workspace
   { id: "gmail", name: "Gmail", url: "https://mail.google.com" },
-  { id: "google-calendar", name: "Google Calendar", url: "https://calendar.google.com" },
-  { id: "google-sheets", name: "Google Sheets", url: "https://sheets.google.com" },
-  { id: "google-docs", name: "Google Docs", url: "https://docs.google.com" },
-  { id: "google-slides", name: "Google Slides", url: "https://slides.google.com" },
+  { id: "calendar", name: "Google Calendar", url: "https://calendar.google.com" },
+  { id: "sheets", name: "Google Sheets", url: "https://sheets.google.com" },
+  { id: "docs", name: "Google Docs", url: "https://docs.google.com" },
+  { id: "slides", name: "Google Slides", url: "https://slides.google.com" },
   { id: "notebooklm", name: "NotebookLM", url: "https://notebooklm.google.com" },
   // Dev & Work
   { id: "github", name: "GitHub", url: "https://github.com" },
@@ -332,6 +332,8 @@ export class AppConnector {
 
   /** Update an app's ID (renames file and map entry) */
   updateId(oldId: string, newId: string): boolean {
+    newId = newId.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    if (!newId || oldId === newId) return false;
     const app = this.apps.get(oldId);
     if (!app || this.apps.has(newId)) return false;
     // Remove old file

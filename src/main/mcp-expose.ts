@@ -16,6 +16,14 @@ import type { CaptureStore } from "./capture-store";
 import { getPreference, setPreference } from "./preferences";
 
 const DEFAULT_PORT = 7860;
+const TOKEN_TTL_DAYS = 90;
+
+interface McpToken {
+  token: string;
+  label: string;
+  createdAt: string;
+  expiresAt: string;
+}
 
 interface McpRequest {
   jsonrpc: "2.0";
@@ -85,24 +93,43 @@ export class McpExpose {
     }
   }
 
-  /** Generate a new access token and persist it. */
-  generateToken(): string {
-    const token = `yo_${crypto.randomBytes(24).toString("hex")}`;
-    const tokens = getPreference<string[]>("mcpExposeTokens", []);
-    tokens.push(token);
+  /** Generate a new access token with label and expiration, persist it. */
+  generateToken(label: string = "default"): McpToken {
+    const now = new Date();
+    const expires = new Date(now.getTime() + TOKEN_TTL_DAYS * 86400000);
+    const entry: McpToken = {
+      token: `yo_${crypto.randomBytes(24).toString("hex")}`,
+      label: label || "default",
+      createdAt: now.toISOString(),
+      expiresAt: expires.toISOString(),
+    };
+    const tokens = this.getTokens();
+    tokens.push(entry);
     setPreference("mcpExposeTokens", tokens);
-    return token;
+    return entry;
   }
 
-  /** Remove an access token. */
+  /** Remove an access token by its value. */
   revokeToken(token: string): void {
-    const tokens = getPreference<string[]>("mcpExposeTokens", []);
-    setPreference("mcpExposeTokens", tokens.filter((t) => t !== token));
+    const tokens = this.getTokens();
+    setPreference("mcpExposeTokens", tokens.filter((t) => t.token !== token));
   }
 
-  /** Get all active tokens. */
-  getTokens(): string[] {
-    return getPreference<string[]>("mcpExposeTokens", []);
+  /** Get all non-expired tokens. Prunes expired ones on read. */
+  getTokens(): McpToken[] {
+    const raw = getPreference<(McpToken | string)[]>("mcpExposeTokens", []);
+    const now = Date.now();
+    const migrated: McpToken[] = raw.map((t) => {
+      if (typeof t === "string") {
+        return { token: t, label: "default", createdAt: new Date().toISOString(), expiresAt: new Date(now + TOKEN_TTL_DAYS * 86400000).toISOString() };
+      }
+      return t;
+    });
+    const active = migrated.filter((t) => new Date(t.expiresAt).getTime() > now);
+    if (active.length !== raw.length) {
+      setPreference("mcpExposeTokens", active);
+    }
+    return active;
   }
 
   // ── HTTP handling ─────────────────────────────────────────
@@ -153,15 +180,15 @@ export class McpExpose {
 
   private checkAuth(req: http.IncomingMessage): boolean {
     const tokens = this.getTokens();
-    if (tokens.length === 0) return false; // No tokens = no access
+    if (tokens.length === 0) return false;
 
-    const auth = req.headers.authorization;
-    if (!auth) return false;
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return false;
 
-    const match = auth.match(/^Bearer\s+(.+)$/i);
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
     if (!match) return false;
 
-    return tokens.includes(match[1]);
+    return tokens.some((t) => t.token === match[1]);
   }
 
   // ── SSE ─────────────────────────────────────────────────

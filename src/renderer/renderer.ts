@@ -35,6 +35,7 @@ declare global {
       appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; forceWeb?: boolean; doNotRecord?: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
       appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
       appsRemove: (id: string) => Promise<boolean>;
+      appsUpdateId: (oldId: string, newId: string) => Promise<boolean>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
       appsUpdateForceWeb: (id: string, forceWeb: boolean) => Promise<boolean>;
@@ -168,8 +169,8 @@ declare global {
       mcpExposeStart: () => Promise<{ ok: boolean; error?: string }>;
       mcpExposeStop: () => Promise<void>;
       mcpExposeStatus: () => Promise<{ running: boolean; port: number }>;
-      mcpExposeGetTokens: () => Promise<string[]>;
-      mcpExposeGenToken: () => Promise<string>;
+      mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
+      mcpExposeGenToken: (label: string) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
     };
   }

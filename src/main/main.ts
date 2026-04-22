@@ -1772,6 +1772,7 @@ async function boot() {
     return app;
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => appConnector.updateId(oldId, newId));
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
@@ -1882,7 +1883,7 @@ async function boot() {
     port: mcpExpose!.getPort(),
   }));
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose!.getTokens());
-  ipcMain.handle("mcp-expose-gen-token", () => mcpExpose!.generateToken());
+  ipcMain.handle("mcp-expose-gen-token", (_e, label: string) => mcpExpose!.generateToken(label));
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose!.revokeToken(token); });
 
   // ── Dashboard IPC handlers ─────────────────────────────

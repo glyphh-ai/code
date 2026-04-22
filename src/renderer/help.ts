@@ -784,6 +784,7 @@ let appsPage = 0;
 const appsList = document.getElementById("apps-list")!;
 const appDetail = document.getElementById("app-detail")!;
 const appAddForm = document.getElementById("app-add-form")!;
+const appDetailId = document.getElementById("app-detail-id") as HTMLInputElement;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appForceWeb = document.getElementById("app-detail-force-web") as HTMLInputElement;
@@ -856,7 +857,7 @@ function renderAppsList() {
     card.className = "crud-card";
     card.innerHTML = `
       <div class="crud-card-info">
-        <span class="crud-card-name">${app.name}</span>
+        <span class="crud-card-name">${app.name} <span style="color:#999;font-size:11px;font-weight:400;margin-left:4px;">${app.id}</span></span>
         <span class="crud-card-meta">${meta}</span>
       </div>
       <div class="crud-card-actions">
@@ -891,6 +892,7 @@ function renderAppsList() {
 
 async function openPanelAppDetail(app: PanelApp) {
   currentAppId = app.id;
+  appDetailId.value = app.id;
   appDetailName.value = app.name;
   appDetailUrl.value = app.url;
   appForceWeb.checked = !!app.forceWeb;
@@ -1135,6 +1137,11 @@ function initApps() {
   // Detail save — persist name, url, forceWeb and go back
   document.getElementById("app-detail-save")!.addEventListener("click", async () => {
     if (!currentAppId) return;
+    const newId = appDetailId.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    if (newId && newId !== currentAppId) {
+      const ok = await window.yo.appsUpdateId(currentAppId, newId);
+      if (ok) currentAppId = newId;
+    }
     const name = appDetailName.value.trim();
     const url = appDetailUrl.value.trim();
     if (name) await window.yo.appsUpdateName(currentAppId, name);
@@ -1158,36 +1165,6 @@ function initApps() {
 
   appSearchInput.addEventListener("input", () => { appsPage = 0; renderAppsList(); });
 
-  // Draggable split divider
-  const divider = document.getElementById("app-builder-divider")!;
-  const controls = document.querySelector(".app-builder-controls") as HTMLElement;
-  let dragging = false;
-  let startX = 0;
-  let startW = 0;
-
-  divider.addEventListener("mousedown", (e) => {
-    dragging = true;
-    startX = e.clientX;
-    startW = controls.offsetWidth;
-    divider.classList.add("dragging");
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    e.preventDefault();
-  });
-
-  document.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    const w = Math.max(200, Math.min(800, startW + (e.clientX - startX)));
-    controls.style.width = w + "px";
-  });
-
-  document.addEventListener("mouseup", () => {
-    if (!dragging) return;
-    dragging = false;
-    divider.classList.remove("dragging");
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-  });
 }
 
 // ── Settings ─────────────────────────────────────────────
@@ -1239,24 +1216,38 @@ async function renderMcpTokens() {
   const tokens = await window.yo.mcpExposeGetTokens();
   mcpExposeTokensEl.innerHTML = "";
   if (tokens.length === 0) {
-    mcpExposeTokensEl.innerHTML = '<span style="font-size:11px;color:#666;">No tokens yet.</span>';
+    mcpExposeTokensEl.innerHTML = '<span style="font-size:11px;color:#999;">No tokens yet. Generate one to connect an external tool.</span>';
     return;
   }
-  for (const token of tokens) {
+  for (const t of tokens) {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:6px;margin-bottom:4px;";
-    const code = document.createElement("code");
-    code.style.cssText = "font-size:11px;color:#ccc;background:#1a1a1a;padding:2px 6px;border-radius:3px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;";
-    code.textContent = token;
+    row.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 10px;background:#1a1a1a;border-radius:6px;";
+
+    const label = document.createElement("span");
+    label.style.cssText = "flex:1;font-size:12px;color:#ccc;";
+    label.textContent = t.label || "Untitled";
+
+    const created = document.createElement("span");
+    created.style.cssText = "font-size:11px;color:#999;font-family:'SF Mono','Fira Code',monospace;";
+    created.textContent = new Date(t.createdAt).toLocaleDateString();
+
+    const daysLeft = Math.ceil((new Date(t.expiresAt).getTime() - Date.now()) / 86400000);
+    const expires = document.createElement("span");
+    expires.style.cssText = `font-size:11px;font-family:'SF Mono','Fira Code',monospace;color:${daysLeft <= 7 ? "#ef4444" : "#999"};`;
+    expires.textContent = `Expires ${new Date(t.expiresAt).toLocaleDateString()}`;
+
     const revoke = document.createElement("button");
     revoke.className = "action-btn danger";
-    revoke.style.cssText = "font-size:10px;padding:2px 6px;";
+    revoke.style.cssText = "font-size:10px;padding:2px 8px;";
     revoke.textContent = "Revoke";
     revoke.addEventListener("click", async () => {
-      await window.yo.mcpExposeRevokeToken(token);
+      await window.yo.mcpExposeRevokeToken(t.token);
       await renderMcpTokens();
     });
-    row.appendChild(code);
+
+    row.appendChild(label);
+    row.appendChild(created);
+    row.appendChild(expires);
     row.appendChild(revoke);
     mcpExposeTokensEl.appendChild(row);
   }
@@ -1337,7 +1328,10 @@ function initSettings() {
     }
   });
   document.getElementById("mcp-expose-gen-token")!.addEventListener("click", async () => {
-    await window.yo.mcpExposeGenToken();
+    const labelInput = document.getElementById("mcp-expose-token-label") as HTMLInputElement;
+    const label = labelInput.value.trim() || "default";
+    await window.yo.mcpExposeGenToken(label);
+    labelInput.value = "";
     await renderMcpTokens();
   });
 
