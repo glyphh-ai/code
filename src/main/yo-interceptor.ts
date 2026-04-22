@@ -227,6 +227,236 @@ window.addEventListener('beforeunload',function(e){
   if(!firing)return;
   e.preventDefault();
 },true);
+
+// ── Command overlay for business users ──────────────────
+(function(){
+var dot=null,pop=null,promptRow=null,promptInput=null,activeCmd=null;
+var currentEl=null;
+
+function createDot(){
+  if(dot)return;
+  dot=document.createElement('div');
+  dot.id='__yo-cmd-dot';
+  dot.innerHTML='.';
+  dot.style.cssText='position:absolute;z-index:2147483646;width:22px;height:22px;border-radius:50%;background:rgba(37,199,94,0.12);color:rgba(37,199,94,0.45);font-size:16px;font-weight:700;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:none;align-items:center;justify-content:center;cursor:pointer;transition:opacity 0.15s,background 0.15s;pointer-events:auto;line-height:22px;text-align:center;user-select:none;';
+  dot.addEventListener('mouseenter',function(){dot.style.background='rgba(37,199,94,0.25)';dot.style.color='rgba(37,199,94,0.8)';});
+  dot.addEventListener('mouseleave',function(){dot.style.background='rgba(37,199,94,0.12)';dot.style.color='rgba(37,199,94,0.45)';});
+  dot.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();togglePop();});
+  document.body.appendChild(dot);
+}
+
+function positionDot(el){
+  if(!dot||!el)return;
+  var r=el.getBoundingClientRect();
+  if(r.width===0&&r.height===0){dot.style.display='none';return;}
+  dot.style.display='flex';
+  dot.style.top=(window.scrollY+r.top+Math.min(r.height/2-11,r.height-26))+'px';
+  dot.style.left=(window.scrollX+r.right-28)+'px';
+}
+
+function createPop(){
+  if(pop)return;
+  pop=document.createElement('div');
+  pop.id='__yo-cmd-pop';
+  pop.style.cssText='position:absolute;z-index:2147483647;display:none;background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:6px;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+
+  // Natural language input at top
+  var nlRow=document.createElement('div');
+  nlRow.style.cssText='padding:4px 4px 6px;border-bottom:1px solid #2a2a2a;margin-bottom:4px;';
+  var nlInput=document.createElement('input');
+  nlInput.id='__yo-nl-input';
+  nlInput.type='text';
+  nlInput.placeholder='Ask anything...';
+  nlInput.style.cssText='width:100%;box-sizing:border-box;background:#111;border:1px solid #333;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:12px;font-family:inherit;outline:none;';
+  nlInput.addEventListener('focus',function(){nlInput.style.borderColor='#25C75E';});
+  nlInput.addEventListener('blur',function(){nlInput.style.borderColor='#333';});
+  nlInput.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&nlInput.value.trim()){
+      e.preventDefault();e.stopPropagation();
+      // Send to yo agent with > (search + inject)
+      fireCmd('yo','> '+nlInput.value.trim());
+      closePop();
+    }
+    if(e.key==='Escape'){closePop();}
+  });
+  nlRow.appendChild(nlInput);
+  pop.appendChild(nlRow);
+
+  var cmds=[
+    {icon:'\\u{1F50D}',label:'Pull',desc:'Search your history',cmd:'yo',args:'>'},
+    {icon:'\\u{1F4CB}',label:'Capture',desc:'Grab this screen',cmd:'sup',args:null},
+    {icon:'\\u{2728}',label:'Process',desc:'Transform with a skill',cmd:'sup',args:'.'},
+    {icon:'\\u{1F4C2}',label:'Navigate',desc:'Switch panels',cmd:'dip',args:null},
+  ];
+
+  cmds.forEach(function(c){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:background 0.1s;';
+    row.innerHTML='<span style="font-size:16px;width:24px;text-align:center;">'+c.icon+'</span><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;color:#e0e0e0;">'+c.label+'</div><div style="font-size:10px;color:#666;margin-top:1px;">'+c.desc+'</div></div>';
+    row.addEventListener('mouseenter',function(){row.style.background='#252525';});
+    row.addEventListener('mouseleave',function(){row.style.background='none';});
+    row.addEventListener('mousedown',function(e){
+      e.preventDefault();e.stopPropagation();
+      handleCmd(c);
+    });
+    pop.appendChild(row);
+  });
+
+  // Divider + utility row
+  var utilDiv=document.createElement('div');
+  utilDiv.style.cssText='display:flex;gap:4px;padding:6px 4px 2px;border-top:1px solid #2a2a2a;margin-top:4px;';
+  var utils=[
+    {label:'\\u{2728} Ask Yo',action:function(){fireCmd('yo','');closePop();}},
+    {label:'\\u{2753} Help',action:function(){fireCmd('yo','help');closePop();}},
+    {label:'\\u{1F4CA} Dashboard',action:function(){
+      console.log('${PREFIX}'+JSON.stringify({type:'__open_dashboard',_nonce:_n}));
+      closePop();
+    }},
+  ];
+  utils.forEach(function(u){
+    var btn=document.createElement('div');
+    btn.style.cssText='flex:1;text-align:center;padding:7px 4px;border-radius:6px;cursor:pointer;font-size:11px;color:#999;transition:background 0.1s,color 0.1s;';
+    btn.textContent=u.label;
+    btn.addEventListener('mouseenter',function(){btn.style.background='#252525';btn.style.color='#e0e0e0';});
+    btn.addEventListener('mouseleave',function(){btn.style.background='none';btn.style.color='#999';});
+    btn.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();u.action();});
+    utilDiv.appendChild(btn);
+  });
+  pop.appendChild(utilDiv);
+
+  // Prompt input row for Pull/Process (hidden by default)
+  promptRow=document.createElement('div');
+  promptRow.style.cssText='display:none;padding:6px 4px 2px;border-top:1px solid #2a2a2a;margin-top:4px;';
+  promptRow.innerHTML='<div id="__yo-prompt-label" style="font-size:10px;color:#666;margin-bottom:4px;padding:0 6px;"></div>';
+  promptInput=document.createElement('input');
+  promptInput.type='text';
+  promptInput.placeholder='Type here...';
+  promptInput.style.cssText='width:100%;box-sizing:border-box;background:#111;border:1px solid #333;border-radius:6px;padding:7px 10px;color:#e0e0e0;font-size:12px;font-family:inherit;outline:none;';
+  promptInput.addEventListener('focus',function(){promptInput.style.borderColor='#25C75E';});
+  promptInput.addEventListener('blur',function(){promptInput.style.borderColor='#333';});
+  promptInput.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&promptInput.value.trim()){
+      e.preventDefault();e.stopPropagation();
+      submitPrompt();
+    }
+    if(e.key==='Escape'){closePop();}
+  });
+  promptRow.appendChild(promptInput);
+  pop.appendChild(promptRow);
+
+  document.body.appendChild(pop);
+}
+
+function handleCmd(c){
+  if(c.args==='>'||c.args==='.'){
+    // Needs a prompt — show input
+    activeCmd=c;
+    var label=pop.querySelector('#__yo-prompt-label');
+    if(c.args==='>')label.textContent='Search your captures:';
+    else if(c.args==='.')label.textContent='Skill or instruction:';
+    promptRow.style.display='block';
+    promptInput.value='';
+    setTimeout(function(){promptInput.focus();},50);
+    return;
+  }
+  if(c.cmd==='dip'){
+    // Show panel list or just fire dip back
+    fireCmd('yo','');
+    closePop();
+    return;
+  }
+  // Direct execution
+  fireCmd(c.cmd,c.args||'');
+  closePop();
+}
+
+function submitPrompt(){
+  if(!activeCmd)return;
+  var val=promptInput.value.trim();
+  if(!val)return;
+  var fullArg=activeCmd.args+' '+val;
+  fireCmd(activeCmd.cmd,fullArg);
+  closePop();
+}
+
+function fireCmd(cmd,args){
+  window.__yoLastEl=currentEl;
+  var instruction=args||null;
+  console.log('${PREFIX}'+JSON.stringify({type:cmd,instruction:instruction,_nonce:_n}));
+}
+
+function togglePop(){
+  createPop();
+  if(pop.style.display!=='none'){closePop();return;}
+  // Reset state
+  activeCmd=null;
+  if(promptRow)promptRow.style.display='none';
+  // Position below the dot
+  var dr=dot.getBoundingClientRect();
+  pop.style.display='block';
+  pop.style.top=(window.scrollY+dr.bottom+6)+'px';
+  pop.style.left=(window.scrollX+dr.right-pop.offsetWidth)+'px';
+  // Clamp to viewport
+  var pr=pop.getBoundingClientRect();
+  if(pr.right>window.innerWidth)pop.style.left=(window.scrollX+window.innerWidth-pr.width-8)+'px';
+  if(pr.bottom>window.innerHeight)pop.style.top=(window.scrollY+dr.top-pr.height-6)+'px';
+}
+
+function closePop(){
+  if(pop)pop.style.display='none';
+  activeCmd=null;
+}
+
+// Track focused inputs and show the dot
+var focusTimer=null;
+function onFocus(e){
+  var el=e.target;
+  if(!el||!el.getBoundingClientRect)return;
+  if(el.id&&el.id.startsWith('__yo'))return;
+  var tag=el.tagName;
+  var isInput=tag==='INPUT'||tag==='TEXTAREA'||el.isContentEditable||
+    (el.getAttribute&&el.getAttribute('role')==='textbox')||
+    (el.getAttribute&&el.getAttribute('contenteditable')&&el.getAttribute('contenteditable')!=='false');
+  if(!isInput)return;
+  if(tag==='INPUT'&&el.type&&!['text','search','email','url',''].includes(el.type))return;
+  currentEl=el;
+  createDot();
+  positionDot(el);
+}
+function onBlur(){
+  clearTimeout(focusTimer);
+  focusTimer=setTimeout(function(){
+    // Don't hide if focus moved to the popover
+    var a=document.activeElement;
+    if(a&&a.id&&a.id.startsWith('__yo'))return;
+    if(dot)dot.style.display='none';
+    closePop();
+    currentEl=null;
+  },200);
+}
+
+document.addEventListener('focusin',onFocus,true);
+document.addEventListener('focusout',onBlur,true);
+
+// Reposition on scroll/resize
+var reposTimer=null;
+function reposition(){
+  clearTimeout(reposTimer);
+  reposTimer=setTimeout(function(){
+    if(currentEl&&dot&&dot.style.display!=='none')positionDot(currentEl);
+  },50);
+}
+window.addEventListener('scroll',reposition,true);
+window.addEventListener('resize',reposition,true);
+
+// Close popover on outside click
+document.addEventListener('mousedown',function(e){
+  if(!pop||pop.style.display==='none')return;
+  if(pop.contains(e.target)||dot.contains(e.target))return;
+  closePop();
+},true);
+})();
+
 })();`;
   }
 
@@ -267,6 +497,12 @@ window.addEventListener('beforeunload',function(e){
         if (this.commandHandler) {
           const cmd = data.instruction ? `council ${data.instruction}` : "council";
           await this.commandHandler(cmd);
+        }
+        break;
+      case "__open_dashboard":
+        // Open help/dashboard overlay from the command overlay
+        if (this.commandHandler) {
+          await this.commandHandler("yo help");
         }
         break;
       case "cancel":
