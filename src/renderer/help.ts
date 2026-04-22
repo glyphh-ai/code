@@ -448,6 +448,10 @@ export function initHelp() {
 
 // ── Dashboard ─────────────────────────────────────────────
 
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 const AGENT_COLORS: Record<string, string> = {
   orchestrator: "#25C75E", navigator: "#48dbfb", researcher: "#feca57",
   coder: "#ff6b6b", "skill-runner": "#cc5de8", manager: "#ff9f43",
@@ -528,7 +532,7 @@ function renderDashAgentChart(allTime: { agents: Record<string, any>; total: any
     options: {
       responsive: true, maintainAspectRatio: false, cutout: "65%",
       plugins: {
-        legend: { position: "right", labels: { color: "#aaa", font: { size: 11 }, padding: 10, usePointStyle: true, pointStyleWidth: 8 } },
+        legend: { position: "right", labels: { color: cssVar("--text-2"), font: { size: 11 }, padding: 10, usePointStyle: true, pointStyleWidth: 8 } },
         tooltip: { callbacks: { label: (c: any) => `${c.label}: ${formatTokens(c.parsed)} tokens` } },
       },
     },
@@ -577,11 +581,11 @@ async function renderDashHistoryChart() {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: { ticks: { color: "#666", font: { size: 10 }, maxRotation: 0 }, grid: { color: "rgba(255,255,255,0.04)" } },
-        y: { ticks: { color: "#666", font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: "rgba(255,255,255,0.04)" } },
+        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
+        y: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: cssVar("--border") } },
       },
       plugins: {
-        legend: { labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
         tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${formatTokens(c.parsed.y)}` } },
       },
     },
@@ -618,12 +622,12 @@ async function renderDashIntakeChart() {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: { ticks: { color: "#666", font: { size: 10 }, maxRotation: 0 }, grid: { color: "rgba(255,255,255,0.04)" } },
-        y: { position: "left", ticks: { color: "#25C75E", font: { size: 10 }, stepSize: 1 }, grid: { color: "rgba(255,255,255,0.04)" }, title: { display: false } },
+        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
+        y: { position: "left", ticks: { color: cssVar("--accent"), font: { size: 10 }, stepSize: 1 }, grid: { color: cssVar("--border") }, title: { display: false } },
         y1: { position: "right", ticks: { color: "#48dbfb", font: { size: 10 }, callback: (v: string | number) => formatBytes(Number(v)) }, grid: { drawOnChartArea: false } },
       },
       plugins: {
-        legend: { labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
         tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Bytes" ? `${c.dataset.label}: ${formatBytes(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } },
       },
     },
@@ -649,8 +653,8 @@ function renderDashFlowChart(captureStats: { ingestCount: number; searchCount: n
       labels: hasData ? [".sup  (captures in)", ".yo  (searches out)", "Embedded"] : ["No activity yet"],
       datasets: [{
         data: hasData ? [supVal, yoVal, embedded] : [1],
-        backgroundColor: hasData ? ["#25C75E", "#48dbfb", "#cc5de8"] : ["#222"],
-        borderColor: hasData ? ["#1a8a40", "#2a9abf", "#8a3d9e"] : ["#333"],
+        backgroundColor: hasData ? ["#25C75E", "#48dbfb", "#cc5de8"] : [cssVar("--border")],
+        borderColor: hasData ? ["#1a8a40", "#2a9abf", "#8a3d9e"] : [cssVar("--border-3")],
         borderWidth: 2,
         hoverOffset: 6,
       }],
@@ -661,7 +665,7 @@ function renderDashFlowChart(captureStats: { ingestCount: number; searchCount: n
       plugins: {
         legend: {
           position: "right",
-          labels: { color: "#aaa", font: { size: 11 }, usePointStyle: true, pointStyleWidth: 10, padding: 12 },
+          labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 10, padding: 12 },
         },
         tooltip: {
           callbacks: {
@@ -751,12 +755,12 @@ async function renderDashPrompts() {
     nameRow.appendChild(promptSnip);
 
     const timeSpan = document.createElement("span");
-    timeSpan.style.cssText = "font-size:10px;color:#555;flex-shrink:0;";
+    timeSpan.style.cssText = "font-size:10px;color:var(--text-muted);flex-shrink:0;";
     timeSpan.textContent = relativeTime(e.startTs);
     nameRow.appendChild(timeSpan);
 
     const tokSpan = document.createElement("span");
-    tokSpan.style.cssText = "font-size:10px;color:#25C75E;flex-shrink:0;";
+    tokSpan.style.cssText = "font-size:10px;color:var(--accent);flex-shrink:0;";
     tokSpan.textContent = `${formatTokens(e.inputTokens + e.outputTokens)}`;
     nameRow.appendChild(tokSpan);
 
@@ -1003,7 +1007,7 @@ function makeDataCard(id: string, source: string, created: number, snippet: stri
   srcSpan.textContent = source;
   nameRow.appendChild(srcSpan);
   const timeSpan = document.createElement("span");
-  timeSpan.style.cssText = "font-size:10px;color:#555;";
+  timeSpan.style.cssText = "font-size:10px;color:var(--text-muted);";
   timeSpan.textContent = relativeTime(created);
   nameRow.appendChild(timeSpan);
   if (size !== undefined && size > 0) {
@@ -1014,7 +1018,7 @@ function makeDataCard(id: string, source: string, created: number, snippet: stri
   }
   if (score !== undefined) {
     const scoreSpan = document.createElement("span");
-    scoreSpan.style.cssText = "font-size:10px;color:#25C75E;";
+    scoreSpan.style.cssText = "font-size:10px;color:var(--accent);";
     scoreSpan.textContent = `${(score * 100).toFixed(0)}%`;
     nameRow.appendChild(scoreSpan);
   }
@@ -1944,10 +1948,10 @@ async function refreshMcpExposeStatus() {
   const status = await window.yo.mcpExposeStatus();
   if (status.running) {
     mcpExposeStatus.textContent = `Running on http://127.0.0.1:${status.port}`;
-    mcpExposeStatus.style.color = "#25C75E";
+    mcpExposeStatus.style.color = "var(--accent)";
   } else {
     mcpExposeStatus.textContent = "Stopped";
-    mcpExposeStatus.style.color = "#999";
+    mcpExposeStatus.style.color = "var(--text-2)";
   }
 }
 
@@ -1955,24 +1959,24 @@ async function renderMcpTokens() {
   const tokens = await window.yo.mcpExposeGetTokens();
   mcpExposeTokensEl.innerHTML = "";
   if (tokens.length === 0) {
-    mcpExposeTokensEl.innerHTML = '<span style="font-size:11px;color:#999;">No tokens yet. Generate one to connect an external tool.</span>';
+    mcpExposeTokensEl.innerHTML = '<span style="font-size:11px;color:var(--text-2);">No tokens yet. Generate one to connect an external tool.</span>';
     return;
   }
   for (const t of tokens) {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 10px;background:#1a1a1a;border-radius:6px;";
+    row.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 10px;background:var(--surface-2);border-radius:6px;";
 
     const label = document.createElement("span");
-    label.style.cssText = "flex:1;font-size:12px;color:#ccc;";
+    label.style.cssText = "flex:1;font-size:12px;color:var(--text);";
     label.textContent = t.label || "Untitled";
 
     const created = document.createElement("span");
-    created.style.cssText = "font-size:11px;color:#999;font-family:'SF Mono','Fira Code',monospace;";
+    created.style.cssText = "font-size:11px;color:var(--text-2);font-family:'SF Mono','Fira Code',monospace;";
     created.textContent = new Date(t.createdAt).toLocaleDateString();
 
     const daysLeft = Math.ceil((new Date(t.expiresAt).getTime() - Date.now()) / 86400000);
     const expires = document.createElement("span");
-    expires.style.cssText = `font-size:11px;font-family:'SF Mono','Fira Code',monospace;color:${daysLeft <= 7 ? "#ef4444" : "#999"};`;
+    expires.style.cssText = `font-size:11px;font-family:'SF Mono','Fira Code',monospace;color:${daysLeft <= 7 ? "var(--danger)" : "var(--text-2)"};`;
     expires.textContent = `Expires ${new Date(t.expiresAt).toLocaleDateString()}`;
 
     const revoke = document.createElement("button");
@@ -1995,6 +1999,25 @@ async function renderMcpTokens() {
 function initSettings() {
   settingsProvider.addEventListener("change", () => updateSettingsUI());
   settingsSaveBtn.addEventListener("click", saveSettings);
+
+  // Theme picker
+  const themePicker = document.getElementById("theme-picker");
+  if (themePicker) {
+    window.yo.getTheme().then((theme) => {
+      themePicker.querySelectorAll(".theme-option").forEach((btn) => {
+        btn.classList.toggle("active", btn.getAttribute("data-theme") === theme);
+      });
+    });
+    themePicker.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest(".theme-option") as HTMLElement | null;
+      if (!btn) return;
+      const theme = btn.getAttribute("data-theme")!;
+      document.documentElement.setAttribute("data-theme", theme);
+      window.yo.setTheme(theme);
+      themePicker.querySelectorAll(".theme-option").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+  }
 
   // Service toggles — show relaunch bar when changed
   const showRelaunch = () => {
@@ -2040,14 +2063,14 @@ function initSettings() {
       const result = await window.yo.mcpExposeStart();
       if (!result.ok) {
         mcpExposeStatus.textContent = `Error: ${result.error}`;
-        mcpExposeStatus.style.color = "#ef4444";
+        mcpExposeStatus.style.color = "var(--danger)";
       } else {
         await refreshMcpExposeStatus();
       }
     } else {
       await window.yo.mcpExposeStop();
       mcpExposeStatus.textContent = "Stopped";
-      mcpExposeStatus.style.color = "#999";
+      mcpExposeStatus.style.color = "var(--text-2)";
     }
   });
   document.getElementById("mcp-expose-port-save")!.addEventListener("click", async () => {
@@ -2059,7 +2082,7 @@ function initSettings() {
         const result = await window.yo.mcpExposeStart();
         if (!result.ok) {
           mcpExposeStatus.textContent = `Error: ${result.error}`;
-          mcpExposeStatus.style.color = "#ef4444";
+          mcpExposeStatus.style.color = "var(--danger)";
         } else {
           await refreshMcpExposeStatus();
         }

@@ -132,7 +132,7 @@ contextBridge.exposeInMainWorld("yo", {
   logout: () => ipcRenderer.invoke("logout") as Promise<void>,
   validateApiKey: (key: string) => ipcRenderer.invoke("validate-api-key", key) as Promise<{ valid: boolean; error?: string }>,
   getApiKey: () => ipcRenderer.invoke("get-api-key") as Promise<string | null>,
-  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => {
+  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
   onSplashStatus: (callback: (msg: string) => void) => {
@@ -183,6 +183,10 @@ contextBridge.exposeInMainWorld("yo", {
   onTabState: (callback: (state: { tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>; activeId: string; visible: boolean }) => void) => {
     ipcRenderer.on("tab-state", (_event, state) => callback(state));
   },
+
+  // Theme
+  getTheme: () => ipcRenderer.invoke("get-theme") as Promise<string>,
+  setTheme: (theme: string) => ipcRenderer.invoke("set-theme", theme),
 
   // Account info
   getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string }>,

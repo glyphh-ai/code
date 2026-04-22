@@ -72,7 +72,7 @@ declare global {
       logout: () => Promise<void>;
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
-      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean }) => void) => void;
+      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
@@ -148,6 +148,9 @@ declare global {
       onUrlUpdate: (cb: (info: { url: string; favicon: string; canGoBack?: boolean; canGoForward?: boolean }) => void) => void;
       onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => void;
       onPanelUrlUpdate: (cb: (info: { id: string; url: string; favicon: string }) => void) => void;
+      // Theme
+      getTheme: () => Promise<string>;
+      setTheme: (theme: string) => Promise<void>;
       // Account info
       getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string }>;
       openExternal: (url: string) => void;
@@ -2137,6 +2140,7 @@ function dismissSplash(): void {
 window.yo.onBoot((data) => {
   booted = true;
   bootData = data;
+  if (data.theme) document.documentElement.setAttribute("data-theme", data.theme);
   dismissSplash();
 
   // Show tutorial on first launch (skip if going through onboarding — handled by yo-onboarding-done)

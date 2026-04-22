@@ -1403,6 +1403,10 @@ async function boot() {
   // IPC: entitlements — let renderer query current tier limits
   ipcMain.handle("get-entitlements", () => getCurrentLimits());
 
+  // IPC: theme
+  ipcMain.handle("get-theme", () => getPreference<string>("theme", "dark"));
+  ipcMain.handle("set-theme", (_e, theme: string) => { setPreference("theme", theme); });
+
   // IPC: app command mapping (DOM picker)
   ipcMain.handle("apps-set-command", (_e, id: string, key: string, mapping: { selector: string; action: string; description: string }) => {
     return appConnector.setCommand(id, key, mapping as any);
@@ -1856,6 +1860,7 @@ async function boot() {
       apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding: currentNeedsOnboarding,
       hideWelcome,
+      theme: getPreference<string>("theme", "dark"),
     });
     if (!currentNeedsOnboarding && !panelsReady) {
       restorePanels();

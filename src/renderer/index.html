@@ -312,7 +312,7 @@
                   <div class="crud-spacer"></div>
                   <button id="data-delete-btn" class="action-btn danger">Delete</button>
                 </div>
-                <div id="data-detail-meta" style="font-size:11px;color:#999;margin-bottom:8px;"></div>
+                <div id="data-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
                 <pre id="data-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
               </div>
             </div>
@@ -884,7 +884,7 @@
             </div>
 
             <label class="settings-label" style="margin-top:8px;">Recipe preview</label>
-            <code id="drip-recipe-preview" style="display:block;padding:8px 10px;background:#0a0a0a;border:1px solid #222;border-radius:6px;color:#999;font-size:12px;font-family:var(--font-mono);">&mdash;</code>
+            <code id="drip-recipe-preview" style="display:block;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text-2);font-size:12px;font-family:var(--font-mono);">&mdash;</code>
 
             <div style="margin-top:8px;">
               <button id="drip-preview-btn" class="action-btn">&#9654; Play</button>
@@ -903,7 +903,7 @@
 
           <!-- Upgrade gate (shown for non-Advanced when trying to connect) -->
           <div id="apps-pro-gate" class="hidden" style="text-align:center;padding:32px 16px;">
-            <p style="color:#999;font-size:14px;margin-bottom:12px;">App connections require an Advanced subscription.</p>
+            <p style="color:var(--text-2);font-size:14px;margin-bottom:12px;">App connections require an Advanced subscription.</p>
             <button id="apps-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
           </div>
 
@@ -957,7 +957,7 @@
                   <div class="crud-spacer"></div>
                   <button id="app-detail-delete" class="action-btn danger">Delete</button>
                 </div>
-                <label class="settings-label">ID <span style="color:#666;font-weight:400;font-size:11px;">(used in commands like .sup, .dip)</span></label>
+                <label class="settings-label">ID <span style="color:var(--text-3);font-weight:400;font-size:11px;">(used in commands like .sup, .dip)</span></label>
                 <input id="app-detail-id" class="settings-input" spellcheck="false" style="font-family:'SF Mono','Fira Code',monospace;font-size:12px;" />
                 <label class="settings-label">Name</label>
                 <input id="app-detail-name" class="settings-input" spellcheck="false" />
@@ -996,7 +996,7 @@
                   <span class="toggle-desc" id="app-detail-policy-desc" style="margin-top:4px;display:block;"></span>
                 </div>
 
-                <div style="border-top:1px solid #2a2a2a;margin:12px 0 8px;"></div>
+                <div style="border-top:1px solid var(--border-2);margin:12px 0 8px;"></div>
 
                 <div id="app-connect-status"></div>
                 <div id="app-commands-list"></div>
@@ -1152,7 +1152,20 @@
               <div class="settings-panel" data-sub="appearance">
                 <h2>Appearance</h2>
                 <p class="section-desc">Customize the workspace interface.</p>
-                <div class="settings-toggles">
+
+                <h3 class="settings-subheading" style="margin-top:0;">Theme</h3>
+                <div id="theme-picker" class="theme-picker">
+                  <button class="theme-option active" data-theme="dark">
+                    <div class="theme-preview theme-preview-dark"><div class="tp-sidebar"></div><div class="tp-main"><div class="tp-bar"></div><div class="tp-content"></div></div></div>
+                    <span>Dark</span>
+                  </button>
+                  <button class="theme-option" data-theme="light">
+                    <div class="theme-preview theme-preview-light"><div class="tp-sidebar"></div><div class="tp-main"><div class="tp-bar"></div><div class="tp-content"></div></div></div>
+                    <span>Light</span>
+                  </button>
+                </div>
+
+                <div class="settings-toggles" style="margin-top:24px;">
                   <label class="settings-toggle">
                     <input type="checkbox" id="toggle-show-tabs" checked />
                     <span class="toggle-switch"></span>
@@ -1234,7 +1247,7 @@
                     </div>
                   </label>
                   <div id="voice-key-wrap" class="settings-form hidden" style="margin: 8px 0 16px 44px;">
-                    <label class="settings-label" style="color: #999;">OpenAI Key <span style="color:#555; font-weight:400;">(for Whisper only)</span></label>
+                    <label class="settings-label" style="color:var(--text-2);">OpenAI Key <span style="color:var(--text-muted); font-weight:400;">(for Whisper only)</span></label>
                     <input id="settings-voice-key" type="password" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off" />
                     <div class="settings-actions" style="margin-top: 8px;">
                       <button id="voice-key-save" class="action-btn primary">Save</button>
@@ -1247,7 +1260,7 @@
                     <span class="toggle-switch"></span>
                     <div class="toggle-info">
                       <span class="toggle-title">Remote</span>
-                      <span class="toggle-desc">Control your desktop from your phone via <a href="https://platform.yosup.dev/voice" target="_blank" style="color:#25C75E;">yosup.dev/voice</a></span>
+                      <span class="toggle-desc">Control your desktop from your phone via <a href="https://platform.yosup.dev/voice" target="_blank" style="color:var(--accent);">yosup.dev/voice</a></span>
                     </div>
                   </label>
                   <label class="settings-toggle">
@@ -1275,14 +1288,14 @@
                     </div>
                   </label>
                   <div id="mcp-expose-settings" class="hidden" style="margin: 8px 0 16px 44px;">
-                    <div id="mcp-expose-status" style="font-size:12px;color:#999;margin-bottom:8px;"></div>
-                    <label class="settings-label" style="color:#999;">Port</label>
+                    <div id="mcp-expose-status" style="font-size:12px;color:var(--text-2);margin-bottom:8px;"></div>
+                    <label class="settings-label" style="color:var(--text-2);">Port</label>
                     <div class="settings-inline" style="margin-bottom:8px;">
                       <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" />
                       <button id="mcp-expose-port-save" class="action-btn">Save</button>
                     </div>
-                    <label class="settings-label" style="color:#999;">Access Tokens</label>
-                    <p style="font-size:11px;color:#666;margin:0 0 6px;">Clients authenticate with bearer tokens. Generate one per tool.</p>
+                    <label class="settings-label" style="color:var(--text-2);">Access Tokens</label>
+                    <p style="font-size:11px;color:var(--text-3);margin:0 0 6px;">Clients authenticate with bearer tokens. Generate one per tool.</p>
                     <div id="mcp-expose-tokens" style="margin-bottom:8px;"></div>
                     <div style="display:flex;gap:6px;align-items:center;">
                       <input id="mcp-expose-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude Desktop, Cursor)" style="flex:1;font-size:12px;padding:4px 8px;" />
