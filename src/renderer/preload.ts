@@ -83,13 +83,6 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("picker-result", (_e, result) => cb(result));
   },
 
-  // Rips
-  ripsList: () => ipcRenderer.invoke("rips-list") as Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent" | "mcp"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number; mcpServer?: string; mcpTool?: string; mcpArgs?: Record<string, unknown> }> }>>,
-  ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent" | "mcp"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number; mcpServer?: string; mcpTool?: string; mcpArgs?: Record<string, unknown> }> }) =>
-    ipcRenderer.invoke("rips-save", rip) as Promise<boolean>,
-  ripsRemove: (name: string) => ipcRenderer.invoke("rips-remove", name) as Promise<boolean>,
-  ripsRun: (name: string) => ipcRenderer.invoke("rips-run", name) as Promise<{ ok: boolean; context: string; log: string[] }>,
-
   // Onboarding complete — triggers panel restore
   onboardingComplete: () => ipcRenderer.invoke("onboarding-complete"),
 
@@ -239,20 +232,6 @@ contextBridge.exposeInMainWorld("yo", {
   yoPanelResize: (width: number) => ipcRenderer.send("yo-panel-resize", width),
   yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
   yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
-
-  // MCP servers
-  mcpGetServers: () => ipcRenderer.invoke("mcp-get-servers"),
-  mcpAddServer: (config: any) => ipcRenderer.invoke("mcp-add-server", config),
-  mcpRemoveServer: (id: string) => ipcRenderer.invoke("mcp-remove-server", id),
-  mcpUpdateServer: (id: string, updates: any) => ipcRenderer.invoke("mcp-update-server", id, updates),
-  mcpConnectServer: (id: string) => ipcRenderer.invoke("mcp-connect-server", id) as Promise<{ ok: boolean; error?: string }>,
-  mcpDisconnectServer: (id: string) => ipcRenderer.invoke("mcp-disconnect-server", id),
-  mcpGetToolOverride: (serverId: string, toolName: string) => ipcRenderer.invoke("mcp-get-tool-override", serverId, toolName) as Promise<string>,
-  mcpSetToolOverride: (serverId: string, toolName: string, override: string) => ipcRenderer.invoke("mcp-set-tool-override", serverId, toolName, override),
-  mcpSetServerOverride: (serverId: string, override: string) => ipcRenderer.invoke("mcp-set-server-override", serverId, override),
-  onMcpChanged: (cb: () => void) => {
-    ipcRenderer.on("mcp-changed", () => cb());
-  },
 
   // Connectors (removed — stubs for renderer compat)
   connectorsGetApps: () => Promise.resolve({ apps: [], hasMore: false }),

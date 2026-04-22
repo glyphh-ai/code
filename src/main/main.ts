@@ -38,7 +38,8 @@ import { usageTracker } from "./usage-tracker";
 import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
-import { McpManager } from "./mcp-manager";
+import { ActionGrabber } from "./action-grabber";
+
 
 let mainWindow: BrowserWindow | null = null;
 let panelManager: PanelManager;
@@ -54,7 +55,6 @@ let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
-let mcpManager: McpManager | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
@@ -607,9 +607,9 @@ async function boot() {
   const captureStore = new CaptureStore();
   captureStore.setEmbedder(embedder);
 
-  // MCP manager — MCP server connections + tool discovery
-  mcpManager = new McpManager();
-  mcpManager.init().catch((err) => console.error("[mcp]", err));
+  // Action-driven capture — grabs content on blur/navigate
+  const actionGrabber = new ActionGrabber();
+  actionGrabber.setCaptureStore(captureStore);
 
   // Yo agent — capture search + format assistant
   const yoAgent = new YoAgent();
@@ -657,7 +657,10 @@ async function boot() {
             sendPanelUrl(id);
           }
         };
-        childWc.on("did-navigate", (_e: unknown, url: string) => trackChild(url));
+        childWc.on("did-navigate", (_e: unknown, url: string) => {
+          trackChild(url);
+          actionGrabber.onPanelNavigate(id).catch(() => {});
+        });
         childWc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
           if (isMainFrame) trackChild(url);
         });
@@ -680,7 +683,10 @@ async function boot() {
           sendPanelUrl(id);
         }
       };
-      wc.on("did-navigate", (_e: unknown, url: string) => trackDirect(url));
+      wc.on("did-navigate", (_e: unknown, url: string) => {
+        trackDirect(url);
+        actionGrabber.onPanelNavigate(id).catch(() => {});
+      });
       wc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
         if (isMainFrame) trackDirect(url);
       });
@@ -694,6 +700,9 @@ async function boot() {
       });
     }
   });
+
+  // Wire action grabber to panel manager for webContents access
+  actionGrabber.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
 
   // Persist zoom when changed via keyboard shortcut in panels
   panelManager.setOnZoomChange((factor) => {
@@ -883,7 +892,6 @@ async function boot() {
 
   // Give command parser access to panel WebContents for .waz
   commandParser.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
-  commandParser.setMcpManager(mcpManager!);
 
   // Push session state to renderer
   const sendSessionState = () => {
@@ -1165,7 +1173,14 @@ async function boot() {
   }
 
   // Hook into panel focus events — add tab when panel becomes active
+  let lastFocusedPanel: string | null = null;
   panelManager.setOnPanelFocused((id: string) => {
+    // Action capture: previous panel just lost focus — capture it
+    if (lastFocusedPanel && lastFocusedPanel !== id) {
+      actionGrabber.onPanelBlur(lastFocusedPanel).catch(() => {});
+    }
+    lastFocusedPanel = id;
+
     ensureTab(id);
     // Persist lastView (only for single-panel mode — grids are saved by the layout system)
     const gridInfo = layoutManager.getGridInfo();
@@ -1737,69 +1752,6 @@ async function boot() {
     wc.on("console-message", onConsole);
   });
 
-  // IPC: Rips (cross-app action sequences)
-  const ripStore = new (await import("./rip-store")).RipStore();
-  ipcMain.handle("rips-list", () => ripStore.list());
-  ipcMain.handle("rips-save", (_e, rip: any) => ripStore.save(rip));
-  ipcMain.handle("rips-remove", (_e, name: string) => ripStore.remove(name));
-  ipcMain.handle("rips-run", async (_e, name: string) => {
-    const rip = ripStore.get(name);
-    if (!rip) return { ok: false, context: "", log: ["Rip not found: " + name] };
-    if (!session.hasContent()) return { ok: false, context: "", log: ["No captured context. Use .sup first."] };
-    const { runRip } = await import("./rip-store");
-    return runRip(rip, {
-      appConnector,
-      getWebContents: (appId) => {
-        if (mainWindow) panelManager.switchTo(appId, mainWindow);
-        return panelManager.getGuestOrWebContents(appId);
-      },
-      skillEngine,
-      mcpManager,
-    }, session.get());
-  });
-
-  // IPC: MCP servers
-  ipcMain.handle("mcp-get-servers", () => mcpManager!.getServerStates());
-  ipcMain.handle("mcp-add-server", (_e, config: any) => {
-    mcpManager!.addServer(config);
-    return true;
-  });
-  ipcMain.handle("mcp-remove-server", (_e, id: string) => {
-    mcpManager!.removeServer(id);
-    return true;
-  });
-  ipcMain.handle("mcp-update-server", (_e, id: string, updates: any) => {
-    mcpManager!.updateServer(id, updates);
-    return true;
-  });
-  ipcMain.handle("mcp-connect-server", async (_e, id: string) => {
-    const configs = mcpManager!.getConfigs();
-    const config = configs.find((c) => c.id === id);
-    if (!config) return { ok: false, error: "Server not found" };
-    try {
-      await mcpManager!.connectServer(config);
-      return { ok: true };
-    } catch (err: any) {
-      return { ok: false, error: err.message || "Connection failed" };
-    }
-  });
-  ipcMain.handle("mcp-disconnect-server", async (_e, id: string) => {
-    await mcpManager!.disconnectServer(id);
-    return true;
-  });
-  ipcMain.handle("mcp-get-tool-override", (_e, serverId: string, toolName: string) =>
-    mcpManager!.getToolOverride(serverId, toolName),
-  );
-  ipcMain.handle("mcp-set-tool-override", (_e, serverId: string, toolName: string, override: string) => {
-    mcpManager!.setToolOverride(serverId, toolName, override as any);
-  });
-  ipcMain.handle("mcp-set-server-override", (_e, serverId: string, override: string) => {
-    mcpManager!.setServerOverride(serverId, override as any);
-  });
-  mcpManager!.on("changed", () => {
-    mainWindow?.webContents.send("mcp-changed");
-  });
-
   // IPC: command execution (used by Cmd+. overlay)
   ipcMain.handle("exec-command", async (_e, cmd: string) => {
     return execCommand(cmd, panelManager.activePanelId ?? undefined);
@@ -2297,7 +2249,6 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   embedder?.cleanup();
-  mcpManager?.disconnectAll();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive
   setTimeout(() => process.exit(0), 5000).unref();

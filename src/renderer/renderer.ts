@@ -45,12 +45,6 @@ declare global {
       startPicker: (wcId: number) => void;
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
-      // Rips
-      ripsList: () => Promise<Array<{ name: string; description?: string; steps: Array<{ type: "app" | "agent" | "mcp"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number; mcpServer?: string; mcpTool?: string; mcpArgs?: Record<string, unknown> }> }>>;
-      ripsSave: (rip: { name: string; description?: string; steps: Array<{ type: "app" | "agent" | "mcp"; app?: string; command?: string; prompt?: string; outputs?: Array<{ field: string; app: string; command: string }>; delay?: number; mcpServer?: string; mcpTool?: string; mcpArgs?: Record<string, unknown> }> }) => Promise<boolean>;
-      ripsRemove: (name: string) => Promise<boolean>;
-      ripsRun: (name: string) => Promise<{ ok: boolean; context: string; log: string[] }>;
-
       // Layouts
       layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
@@ -159,23 +153,6 @@ declare global {
       setToolOverride: (toolName: string, override: string) => void;
       onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
       approvalRespond: (id: string, approved: boolean) => void;
-      // MCP Servers
-      mcpGetPresets: () => Promise<Array<{ id: string; name: string; description: string; transport: string; command: string; args: string[]; configHint?: string }>>;
-      mcpGetServers: () => Promise<Array<{
-        config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean };
-        status: string;
-        error?: string;
-        tools: Array<{ name: string; description?: string }>;
-      }>>;
-      mcpAddServer: (config: Record<string, unknown>) => Promise<boolean>;
-      mcpRemoveServer: (id: string) => Promise<boolean>;
-      mcpUpdateServer: (id: string, updates: Record<string, unknown>) => Promise<boolean>;
-      mcpConnectServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
-      mcpDisconnectServer: (id: string) => Promise<boolean>;
-      mcpGetToolOverride: (serverId: string, toolName: string) => Promise<string>;
-      mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
-      mcpSetServerOverride: (serverId: string, override: string) => void;
-      onMcpChanged: (cb: () => void) => void;
       // Connectors (Pipedream Connect)
       connectorsGetApps: (search?: string, offset?: number) => Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>;
       connectorsGetAccounts: () => Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>;
