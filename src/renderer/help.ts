@@ -150,7 +150,52 @@ export function isHelpOpen(): boolean {
 
 // ── Navigation ───────────────────────────────────────────
 
+function resetEditors() {
+  // Skills
+  const se = document.getElementById("skill-editor");
+  if (se && !se.classList.contains("hidden")) {
+    se.classList.add("hidden");
+    document.getElementById("skills-list")?.classList.remove("hidden");
+    document.getElementById("skills-toolbar")?.classList.remove("hidden");
+  }
+  // Layouts
+  const le = document.getElementById("layout-editor");
+  if (le && !le.classList.contains("hidden")) {
+    le.classList.add("hidden");
+    document.getElementById("layouts-list")?.classList.remove("hidden");
+    document.getElementById("layouts-toolbar")?.classList.remove("hidden");
+  }
+  // Rips
+  const re = document.getElementById("rip-editor");
+  if (re && !re.classList.contains("hidden")) {
+    re.classList.add("hidden");
+    document.getElementById("rips-list")?.classList.remove("hidden");
+    document.getElementById("rips-toolbar")?.classList.remove("hidden");
+  }
+  // Apps
+  const ad = document.getElementById("app-detail");
+  if (ad && !ad.classList.contains("hidden")) {
+    ad.classList.add("hidden");
+    document.getElementById("apps-list")?.classList.remove("hidden");
+    document.getElementById("apps-toolbar")?.classList.remove("hidden");
+    const preview = document.getElementById("app-preview") as HTMLElement & { src: string } | null;
+    if (preview) preview.src = "about:blank";
+  }
+  const af = document.getElementById("app-add-form");
+  if (af && !af.classList.contains("hidden")) {
+    af.classList.add("hidden");
+    document.getElementById("apps-list")?.classList.remove("hidden");
+    document.getElementById("apps-toolbar")?.classList.remove("hidden");
+  }
+  // MCP
+  document.getElementById("mcp-detail-panel")?.classList.add("hidden");
+  document.getElementById("mcp-custom-panel")?.classList.add("hidden");
+  document.getElementById("mcp-servers-list")?.classList.remove("hidden");
+  document.getElementById("mcp-toolbar")?.classList.remove("hidden");
+}
+
 function switchToSection(sectionId: string) {
+  resetEditors();
   navItems.forEach((n) => n.classList.remove("active"));
   sections.forEach((s) => s.classList.remove("active"));
   const navItem = document.querySelector(`.help-nav-item[data-section="${sectionId}"]`) as HTMLElement;
@@ -1310,18 +1355,21 @@ function renderRipSteps() {
           <label style="font-size:11px;color:#888;margin-top:2px;">Outputs — map [field] to app.command</label>
           <div class="rs-outputs-list">${(step.outputs || []).map((o, oi) =>
             `<div class="rs-output-row" data-oidx="${oi}">
-              <span style="color:#25C75E;font-size:12px;">[${escHtml(o.field)}]</span>
-              <span style="color:#888;font-size:12px;">→ ${escHtml(o.app)}.${escHtml(o.command)}</span>
-              <button class="crud-card-btn danger rs-output-remove" title="Remove" style="margin-left:auto;">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+              <span style="color:#25C75E;font-size:12px;white-space:nowrap;">[${escHtml(o.field)}]</span>
+              <span style="color:#888;font-size:12px;flex:1;">→ ${escHtml(o.app)}.${escHtml(o.command)}</span>
+              <button class="crud-card-btn danger rs-output-remove" title="Remove">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
               </button>
             </div>`).join("")}</div>
-          <div class="rip-step-row" style="margin-top:4px;">
-            <input type="text" class="rs-out-field" placeholder="field" style="width:60px;height:26px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;" />
-            <select class="rs-out-app" style="height:26px;min-width:80px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;">${appOptions}</select>
-            <select class="rs-out-cmd" style="height:26px;min-width:80px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;"></select>
-            <button class="action-btn rs-out-add" style="font-size:11px;padding:3px 8px;">+</button>
+          <div class="rs-out-add-form hidden">
+            <div class="rip-step-row" style="width:100%;">
+              <input type="text" class="rs-out-field" placeholder="field name" style="width:120px;height:26px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;" />
+              <select class="rs-out-app" style="height:26px;flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;">${appOptions}</select>
+              <select class="rs-out-cmd" style="height:26px;flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0 6px;color:#ccc;font-size:11px;outline:none;"></select>
+              <button class="action-btn rs-out-confirm" style="font-size:11px;height:26px;padding:0 10px;">Add</button>
+            </div>
           </div>
+          <button class="rip-add-step-btn rs-out-add" style="width:100%;margin-top:4px;">+ Mapping</button>
         </div>
       </div>
     </div>`;
@@ -1386,8 +1434,10 @@ function renderRipSteps() {
     // Agent outputs
     const outputsDiv = el.querySelector(".rs-outputs") as HTMLElement | null;
     if (outputsDiv) {
-      const outAppSel = outputsDiv.querySelector(".rs-out-app") as HTMLSelectElement;
-      const outCmdSel = outputsDiv.querySelector(".rs-out-cmd") as HTMLSelectElement;
+      const addForm = outputsDiv.querySelector(".rs-out-add-form") as HTMLElement;
+      const addBtn = outputsDiv.querySelector(".rs-out-add") as HTMLElement;
+      const outAppSel = addForm?.querySelector(".rs-out-app") as HTMLSelectElement;
+      const outCmdSel = addForm?.querySelector(".rs-out-cmd") as HTMLSelectElement;
 
       const populateOutCmd = (appId: string) => {
         const app = cachedApps.find((a) => a.id === appId);
@@ -1403,8 +1453,13 @@ function renderRipSteps() {
         outAppSel.addEventListener("change", () => populateOutCmd(outAppSel.value));
       }
 
-      outputsDiv.querySelector(".rs-out-add")?.addEventListener("click", () => {
-        const field = (outputsDiv.querySelector(".rs-out-field") as HTMLInputElement).value.trim();
+      addBtn?.addEventListener("click", () => {
+        addForm.classList.remove("hidden");
+        addBtn.classList.add("hidden");
+      });
+
+      addForm?.querySelector(".rs-out-confirm")?.addEventListener("click", () => {
+        const field = (addForm.querySelector(".rs-out-field") as HTMLInputElement).value.trim();
         const app = outAppSel.value;
         const command = outCmdSel.value;
         if (!field || !app || !command) return;
@@ -2058,7 +2113,6 @@ interface McpServerData {
 }
 
 const mcpServersList = document.getElementById("mcp-servers-list")!;
-const mcpPresetPanel = document.getElementById("mcp-preset-panel")!;
 const mcpCustomPanel = document.getElementById("mcp-custom-panel")!;
 const mcpDetailPanel = document.getElementById("mcp-detail-panel")!;
 const mcpToolbar = document.getElementById("mcp-toolbar")!;
@@ -2068,7 +2122,7 @@ let mcpEditMode = false;
 let allMcpServers: McpServerData[] = [];
 
 async function loadMcp() {
-  mcpPresetPanel.classList.add("hidden");
+
   mcpCustomPanel.classList.add("hidden");
   mcpDetailPanel.classList.add("hidden");
   mcpServersList.classList.remove("hidden");
@@ -2134,7 +2188,7 @@ async function openMcpDetail(serverId: string) {
   mcpCurrentServerId = serverId;
   mcpServersList.classList.add("hidden");
   mcpToolbar.classList.add("hidden");
-  mcpPresetPanel.classList.add("hidden");
+
   mcpCustomPanel.classList.add("hidden");
   mcpDetailPanel.classList.remove("hidden");
 
@@ -2211,78 +2265,14 @@ async function openMcpDetail(serverId: string) {
   }
 }
 
-function openMcpPresets() {
-  mcpServersList.classList.add("hidden");
-  mcpToolbar.classList.add("hidden");
-  mcpCustomPanel.classList.add("hidden");
-  mcpDetailPanel.classList.add("hidden");
-  mcpPresetPanel.classList.remove("hidden");
-
-  renderMcpPresets();
-}
-
-async function renderMcpPresets() {
-  const presets = await window.yo.mcpGetPresets();
-  const servers: McpServerData[] = await window.yo.mcpGetServers();
-  const installedIds = new Set(servers.map((s) => s.config.id));
-
-  const grid = document.getElementById("mcp-preset-grid")!;
-  grid.innerHTML = "";
-
-  for (const preset of presets) {
-    const card = document.createElement("div");
-    card.className = "mcp-preset-card" + (installedIds.has(preset.id) ? " mcp-installed" : "");
-
-    const name = document.createElement("div");
-    name.className = "mcp-preset-name";
-    name.textContent = preset.name;
-
-    const desc = document.createElement("div");
-    desc.className = "mcp-preset-desc";
-    desc.textContent = preset.description;
-
-    card.appendChild(name);
-    card.appendChild(desc);
-
-    if (preset.configHint) {
-      const hint = document.createElement("div");
-      hint.className = "mcp-preset-hint";
-      hint.textContent = preset.configHint;
-      card.appendChild(hint);
-    }
-
-    if (installedIds.has(preset.id)) {
-      const installed = document.createElement("div");
-      installed.className = "mcp-preset-hint";
-      installed.textContent = "Already added";
-      card.appendChild(installed);
-    } else {
-      card.addEventListener("click", async () => {
-        await window.yo.mcpAddServer({
-          id: preset.id,
-          name: preset.name,
-          transport: preset.transport,
-          command: preset.command,
-          args: preset.args,
-          enabled: false,
-        });
-        loadMcp();
-      });
-    }
-
-    grid.appendChild(card);
-  }
-}
-
 function openMcpCustom(editServer?: McpServerData) {
   mcpServersList.classList.add("hidden");
   mcpToolbar.classList.add("hidden");
-  mcpPresetPanel.classList.add("hidden");
+
   mcpDetailPanel.classList.add("hidden");
   mcpCustomPanel.classList.remove("hidden");
 
   mcpEditMode = !!editServer;
-  document.getElementById("mcp-custom-title")!.textContent = editServer ? "Edit Server" : "Add Custom Server";
   (document.getElementById("mcp-custom-save") as HTMLButtonElement).textContent = editServer ? "Save" : "Add Server";
 
   const nameInput = document.getElementById("mcp-custom-name") as HTMLInputElement;
@@ -2379,10 +2369,9 @@ async function saveMcpCustom() {
 }
 
 function initMcp() {
-  document.getElementById("mcp-add-preset-btn")!.addEventListener("click", openMcpPresets);
   document.getElementById("mcp-add-custom-btn")!.addEventListener("click", () => openMcpCustom());
   mcpSearchInput.addEventListener("input", () => renderMcpList());
-  document.getElementById("mcp-preset-cancel")!.addEventListener("click", loadMcp);
+  document.getElementById("mcp-custom-back")!.addEventListener("click", loadMcp);
   document.getElementById("mcp-custom-cancel")!.addEventListener("click", loadMcp);
   document.getElementById("mcp-custom-save")!.addEventListener("click", saveMcpCustom);
   document.getElementById("mcp-custom-transport")!.addEventListener("change", updateMcpTransportFields);
@@ -2440,7 +2429,7 @@ function initMcp() {
     if (sec?.getAttribute("data-section") === "mcp") {
       if (mcpCurrentServerId && !mcpDetailPanel.classList.contains("hidden")) {
         openMcpDetail(mcpCurrentServerId);
-      } else if (!mcpPresetPanel.classList.contains("hidden") || !mcpCustomPanel.classList.contains("hidden")) {
+      } else if (!mcpCustomPanel.classList.contains("hidden")) {
         // Don't refresh if editing
       } else {
         loadMcp();

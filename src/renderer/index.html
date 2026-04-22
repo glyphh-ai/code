@@ -763,25 +763,17 @@
 
           <div id="mcp-toolbar" class="crud-toolbar">
             <input id="mcp-search" type="text" class="crud-search" placeholder="Search servers..." spellcheck="false" autocomplete="off" />
-            <button id="mcp-add-preset-btn" class="action-btn">+ Branded</button>
-            <button id="mcp-add-custom-btn" class="action-btn primary">+ Custom</button>
+            <button id="mcp-add-custom-btn" class="action-btn primary">+ New</button>
           </div>
 
           <div id="mcp-servers-list" class="crud-cards"></div>
 
-          <!-- Add Preset panel (hidden by default) -->
-          <div id="mcp-preset-panel" class="hidden">
-            <h3 class="settings-subheading">Add Branded Server</h3>
-            <p class="section-desc">One-click presets for popular MCP servers.</p>
-            <div id="mcp-preset-grid" class="mcp-preset-grid"></div>
-            <div style="margin-top:12px;">
-              <button id="mcp-preset-cancel" class="action-btn">Cancel</button>
+          <!-- Add/Edit MCP server panel (hidden by default) -->
+          <div id="mcp-custom-panel" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="mcp-custom-back">← MCP Servers</a>
+              <div class="crud-spacer"></div>
             </div>
-          </div>
-
-          <!-- Add/Edit Custom panel (hidden by default) -->
-          <div id="mcp-custom-panel" class="hidden">
-            <h3 class="settings-subheading" id="mcp-custom-title">Add Custom Server</h3>
             <div class="settings-form">
               <label class="settings-label">Name</label>
               <input id="mcp-custom-name" type="text" class="settings-input" placeholder="My Server" spellcheck="false" autocomplete="off" />
@@ -812,9 +804,9 @@
               </div>
 
               <div class="settings-actions" style="margin-top:12px;">
-                <button id="mcp-custom-save" class="action-btn primary">Add Server</button>
+                <span id="mcp-custom-status" style="flex:1;font-size:12px;color:#cc5555;"></span>
                 <button id="mcp-custom-cancel" class="action-btn">Cancel</button>
-                <span id="mcp-custom-status"></span>
+                <button id="mcp-custom-save" class="action-btn primary">Add Server</button>
               </div>
             </div>
           </div>

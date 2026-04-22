@@ -1734,7 +1734,7 @@ ol.docs-list li::before {
 }
 
 .crud-inline-form {
-  max-width: 530px;
+  max-width: 620px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2450,6 +2450,27 @@ ol.docs-list li::before {
 }
 .rip-step-body textarea:focus { border-color: #25C75E; }
 .rip-step-body textarea::placeholder { color: #555; }
+
+/* Output mapping rows */
+.rs-outputs { padding-left: 14px; }
+.rs-outputs-list {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px dotted #333;
+  margin-left: 2px;
+}
+.rs-output-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 2px 10px;
+}
+.rs-output-row .crud-card-btn { opacity: 0; transition: opacity 0.15s; }
+.rs-output-row:hover .crud-card-btn { opacity: 1; }
+.rs-out-add-form { padding-left: 12px; border-left: 1px dotted #333; margin-left: 2px; }
+.rs-out-add-form .rip-step-row { display: flex; gap: 6px; align-items: center; }
+.rs-outputs .rip-add-step-btn { margin-left: 14px; }
 
 /* + Step button */
 .rip-add-step-btn {
