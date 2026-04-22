@@ -919,6 +919,26 @@
                       <span class="toggle-desc">Automatically download and install updates</span>
                     </div>
                   </label>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-mcp-expose" />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">MCP Server</span>
+                      <span class="toggle-desc">Expose capture store to external LLM tools (Claude Desktop, Cursor, etc.)</span>
+                    </div>
+                  </label>
+                  <div id="mcp-expose-settings" class="hidden" style="margin: 8px 0 16px 44px;">
+                    <div id="mcp-expose-status" style="font-size:12px;color:#999;margin-bottom:8px;"></div>
+                    <label class="settings-label" style="color:#999;">Port</label>
+                    <div class="settings-inline" style="margin-bottom:8px;">
+                      <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" />
+                      <button id="mcp-expose-port-save" class="action-btn">Save</button>
+                    </div>
+                    <label class="settings-label" style="color:#999;">Access Tokens</label>
+                    <p style="font-size:11px;color:#666;margin:0 0 6px;">Clients authenticate with bearer tokens. Generate one per tool.</p>
+                    <div id="mcp-expose-tokens" style="margin-bottom:8px;"></div>
+                    <button id="mcp-expose-gen-token" class="action-btn primary" style="font-size:12px;">+ Generate Token</button>
+                  </div>
                 </div>
                 <div id="settings-relaunch" class="settings-relaunch hidden">
                   <span>Restart required for changes to take effect</span>

@@ -1194,6 +1194,11 @@ const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HT
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
+const toggleMcpExpose = document.getElementById("toggle-mcp-expose") as HTMLInputElement;
+const mcpExposeSettings = document.getElementById("mcp-expose-settings")!;
+const mcpExposeStatus = document.getElementById("mcp-expose-status")!;
+const mcpExposePort = document.getElementById("mcp-expose-port") as HTMLInputElement;
+const mcpExposeTokensEl = document.getElementById("mcp-expose-tokens")!;
 const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
@@ -1203,6 +1208,44 @@ const settingsSubagentModel = document.getElementById("settings-subagent-model")
 const toolOverridesBody = document.getElementById("tool-overrides-body")!;
 
 let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
+
+async function refreshMcpExposeStatus() {
+  const status = await window.yo.mcpExposeStatus();
+  if (status.running) {
+    mcpExposeStatus.textContent = `Running on http://127.0.0.1:${status.port}`;
+    mcpExposeStatus.style.color = "#25C75E";
+  } else {
+    mcpExposeStatus.textContent = "Stopped";
+    mcpExposeStatus.style.color = "#999";
+  }
+}
+
+async function renderMcpTokens() {
+  const tokens = await window.yo.mcpExposeGetTokens();
+  mcpExposeTokensEl.innerHTML = "";
+  if (tokens.length === 0) {
+    mcpExposeTokensEl.innerHTML = '<span style="font-size:11px;color:#666;">No tokens yet.</span>';
+    return;
+  }
+  for (const token of tokens) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin-bottom:4px;";
+    const code = document.createElement("code");
+    code.style.cssText = "font-size:11px;color:#ccc;background:#1a1a1a;padding:2px 6px;border-radius:3px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;";
+    code.textContent = token;
+    const revoke = document.createElement("button");
+    revoke.className = "action-btn danger";
+    revoke.style.cssText = "font-size:10px;padding:2px 6px;";
+    revoke.textContent = "Revoke";
+    revoke.addEventListener("click", async () => {
+      await window.yo.mcpExposeRevokeToken(token);
+      await renderMcpTokens();
+    });
+    row.appendChild(code);
+    row.appendChild(revoke);
+    mcpExposeTokensEl.appendChild(row);
+  }
+}
 
 function initSettings() {
   settingsProvider.addEventListener("change", () => updateSettingsUI());
@@ -1242,6 +1285,47 @@ function initSettings() {
     window.yo.setPreference("autoUpdate", toggleAutoUpdate.checked);
     showRelaunch();
   });
+
+  // MCP Expose toggle
+  toggleMcpExpose.addEventListener("change", async () => {
+    const enabled = toggleMcpExpose.checked;
+    window.yo.setPreference("mcpExposeEnabled", enabled);
+    mcpExposeSettings.classList.toggle("hidden", !enabled);
+    if (enabled) {
+      const result = await window.yo.mcpExposeStart();
+      if (!result.ok) {
+        mcpExposeStatus.textContent = `Error: ${result.error}`;
+        mcpExposeStatus.style.color = "#ef4444";
+      } else {
+        await refreshMcpExposeStatus();
+      }
+    } else {
+      await window.yo.mcpExposeStop();
+      mcpExposeStatus.textContent = "Stopped";
+      mcpExposeStatus.style.color = "#999";
+    }
+  });
+  document.getElementById("mcp-expose-port-save")!.addEventListener("click", async () => {
+    const port = parseInt(mcpExposePort.value, 10);
+    if (port >= 1024 && port <= 65535) {
+      window.yo.setPreference("mcpExposePort", port);
+      if (toggleMcpExpose.checked) {
+        await window.yo.mcpExposeStop();
+        const result = await window.yo.mcpExposeStart();
+        if (!result.ok) {
+          mcpExposeStatus.textContent = `Error: ${result.error}`;
+          mcpExposeStatus.style.color = "#ef4444";
+        } else {
+          await refreshMcpExposeStatus();
+        }
+      }
+    }
+  });
+  document.getElementById("mcp-expose-gen-token")!.addEventListener("click", async () => {
+    await window.yo.mcpExposeGenToken();
+    await renderMcpTokens();
+  });
+
   settingsContextWindow.addEventListener("change", () => {
     const val = parseInt(settingsContextWindow.value, 10);
     if (val >= 10 && val <= 200) {
@@ -1413,6 +1497,16 @@ async function loadSettings() {
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
+
+  // MCP Expose
+  const mcpEnabled = await window.yo.getPreference("mcpExposeEnabled", false) as boolean;
+  toggleMcpExpose.checked = mcpEnabled;
+  mcpExposeSettings.classList.toggle("hidden", !mcpEnabled);
+  mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
+  if (mcpEnabled) {
+    await refreshMcpExposeStatus();
+    await renderMcpTokens();
+  }
 
   // Agent mode
   const currentMode = await window.yo.getAgentMode();

@@ -163,6 +163,13 @@ declare global {
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;
+      // MCP Expose
+      mcpExposeStart: () => Promise<{ ok: boolean; error?: string }>;
+      mcpExposeStop: () => Promise<void>;
+      mcpExposeStatus: () => Promise<{ running: boolean; port: number }>;
+      mcpExposeGetTokens: () => Promise<string[]>;
+      mcpExposeGenToken: () => Promise<string>;
+      mcpExposeRevokeToken: (token: string) => Promise<void>;
     };
   }
 }

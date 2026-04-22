@@ -39,6 +39,7 @@ import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
 import { ActionGrabber } from "./action-grabber";
+import { McpExpose } from "./mcp-expose";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -55,6 +56,7 @@ let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
+let mcpExpose: McpExpose | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
@@ -610,6 +612,15 @@ async function boot() {
   // Action-driven capture — grabs content on blur/navigate
   const actionGrabber = new ActionGrabber();
   actionGrabber.setCaptureStore(captureStore);
+
+  // MCP expose — read-only server for external LLM tools (pro feature)
+  mcpExpose = new McpExpose();
+  mcpExpose.setCaptureStore(captureStore);
+  if (getPreference<boolean>("mcpExposeEnabled", false)) {
+    mcpExpose.start().then((r) => {
+      if (!r.ok) console.error("[mcp-expose] failed to start:", r.error);
+    });
+  }
 
   // Yo agent — capture search + format assistant
   const yoAgent = new YoAgent();
@@ -1809,6 +1820,17 @@ async function boot() {
     return { ok: true };
   });
 
+  // ── MCP Expose IPC handlers ────────────────────────────
+  ipcMain.handle("mcp-expose-start", () => mcpExpose!.start());
+  ipcMain.handle("mcp-expose-stop", () => { mcpExpose!.stop(); });
+  ipcMain.handle("mcp-expose-status", () => ({
+    running: mcpExpose!.isRunning,
+    port: mcpExpose!.getPort(),
+  }));
+  ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose!.getTokens());
+  ipcMain.handle("mcp-expose-gen-token", () => mcpExpose!.generateToken());
+  ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose!.revokeToken(token); });
+
   // ── Dashboard IPC handlers ─────────────────────────────
 
   ipcMain.handle("dashboard:today", () => usageTracker.getToday());
@@ -2248,6 +2270,7 @@ function cleanupAll() {
   configSync = null;
   terminalManager?.killAll();
   vscodeServer?.stop();
+  mcpExpose?.stop();
   embedder?.cleanup();
   usageTracker.flush();
   // Hard exit if anything keeps the process alive

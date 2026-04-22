@@ -246,4 +246,12 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("update-status", (_e, info) => cb(info));
   },
   updateInstall: () => ipcRenderer.send("update-install"),
+
+  // MCP Expose (pro feature — read-only capture store server)
+  mcpExposeStart: () => ipcRenderer.invoke("mcp-expose-start") as Promise<{ ok: boolean; error?: string }>,
+  mcpExposeStop: () => ipcRenderer.invoke("mcp-expose-stop") as Promise<void>,
+  mcpExposeStatus: () => ipcRenderer.invoke("mcp-expose-status") as Promise<{ running: boolean; port: number }>,
+  mcpExposeGetTokens: () => ipcRenderer.invoke("mcp-expose-get-tokens") as Promise<string[]>,
+  mcpExposeGenToken: () => ipcRenderer.invoke("mcp-expose-gen-token") as Promise<string>,
+  mcpExposeRevokeToken: (token: string) => ipcRenderer.invoke("mcp-expose-revoke-token", token) as Promise<void>,
 });
