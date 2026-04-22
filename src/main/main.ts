@@ -612,6 +612,7 @@ async function boot() {
   // Action-driven capture — grabs content on blur/navigate
   const actionGrabber = new ActionGrabber();
   actionGrabber.setCaptureStore(captureStore);
+  actionGrabber.setAppConnector(appConnector);
 
   // MCP expose — read-only server for external LLM tools (pro feature)
   mcpExpose = new McpExpose();
@@ -1722,6 +1723,7 @@ async function boot() {
   ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
   ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
   ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
+  ipcMain.handle("apps-update-do-not-record", (_e, id: string, doNotRecord: boolean) => appConnector.updateDoNotRecord(id, doNotRecord));
   ipcMain.handle("apps-set-connected-slug", () => false);
 
   // IPC: app command mapping (DOM picker)

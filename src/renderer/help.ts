@@ -779,6 +779,7 @@ const appAddForm = document.getElementById("app-add-form")!;
 const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appForceWeb = document.getElementById("app-detail-force-web") as HTMLInputElement;
+const appDoNotRecord = document.getElementById("app-detail-do-not-record") as HTMLInputElement;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
 const appConnectStatus = document.getElementById("app-connect-status")!;
 const appCommandsList = document.getElementById("app-commands-list")!;
@@ -800,6 +801,7 @@ interface PanelApp {
   url: string;
   connectedSlug?: string;
   forceWeb?: boolean;
+  doNotRecord?: boolean;
   commands?: Record<string, { selector: string; action: string; description: string }>;
 }
 
@@ -813,7 +815,7 @@ async function loadApps() {
 
   try {
     const apps = await window.yo.appsList();
-    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, commands: a.commands }));
+    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord, commands: a.commands }));
   } catch { panelApps = []; }
 
   renderAppsList();
@@ -884,6 +886,7 @@ async function openPanelAppDetail(app: PanelApp) {
   appDetailName.value = app.name;
   appDetailUrl.value = app.url;
   appForceWeb.checked = !!app.forceWeb;
+  appDoNotRecord.checked = !!app.doNotRecord;
   appConnectStatus.textContent = "";
   appMapCommand.classList.add("hidden");
 
@@ -1078,12 +1081,14 @@ function initApps() {
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
   const addForceWeb = document.getElementById("app-add-force-web") as HTMLInputElement;
+  const addDoNotRecord = document.getElementById("app-add-do-not-record") as HTMLInputElement;
 
   // + New opens the add form
   document.getElementById("apps-add-btn")!.addEventListener("click", () => {
     addNameInput.value = "";
     addUrlInput.value = "";
     addForceWeb.checked = false;
+    addDoNotRecord.checked = false;
     appFormError.classList.add("hidden");
     appsList.classList.add("hidden");
     appsToolbar.classList.add("hidden");
@@ -1106,9 +1111,10 @@ function initApps() {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
     await window.yo.appsAdd(id, name, url);
     if (addForceWeb.checked) await window.yo.appsUpdateForceWeb(id, true);
+    if (addDoNotRecord.checked) await window.yo.appsUpdateDoNotRecord(id, true);
     appAddForm.classList.add("hidden");
     const apps = await window.yo.appsList();
-    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, commands: a.commands }));
+    panelApps = apps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord, commands: a.commands }));
     const created = panelApps.find((a) => a.id === id);
     if (created) openPanelAppDetail(created);
     else loadApps();
@@ -1126,6 +1132,7 @@ function initApps() {
     if (name) await window.yo.appsUpdateName(currentAppId, name);
     if (url) await window.yo.appsUpdateUrl(currentAppId, url);
     await window.yo.appsUpdateForceWeb(currentAppId, appForceWeb.checked);
+    await window.yo.appsUpdateDoNotRecord(currentAppId, appDoNotRecord.checked);
     closeAppDetail();
   });
 

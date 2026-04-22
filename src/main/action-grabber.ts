@@ -13,6 +13,7 @@
 import { WebContents } from "electron";
 import { smartGrab, contentHash } from "./smart-grab";
 import type { CaptureStore } from "./capture-store";
+import type { AppConnector } from "./app-connector";
 
 /** Minimum ms between captures of the same panel. */
 const DEBOUNCE_MS = 3000;
@@ -22,12 +23,17 @@ const SKIP_PREFIXES = ["yo:", "term", "devtools"];
 
 export class ActionGrabber {
   private captureStore: CaptureStore | null = null;
+  private appConnector: AppConnector | null = null;
   private lastHashes = new Map<string, string>();
   private lastCaptureTimes = new Map<string, number>();
   private wcGetter: ((id: string) => WebContents | null) | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
+  }
+
+  setAppConnector(connector: AppConnector): void {
+    this.appConnector = connector;
   }
 
   setWebContentsGetter(fn: (id: string) => WebContents | null): void {
@@ -46,7 +52,9 @@ export class ActionGrabber {
   }
 
   private shouldSkip(panelId: string): boolean {
-    return SKIP_PREFIXES.some((p) => panelId.startsWith(p));
+    if (SKIP_PREFIXES.some((p) => panelId.startsWith(p))) return true;
+    if (this.appConnector?.isDoNotRecord(panelId)) return true;
+    return false;
   }
 
   private async captureIfChanged(panelId: string): Promise<void> {

@@ -45,6 +45,8 @@ export interface AppConfig {
   commands: Record<string, CommandMapping>;
   /** When true, suppress "open in desktop app" banners and protocol redirects */
   forceWeb?: boolean;
+  /** When true, action grabber will never capture this app's content */
+  doNotRecord?: boolean;
   meta?: {
     description: string;
     category?: string;
@@ -174,7 +176,27 @@ const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: bo
   { id: "youtube", name: "YouTube", url: "https://youtube.com" },
 ];
 
-// ── AppConnector ─────────────────────────────────────��──
+// Domains that default to doNotRecord — banking, health, finance, passwords
+const DO_NOT_RECORD_DOMAINS = [
+  // Banking
+  "chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com", "citibank.com",
+  "usbank.com", "capitalone.com", "ally.com", "discover.com", "tdbank.com",
+  "pnc.com", "schwab.com", "fidelity.com", "vanguard.com", "etrade.com",
+  "merilledge.com", "ameriprise.com", "regions.com", "suntrust.com", "truist.com",
+  "marcus.com", "sofi.com", "chime.com",
+  // Payments / Fintech
+  "paypal.com", "venmo.com", "zelle.com", "stripe.com/dashboard", "square.com",
+  "robinhood.com", "coinbase.com", "binance.com", "kraken.com",
+  // Health / Insurance
+  "myuhc.com", "anthem.com", "cigna.com", "aetna.com", "humana.com",
+  "bcbs.com", "medicare.gov", "mychart.com", "epic.com",
+  // Password managers
+  "vault.bitwarden.com", "my.1password.com", "lastpass.com", "dashlane.com",
+  // Tax / Government
+  "irs.gov", "turbotax.intuit.com", "hrblock.com", "ssa.gov",
+];
+
+// ── AppConnector ───────────────────────────────────────
 
 export class AppConnector {
   private apps: Map<string, AppConfig> = new Map();
@@ -234,6 +256,7 @@ export class AppConnector {
       connected: Object.keys(config.commands || {}).length > 0,
       commands: config.commands || {},
       ...(config.forceWeb ? { forceWeb: config.forceWeb } : {}),
+      ...(config.doNotRecord ? { doNotRecord: config.doNotRecord } : {}),
       ...(config.meta ? { meta: config.meta } : {}),
     };
     this.apps.set(app.id, app);
@@ -283,6 +306,28 @@ export class AppConnector {
     }
     this.save(app);
     return true;
+  }
+
+  updateDoNotRecord(id: string, doNotRecord: boolean): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    if (doNotRecord) {
+      app.doNotRecord = true;
+    } else {
+      delete app.doNotRecord;
+    }
+    this.save(app);
+    return true;
+  }
+
+  /** Check if a panel/URL should be excluded from recording. */
+  isDoNotRecord(panelId: string): boolean {
+    // Direct app match
+    const app = this.apps.get(panelId);
+    if (app?.doNotRecord) return true;
+    // Check domain blocklist against panel URL
+    if (app?.url) return DO_NOT_RECORD_DOMAINS.some((d) => app.url.includes(d));
+    return false;
   }
 
   /** Update an app's ID (renames file and map entry) */
