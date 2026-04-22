@@ -803,21 +803,18 @@
           </div>
 
           <!-- Server detail / tools panel (hidden by default) -->
-          <div id="mcp-detail-panel" class="hidden">
+          <div id="mcp-detail-panel" class="crud-inline-form hidden">
             <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="mcp-detail-back">← MCP Servers</a>
               <div class="crud-spacer"></div>
               <span id="mcp-detail-status" class="mcp-status-badge"></span>
+              <button id="mcp-detail-connect" class="action-btn primary">Connect</button>
+              <button id="mcp-detail-disconnect" class="action-btn">Disconnect</button>
+              <button id="mcp-detail-edit" class="action-btn">Edit</button>
               <button id="mcp-detail-remove" class="action-btn danger">Delete</button>
             </div>
             <h3 class="settings-subheading" id="mcp-detail-name" style="margin:0 0 4px 0;"></h3>
             <p class="section-desc" id="mcp-detail-info"></p>
-
-            <div style="display:flex;gap:8px;margin-bottom:16px;">
-              <button id="mcp-detail-connect" class="action-btn primary">Connect</button>
-              <button id="mcp-detail-disconnect" class="action-btn">Disconnect</button>
-              <button id="mcp-detail-edit" class="action-btn">Edit</button>
-            </div>
 
             <!-- Server-level override -->
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -830,7 +827,6 @@
             </div>
 
             <h3 class="settings-subheading">Tools</h3>
-            <p class="section-desc">Override permissions for individual tools on this server.</p>
             <table class="tool-table" id="mcp-tools-table">
               <thead>
                 <tr>

@@ -1350,6 +1350,10 @@ function renderRipSteps() {
     const isMcp = step.type === "mcp";
     const isApp = step.type === "app";
     const cmdOpts = step.app ? appCommandOptions(step.app) : "";
+    if (isMcp && !step.mcpServer && cachedMcpServers.length > 0) {
+      step.mcpServer = cachedMcpServers[0].config.id;
+      step.mcpTool = cachedMcpServers[0].tools[0]?.name;
+    }
     const mcpToolOpts = step.mcpServer ? mcpToolOptions(step.mcpServer) : "";
 
     return `<div class="rip-step${expanded ? " expanded" : ""}" data-index="${i}" draggable="true">
@@ -1432,7 +1436,7 @@ function renderRipSteps() {
       step.type = typeSel.value as "app" | "agent" | "mcp";
       if (step.type === "app") { step.outputs = undefined; step.mcpServer = undefined; step.mcpTool = undefined; step.mcpArgs = undefined; }
       if (step.type === "agent") { step.mcpServer = undefined; step.mcpTool = undefined; step.mcpArgs = undefined; }
-      if (step.type === "mcp") { step.outputs = undefined; step.app = undefined; step.command = undefined; }
+      if (step.type === "mcp") { step.outputs = undefined; step.app = undefined; step.command = undefined; step.mcpServer = cachedMcpServers[0]?.config.id; step.mcpTool = cachedMcpServers[0]?.tools[0]?.name; }
       renderRipSteps();
     });
 
@@ -2416,10 +2420,11 @@ async function saveMcpCustom() {
 
   if (mcpEditMode && mcpCurrentServerId) {
     await window.yo.mcpUpdateServer(mcpCurrentServerId, config);
+    loadMcp();
   } else {
     await window.yo.mcpAddServer(config);
+    openMcpDetail(id);
   }
-  loadMcp();
 }
 
 function initMcp() {
