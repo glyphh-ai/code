@@ -582,8 +582,9 @@ export class YoAgent {
 
           const decision = gate(block.name, this._mode);
           if (decision === "skip") {
-            cb.onToolResult?.(block.id, "[skipped — plan mode]");
-            return { type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" };
+            const reason = this._mode === "plan" ? "[skipped — plan mode]" : "[tool disabled by user]";
+            cb.onToolResult?.(block.id, reason);
+            return { type: "tool_result", tool_use_id: block.id, content: reason };
           }
           if (decision === "needs_approval" && this._approvalCallback) {
             const approved = await this._approvalCallback(block.name, block.input as Record<string, unknown>);
@@ -608,8 +609,9 @@ export class YoAgent {
 
         const decision = gate(block.name, this._mode);
         if (decision === "skip") {
-          cb.onToolResult?.(block.id, "[skipped — plan mode]");
-          results.push({ type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" });
+          const reason = this._mode === "plan" ? "[skipped — plan mode]" : "[tool disabled by user]";
+          cb.onToolResult?.(block.id, reason);
+          results.push({ type: "tool_result", tool_use_id: block.id, content: reason });
           continue;
         }
         if (decision === "needs_approval" && this._approvalCallback) {

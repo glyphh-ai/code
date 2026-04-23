@@ -2335,7 +2335,8 @@ async function loadSettings() {
     select.innerHTML =
       `<option value="default"${tool.override === "default" ? " selected" : ""}>Default</option>` +
       `<option value="auto"${tool.override === "auto" ? " selected" : ""}>Auto</option>` +
-      `<option value="ask"${tool.override === "ask" ? " selected" : ""}>Ask</option>`;
+      `<option value="ask"${tool.override === "ask" ? " selected" : ""}>Ask</option>` +
+      `<option value="off"${tool.override === "off" ? " selected" : ""}>Off</option>`;
     select.addEventListener("change", () => {
       window.yo.setToolOverride(tool.name, select.value);
     });

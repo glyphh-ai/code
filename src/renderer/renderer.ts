@@ -1188,16 +1188,20 @@ function addYoUserMessage(text: string) {
 // on the active step. Text streams under the timeline.
 
 const DELEGATION_DESC: Record<string, string> = {
-  delegate_navigator:  "Navigating panels",
-  delegate_researcher: "Searching notes & files",
-  delegate_manager:    "Managing workspace",
-  delegate_skill:      "Running skill",
+  delegate_navigate: "Navigating panels",
+  delegate_layout:   "Arranging layout",
 };
 
 const DIRECT_TOOL_DESC: Record<string, string> = {
-  inject_text: "Pasting into input",
-  run_command: "Running command",
-  save_memory: "Saving to memory",
+  search_captures: "Searching captures",
+  get_context:     "Reading session",
+  format:          "Formatting",
+  save_memory:     "Saving to memory",
+  search_notes:    "Searching notes",
+  read_file:       "Reading file",
+  list_files:      "Listing files",
+  run_command:     "Running command",
+  start_council:   "Starting council",
 };
 
 const BRAILLE = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];

@@ -10,7 +10,7 @@ import { getPreference } from "./preferences";
 
 export type AgentMode = "plan" | "ask" | "auto";
 export type ToolTier = "observe" | "mutate";
-export type ToolOverride = "default" | "auto" | "ask";
+export type ToolOverride = "default" | "auto" | "ask" | "off";
 
 export type GateDecision = "execute" | "needs_approval" | "skip";
 
@@ -77,6 +77,7 @@ export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (mode === "plan") return "skip";
 
   const override = getEffectiveOverride(toolName);
+  if (override === "off") return "skip";
   if (override === "auto") return "execute";
   if (override === "ask") return "needs_approval";
 
