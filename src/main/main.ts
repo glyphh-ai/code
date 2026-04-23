@@ -226,6 +226,8 @@ async function boot() {
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
     yoAgent?.setLLMConfig(config);
+    yoInterceptor?.setCurrentModel(config.model);
+    yoInterceptor?.setAvailableModels(PROVIDER_PRESETS[config.provider]?.models || []);
   }
 
   // Core services
@@ -286,7 +288,9 @@ async function boot() {
 
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
-  yoInterceptor.setModeColor("#25C75E");
+  yoInterceptor.setAgentMode(getPreference<string>("agentMode", "ask"));
+  yoInterceptor.setCurrentModel(llmConfig.model);
+  yoInterceptor.setAvailableModels(PROVIDER_PRESETS[llmConfig.provider]?.models || []);
   const initialTheme = getPreference<string>("theme", "dark");
   nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
   const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
@@ -934,6 +938,7 @@ async function boot() {
       }
 
       mainWindow?.webContents.send("agent-mode-changed", "council");
+      yoInterceptor.setAgentMode("council");
       // Delay yo panel open to let the layout settle
       setTimeout(() => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -995,6 +1000,23 @@ async function boot() {
   yoInterceptor.setLastAgentResult(() => yoAgent.getLastResponse());
   yoInterceptor.setFaviconsGetter(() => panelFavicons);
   yoInterceptor.setLayoutsGetter(() => layoutManager.listLayouts());
+
+  // Command palette mode/model changers
+  yoInterceptor.setModeChanger((mode) => {
+    yoAgent.setMode(mode as any);
+    setPreference("agentMode", mode);
+    mainWindow?.webContents.send("agent-mode-changed", mode);
+    yoInterceptor.setAgentMode(mode);
+  });
+  yoInterceptor.setModelChanger((model) => {
+    const cfg = loadLLMConfig();
+    cfg.model = model;
+    saveLLMConfig(cfg);
+    llmConfig = cfg;
+    applyLLMConfig(cfg);
+    yoInterceptor.setCurrentModel(model);
+    mainWindow?.webContents.send("llm-config-changed", { provider: cfg.provider, model: cfg.model });
+  });
   callbacks.openYoPanel = openYoPanel;
 
   yoChat.setCommandCallback(execCommand);
@@ -1587,6 +1609,7 @@ async function boot() {
     yoAgent.setMode(mode as any);
     setPreference("agentMode", mode);
     mainWindow?.webContents.send("agent-mode-changed", mode);
+    yoInterceptor.setAgentMode(mode);
   });
   ipcMain.handle("get-tool-registry", () => {
     const { getToolRegistry } = require("./action-gate");
