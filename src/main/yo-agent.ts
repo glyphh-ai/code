@@ -1,8 +1,10 @@
 /**
- * YoAgent — capture search and format assistant.
+ * YoAgent — orchestrator with specialist sub-agents.
  *
- * 4 tools: search_captures, get_context, format, save_memory.
- * Streams responses to the UI. All tools are observe-tier.
+ * Direct tools: search_captures, get_context, format, save_memory,
+ *   search_notes, read_file, list_files, run_command, start_council.
+ * Delegation: delegate_navigate (panel interaction), delegate_layout (workspace arrangement).
+ * Streams responses to the UI.
  */
 
 import fs from "fs";
@@ -20,6 +22,9 @@ import type { NoteStore } from "./note-store";
 import { gate, getAgentMode } from "./action-gate";
 import type { AgentMode } from "./action-gate";
 import type { Council, CouncilConfig } from "./council";
+import { NavigatorAgent } from "./agents/navigator-agent";
+import { LayoutAgent } from "./agents/layout-agent";
+import type { SubAgentContext } from "./agents/types";
 
 export type ApprovalCallback = (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
 
@@ -31,7 +36,7 @@ export interface YoAgentCallbacks {
   onError: (error: string) => void;
 }
 
-const SYSTEM_BASE = `You are yo, a capture search and format assistant.
+const SYSTEM_BASE = `You are yo, a capture search and format assistant with specialist sub-agents.
 
 WORKFLOW:
 1. Check get_context first — the answer may be in the current session
@@ -40,6 +45,12 @@ WORKFLOW:
 4. Evaluate confidence — scores above 0.7 are strong, 0.4-0.7 partial
 5. If ambiguous or low-confidence, ask the user to clarify before proceeding
 6. Use format with a named skill to present results cleanly
+
+DELEGATION:
+- delegate_navigate: panel interaction specialist — scan, click, type, navigate, open panels. Use for ANY visual interaction with app panels (Gmail, Slack, Claude, etc). The navigator has its own tool loop and will chain scan→click→type as needed.
+- delegate_layout: workspace layout specialist — split views, grids, tabs, saved layouts. Use when the user wants to arrange panels on screen.
+- Delegations run in parallel when possible. Each sub-agent runs on a cheap model to minimize cost.
+- NEVER open_panel or delegate_navigate for apps that have MCP tools — use MCP tools for data access, delegate_navigate for visual-only interaction.
 
 RULES:
 - search_captures is vector search — use descriptive phrases, not keywords
@@ -160,6 +171,28 @@ const TOOLS = [
       required: ["participants", "prompt"],
     },
   },
+  {
+    name: "delegate_navigate",
+    description: "Delegate to the navigation specialist. Handles all panel interaction: scanning DOM elements, clicking buttons, typing text, navigating URLs, opening panels, running mapped app commands, taking screenshots. The navigator has its own tool loop — give it a high-level instruction and it will chain actions as needed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        instruction: { type: "string" as const, description: "What to do, e.g. 'Click the Compose button in Gmail and type a reply to the latest email from John'" },
+      },
+      required: ["instruction"],
+    },
+  },
+  {
+    name: "delegate_layout",
+    description: "Delegate to the layout specialist. Handles workspace arrangement: split views, grid layouts, tab management, saved layouts, zoom. Give it a high-level instruction about how to arrange panels.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        instruction: { type: "string" as const, description: "What to arrange, e.g. 'Put Claude and Gemini side by side' or 'Set up a 2x2 grid with all AI panels'" },
+      },
+      required: ["instruction"],
+    },
+  },
 ];
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -191,9 +224,18 @@ export class YoAgent {
   private _sendOutputTokens = 0;
   private _sendToolsUsed: string[] = [];
 
+  // Sub-agents
+  private navigator = new NavigatorAgent();
+  private layout = new LayoutAgent();
+  private _layoutStateGetter: (() => { cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | null) | null = null;
+
   // ── Setters ────────────────────────────────────────────
 
-  setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
+  setLLMConfig(config: LLMConfig): void {
+    this.llmConfig = config;
+    this.navigator.setLLMConfig(config);
+    this.layout.setLLMConfig(config);
+  }
   setMemoryStore(store: MemoryStore): void { this.memoryStore = store; }
   setCaptureStore(store: CaptureStore): void { this.captureStore = store; }
   setSessionCache(cache: SessionCache): void { this.sessionCache = cache; }
@@ -201,11 +243,78 @@ export class YoAgent {
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
   setMaxMessages(n: number): void { this.maxMessages = n; }
   getMode(): AgentMode { return this._mode; }
-  setMode(mode: AgentMode): void { this._mode = mode; }
-  setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
+  setMode(mode: AgentMode): void {
+    this._mode = mode;
+    this.navigator.setMode(mode);
+    this.layout.setMode(mode);
+  }
+  setApprovalCallback(cb: ApprovalCallback | null): void {
+    this._approvalCallback = cb;
+    this.navigator.setApprovalCallback(cb);
+    this.layout.setApprovalCallback(cb);
+  }
   setCouncil(council: Council): void { this.council = council; }
 
-  abort(): void { this.aborted = true; }
+  // Sub-agent passthrough setters
+  setPanelLister(fn: () => string): void {
+    this.navigator.setPanelLister(fn);
+    this.layout.setPanelLister(fn);
+  }
+  setPanelGrabber(fn: (panelId: string) => Promise<string | null>): void {
+    this.navigator.setPanelGrabber(fn);
+  }
+  setPanelScanner(fn: (panelId: string) => Promise<string | null>): void {
+    this.navigator.setPanelScanner(fn);
+  }
+  setPanelClicker(fn: (panelId: string, text?: string, selector?: string) => Promise<string>): void {
+    this.navigator.setPanelClicker(fn);
+  }
+  setPanelNavigator(fn: (panelId: string, url: string) => Promise<string>): void {
+    this.navigator.setPanelNavigator(fn);
+  }
+  setPanelTyper(fn: (panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>): void {
+    this.navigator.setPanelTyper(fn);
+  }
+  setPanelOpener(fn: (url: string, panelId?: string) => Promise<string>): void {
+    this.navigator.setPanelOpener(fn);
+  }
+  setBackgroundOpener(fn: (url: string, panelId?: string) => Promise<string>): void {
+    this.navigator.setBackgroundOpener(fn);
+  }
+  setPanelCommandRunner(fn: (panelId: string, command: string, value?: string) => Promise<string>): void {
+    this.navigator.setCommandRunner(fn);
+  }
+  setPanelScreenshotter(fn: (panelId: string) => Promise<string | null>): void {
+    this.navigator.setPanelScreenshotter(fn);
+  }
+  setPanelRefresher(fn: (panelId?: string) => Promise<string>): void {
+    this.navigator.setPanelRefresher(fn);
+  }
+  setTabManager(tm: { list: () => Array<{ id: string; title: string; url?: string }>; switch: (id: string) => void; close: (id: string) => void; create: () => string }): void {
+    this.navigator.setTabManager(tm);
+    this.layout.setTabManager(tm);
+  }
+  setCommandRunner(fn: (cmd: string) => Promise<string>): void {
+    this.layout.setCommandRunner(fn);
+  }
+  setLayoutCallbacks(cbs: {
+    list: () => Array<{ name: string; cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
+    save: (name: string, panels: string) => boolean;
+    delete: (name: string) => boolean;
+  }): void {
+    this.layout.setLayoutCallbacks(cbs);
+  }
+  setLayoutStateGetter(fn: typeof this._layoutStateGetter): void { this._layoutStateGetter = fn; }
+  setSubAgentModel(model: string | null): void {
+    this.navigator.setModelOverride(model);
+    this.layout.setModelOverride(model);
+  }
+
+  abort(): void {
+    this.aborted = true;
+    this.navigator.abort();
+    this.layout.abort();
+  }
 
   // ── Chat management ────────────────────────────────────
 
@@ -453,9 +562,42 @@ export class YoAgent {
         return;
       }
 
+      // Partition into delegation and direct tools
+      const delegateBlocks = toolBlocks.filter((b: any) => b.name.startsWith("delegate_"));
+      const directBlocks = toolBlocks.filter((b: any) => !b.name.startsWith("delegate_"));
+
       const results: any[] = [];
 
-      for (const block of toolBlocks) {
+      // Run all delegation calls in parallel
+      if (delegateBlocks.length > 0 && !this.aborted) {
+        const context = this.buildSubAgentContext();
+        const delegatePromises = delegateBlocks.map(async (block: any) => {
+          if (this.aborted) return { type: "tool_result", tool_use_id: block.id, content: "[interrupted by user]" };
+          this._sendToolsUsed.push(block.name);
+
+          const decision = gate(block.name, this._mode);
+          if (decision === "skip") {
+            return { type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" };
+          }
+          if (decision === "needs_approval" && this._approvalCallback) {
+            const approved = await this._approvalCallback(block.name, block.input as Record<string, unknown>);
+            if (!approved) {
+              cb.onToolResult?.(block.id, "[blocked by user]");
+              return { type: "tool_result", tool_use_id: block.id, content: "[blocked by user]" };
+            }
+          }
+
+          cb.onToolUse(block.id, block.name, block.input);
+          const result = await this.execDelegation(block.name, block.input as Record<string, unknown>, context);
+          cb.onToolResult?.(block.id, result.slice(0, 500));
+          return { type: "tool_result", tool_use_id: block.id, content: result };
+        });
+        const delegateResults = await Promise.all(delegatePromises);
+        results.push(...delegateResults);
+      }
+
+      // Run direct tools sequentially
+      for (const block of directBlocks) {
         if (this.aborted) break;
         this._sendToolsUsed.push(block.name);
 
@@ -490,6 +632,64 @@ export class YoAgent {
       await this.agentLoop(cb, iteration + 1);
     } else {
       cb.onDone(fullText);
+    }
+  }
+
+  // ── Sub-agent context + delegation ─────────────────────
+
+  private buildSubAgentContext(): SubAgentContext {
+    const exchanges: string[] = [];
+    for (let i = Math.max(0, this.history.length - 8); i < this.history.length; i++) {
+      const msg = this.history[i];
+      if (msg.role === "user" && typeof msg.content === "string") {
+        exchanges.push(`User: ${msg.content.slice(0, 150)}`);
+      } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+        const text = msg.content
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("");
+        if (text) exchanges.push(`Assistant: ${text.slice(0, 150)}`);
+      }
+    }
+
+    const userMessage = typeof this.history[this.history.length - 2]?.content === "string"
+      ? this.history[this.history.length - 2].content
+      : exchanges[exchanges.length - 1] || "";
+
+    return {
+      conversationSummary: exchanges.length > 1 ? exchanges.slice(0, -1).join("\n") : undefined,
+      userMessage,
+    };
+  }
+
+  private async execDelegation(
+    name: string,
+    input: Record<string, unknown>,
+    context: SubAgentContext,
+  ): Promise<string> {
+    const instruction = input.instruction as string;
+    if (!instruction) return "No instruction provided.";
+
+    try {
+      let result;
+      switch (name) {
+        case "delegate_navigate": {
+          const panelList = this.navigator.listPanels();
+          const enriched = panelList
+            ? `${instruction}\n\nAVAILABLE APP PANELS (use scan_panel, click_element, type_text, run_command — grab_panel only as last resort):\n${panelList}`
+            : instruction;
+          result = await this.navigator.execute(enriched, context);
+          break;
+        }
+        case "delegate_layout":
+          result = await this.layout.execute(instruction, context);
+          break;
+        default:
+          return `Unknown delegation: ${name}`;
+      }
+      return result.summary;
+    } catch (err) {
+      return `Delegation error: ${err instanceof Error ? err.message : err}`;
     }
   }
 

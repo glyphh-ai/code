@@ -100,7 +100,7 @@ const GRAB_SCRIPT = `(function() {
 
   // Use whichever captured more content — selectors can go stale
   var content = (structured.length >= mainText.length) ? structured : mainText;
-  if (content.length > 8000) content = content.slice(-8000);
+  if (content.length > 20000) content = content.slice(-20000);
   lines.push(content);
 
   return lines.join("\\n").trim();

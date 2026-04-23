@@ -21,9 +21,9 @@ import type { CapturePolicy } from "./app-connector";
 const STORE_DIR = path.join(os.homedir(), "yo", "store");
 const INDEX_FILE = path.join(STORE_DIR, "index.json");
 const ENTRIES_DIR = path.join(STORE_DIR, "entries");
-const CHUNK_TARGET = 1200;
-const CHUNK_OVERLAP = 200;
-const CHUNK_THRESHOLD = 1500;
+const CHUNK_TARGET = 18000;
+const CHUNK_OVERLAP = 600;
+const CHUNK_THRESHOLD = 20000;
 
 export interface CaptureEntryMeta {
   id: string;
@@ -396,6 +396,22 @@ export class CaptureStore {
 
   // ── Chunking ───────────────────────────────────────────
 
+  private deoverlapChunks(chunks: string[]): string {
+    if (chunks.length === 0) return "";
+    let result = chunks[0];
+    for (let i = 1; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const searchLen = Math.min(result.length, CHUNK_OVERLAP + 200);
+      const tail = result.slice(-searchLen);
+      let best = 0;
+      for (let len = Math.min(tail.length, chunk.length); len >= 20; len--) {
+        if (chunk.startsWith(tail.slice(-len))) { best = len; break; }
+      }
+      result += "\n\n" + (best > 0 ? chunk.slice(best).trimStart() : chunk);
+    }
+    return result;
+  }
+
   private chunkContent(content: string): string[] {
     const chunks: string[] = [];
     const paragraphs = content.split(/\n\n+/);
@@ -474,15 +490,33 @@ export class CaptureStore {
 
   // ── Search internals ───────────────────────────────────
 
+  /** Reassemble all chunks sharing the same chunkParent, in order. */
+  private reassemble(meta: CaptureEntryMeta): string {
+    const parentId = meta.chunkParent;
+    if (!parentId) return this.readContent(meta.id) || "";
+
+    const siblings = this.index
+      .filter((m) => m.chunkParent === parentId)
+      .sort((a, b) => a.id.localeCompare(b.id));
+
+    if (siblings.length <= 1) return this.readContent(meta.id) || "";
+
+    return this.deoverlapChunks(siblings.map((s) => this.readContent(s.id) || ""));
+  }
+
   private vectorSearch(
     queryVec: Float32Array,
     limit: number,
   ): Array<{ meta: CaptureEntryMeta; content: string; score: number }> {
     const scored: Array<{ meta: CaptureEntryMeta; content: string; score: number }> = [];
+    const seen = new Set<string>();
 
     for (const meta of this.index) {
       const vecPath = path.join(ENTRIES_DIR, `${meta.id}.vec`);
       if (!fs.existsSync(vecPath)) continue;
+
+      const parentKey = meta.chunkParent || meta.id;
+      if (seen.has(parentKey)) continue;
 
       try {
         const buf = fs.readFileSync(vecPath);
@@ -490,7 +524,8 @@ export class CaptureStore {
         const score = cosine(queryVec, vec);
         if (score < 0.25) continue;
 
-        const content = this.readContent(meta.id) || "";
+        seen.add(parentKey);
+        const content = this.reassemble(meta);
         scored.push({ meta, content, score });
       } catch {
         continue;
@@ -510,12 +545,16 @@ export class CaptureStore {
       return [...this.index]
         .sort((a, b) => b.created - a.created)
         .slice(0, limit)
-        .map((meta) => ({ meta, content: this.readContent(meta.id) || "", score: 1 }));
+        .map((meta) => ({ meta, content: this.reassemble(meta), score: 1 }));
     }
 
     const scored: Array<{ meta: CaptureEntryMeta; content: string; score: number }> = [];
+    const seen = new Set<string>();
 
     for (const meta of this.index) {
+      const parentKey = meta.chunkParent || meta.id;
+      if (seen.has(parentKey)) continue;
+
       const content = this.readContent(meta.id) || "";
       const text = `${meta.source} ${content}`.toLowerCase();
       let hits = 0;
@@ -524,9 +563,11 @@ export class CaptureStore {
       }
       if (hits === 0) continue;
 
+      seen.add(parentKey);
+      const fullContent = this.reassemble(meta);
       const ageHours = (Date.now() - meta.created) / 3_600_000;
       const recency = Math.max(0, 1 - ageHours / 720);
-      scored.push({ meta, content, score: hits / terms.length + recency * 0.3 });
+      scored.push({ meta, content: fullContent, score: hits / terms.length + recency * 0.3 });
     }
 
     scored.sort((a, b) => b.score - a.score);

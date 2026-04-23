@@ -21,6 +21,12 @@ const DEBOUNCE_MS = 3000;
 /** Polling interval for conversational panels. */
 const POLL_INTERVAL_MS = 8000;
 
+/** Content shorter than this is noise (empty pages, placeholders). */
+const MIN_CONTENT_LENGTH = 200;
+
+/** Similarity threshold — skip if content is this similar to last capture. */
+const SIMILARITY_THRESHOLD = 0.92;
+
 /** Panels to skip (internal yo:// panels, terminals, etc). */
 const SKIP_PREFIXES = ["yo:", "term", "devtools"];
 
@@ -28,6 +34,7 @@ export class ActionGrabber {
   private captureStore: CaptureStore | null = null;
   private appConnector: AppConnector | null = null;
   private lastHashes = new Map<string, string>();
+  private lastContent = new Map<string, string>();
   private lastCaptureTimes = new Map<string, number>();
   private wcGetter: ((id: string) => WebContents | null) | null = null;
   private panelIdGetter: (() => string[]) | null = null;
@@ -70,8 +77,17 @@ export class ActionGrabber {
 
   /** Called when a panel finishes navigating to a new URL. */
   async onPanelNavigate(panelId: string): Promise<void> {
-    // Small delay to let the page render after navigation
     setTimeout(() => this.captureIfChanged(panelId), 1500);
+  }
+
+  /** Called when a page finishes loading (initial load or reload). */
+  async onPageLoad(panelId: string): Promise<void> {
+    setTimeout(() => this.captureIfChanged(panelId), 2000);
+  }
+
+  /** Called on in-page navigation (SPA route changes, hash changes). */
+  async onInPageNavigate(panelId: string): Promise<void> {
+    setTimeout(() => this.captureIfChanged(panelId), 1000);
   }
 
   private async pollConversationalPanels(): Promise<void> {
@@ -95,7 +111,6 @@ export class ActionGrabber {
     if (!this.captureStore || !this.wcGetter) return;
     if (this.shouldSkip(panelId)) return;
 
-    // Debounce — don't capture same panel too frequently
     const now = Date.now();
     const lastTime = this.lastCaptureTimes.get(panelId) || 0;
     if (now - lastTime < DEBOUNCE_MS) return;
@@ -103,18 +118,24 @@ export class ActionGrabber {
     const wc = this.wcGetter(panelId);
     if (!wc || wc.isDestroyed()) return;
 
-    // Check content hash — only capture if content changed
+    // Quick hash check — skip if nothing changed at all
     const hash = await contentHash(wc);
     if (!hash) return;
-
     const prevHash = this.lastHashes.get(panelId);
     if (hash === prevHash) return;
 
-    // Content changed — grab and ingest
     const content = await smartGrab(wc);
-    if (!content || content.length < 50) return;
+    if (!content || content.length < MIN_CONTENT_LENGTH) return;
+
+    // Similarity check — skip if content is nearly identical to last capture
+    const prev = this.lastContent.get(panelId);
+    if (prev && textSimilarity(prev, content) > SIMILARITY_THRESHOLD) {
+      this.lastHashes.set(panelId, hash);
+      return;
+    }
 
     this.lastHashes.set(panelId, hash);
+    this.lastContent.set(panelId, content);
     this.lastCaptureTimes.set(panelId, now);
 
     try {
@@ -123,4 +144,29 @@ export class ActionGrabber {
       console.error("[action-grabber] ingest failed:", panelId, err);
     }
   }
+}
+
+/** Fast trigram-based similarity (0–1). Avoids O(n*m) edit distance. */
+function textSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a || !b) return 0;
+
+  const trigramsA = trigrams(a);
+  const trigramsB = trigrams(b);
+  if (trigramsA.size === 0 && trigramsB.size === 0) return 1;
+
+  let intersection = 0;
+  for (const t of trigramsA) {
+    if (trigramsB.has(t)) intersection++;
+  }
+  return (2 * intersection) / (trigramsA.size + trigramsB.size);
+}
+
+function trigrams(text: string): Set<string> {
+  const s = new Set<string>();
+  const t = text.toLowerCase();
+  for (let i = 0; i <= t.length - 3; i++) {
+    s.add(t.slice(i, i + 3));
+  }
+  return s;
 }
