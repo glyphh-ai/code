@@ -3230,10 +3230,31 @@ select.settings-input {
 /* ── About section ────────────────────────────────────────── */
 
 .about-header {
-  text-align: center;
+  text-align: left;
   padding: 24px 0 32px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 32px;
+}
+
+.about-update-btn {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.about-update-btn:hover {
+  background: var(--active-bg);
+}
+.about-update-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .about-logo {

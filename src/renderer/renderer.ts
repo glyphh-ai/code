@@ -200,6 +200,7 @@ declare global {
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
       updateInstall: () => void;
+      checkForUpdates: () => Promise<string | null>;
       // MCP Expose
       mcpExposeStart: () => Promise<{ ok: boolean; error?: string }>;
       mcpExposeStop: () => Promise<void>;

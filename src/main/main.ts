@@ -1023,6 +1023,12 @@ async function boot() {
   ipcMain.on("update-install", () => {
     autoUpdater.quitAndInstall(false, true);
   });
+  ipcMain.handle("check-for-updates", async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return result?.updateInfo?.version || null;
+    } catch { return null; }
+  });
 
   ipcMain.on("window-close", () => mainWindow?.close());
   ipcMain.on("window-minimize", () => mainWindow?.minimize());

@@ -287,6 +287,7 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("update-status", (_e, info) => cb(info));
   },
   updateInstall: () => ipcRenderer.send("update-install"),
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates") as Promise<string | null>,
 
   // MCP Expose (pro feature — read-only capture store server)
   mcpExposeStart: () => ipcRenderer.invoke("mcp-expose-start") as Promise<{ ok: boolean; error?: string }>,

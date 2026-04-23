@@ -32,4 +32,4 @@ files:
 publish:
   provider: github
   owner: glyphh-ai
-  repo: yo-client
+  repo: yo-releases

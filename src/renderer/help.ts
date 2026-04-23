@@ -2841,6 +2841,24 @@ async function loadAbout() {
     versionEl.textContent = `Version ${ver}`;
   }
 
+  const updateBtn = document.getElementById("about-check-update") as HTMLButtonElement | null;
+  if (updateBtn) {
+    updateBtn.addEventListener("click", async () => {
+      updateBtn.disabled = true;
+      updateBtn.textContent = "Checking...";
+      const ver = await window.yo.checkForUpdates();
+      if (ver) {
+        updateBtn.textContent = `v${ver} available — downloading`;
+      } else {
+        updateBtn.textContent = "You're up to date";
+        setTimeout(() => {
+          updateBtn.textContent = "Check for Updates";
+          updateBtn.disabled = false;
+        }, 3000);
+      }
+    });
+  }
+
   // Terms of Use
   const termsEl = document.querySelector("#policy-terms .policy-content");
   if (termsEl) termsEl.innerHTML = TERMS_OF_USE;
