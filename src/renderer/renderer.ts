@@ -1278,11 +1278,20 @@ function toolInputSummary(name: string, input: unknown): string {
   return typeof firstStr === "string" ? firstStr : "";
 }
 
+/** Find an active (not yet finished) tool row by tool name. */
+function findToolRowByName(toolName: string): HTMLElement | null {
+  for (const [, el] of yoToolRows) {
+    if (el.dataset.tool === toolName) return el;
+  }
+  return null;
+}
+
 /** Start a per-tool row: dot (pulsing), bold name, subtitle describing the action. */
 function startToolRow(id: string, name: string, input: unknown) {
   ensureTimeline();
   const block = document.createElement("div");
   block.className = "yo-result-block yo-active";
+  block.dataset.tool = name;
 
   const header = document.createElement("div");
   header.className = "yo-result-header";
@@ -2065,7 +2074,6 @@ yoChatNewBtn.addEventListener("click", async () => {
 // -- Yo panel approval UI --
 
 window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
-  // Build a summary of what the tool wants to do
   const inputObj = input as Record<string, unknown>;
   let detail = "";
   if (typeof inputObj.instruction === "string") detail = inputObj.instruction;
@@ -2091,7 +2099,16 @@ window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
       `<button class="yo-approval-btn yo-approval-deny">Deny</button>` +
     `</div>`;
 
-  yoPanelMessages.appendChild(card);
+  // Anchor the approval card to its tool row in the timeline so it
+  // stays in order even when multiple tools need approval at once.
+  const toolRow = findToolRowByName(toolName);
+  if (toolRow) {
+    toolRow.appendChild(card);
+  } else if (yoStatusEl) {
+    yoStatusEl.before(card);
+  } else {
+    yoPanelMessages.appendChild(card);
+  }
   yoScroll();
 
   card.querySelector(".yo-approval-allow")!.addEventListener("click", () => {

@@ -568,6 +568,11 @@ export class YoAgent {
 
       const results: any[] = [];
 
+      // Emit all tool rows up front so the UI renders them in order
+      for (const block of toolBlocks) {
+        cb.onToolUse(block.id, block.name, block.input);
+      }
+
       // Run all delegation calls in parallel
       if (delegateBlocks.length > 0 && !this.aborted) {
         const context = this.buildSubAgentContext();
@@ -577,6 +582,7 @@ export class YoAgent {
 
           const decision = gate(block.name, this._mode);
           if (decision === "skip") {
+            cb.onToolResult?.(block.id, "[skipped — plan mode]");
             return { type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" };
           }
           if (decision === "needs_approval" && this._approvalCallback) {
@@ -587,7 +593,6 @@ export class YoAgent {
             }
           }
 
-          cb.onToolUse(block.id, block.name, block.input);
           const result = await this.execDelegation(block.name, block.input as Record<string, unknown>, context);
           cb.onToolResult?.(block.id, result.slice(0, 500));
           return { type: "tool_result", tool_use_id: block.id, content: result };
@@ -603,6 +608,7 @@ export class YoAgent {
 
         const decision = gate(block.name, this._mode);
         if (decision === "skip") {
+          cb.onToolResult?.(block.id, "[skipped — plan mode]");
           results.push({ type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" });
           continue;
         }
@@ -615,7 +621,6 @@ export class YoAgent {
           }
         }
 
-        cb.onToolUse(block.id, block.name, block.input);
         const result = await this.execDirectTool(block.name, block.input as Record<string, unknown>);
         cb.onToolResult?.(block.id, result.slice(0, 500));
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
