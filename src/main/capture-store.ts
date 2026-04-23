@@ -372,6 +372,65 @@ export class CaptureStore {
     return true;
   }
 
+  statsForSource(source: string): { count: number; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number } {
+    const entries = this.index.filter((m) => m.source === source);
+    let diskBytes = 0;
+    let oldestTs = Infinity;
+    let newestTs = 0;
+    let embeddedCount = 0;
+
+    for (const meta of entries) {
+      if (meta.created < oldestTs) oldestTs = meta.created;
+      if (meta.created > newestTs) newestTs = meta.created;
+      const mdPath = path.join(ENTRIES_DIR, `${meta.id}.md`);
+      const vecPath = path.join(ENTRIES_DIR, `${meta.id}.vec`);
+      try { diskBytes += fs.statSync(mdPath).size; } catch {}
+      if (fs.existsSync(vecPath)) {
+        try { diskBytes += fs.statSync(vecPath).size; } catch {}
+        embeddedCount++;
+      }
+    }
+
+    return {
+      count: entries.length,
+      diskBytes,
+      oldestTs: entries.length > 0 ? oldestTs : 0,
+      newestTs,
+      embeddedCount,
+    };
+  }
+
+  listEntriesForSource(source: string, offset = 0, limit = 50): Array<{ meta: CaptureEntryMeta; snippet: string; size: number }> {
+    const sorted = this.index.filter((m) => m.source === source).sort((a, b) => b.created - a.created);
+    return sorted.slice(offset, offset + limit).map((meta) => {
+      const content = this.readContent(meta.id) || "";
+      let size = 0;
+      try { size = fs.statSync(path.join(ENTRIES_DIR, `${meta.id}.md`)).size; } catch {}
+      return { meta, snippet: content.slice(0, 200), size };
+    });
+  }
+
+  dailyHistoryForSource(source: string, days = 30): Array<{ date: string; count: number; bytes: number }> {
+    const now = new Date();
+    const buckets = new Map<string, { count: number; bytes: number }>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      buckets.set(d.toISOString().slice(0, 10), { count: 0, bytes: 0 });
+    }
+    const cutoff = now.getTime() - days * 86400000;
+    const entries = this.index.filter((m) => m.source === source);
+    for (const meta of entries) {
+      if (meta.created < cutoff) continue;
+      const key = new Date(meta.created).toISOString().slice(0, 10);
+      const b = buckets.get(key);
+      if (!b) continue;
+      b.count++;
+      try { b.bytes += fs.statSync(path.join(ENTRIES_DIR, `${meta.id}.md`)).size; } catch {}
+    }
+    return Array.from(buckets.entries()).map(([date, v]) => ({ date, ...v }));
+  }
+
   deleteBySource(source: string): number {
     const toDelete = this.index.filter((m) => m.source === source);
     for (const meta of toDelete) {

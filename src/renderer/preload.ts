@@ -66,6 +66,9 @@ contextBridge.exposeInMainWorld("yo", {
   capturesSearch: (query: string, limit: number) => ipcRenderer.invoke("captures-search", query, limit) as Promise<Array<{ meta: { id: string; source: string; created: number }; content: string; score: number }>>,
   capturesDailyHistory: (days?: number) => ipcRenderer.invoke("captures-daily-history", days) as Promise<Array<{ date: string; count: number; bytes: number }>>,
   capturesEntrySize: (id: string) => ipcRenderer.invoke("captures-entry-size", id) as Promise<number>,
+  capturesStatsForSource: (source: string) => ipcRenderer.invoke("captures-stats-source", source) as Promise<{ count: number; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>,
+  capturesListForSource: (source: string, offset: number, limit: number) => ipcRenderer.invoke("captures-list-source", source, offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>,
+  capturesDailyHistoryForSource: (source: string, days?: number) => ipcRenderer.invoke("captures-daily-history-source", source, days) as Promise<Array<{ date: string; count: number; bytes: number }>>,
 
   // Grid resize
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
@@ -96,8 +99,18 @@ contextBridge.exposeInMainWorld("yo", {
   },
 
   // Apps CRUD
-  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>,
-  appsAdd: (id: string, name: string, url: string) => ipcRenderer.invoke("apps-add", id, name, url),
+  appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{
+    id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;
+    commands: Record<string, { selector: string; action: string; description: string }>;
+    meta?: { description: string; capabilities: string[] };
+    forceWeb?: boolean; doNotRecord?: boolean;
+    connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
+    mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+  }>>,
+  appsAdd: (id: string, name: string, url?: string) => ipcRenderer.invoke("apps-add", id, name, url),
+  appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) =>
+    ipcRenderer.invoke("apps-set-mcp", id, mcp),
+  appsRemoveMcp: (id: string) => ipcRenderer.invoke("apps-remove-mcp", id) as Promise<boolean>,
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
   appsUpdateId: (oldId: string, newId: string) => ipcRenderer.invoke("apps-update-id", oldId, newId) as Promise<boolean>,
   appsUpdateName: (id: string, name: string) => ipcRenderer.invoke("apps-update-name", id, name) as Promise<boolean>,
@@ -183,6 +196,7 @@ contextBridge.exposeInMainWorld("yo", {
   tabSwitch: (id: string) => ipcRenderer.send("tab-switch", id),
   tabClose: (id: string) => ipcRenderer.send("tab-close", id),
   tabNew: () => ipcRenderer.send("tab-new"),
+  tabNewApp: (appId: string) => ipcRenderer.send("tab-new-app", appId),
   onTabState: (callback: (state: { tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>; activeId: string; visible: boolean }) => void) => {
     ipcRenderer.on("tab-state", (_event, state) => callback(state));
   },

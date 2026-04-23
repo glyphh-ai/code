@@ -295,7 +295,6 @@ export class ConnectorManager extends EventEmitter {
   async refreshMcp(): Promise<{ ok: boolean; error?: string; toolCount: number }> {
     if (!this.mcpManager) return { ok: false, error: "MCP manager not available", toolCount: 0 };
 
-    // Get MCP endpoint from yo-server
     try {
       const res = await serverGetAuthed<{
         ok: boolean;
@@ -303,26 +302,20 @@ export class ConnectorManager extends EventEmitter {
         mcpToken?: string;
         mcpHeaders?: Record<string, string>;
         hasAccounts?: boolean;
+        apps?: Array<{ slug: string; mcpUrl: string }>;
         error?: string;
       }>("/api/connectors/mcp-endpoint");
 
-      if (!res.ok || !res.mcpUrl) {
-        const existing = this.mcpManager.getConfigs().find((c) => c.id === PIPEDREAM_SERVER_ID);
-        if (existing) {
-          this.mcpManager.removeServer(PIPEDREAM_SERVER_ID);
-        }
+      if (!res.ok) {
+        this.removePipedreamServers();
         return { ok: false, error: `Server returned: ${res.error || "no MCP URL"}`, toolCount: 0 };
       }
 
-      if (!res.hasAccounts) {
-        const existing = this.mcpManager.getConfigs().find((c) => c.id === PIPEDREAM_SERVER_ID);
-        if (existing) {
-          this.mcpManager.removeServer(PIPEDREAM_SERVER_ID);
-        }
+      if (!res.hasAccounts || !res.apps?.length) {
+        this.removePipedreamServers();
         return { ok: false, error: "No connected accounts on server", toolCount: 0 };
       }
 
-      // Build headers: Bearer auth + Pipedream-specific headers from server
       const headers: Record<string, string> = {
         ...(res.mcpHeaders || {}),
       };
@@ -330,33 +323,63 @@ export class ConnectorManager extends EventEmitter {
         headers["Authorization"] = `Bearer ${res.mcpToken}`;
       }
 
-      const config = {
-        id: PIPEDREAM_SERVER_ID,
-        name: PIPEDREAM_SERVER_NAME,
-        transport: "sse" as const,
-        url: res.mcpUrl,
-        headers,
-        enabled: true,
-      };
-
-      this.mcpManager.addServer(config);
-
-      // Reconnect to pick up new/removed tools
-      try {
-        await this.mcpManager.connectServer(config);
-        const state = this.mcpManager.getServerState(PIPEDREAM_SERVER_ID);
-        const toolCount = state?.tools.length || 0;
-        console.log(`[connectors] MCP refresh: status=${state?.status}, tools=${toolCount}, url=${res.mcpUrl}`);
-        return { ok: state?.status === "connected", error: state?.error, toolCount };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("Pipedream MCP connect error:", msg);
-        return { ok: false, error: msg, toolCount: 0 };
+      // Remove stale pipedream servers that are no longer in the account list
+      const activeIds = new Set(res.apps.map((a) => `${PIPEDREAM_SERVER_ID}-${a.slug}`));
+      for (const cfg of this.mcpManager.getConfigs()) {
+        if (cfg.id.startsWith(`${PIPEDREAM_SERVER_ID}-`) && !activeIds.has(cfg.id)) {
+          this.mcpManager.removeServer(cfg.id);
+        }
       }
+      // Also remove the old single-server entry if it exists
+      if (this.mcpManager.getServerState(PIPEDREAM_SERVER_ID)) {
+        this.mcpManager.removeServer(PIPEDREAM_SERVER_ID);
+      }
+
+      let totalTools = 0;
+      let lastError: string | undefined;
+      let anyOk = false;
+
+      for (const app of res.apps) {
+        const id = `${PIPEDREAM_SERVER_ID}-${app.slug}`;
+        const config = {
+          id,
+          name: `Pipedream: ${app.slug}`,
+          transport: "streamable-http" as const,
+          url: app.mcpUrl,
+          headers,
+          enabled: true,
+        };
+
+        this.mcpManager.addServer(config);
+
+        try {
+          await this.mcpManager.connectServer(config);
+          const state = this.mcpManager.getServerState(id);
+          const tools = state?.tools.length || 0;
+          totalTools += tools;
+          if (state?.status === "connected") anyOk = true;
+          console.log(`[connectors] MCP ${app.slug}: status=${state?.status}, tools=${tools}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          lastError = msg;
+          console.error(`[connectors] MCP ${app.slug} failed: ${msg}`);
+        }
+      }
+
+      return { ok: anyOk, error: lastError, toolCount: totalTools };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Connectors MCP refresh error:", msg);
       return { ok: false, error: msg, toolCount: 0 };
+    }
+  }
+
+  private removePipedreamServers(): void {
+    if (!this.mcpManager) return;
+    for (const cfg of this.mcpManager.getConfigs()) {
+      if (cfg.id === PIPEDREAM_SERVER_ID || cfg.id.startsWith(`${PIPEDREAM_SERVER_ID}-`)) {
+        this.mcpManager.removeServer(cfg.id);
+      }
     }
   }
 

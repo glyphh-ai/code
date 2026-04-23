@@ -42,7 +42,7 @@ interface JsonRpcResponse {
 }
 
 export interface McpClientOptions {
-  transport: "stdio" | "sse";
+  transport: "stdio" | "sse" | "streamable-http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -62,6 +62,8 @@ export class McpClient extends EventEmitter {
   private sseAbort: AbortController | null = null;
   private sseMessageEndpoint: string | null = null;
 
+  private httpSessionId: string | null = null;
+
   constructor(options: McpClientOptions) {
     super();
     this.options = options;
@@ -72,6 +74,8 @@ export class McpClient extends EventEmitter {
   async connect(): Promise<void> {
     if (this.options.transport === "stdio") {
       await this.connectStdio();
+    } else if (this.options.transport === "streamable-http") {
+      // No persistent connection needed — just mark as ready
     } else {
       await this.connectSse();
     }
@@ -224,6 +228,10 @@ export class McpClient extends EventEmitter {
     const id = this.nextId++;
     const request: JsonRpcRequest = { jsonrpc: "2.0", id, method, ...(params ? { params } : {}) };
 
+    if (this.options.transport === "streamable-http") {
+      return this.sendHttpRequest(request);
+    }
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -239,6 +247,64 @@ export class McpClient extends EventEmitter {
     });
   }
 
+  private async sendHttpRequest(request: JsonRpcRequest): Promise<unknown> {
+    const { url } = this.options;
+    if (!url) throw new Error("streamable-http transport requires a url");
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...this.options.headers,
+    };
+    if (this.httpSessionId) {
+      headers["Mcp-Session-Id"] = this.httpSessionId;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      console.error(`[mcp-client] HTTP ${response.status}: ${errBody.slice(0, 500)}`);
+      throw new Error(`HTTP request failed: ${response.status}`);
+    }
+
+    const sessionId = response.headers.get("mcp-session-id");
+    if (sessionId) this.httpSessionId = sessionId;
+
+    const contentType = response.headers.get("content-type") || "";
+    const text = await response.text();
+    if (!text.trim()) return undefined;
+
+    if (contentType.includes("text/event-stream")) {
+      for (const line of text.split("\n")) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (!data) continue;
+          try {
+            const msg = JSON.parse(data) as JsonRpcResponse;
+            if ("id" in msg && msg.id === request.id) {
+              if (msg.error) throw new Error(`MCP error ${msg.error.code}: ${msg.error.message}`);
+              return msg.result;
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message.startsWith("MCP error")) throw e;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    const msg = JSON.parse(text) as JsonRpcResponse;
+    if (msg.error) {
+      throw new Error(`MCP error ${msg.error.code}: ${msg.error.message}`);
+    }
+    return msg.result;
+  }
+
   private sendNotification(method: string, params?: Record<string, unknown>): void {
     const notification: JsonRpcNotification = { jsonrpc: "2.0", method, ...(params ? { params } : {}) };
     this.send(notification);
@@ -250,6 +316,17 @@ export class McpClient extends EventEmitter {
     if (this.options.transport === "stdio") {
       if (!this.process?.stdin?.writable) throw new Error("stdio not writable");
       this.process.stdin.write(json + "\n");
+    } else if (this.options.transport === "streamable-http") {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...this.options.headers,
+      };
+      if (this.httpSessionId) headers["Mcp-Session-Id"] = this.httpSessionId;
+      fetch(this.options.url!, {
+        method: "POST",
+        headers,
+        body: json,
+      }).catch((err) => this.emit("error", err));
     } else {
       if (!this.sseMessageEndpoint) throw new Error("SSE endpoint not established");
       fetch(this.sseMessageEndpoint, {
@@ -261,8 +338,9 @@ export class McpClient extends EventEmitter {
   }
 
   private async initialize(): Promise<void> {
+    const version = this.options.transport === "streamable-http" ? "2025-03-26" : "2024-11-05";
     await this.sendRequest("initialize", {
-      protocolVersion: "2024-11-05",
+      protocolVersion: version,
       capabilities: {},
       clientInfo: { name: "yo", version: "2.0.0" },
     });
@@ -290,6 +368,8 @@ export class McpClient extends EventEmitter {
       this.sseAbort.abort();
       this.sseAbort = null;
     }
+
+    this.httpSessionId = null;
 
     this.rejectAllPending(new Error("Client disconnected"));
     this.stdioBuffer = "";

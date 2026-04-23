@@ -13,7 +13,7 @@ import type { AppConnector, McpConfig } from "./app-connector";
 export interface McpServerConfig {
   id: string;
   name: string;
-  transport: "stdio" | "sse";
+  transport: "stdio" | "sse" | "streamable-http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -41,6 +41,15 @@ export class McpManager extends EventEmitter {
     this.migrateLegacyConfigs();
     const configs = this.getConfigs();
     for (const config of configs) {
+      // Skip pipedream-connect servers — ConnectorManager owns their lifecycle
+      // and will call refreshMcp() with fresh ephemeral URLs.
+      if (config.id === "pipedream-connect" || config.id.startsWith("pipedream-connect-")) {
+        this.servers.set(config.id, {
+          client: new McpClient({ transport: config.transport }),
+          state: { config, status: "disconnected", tools: [] },
+        });
+        continue;
+      }
       if (config.enabled) {
         this.connectServer(config).catch(() => {});
       } else {

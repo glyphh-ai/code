@@ -31,8 +31,17 @@ declare global {
       skillsRemove: (name: string) => Promise<boolean>;
       skillsGenerate: (name: string, description: string) => Promise<string>;
       // Apps
-      appsList: () => Promise<Array<{ id: string; name: string; url: string; connected: boolean; connectedSlug?: string; forceWeb?: boolean; doNotRecord?: boolean; commands: Record<string, { selector: string; action: string; description: string }>; meta?: { description: string; capabilities: string[] } }>>;
-      appsAdd: (id: string, name: string, url: string) => Promise<unknown>;
+      appsList: () => Promise<Array<{
+        id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;
+        forceWeb?: boolean; doNotRecord?: boolean;
+        commands: Record<string, { selector: string; action: string; description: string }>;
+        meta?: { description: string; capabilities: string[] };
+        connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
+        mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+      }>>;
+      appsAdd: (id: string, name: string, url?: string) => Promise<unknown>;
+      appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) => Promise<unknown>;
+      appsRemoveMcp: (id: string) => Promise<boolean>;
       appsRemove: (id: string) => Promise<boolean>;
       appsUpdateId: (oldId: string, newId: string) => Promise<boolean>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
@@ -126,6 +135,9 @@ declare global {
       capturesSearch: (query: string, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number }; content: string; score: number }>>;
       capturesDailyHistory: (days?: number) => Promise<Array<{ date: string; count: number; bytes: number }>>;
       capturesEntrySize: (id: string) => Promise<number>;
+      capturesStatsForSource: (source: string) => Promise<{ count: number; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>;
+      capturesListForSource: (source: string, offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>;
+      capturesDailyHistoryForSource: (source: string, days?: number) => Promise<Array<{ date: string; count: number; bytes: number }>>;
       // LLM config
       getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
@@ -135,6 +147,7 @@ declare global {
       tabSwitch: (id: string) => void;
       tabClose: (id: string) => void;
       tabNew: () => void;
+      tabNewApp: (appId: string) => void;
       onTabState: (callback: (state: { tabs: TabInfo[]; activeId: string; visible: boolean }) => void) => void;
       // URL bar
       urlBarNavigate: (url: string) => void;
@@ -196,7 +209,7 @@ declare global {
       connectorsGetAccounts: () => Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>;
       connectorsConnect: (appSlug: string) => Promise<{ ok: boolean; error?: string }>;
       connectorsDisconnect: (accountId: string) => Promise<boolean>;
-      connectorsRefreshMcp: () => Promise<boolean>;
+      connectorsRefreshMcp: () => Promise<{ ok: boolean; error?: string; toolCount: number }>;
       onConnectorsChanged: (cb: () => void) => void;
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
@@ -326,9 +339,69 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
   tabBar.appendChild(tabNewBtn);
 }
 
-tabNewBtn.addEventListener("click", () => {
+let tabNewMenu: HTMLElement | null = null;
+
+function closeTabNewMenu() {
+  if (tabNewMenu) {
+    tabNewMenu.remove();
+    tabNewMenu = null;
+  }
+}
+
+tabNewBtn.addEventListener("click", async (e) => {
+  e.stopPropagation();
   if (isHelpOpen()) closeHelp();
-  window.yo.tabNew();
+
+  if (tabNewMenu) { closeTabNewMenu(); return; }
+
+  const apps = await window.yo.appsList();
+  const appsWithUrl = apps.filter((a) => a.url && !a.url.startsWith("yo://"));
+
+  if (appsWithUrl.length === 0) {
+    window.yo.tabNew();
+    return;
+  }
+
+  const menu = document.createElement("div");
+  menu.className = "tab-new-menu";
+
+  const browserBtn = document.createElement("button");
+  browserBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>Browser</span>`;
+  browserBtn.addEventListener("click", () => { closeTabNewMenu(); window.yo.tabNew(); });
+  menu.appendChild(browserBtn);
+
+  const divider = document.createElement("div");
+  divider.className = "tab-new-menu-divider";
+  menu.appendChild(divider);
+
+  for (const app of appsWithUrl) {
+    const btn = document.createElement("button");
+    let iconHtml = "";
+    try {
+      const domain = new URL(app.url!).hostname;
+      iconHtml = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" width="14" height="14" style="border-radius:2px;" onerror="this.style.display='none'" />`;
+    } catch {
+      iconHtml = `<span class="tab-new-menu-initial">${app.name.charAt(0).toUpperCase()}</span>`;
+    }
+    btn.innerHTML = `${iconHtml}<span>${app.name}</span>`;
+    btn.addEventListener("click", () => { closeTabNewMenu(); window.yo.tabNewApp(app.id); });
+    menu.appendChild(btn);
+  }
+
+  const rect = tabNewBtn.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${rect.left}px`;
+
+  document.body.appendChild(menu);
+  tabNewMenu = menu;
+
+  const onClickOutside = (ev: MouseEvent) => {
+    if (!menu.contains(ev.target as Node) && ev.target !== tabNewBtn) {
+      closeTabNewMenu();
+      document.removeEventListener("click", onClickOutside);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", onClickOutside), 0);
 });
 
 const emptyState = document.getElementById("empty-state")!;
@@ -618,11 +691,16 @@ function renderGridHandles() {
 
   const grid = currentGrid;
 
+  const cells = grid.cells || [];
+
   // Column border handles — use available width (accounts for yo panel)
   const availW = getAvailableWidth();
   let cumCol = 0;
   for (let i = 0; i < grid.cols - 1; i++) {
     cumCol += grid.colWidths[i];
+    const border = i + 1;
+    const hasEdge = cells.some((c) => c.col === border || c.col + c.colSpan === border);
+    if (!hasEdge) continue;
     const handle = document.createElement("div");
     handle.className = "grid-col-handle";
     handle.style.left = `${Math.round(cumCol * availW)}px`;
@@ -636,6 +714,9 @@ function renderGridHandles() {
   let cumRow = 0;
   for (let i = 0; i < grid.rows - 1; i++) {
     cumRow += grid.rowHeights[i];
+    const border = i + 1;
+    const hasEdge = cells.some((c) => c.row === border || c.row + c.rowSpan === border);
+    if (!hasEdge) continue;
     const handle = document.createElement("div");
     handle.className = "grid-row-handle";
     handle.style.top = `${getContentTop() + cumRow * (window.innerHeight - getContentTop())}px`;
@@ -650,25 +731,19 @@ function renderGridHandles() {
 window.addEventListener("resize", () => {
   if (!currentGrid) return;
   const aw = getAvailableWidth();
-  // Column handles
-  if (currentGrid.cols > 1) {
+  gridHandles.querySelectorAll<HTMLElement>(".grid-col-handle").forEach((h) => {
+    const idx = parseInt(h.dataset.index!, 10);
     let cc = 0;
-    const colHandles = gridHandles.querySelectorAll(".grid-col-handle");
-    for (let i = 0; i < colHandles.length; i++) {
-      cc += currentGrid.colWidths[i];
-      (colHandles[i] as HTMLElement).style.left = `${Math.round(cc * aw)}px`;
-    }
-  }
-  // Row handles
-  if (currentGrid.rows > 1) {
+    for (let j = 0; j <= idx; j++) cc += currentGrid!.colWidths[j];
+    h.style.left = `${Math.round(cc * aw)}px`;
+  });
+  const contentHeight = window.innerHeight - getContentTop();
+  gridHandles.querySelectorAll<HTMLElement>(".grid-row-handle").forEach((h) => {
+    const idx = parseInt(h.dataset.index!, 10);
     let cr = 0;
-    const rowHandles = gridHandles.querySelectorAll(".grid-row-handle");
-    for (let i = 0; i < rowHandles.length; i++) {
-      cr += currentGrid.rowHeights[i];
-      (rowHandles[i] as HTMLElement).style.top =
-        `${getContentTop() + cr * (window.innerHeight - getContentTop())}px`;
-    }
-  }
+    for (let j = 0; j <= idx; j++) cr += currentGrid!.rowHeights[j];
+    h.style.top = `${getContentTop() + cr * contentHeight}px`;
+  });
 });
 
 // -- Drag protocol --
@@ -698,19 +773,14 @@ document.addEventListener("mousemove", (e) => {
     const aw = getAvailableWidth();
     const fraction = e.clientX / aw;
     const clamped = Math.max(0.05, Math.min(0.95, fraction));
-    const handles = gridHandles.querySelectorAll(".grid-col-handle");
-    if (handles[dragIndex]) {
-      (handles[dragIndex] as HTMLElement).style.left = `${Math.round(clamped * aw)}px`;
-    }
+    const handle = gridHandles.querySelector<HTMLElement>(`.grid-col-handle[data-index="${dragIndex}"]`);
+    if (handle) handle.style.left = `${Math.round(clamped * aw)}px`;
   } else {
     const contentHeight = window.innerHeight - getContentTop();
     const fraction = (e.clientY - getContentTop()) / contentHeight;
     const clamped = Math.max(0.05, Math.min(0.95, fraction));
-    const handles = gridHandles.querySelectorAll(".grid-row-handle");
-    if (handles[dragIndex]) {
-      (handles[dragIndex] as HTMLElement).style.top =
-        `${getContentTop() + clamped * contentHeight}px`;
-    }
+    const handle = gridHandles.querySelector<HTMLElement>(`.grid-row-handle[data-index="${dragIndex}"]`);
+    if (handle) handle.style.top = `${getContentTop() + clamped * contentHeight}px`;
   }
 });
 
@@ -728,13 +798,13 @@ document.addEventListener("mouseup", () => {
   clearPanelScreenshots();
 
   if (dragType === "col") {
-    const handle = gridHandles.querySelectorAll(".grid-col-handle")[dragIndex] as HTMLElement;
+    const handle = gridHandles.querySelector<HTMLElement>(`.grid-col-handle[data-index="${dragIndex}"]`);
     if (handle) {
       const fraction = parseFloat(handle.style.left) / getAvailableWidth();
       window.yo.gridDragEnd("col", dragIndex, fraction);
     }
   } else {
-    const handle = gridHandles.querySelectorAll(".grid-row-handle")[dragIndex] as HTMLElement;
+    const handle = gridHandles.querySelector<HTMLElement>(`.grid-row-handle[data-index="${dragIndex}"]`);
     if (handle) {
       const contentHeight = window.innerHeight - getContentTop();
       const top = parseFloat(handle.style.top) - getContentTop();

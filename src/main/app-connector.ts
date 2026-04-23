@@ -60,7 +60,7 @@ export interface ConnectionConfig {
 
 // ── MCP tab: external tool server ──
 export interface McpConfig {
-  transport: "stdio" | "sse";
+  transport: "stdio" | "sse" | "streamable-http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;

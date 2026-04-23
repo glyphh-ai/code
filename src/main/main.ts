@@ -1777,6 +1777,9 @@ async function boot() {
   ipcMain.handle("captures-search", async (_e, query: string, limit: number) => captureStore.search(query, limit));
   ipcMain.handle("captures-daily-history", (_e, days: number) => captureStore.dailyHistory(days));
   ipcMain.handle("captures-entry-size", (_e, id: string) => captureStore.entrySize(id));
+  ipcMain.handle("captures-stats-source", (_e, source: string) => captureStore.statsForSource(source));
+  ipcMain.handle("captures-list-source", (_e, source: string, offset: number, limit: number) => captureStore.listEntriesForSource(source, offset, limit));
+  ipcMain.handle("captures-daily-history-source", (_e, source: string, days: number) => captureStore.dailyHistoryForSource(source, days));
 
   // IPC: grid resize (drag dividers)
   ipcMain.on("grid-drag-end", (_e, type: "col" | "row", index: number, fraction: number) => {
@@ -1810,15 +1813,17 @@ async function boot() {
 
   // IPC: apps CRUD (panel apps)
   ipcMain.handle("apps-list", () => appConnector.list());
-  ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
+  ipcMain.handle("apps-add", (_e, id: string, name: string, url?: string) => {
     const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;
     const gate = canAddApp(userApps);
     if (!gate.allowed) return { error: gate.reason };
     const app = appConnector.add(id, name, url);
-    panelManager.addPanel(id, url);
+    if (url) panelManager.addPanel(id, url);
     return app;
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-set-mcp", (_e, id: string, mcp: any) => appConnector.setMcp(id, mcp));
+  ipcMain.handle("apps-remove-mcp", (_e, id: string) => appConnector.removeMcp(id));
   ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {
     const ok = appConnector.updateId(oldId, newId);
     if (ok) layoutManager.renamePanelId(oldId, newId);
@@ -2167,6 +2172,21 @@ async function boot() {
     panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
     panelManager.switchTo(id, mainWindow);
     ensureTab(id);
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-new-app", (_e, appId: string) => {
+    if (!mainWindow) return;
+    const app = appConnector.get(appId);
+    if (!app?.url) return;
+    if (panelManager.hasPanel(appId)) {
+      panelManager.switchTo(appId, mainWindow);
+    } else {
+      panelManager.addPanel(appId, app.url, undefined, app.forceWeb);
+      panelManager.switchTo(appId, mainWindow);
+      ensureTab(appId);
+    }
     sendSplitState();
     sendTabState();
   });
