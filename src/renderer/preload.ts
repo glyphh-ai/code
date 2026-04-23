@@ -277,13 +277,13 @@ contextBridge.exposeInMainWorld("yo", {
   yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
   yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
 
-  // Connectors (removed — stubs for renderer compat)
-  connectorsGetApps: () => Promise.resolve({ apps: [], hasMore: false }),
-  connectorsGetAccounts: () => Promise.resolve([]),
-  connectorsConnect: () => Promise.resolve({ ok: false, error: "Connectors removed" }),
-  connectorsDisconnect: () => Promise.resolve(false),
-  connectorsRefreshMcp: () => Promise.resolve(false),
-  onConnectorsChanged: () => {},
+  // Connectors (Pipedream OAuth)
+  connectorsGetApps: (search?: string, offset?: number) => ipcRenderer.invoke("connectors-get-apps", search, offset) as Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string }>; hasMore: boolean }>,
+  connectorsGetAccounts: () => ipcRenderer.invoke("connectors-get-accounts") as Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>,
+  connectorsConnect: (appSlug: string) => ipcRenderer.invoke("connectors-connect", appSlug) as Promise<{ ok: boolean; error?: string }>,
+  connectorsDisconnect: (accountId: string) => ipcRenderer.invoke("connectors-disconnect", accountId) as Promise<boolean>,
+  connectorsRefreshMcp: () => ipcRenderer.invoke("connectors-refresh-mcp") as Promise<{ ok: boolean; error?: string; toolCount: number }>,
+  onConnectorsChanged: (cb: () => void) => { ipcRenderer.on("connectors-changed", cb); },
 
   // Auto-update
   onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => {

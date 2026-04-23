@@ -46,6 +46,7 @@ import { Council } from "./council";
 import { McpExpose } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { DripManager } from "./drip-manager";
+import { ConnectorManager } from "./connectors";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -66,6 +67,7 @@ let mcpExpose: McpExpose | null = null;
 let mcpManager: McpManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
+let connectorManager: ConnectorManager | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
@@ -263,6 +265,13 @@ async function boot() {
   }
   mcpManager.on("changed", () => {
     mainWindow?.webContents.send("mcp-changed");
+  });
+
+  // Pipedream Connectors — managed OAuth connections (Advanced tier)
+  connectorManager = new ConnectorManager();
+  connectorManager.setMcpManager(mcpManager);
+  connectorManager.on("changed", () => {
+    mainWindow?.webContents.send("connectors-changed");
   });
 
   // Council — deterministic multi-model debate orchestrator
@@ -1305,6 +1314,11 @@ async function boot() {
     cloudSyncInstance.start();
   }
 
+  // Initialize Pipedream connectors if authenticated (Advanced tier)
+  if (authenticated) {
+    connectorManager?.init().catch((err) => console.error("[connectors]", err));
+  }
+
   // ── Auto-updater ───────────────────────────────────────────
   const autoUpdateEnabled = getPreference<boolean>("autoUpdate", true);
 
@@ -1982,6 +1996,28 @@ async function boot() {
     mcpManager!.setServerOverride(serverId, override as any);
   });
 
+  // ── Connectors IPC handlers (Pipedream OAuth) ──────────
+  ipcMain.handle("connectors-get-apps", async (_e, search?: string, offset?: number) => {
+    if (!connectorManager) return { apps: [], hasMore: false };
+    return connectorManager.getApps(search, offset);
+  });
+  ipcMain.handle("connectors-get-accounts", async () => {
+    if (!connectorManager) return [];
+    return connectorManager.getAccounts();
+  });
+  ipcMain.handle("connectors-connect", async (_e, appSlug: string) => {
+    if (!connectorManager) return { ok: false, error: "Not initialized" };
+    return connectorManager.connectApp(appSlug);
+  });
+  ipcMain.handle("connectors-disconnect", async (_e, accountId: string) => {
+    if (!connectorManager) return false;
+    return connectorManager.disconnectAccount(accountId);
+  });
+  ipcMain.handle("connectors-refresh-mcp", async () => {
+    if (!connectorManager) return { ok: false, error: "Not initialized", toolCount: 0 };
+    return connectorManager.refreshMcp();
+  });
+
   // ── Dashboard IPC handlers ─────────────────────────────
 
   ipcMain.handle("dashboard:today", () => usageTracker.getToday());
@@ -2436,6 +2472,7 @@ function cleanupAll() {
   vscodeServer?.stop();
   mcpExpose?.stop();
   mcpManager?.disconnectAll();
+  connectorManager?.cleanup();
   actionGrabber?.stopPolling();
   embedder?.cleanup();
   dripManager?.cleanup();
