@@ -260,6 +260,7 @@ async function boot() {
 
   // MCP Manager — user-configured external MCP servers (Advanced tier)
   mcpManager = new McpManager();
+  mcpManager.setAppConnector(appConnector);
   if (canUseMcp().allowed) {
     mcpManager.init().catch((err) => console.error("[mcp-manager]", err));
   }
@@ -270,6 +271,7 @@ async function boot() {
   // Pipedream Connectors — managed OAuth connections (Advanced tier)
   connectorManager = new ConnectorManager();
   connectorManager.setMcpManager(mcpManager);
+  connectorManager.setAppConnector(appConnector);
   connectorManager.on("changed", () => {
     mainWindow?.webContents.send("connectors-changed");
   });
@@ -506,7 +508,7 @@ async function boot() {
         panelManager.addPanel(app.id, infoPage);
       }
     } else {
-      panelManager.addPanel(app.id, app.url, undefined, app.forceWeb);
+      panelManager.addPanel(app.id, app.url!, undefined, app.forceWeb);
     }
   }
 
@@ -790,7 +792,7 @@ async function boot() {
     if (!isUrl) {
       const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
       const app = appConnector.get(appName);
-      if (app) { url = app.url; id = id || app.id; }
+      if (app?.url) { url = app.url; id = id || app.id; }
       else if (panelManager.hasPanel(appName)) {
         const ok = panelManager.switchTo(appName, mainWindow);
         return ok ? `Switched to panel "${appName}".` : `Failed to switch to "${appName}".`;
@@ -815,7 +817,7 @@ async function boot() {
     if (!isUrl) {
       const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
       const app = appConnector.get(appName);
-      if (app) { url = app.url; id = id || "bg-" + app.id; }
+      if (app?.url) { url = app.url; id = id || "bg-" + app.id; }
       else return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
     }
     id = id || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
@@ -1809,7 +1811,7 @@ async function boot() {
   // IPC: apps CRUD (panel apps)
   ipcMain.handle("apps-list", () => appConnector.list());
   ipcMain.handle("apps-add", (_e, id: string, name: string, url: string) => {
-    const userApps = appConnector.list().filter(a => !a.url.startsWith("yo://")).length;
+    const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;
     const gate = canAddApp(userApps);
     if (!gate.allowed) return { error: gate.reason };
     const app = appConnector.add(id, name, url);

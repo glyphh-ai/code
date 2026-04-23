@@ -47,6 +47,7 @@ export interface McpClientOptions {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  headers?: Record<string, string>;
 }
 
 export class McpClient extends EventEmitter {
@@ -142,7 +143,7 @@ export class McpClient extends EventEmitter {
     this.sseAbort = new AbortController();
 
     const response = await fetch(url, {
-      headers: { Accept: "text/event-stream" },
+      headers: { Accept: "text/event-stream", ...this.options.headers },
       signal: this.sseAbort.signal,
     });
 
@@ -253,7 +254,7 @@ export class McpClient extends EventEmitter {
       if (!this.sseMessageEndpoint) throw new Error("SSE endpoint not established");
       fetch(this.sseMessageEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...this.options.headers },
         body: json,
       }).catch((err) => this.emit("error", err));
     }

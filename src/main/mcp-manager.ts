@@ -1,13 +1,14 @@
 /**
- * MCP Manager — manages configured MCP servers, connections, and tool discovery.
+ * MCP Manager — manages MCP server connections and tool discovery.
  *
- * Stores server configs in preferences. Aggregates tools from all connected
- * servers into a unified registry that the .yo agent can consume.
+ * Server configs live on AppConnector (each app's mcp tab).
+ * Legacy configs in preferences are migrated on first init.
  */
 
 import { McpClient, McpTool, McpToolResult } from "./mcp-client";
 import { getPreference, setPreference } from "./preferences";
 import { EventEmitter } from "events";
+import type { AppConnector, McpConfig } from "./app-connector";
 
 export interface McpServerConfig {
   id: string;
@@ -17,6 +18,7 @@ export interface McpServerConfig {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  headers?: Record<string, string>;
   enabled: boolean;
 }
 
@@ -31,8 +33,12 @@ export type McpToolOverride = "default" | "auto" | "ask";
 
 export class McpManager extends EventEmitter {
   private servers = new Map<string, { client: McpClient; state: McpServerState }>();
+  private appConnector: AppConnector | null = null;
+
+  setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
 
   async init(): Promise<void> {
+    this.migrateLegacyConfigs();
     const configs = this.getConfigs();
     for (const config of configs) {
       if (config.enabled) {
@@ -46,23 +52,72 @@ export class McpManager extends EventEmitter {
     }
   }
 
+  /** Migrate legacy mcpServers preference into AppConnector apps */
+  private migrateLegacyConfigs(): void {
+    if (!this.appConnector) return;
+    const legacy = getPreference<McpServerConfig[]>("mcpServers", []);
+    if (legacy.length === 0) return;
+
+    for (const cfg of legacy) {
+      let app = this.appConnector.get(cfg.id);
+      if (!app) {
+        app = this.appConnector.add(cfg.id, cfg.name);
+      }
+      if (!app.mcp) {
+        this.appConnector.setMcp(cfg.id, {
+          transport: cfg.transport,
+          command: cfg.command,
+          args: cfg.args,
+          env: cfg.env,
+          url: cfg.url,
+          headers: cfg.headers,
+          enabled: cfg.enabled,
+        });
+      }
+    }
+    setPreference("mcpServers", []);
+    console.log(`[mcp] migrated ${legacy.length} legacy server configs into apps`);
+  }
+
   getConfigs(): McpServerConfig[] {
+    if (this.appConnector) {
+      return this.appConnector.getMcpConfigs().map((c) => ({
+        id: c.id,
+        name: c.name,
+        transport: c.transport,
+        command: c.command,
+        args: c.args,
+        env: c.env,
+        url: c.url,
+        headers: c.headers,
+        enabled: c.enabled,
+      }));
+    }
     return getPreference<McpServerConfig[]>("mcpServers", []);
   }
 
-  private saveConfigs(configs: McpServerConfig[]): void {
-    setPreference("mcpServers", configs);
-  }
-
   addServer(config: McpServerConfig): void {
-    const configs = this.getConfigs();
-    const existing = configs.findIndex((c) => c.id === config.id);
-    if (existing >= 0) {
-      configs[existing] = config;
+    if (this.appConnector) {
+      let app = this.appConnector.get(config.id);
+      if (!app) {
+        app = this.appConnector.add(config.id, config.name);
+      }
+      this.appConnector.setMcp(config.id, {
+        transport: config.transport,
+        command: config.command,
+        args: config.args,
+        env: config.env,
+        url: config.url,
+        headers: config.headers,
+        enabled: config.enabled,
+      });
     } else {
-      configs.push(config);
+      const configs = getPreference<McpServerConfig[]>("mcpServers", []);
+      const existing = configs.findIndex((c) => c.id === config.id);
+      if (existing >= 0) configs[existing] = config;
+      else configs.push(config);
+      setPreference("mcpServers", configs);
     }
-    this.saveConfigs(configs);
     this.servers.set(config.id, {
       client: new McpClient({ transport: config.transport }),
       state: { config, status: "disconnected", tools: [] },
@@ -77,8 +132,12 @@ export class McpManager extends EventEmitter {
     }
     this.servers.delete(id);
 
-    const configs = this.getConfigs().filter((c) => c.id !== id);
-    this.saveConfigs(configs);
+    if (this.appConnector) {
+      this.appConnector.removeMcp(id);
+    } else {
+      const configs = getPreference<McpServerConfig[]>("mcpServers", []).filter((c) => c.id !== id);
+      setPreference("mcpServers", configs);
+    }
 
     const overrides = this.getToolOverrides();
     const cleaned: Record<string, McpToolOverride> = {};
@@ -91,15 +150,28 @@ export class McpManager extends EventEmitter {
   }
 
   updateServer(id: string, updates: Partial<McpServerConfig>): void {
-    const configs = this.getConfigs();
-    const idx = configs.findIndex((c) => c.id === id);
-    if (idx < 0) return;
-    configs[idx] = { ...configs[idx], ...updates };
-    this.saveConfigs(configs);
+    if (this.appConnector) {
+      const mcpUpdates: Partial<McpConfig> = {};
+      if (updates.transport !== undefined) mcpUpdates.transport = updates.transport;
+      if (updates.command !== undefined) mcpUpdates.command = updates.command;
+      if (updates.args !== undefined) mcpUpdates.args = updates.args;
+      if (updates.env !== undefined) mcpUpdates.env = updates.env;
+      if (updates.url !== undefined) mcpUpdates.url = updates.url;
+      if (updates.headers !== undefined) mcpUpdates.headers = updates.headers;
+      if (updates.enabled !== undefined) mcpUpdates.enabled = updates.enabled;
+      this.appConnector.updateMcp(id, mcpUpdates);
+      if (updates.name) this.appConnector.updateName(id, updates.name);
+    } else {
+      const configs = getPreference<McpServerConfig[]>("mcpServers", []);
+      const idx = configs.findIndex((c) => c.id === id);
+      if (idx < 0) return;
+      configs[idx] = { ...configs[idx], ...updates };
+      setPreference("mcpServers", configs);
+    }
 
     const entry = this.servers.get(id);
     if (entry) {
-      entry.state.config = configs[idx];
+      entry.state.config = { ...entry.state.config, ...updates };
     }
 
     this.emit("changed");
@@ -118,6 +190,7 @@ export class McpManager extends EventEmitter {
       args: config.args,
       env: config.env,
       url: config.url,
+      headers: config.headers,
     });
 
     this.servers.set(config.id, { client, state });

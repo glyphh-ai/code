@@ -16,6 +16,7 @@ import { BrowserWindow, shell } from "electron";
 import { EventEmitter } from "events";
 import { serverPostAuthed, serverGetAuthed, getAccountInfo } from "./auth";
 import type { McpManager } from "./mcp-manager";
+import type { AppConnector } from "./app-connector";
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -68,11 +69,16 @@ const PIPEDREAM_SERVER_NAME = "Pipedream Connect";
 
 export class ConnectorManager extends EventEmitter {
   private mcpManager: McpManager | null = null;
+  private appConnector: AppConnector | null = null;
   private cachedAccounts: ConnectedAccount[] = [];
   private cachedApps: ConnectorApp[] = [];
 
   setMcpManager(mgr: McpManager): void {
     this.mcpManager = mgr;
+  }
+
+  setAppConnector(ac: AppConnector): void {
+    this.appConnector = ac;
   }
 
   // ── Tier gate ─────────────────────────────────────────
@@ -112,11 +118,26 @@ export class ConnectorManager extends EventEmitter {
       const res = await serverGetAuthed<AccountsResponse>("/api/connectors/accounts");
       if (res.ok && res.accounts) {
         this.cachedAccounts = res.accounts;
+        this.syncAccountsToApps(res.accounts);
         return res.accounts;
       }
       return this.cachedAccounts;
     } catch {
       return this.cachedAccounts;
+    }
+  }
+
+  private syncAccountsToApps(accounts: ConnectedAccount[]): void {
+    if (!this.appConnector) return;
+    for (const account of accounts) {
+      const app = this.appConnector.findByPipedreamSlug(account.appSlug);
+      if (app) {
+        this.appConnector.setConnection(app.id, {
+          pipedreamSlug: account.appSlug,
+          accountId: account.id,
+          healthy: account.healthy,
+        });
+      }
     }
   }
 
@@ -126,10 +147,16 @@ export class ConnectorManager extends EventEmitter {
 
   async disconnectAccount(accountId: string): Promise<boolean> {
     try {
+      const removed = this.cachedAccounts.find((a) => a.id === accountId);
       const res = await serverPostAuthed<DisconnectResponse>("/api/connectors/disconnect", { accountId });
       if (res.ok) {
         this.cachedAccounts = this.cachedAccounts.filter((a) => a.id !== accountId);
-        // Refresh MCP to drop tools from disconnected account
+        if (removed && this.appConnector) {
+          const app = this.appConnector.findByPipedreamSlug(removed.appSlug);
+          if (app?.connection?.accountId === accountId) {
+            this.appConnector.setConnection(app.id, { pipedreamSlug: removed.appSlug });
+          }
+        }
         await this.refreshMcp();
         this.emit("changed");
         return true;

@@ -46,23 +46,54 @@ export interface CapturePolicy {
   minDeltaChars?: number;  // incremental: minimum new chars to store (default 50)
 }
 
+// ── Panel tab: UI-driven interaction via DOM ──
+export interface PanelConfig {
+  commands: Record<string, CommandMapping>;
+}
+
+// ── Connection tab: API-driven via Pipedream OAuth ──
+export interface ConnectionConfig {
+  pipedreamSlug: string;
+  accountId?: string;
+  healthy?: boolean;
+}
+
+// ── MCP tab: external tool server ──
+export interface McpConfig {
+  transport: "stdio" | "sse";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled: boolean;
+}
+
 export interface AppConfig {
   id: string;
   name: string;
-  url: string;
-  connected: boolean;
-  commands: Record<string, CommandMapping>;
-  /** When true, suppress "open in desktop app" banners and protocol redirects */
+
+  // ── Dashboard ──
+  url?: string;
   forceWeb?: boolean;
-  /** When true, action grabber will never capture this app's content */
   doNotRecord?: boolean;
-  /** Controls how captures are stored — dedup, versioning, diffing, etc. */
   capturePolicy?: CapturePolicy;
   meta?: {
     description: string;
     category?: string;
     capabilities: string[];
   };
+
+  // ── Panel (UI-driven) ──
+  connected: boolean;
+  commands: Record<string, CommandMapping>;
+  panel?: PanelConfig;
+
+  // ── Connection (Pipedream API) ──
+  connection?: ConnectionConfig;
+
+  // ── MCP (external tool server) ──
+  mcp?: McpConfig;
 }
 
 /** Commands every app should map */
@@ -161,19 +192,19 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
 ];
 
 // Default panel apps — seeded on first launch so the workspace isn't empty
-const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: boolean }> = [
-  // LLMs
+const DEFAULT_APPS: Array<{ id: string; name: string; url: string; forceWeb?: boolean; pipedreamSlug?: string }> = [
+  // LLMs (no Pipedream — UI-only)
   { id: "chatgpt", name: "ChatGPT", url: "https://chatgpt.com" },
   { id: "claude", name: "Claude", url: "https://claude.ai" },
   { id: "gemini", name: "Gemini", url: "https://gemini.google.com" },
   { id: "grok", name: "Grok", url: "https://grok.com" },
   { id: "perplexity", name: "Perplexity", url: "https://perplexity.ai" },
-  // Productivity
-  { id: "gmail", name: "Gmail", url: "https://mail.google.com" },
-  { id: "calendar", name: "Google Calendar", url: "https://calendar.google.com" },
-  { id: "github", name: "GitHub", url: "https://github.com" },
-  { id: "slack", name: "Slack", url: "https://app.slack.com", forceWeb: true },
-  { id: "notion", name: "Notion", url: "https://notion.so", forceWeb: true },
+  // Productivity (panel + Pipedream API available)
+  { id: "gmail", name: "Gmail", url: "https://mail.google.com", pipedreamSlug: "gmail" },
+  { id: "calendar", name: "Google Calendar", url: "https://calendar.google.com", pipedreamSlug: "google_calendar" },
+  { id: "github", name: "GitHub", url: "https://github.com", pipedreamSlug: "github" },
+  { id: "slack", name: "Slack", url: "https://app.slack.com", forceWeb: true, pipedreamSlug: "slack" },
+  { id: "notion", name: "Notion", url: "https://notion.so", forceWeb: true, pipedreamSlug: "notion" },
 ];
 
 // Domains that default to doNotRecord — banking, health, finance, passwords
@@ -272,12 +303,22 @@ export class AppConnector {
     }
 
     // Seed default panel apps only if none exist yet (fresh install)
-    const hasUserApps = [...this.apps.values()].some((a) => !a.url.startsWith("yo://"));
+    const hasUserApps = [...this.apps.values()].some((a) => a.url && !a.url.startsWith("yo://"));
     if (!hasUserApps) {
       for (const def of DEFAULT_APPS) {
         if (!this.apps.has(def.id)) {
           this.add(def.id, def.name, def.url, def.forceWeb);
         }
+      }
+    }
+
+    // Ensure known Pipedream slugs are set on default apps
+    for (const def of DEFAULT_APPS) {
+      if (!def.pipedreamSlug) continue;
+      const app = this.apps.get(def.id);
+      if (app && !app.connection) {
+        app.connection = { pipedreamSlug: def.pipedreamSlug };
+        this.save(app);
       }
     }
 
@@ -312,14 +353,14 @@ export class AppConnector {
     return app;
   }
 
-  /** Add a new app (unconnected) */
-  add(id: string, name: string, url: string, forceWeb?: boolean): AppConfig {
+  /** Add a new app */
+  add(id: string, name: string, url?: string, forceWeb?: boolean): AppConfig {
     const app: AppConfig = {
       id,
       name,
-      url,
       connected: false,
       commands: {},
+      ...(url ? { url } : {}),
       ...(forceWeb ? { forceWeb } : {}),
     };
     this.apps.set(id, app);
@@ -374,7 +415,7 @@ export class AppConnector {
     const app = this.apps.get(panelId);
     if (app?.doNotRecord) return true;
     // Check domain blocklist against panel URL
-    if (app?.url) return DO_NOT_RECORD_DOMAINS.some((d) => app.url.includes(d));
+    if (app?.url) return DO_NOT_RECORD_DOMAINS.some((d) => app.url!.includes(d));
     return false;
   }
 
@@ -467,6 +508,77 @@ export class AppConnector {
     const filePath = path.join(this.appsDir, `${id}.json`);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return true;
+  }
+
+  // ── Connection (Pipedream) ─────────────────────────
+
+  setConnection(id: string, connection: ConnectionConfig): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    app.connection = connection;
+    this.save(app);
+    return true;
+  }
+
+  removeConnection(id: string): boolean {
+    const app = this.apps.get(id);
+    if (!app || !app.connection) return false;
+    delete app.connection;
+    this.save(app);
+    return true;
+  }
+
+  /** All apps that have a Pipedream connection configured */
+  listConnected(): AppConfig[] {
+    return [...this.apps.values()].filter((a) => a.connection?.accountId);
+  }
+
+  /** Find an app by its Pipedream slug */
+  findByPipedreamSlug(slug: string): AppConfig | null {
+    for (const app of this.apps.values()) {
+      if (app.connection?.pipedreamSlug === slug) return app;
+    }
+    return null;
+  }
+
+  // ── MCP (external tool server) ─────────────────────
+
+  setMcp(id: string, mcp: McpConfig): boolean {
+    const app = this.apps.get(id);
+    if (!app) return false;
+    app.mcp = mcp;
+    this.save(app);
+    return true;
+  }
+
+  updateMcp(id: string, updates: Partial<McpConfig>): boolean {
+    const app = this.apps.get(id);
+    if (!app || !app.mcp) return false;
+    app.mcp = { ...app.mcp, ...updates };
+    this.save(app);
+    return true;
+  }
+
+  removeMcp(id: string): boolean {
+    const app = this.apps.get(id);
+    if (!app || !app.mcp) return false;
+    delete app.mcp;
+    this.save(app);
+    return true;
+  }
+
+  /** All apps that have an MCP server configured */
+  listMcp(): AppConfig[] {
+    return [...this.apps.values()].filter((a) => a.mcp);
+  }
+
+  /** Get MCP configs in the format McpManager expects */
+  getMcpConfigs(): Array<McpConfig & { id: string; name: string }> {
+    return this.listMcp().map((a) => ({
+      ...a.mcp!,
+      id: a.id,
+      name: a.name,
+    }));
   }
 
   // ── Persistence ─────────────────────────────────────

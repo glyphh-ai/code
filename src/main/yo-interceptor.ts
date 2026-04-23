@@ -950,7 +950,7 @@ document.addEventListener('mousedown',function(e){
         const wc = webContents.fromId(wcId);
         if (wc && !wc.isDestroyed()) {
           const app = this.appConnector.get(panelId);
-          if (app && wc.getURL().includes(new URL(app.url).hostname)) {
+          if (app?.url && wc.getURL().includes(new URL(app.url).hostname)) {
             return wc;
           }
         }
