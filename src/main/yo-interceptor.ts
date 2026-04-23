@@ -333,12 +333,12 @@ function createPop(){
 
   // Hint line: shows the assembled command preview below the textarea
   hintEl=document.createElement('div');
-  hintEl.style.cssText='font-size:11px;color:var(--yo-text-muted);padding:4px 2px 0;min-height:18px;font-family:monospace;';
+  hintEl.style.cssText='font-size:11px;color:var(--yo-text-muted);padding:3px 2px 0;min-height:16px;font-family:monospace;';
   pop.appendChild(hintEl);
 
   // Row 2: [command ▾] [modifier ▾] [context ▾] [inline prompt] ... [Go]
   var row2=document.createElement('div');
-  row2.style.cssText='display:flex;align-items:center;gap:6px;margin-top:8px;';
+  row2.style.cssText='display:flex;align-items:center;gap:6px;margin-top:4px;';
 
   var cmdOpts=[
     {value:'yo',label:'.yo — Ask / Search'},
@@ -413,27 +413,25 @@ function updateHint(){
   var modVal=mod?mod.value:'';
   var inline=inlineInp?inlineInp.value.trim():'';
   var h='';
-  if(cmd==='yo'&&modVal==='>') h='.yo > '+(ctx||inline||'...');
-  else if(cmd==='yo'&&modVal==='.') h='.yo . '+(ctx||inline||'...');
-  else if(cmd==='yo') h='.yo '+(ctx||inline||'...');
-  else if(cmd==='sup'&&modVal==='.') h='.sup . '+(ctx||inline||'...');
-  else if(cmd==='sup') h='.sup '+(ctx||inline||'...');
-  else if(cmd==='dip'&&ctx) h='.dip '+ctx;
-  else if(cmd==='dip'&&inline) h='.dip '+inline;
-  else if(cmd==='dip') h='.dip ...';
+  if(cmd==='yo'&&modVal==='>') h='cmd: .yo > '+(ctx||inline||'');
+  else if(cmd==='yo'&&modVal==='.') h='cmd: .yo . '+(ctx||inline||'');
+  else if(cmd==='yo') h='cmd: .yo '+(ctx||inline||'');
+  else if(cmd==='sup'&&modVal==='.') h='cmd: .sup . '+(ctx||inline||'');
+  else if(cmd==='sup') h='cmd: .sup '+(ctx||inline||'');
+  else if(cmd==='dip') h='cmd: .dip '+(ctx||inline||'');
   else if(cmd==='drip'){
     var dc=pop?pop.querySelector('#__yo-drip-count'):null;
     var dcv=dc?dc.value:'1';
     var dop=pop?pop.querySelector('#__yo-drip-opacity'):null;
     var dopv=dop?parseInt(dop.value):80;
-    var effects=ctx||inline||'...';
+    var effects=ctx||inline||'';
     var parts=[];
     if(dcv!=='1')parts.push(dcv);
     if(dopv!==80)parts.push((dopv/100).toFixed(2));
-    parts.push(effects);
-    h='.drip '+parts.join(' ');
+    if(effects)parts.push(effects);
+    h='cmd: .drip '+(parts.length?parts.join(' '):'');
   }
-  else if(cmd==='waz') h='.waz';
+  else if(cmd==='waz') h='cmd: .waz';
   if(!h) h='input commands above or use the builder below.';
   hintEl.textContent=h;
 }
@@ -615,7 +613,7 @@ function togglePop(){
   while(ctxWrap.firstChild)ctxWrap.removeChild(ctxWrap.firstChild);ctxWrap.style.display='none';ctxSel=null;
   textArea.value='';
   if(inlineInp){inlineInp.value='';inlineInp.style.display='none';}
-  if(hintEl)hintEl.textContent='';
+  if(hintEl)hintEl.textContent='input commands above or use the builder below.';
   pop.style.display='block';
   setTimeout(function(){textArea.focus();},50);
 }

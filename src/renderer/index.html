@@ -124,6 +124,7 @@
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="drips">Drips</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
+        <button class="help-nav-item" data-section="mcp">MCP Servers</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
           <div class="help-nav-sub">
@@ -799,6 +800,91 @@
               <button id="skill-cancel" class="action-btn">Cancel</button>
               <button id="skill-save" class="action-btn primary">Save</button>
             </div>
+          </div>
+        </div>
+
+        <!-- MCP Servers -->
+        <div class="help-section" data-section="mcp">
+          <h2>MCP Servers</h2>
+          <p class="section-desc">Connect external tool servers via the Model Context Protocol. Tools from connected servers become available to the .yo agent.</p>
+
+          <div id="mcp-toolbar" class="crud-toolbar">
+            <input id="mcp-search" type="text" class="crud-search" placeholder="Search servers..." spellcheck="false" autocomplete="off" />
+            <button id="mcp-add-custom-btn" class="action-btn primary">+ New</button>
+          </div>
+
+          <div id="mcp-servers-list" class="crud-cards"></div>
+
+          <!-- Add/Edit MCP server panel (hidden by default) -->
+          <div id="mcp-custom-panel" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="mcp-custom-back">&larr; MCP Servers</a>
+              <div class="crud-spacer"></div>
+            </div>
+            <label class="settings-label">Name</label>
+            <input id="mcp-custom-name" type="text" class="settings-input" placeholder="My Server" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">ID</label>
+            <input id="mcp-custom-id" type="text" class="settings-input" placeholder="my-server" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">Transport</label>
+            <select id="mcp-custom-transport" class="settings-input">
+              <option value="stdio">stdio (local process)</option>
+              <option value="sse">SSE (HTTP server)</option>
+            </select>
+            <div id="mcp-stdio-fields" style="display:flex;flex-direction:column;gap:10px;">
+              <label class="settings-label">Command</label>
+              <input id="mcp-custom-command" type="text" class="settings-input" placeholder="npx -y @modelcontextprotocol/server-..." spellcheck="false" autocomplete="off" />
+              <label class="settings-label">Arguments <span style="color:var(--text-2);font-weight:400;">(space-separated)</span></label>
+              <input id="mcp-custom-args" type="text" class="settings-input" placeholder="--flag value" spellcheck="false" autocomplete="off" />
+              <label class="settings-label">Environment Variables <span style="color:var(--text-2);font-weight:400;">(KEY=VALUE, one per line)</span></label>
+              <textarea id="mcp-custom-env" class="settings-input" rows="3" placeholder="API_KEY=sk-..." spellcheck="false" style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
+            </div>
+            <div id="mcp-sse-fields" class="hidden">
+              <label class="settings-label">Server URL</label>
+              <input id="mcp-custom-url" type="text" class="settings-input" placeholder="http://localhost:3000/sse" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="settings-actions" style="margin-top:8px;">
+              <span id="mcp-custom-status" style="flex:1;font-size:12px;color:var(--danger);"></span>
+              <button id="mcp-custom-cancel" class="action-btn">Cancel</button>
+              <button id="mcp-custom-save" class="action-btn primary">Save</button>
+            </div>
+          </div>
+
+          <!-- Server detail / tools panel (hidden by default) -->
+          <div id="mcp-detail-panel" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="mcp-detail-back">&larr; MCP Servers</a>
+              <div class="crud-spacer"></div>
+              <span id="mcp-detail-status" class="mcp-status-badge"></span>
+              <button id="mcp-detail-connect" class="action-btn primary">Connect</button>
+              <button id="mcp-detail-disconnect" class="action-btn">Disconnect</button>
+              <button id="mcp-detail-edit" class="action-btn">Edit</button>
+              <button id="mcp-detail-remove" class="action-btn danger">Delete</button>
+            </div>
+            <h3 class="settings-subheading" id="mcp-detail-name" style="margin:0 0 4px 0;"></h3>
+            <p class="section-desc" id="mcp-detail-info"></p>
+
+            <!-- Server-level override -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <label class="settings-label" style="margin:0;">All Tools</label>
+              <select id="mcp-detail-server-override" class="tool-perm-select">
+                <option value="default">Default</option>
+                <option value="auto">Auto</option>
+                <option value="ask">Ask</option>
+              </select>
+            </div>
+
+            <h3 class="settings-subheading">Tools</h3>
+            <table class="tool-table" id="mcp-tools-table">
+              <thead>
+                <tr>
+                  <th class="tool-th-name">Tool</th>
+                  <th class="tool-th-desc">Description</th>
+                  <th class="tool-th-perm">Permission</th>
+                </tr>
+              </thead>
+              <tbody id="mcp-tools-body"></tbody>
+            </table>
+            <div id="mcp-no-tools" class="help-item-empty hidden">No tools discovered. Connect the server first.</div>
           </div>
         </div>
 

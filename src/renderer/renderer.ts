@@ -209,6 +209,17 @@ declare global {
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
       mcpExposeGenToken: (label: string) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
+      // MCP Servers (custom user-configured)
+      mcpGetServers: () => Promise<Array<{ config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }; status: string; error?: string; tools: Array<{ name: string; description?: string }> }>>;
+      mcpAddServer: (config: Record<string, unknown>) => Promise<void>;
+      mcpUpdateServer: (id: string, updates: Record<string, unknown>) => Promise<void>;
+      mcpRemoveServer: (id: string) => Promise<void>;
+      mcpConnectServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+      mcpDisconnectServer: (id: string) => Promise<void>;
+      mcpGetToolOverride: (serverId: string, toolName: string) => Promise<string>;
+      mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
+      mcpSetServerOverride: (serverId: string, override: string) => void;
+      onMcpChanged: (cb: () => void) => void;
     };
   }
 }

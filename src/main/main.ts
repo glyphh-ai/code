@@ -43,6 +43,7 @@ import { YoAgent } from "./yo-agent";
 import { ActionGrabber } from "./action-grabber";
 import { Council } from "./council";
 import { McpExpose } from "./mcp-expose";
+import { McpManager } from "./mcp-manager";
 import { DripManager } from "./drip-manager";
 
 
@@ -61,6 +62,7 @@ let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
+let mcpManager: McpManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
 
@@ -250,6 +252,15 @@ async function boot() {
       if (!r.ok) console.error("[mcp-expose] failed to start:", r.error);
     });
   }
+
+  // MCP Manager — user-configured external MCP servers (Advanced tier)
+  mcpManager = new McpManager();
+  if (canUseMcp().allowed) {
+    mcpManager.init().catch((err) => console.error("[mcp-manager]", err));
+  }
+  mcpManager.on("changed", () => {
+    mainWindow?.webContents.send("mcp-changed");
+  });
 
   // Council — deterministic multi-model debate orchestrator
   const council = new Council();
@@ -1548,6 +1559,52 @@ async function boot() {
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string) => mcpExpose!.generateToken(label));
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose!.revokeToken(token); });
 
+  // ── MCP Servers IPC handlers (custom user servers) ─────
+  ipcMain.handle("mcp-get-servers", () => {
+    if (!mcpManager) return [];
+    return mcpManager.getServerStates().map((s) => ({
+      config: s.config,
+      status: s.status,
+      error: s.error,
+      tools: s.tools.map((t) => ({ name: t.name, description: t.description })),
+    }));
+  });
+  ipcMain.handle("mcp-add-server", (_e, config: Record<string, unknown>) => {
+    const gate = canUseMcp();
+    if (!gate.allowed) throw new Error(gate.reason);
+    mcpManager!.addServer(config as any);
+  });
+  ipcMain.handle("mcp-update-server", (_e, id: string, updates: Record<string, unknown>) => {
+    mcpManager!.updateServer(id, updates as any);
+  });
+  ipcMain.handle("mcp-remove-server", (_e, id: string) => {
+    mcpManager!.removeServer(id);
+  });
+  ipcMain.handle("mcp-connect-server", async (_e, id: string) => {
+    const gate = canUseMcp();
+    if (!gate.allowed) return { ok: false, error: gate.reason };
+    const state = mcpManager!.getServerState(id);
+    if (!state) return { ok: false, error: "Server not found" };
+    try {
+      await mcpManager!.connectServer(state.config);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("mcp-disconnect-server", async (_e, id: string) => {
+    await mcpManager!.disconnectServer(id);
+  });
+  ipcMain.handle("mcp-get-tool-override", (_e, serverId: string, toolName: string) => {
+    return mcpManager!.getToolOverride(serverId, toolName);
+  });
+  ipcMain.on("mcp-set-tool-override", (_e, serverId: string, toolName: string, override: string) => {
+    mcpManager!.setToolOverride(serverId, toolName, override as any);
+  });
+  ipcMain.on("mcp-set-server-override", (_e, serverId: string, override: string) => {
+    mcpManager!.setServerOverride(serverId, override as any);
+  });
+
   // ── Dashboard IPC handlers ─────────────────────────────
 
   ipcMain.handle("dashboard:today", () => usageTracker.getToday());
@@ -1998,6 +2055,7 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpExpose?.stop();
+  mcpManager?.disconnectAll();
   actionGrabber?.stopPolling();
   embedder?.cleanup();
   dripManager?.cleanup();

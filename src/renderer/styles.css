@@ -3157,13 +3157,14 @@ select.settings-input {
   border: 2px solid var(--border-2);
   border-radius: 12px;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
 }
-.theme-option:hover { border-color: var(--border-3); color: var(--text); }
+.theme-option:hover { border-color: var(--border-3); color: var(--text); background: var(--hover); }
 .theme-option.active { border-color: var(--accent); color: var(--accent); }
+.theme-option.active:hover { border-color: var(--accent); color: var(--accent); background: var(--hover); }
 
 .theme-preview {
   width: 100px;
