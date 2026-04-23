@@ -6,7 +6,7 @@
  */
 
 import "dotenv/config";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeTheme, shell, systemPreferences } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -275,7 +275,17 @@ async function boot() {
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   yoInterceptor.setModeColor("#25C75E");
-  yoInterceptor.setTheme(getPreference<string>("theme", "dark"));
+  const initialTheme = getPreference<string>("theme", "dark");
+  nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
+  const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
+  yoInterceptor.setTheme(resolvedTheme);
+
+  nativeTheme.on("updated", () => {
+    if (getPreference<string>("theme", "dark") !== "system") return;
+    const resolved = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+    yoInterceptor.setTheme(resolved);
+    mainWindow?.webContents.send("theme-changed", resolved);
+  });
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -868,6 +878,16 @@ async function boot() {
       sendTabState();
     },
     () => [...openTabs],
+    (url: string) => {
+      tabBrowserCounter++;
+      const id = `browse-${tabBrowserCounter}`;
+      panelManager.addPanel(id, browserHtmlUrl(url), undefined, undefined, true);
+      if (mainWindow) panelManager.switchTo(id, mainWindow);
+      ensureTab(id);
+      sendSplitState();
+      sendTabState();
+      return id;
+    },
   );
 
   // Initialize auth — restore session, schedule refresh, start heartbeat
@@ -1089,7 +1109,8 @@ async function boot() {
   ipcMain.on("cmd-palette-open", () => {
     const wc = panelManager.activeWebContents;
     if (wc && !wc.isDestroyed()) {
-      wc.executeJavaScript("if(typeof togglePop==='function')togglePop()").catch(() => {});
+      wc.focus();
+      wc.executeJavaScript("if(window.__yoTogglePop)window.__yoTogglePop()").catch(() => {});
     }
   });
 
@@ -1412,7 +1433,12 @@ async function boot() {
 
   // IPC: theme
   ipcMain.handle("get-theme", () => getPreference<string>("theme", "dark"));
-  ipcMain.handle("set-theme", (_e, theme: string) => { setPreference("theme", theme); yoInterceptor.setTheme(theme); });
+  ipcMain.handle("set-theme", (_e, theme: string) => {
+    setPreference("theme", theme);
+    nativeTheme.themeSource = theme === "system" ? "system" : theme as "light" | "dark";
+    const resolved = theme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : theme;
+    yoInterceptor.setTheme(resolved);
+  });
 
   // IPC: app command mapping (DOM picker)
   ipcMain.handle("apps-set-command", (_e, id: string, key: string, mapping: { selector: string; action: string; description: string }) => {
@@ -1867,7 +1893,7 @@ async function boot() {
       apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding: currentNeedsOnboarding,
       hideWelcome,
-      theme: getPreference<string>("theme", "dark"),
+      theme: (() => { const t = getPreference<string>("theme", "dark"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
     });
     if (!currentNeedsOnboarding && !panelsReady) {
       restorePanels();

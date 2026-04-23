@@ -344,7 +344,7 @@ export function initHelp() {
   // User menu (bottom of help nav)
   document.getElementById("user-menu-platform")!.addEventListener("click", () => {
     closeHelp();
-    window.yo.openExternal(window.yo.platformUrl);
+    window.yo.execCommand(`dip ${window.yo.platformUrl}`);
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
     await window.yo.logout();
@@ -2012,7 +2012,10 @@ function initSettings() {
       const btn = (e.target as HTMLElement).closest(".theme-option") as HTMLElement | null;
       if (!btn) return;
       const theme = btn.getAttribute("data-theme")!;
-      document.documentElement.setAttribute("data-theme", theme);
+      const resolved = theme === "system"
+        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+        : theme;
+      document.documentElement.setAttribute("data-theme", resolved);
       window.yo.setTheme(theme);
       themePicker.querySelectorAll(".theme-option").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");

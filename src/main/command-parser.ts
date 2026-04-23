@@ -34,6 +34,7 @@ export class CommandParser {
   private wcGetter: ((panelId: string) => WebContents | null) | null = null;
   private tabCloser: ((id: string) => void) | null = null;
   private tabLister: (() => string[]) | null = null;
+  private tabCreator: ((url: string) => string) | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -82,9 +83,10 @@ export class CommandParser {
   }
 
   /** Set tab management callbacks for .dip close. */
-  setTabManager(closer: (id: string) => void, lister: () => string[]): void {
+  setTabManager(closer: (id: string) => void, lister: () => string[], creator?: (url: string) => string): void {
     this.tabCloser = closer;
     this.tabLister = lister;
+    if (creator) this.tabCreator = creator;
   }
 
   /** Split input at dot-prefixed command keyword boundaries for chaining.
@@ -405,26 +407,16 @@ export class CommandParser {
       return `Layout: ${sub}`;
     }
 
-    // dip <url> — navigate the active panel to a URL
+    // dip <url> — open URL in a new browser tab
     const rawUrl = args[0];
     if (/^https?:\/\//i.test(rawUrl) || /^localhost(:\d+)?(\/|$)/i.test(rawUrl) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(rawUrl)) {
       let target = rawUrl;
       if (!/^https?:\/\//i.test(target)) target = "http://" + target;
-      const activeId = this.panels.activePanelId;
-      const wc = this.panels.activeWebContents;
-      if (!wc || wc.isDestroyed()) return "No active panel to navigate";
-      const isBrowser = activeId === "browser" || activeId?.startsWith("browse-");
-      if (isBrowser) {
-        wc.executeJavaScript(`(function(){
-          const wv = document.querySelector("webview");
-          if (wv) { wv.loadURL(${JSON.stringify(target)}); }
-          const bar = document.getElementById("url");
-          if (bar) bar.value = ${JSON.stringify(target)};
-        })()`).catch(() => {});
-      } else {
-        wc.loadURL(target).catch(() => {});
+      if (this.tabCreator) {
+        const tabId = this.tabCreator(target);
+        return `Opened ${target} in new tab (${tabId})`;
       }
-      return `Navigating to ${target}`;
+      return "Tab manager not available";
     }
 
     // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands

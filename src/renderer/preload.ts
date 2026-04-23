@@ -135,6 +135,9 @@ contextBridge.exposeInMainWorld("yo", {
   onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
+  onThemeChanged: (callback: (theme: string) => void) => {
+    ipcRenderer.on("theme-changed", (_event, theme) => callback(theme));
+  },
   onSplashStatus: (callback: (msg: string) => void) => {
     ipcRenderer.on("splash-status", (_event, msg) => callback(msg));
   },

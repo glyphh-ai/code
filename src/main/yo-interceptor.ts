@@ -604,6 +604,7 @@ function fireCmd(cmd,args){
   console.log('${PREFIX}'+JSON.stringify({type:cmd,instruction:instruction,_nonce:_n}));
 }
 
+window.__yoTogglePop=togglePop;
 function togglePop(){
   createPop();
   if(pop.style.display!=='none'){closePop();return;}

@@ -73,6 +73,7 @@ declare global {
       validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       getApiKey: () => Promise<string | null>;
       onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => void;
+      onThemeChanged: (callback: (theme: string) => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
@@ -2150,6 +2151,10 @@ window.yo.onBoot((data) => {
       if (!seen) showTutorial();
     });
   }
+});
+
+window.yo.onThemeChanged((theme) => {
+  document.documentElement.setAttribute("data-theme", theme);
 });
 
 // After onboarding activation, show tutorial
