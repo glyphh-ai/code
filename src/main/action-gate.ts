@@ -24,8 +24,8 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   list_files:        "observe",
   run_command:       "observe",
   start_council:     "mutate",
-  delegate_navigate: "mutate",
-  delegate_layout:   "mutate",
+  delegate_navigate: "observe",
+  delegate_layout:   "observe",
 };
 
 export const TOOL_LABELS: Record<string, string> = {
