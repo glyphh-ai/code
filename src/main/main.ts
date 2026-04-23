@@ -275,6 +275,7 @@ async function boot() {
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   yoInterceptor.setModeColor("#25C75E");
+  yoInterceptor.setTheme(getPreference<string>("theme", "dark"));
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -1405,7 +1406,7 @@ async function boot() {
 
   // IPC: theme
   ipcMain.handle("get-theme", () => getPreference<string>("theme", "dark"));
-  ipcMain.handle("set-theme", (_e, theme: string) => { setPreference("theme", theme); });
+  ipcMain.handle("set-theme", (_e, theme: string) => { setPreference("theme", theme); yoInterceptor.setTheme(theme); });
 
   // IPC: app command mapping (DOM picker)
   ipcMain.handle("apps-set-command", (_e, id: string, key: string, mapping: { selector: string; action: string; description: string }) => {
