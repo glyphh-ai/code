@@ -911,6 +911,17 @@ const yoPanelMessages = document.getElementById("yo-panel-messages")!;
 const yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
 const yoPanelSendBtn = document.getElementById("yo-panel-send")!;
 const yoPanelMicBtn = document.getElementById("yo-panel-mic") as HTMLButtonElement | null;
+const yoScrollBtn = document.getElementById("yo-scroll-btn")!;
+
+// Scroll-to-bottom button — show when user scrolls up from bottom
+yoPanelMessages.addEventListener("scroll", () => {
+  const gap = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight;
+  yoScrollBtn.classList.toggle("visible", gap > 80);
+});
+yoScrollBtn.addEventListener("click", () => {
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+});
+
 // Hide mic button by default — shown when voiceEnabled pref is true
 if (yoPanelMicBtn) {
   yoPanelMicBtn.style.display = "none";
@@ -1208,6 +1219,7 @@ let yoTimelineEl: HTMLElement | null = null;    // shared timeline for result it
 
 function yoScroll() {
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+  yoScrollBtn.classList.remove("visible");
 }
 
 function startSpinner(el: HTMLElement) {
