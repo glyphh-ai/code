@@ -305,7 +305,7 @@ function createPop(){
   if(pop)return;
   pop=document.createElement('div');
   pop.id='__yo-cmd-pop';
-  pop.style.cssText='position:fixed;z-index:2147483647;display:none;top:50%;left:50%;transform:translate(-50%,-50%);width:760px;background:var(--yo-surface3);border:1px solid var(--yo-border2);border-radius:12px;padding:14px 14px 10px;box-shadow:0 12px 48px var(--yo-shadow);font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+  pop.style.cssText='position:fixed;z-index:2147483647;display:none;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:760px;box-sizing:border-box;background:var(--yo-surface3);border:1px solid var(--yo-border2);border-radius:12px;padding:14px 14px 10px;box-shadow:0 12px 48px var(--yo-shadow);font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
 
   // Row 1: textarea + close button (same row)
   var row1=document.createElement('div');
@@ -331,7 +331,12 @@ function createPop(){
   row1.appendChild(closeBtn);
   pop.appendChild(row1);
 
-  // Row 2: [command ▾] [modifier ▾] [context ▾] [inline prompt] ... [hint] [Go]
+  // Hint line: shows the assembled command preview below the textarea
+  hintEl=document.createElement('div');
+  hintEl.style.cssText='font-size:11px;color:var(--yo-text-muted);padding:4px 2px 0;min-height:18px;font-family:monospace;';
+  pop.appendChild(hintEl);
+
+  // Row 2: [command ▾] [modifier ▾] [context ▾] [inline prompt] ... [Go]
   var row2=document.createElement('div');
   row2.style.cssText='display:flex;align-items:center;gap:6px;margin-top:8px;';
 
@@ -363,10 +368,6 @@ function createPop(){
     if(e.key==='Escape'){e.preventDefault();closePop();}
   });
   row2.appendChild(inlineInp);
-
-  hintEl=document.createElement('span');
-  hintEl.style.cssText='font-size:10px;color:var(--yo-text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;flex-shrink:1;';
-  row2.appendChild(hintEl);
 
   goBtn=document.createElement('div');
   goBtn.style.cssText='padding:7px 18px;border-radius:6px;background:var(--yo-accent);color:#000;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.1s;flex-shrink:0;margin-left:auto;';
@@ -433,6 +434,7 @@ function updateHint(){
     h='.drip '+parts.join(' ');
   }
   else if(cmd==='waz') h='.waz';
+  if(!h) h='input commands above or use the builder below.';
   hintEl.textContent=h;
 }
 

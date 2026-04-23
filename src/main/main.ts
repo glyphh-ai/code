@@ -1085,9 +1085,9 @@ async function boot() {
   ipcMain.on("panels-hide", () => {
     if (mainWindow) panelManager.hideActive(mainWindow);
   });
+  let firstPanelReveal = true;
   ipcMain.on("panels-show", () => {
     if (!mainWindow || !panelsReady) return;
-    const wasHidden = panelManager.isHidden;
     panelManager.hidden = false;
     if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
@@ -1097,7 +1097,8 @@ async function boot() {
     sendSplitState();
     // After first reveal (post-splash), reload active panel
     // — sites like Gmail don't render CSS properly when loaded at zero size
-    if (wasHidden && panelManager.activePanelId) {
+    if (firstPanelReveal && panelManager.activePanelId) {
+      firstPanelReveal = false;
       const view = panelManager.getView(panelManager.activePanelId);
       if (view && !view.webContents.isDestroyed()) {
         view.webContents.reload();

@@ -289,11 +289,13 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
     const label = document.createElement("span");
     label.className = "tab-label";
     label.textContent = tab.name;
-    label.addEventListener("click", () => {
-      if (isHelpOpen()) { closeHelp(); return; }
+    el.appendChild(label);
+
+    // Clicking anywhere on the tab (icon, label, gap) switches to it
+    el.addEventListener("click", () => {
+      if (isHelpOpen()) closeHelp();
       window.yo.tabSwitch(tab.id);
     });
-    el.appendChild(label);
 
     // Close
     const close = document.createElement("button");
@@ -302,7 +304,7 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
     close.innerHTML = "&times;";
     close.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (isHelpOpen()) { closeHelp(); return; }
+      if (isHelpOpen()) closeHelp();
       window.yo.tabClose(tab.id);
     });
     el.appendChild(close);
@@ -314,7 +316,7 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
 }
 
 tabNewBtn.addEventListener("click", () => {
-  if (isHelpOpen()) { closeHelp(); return; }
+  if (isHelpOpen()) closeHelp();
   window.yo.tabNew();
 });
 
@@ -328,13 +330,15 @@ function updateEmptyState(tabs: TabInfo[]) {
   }
 }
 
+let lastActiveTabId = "";
 window.yo.onTabState((state: { tabs: TabInfo[]; activeId: string; visible: boolean }) => {
   renderTabs(state.tabs, state.activeId);
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
   updateEmptyState(state.tabs);
-  // Close help overlay whenever panels switch — help should never stay open over panels
-  if (isHelpOpen()) closeHelp();
+  // Close help only when the active panel actually changed
+  if (state.activeId !== lastActiveTabId && lastActiveTabId && isHelpOpen()) closeHelp();
+  lastActiveTabId = state.activeId;
 });
 
 // Load initial tab state

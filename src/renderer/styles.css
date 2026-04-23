@@ -3408,15 +3408,6 @@ select.settings-input {
 
 /* ── Support ────────────────────────────────────────────── */
 
-.help-section[data-section="support"] {
-  text-align: center;
-}
-
-.help-section[data-section="support"] h2,
-.help-section[data-section="support"] .section-desc {
-  text-align: left;
-}
-
 .support-discord-btn {
   display: inline-flex;
   align-items: center;
@@ -3442,7 +3433,7 @@ select.settings-input {
   align-items: center;
   gap: 12px;
   max-width: 480px;
-  margin: 24px auto 20px;
+  margin: 24px 0 20px;
   color: var(--text-muted);
   font-size: 12px;
   text-transform: uppercase;
@@ -3459,11 +3450,9 @@ select.settings-input {
 
 .support-form {
   max-width: 480px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  text-align: left;
 }
 
 .support-textarea {
