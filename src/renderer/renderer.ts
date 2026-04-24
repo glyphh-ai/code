@@ -274,6 +274,46 @@ document.getElementById("btn-maximize")!.addEventListener("click", () => window.
 
 document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
 
+// -- MCP indicator --
+
+const mcpIndicator = document.getElementById("mcp-indicator")!;
+
+async function updateMcpIndicator() {
+  try {
+    const status = await window.yo.mcpExposeStatus();
+    if (status.running) {
+      mcpIndicator.classList.remove("hidden", "stopped");
+      mcpIndicator.classList.add("running");
+      mcpIndicator.title = `MCP Server running on port ${status.port} — click to stop`;
+    } else {
+      // Check if it was enabled (show stopped state)
+      const enabled = await window.yo.getPreference("mcpExposeRunning", false);
+      if (enabled) {
+        mcpIndicator.classList.remove("hidden", "running");
+        mcpIndicator.classList.add("stopped");
+        mcpIndicator.title = "MCP Server stopped — click to start";
+      } else {
+        mcpIndicator.classList.add("hidden");
+      }
+    }
+  } catch {
+    mcpIndicator.classList.add("hidden");
+  }
+}
+
+mcpIndicator.addEventListener("click", async () => {
+  const status = await window.yo.mcpExposeStatus();
+  if (status.running) {
+    await window.yo.mcpExposeStop();
+  } else {
+    await window.yo.mcpExposeStart();
+  }
+  await updateMcpIndicator();
+});
+
+// Poll MCP status periodically and on boot
+updateMcpIndicator();
+setInterval(updateMcpIndicator, 10000);
 
 // -- Tab bar --
 
