@@ -518,7 +518,8 @@ async function boot() {
   vscodeServer = new VSCodeServer();
   for (const app of appConnector.list()) {
     if (app.url === "yo://home") {
-      panelManager.addPanel(app.id, homeHtml);
+      const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
+      panelManager.addPanel(app.id, homeHtml, homePreload);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://monaco") {
