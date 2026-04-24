@@ -34,6 +34,42 @@ function clearInvalid(el: HTMLElement) {
   el.addEventListener("input", () => el.classList.remove("invalid"), { once: true });
 }
 
+/** Simple prompt modal (Electron BrowserViews don't support window.prompt). */
+function promptAction(message: string, defaultValue = "", placeholder = ""): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("skill-ask-user-modal");
+    const qEl = document.getElementById("skill-ask-user-question");
+    const ansEl = document.getElementById("skill-ask-user-answer") as HTMLTextAreaElement | null;
+    const submitBtn = document.getElementById("skill-ask-user-submit");
+    const cancelBtn = document.getElementById("skill-ask-user-cancel");
+    if (!overlay || !qEl || !ansEl || !submitBtn || !cancelBtn) {
+      resolve(null);
+      return;
+    }
+    qEl.textContent = message;
+    ansEl.value = defaultValue;
+    ansEl.placeholder = placeholder;
+    overlay.classList.remove("hidden");
+    ansEl.focus();
+
+    function cleanup() {
+      overlay!.classList.add("hidden");
+      submitBtn!.removeEventListener("click", onSubmit);
+      cancelBtn!.removeEventListener("click", onCancel);
+      ansEl!.removeEventListener("keydown", onKey);
+    }
+    function onSubmit() { const v = ansEl!.value; cleanup(); resolve(v); }
+    function onCancel() { cleanup(); resolve(null); }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+    }
+    submitBtn.addEventListener("click", onSubmit);
+    cancelBtn.addEventListener("click", onCancel);
+    ansEl.addEventListener("keydown", onKey);
+  });
+}
+
 // ── Pagination utility ──────────────────────────────────────
 const PAGE_SIZE = 50;
 
@@ -3516,13 +3552,11 @@ async function openSkillFile(relPath: string) {
   editingSelectedFile = relPath;
   renderSkillFileTree();
 
-  const frontmatterForm = document.getElementById("skill-frontmatter-form")!;
   const container = document.getElementById("skill-monaco-container")!;
   const generateBtn = document.getElementById("skill-generate")!;
   const status = document.getElementById("skill-editor-status")!;
 
-  // Show frontmatter form only for SKILL.md
-  frontmatterForm.classList.toggle("hidden", relPath !== "SKILL.md");
+  // Generate button only relevant for SKILL.md
   generateBtn.classList.toggle("hidden", relPath !== "SKILL.md");
   status.textContent = relPath;
 
@@ -3643,7 +3677,7 @@ async function generateSkillPrompt() {
 // ── New file / Run / Export / Import ──────────────────────
 
 async function addSkillFile() {
-  const name = prompt("File name (e.g. template.md):");
+  const name = await promptAction("File name", "", "e.g. template.md");
   if (!name) return;
   const trimmed = name.trim();
   if (!trimmed || trimmed === "SKILL.md" || trimmed === "SKILL.js") return;
@@ -3665,7 +3699,7 @@ async function runSkillFromEditor() {
   runBtn.disabled = true;
   runBtn.textContent = "Running...";
   try {
-    const input = window.prompt("Input for this run (leave blank for none):") ?? "";
+    const input = (await promptAction("Input for this run (leave blank for none):", "", "e.g. summarize this conversation")) ?? "";
     const result = await window.yo.skillsRun(editingSkillName, input);
     if (!result.ok) {
       skillFormError.textContent = `Run error: ${result.error}`;
