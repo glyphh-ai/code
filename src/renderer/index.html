@@ -1484,14 +1484,20 @@
                       <span class="toggle-desc">Automatically download and install updates</span>
                     </div>
                   </label>
-                  <label class="settings-toggle">
-                    <input type="checkbox" id="toggle-mcp-expose" />
-                    <span class="toggle-switch"></span>
-                    <div class="toggle-info">
-                      <span class="toggle-title">MCP Server</span>
-                      <span class="toggle-desc">Expose capture store to external LLM tools (Claude Desktop, Cursor, etc.)</span>
-                    </div>
-                  </label>
+                  <div id="mcp-section-wrap">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="toggle-mcp-expose" />
+                      <span class="toggle-switch"></span>
+                      <div class="toggle-info">
+                        <span class="toggle-title">MCP Server</span>
+                        <span class="toggle-desc">Expose capture store to external LLM tools (Claude Desktop, Cursor, etc.)</span>
+                      </div>
+                    </label>
+                  </div>
+                  <div id="mcp-pro-gate" class="hidden" style="padding:12px 0;">
+                    <p style="color:var(--text-2);font-size:13px;margin:0 0 8px;">MCP servers require an Advanced subscription.</p>
+                    <button id="mcp-upgrade-btn" class="action-btn primary" style="font-size:12px;">Upgrade to Advanced</button>
+                  </div>
                   <div id="mcp-expose-settings" class="hidden" style="margin: 8px 0 16px 44px;">
                     <div id="mcp-expose-status" style="font-size:12px;color:var(--text-2);margin-bottom:8px;"></div>
                     <label class="settings-label" style="color:var(--text-2);">Port</label>

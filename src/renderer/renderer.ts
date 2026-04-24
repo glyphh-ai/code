@@ -167,6 +167,7 @@ declare global {
       setTheme: (theme: string) => Promise<void>;
       // Account info
       getAuthStatus: () => Promise<{ authenticated: boolean; status: string; tier?: string }>;
+      refreshAuth: () => Promise<{ tier: string; status: string }>;
       openExternal: (url: string) => void;
       platformUrl: string;
       openAccountDashboard: () => void;

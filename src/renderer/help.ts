@@ -1499,6 +1499,26 @@ async function loadApps() {
   appDetail.classList.add("hidden");
   appAddForm.classList.add("hidden");
   mcpAddForm.classList.add("hidden");
+
+  const proGate = document.getElementById("apps-pro-gate")!;
+
+  // Gate: app connections require Advanced tier
+  try {
+    const auth = await window.yo.getAuthStatus();
+    if (auth.tier !== "advanced") {
+      proGate.classList.remove("hidden");
+      appsList.classList.add("hidden");
+      appsToolbar.classList.add("hidden");
+      // Wire upgrade button
+      const upgradeBtn = document.getElementById("apps-upgrade-btn");
+      if (upgradeBtn) {
+        upgradeBtn.onclick = () => window.yo.openExternal(window.yo.platformUrl);
+      }
+      return;
+    }
+  } catch { /* fall through to normal load */ }
+
+  proGate.classList.add("hidden");
   appsList.classList.remove("hidden");
   appsToolbar.classList.remove("hidden");
 
@@ -3009,14 +3029,28 @@ async function loadSettings() {
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
 
-  // MCP Expose
-  const mcpEnabled = await window.yo.getPreference("mcpExposeEnabled", false) as boolean;
-  toggleMcpExpose.checked = mcpEnabled;
-  mcpExposeSettings.classList.toggle("hidden", !mcpEnabled);
-  mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
-  if (mcpEnabled) {
-    await refreshMcpExposeStatus();
-    await renderMcpTokens();
+  // MCP Expose — gate behind Advanced tier
+  const mcpSectionWrap = document.getElementById("mcp-section-wrap")!;
+  const mcpProGate = document.getElementById("mcp-pro-gate")!;
+  if (authStatus.tier !== "advanced") {
+    mcpSectionWrap.classList.add("hidden");
+    mcpExposeSettings.classList.add("hidden");
+    mcpProGate.classList.remove("hidden");
+    const mcpUpgradeBtn = document.getElementById("mcp-upgrade-btn");
+    if (mcpUpgradeBtn) {
+      mcpUpgradeBtn.onclick = () => window.yo.openExternal(window.yo.platformUrl);
+    }
+  } else {
+    mcpSectionWrap.classList.remove("hidden");
+    mcpProGate.classList.add("hidden");
+    const mcpEnabled = await window.yo.getPreference("mcpExposeEnabled", false) as boolean;
+    toggleMcpExpose.checked = mcpEnabled;
+    mcpExposeSettings.classList.toggle("hidden", !mcpEnabled);
+    mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
+    if (mcpEnabled) {
+      await refreshMcpExposeStatus();
+      await renderMcpTokens();
+    }
   }
 
   // Agent mode

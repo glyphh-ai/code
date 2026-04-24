@@ -197,6 +197,11 @@ async function createWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  // Refresh auth/tier when window regains focus (e.g. returning from billing portal)
+  mainWindow.on("focus", () => {
+    refreshHeartbeat().catch(() => {});
+  });
 }
 
 async function boot() {
@@ -1912,6 +1917,10 @@ async function boot() {
   ipcMain.handle("is-authenticated", () => isAuthenticated());
   ipcMain.handle("get-account-info", () => getAccountInfo());
   ipcMain.handle("get-auth-status", () => getAuthStatus());
+  ipcMain.handle("refresh-auth", async () => {
+    const hb = await refreshHeartbeat();
+    return { tier: hb?.tier || "free", status: hb?.status || "unknown" };
+  });
   ipcMain.handle("logout", () => { logout(); });
   ipcMain.handle("validate-api-key", async (_e, key: string) => {
     // Legacy handler — validates as Anthropic by default
