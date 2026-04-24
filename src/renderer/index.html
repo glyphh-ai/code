@@ -132,6 +132,7 @@
             <button class="help-nav-sub-item" data-section="settings" data-sub="agent">Agent</button>
             <button class="help-nav-sub-item" data-section="settings" data-sub="appearance">Appearance</button>
             <button class="help-nav-sub-item" data-section="settings" data-sub="account">Account</button>
+            <button class="help-nav-sub-item" data-section="settings" data-sub="mcp">MCP Server</button>
             <button class="help-nav-sub-item" data-section="settings" data-sub="advanced">Advanced</button>
           </div>
         </div>
@@ -1285,6 +1286,7 @@
               <button class="settings-nav-item" data-sub="agent">Agent</button>
               <button class="settings-nav-item" data-sub="appearance">Appearance</button>
               <button class="settings-nav-item" data-sub="account">Account</button>
+              <button class="settings-nav-item" data-sub="mcp">MCP Server</button>
               <button class="settings-nav-item" data-sub="advanced">Advanced</button>
             </nav>
             <div class="settings-panels">
@@ -1454,6 +1456,83 @@
               </div>
 
               <!-- Advanced: Services, Voice, Relaunch -->
+              <!-- MCP Server -->
+              <div class="settings-panel" data-sub="mcp">
+                <h2>MCP Server</h2>
+                <p class="section-desc">Expose your capture store to external LLM tools like Claude Desktop, Cursor, and Windsurf.</p>
+
+                <div id="mcp-pro-gate" class="hidden" style="padding:16px 0;">
+                  <p style="color:var(--text-2);font-size:13px;margin:0 0 10px;">MCP Server requires an Advanced subscription.</p>
+                  <button id="mcp-upgrade-btn" class="action-btn primary" style="font-size:12px;">Upgrade to Advanced</button>
+                </div>
+
+                <div id="mcp-section-wrap" class="settings-form">
+
+                  <!-- Enable toggle + status -->
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                    <label class="settings-toggle" style="flex:1;margin:0;padding:0;">
+                      <input type="checkbox" id="toggle-mcp-expose" />
+                      <span class="toggle-switch"></span>
+                      <div class="toggle-info">
+                        <span class="toggle-title">Enable MCP Server</span>
+                      </div>
+                    </label>
+                    <span id="mcp-expose-status" style="font-size:12px;color:var(--text-2);"></span>
+                  </div>
+
+                  <div id="mcp-expose-settings" class="hidden">
+
+                    <!-- Connection -->
+                    <div style="margin-bottom:20px;">
+                      <h3 class="settings-subheading" style="margin:0 0 10px;">Connection</h3>
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                        <label class="settings-label" style="margin:0;min-width:36px;">Port</label>
+                        <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" style="width:90px;" />
+                        <button id="mcp-expose-port-save" class="action-btn primary" style="font-size:12px;">Save &amp; Restart</button>
+                      </div>
+                      <label class="settings-label">Available Tools</label>
+                      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+                        <span class="mcp-tool-badge">sup</span>
+                        <span style="font-size:11px;color:var(--text-2);line-height:22px;">Push context into your capture store</span>
+                      </div>
+                      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <span class="mcp-tool-badge">yo</span>
+                        <span style="font-size:11px;color:var(--text-2);line-height:22px;">Search your capture store</span>
+                      </div>
+                    </div>
+
+                    <!-- Access Tokens -->
+                    <div style="margin-bottom:20px;">
+                      <h3 class="settings-subheading" style="margin:0 0 6px;">Access Tokens</h3>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 10px;">Generate a token for each external tool. Tokens are shown once — copy immediately.</p>
+                      <div id="mcp-expose-new-token" class="hidden" style="background:var(--surface-2);border:1px solid var(--accent);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+                        <p style="font-size:11px;color:var(--accent);margin:0 0 6px;font-weight:600;">Token created — copy it now, it won't be shown again</p>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                          <code id="mcp-expose-new-token-value" style="flex:1;background:var(--bg);padding:5px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
+                          <button id="mcp-expose-copy-token" class="action-btn primary" style="font-size:11px;padding:4px 12px;white-space:nowrap;">Copy</button>
+                        </div>
+                      </div>
+                      <div id="mcp-expose-tokens" style="margin-bottom:10px;"></div>
+                      <div style="display:flex;gap:6px;align-items:center;">
+                        <input id="mcp-expose-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude Desktop, Cursor)" style="flex:1;font-size:12px;padding:5px 8px;" />
+                        <button id="mcp-expose-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
+                      </div>
+                    </div>
+
+                    <!-- Example Config -->
+                    <div>
+                      <h3 class="settings-subheading" style="margin:0 0 6px;">Example Config</h3>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 8px;">Add this to your Claude Desktop, Cursor, or Windsurf MCP config. Replace <code style="color:var(--accent);">&lt;your-token&gt;</code> with a generated token above.</p>
+                      <div style="position:relative;">
+                        <pre id="mcp-expose-config-example" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
+                        <button id="mcp-expose-copy-config" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
               <div class="settings-panel" data-sub="advanced">
                 <h2>Advanced</h2>
                 <p class="section-desc">Optional services and system settings.</p>
@@ -1499,70 +1578,6 @@
                       <span class="toggle-desc">Automatically download and install updates</span>
                     </div>
                   </label>
-                  <div id="mcp-section-wrap">
-                    <label class="settings-toggle">
-                      <input type="checkbox" id="toggle-mcp-expose" />
-                      <span class="toggle-switch"></span>
-                      <div class="toggle-info">
-                        <span class="toggle-title">MCP Server</span>
-                        <span class="toggle-desc">Expose capture store to external LLM tools (Claude Desktop, Cursor, etc.)</span>
-                      </div>
-                    </label>
-                  </div>
-                  <div id="mcp-pro-gate" class="hidden" style="padding:12px 0;">
-                    <p style="color:var(--text-2);font-size:13px;margin:0 0 8px;">MCP servers require an Advanced subscription.</p>
-                    <button id="mcp-upgrade-btn" class="action-btn primary" style="font-size:12px;">Upgrade to Advanced</button>
-                  </div>
-                  <div id="mcp-expose-settings" class="hidden" style="margin:12px 0 16px 0;">
-
-                    <!-- Connection info -->
-                    <div style="margin-bottom:16px;">
-                      <label class="settings-label">Status</label>
-                      <div id="mcp-expose-status" style="font-size:12px;color:var(--text-2);margin-bottom:8px;"></div>
-                      <label class="settings-label">Port</label>
-                      <div class="settings-inline" style="margin-bottom:12px;">
-                        <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" />
-                        <button id="mcp-expose-port-save" class="action-btn primary">Save &amp; Restart</button>
-                      </div>
-                      <label class="settings-label">Tools</label>
-                      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
-                        <span class="mcp-tool-badge">sup</span>
-                        <span style="font-size:11px;color:var(--text-2);line-height:22px;">Push context into your capture store</span>
-                      </div>
-                      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                        <span class="mcp-tool-badge">yo</span>
-                        <span style="font-size:11px;color:var(--text-2);line-height:22px;">Search your capture store</span>
-                      </div>
-                    </div>
-
-                    <!-- Example config -->
-                    <div style="margin-bottom:16px;">
-                      <label class="settings-label">Example config (Claude Desktop)</label>
-                      <div style="position:relative;">
-                        <pre id="mcp-expose-config-example" style="background:var(--surface-2);padding:10px 12px;border-radius:6px;font-size:11px;line-height:1.5;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
-                        <button id="mcp-expose-copy-config" class="action-btn" style="position:absolute;top:6px;right:6px;font-size:10px;padding:2px 8px;">Copy</button>
-                      </div>
-                    </div>
-
-                    <!-- Token management -->
-                    <div>
-                      <label class="settings-label">Access Tokens</label>
-                      <p style="font-size:11px;color:var(--text-3);margin:0 0 8px;">Generate a token for each external tool. Tokens are shown once — copy immediately.</p>
-                      <div id="mcp-expose-new-token" class="hidden" style="background:var(--surface-2);border:1px solid var(--accent);border-radius:6px;padding:8px 10px;margin-bottom:8px;">
-                        <p style="font-size:11px;color:var(--accent);margin:0 0 6px;font-weight:600;">Token created — copy it now, it won't be shown again</p>
-                        <div style="display:flex;gap:6px;align-items:center;">
-                          <code id="mcp-expose-new-token-value" style="flex:1;background:var(--bg);padding:4px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
-                          <button id="mcp-expose-copy-token" class="action-btn primary" style="font-size:11px;padding:3px 10px;white-space:nowrap;">Copy</button>
-                        </div>
-                      </div>
-                      <div id="mcp-expose-tokens" style="margin-bottom:8px;"></div>
-                      <div style="display:flex;gap:6px;align-items:center;">
-                        <input id="mcp-expose-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude Desktop, Cursor)" style="flex:1;font-size:12px;padding:4px 8px;" />
-                        <button id="mcp-expose-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
-                      </div>
-                    </div>
-
-                  </div>
                 </div>
                 <div id="settings-relaunch" class="settings-relaunch hidden">
                   <span>Restart required for changes to take effect</span>

@@ -257,9 +257,16 @@ async function boot() {
   // MCP expose — read-only server for external LLM tools (Advanced tier)
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
-  if (getPreference<boolean>("mcpExposeEnabled", false) && canUseMcp().allowed) {
+  const mcpWasRunning = getPreference<boolean>("mcpExposeRunning", false);
+  const mcpEnabled = getPreference<boolean>("mcpExposeEnabled", false);
+  if ((mcpEnabled || mcpWasRunning) && canUseMcp().allowed) {
     mcpExpose.start().then((r) => {
-      if (!r.ok) console.error("[mcp-expose] failed to start:", r.error);
+      if (r.ok) {
+        setPreference("mcpExposeEnabled", true);
+        setPreference("mcpExposeRunning", true);
+      } else {
+        console.error("[mcp-expose] failed to start:", r.error);
+      }
     });
   }
 
@@ -1958,8 +1965,15 @@ async function boot() {
   });
 
   // ── MCP Expose IPC handlers ────────────────────────────
-  ipcMain.handle("mcp-expose-start", () => mcpExpose!.start());
-  ipcMain.handle("mcp-expose-stop", () => { mcpExpose!.stop(); });
+  ipcMain.handle("mcp-expose-start", async () => {
+    const result = await mcpExpose!.start();
+    if (result.ok) setPreference("mcpExposeRunning", true);
+    return result;
+  });
+  ipcMain.handle("mcp-expose-stop", () => {
+    mcpExpose!.stop();
+    setPreference("mcpExposeRunning", false);
+  });
   ipcMain.handle("mcp-expose-status", () => ({
     running: mcpExpose!.isRunning,
     port: mcpExpose!.getPort(),
