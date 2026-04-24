@@ -9,13 +9,15 @@
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background: var(--bg); }
     #home-root { position: absolute; inset: 0; overflow: hidden; }
-    /* Make the help layout fill the full window since there's no overlay wrapper */
+    /* Force overlay to fill the page and override any .hidden from help.ts */
+    #help-overlay { position: absolute !important; inset: 0 !important; display: block !important; background: var(--bg); }
     #help-layout { position: absolute; inset: 0; }
   </style>
   <script src="monaco/loader.js"></script>
 </head>
 <body>
   <div id="home-root">
+    <div id="help-overlay">
     <div id="help-layout">
       <nav id="help-nav">
         <div class="help-brand"><span class="dot">.</span>Yo</div>
@@ -1612,6 +1614,7 @@
         </div>
 
       </main>
+    </div>
     </div>
   </div>
   <script src="chart.umd.min.js"></script>
