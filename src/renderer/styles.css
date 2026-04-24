@@ -5263,6 +5263,16 @@ select.settings-input {
   background: rgba(255, 68, 68, 0.15);
   color: var(--danger);
 }
+.mcp-tool-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: rgba(37, 199, 94, 0.12);
+  color: var(--accent);
+}
 
 .mcp-server-row {
   display: flex;

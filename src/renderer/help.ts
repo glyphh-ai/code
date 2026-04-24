@@ -2780,12 +2780,27 @@ let settingsPresets: Record<string, { name: string; models: string[]; defaultMod
 
 async function refreshMcpExposeStatus() {
   const status = await window.yo.mcpExposeStatus();
+  const port = status.port || parseInt(mcpExposePort.value, 10) || 7860;
   if (status.running) {
-    mcpExposeStatus.textContent = `Running on http://127.0.0.1:${status.port}`;
+    mcpExposeStatus.textContent = `Running on http://127.0.0.1:${port}`;
     mcpExposeStatus.style.color = "var(--accent)";
   } else {
     mcpExposeStatus.textContent = "Stopped";
     mcpExposeStatus.style.color = "var(--text-2)";
+  }
+  // Update example config
+  const configEl = document.getElementById("mcp-expose-config-example");
+  if (configEl) {
+    configEl.textContent = `{
+  "mcpServers": {
+    "yo": {
+      "url": "http://127.0.0.1:${port}/sse",
+      "headers": {
+        "Authorization": "Bearer <your-token>"
+      }
+    }
+  }
+}`;
   }
 }
 
@@ -2929,9 +2944,32 @@ function initSettings() {
   document.getElementById("mcp-expose-gen-token")!.addEventListener("click", async () => {
     const labelInput = document.getElementById("mcp-expose-token-label") as HTMLInputElement;
     const label = labelInput.value.trim() || "default";
-    await window.yo.mcpExposeGenToken(label);
+    const result = await window.yo.mcpExposeGenToken(label);
     labelInput.value = "";
+    // Show the new token in the highlighted box
+    const newTokenBox = document.getElementById("mcp-expose-new-token")!;
+    const newTokenValue = document.getElementById("mcp-expose-new-token-value")!;
+    newTokenValue.textContent = result.token;
+    newTokenBox.classList.remove("hidden");
     await renderMcpTokens();
+  });
+
+  // Copy new token
+  document.getElementById("mcp-expose-copy-token")!.addEventListener("click", () => {
+    const val = document.getElementById("mcp-expose-new-token-value")!.textContent || "";
+    navigator.clipboard.writeText(val);
+    const btn = document.getElementById("mcp-expose-copy-token") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+
+  // Copy config example
+  document.getElementById("mcp-expose-copy-config")!.addEventListener("click", () => {
+    const val = document.getElementById("mcp-expose-config-example")!.textContent || "";
+    navigator.clipboard.writeText(val);
+    const btn = document.getElementById("mcp-expose-copy-config") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
 
   settingsContextWindow.addEventListener("change", () => {
@@ -3118,6 +3156,7 @@ async function loadSettings() {
   } else {
     mcpSectionWrap.classList.remove("hidden");
     mcpProGate.classList.add("hidden");
+    document.getElementById("mcp-expose-new-token")?.classList.add("hidden");
     const mcpEnabled = await window.yo.getPreference("mcpExposeEnabled", false) as boolean;
     toggleMcpExpose.checked = mcpEnabled;
     mcpExposeSettings.classList.toggle("hidden", !mcpEnabled);
