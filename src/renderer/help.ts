@@ -322,7 +322,7 @@ function activeSection(): string {
   return (document.querySelector(".help-nav-item.active") as HTMLElement)?.dataset.section || "guide";
 }
 
-function loadActiveSection() {
+export function loadActiveSection() {
   const sec = activeSection();
   if (sec === "dashboard") loadDashboard();
   else if (sec === "skills") loadSkills();

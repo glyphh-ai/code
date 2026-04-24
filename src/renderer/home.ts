@@ -5,10 +5,12 @@
  * Hosts all sections that used to live in the help overlay.
  */
 
-import { initHelp, openHelp } from "./help.js";
+import { initHelp, loadActiveSection } from "./help.js";
 
-// help.ts runs its top-level DOM queries when imported, so by the time
-// we get here all its const refs (including #help-overlay) are bound.
-// We just need to initialize event listeners and show the content.
+// Wire up all the section handlers. Skip openHelp() because it calls
+// panelsHide() which would hide the home panel itself.
 initHelp();
-openHelp();
+// Load the initial section's data (Dashboard charts, etc).
+loadActiveSection();
+// Refresh auth so tier gates reflect current plan.
+window.yo.refreshAuth().catch(() => {});
