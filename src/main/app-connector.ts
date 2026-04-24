@@ -185,6 +185,7 @@ const VSCODE_GRAB_SCRIPT = `
 
 // Internal apps — these use yo:// protocol
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
+  { id: "home", name: "Home", url: "yo://home" },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },

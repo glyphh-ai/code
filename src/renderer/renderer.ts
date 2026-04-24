@@ -6,7 +6,7 @@
  * manages window chrome and session state display.
  */
 
-import { initHelp, openHelp, openSettings, closeHelp, isHelpOpen } from "./help.js";
+// Help overlay moved to yo://home app
 import { showOnboarding } from "./onboarding.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[] };
@@ -27,10 +27,28 @@ declare global {
       panelsGetZoom: () => Promise<number>;
       // Skills
       skillsList: () => Promise<string[]>;
+      skillsListDetailed: () => Promise<Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }>>;
       skillsRead: (name: string) => Promise<string | null>;
-      skillsWrite: (name: string, prompt: string) => Promise<boolean>;
+      skillsGet: (name: string) => Promise<{ name: string; manifest: any; prompt: string; hasRunner: boolean; runnerCode: string | null } | null>;
+      skillsWrite: (name: string, prompt: string) => Promise<boolean | { error: string }>;
+      skillsWriteFull: (name: string, manifest: any, prompt: string, runnerCode?: string | null) => Promise<boolean | { error: string }>;
       skillsRemove: (name: string) => Promise<boolean>;
       skillsGenerate: (name: string, description: string) => Promise<string>;
+      skillsListFiles: (name: string) => Promise<string[]>;
+      skillsReadFile: (name: string, rel: string) => Promise<string | null>;
+      skillsWriteFile: (name: string, rel: string, content: string) => Promise<boolean>;
+      skillsDeleteFile: (name: string, rel: string) => Promise<boolean>;
+      skillsRun: (name: string, input: unknown) => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
+      skillsCancel: (runId: string) => Promise<boolean>;
+      skillsUserResponse: (qid: string, answer: string) => Promise<boolean>;
+      skillsRunHistory: (name: string) => Promise<any[]>;
+      skillsExport: (name: string) => Promise<string | null>;
+      skillsImport: (base64: string, overwrite?: boolean) => Promise<{ imported: string[]; skipped: string[]; error?: string }>;
+      skillsScheduleStatus: () => Promise<Array<{ name: string; schedule: string; paused: boolean }>>;
+      skillsPauseSchedule: (name: string) => Promise<void>;
+      skillsResumeSchedule: (name: string) => Promise<void>;
+      onSkillProgress: (cb: (data: { runId: string; event: any }) => void) => void;
+      onSkillAskUser: (cb: (data: { runId: string; qid: string; question: string }) => void) => void;
       // Apps
       appsList: () => Promise<Array<{
         id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;
@@ -270,9 +288,11 @@ document.getElementById("btn-close")!.addEventListener("click", () => window.yo.
 document.getElementById("btn-minimize")!.addEventListener("click", () => window.yo.windowMinimize());
 document.getElementById("btn-maximize")!.addEventListener("click", () => window.yo.windowMaximize());
 
-// -- Titlebar label -> open help --
+// -- Titlebar label -> open home tab --
 
-document.getElementById("titlebar-label")!.addEventListener("click", () => openHelp());
+document.getElementById("titlebar-label")!.addEventListener("click", () => {
+  window.yo.tabNewApp("home");
+});
 
 // -- MCP indicator --
 
@@ -361,7 +381,6 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
 
     // Clicking anywhere on the tab (icon, label, gap) switches to it
     el.addEventListener("click", () => {
-      if (isHelpOpen()) closeHelp();
       window.yo.tabSwitch(tab.id);
     });
 
@@ -372,7 +391,6 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
     close.innerHTML = "&times;";
     close.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (isHelpOpen()) closeHelp();
       window.yo.tabClose(tab.id);
     });
     el.appendChild(close);
@@ -395,7 +413,6 @@ function closeTabNewMenu() {
 
 tabNewBtn.addEventListener("click", async (e) => {
   e.stopPropagation();
-  if (isHelpOpen()) closeHelp();
 
   if (tabNewMenu) { closeTabNewMenu(); return; }
 
@@ -491,8 +508,6 @@ window.yo.onTabState((state: { tabs: TabInfo[]; activeId: string; visible: boole
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
   updateEmptyState(state.tabs);
-  // Close help only when the active panel actually changed
-  if (state.activeId !== lastActiveTabId && lastActiveTabId && isHelpOpen()) closeHelp();
   lastActiveTabId = state.activeId;
 });
 
@@ -578,7 +593,6 @@ window.yo.onExecCommandFromPalette((cmd) => window.yo.execCommand(cmd));
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (isYoPanelOpen()) window.yo.yoPanelDismiss();
-    else if (isHelpOpen()) closeHelp();
   }
 
   // Cmd+. — toggle yo agent panel
@@ -614,12 +628,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 
-// yo help trigger from main process
-window.yo.onShowWelcome(() => openHelp());
-window.yo.onOpenSettings(() => openSettings());
-
-// Initialize help overlay
-initHelp();
+// yo help trigger from main process — open home tab
+window.yo.onShowWelcome(() => window.yo.tabNewApp("home"));
+window.yo.onOpenSettings(() => window.yo.tabNewApp("home"));
 
 // -- Grid drag handles --
 

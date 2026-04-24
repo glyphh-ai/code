@@ -682,7 +682,13 @@ document.addEventListener('keydown',function(e){
 
       let finalResult: string;
       if (matchedSkill) {
-        finalResult = await this.skillEngine.process(context, matchedSkill);
+        // Use runSkill — handles both runner and prompt-only skills
+        try {
+          const out = await this.skillEngine.runSkill(matchedSkill, context, { trigger: "manual" });
+          finalResult = typeof out === "string" ? out : JSON.stringify(out, null, 2);
+        } catch (err) {
+          finalResult = `Skill error: ${err instanceof Error ? err.message : String(err)}`;
+        }
       } else {
         finalResult = await this.yoChat.executeProcess(prompt, context);
       }

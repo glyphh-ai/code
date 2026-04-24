@@ -60,7 +60,7 @@ RULES:
 - Use save_memory for user preferences and patterns you learn.
 - Use start_council when the user needs multiple AI perspectives — debates, brainstorming, comparing approaches. Council is zero-cost orchestration: each model runs on the user's own API key, responses are SmartGrabbed and indexed. After council completes, synthesize the captured results.`;
 
-const TOOLS = [
+export const TOOLS = [
   {
     name: "search_captures",
     description: "Vector search across all captured content (.sup captures). Returns ranked results with confidence scores. Use descriptive natural language queries for best results.",
@@ -758,7 +758,12 @@ export class YoAgent {
     }
 
     if (!content) return "No content provided to format.";
-    return this.skillEngine.process(content, skill);
+    try {
+      const out = await this.skillEngine.runSkill(skill, content, { trigger: "skill" });
+      return typeof out === "string" ? out : JSON.stringify(out, null, 2);
+    } catch (err) {
+      return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
 
   private async toolSaveMemory(input: Record<string, unknown>): Promise<string> {

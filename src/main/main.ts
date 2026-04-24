@@ -47,6 +47,10 @@ import { McpExpose } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { DripManager } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
+import { SkillToolRouter } from "./skill-tool-router";
+import { SkillScheduler } from "./skill-scheduler";
+import { setRunnerDependencies } from "./skill-runner";
+import { TOOLS as YO_AGENT_TOOLS } from "./yo-agent";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -68,6 +72,8 @@ let mcpManager: McpManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
 let connectorManager: ConnectorManager | null = null;
+let skillToolRouter: SkillToolRouter | null = null;
+let skillScheduler: SkillScheduler | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
@@ -283,6 +289,37 @@ async function boot() {
     mainWindow?.webContents.send("mcp-changed");
   });
 
+  // Skill system — tool router, runner dependencies, scheduler
+  skillToolRouter = new SkillToolRouter();
+  skillToolRouter.setYoTools(YO_AGENT_TOOLS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema as Record<string, unknown>,
+  })));
+  skillToolRouter.setMcpManager(mcpManager);
+  setRunnerDependencies({
+    toolRouter: skillToolRouter,
+    mcpManager,
+    libraryRead: (name) => {
+      try {
+        const notesDir = noteStore?.notesDir;
+        if (!notesDir) return null;
+        // Find first note file matching the name
+        const files = fs.readdirSync(notesDir).filter((f) => f.startsWith(name) && f.endsWith(".md"));
+        if (!files.length) return null;
+        return fs.readFileSync(path.join(notesDir, files[0]), "utf-8");
+      } catch { return null; }
+    },
+    libraryWrite: (name, content) => {
+      try {
+        noteStore?.write(name, content, "skill-runner").catch(() => {});
+        return true;
+      } catch { return false; }
+    },
+  });
+  skillScheduler = new SkillScheduler(skillEngine);
+  skillScheduler.start();
+
   // Pipedream Connectors — managed OAuth connections (Advanced tier)
   connectorManager = new ConnectorManager();
   connectorManager.setMcpManager(mcpManager);
@@ -476,10 +513,13 @@ async function boot() {
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
+  const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
   for (const app of appConnector.list()) {
-    if (app.url === "yo://terminal") {
+    if (app.url === "yo://home") {
+      panelManager.addPanel(app.id, homeHtml);
+    } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
@@ -1700,22 +1740,107 @@ async function boot() {
   ipcMain.handle("yo-chats-search", () => []);
   ipcMain.handle("yo-chat-new", () => { yoAgent.clear(); return true; });
 
-  // IPC: skills CRUD
+  // IPC: skills CRUD (legacy-compatible signatures)
   ipcMain.handle("skills-list", () => skillEngine.listSkills());
+  ipcMain.handle("skills-list-detailed", () => skillEngine.listSkillsDetailed());
   ipcMain.handle("skills-read", (_e, name: string) => skillEngine.readSkill(name));
+  ipcMain.handle("skills-get", (_e, name: string) => {
+    const s = skillEngine.getSkill(name);
+    if (!s) return null;
+    return {
+      name: s.name,
+      manifest: s.manifest,
+      prompt: s.prompt,
+      hasRunner: s.hasRunner,
+      runnerCode: s.hasRunner ? skillEngine.readSkillFile(name, "SKILL.js") : null,
+    };
+  });
   ipcMain.handle("skills-write", (_e, name: string, prompt: string) => {
-    if (skillEngine.readSkill(name) !== null) {
-      return skillEngine.updateSkill(name, prompt);
+    // Legacy signature: writes prompt only, preserves manifest if exists
+    const existing = skillEngine.getSkill(name);
+    if (existing) {
+      skillEngine.writeSkill(name, existing.manifest, prompt);
+      return true;
     }
     const gate = canCreateSkill(skillEngine.listSkills().length);
     if (!gate.allowed) return { error: gate.reason };
-    skillEngine.createSkill(name, prompt);
+    skillEngine.writeSkill(name, { name, description: "" }, prompt);
+    return true;
+  });
+  ipcMain.handle("skills-write-full", (_e, name: string, manifest: any, prompt: string, runnerCode?: string | null) => {
+    const existing = skillEngine.getSkill(name);
+    if (!existing) {
+      const gate = canCreateSkill(skillEngine.listSkills().length);
+      if (!gate.allowed) return { error: gate.reason };
+    }
+    skillEngine.writeSkill(name, manifest, prompt, runnerCode ?? undefined);
+    skillScheduler?.refresh();
     return true;
   });
   ipcMain.handle("skills-remove", (_e, name: string) => skillEngine.deleteSkill(name));
   ipcMain.handle("skills-generate", (_e, name: string, description: string) =>
     skillEngine.generatePrompt(name, description),
   );
+  // File operations within a skill folder
+  ipcMain.handle("skills-list-files", (_e, name: string) => skillEngine.listSkillFiles(name));
+  ipcMain.handle("skills-read-file", (_e, name: string, rel: string) => skillEngine.readSkillFile(name, rel));
+  ipcMain.handle("skills-write-file", (_e, name: string, rel: string, content: string) =>
+    skillEngine.writeSkillFile(name, rel, content),
+  );
+  ipcMain.handle("skills-delete-file", (_e, name: string, rel: string) => skillEngine.deleteSkillFile(name, rel));
+  // Run lifecycle
+  const activeRuns = new Map<string, AbortController>();
+  const pendingAskUser = new Map<string, (ans: string) => void>();
+  ipcMain.handle("skills-run", async (_e, name: string, input: unknown) => {
+    const ctrl = new AbortController();
+    const runId = Math.random().toString(36).slice(2);
+    activeRuns.set(runId, ctrl);
+    try {
+      const output = await skillEngine.runSkill(name, input, {
+        trigger: "manual",
+        signal: ctrl.signal,
+        onProgress: (ev) => mainWindow?.webContents.send("skill-progress", { runId, event: ev }),
+        onAskUser: (q) => new Promise<string>((resolve) => {
+          const qid = Math.random().toString(36).slice(2);
+          pendingAskUser.set(qid, resolve);
+          mainWindow?.webContents.send("skill-ask-user", { runId, qid, question: q });
+        }),
+      });
+      return { ok: true, output };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      activeRuns.delete(runId);
+    }
+  });
+  ipcMain.handle("skills-cancel", (_e, runId: string) => {
+    const c = activeRuns.get(runId);
+    if (c) { c.abort(); return true; }
+    return false;
+  });
+  ipcMain.handle("skills-user-response", (_e, qid: string, answer: string) => {
+    const resolver = pendingAskUser.get(qid);
+    if (resolver) { resolver(answer); pendingAskUser.delete(qid); return true; }
+    return false;
+  });
+  ipcMain.handle("skills-run-history", (_e, name: string) => skillEngine.getRunHistory(name));
+  // Export/import .yo bundles
+  ipcMain.handle("skills-export", (_e, name: string) => {
+    const buf = skillEngine.exportSkill(name);
+    return buf ? buf.toString("base64") : null;
+  });
+  ipcMain.handle("skills-import", (_e, base64: string, overwrite?: boolean) => {
+    try {
+      const buf = Buffer.from(base64, "base64");
+      return skillEngine.importSkill(buf, { overwrite });
+    } catch (err) {
+      return { imported: [], skipped: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  // Scheduler
+  ipcMain.handle("skills-schedule-status", () => skillScheduler?.status() ?? []);
+  ipcMain.handle("skills-pause-schedule", (_e, name: string) => { skillScheduler?.pause(name); });
+  ipcMain.handle("skills-resume-schedule", (_e, name: string) => { skillScheduler?.resume(name); });
 
   // IPC: layouts CRUD
   ipcMain.handle("layouts-list", () =>

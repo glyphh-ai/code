@@ -21,10 +21,38 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
+  skillsListDetailed: () => ipcRenderer.invoke("skills-list-detailed") as Promise<Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }>>,
   skillsRead: (name: string) => ipcRenderer.invoke("skills-read", name) as Promise<string | null>,
-  skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean>,
+  skillsGet: (name: string) => ipcRenderer.invoke("skills-get", name) as Promise<{ name: string; manifest: any; prompt: string; hasRunner: boolean; runnerCode: string | null } | null>,
+  skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean | { error: string }>,
+  skillsWriteFull: (name: string, manifest: any, prompt: string, runnerCode?: string | null) =>
+    ipcRenderer.invoke("skills-write-full", name, manifest, prompt, runnerCode) as Promise<boolean | { error: string }>,
   skillsRemove: (name: string) => ipcRenderer.invoke("skills-remove", name) as Promise<boolean>,
   skillsGenerate: (name: string, description: string) => ipcRenderer.invoke("skills-generate", name, description) as Promise<string>,
+  // Files in a skill folder
+  skillsListFiles: (name: string) => ipcRenderer.invoke("skills-list-files", name) as Promise<string[]>,
+  skillsReadFile: (name: string, rel: string) => ipcRenderer.invoke("skills-read-file", name, rel) as Promise<string | null>,
+  skillsWriteFile: (name: string, rel: string, content: string) => ipcRenderer.invoke("skills-write-file", name, rel, content) as Promise<boolean>,
+  skillsDeleteFile: (name: string, rel: string) => ipcRenderer.invoke("skills-delete-file", name, rel) as Promise<boolean>,
+  // Run
+  skillsRun: (name: string, input: unknown) => ipcRenderer.invoke("skills-run", name, input) as Promise<{ ok: true; output: unknown } | { ok: false; error: string }>,
+  skillsCancel: (runId: string) => ipcRenderer.invoke("skills-cancel", runId) as Promise<boolean>,
+  skillsUserResponse: (qid: string, answer: string) => ipcRenderer.invoke("skills-user-response", qid, answer) as Promise<boolean>,
+  skillsRunHistory: (name: string) => ipcRenderer.invoke("skills-run-history", name) as Promise<any[]>,
+  onSkillProgress: (cb: (data: { runId: string; event: any }) => void) => {
+    ipcRenderer.on("skill-progress", (_e, data) => cb(data));
+  },
+  onSkillAskUser: (cb: (data: { runId: string; qid: string; question: string }) => void) => {
+    ipcRenderer.on("skill-ask-user", (_e, data) => cb(data));
+  },
+  // Export/import
+  skillsExport: (name: string) => ipcRenderer.invoke("skills-export", name) as Promise<string | null>,
+  skillsImport: (base64: string, overwrite?: boolean) =>
+    ipcRenderer.invoke("skills-import", base64, overwrite) as Promise<{ imported: string[]; skipped: string[]; error?: string }>,
+  // Scheduler
+  skillsScheduleStatus: () => ipcRenderer.invoke("skills-schedule-status") as Promise<Array<{ name: string; schedule: string; paused: boolean }>>,
+  skillsPauseSchedule: (name: string) => ipcRenderer.invoke("skills-pause-schedule", name) as Promise<void>,
+  skillsResumeSchedule: (name: string) => ipcRenderer.invoke("skills-resume-schedule", name) as Promise<void>,
 
   // Layouts CRUD
   layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>,

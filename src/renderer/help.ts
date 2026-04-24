@@ -420,12 +420,24 @@ export function initHelp() {
   dripSearchInput.addEventListener("input", () => { dripsPage = 0; renderDripsList(); });
 
   // Skills
-  document.getElementById("skill-new-btn")!.addEventListener("click", () => openSkillEditor("", ""));
+  document.getElementById("skill-new-btn")!.addEventListener("click", () => openSkillEditor(null));
   document.getElementById("skill-save")!.addEventListener("click", saveSkill);
   document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-back-link")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
   document.getElementById("skill-generate")!.addEventListener("click", generateSkillPrompt);
+  document.getElementById("skill-run")!.addEventListener("click", runSkillFromEditor);
+  document.getElementById("skill-export")!.addEventListener("click", exportSkill);
+  document.getElementById("skill-new-file-btn")!.addEventListener("click", addSkillFile);
+  // Drag-and-drop .yo import onto the skills list
+  skillsListEl.addEventListener("dragover", (e) => { e.preventDefault(); });
+  skillsListEl.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (file && (file.name.endsWith(".yo") || file.name.endsWith(".zip"))) {
+      await importSkill(file);
+    }
+  });
   skillSearchInput.addEventListener("input", () => { skillsPage = 0; renderSkillsList(); });
 
   // Apps (MCP merged into app tabs)
@@ -1526,11 +1538,14 @@ async function loadApps() {
 
   try {
     const apps = await window.yo.appsList();
-    panelApps = apps.map((a) => ({
-      id: a.id, name: a.name, url: a.url,
-      connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
-      commands: a.commands, connection: a.connection, mcp: a.mcp,
-    }));
+    // Hide internal yo:// apps (browser, terminal, vscode, monaco, home) from the management list
+    panelApps = apps
+      .filter((a) => !a.url?.startsWith("yo://"))
+      .map((a) => ({
+        id: a.id, name: a.name, url: a.url,
+        connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
+        commands: a.commands, connection: a.connection, mcp: a.mcp,
+      }));
   } catch { panelApps = []; }
 
   // Check app limit for free tier
@@ -3289,33 +3304,58 @@ async function saveSettings() {
 
 
 // ── Skills ────────────────────────────────────────────────
+// Folder-based skills: SKILL.md (frontmatter + prompt) + SKILL.js (optional runner) + arbitrary files.
 
 let skillsPage = 0;
-let allSkills: string[] = [];
+let allSkillsDetailed: Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }> = [];
 const skillsListEl = document.getElementById("skills-list")!;
 const skillsToolbar = document.getElementById("skills-toolbar")!;
 const skillEditor = document.getElementById("skill-editor")!;
 const skillNameInput = document.getElementById("skill-name") as HTMLInputElement;
 const skillDescInput = document.getElementById("skill-desc") as HTMLTextAreaElement;
-const skillPromptArea = document.getElementById("skill-prompt") as HTMLTextAreaElement;
 const skillDeleteBtn = document.getElementById("skill-delete") as HTMLButtonElement;
 const skillSearchInput = document.getElementById("skill-search") as HTMLInputElement;
 const skillFormError = document.getElementById("skill-form-error")!;
 let editingSkillName: string | null = null;
+let editingSkillFiles: string[] = [];
+let editingSelectedFile: string = "SKILL.md";
+// Pending (unsaved) file contents — indexed by relPath
+let editingFileContents: Map<string, string> = new Map();
+let monacoEditor: any = null;
+let monacoReady: Promise<void> | null = null;
 
-const skillEditorTitle: HTMLElement | null = document.getElementById("skill-editor-title");
+function ensureMonaco(): Promise<void> {
+  if (monacoReady) return monacoReady;
+  monacoReady = new Promise<void>((resolve) => {
+    const w = window as any;
+    if (w.monaco) { resolve(); return; }
+    w.require.config({ paths: { vs: "monaco" } });
+    w.require(["vs/editor/editor.main"], () => resolve());
+  });
+  return monacoReady;
+}
+
+function languageForFile(relPath: string): string {
+  if (relPath.endsWith(".js") || relPath.endsWith(".mjs") || relPath.endsWith(".cjs")) return "javascript";
+  if (relPath.endsWith(".ts")) return "typescript";
+  if (relPath.endsWith(".json")) return "json";
+  if (relPath.endsWith(".md") || relPath.endsWith(".markdown")) return "markdown";
+  if (relPath.endsWith(".yaml") || relPath.endsWith(".yml")) return "yaml";
+  if (relPath.endsWith(".html")) return "html";
+  if (relPath.endsWith(".css")) return "css";
+  return "plaintext";
+}
 
 async function loadSkills() {
   skillEditor.classList.add("hidden");
   skillFormError.classList.add("hidden");
-  allSkills = await window.yo.skillsList();
+  allSkillsDetailed = await window.yo.skillsListDetailed();
 
-  // Check skill limit for free tier
   const limitMsg = document.getElementById("skills-limit-msg")!;
   const newBtn = document.getElementById("skill-new-btn") as HTMLButtonElement;
   try {
     const auth = await window.yo.getAuthStatus();
-    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && allSkills.length >= 5;
+    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && allSkillsDetailed.length >= 5;
     limitMsg.classList.toggle("hidden", !atLimit);
     newBtn.disabled = atLimit;
     if (atLimit) {
@@ -3332,9 +3372,11 @@ async function loadSkills() {
 
 function renderSkillsList() {
   const query = skillSearchInput.value.trim().toLowerCase();
-  const filtered = query ? allSkills.filter((s) => s.toLowerCase().includes(query)) : allSkills;
+  const filtered = query
+    ? allSkillsDetailed.filter((s) => s.name.toLowerCase().includes(query) || (s.description || "").toLowerCase().includes(query))
+    : allSkillsDetailed;
 
-  if (allSkills.length === 0) {
+  if (allSkillsDetailed.length === 0) {
     skillsListEl.innerHTML = `<div class="crud-empty">No skills yet. Click "+ New" to create one.</div>`;
     return;
   }
@@ -3347,13 +3389,16 @@ function renderSkillsList() {
   skillsPage = state.page;
   skillsListEl.innerHTML = "";
 
-  for (const name of items) {
-    const cleanName = name.replace(/\.md$/i, "");
+  for (const skill of items) {
+    const badges: string[] = [];
+    if (skill.hasRunner) badges.push('<span class="app-card-badge" style="font-size:9px;padding:1px 5px;">JS</span>');
+    if (skill.scheduled) badges.push(`<span class="app-card-badge" style="background:rgba(74,158,255,0.15);color:#4A9EFF;font-size:9px;padding:1px 5px;" title="${skill.scheduleExpr || ''}">⏰</span>`);
     const card = document.createElement("div");
     card.className = "crud-card";
     card.innerHTML = `
       <div class="crud-card-info">
-        <span class="crud-card-name">${cleanName}</span>
+        <span class="crud-card-name">${skill.name}${badges.length ? " " + badges.join(" ") : ""}</span>
+        ${skill.description ? `<span class="crud-card-meta">${skill.description}</span>` : ""}
       </div>
       <div class="crud-card-actions">
         <button class="crud-card-btn crud-edit-btn" title="Edit">
@@ -3366,68 +3411,203 @@ function renderSkillsList() {
 
     card.querySelector(".crud-edit-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const prompt = await window.yo.skillsRead(name);
-      openSkillEditor(cleanName, prompt || "");
+      openSkillEditor(skill.name);
     });
-
     card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const confirmed = await confirmAction(`Delete skill "${cleanName}"?`);
+      const confirmed = await confirmAction(`Delete skill "${skill.name}"?`);
       if (!confirmed) return;
-      await window.yo.skillsRemove(name);
+      await window.yo.skillsRemove(skill.name);
       loadSkills();
     });
-
-    card.addEventListener("click", async () => {
-      const prompt = await window.yo.skillsRead(name);
-      openSkillEditor(cleanName, prompt || "");
-    });
-
+    card.addEventListener("click", () => openSkillEditor(skill.name));
     skillsListEl.appendChild(card);
   }
   skillsListEl.appendChild(renderPaginationBar(state, (p) => { skillsPage = p; renderSkillsList(); }));
 }
 
-function openSkillEditor(name: string, prompt: string) {
-  editingSkillName = name || null;
-  skillNameInput.value = name;
-  skillDescInput.value = "";
-  skillPromptArea.value = prompt;
-  skillDeleteBtn.style.display = name ? "" : "none";
-  if (skillEditorTitle) skillEditorTitle.textContent = name ? name : "New Skill";
-  skillFormError.classList.add("hidden");
+async function openSkillEditor(name: string | null) {
+  editingSkillName = name;
+  editingFileContents = new Map();
 
+  const newSkill = !name;
+  if (newSkill) {
+    skillNameInput.value = "";
+    editingSkillFiles = ["SKILL.md"];
+    editingSelectedFile = "SKILL.md";
+    editingFileContents.set("SKILL.md", "");
+    skillDescInput.value = "";
+    (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value = "";
+    (document.getElementById("skill-requires") as HTMLInputElement).value = "";
+    (document.getElementById("skill-schedule") as HTMLInputElement).value = "";
+    skillDeleteBtn.style.display = "none";
+  } else {
+    skillNameInput.value = name!;
+    const full = await window.yo.skillsGet(name!);
+    if (full) {
+      skillDescInput.value = full.manifest?.description || "";
+      (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value =
+        (full.manifest?.["allowed-tools"] || []).join("\n");
+      (document.getElementById("skill-requires") as HTMLInputElement).value =
+        (full.manifest?.requires || []).join(", ");
+      (document.getElementById("skill-schedule") as HTMLInputElement).value =
+        full.manifest?.schedule || "";
+      editingFileContents.set("SKILL.md", full.prompt || "");
+      if (full.runnerCode != null) {
+        editingFileContents.set("SKILL.js", full.runnerCode);
+      }
+    }
+    editingSkillFiles = await window.yo.skillsListFiles(name!);
+    if (editingSkillFiles.length === 0) editingSkillFiles = ["SKILL.md"];
+    editingSelectedFile = editingSkillFiles.includes("SKILL.md") ? "SKILL.md" : editingSkillFiles[0];
+    skillDeleteBtn.style.display = "";
+  }
+  skillFormError.classList.add("hidden");
   skillsListEl.classList.add("hidden");
   skillsToolbar.classList.add("hidden");
   skillEditor.classList.remove("hidden");
+
+  renderSkillFileTree();
+  await openSkillFile(editingSelectedFile);
+
+  // Load run history
+  if (name) loadSkillRunHistory(name);
+  else renderRunList([]);
+
   skillNameInput.focus();
 }
 
+function renderSkillFileTree() {
+  const list = document.getElementById("skill-file-list")!;
+  list.innerHTML = "";
+  for (const file of editingSkillFiles) {
+    const item = document.createElement("div");
+    item.className = "skill-file-item" + (file === editingSelectedFile ? " active" : "");
+    const isCore = file === "SKILL.md" || file === "SKILL.js";
+    item.innerHTML = `
+      <span>${file}</span>
+      ${isCore ? `<span class="skill-file-item-badge">${file === "SKILL.md" ? "MD" : "JS"}</span>` : ""}
+      ${!isCore ? `<button class="skill-file-item-delete" title="Delete">×</button>` : ""}
+    `;
+    item.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).classList.contains("skill-file-item-delete")) return;
+      captureCurrentEditorContent();
+      openSkillFile(file);
+    });
+    const delBtn = item.querySelector(".skill-file-item-delete");
+    if (delBtn) {
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const confirmed = await confirmAction(`Remove file "${file}"?`);
+        if (!confirmed) return;
+        editingFileContents.delete(file);
+        editingSkillFiles = editingSkillFiles.filter((f) => f !== file);
+        if (editingSelectedFile === file) editingSelectedFile = editingSkillFiles[0];
+        if (editingSkillName) await window.yo.skillsDeleteFile(editingSkillName, file);
+        renderSkillFileTree();
+        openSkillFile(editingSelectedFile);
+      });
+    }
+    list.appendChild(item);
+  }
+}
+
+async function openSkillFile(relPath: string) {
+  editingSelectedFile = relPath;
+  renderSkillFileTree();
+
+  const frontmatterForm = document.getElementById("skill-frontmatter-form")!;
+  const container = document.getElementById("skill-monaco-container")!;
+  const generateBtn = document.getElementById("skill-generate")!;
+  const status = document.getElementById("skill-editor-status")!;
+
+  // Show frontmatter form only for SKILL.md
+  frontmatterForm.classList.toggle("hidden", relPath !== "SKILL.md");
+  generateBtn.classList.toggle("hidden", relPath !== "SKILL.md");
+  status.textContent = relPath;
+
+  // Lazy-load file content if we don't have it cached yet
+  if (!editingFileContents.has(relPath) && editingSkillName) {
+    const content = await window.yo.skillsReadFile(editingSkillName, relPath);
+    editingFileContents.set(relPath, content || "");
+  }
+  const content = editingFileContents.get(relPath) || "";
+
+  await ensureMonaco();
+  const w = window as any;
+  if (monacoEditor) {
+    const model = w.monaco.editor.createModel(content, languageForFile(relPath));
+    monacoEditor.setModel(model);
+  } else {
+    monacoEditor = w.monaco.editor.create(container, {
+      value: content,
+      language: languageForFile(relPath),
+      theme: "vs-dark",
+      fontSize: 12,
+      fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+      minimap: { enabled: false },
+      wordWrap: "on",
+      automaticLayout: true,
+      padding: { top: 8 },
+      scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+    });
+  }
+}
+
+function captureCurrentEditorContent() {
+  if (!monacoEditor) return;
+  editingFileContents.set(editingSelectedFile, monacoEditor.getValue());
+}
+
 function closeSkillEditor() {
+  captureCurrentEditorContent();
   skillEditor.classList.add("hidden");
   skillsListEl.classList.remove("hidden");
   skillsToolbar.classList.remove("hidden");
   editingSkillName = null;
+  editingFileContents = new Map();
   loadSkills();
 }
 
 async function saveSkill() {
-  let valid = true;
-  const name = skillNameInput.value.trim().replace(/\.md$/i, "");
-  const prompt = skillPromptArea.value.trim();
-
-  if (!name) { skillNameInput.classList.add("invalid"); clearInvalid(skillNameInput); valid = false; }
-  if (!prompt) { skillPromptArea.classList.add("invalid"); clearInvalid(skillPromptArea); valid = false; }
-  if (!valid) {
-    skillFormError.textContent = "Please fill in all required fields.";
+  captureCurrentEditorContent();
+  const name = skillNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+  if (!name) {
+    skillFormError.textContent = "Name is required.";
     skillFormError.classList.remove("hidden");
     return;
   }
 
+  const description = skillDescInput.value.trim();
+  const allowedToolsText = (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value.trim();
+  const requiresText = (document.getElementById("skill-requires") as HTMLInputElement).value.trim();
+  const scheduleText = (document.getElementById("skill-schedule") as HTMLInputElement).value.trim();
+
+  const manifest: any = { name, description };
+  if (allowedToolsText) manifest["allowed-tools"] = allowedToolsText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (requiresText) manifest.requires = requiresText.split(",").map((s) => s.trim()).filter(Boolean);
+  if (scheduleText) manifest.schedule = scheduleText;
+
+  const prompt = editingFileContents.get("SKILL.md") ?? "";
+  const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
+
   if (editingSkillName && editingSkillName !== name) {
     await window.yo.skillsRemove(editingSkillName);
   }
-  await window.yo.skillsWrite(name, prompt);
+
+  const result = await window.yo.skillsWriteFull(name, manifest, prompt, runnerCode);
+  if (typeof result === "object" && "error" in result) {
+    skillFormError.textContent = result.error;
+    skillFormError.classList.remove("hidden");
+    return;
+  }
+
+  // Also write arbitrary files that aren't SKILL.md or SKILL.js
+  for (const [file, content] of editingFileContents) {
+    if (file === "SKILL.md" || file === "SKILL.js") continue;
+    await window.yo.skillsWriteFile(name, file, content);
+  }
+
   editingSkillName = name;
   closeSkillEditor();
 }
@@ -3444,21 +3624,232 @@ async function generateSkillPrompt() {
   const name = skillNameInput.value.trim();
   const desc = skillDescInput.value.trim();
   if (!desc) { skillDescInput.focus(); return; }
-
   const btn = document.getElementById("skill-generate") as HTMLButtonElement;
   btn.textContent = "Working...";
   btn.disabled = true;
-
   try {
     const result = await window.yo.skillsGenerate(name || "unnamed", desc);
     if (result) {
-      skillPromptArea.value = result;
+      editingFileContents.set("SKILL.md", result);
+      if (editingSelectedFile === "SKILL.md" && monacoEditor) {
+        monacoEditor.setValue(result);
+      }
     }
   } catch {}
-
   btn.textContent = "Generate";
   btn.disabled = false;
 }
+
+// ── New file / Run / Export / Import ──────────────────────
+
+async function addSkillFile() {
+  const name = prompt("File name (e.g. template.md):");
+  if (!name) return;
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === "SKILL.md" || trimmed === "SKILL.js") return;
+  if (editingSkillFiles.includes(trimmed)) return;
+  editingSkillFiles.push(trimmed);
+  editingFileContents.set(trimmed, "");
+  captureCurrentEditorContent();
+  await openSkillFile(trimmed);
+}
+
+async function runSkillFromEditor() {
+  if (!editingSkillName) return;
+  captureCurrentEditorContent();
+
+  // Save first
+  await saveSkillInline();
+
+  const runBtn = document.getElementById("skill-run") as HTMLButtonElement;
+  runBtn.disabled = true;
+  runBtn.textContent = "Running...";
+  try {
+    const input = window.prompt("Input for this run (leave blank for none):") ?? "";
+    const result = await window.yo.skillsRun(editingSkillName, input);
+    if (!result.ok) {
+      skillFormError.textContent = `Run error: ${result.error}`;
+      skillFormError.classList.remove("hidden");
+    } else {
+      skillFormError.classList.add("hidden");
+    }
+    if (editingSkillName) await loadSkillRunHistory(editingSkillName);
+  } finally {
+    runBtn.disabled = false;
+    runBtn.textContent = "▶ Run";
+  }
+}
+
+// Save without closing the editor
+async function saveSkillInline() {
+  captureCurrentEditorContent();
+  const name = skillNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+  if (!name) return;
+  const description = skillDescInput.value.trim();
+  const allowedToolsText = (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value.trim();
+  const requiresText = (document.getElementById("skill-requires") as HTMLInputElement).value.trim();
+  const scheduleText = (document.getElementById("skill-schedule") as HTMLInputElement).value.trim();
+  const manifest: any = { name, description };
+  if (allowedToolsText) manifest["allowed-tools"] = allowedToolsText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (requiresText) manifest.requires = requiresText.split(",").map((s) => s.trim()).filter(Boolean);
+  if (scheduleText) manifest.schedule = scheduleText;
+  const promptBody = editingFileContents.get("SKILL.md") ?? "";
+  const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
+  await window.yo.skillsWriteFull(name, manifest, promptBody, runnerCode);
+  for (const [file, content] of editingFileContents) {
+    if (file === "SKILL.md" || file === "SKILL.js") continue;
+    await window.yo.skillsWriteFile(name, file, content);
+  }
+  editingSkillName = name;
+}
+
+async function exportSkill() {
+  if (!editingSkillName) return;
+  const base64 = await window.yo.skillsExport(editingSkillName);
+  if (!base64) return;
+  // Trigger download via data URI
+  const a = document.createElement("a");
+  a.href = `data:application/zip;base64,${base64}`;
+  a.download = `${editingSkillName}.yo`;
+  a.click();
+}
+
+async function importSkill(file: File) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const base64 = btoa(binary);
+  const result = await window.yo.skillsImport(base64, true);
+  if (result.imported.length) {
+    await loadSkills();
+  }
+  if (result.error) {
+    skillFormError.textContent = `Import error: ${result.error}`;
+    skillFormError.classList.remove("hidden");
+  }
+}
+
+// ── Run history ──────────────────────────────────────────
+
+async function loadSkillRunHistory(name: string) {
+  const runs = await window.yo.skillsRunHistory(name);
+  renderRunList(runs || []);
+}
+
+function renderRunList(runs: any[]) {
+  const list = document.getElementById("skill-runs-list")!;
+  const count = document.getElementById("skill-runs-count")!;
+  count.textContent = runs.length ? `${runs.length} run${runs.length === 1 ? "" : "s"}` : "";
+  list.innerHTML = "";
+  if (runs.length === 0) {
+    list.innerHTML = `<div style="color:var(--text-2);font-size:11px;padding:4px 0;">No runs yet.</div>`;
+    return;
+  }
+  for (const run of runs) {
+    const item = document.createElement("div");
+    item.className = "skill-run-item";
+    const statusCls = run.error ? "skill-run-status-error" : "skill-run-status-success";
+    const when = new Date(run.startedAt).toLocaleString();
+    const dur = run.durationMs ? `${(run.durationMs / 1000).toFixed(2)}s` : "—";
+    item.innerHTML = `
+      <div class="skill-run-item-header">
+        <span>${when} · ${run.trigger} · ${dur}</span>
+        <span class="skill-run-item-status ${statusCls}">${run.error ? "error" : "ok"}</span>
+      </div>
+      <div class="skill-run-item-details hidden"></div>
+    `;
+    item.addEventListener("click", () => {
+      const det = item.querySelector(".skill-run-item-details") as HTMLElement;
+      if (det.classList.contains("hidden")) {
+        det.innerHTML = renderRunDetails(run);
+        det.classList.remove("hidden");
+      } else {
+        det.classList.add("hidden");
+      }
+    });
+    list.appendChild(item);
+  }
+}
+
+function renderRunDetails(run: any): string {
+  const parts: string[] = [];
+  if (run.input) parts.push(`<b>Input:</b> ${typeof run.input === "string" ? escapeHtml(run.input.slice(0, 300)) : escapeHtml(JSON.stringify(run.input).slice(0, 300))}`);
+  if (run.error) parts.push(`<b style="color:var(--danger);">Error:</b> ${escapeHtml(run.error)}`);
+  if (run.output !== undefined && run.output !== null && !run.error) {
+    const out = typeof run.output === "string" ? run.output : JSON.stringify(run.output, null, 2);
+    parts.push(`<b>Output:</b> ${escapeHtml(out.slice(0, 500))}`);
+  }
+  if (run.events && run.events.length) {
+    const tree = renderEventTree(run.events);
+    parts.push(`<b>Events:</b>\n${tree}`);
+  }
+  if (run.logs && run.logs.length) {
+    parts.push(`<b>Logs:</b>\n${run.logs.map((l: string) => escapeHtml(l)).join("\n")}`);
+  }
+  return parts.join("\n\n");
+}
+
+function renderEventTree(events: any[]): string {
+  // Build parent->children
+  const byParent = new Map<string | undefined, any[]>();
+  for (const ev of events) {
+    const key = ev.parentId;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(ev);
+  }
+  const lines: string[] = [];
+  const roots = byParent.get(undefined) || [];
+  const walk = (ev: any, depth: number) => {
+    const indent = "  ".repeat(depth);
+    const dur = ev.endedAt ? `${((ev.endedAt - ev.startedAt) / 1000).toFixed(2)}s` : "…";
+    const icon = ev.status === "success" ? "✓" : ev.status === "error" ? "✗" : "⟳";
+    lines.push(`<span class="skill-run-event status-${ev.status}">${indent}${icon} ${escapeHtml(ev.label)} — ${dur}</span>`);
+    const children = byParent.get(ev.id) || [];
+    for (const c of children) walk(c, depth + 1);
+  };
+  for (const root of roots) walk(root, 0);
+  return lines.join("\n");
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── Live progress via onSkillProgress ──────────────────────
+
+window.yo.onSkillProgress?.((data: { runId: string; event: any }) => {
+  // During a live run, append events to the top of the run list so the user sees progress
+  // We take a simple approach: refresh run history after each event
+  if (editingSkillName) {
+    loadSkillRunHistory(editingSkillName);
+  }
+});
+
+window.yo.onSkillAskUser?.((data: { runId: string; qid: string; question: string }) => {
+  const modal = document.getElementById("skill-ask-user-modal")!;
+  const qEl = document.getElementById("skill-ask-user-question")!;
+  const ansEl = document.getElementById("skill-ask-user-answer") as HTMLTextAreaElement;
+  qEl.textContent = data.question;
+  ansEl.value = "";
+  modal.classList.remove("hidden");
+  const submit = document.getElementById("skill-ask-user-submit")!;
+  const cancel = document.getElementById("skill-ask-user-cancel")!;
+  const onSubmit = () => {
+    window.yo.skillsUserResponse(data.qid, ansEl.value);
+    modal.classList.add("hidden");
+    submit.removeEventListener("click", onSubmit);
+    cancel.removeEventListener("click", onCancel);
+  };
+  const onCancel = () => {
+    window.yo.skillsUserResponse(data.qid, "");
+    modal.classList.add("hidden");
+    submit.removeEventListener("click", onSubmit);
+    cancel.removeEventListener("click", onCancel);
+  };
+  submit.addEventListener("click", onSubmit);
+  cancel.addEventListener("click", onCancel);
+});
 
 // ── Drips ─────────────────────────────────────────────────
 
