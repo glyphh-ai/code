@@ -519,7 +519,8 @@ async function boot() {
   for (const app of appConnector.list()) {
     if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
-      panelManager.addPanel(app.id, homeHtml, homePreload);
+      // webviewTag: true so the <webview id="app-preview"> inside App detail can render
+      panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://monaco") {
