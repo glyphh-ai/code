@@ -14,6 +14,17 @@
     #help-layout { position: absolute; inset: 0; }
   </style>
   <script src="monaco/loader.js"></script>
+  <script>
+    // Apply theme synchronously before anything renders (avoids flash).
+    // Reads from localStorage which the main renderer keeps in sync.
+    try {
+      var t = localStorage.getItem("yoTheme") || "dark";
+      var r = t === "system"
+        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+        : t;
+      document.documentElement.setAttribute("data-theme", r);
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <div id="home-root">

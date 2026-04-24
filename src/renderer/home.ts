@@ -7,10 +7,27 @@
 
 import { initHelp, loadActiveSection } from "./help.js";
 
-// Wire up all the section handlers. Skip openHelp() because it calls
-// panelsHide() which would hide the home panel itself.
+// Theme: the inline script in home.html applied localStorage theme synchronously.
+// Here we re-fetch the authoritative value from main and keep localStorage in sync.
+function applyTheme(theme: string) {
+  const resolved = theme === "system"
+    ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+    : theme;
+  document.documentElement.setAttribute("data-theme", resolved);
+  try { localStorage.setItem("yoTheme", theme); } catch {}
+}
+
+window.yo.getTheme?.().then(applyTheme).catch(() => {});
+window.yo.onThemeChanged?.(applyTheme);
+
+// React to system dark/light changes when theme = "system"
+window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", async () => {
+  try {
+    const theme = await window.yo.getTheme();
+    if (theme === "system") applyTheme(theme);
+  } catch {}
+});
+
 initHelp();
-// Load the initial section's data (Dashboard charts, etc).
 loadActiveSection();
-// Refresh auth so tier gates reflect current plan.
-window.yo.refreshAuth().catch(() => {});
+window.yo.refreshAuth?.().catch(() => {});

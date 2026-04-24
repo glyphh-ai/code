@@ -2338,7 +2338,10 @@ function dismissSplash(): void {
 window.yo.onBoot((data) => {
   booted = true;
   bootData = data;
-  if (data.theme) document.documentElement.setAttribute("data-theme", data.theme);
+  if (data.theme) {
+    document.documentElement.setAttribute("data-theme", data.theme);
+    try { localStorage.setItem("yoTheme", data.theme); } catch {}
+  }
   dismissSplash();
 
   // Show tutorial on first launch (skip if going through onboarding — handled by yo-onboarding-done)
@@ -2351,6 +2354,7 @@ window.yo.onBoot((data) => {
 
 window.yo.onThemeChanged((theme) => {
   document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem("yoTheme", theme); } catch {}
 });
 
 // After onboarding activation, show tutorial
