@@ -818,10 +818,25 @@ body {
   border: 1px solid var(--border-2);
   border-radius: 8px;
   padding: 4px;
-  min-width: 180px;
-  max-height: 360px;
-  overflow-y: auto;
+  min-width: 200px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+}
+.tab-new-menu-search {
+  margin: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  outline: none;
+}
+.tab-new-menu-search:focus { border-color: var(--accent); }
+.tab-new-menu-list {
+  max-height: 280px;
+  overflow-y: auto;
 }
 .tab-new-menu button {
   display: flex;

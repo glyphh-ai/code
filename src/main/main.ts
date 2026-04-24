@@ -1827,6 +1827,8 @@ async function boot() {
     return app;
   });
   ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
+  ipcMain.handle("apps-set-connection", (_e, id: string, pipedreamSlug: string) => appConnector.setConnection(id, { pipedreamSlug }));
+  ipcMain.handle("apps-remove-connection", (_e, id: string) => appConnector.removeConnection(id));
   ipcMain.handle("apps-set-mcp", (_e, id: string, mcp: any) => appConnector.setMcp(id, mcp));
   ipcMain.handle("apps-remove-mcp", (_e, id: string) => appConnector.removeMcp(id));
   ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {

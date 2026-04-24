@@ -43,6 +43,8 @@ declare global {
       appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) => Promise<unknown>;
       appsRemoveMcp: (id: string) => Promise<boolean>;
       appsRemove: (id: string) => Promise<boolean>;
+      appsSetConnection: (id: string, pipedreamSlug: string) => Promise<boolean>;
+      appsRemoveConnection: (id: string) => Promise<boolean>;
       appsUpdateId: (oldId: string, newId: string) => Promise<boolean>;
       appsUpdateName: (id: string, name: string) => Promise<boolean>;
       appsUpdateUrl: (id: string, url: string) => Promise<boolean>;
@@ -346,6 +348,7 @@ function closeTabNewMenu() {
   if (tabNewMenu) {
     tabNewMenu.remove();
     tabNewMenu = null;
+    window.yo.panelsShow();
   }
 }
 
@@ -363,20 +366,35 @@ tabNewBtn.addEventListener("click", async (e) => {
     return;
   }
 
+  window.yo.panelsHide();
+
   const menu = document.createElement("div");
   menu.className = "tab-new-menu";
+
+  // Search input
+  const searchInput = document.createElement("input");
+  searchInput.className = "tab-new-menu-search";
+  searchInput.type = "text";
+  searchInput.placeholder = "Search apps...";
+  searchInput.spellcheck = false;
+  menu.appendChild(searchInput);
+
+  // Scrollable list
+  const list = document.createElement("div");
+  list.className = "tab-new-menu-list";
 
   const browserBtn = document.createElement("button");
   browserBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>Browser</span>`;
   browserBtn.addEventListener("click", () => { closeTabNewMenu(); window.yo.tabNew(); });
-  menu.appendChild(browserBtn);
+  list.appendChild(browserBtn);
 
   const divider = document.createElement("div");
   divider.className = "tab-new-menu-divider";
-  menu.appendChild(divider);
+  list.appendChild(divider);
 
   for (const app of appsWithUrl) {
     const btn = document.createElement("button");
+    btn.dataset.name = app.name.toLowerCase();
     let iconHtml = "";
     try {
       const domain = new URL(app.url!).hostname;
@@ -386,8 +404,18 @@ tabNewBtn.addEventListener("click", async (e) => {
     }
     btn.innerHTML = `${iconHtml}<span>${app.name}</span>`;
     btn.addEventListener("click", () => { closeTabNewMenu(); window.yo.tabNewApp(app.id); });
-    menu.appendChild(btn);
+    list.appendChild(btn);
   }
+
+  menu.appendChild(list);
+
+  // Filter on search input
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.toLowerCase();
+    list.querySelectorAll<HTMLButtonElement>("button[data-name]").forEach((btn) => {
+      btn.style.display = btn.dataset.name!.includes(q) ? "" : "none";
+    });
+  });
 
   const rect = tabNewBtn.getBoundingClientRect();
   menu.style.top = `${rect.bottom + 4}px`;
@@ -395,6 +423,7 @@ tabNewBtn.addEventListener("click", async (e) => {
 
   document.body.appendChild(menu);
   tabNewMenu = menu;
+  searchInput.focus();
 
   const onClickOutside = (ev: MouseEvent) => {
     if (!menu.contains(ev.target as Node) && ev.target !== tabNewBtn) {

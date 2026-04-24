@@ -1829,65 +1829,54 @@ async function loadConnectionTab() {
   const listEl = document.getElementById("app-connected-list")!;
   const toolsEl = document.getElementById("app-connection-tools")!;
   const noToolsEl = document.getElementById("app-connection-no-tools")!;
+  const browseEl = document.querySelector<HTMLElement>(".connection-browse")!;
 
   // Left: this app's connection
   listEl.innerHTML = "";
-  if (app.connection) {
-    const isConnected = !!app.connection.accountId;
+  const isConnected = !!app.connection?.accountId;
+
+  if (app.connection && isConnected) {
+    // Connected — show status + disconnect, hide browse grid
+    browseEl.classList.add("hidden");
     statusEl.innerHTML = `
       <div class="connection-status">
-        <span class="connection-status-dot ${isConnected ? "connected" : "disconnected"}"></span>
+        <span class="connection-status-dot connected"></span>
         <div class="connection-status-info">
           <div class="connection-status-name">${app.connection.pipedreamSlug}</div>
-          <div class="connection-status-meta">${isConnected ? "Connected" + (app.connection.healthy === false ? " (unhealthy)" : "") : "Not connected"}</div>
+          <div class="connection-status-meta">Connected${app.connection.healthy === false ? " (unhealthy)" : ""}</div>
         </div>
-        ${isConnected
-          ? `<button class="action-btn danger" id="app-conn-disconnect" style="height:28px;font-size:12px;">Disconnect</button>`
-          : `<button class="action-btn primary" id="app-conn-connect" style="height:28px;font-size:12px;">Connect</button>`}
+        <button class="action-btn danger" id="app-conn-disconnect" style="height:28px;font-size:12px;">Disconnect</button>
       </div>`;
 
-    if (isConnected) {
-      document.getElementById("app-conn-disconnect")?.addEventListener("click", async () => {
-        if (!app.connection?.accountId) return;
-        await window.yo.connectorsDisconnect(app.connection.accountId);
-        const apps = await window.yo.appsList();
-        reloadPanelApps(apps);
-        loadConnectionTab();
-      });
-    } else {
-      document.getElementById("app-conn-connect")?.addEventListener("click", async () => {
-        const btn = document.getElementById("app-conn-connect") as HTMLButtonElement;
-        btn.disabled = true;
-        btn.textContent = "Connecting...";
-        const result = await window.yo.connectorsConnect(app.connection!.pipedreamSlug);
-        if (!result.ok) {
-          btn.disabled = false;
-          btn.textContent = "Connect";
-          statusEl.querySelector(".connection-status-meta")!.textContent = result.error || "Connection failed";
-          return;
-        }
-        const apps = await window.yo.appsList();
-        reloadPanelApps(apps);
-        loadConnectionTab();
-      });
-    }
+    document.getElementById("app-conn-disconnect")?.addEventListener("click", async () => {
+      if (!app.connection?.accountId) return;
+      const btn = document.getElementById("app-conn-disconnect") as HTMLButtonElement;
+      btn.disabled = true;
+      btn.textContent = "Disconnecting...";
+      await window.yo.connectorsDisconnect(app.connection.accountId);
+      // Also remove the connection from the app so it clears properly
+      await window.yo.appsRemoveConnection(app.id);
+      const apps = await window.yo.appsList();
+      reloadPanelApps(apps);
+      loadConnectionTab();
+    });
   } else {
+    // Not connected — show browse grid to pick an app
     statusEl.innerHTML = "";
+    browseEl.classList.remove("hidden");
+    connectorSearchOffset = 0;
+    loadConnectorGrid();
   }
 
   // Right: tools for this app's connection
   toolsEl.innerHTML = "";
   noToolsEl.classList.add("hidden");
-  if (app.connection?.accountId) {
+  if (isConnected && app.connection?.pipedreamSlug) {
     await loadConnectionTools(app.connection.pipedreamSlug);
   } else {
     noToolsEl.textContent = "Connect an app to see its tools.";
     noToolsEl.classList.remove("hidden");
   }
-
-  // Left: connector grid for browsing
-  connectorSearchOffset = 0;
-  loadConnectorGrid();
 }
 
 async function loadConnectionTools(appSlug: string) {
@@ -1974,14 +1963,21 @@ async function loadConnectorGrid(search?: string) {
       card.addEventListener("click", async () => {
         const nameEl = card.querySelector(".connector-card-name")!;
         nameEl.textContent = "Connecting...";
+        // Set the pipedream slug on the current app FIRST so syncAccountsToApps can find it
+        const currentApp = panelApps.find((a) => a.id === currentAppId);
+        if (currentApp) {
+          await window.yo.appsSetConnection(currentApp.id, app.id);
+        }
         const result = await window.yo.connectorsConnect(app.id);
         if (!result.ok) {
           nameEl.textContent = result.error || "Connection failed";
+          // Remove the connection we just set since connect failed
+          if (currentApp) await window.yo.appsRemoveConnection(currentApp.id);
           setTimeout(() => { nameEl.textContent = app.name; }, 3000);
           return;
         }
         const allApps = await window.yo.appsList();
-        panelApps = allApps.map((a) => ({ id: a.id, name: a.name, url: a.url, connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord, commands: a.commands, connection: a.connection, mcp: a.mcp }));
+        reloadPanelApps(allApps);
         loadConnectionTab();
       });
       grid.appendChild(card);
