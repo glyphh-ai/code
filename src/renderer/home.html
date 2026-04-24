@@ -13,8 +13,10 @@
     #help-overlay { position: absolute !important; inset: 0 !important; display: block !important; background: var(--bg); }
     #help-layout { position: absolute; inset: 0; }
   </style>
-  <script src="monaco/loader.js"></script>
+  <!-- Chart.js must load BEFORE Monaco's AMD loader, otherwise Chart's UMD wrapper
+       registers as an AMD module instead of attaching to window.Chart. -->
   <script src="chart.umd.min.js"></script>
+  <script src="monaco/loader.js"></script>
   <script>
     // Apply theme synchronously before anything renders (avoids flash).
     // Reads from localStorage which the main renderer keeps in sync.
