@@ -129,6 +129,8 @@ export function openHelp() {
   setTimeout(() => { helpTransitioning = false; }, 300);
   window.yo.panelsHide();
   overlay.classList.remove("hidden");
+  // Refresh auth so tier gates reflect any recent upgrade
+  window.yo.refreshAuth().catch(() => {});
   loadActiveSection();
 }
 
