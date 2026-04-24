@@ -228,8 +228,10 @@ export class ConnectorManager extends EventEmitter {
         resolved = true;
 
         if (success) {
-          await this.getAccounts();
-          await this.refreshMcp();
+          const accounts = await this.getAccounts();
+          console.log(`[connectors] After OAuth, accounts:`, accounts.map(a => `${a.appSlug} (${a.id})`));
+          const mcpResult = await this.refreshMcp();
+          console.log(`[connectors] After OAuth, refreshMcp:`, mcpResult);
           this.emit("changed");
         }
 
@@ -305,6 +307,8 @@ export class ConnectorManager extends EventEmitter {
         apps?: Array<{ slug: string; mcpUrl: string }>;
         error?: string;
       }>("/api/connectors/mcp-endpoint");
+
+      console.log(`[connectors] mcp-endpoint response:`, JSON.stringify({ ok: res.ok, hasAccounts: res.hasAccounts, appsCount: res.apps?.length, error: res.error }));
 
       if (!res.ok) {
         this.removePipedreamServers();

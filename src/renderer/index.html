@@ -769,6 +769,7 @@
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
           <p class="section-desc">Prompt templates for .sup processing.</p>
+          <div id="skills-limit-msg" class="hidden" style="padding:4px 0 8px;font-size:13px;color:var(--text-2);">You've reached the free plan limit of 5 skills. <a id="skills-upgrade-link" href="#" style="color:var(--accent);">Upgrade</a> to add more.</div>
           <div id="skills-toolbar" class="crud-toolbar">
             <input id="skill-search" type="text" class="crud-search" placeholder="Search skills..." spellcheck="false" autocomplete="off" />
             <button id="skill-new-btn" class="action-btn primary">+ New</button>
@@ -809,6 +810,7 @@
         <div class="help-section" data-section="layouts">
           <h2>Layouts</h2>
           <p class="section-desc">Custom panel arrangements. Use <code>.dip &lt;name&gt;</code> to activate.</p>
+          <div id="layouts-limit-msg" class="hidden" style="padding:4px 0 8px;font-size:13px;color:var(--text-2);">You've reached the free plan limit of 5 layouts. <a id="layouts-upgrade-link" href="#" style="color:var(--accent);">Upgrade</a> to add more.</div>
           <div id="layouts-toolbar" class="crud-toolbar">
             <input id="layout-search" type="text" class="crud-search" placeholder="Search layouts..." spellcheck="false" autocomplete="off" />
             <button id="layout-new-btn" class="action-btn primary">+ New</button>
@@ -855,6 +857,10 @@
         <div class="help-section" data-section="drips">
           <h2>Drips</h2>
           <p class="section-desc">Custom effect presets. Use <code>.drip &lt;name&gt;</code> to play.</p>
+          <div id="drips-upgrade-gate" class="hidden" style="padding:24px 0;">
+            <p style="color:var(--text-2);font-size:14px;margin:0 0 12px;">Custom drips require a Basic or Advanced subscription.</p>
+            <button id="drips-upgrade-btn" class="action-btn primary">Upgrade to Basic</button>
+          </div>
           <div id="drips-toolbar" class="crud-toolbar">
             <input id="drip-search" type="text" class="crud-search" placeholder="Search drips..." spellcheck="false" autocomplete="off" />
             <button id="drip-new-btn" class="action-btn primary">+ New</button>
@@ -910,6 +916,7 @@
             <button id="apps-upgrade-btn" class="action-btn primary">Upgrade to Advanced</button>
           </div>
 
+          <div id="apps-limit-msg" class="hidden" style="padding:4px 0 8px;font-size:13px;color:var(--text-2);">You've reached the free plan limit of 10 apps. <a id="apps-upgrade-link" href="#" style="color:var(--accent);">Upgrade</a> to add more.</div>
           <div id="apps-toolbar" class="crud-toolbar">
             <input id="app-search" type="text" class="crud-search" placeholder="Search apps..." spellcheck="false" autocomplete="off" />
             <div class="apps-add-dropdown">
@@ -1089,6 +1096,10 @@
 
                 <!-- Connection left -->
                 <div class="app-tab-left" data-tab="connection">
+                  <div id="connection-upgrade-gate" class="hidden" style="text-align:center;padding:40px 16px;">
+                    <p style="color:var(--text-2);font-size:14px;margin:0 0 12px;">App connections require an Advanced subscription.</p>
+                    <button class="action-btn primary tab-upgrade-btn">Upgrade to Advanced</button>
+                  </div>
                   <div id="app-connection-status"></div>
                   <div id="app-connected-list"></div>
                   <div class="connection-browse">
@@ -1100,6 +1111,10 @@
 
                 <!-- MCP left -->
                 <div class="app-tab-left" data-tab="mcp">
+                  <div id="mcp-tab-upgrade-gate" class="hidden" style="text-align:center;padding:40px 16px;">
+                    <p style="color:var(--text-2);font-size:14px;margin:0 0 12px;">MCP servers require an Advanced subscription.</p>
+                    <button class="action-btn primary tab-upgrade-btn">Upgrade to Advanced</button>
+                  </div>
                   <div id="app-mcp-status-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
                     <span id="app-mcp-status" class="mcp-status-badge status-disconnected">disconnected</span>
                     <div style="flex:1;"></div>

@@ -1295,6 +1295,24 @@ async function loadLayouts() {
   layoutEditor.classList.add("hidden");
   layoutFormError.classList.add("hidden");
   allLayouts = await window.yo.layoutsList();
+
+  // Check layout limit for free tier
+  const limitMsg = document.getElementById("layouts-limit-msg")!;
+  const newBtn = document.getElementById("layout-new-btn") as HTMLButtonElement;
+  try {
+    const auth = await window.yo.getAuthStatus();
+    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && allLayouts.length >= 5;
+    limitMsg.classList.toggle("hidden", !atLimit);
+    newBtn.disabled = atLimit;
+    if (atLimit) {
+      document.getElementById("layouts-upgrade-link")!.onclick = (e) => {
+        e.preventDefault();
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+    }
+  } catch { /* fall through */ }
+
   renderLayoutsList();
 }
 
@@ -1500,25 +1518,7 @@ async function loadApps() {
   appAddForm.classList.add("hidden");
   mcpAddForm.classList.add("hidden");
 
-  const proGate = document.getElementById("apps-pro-gate")!;
-
-  // Gate: app connections require Advanced tier
-  try {
-    const auth = await window.yo.getAuthStatus();
-    if (auth.tier !== "advanced") {
-      proGate.classList.remove("hidden");
-      appsList.classList.add("hidden");
-      appsToolbar.classList.add("hidden");
-      // Wire upgrade button
-      const upgradeBtn = document.getElementById("apps-upgrade-btn");
-      if (upgradeBtn) {
-        upgradeBtn.onclick = () => window.yo.openExternal(window.yo.platformUrl);
-      }
-      return;
-    }
-  } catch { /* fall through to normal load */ }
-
-  proGate.classList.add("hidden");
+  document.getElementById("apps-pro-gate")!.classList.add("hidden");
   appsList.classList.remove("hidden");
   appsToolbar.classList.remove("hidden");
 
@@ -1530,6 +1530,24 @@ async function loadApps() {
       commands: a.commands, connection: a.connection, mcp: a.mcp,
     }));
   } catch { panelApps = []; }
+
+  // Check app limit for free tier
+  const appsLimitMsg = document.getElementById("apps-limit-msg")!;
+  const appsAddBtn = document.getElementById("apps-add-btn") as HTMLButtonElement;
+  try {
+    const auth = await window.yo.getAuthStatus();
+    const userApps = panelApps.filter(a => a.url && !a.url.startsWith("yo://"));
+    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && userApps.length >= 10;
+    appsLimitMsg.classList.toggle("hidden", !atLimit);
+    appsAddBtn.disabled = atLimit;
+    if (atLimit) {
+      document.getElementById("apps-upgrade-link")!.onclick = (e) => {
+        e.preventDefault();
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+    }
+  } catch { /* fall through */ }
 
   renderAppsList();
 }
@@ -1825,11 +1843,31 @@ async function loadConnectionTab() {
   const app = panelApps.find((a) => a.id === currentAppId);
   if (!app) return;
 
+  const gate = document.getElementById("connection-upgrade-gate")!;
   const statusEl = document.getElementById("app-connection-status")!;
   const listEl = document.getElementById("app-connected-list")!;
   const toolsEl = document.getElementById("app-connection-tools")!;
   const noToolsEl = document.getElementById("app-connection-no-tools")!;
   const browseEl = document.querySelector<HTMLElement>(".connection-browse")!;
+
+  // Gate behind Advanced tier
+  try {
+    const auth = await window.yo.getAuthStatus();
+    if (auth.tier !== "advanced") {
+      gate.classList.remove("hidden");
+      statusEl.innerHTML = "";
+      listEl.innerHTML = "";
+      browseEl.classList.add("hidden");
+      toolsEl.innerHTML = "";
+      noToolsEl.classList.add("hidden");
+      gate.querySelector<HTMLButtonElement>(".tab-upgrade-btn")!.onclick = () => {
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+      return;
+    }
+  } catch { /* fall through */ }
+  gate.classList.add("hidden");
 
   // Left: this app's connection
   listEl.innerHTML = "";
@@ -1885,22 +1923,28 @@ async function loadConnectionTools(appSlug: string) {
   toolsEl.innerHTML = "";
 
   const servers = await window.yo.mcpGetServers();
+  const targetId = `pipedream-connect-${appSlug}`;
   // Find the per-app pipedream server (e.g. pipedream-connect-gmail)
-  const pdServer = servers.find((s) => s.config.id === `pipedream-connect-${appSlug}`);
+  const pdServer = servers.find((s) => s.config.id === targetId);
 
   if (!pdServer) {
     noToolsEl.textContent = "Connecting to Pipedream...";
     noToolsEl.classList.remove("hidden");
+    console.log(`[connection-tools] No server "${targetId}" found. Available:`, servers.map(s => s.config.id));
 
     try {
-      await window.yo.connectorsRefreshMcp();
+      const refreshResult = await window.yo.connectorsRefreshMcp();
+      console.log("[connection-tools] refreshMcp result:", refreshResult);
       const retryServers = await window.yo.mcpGetServers();
-      const retryPd = retryServers.find((s) => s.config.id === `pipedream-connect-${appSlug}`);
+      console.log("[connection-tools] After refresh, servers:", retryServers.map(s => `${s.config.id} (${s.status}, ${s.tools.length} tools)`));
+      const retryPd = retryServers.find((s) => s.config.id === targetId);
       if (retryPd) {
         noToolsEl.classList.add("hidden");
         return loadConnectionTools(appSlug);
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error("[connection-tools] refreshMcp error:", err);
+    }
     noToolsEl.textContent = "Pipedream tools not available for this app.";
     return;
   }
@@ -1994,6 +2038,34 @@ async function loadConnectorGrid(search?: string) {
 async function loadMcpTab() {
   const app = panelApps.find((a) => a.id === currentAppId);
   if (!app) return;
+
+  const mcpGate = document.getElementById("mcp-tab-upgrade-gate")!;
+  const statusRow = document.getElementById("app-mcp-status-row")!;
+
+  // Gate behind Advanced tier
+  try {
+    const auth = await window.yo.getAuthStatus();
+    if (auth.tier !== "advanced") {
+      mcpGate.classList.remove("hidden");
+      statusRow.classList.add("hidden");
+      // Hide all MCP form fields
+      document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
+        if (el.id !== "mcp-tab-upgrade-gate") el.classList.add("hidden");
+      });
+      document.getElementById("app-mcp-tools-table")?.classList.add("hidden");
+      document.getElementById("app-mcp-no-tools")?.classList.add("hidden");
+      mcpGate.querySelector<HTMLButtonElement>(".tab-upgrade-btn")!.onclick = () => {
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+      return;
+    }
+  } catch { /* fall through */ }
+  mcpGate.classList.add("hidden");
+  // Restore visibility of MCP form fields
+  document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
+    el.classList.remove("hidden");
+  });
 
   const statusBadge = document.getElementById("app-mcp-status")!;
   const connectBtn = document.getElementById("app-mcp-connect") as HTMLButtonElement;
@@ -3034,7 +3106,10 @@ async function loadSettings() {
     mcpProGate.classList.remove("hidden");
     const mcpUpgradeBtn = document.getElementById("mcp-upgrade-btn");
     if (mcpUpgradeBtn) {
-      mcpUpgradeBtn.onclick = () => window.yo.openExternal(window.yo.platformUrl);
+      mcpUpgradeBtn.onclick = () => {
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
     }
   } else {
     mcpSectionWrap.classList.remove("hidden");
@@ -3191,6 +3266,24 @@ async function loadSkills() {
   skillEditor.classList.add("hidden");
   skillFormError.classList.add("hidden");
   allSkills = await window.yo.skillsList();
+
+  // Check skill limit for free tier
+  const limitMsg = document.getElementById("skills-limit-msg")!;
+  const newBtn = document.getElementById("skill-new-btn") as HTMLButtonElement;
+  try {
+    const auth = await window.yo.getAuthStatus();
+    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && allSkills.length >= 5;
+    limitMsg.classList.toggle("hidden", !atLimit);
+    newBtn.disabled = atLimit;
+    if (atLimit) {
+      document.getElementById("skills-upgrade-link")!.onclick = (e) => {
+        e.preventDefault();
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+    }
+  } catch { /* fall through */ }
+
   renderSkillsList();
 }
 
@@ -3417,6 +3510,28 @@ function parseRecipeIntoBuilder(recipe: string) {
 async function loadDrips() {
   dripEditor.classList.add("hidden");
   dripFormError.classList.add("hidden");
+
+  const dripsGate = document.getElementById("drips-upgrade-gate")!;
+
+  // Custom drips require Basic or Advanced
+  try {
+    const auth = await window.yo.getAuthStatus();
+    if (auth.tier !== "basic" && auth.tier !== "advanced") {
+      dripsGate.classList.remove("hidden");
+      dripsToolbar.classList.add("hidden");
+      dripsListEl.classList.add("hidden");
+      document.getElementById("drips-upgrade-btn")!.onclick = () => {
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+      return;
+    }
+  } catch { /* fall through */ }
+
+  dripsGate.classList.add("hidden");
+  dripsToolbar.classList.remove("hidden");
+  dripsListEl.classList.remove("hidden");
+
   if (builtinEffects.length === 0) {
     builtinEffects = await window.yo.dripsBuiltinEffects();
   }
