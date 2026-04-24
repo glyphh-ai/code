@@ -2957,7 +2957,7 @@ function initSettings() {
   // Copy new token
   document.getElementById("mcp-expose-copy-token")!.addEventListener("click", () => {
     const val = document.getElementById("mcp-expose-new-token-value")!.textContent || "";
-    navigator.clipboard.writeText(val);
+    window.yo.copyToClipboard(val);
     const btn = document.getElementById("mcp-expose-copy-token") as HTMLButtonElement;
     btn.textContent = "Copied";
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
@@ -2966,7 +2966,7 @@ function initSettings() {
   // Copy config example
   document.getElementById("mcp-expose-copy-config")!.addEventListener("click", () => {
     const val = document.getElementById("mcp-expose-config-example")!.textContent || "";
-    navigator.clipboard.writeText(val);
+    window.yo.copyToClipboard(val);
     const btn = document.getElementById("mcp-expose-copy-config") as HTMLButtonElement;
     btn.textContent = "Copied";
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);

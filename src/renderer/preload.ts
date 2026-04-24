@@ -2,9 +2,10 @@
  * Preload script — exposes IPC to the renderer safely.
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, clipboard } from "electron";
 
 contextBridge.exposeInMainWorld("yo", {
+  copyToClipboard: (text: string) => clipboard.writeText(text),
   windowClose: () => ipcRenderer.send("window-close"),
   windowMinimize: () => ipcRenderer.send("window-minimize"),
   windowMaximize: () => ipcRenderer.send("window-maximize"),

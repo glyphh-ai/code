@@ -14,6 +14,7 @@ type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: st
 declare global {
   interface Window {
     yo: {
+      copyToClipboard: (text: string) => void;
       windowClose: () => void;
       windowMinimize: () => void;
       windowMaximize: () => void;
@@ -1576,8 +1577,8 @@ function finalizeYoMessage(fullText: string) {
         document.body.removeChild(ta);
       };
       try {
-        if (navigator.clipboard?.writeText) {
-          navigator.clipboard.writeText(text).then(null, doCopy);
+        if (window.yo.copyToClipboard) {
+          window.yo.copyToClipboard(text);
         } else {
           doCopy();
         }
@@ -1783,11 +1784,10 @@ function attachCopyHandlers(container: HTMLElement) {
       if (!codeId) return;
       const block = container.querySelector(`.yo-md-codeblock[data-code-id="${codeId}"] code`);
       if (!block) return;
-      navigator.clipboard.writeText(block.textContent || "").then(() => {
-        btn.textContent = "Copied";
-        btn.classList.add("yo-copied");
-        setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("yo-copied"); }, 2000);
-      });
+      window.yo.copyToClipboard(block.textContent || "");
+      btn.textContent = "Copied";
+      btn.classList.add("yo-copied");
+      setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("yo-copied"); }, 2000);
     });
   });
   // Links open externally instead of navigating the panel
