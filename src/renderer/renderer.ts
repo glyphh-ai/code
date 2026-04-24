@@ -518,11 +518,14 @@ window.yo.onUrlUpdate((info: { url: string; favicon: string; canGoBack?: boolean
   urlBarForward.disabled = !info.canGoForward;
 });
 
-// -- Cmd+. command overlay --
+// -- Cmd+. opens yo agent panel --
 
-// focus-command-input from main → open command palette
+// focus-command-input from main → open agent panel
 window.yo.onFocusInput(() => {
-  window.yo.cmdPaletteOpen();
+  if (!isYoPanelOpen()) {
+    window.yo.yoPanelOpen("");
+    openYoPanel("");
+  }
 });
 
 
@@ -538,14 +541,8 @@ document.addEventListener("keydown", (e) => {
     else if (isHelpOpen()) closeHelp();
   }
 
-  // Cmd+. — always open command palette
-  if (e.key === "." && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
-    e.preventDefault();
-    window.yo.cmdPaletteOpen();
-  }
-
-  // Cmd+> (Cmd+Shift+.) — toggle yo agent panel
-  if ((e.key === ">" || (e.key === "." && e.shiftKey)) && (e.metaKey || e.ctrlKey)) {
+  // Cmd+. — toggle yo agent panel
+  if (e.key === "." && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (isYoPanelOpen()) {
       window.yo.yoPanelDismiss();

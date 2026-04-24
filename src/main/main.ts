@@ -1523,11 +1523,8 @@ async function boot() {
 
   // IPC: Command palette — toggle the injected overlay on the active panel
   ipcMain.on("cmd-palette-open", () => {
-    const wc = panelManager.activeWebContents;
-    if (wc && !wc.isDestroyed()) {
-      wc.focus();
-      wc.executeJavaScript("if(window.__yoTogglePop)window.__yoTogglePop()").catch(() => {});
-    }
+    // Cmd+. now opens the yo agent panel
+    mainWindow?.webContents.send("yo-panel-open", "");
   });
 
   // IPC: Yo panel commands — route through command parser
