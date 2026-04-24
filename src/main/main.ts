@@ -257,15 +257,18 @@ async function boot() {
   // MCP expose — read-only server for external LLM tools (Advanced tier)
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
+  // Auto-start MCP server if it was running when the app last closed.
+  // Skip tier check here — heartbeat hasn't been fetched yet at boot.
+  // The user had the right tier when they enabled it; if they've since
+  // downgraded, the heartbeat will catch it and the UI will gate.
   const mcpWasRunning = getPreference<boolean>("mcpExposeRunning", false);
-  const mcpEnabled = getPreference<boolean>("mcpExposeEnabled", false);
-  if ((mcpEnabled || mcpWasRunning) && canUseMcp().allowed) {
+  if (mcpWasRunning) {
     mcpExpose.start().then((r) => {
       if (r.ok) {
-        setPreference("mcpExposeEnabled", true);
-        setPreference("mcpExposeRunning", true);
+        console.log("[mcp-expose] auto-started on launch");
       } else {
-        console.error("[mcp-expose] failed to start:", r.error);
+        console.error("[mcp-expose] failed to auto-start:", r.error);
+        setPreference("mcpExposeRunning", false);
       }
     });
   }
