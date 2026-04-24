@@ -1905,6 +1905,8 @@ async function loadConnectionTab() {
     statusEl.innerHTML = "";
     browseEl.classList.remove("hidden");
     connectorSearchOffset = 0;
+    const searchInput = document.getElementById("app-connector-search") as HTMLInputElement;
+    if (searchInput) searchInput.value = "";
     loadConnectorGrid();
   }
 

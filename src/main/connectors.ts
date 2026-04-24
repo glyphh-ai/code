@@ -14,7 +14,7 @@
 
 import { BrowserWindow, shell } from "electron";
 import { EventEmitter } from "events";
-import { serverPostAuthed, serverGetAuthed, getAccountInfo } from "./auth";
+import { serverPostAuthed, serverGetAuthed, getAccountInfo, getHeartbeatInfo } from "./auth";
 import type { McpManager } from "./mcp-manager";
 import type { AppConnector } from "./app-connector";
 
@@ -84,6 +84,8 @@ export class ConnectorManager extends EventEmitter {
   // ── Tier gate ─────────────────────────────────────────
 
   isPro(): boolean {
+    const hb = getHeartbeatInfo();
+    if (hb) return hb.tier === "advanced";
     const account = getAccountInfo();
     return account?.tier === "advanced";
   }
