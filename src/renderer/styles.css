@@ -795,21 +795,13 @@ body {
   min-width: 0;
   width: auto;
 }
-.tab-home-logo {
-  font-size: 14px;
-  font-weight: 700;
-  color: inherit;          /* picks up .tab color, theme-aware */
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  line-height: 1;
+.tab-home-icon {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  color: inherit;
+  flex-shrink: 0;
 }
-.tab-home-dot {
-  color: var(--accent);
-  margin-right: 1px;
-}
-/* When pinned home tab is active, .tab-active sets color:#000;
-   the dot stays accent-colored, the rest inherits #000 — readable on accent bg. */
 
 /* ── Tab drag & drop visuals ─────────────────────────────── */
 .tab[draggable="true"] { cursor: grab; }

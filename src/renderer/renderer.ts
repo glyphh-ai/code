@@ -348,12 +348,12 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
     el.className = "tab" + (tab.id === activeId ? " tab-active" : "") + (tab.pinned ? " tab-pinned" : "");
     el.dataset.id = tab.id;
 
-    // Home gets the .Yo logo instead of a favicon
+    // Home gets a home icon + "Home" label
     if (tab.id === "home") {
-      const logo = document.createElement("span");
-      logo.className = "tab-home-logo";
-      logo.innerHTML = '<span class="tab-home-dot">.</span>Yo';
-      el.appendChild(logo);
+      const icon = document.createElement("span");
+      icon.className = "tab-home-icon";
+      icon.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>';
+      el.appendChild(icon);
     } else if (tab.layoutFavicons && tab.layoutFavicons.length > 0) {
       const stack = document.createElement("span");
       stack.className = "tab-favicon-stack";
@@ -379,8 +379,8 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
       el.appendChild(favicon);
     }
 
-    // Label (home only shows the logo, no label text)
-    if (tab.id !== "home") {
+    // Label
+    {
       const label = document.createElement("span");
       label.className = "tab-label";
       label.textContent = tab.name;
