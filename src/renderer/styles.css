@@ -1038,9 +1038,7 @@ body {
 }
 
 .skill-code-widget {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 0;
+  display: flex;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
@@ -1051,6 +1049,23 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  width: 200px;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+.skill-tree-resize {
+  flex: 0 0 4px;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background 0.1s;
+}
+.skill-tree-resize:hover,
+.skill-tree-resize.dragging {
+  background: var(--accent);
+}
+.skill-code-monaco {
+  flex: 1;
+  min-width: 0;
 }
 .skill-code-tree-header {
   display: flex;
@@ -1062,6 +1077,14 @@ body {
   font-size: 11px;
   color: var(--text-2);
   font-family: var(--font-mono);
+  min-width: 0;
+}
+#skill-editor-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .skill-tree-actions {
   display: flex;
@@ -1084,11 +1107,7 @@ body {
   background: var(--hover);
   color: var(--text);
 }
-.skill-code-monaco {
-  min-height: 0;
-  min-width: 0;
-  background: #1e1e1e;
-}
+.skill-code-monaco { background: #1e1e1e; }
 
 /* File tree items with subfolder indent support */
 .skill-file-list {

@@ -471,6 +471,7 @@ export function initHelp() {
     (document.getElementById("skill-upload-input") as HTMLInputElement).click();
   });
   document.getElementById("skill-upload-input")!.addEventListener("change", uploadSkillFiles);
+  initSkillTreeResize();
   // Drag-and-drop .yo import onto the skills list
   skillsListEl.addEventListener("dragover", (e) => { e.preventDefault(); });
   skillsListEl.addEventListener("drop", async (e) => {
@@ -3377,15 +3378,72 @@ function ensureMonaco(): Promise<void> {
   return monacoReady;
 }
 
+function initSkillTreeResize() {
+  const handle = document.getElementById("skill-tree-resize");
+  const tree = document.getElementById("skill-code-tree");
+  if (!handle || !tree) return;
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  // Restore saved width
+  window.yo.getPreference?.("skillTreeWidth", 200).then((w) => {
+    const num = typeof w === "number" ? w : 200;
+    tree.style.width = `${Math.max(120, Math.min(500, num))}px`;
+  }).catch(() => {});
+
+  handle.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startWidth = tree.getBoundingClientRect().width;
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const next = Math.max(120, Math.min(500, startWidth + (e.clientX - startX)));
+    tree.style.width = `${next}px`;
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    const w = tree.getBoundingClientRect().width;
+    window.yo.setPreference?.("skillTreeWidth", w);
+  });
+}
+
 function languageForFile(relPath: string): string {
-  if (relPath.endsWith(".js") || relPath.endsWith(".mjs") || relPath.endsWith(".cjs")) return "javascript";
-  if (relPath.endsWith(".ts")) return "typescript";
-  if (relPath.endsWith(".json")) return "json";
-  if (relPath.endsWith(".md") || relPath.endsWith(".markdown")) return "markdown";
-  if (relPath.endsWith(".yaml") || relPath.endsWith(".yml")) return "yaml";
-  if (relPath.endsWith(".html")) return "html";
-  if (relPath.endsWith(".css")) return "css";
-  return "plaintext";
+  const lower = relPath.toLowerCase();
+  const ext = lower.includes(".") ? lower.slice(lower.lastIndexOf(".") + 1) : "";
+  // Special filenames
+  if (lower.endsWith("dockerfile") || lower === "dockerfile") return "dockerfile";
+  if (lower.endsWith("makefile") || lower === "makefile") return "makefile";
+  if (lower.endsWith(".gitignore") || lower.endsWith(".env") || lower.endsWith(".keep")) return "plaintext";
+  // Map extensions to Monaco language IDs
+  const map: Record<string, string> = {
+    js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
+    ts: "typescript", tsx: "typescript",
+    json: "json", json5: "json",
+    md: "markdown", markdown: "markdown", mdx: "markdown",
+    yaml: "yaml", yml: "yaml",
+    html: "html", htm: "html",
+    css: "css", scss: "scss", less: "less",
+    sh: "shell", bash: "shell", zsh: "shell", fish: "shell",
+    py: "python", rb: "ruby", go: "go", rs: "rust",
+    java: "java", kt: "kotlin", swift: "swift",
+    c: "c", h: "c", cpp: "cpp", cc: "cpp", hpp: "cpp", cxx: "cpp",
+    cs: "csharp", php: "php",
+    sql: "sql", graphql: "graphql", gql: "graphql",
+    xml: "xml", svg: "xml",
+    toml: "ini", ini: "ini",
+    txt: "plaintext", log: "plaintext",
+  };
+  return map[ext] || "plaintext";
 }
 
 async function loadSkills() {
