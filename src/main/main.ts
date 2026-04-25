@@ -17,7 +17,7 @@ import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
-import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig } from "./llm-config";
+import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig, createCompletion } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { canAddApp, canCreateSkill, canSaveLayout, canUseMcp, canUseSync, canUseVoice, getCurrentLimits } from "./entitlements";
@@ -49,7 +49,16 @@ import { DripManager } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
-import { setRunnerDependencies } from "./skill-runner";
+import { setRunnerDependencies, setSubstrateBudgetOpts } from "./skill-runner";
+import {
+  setContextDeps as setSubstrateContextDeps,
+  setRecallDeps as setSubstrateRecallDeps,
+  setIntentDeps as setSubstrateIntentDeps,
+  setAppDeps as setSubstrateAppDeps,
+  setComposeDeps as setSubstrateComposeDeps,
+  setCritiqueDeps as setSubstrateCritiqueDeps,
+  setRememberOpts as setSubstrateRememberOpts,
+} from "./substrate";
 import { TOOLS as YO_AGENT_TOOLS } from "./yo-agent";
 
 
@@ -319,6 +328,70 @@ async function boot() {
   });
   skillScheduler = new SkillScheduler(skillEngine);
   skillScheduler.start();
+
+  // ── Substrate (autonomic primitives) ──────────────────────
+  // sense.context: panel + app awareness
+  setSubstrateContextDeps({
+    getActivePanelId: () => panelManager.activePanelId,
+    getAppName: (id: string) => appConnector.get(id)?.name ?? null,
+    getRecentCaptures: (limit) => {
+      try {
+        return captureStore.recentCaptures(limit).map((c) => ({
+          id: c.meta.id, source: c.meta.source, preview: (c.content || "").slice(0, 200), at: c.meta.created,
+        }));
+      } catch { return []; }
+    },
+  });
+  // sense.recall: vector search via captureStore
+  setSubstrateRecallDeps({
+    vectorSearch: async (query, limit) => {
+      try {
+        const results = await captureStore.search(query, limit);
+        return results.map((r) => ({ id: r.meta.id, preview: (r.content || "").slice(0, 200), score: r.score }));
+      } catch { return []; }
+    },
+  });
+  // sense.intent + think.critique: small LLM helper
+  const substrateLlm = async (prompt: string): Promise<string> => {
+    if (!llmConfig?.apiKey) return "";
+    try {
+      const response = await createCompletion(llmConfig, {
+        system: "",
+        messages: [{ role: "user", content: prompt }],
+        maxTokens: 256,
+      });
+      const block = response.content[0];
+      return block.type === "text" ? block.text : "";
+    } catch { return ""; }
+  };
+  setSubstrateIntentDeps({ llm: substrateLlm });
+  setSubstrateCritiqueDeps({ llm: substrateLlm });
+  // sense.app: connected apps
+  setSubstrateAppDeps({
+    listConnectedApps: () => appConnector.list().map((a) => ({ id: a.id, name: a.name })),
+    getActivePanelId: () => panelManager.activePanelId,
+  });
+  // think.compose: skill registry
+  setSubstrateComposeDeps({
+    listSkills: () => skillEngine.listSkillsDetailed().map((s) => ({
+      name: s.name, description: s.description,
+    })),
+  });
+  // reflex.remember: pattern threshold + recognition callback
+  setSubstrateRememberOpts({
+    patternThreshold: 5,
+    onPatternRecognized: ({ intent, skill, count }) => {
+      console.log(`[substrate] pattern recognized: intent=${intent} skill=${skill} count=${count}`);
+      mainWindow?.webContents.send("substrate-pattern-recognized", { intent, skill, count });
+    },
+  });
+  // think.budget: tunable via preferences
+  setSubstrateBudgetOpts({
+    maxTokens: getPreference<number>("substrate.budget.maxTokens", 60_000),
+    maxToolCalls: getPreference<number>("substrate.budget.maxToolCalls", 20),
+    maxDepth: getPreference<number>("substrate.budget.maxDepth", 5),
+    maxDepthMs: getPreference<number>("substrate.budget.maxDepthMs", 120_000),
+  });
 
   // Pipedream Connectors — managed OAuth connections (Advanced tier)
   connectorManager = new ConnectorManager();

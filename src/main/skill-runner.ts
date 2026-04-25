@@ -29,10 +29,22 @@ import {
   SkillNotAllowedError,
   SkillError,
 } from "./skill-types";
+import {
+  inhale as substrateInhale,
+  exhale as substrateExhale,
+  reflex as substrateReflex,
+  BudgetTracker,
+  cancelable as substrateCancelable,
+  Intent,
+} from "./substrate";
 
 // Module-level registry so the engine and runner share dependencies
 let globalToolRouter: SkillToolRouter | null = null;
 let globalMcpManager: McpManager | null = null;
+let globalSubstrateBudgetOpts: { maxTokens?: number; maxToolCalls?: number; maxDepth?: number; maxDepthMs?: number } | null = null;
+export function setSubstrateBudgetOpts(o: typeof globalSubstrateBudgetOpts): void {
+  globalSubstrateBudgetOpts = o;
+}
 let globalLibraryRead: ((name: string) => string | null) | null = null;
 let globalLibraryWrite: ((name: string, content: string) => boolean) | null = null;
 
@@ -151,6 +163,19 @@ export async function runSkillLifecycle(
   const logs: string[] = [];
   const allowedTools = skill.manifest["allowed-tools"] ?? [];
   const requires = skill.manifest.requires ?? [];
+
+  // ── SUBSTRATE: inhale (only at the top of a run, not for nested skill calls) ──
+  let substrateBudget: BudgetTracker | null = null;
+  let substrateIntent: Intent = "ask";
+  let substrateInhaleData: Awaited<ReturnType<typeof substrateInhale>> | null = null;
+  if (!opts.parentRunId) {
+    substrateBudget = new BudgetTracker(globalSubstrateBudgetOpts || undefined);
+    try {
+      const userMsg = typeof input === "string" ? input : JSON.stringify(input ?? "");
+      substrateInhaleData = await substrateInhale({ userMessage: userMsg, skillName: name, budget: substrateBudget });
+      substrateIntent = substrateInhaleData.intent;
+    } catch { /* non-fatal — substrate continues degraded */ }
+  }
 
   // Event root for this run (nested under parent event if called via ctx.skill)
   const rootEvent = startEvent(
@@ -420,6 +445,43 @@ export async function runSkillLifecycle(
         logs.push(`exit hook threw: ${exitErr instanceof Error ? exitErr.message : String(exitErr)}`);
       }
     }
+  }
+
+  // ── SUBSTRATE: exhale + reflex (only at the top of a run) ──
+  if (!opts.parentRunId) {
+    if (!errorMsg && output !== undefined) {
+      try {
+        const userMsg = typeof input === "string" ? input : JSON.stringify(input ?? "");
+        const exhaled = await substrateExhale({
+          output,
+          intent: substrateIntent,
+          userMessage: userMsg,
+          formatTarget: typeof output === "string" ? "auto" : "auto",
+          outputSpec: skill.manifest.outputs,
+          redactInjections: true,
+        });
+        output = exhaled.output;
+        for (const w of exhaled.sanitizeWarnings) logs.push(`[substrate] ${w}`);
+        if (!exhaled.critique.ok && exhaled.critique.issues) {
+          logs.push(`[substrate] critique: ${exhaled.critique.issues.join("; ")}`);
+        }
+      } catch (err) {
+        // Scope violation surfaces here — convert to error
+        errorMsg = err instanceof Error ? err.message : String(err);
+        reason = "error";
+      }
+    }
+    try {
+      substrateReflex({
+        intent: substrateIntent,
+        skillName: name,
+        chain: [name, ...(substrateInhaleData?.composed ?? [])],
+        outcome: errorMsg ? "error" : "success",
+        durationMs: Date.now() - runStartedAt,
+        input,
+        output,
+      });
+    } catch { /* non-fatal */ }
   }
 
   recordRun(engine, name, runId, runStartedAt, input, output, errorMsg, logs, emitter, opts);
