@@ -995,15 +995,40 @@ body {
   font-size: 13px;
 }
 /* ── Skill editor (folder-based) ──────────────────────────── */
-/* Follows the drips CRUD pattern. Embedded code widget has file tree
-   on the left and Monaco on the right. */
+/* Split layout: form on the left, file tree + Monaco on the right.
+   Override crud-inline-form's max-width cap so the right pane can breathe. */
+.skill-editor-split.crud-inline-form {
+  max-width: none !important;
+}
+.skill-split-body {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 16px;
+  margin-top: 10px;
+  min-height: 420px;
+}
+.skill-split-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: calc(100vh - 240px);
+}
+.skill-split-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.skill-split-right .skill-code-widget {
+  height: 100%;
+  min-height: 420px;
+}
+
 .skill-code-widget {
   display: grid;
   grid-template-columns: 180px 1fr;
   gap: 0;
-  height: 360px;
-  min-height: 280px;
-  max-height: 560px;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
