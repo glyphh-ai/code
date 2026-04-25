@@ -968,12 +968,20 @@ body {
   font-size: 13px;
 }
 /* ── Skill editor (folder-based) ──────────────────────────── */
-/* Skill editor uses the same split layout as App → Panel */
-.skill-editor-shell {
+/* Skill editor uses the same split layout as App → Panel.
+   Override crud-inline-form's max-width:620px so the right pane can breathe. */
+.skill-editor-shell.crud-inline-form {
+  max-width: none !important;
   display: flex !important;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  padding: 0;
+  gap: 0;
+}
+.skill-editor-shell > .crud-inline-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
 }
 .skill-builder-split {
   flex: 1;
@@ -981,6 +989,8 @@ body {
 }
 .skill-builder-split .app-builder-controls {
   width: 380px;
+  padding: 12px 16px;
+  overflow-y: auto;
 }
 .skill-builder-preview {
   flex: 1;
