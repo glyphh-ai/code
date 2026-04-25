@@ -362,9 +362,19 @@ async function boot() {
   nativeTheme.on("updated", () => {
     if (getPreference<string>("theme", "dark") !== "system") return;
     const resolved = nativeTheme.shouldUseDarkColors ? "dark" : "light";
-    yoInterceptor.setTheme(resolved);
-    mainWindow?.webContents.send("theme-changed", resolved);
+    broadcastTheme(resolved);
   });
+
+  // Helper: send theme to main window + all panel webContents (home, etc.)
+  function broadcastTheme(resolved: string) {
+    yoInterceptor.setTheme(resolved);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("theme-changed", resolved);
+    }
+    for (const wc of panelManager.getAllWebContents()) {
+      wc.send("theme-changed", resolved);
+    }
+  }
 
   panelManager = new PanelManager((id, wc) => {
     if (id === "term") {
@@ -2003,7 +2013,7 @@ async function boot() {
     setPreference("theme", theme);
     nativeTheme.themeSource = theme === "system" ? "system" : theme as "light" | "dark";
     const resolved = theme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : theme;
-    yoInterceptor.setTheme(resolved);
+    broadcastTheme(resolved);
   });
 
   // IPC: app command mapping (DOM picker)

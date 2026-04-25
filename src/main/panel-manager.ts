@@ -416,6 +416,17 @@ export class PanelManager {
     return view;
   }
 
+  /** Iterate over all live panel webContents (for broadcasting events) */
+  getAllWebContents(): WebContents[] {
+    const out: WebContents[] = [];
+    for (const view of this.panels.values()) {
+      if (view.webContents && !view.webContents.isDestroyed()) {
+        out.push(view.webContents);
+      }
+    }
+    return out;
+  }
+
   private getOrCreate(id: string, parent: BrowserWindow): BrowserView | null {
     // Store main window ref for download notifications
     if (!PanelManager.mainWebContents && !parent.isDestroyed()) {
