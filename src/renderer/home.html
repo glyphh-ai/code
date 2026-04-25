@@ -713,36 +713,48 @@
               <div class="crud-spacer"></div>
               <button id="skill-run" class="action-btn primary" title="Run skill">▶ Run</button>
               <button id="skill-export" class="action-btn" title="Export .yo bundle">Export</button>
-              <button id="skill-delete" class="action-btn danger">Delete</button>
             </div>
             <div id="skill-form-error" class="crud-form-error hidden"></div>
 
             <div class="skill-split-body">
-              <!-- LEFT: form fields -->
+              <!-- LEFT: form with Delete top-right, Cancel/Save bottom-right -->
               <div class="skill-split-left">
-                <label class="settings-label">Name</label>
-                <input type="text" id="skill-name" class="settings-input" placeholder="skill-name" spellcheck="false" autocomplete="off" />
+                <!-- Top-right Delete button -->
+                <div class="skill-left-topbar">
+                  <button id="skill-delete" class="action-btn danger">Delete</button>
+                </div>
 
-                <label class="settings-label">Description</label>
-                <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
+                <div class="skill-left-form">
+                  <label class="settings-label">Name</label>
+                  <input type="text" id="skill-name" class="settings-input" placeholder="skill-name" spellcheck="false" autocomplete="off" />
 
-                <label class="settings-label">Allowed tools <span style="color:var(--text-2);font-weight:400;">(one per line — yo.&lt;tool&gt; or &lt;app&gt;.&lt;tool&gt;)</span></label>
-                <textarea id="skill-allowed-tools" class="settings-input" rows="3" placeholder="yo.search_captures&#10;gmail.read_messages" spellcheck="false" style="font-family:var(--font-mono);font-size:12px;"></textarea>
+                  <label class="settings-label">Description</label>
+                  <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
 
-                <label class="settings-label">Requires <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
-                <input type="text" id="skill-requires" class="settings-input" placeholder="fetch-emails, summarize" spellcheck="false" />
+                  <label class="settings-label">Allowed tools <span style="color:var(--text-2);font-weight:400;">(one per line — yo.&lt;tool&gt; or &lt;app&gt;.&lt;tool&gt;)</span></label>
+                  <textarea id="skill-allowed-tools" class="settings-input" rows="3" placeholder="yo.search_captures&#10;gmail.read_messages" spellcheck="false" style="font-family:var(--font-mono);font-size:12px;"></textarea>
 
-                <label class="settings-label">Schedule <span style="color:var(--text-2);font-weight:400;">(cron or @hourly/@daily)</span></label>
-                <input type="text" id="skill-schedule" class="settings-input" placeholder="0 9 * * *" spellcheck="false" />
+                  <label class="settings-label">Requires <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
+                  <input type="text" id="skill-requires" class="settings-input" placeholder="fetch-emails, summarize" spellcheck="false" />
 
-                <button id="skill-generate" class="action-btn skill-generate-btn hidden" title="Generate prompt with AI" style="margin-top:4px;align-self:flex-start;">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
-                  Generate prompt from description
-                </button>
+                  <label class="settings-label">Schedule <span style="color:var(--text-2);font-weight:400;">(cron or @hourly/@daily)</span></label>
+                  <input type="text" id="skill-schedule" class="settings-input" placeholder="0 9 * * *" spellcheck="false" />
 
-                <label class="settings-label" style="margin-top:8px;">Recent runs</label>
-                <div id="skill-runs-list" class="skill-runs-list"></div>
-                <span id="skill-runs-count" style="color:var(--text-2);font-size:11px;display:none;"></span>
+                  <button id="skill-generate" class="action-btn skill-generate-btn hidden" title="Generate prompt with AI" style="margin-top:4px;align-self:flex-start;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
+                    Generate prompt from description
+                  </button>
+
+                  <label class="settings-label" style="margin-top:8px;">Recent runs</label>
+                  <div id="skill-runs-list" class="skill-runs-list"></div>
+                  <span id="skill-runs-count" style="color:var(--text-2);font-size:11px;display:none;"></span>
+                </div>
+
+                <!-- Bottom-right Cancel / Save -->
+                <div class="skill-left-footer">
+                  <button id="skill-cancel" class="action-btn">Cancel</button>
+                  <button id="skill-save" class="action-btn primary">Save</button>
+                </div>
               </div>
 
               <!-- RIGHT: file tree + Monaco -->
@@ -758,11 +770,6 @@
                   <div id="skill-monaco-container" class="skill-code-monaco"></div>
                 </div>
               </div>
-            </div>
-
-            <div class="settings-actions" style="margin-top:8px;">
-              <button id="skill-cancel" class="action-btn">Cancel</button>
-              <button id="skill-save" class="action-btn primary">Save</button>
             </div>
           </div>
 

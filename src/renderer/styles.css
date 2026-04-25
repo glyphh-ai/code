@@ -1010,9 +1010,28 @@ body {
 .skill-split-left {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+.skill-left-topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.skill-left-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   overflow-y: auto;
-  max-height: calc(100vh - 240px);
+  padding-right: 4px;
+}
+.skill-left-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
 }
 .skill-split-right {
   display: flex;
