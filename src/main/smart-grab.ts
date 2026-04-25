@@ -64,7 +64,7 @@ const GRAB_SCRIPT = `(function() {
         || '';
       var text = msg.innerText.trim();
       if (text.length < 5) continue;
-      if (text.length > 2000) text = text.slice(0, 2000) + '...';
+      if (text.length > 8000) text = text.slice(0, 8000) + '...';
       if (role) parts.push("[" + role + "]");
       parts.push(text);
       parts.push("");
@@ -170,7 +170,7 @@ const GRAB_LAST_RESPONSE_SCRIPT = `(function() {
   // Get the last message (most likely the AI response)
   var last = messages[messages.length - 1];
   var text = last.innerText.trim();
-  if (text.length > 4000) text = text.slice(0, 4000) + '...';
+  if (text.length > 12000) text = text.slice(0, 12000) + '...';
   return text || null;
 })()`;
 

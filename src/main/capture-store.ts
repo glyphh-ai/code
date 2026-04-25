@@ -21,9 +21,11 @@ import type { CapturePolicy } from "./app-connector";
 const STORE_DIR = path.join(os.homedir(), "yo", "store");
 const INDEX_FILE = path.join(STORE_DIR, "index.json");
 const ENTRIES_DIR = path.join(STORE_DIR, "entries");
-const CHUNK_TARGET = 18000;
-const CHUNK_OVERLAP = 600;
-const CHUNK_THRESHOLD = 20000;
+// Embedder handles 32k tokens (~120k chars). We chunk above 28k chars and
+// target 24k per chunk so embeddings represent meaningful spans.
+const CHUNK_TARGET = 24000;
+const CHUNK_OVERLAP = 1500;
+const CHUNK_THRESHOLD = 28000;
 
 export interface CaptureEntryMeta {
   id: string;

@@ -11,8 +11,10 @@ import os from "os";
 
 const MODEL_ID = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
 const EMBED_DIM = 384;
-const MAX_TEXT_CHARS = 600;
-const MAX_TOKENS = 128;
+// Qwen3-Embedding-0.6B supports 32k tokens. We stay generous but cap to keep
+// inference fast (~8k tokens ≈ 32k chars covers nearly all real captures).
+const MAX_TEXT_CHARS = 32000;
+const MAX_TOKENS = 8192;
 
 let pipe: any = null;
 
