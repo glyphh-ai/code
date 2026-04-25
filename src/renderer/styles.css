@@ -1005,6 +1005,7 @@ body {
   overflow: hidden;
   padding: 0;
   gap: 0;
+  position: relative;
 }
 .skill-editor-shell > .crud-inline-header {
   padding: 10px 16px;
@@ -1014,10 +1015,35 @@ body {
   flex: 1;
   min-height: 0;
 }
-.skill-builder-split .app-builder-controls {
-  width: 380px;
+.skill-left-pane {
+  width: 620px;
   padding: 12px 16px;
+  padding-bottom: 60px; /* room for footer-actions */
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+}
+.skill-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.skill-form-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-2);
+  letter-spacing: 0.05em;
+  font-weight: 600;
 }
 .skill-builder-preview {
   flex: 1;
@@ -1034,6 +1060,34 @@ body {
   flex: 1;
   min-height: 0;
   background: #1e1e1e;
+}
+.skill-footer-actions {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 620px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 5;
+}
+
+/* When editing a skill, hide the section heading + description + limit msg */
+.help-section[data-section="skills"].skills-editing > h2,
+.help-section[data-section="skills"].skills-editing > .section-desc,
+.help-section[data-section="skills"].skills-editing > #skills-limit-msg {
+  display: none;
+}
+/* Give the editor full section height when editing */
+.help-section[data-section="skills"].skills-editing {
+  padding: 0 !important;
+}
+.help-section[data-section="skills"].skills-editing > #skill-editor {
+  flex: 1;
+  min-height: 0;
 }
 /* Deprecated layout (kept for backward compat in case used elsewhere) */
 .skill-editor-layout {

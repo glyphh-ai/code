@@ -375,7 +375,8 @@ export function loadActiveSection() {
 // ── Init ─────────────────────────────────────────────────
 
 export function initHelp() {
-  document.getElementById("help-close")!.addEventListener("click", closeHelp);
+  // help-close button only exists in index.html (legacy); in home.html it's removed
+  document.getElementById("help-close")?.addEventListener("click", closeHelp);
 
   // User menu (bottom of help nav)
   document.getElementById("user-menu-platform")!.addEventListener("click", () => {
@@ -3501,6 +3502,9 @@ async function openSkillEditor(name: string | null) {
   skillFormError.classList.add("hidden");
   skillsListEl.classList.add("hidden");
   skillsToolbar.classList.add("hidden");
+  // Hide section heading + limit message when editing
+  const skillsSection = document.querySelector<HTMLElement>('.help-section[data-section="skills"]');
+  if (skillsSection) skillsSection.classList.add("skills-editing");
   skillEditor.classList.remove("hidden");
 
   renderSkillFileTree();
@@ -3598,6 +3602,8 @@ function closeSkillEditor() {
   skillEditor.classList.add("hidden");
   skillsListEl.classList.remove("hidden");
   skillsToolbar.classList.remove("hidden");
+  const skillsSection = document.querySelector<HTMLElement>('.help-section[data-section="skills"]');
+  if (skillsSection) skillsSection.classList.remove("skills-editing");
   editingSkillName = null;
   editingFileContents = new Map();
   loadSkills();
