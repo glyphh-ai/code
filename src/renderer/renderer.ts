@@ -9,7 +9,7 @@
 // Help overlay moved to yo://home app
 import { showOnboarding } from "./onboarding.js";
 
-type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[] };
+type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean };
 
 declare global {
   interface Window {
@@ -167,6 +167,7 @@ declare global {
       tabList: () => Promise<{ tabs: TabInfo[]; activeId: string; visible: boolean }>;
       tabSwitch: (id: string) => void;
       tabClose: (id: string) => void;
+      tabReorder: (newOrder: string[]) => void;
       tabNew: () => void;
       tabNewApp: (appId: string) => void;
       onTabState: (callback: (state: { tabs: TabInfo[]; activeId: string; visible: boolean }) => void) => void;
@@ -344,11 +345,16 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
   tabBar.innerHTML = "";
   for (const tab of tabs) {
     const el = document.createElement("div");
-    el.className = "tab" + (tab.id === activeId ? " tab-active" : "");
+    el.className = "tab" + (tab.id === activeId ? " tab-active" : "") + (tab.pinned ? " tab-pinned" : "");
     el.dataset.id = tab.id;
 
-    // Stacked favicons for layout tabs, single favicon otherwise
-    if (tab.layoutFavicons && tab.layoutFavicons.length > 0) {
+    // Home gets the .Yo logo instead of a favicon
+    if (tab.id === "home") {
+      const logo = document.createElement("span");
+      logo.className = "tab-home-logo";
+      logo.innerHTML = '<span class="tab-home-dot">.</span>Yo';
+      el.appendChild(logo);
+    } else if (tab.layoutFavicons && tab.layoutFavicons.length > 0) {
       const stack = document.createElement("span");
       stack.className = "tab-favicon-stack";
       for (let i = 0; i < Math.min(tab.layoutFavicons.length, 4); i++) {
@@ -373,27 +379,76 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
       el.appendChild(favicon);
     }
 
-    // Label
-    const label = document.createElement("span");
-    label.className = "tab-label";
-    label.textContent = tab.name;
-    el.appendChild(label);
+    // Label (home only shows the logo, no label text)
+    if (tab.id !== "home") {
+      const label = document.createElement("span");
+      label.className = "tab-label";
+      label.textContent = tab.name;
+      el.appendChild(label);
+    }
 
-    // Clicking anywhere on the tab (icon, label, gap) switches to it
+    // Click to switch
     el.addEventListener("click", () => {
       window.yo.tabSwitch(tab.id);
     });
 
-    // Close
-    const close = document.createElement("button");
-    close.className = "tab-close";
-    close.title = "Close tab";
-    close.innerHTML = "&times;";
-    close.addEventListener("click", (e) => {
-      e.stopPropagation();
-      window.yo.tabClose(tab.id);
+    // Close button — not shown on pinned (home) tabs
+    if (!tab.pinned) {
+      const close = document.createElement("button");
+      close.className = "tab-close";
+      close.title = "Close tab";
+      close.innerHTML = "&times;";
+      close.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.yo.tabClose(tab.id);
+      });
+      el.appendChild(close);
+    }
+
+    // Drag-and-drop reordering (not for pinned or layout tabs)
+    if (!tab.pinned && tab.id !== "__layout__") {
+      el.draggable = true;
+      el.addEventListener("dragstart", (e) => {
+        el.classList.add("tab-dragging");
+        e.dataTransfer?.setData("text/plain", tab.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
+      el.addEventListener("dragend", () => {
+        el.classList.remove("tab-dragging");
+        tabBar.querySelectorAll(".tab-drop-before,.tab-drop-after")
+          .forEach((n) => n.classList.remove("tab-drop-before", "tab-drop-after"));
+      });
+    }
+    el.addEventListener("dragover", (e) => {
+      if (tab.pinned) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      const rect = el.getBoundingClientRect();
+      const midpoint = rect.left + rect.width / 2;
+      el.classList.toggle("tab-drop-before", e.clientX < midpoint);
+      el.classList.toggle("tab-drop-after", e.clientX >= midpoint);
     });
-    el.appendChild(close);
+    el.addEventListener("dragleave", () => {
+      el.classList.remove("tab-drop-before", "tab-drop-after");
+    });
+    el.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const draggedId = e.dataTransfer?.getData("text/plain");
+      if (!draggedId || draggedId === tab.id) return;
+      // Can't drop on pinned tab
+      if (tab.pinned) return;
+      const rect = el.getBoundingClientRect();
+      const dropBefore = e.clientX < rect.left + rect.width / 2;
+      // Compute new order from current DOM
+      const currentOrder = Array.from(tabBar.querySelectorAll<HTMLElement>(".tab"))
+        .map((n) => n.dataset.id!)
+        .filter((id) => id && id !== "__layout__");
+      const filtered = currentOrder.filter((id) => id !== draggedId);
+      const targetIdx = filtered.indexOf(tab.id);
+      filtered.splice(dropBefore ? targetIdx : targetIdx + 1, 0, draggedId);
+      window.yo.tabReorder(filtered);
+      el.classList.remove("tab-drop-before", "tab-drop-after");
+    });
 
     tabBar.appendChild(el);
   }

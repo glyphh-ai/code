@@ -789,6 +789,33 @@ body {
 .tab-close:hover { opacity: 1 !important; background: rgba(0,0,0,0.15); }
 .tab-active .tab-close:hover { background: rgba(0,0,0,0.2); }
 
+/* ── Home tab (pinned, leftmost) ─────────────────────────── */
+.tab.tab-pinned {
+  padding: 0 10px;
+  min-width: 0;
+  width: auto;
+}
+.tab-home-logo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+.tab-home-dot {
+  color: var(--accent);
+  margin-right: 1px;
+}
+.tab.tab-pinned.tab-active .tab-home-logo { color: var(--text); }
+
+/* ── Tab drag & drop visuals ─────────────────────────────── */
+.tab[draggable="true"] { cursor: grab; }
+.tab.tab-dragging { opacity: 0.4; cursor: grabbing; }
+.tab.tab-drop-before { box-shadow: inset 2px 0 0 0 var(--accent); }
+.tab.tab-drop-after { box-shadow: inset -2px 0 0 0 var(--accent); }
+
 .tab-new-btn {
   display: flex;
   align-items: center;

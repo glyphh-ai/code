@@ -1206,20 +1206,35 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     const isLayout = gridInfo && gridInfo.panelIds.length > 1;
 
-    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>;
+    // Ensure "home" is always the leftmost tab
+    if (!openTabs.includes("home")) {
+      openTabs.unshift("home");
+    } else if (openTabs[0] !== "home") {
+      const idx = openTabs.indexOf("home");
+      openTabs.splice(idx, 1);
+      openTabs.unshift("home");
+    }
+
+    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean }>;
     if (isLayout) {
       const layoutName = gridInfo.name || gridInfo.panelIds.map((id) => getTabName(id)).join(" + ");
       const layoutFavicons = gridInfo.panelIds.map((id) => panelFavicons[id] || "").filter(Boolean);
       const layoutTabId = "__layout__";
       const gridSet = new Set(gridInfo.panelIds);
       tabs = [
+        ...(openTabs.includes("home") ? [{ id: "home", name: "Home", favicon: "", pinned: true }] : []),
         { id: layoutTabId, name: layoutName, layoutFavicons },
-        ...openTabs.filter((id) => !gridSet.has(id)).map((id) => ({
+        ...openTabs.filter((id) => id !== "home" && !gridSet.has(id)).map((id) => ({
           id, name: getTabName(id), favicon: panelFavicons[id] || "",
         })),
       ];
     } else {
-      tabs = openTabs.map((id) => ({ id, name: getTabName(id), favicon: panelFavicons[id] || "" }));
+      tabs = openTabs.map((id) => ({
+        id,
+        name: id === "home" ? "Home" : getTabName(id),
+        favicon: panelFavicons[id] || "",
+        pinned: id === "home",
+      }));
     }
 
     return {
@@ -2276,8 +2291,33 @@ async function boot() {
     sendTabState();
   });
 
+  ipcMain.on("tab-reorder", (_e, newOrder: string[]) => {
+    // Filter to ids that actually exist in openTabs, always keeping home first
+    const existing = new Set(openTabs);
+    const sanitized = newOrder.filter((id) => existing.has(id) && id !== "__layout__");
+    // Preserve any open tabs the renderer didn't include (shouldn't happen, but safe)
+    for (const id of openTabs) {
+      if (!sanitized.includes(id)) sanitized.push(id);
+    }
+    // Home always first
+    const homeIdx = sanitized.indexOf("home");
+    if (homeIdx > 0) {
+      sanitized.splice(homeIdx, 1);
+      sanitized.unshift("home");
+    } else if (homeIdx < 0) {
+      sanitized.unshift("home");
+    }
+    openTabs.length = 0;
+    openTabs.push(...sanitized);
+    persistTabs();
+    sendTabState();
+  });
+
   ipcMain.on("tab-close", (_e, id: string) => {
     if (!mainWindow) return;
+
+    // Home tab is pinned — cannot be closed
+    if (id === "home") return;
 
     // Closing the layout tab closes all panels in the grid
     if (id === "__layout__") {
