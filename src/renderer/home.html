@@ -763,9 +763,20 @@
                   <aside class="skill-code-tree">
                     <div class="skill-code-tree-header">
                       <span id="skill-editor-status">SKILL.md</span>
-                      <button id="skill-new-file-btn" class="action-btn" title="Add file" style="padding:1px 6px;font-size:11px;">+</button>
+                      <div class="skill-tree-actions">
+                        <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </button>
+                        <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                        </button>
+                        <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        </button>
+                      </div>
                     </div>
                     <div id="skill-file-list" class="skill-file-list"></div>
+                    <input type="file" id="skill-upload-input" multiple style="display:none" />
                   </aside>
                   <div id="skill-monaco-container" class="skill-code-monaco"></div>
                 </div>

@@ -1063,11 +1063,33 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-2);
   font-family: var(--font-mono);
+}
+.skill-tree-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.skill-tree-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  padding: 4px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+.skill-tree-action-btn:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .skill-code-monaco {
   min-height: 0;

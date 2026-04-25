@@ -466,6 +466,11 @@ export function initHelp() {
   document.getElementById("skill-run")!.addEventListener("click", runSkillFromEditor);
   document.getElementById("skill-export")!.addEventListener("click", exportSkill);
   document.getElementById("skill-new-file-btn")!.addEventListener("click", addSkillFile);
+  document.getElementById("skill-new-folder-btn")!.addEventListener("click", addSkillFolder);
+  document.getElementById("skill-upload-file-btn")!.addEventListener("click", () => {
+    (document.getElementById("skill-upload-input") as HTMLInputElement).click();
+  });
+  document.getElementById("skill-upload-input")!.addEventListener("change", uploadSkillFiles);
   // Drag-and-drop .yo import onto the skills list
   skillsListEl.addEventListener("dragover", (e) => { e.preventDefault(); });
   skillsListEl.addEventListener("drop", async (e) => {
@@ -3733,12 +3738,11 @@ async function generateSkillPrompt() {
 
 async function addSkillFile() {
   const name = await promptAction(
-    "File name (use / for subfolders)",
+    "New file",
     "",
     "e.g. template.md or examples/input.md"
   );
   if (!name) return;
-  // Strip leading slash, normalize multiple slashes
   const trimmed = name.trim().replace(/^\/+/, "").replace(/\/+/g, "/");
   if (!trimmed || trimmed === "SKILL.md" || trimmed === "SKILL.js") return;
   if (editingSkillFiles.includes(trimmed)) return;
@@ -3746,6 +3750,45 @@ async function addSkillFile() {
   editingFileContents.set(trimmed, "");
   captureCurrentEditorContent();
   await openSkillFile(trimmed);
+}
+
+async function addSkillFolder() {
+  const folderName = await promptAction(
+    "New folder",
+    "",
+    "e.g. examples or scripts/helpers"
+  );
+  if (!folderName) return;
+  const trimmed = folderName.trim().replace(/^\/+/, "").replace(/\/+/g, "/").replace(/\/$/, "");
+  if (!trimmed) return;
+  // Folders are implied by file paths — create a placeholder file inside it
+  const placeholder = `${trimmed}/.keep`;
+  if (editingSkillFiles.includes(placeholder)) return;
+  editingSkillFiles.push(placeholder);
+  editingFileContents.set(placeholder, "");
+  renderSkillFileTree();
+}
+
+async function uploadSkillFiles(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const files = input.files;
+  if (!files || files.length === 0) return;
+
+  for (const file of Array.from(files)) {
+    // Use webkitRelativePath if user picked a folder, else just the filename
+    const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+    const safePath = path.replace(/^\/+/, "").replace(/\/+/g, "/");
+    if (safePath === "SKILL.md" || safePath === "SKILL.js") continue;
+    const text = await file.text();
+    if (!editingSkillFiles.includes(safePath)) {
+      editingSkillFiles.push(safePath);
+    }
+    editingFileContents.set(safePath, text);
+  }
+  // Reset input so the same file can be picked again
+  input.value = "";
+  captureCurrentEditorContent();
+  renderSkillFileTree();
 }
 
 async function runSkillFromEditor() {
