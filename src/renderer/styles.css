@@ -999,13 +999,15 @@ body {
    Override crud-inline-form's max-width:620px so the right pane can breathe. */
 .skill-editor-shell.crud-inline-form {
   max-width: none !important;
-  display: flex !important;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
   padding: 0;
   gap: 0;
   position: relative;
+}
+.skill-editor-shell.crud-inline-form:not(.hidden) {
+  display: flex;
 }
 .skill-editor-shell > .crud-inline-header {
   padding: 10px 16px;
