@@ -3502,9 +3502,6 @@ async function openSkillEditor(name: string | null) {
   skillFormError.classList.add("hidden");
   skillsListEl.classList.add("hidden");
   skillsToolbar.classList.add("hidden");
-  // Hide section heading + limit message when editing
-  const skillsSection = document.querySelector<HTMLElement>('.help-section[data-section="skills"]');
-  if (skillsSection) skillsSection.classList.add("skills-editing");
   skillEditor.classList.remove("hidden");
 
   renderSkillFileTree();
@@ -3520,17 +3517,46 @@ async function openSkillEditor(name: string | null) {
 function renderSkillFileTree() {
   const list = document.getElementById("skill-file-list")!;
   list.innerHTML = "";
-  for (const file of editingSkillFiles) {
+
+  // Group files by folder for nested rendering
+  // Input example: ["SKILL.md", "SKILL.js", "examples/input.md", "examples/output.md", "scripts/validate.sh"]
+  // Output: sorted, folders first (collapsed by default), files leafward
+  const sorted = [...editingSkillFiles].sort();
+  // Put SKILL.md then SKILL.js at the top if present
+  const core = sorted.filter((f) => f === "SKILL.md" || f === "SKILL.js");
+  const rest = sorted.filter((f) => f !== "SKILL.md" && f !== "SKILL.js");
+  const ordered = [...core, ...rest];
+
+  // Render each file with indentation based on depth
+  const folders = new Set<string>();
+  for (const file of ordered) {
+    const parts = file.split("/");
+    for (let i = 0; i < parts.length - 1; i++) {
+      folders.add(parts.slice(0, i + 1).join("/"));
+    }
+  }
+
+  // Render folders first (as non-clickable headers), then files within
+  // Simple flat render with indentation — no collapse/expand in v1
+  const rendered = new Set<string>();
+  const renderFile = (file: string) => {
+    if (rendered.has(file)) return;
+    rendered.add(file);
+    const parts = file.split("/");
+    const depth = parts.length - 1;
+    const name = parts[parts.length - 1];
+    const isCore = file === "SKILL.md" || file === "SKILL.js";
     const item = document.createElement("div");
     item.className = "skill-file-item" + (file === editingSelectedFile ? " active" : "");
-    const isCore = file === "SKILL.md" || file === "SKILL.js";
+    item.style.paddingLeft = (10 + depth * 12) + "px";
+    const icon = `<svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l3 3v9H3V2z"/></svg>`;
     item.innerHTML = `
-      <span>${file}</span>
-      ${isCore ? `<span class="skill-file-item-badge">${file === "SKILL.md" ? "MD" : "JS"}</span>` : ""}
+      ${icon}
+      <span class="skill-file-item-label">${name}</span>
       ${!isCore ? `<button class="skill-file-item-delete" title="Delete">×</button>` : ""}
     `;
     item.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).classList.contains("skill-file-item-delete")) return;
+      if ((e.target as HTMLElement).closest(".skill-file-item-delete")) return;
       captureCurrentEditorContent();
       openSkillFile(file);
     });
@@ -3549,6 +3575,31 @@ function renderSkillFileTree() {
       });
     }
     list.appendChild(item);
+  };
+
+  const renderedFolders = new Set<string>();
+  const renderFolderHeader = (path: string) => {
+    if (renderedFolders.has(path)) return;
+    renderedFolders.add(path);
+    const parts = path.split("/");
+    const depth = parts.length - 1;
+    const name = parts[parts.length - 1];
+    const item = document.createElement("div");
+    item.className = "skill-file-item folder";
+    item.style.paddingLeft = (10 + depth * 12) + "px";
+    const icon = `<svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h4l1 1h7v8H2V4z"/></svg>`;
+    item.innerHTML = `${icon}<span class="skill-file-item-label">${name}/</span>`;
+    list.appendChild(item);
+  };
+
+  // Render with folder headers interleaved
+  for (const file of ordered) {
+    const parts = file.split("/");
+    // Render folder headers for all ancestor folders
+    for (let i = 0; i < parts.length - 1; i++) {
+      renderFolderHeader(parts.slice(0, i + 1).join("/"));
+    }
+    renderFile(file);
   }
 }
 
@@ -3602,8 +3653,6 @@ function closeSkillEditor() {
   skillEditor.classList.add("hidden");
   skillsListEl.classList.remove("hidden");
   skillsToolbar.classList.remove("hidden");
-  const skillsSection = document.querySelector<HTMLElement>('.help-section[data-section="skills"]');
-  if (skillsSection) skillsSection.classList.remove("skills-editing");
   editingSkillName = null;
   editingFileContents = new Map();
   loadSkills();
@@ -3683,9 +3732,14 @@ async function generateSkillPrompt() {
 // ── New file / Run / Export / Import ──────────────────────
 
 async function addSkillFile() {
-  const name = await promptAction("File name", "", "e.g. template.md");
+  const name = await promptAction(
+    "File name (use / for subfolders)",
+    "",
+    "e.g. template.md or examples/input.md"
+  );
   if (!name) return;
-  const trimmed = name.trim();
+  // Strip leading slash, normalize multiple slashes
+  const trimmed = name.trim().replace(/^\/+/, "").replace(/\/+/g, "/");
   if (!trimmed || trimmed === "SKILL.md" || trimmed === "SKILL.js") return;
   if (editingSkillFiles.includes(trimmed)) return;
   editingSkillFiles.push(trimmed);

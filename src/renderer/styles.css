@@ -995,145 +995,57 @@ body {
   font-size: 13px;
 }
 /* ── Skill editor (folder-based) ──────────────────────────── */
-/* Skill editor uses the same split layout as App → Panel.
-   Override crud-inline-form's max-width:620px so the right pane can breathe. */
-.skill-editor-shell.crud-inline-form {
-  max-width: none !important;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-  padding: 0;
-  gap: 0;
-  position: relative;
-}
-.skill-editor-shell.crud-inline-form:not(.hidden) {
-  display: flex;
-}
-.skill-editor-shell > .crud-inline-header {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.skill-builder-split {
-  flex: 1;
-  min-height: 0;
-}
-.skill-left-pane {
-  width: 620px;
-  padding: 12px 16px;
-  padding-bottom: 60px; /* room for footer-actions */
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  position: relative;
-}
-.skill-form-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.skill-form-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-}
-.skill-form-title {
-  font-size: 12px;
-  text-transform: uppercase;
-  color: var(--text-2);
-  letter-spacing: 0.05em;
-  font-weight: 600;
-}
-.skill-builder-preview {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
-  overflow: hidden;
-  margin: 12px 12px 12px 0;
-}
-.skill-monaco-container-right {
-  flex: 1;
-  min-height: 0;
-  background: #1e1e1e;
-}
-.skill-footer-actions {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 620px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 16px;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  z-index: 5;
-}
-
-/* When editing a skill, hide the section heading + description + limit msg */
-.help-section[data-section="skills"].skills-editing > h2,
-.help-section[data-section="skills"].skills-editing > .section-desc,
-.help-section[data-section="skills"].skills-editing > #skills-limit-msg {
-  display: none;
-}
-/* Give the editor full section height when editing */
-.help-section[data-section="skills"].skills-editing {
-  padding: 0 !important;
-}
-.help-section[data-section="skills"].skills-editing > #skill-editor {
-  flex: 1;
-  min-height: 0;
-}
-/* Deprecated layout (kept for backward compat in case used elsewhere) */
-.skill-editor-layout {
+/* Follows the drips CRUD pattern. Embedded code widget has file tree
+   on the left and Monaco on the right. */
+.skill-code-widget {
   display: grid;
-  grid-template-columns: 200px 1fr;
-  gap: 12px;
-  margin: 12px 0;
-  min-height: 360px;
+  grid-template-columns: 180px 1fr;
+  gap: 0;
+  height: 360px;
+  min-height: 280px;
   max-height: 560px;
-}
-.skill-file-tree {
-  background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
-.skill-file-tree-header {
+.skill-code-tree {
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.skill-code-tree-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
-  text-transform: uppercase;
   color: var(--text-2);
-  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
 }
-.skill-file-tree-title { font-weight: 600; }
+.skill-code-monaco {
+  min-height: 0;
+  min-width: 0;
+  background: #1e1e1e;
+}
+
+/* File tree items with subfolder indent support */
 .skill-file-list {
   flex: 1;
   overflow-y: auto;
   padding: 4px 0;
 }
 .skill-file-item {
-  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
   font-family: var(--font-mono);
-  display: flex;
-  align-items: center;
-  gap: 6px;
   border-left: 2px solid transparent;
   transition: background 0.1s;
 }
@@ -1141,18 +1053,20 @@ body {
 .skill-file-item.active {
   background: var(--hover);
   border-left-color: var(--accent);
-  color: var(--text);
   font-weight: 600;
 }
-.skill-file-item-badge {
-  margin-left: auto;
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-weight: 600;
-  font-family: inherit;
+.skill-file-item.folder { cursor: default; font-weight: 600; color: var(--text-2); }
+.skill-file-item-icon {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+.skill-file-item-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .skill-file-item-delete {
   opacity: 0;
@@ -1161,37 +1075,13 @@ body {
   color: var(--text-2);
   cursor: pointer;
   padding: 0 4px;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
 }
-.skill-file-item:hover .skill-file-item-delete { opacity: 0.6; }
+.skill-file-item:hover .skill-file-item-delete { opacity: 0.5; }
 .skill-file-item-delete:hover { opacity: 1 !important; color: var(--danger); }
-.skill-editor-main {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  gap: 8px;
-}
-.skill-editor-status {
-  font-size: 11px;
-  color: var(--text-2);
-}
-.skill-frontmatter-form {
-  padding: 8px 10px;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.skill-monaco-container {
-  flex: 1;
-  min-height: 240px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-  position: relative;
-}
+
+/* Recent runs inline styling */
 .skill-runs-section {
   margin-top: 8px;
   padding: 8px 10px;
@@ -1244,44 +1134,18 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
 }
-.skill-run-event {
-  padding: 2px 0;
-  font-size: 11px;
-  color: var(--text-2);
-}
+.skill-run-event { padding: 2px 0; font-size: 11px; color: var(--text-2); }
 .skill-run-event.status-error { color: var(--danger); }
 .skill-run-event.status-success { color: var(--accent); }
-.skill-progress-live {
-  padding: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background: var(--surface-2);
-  border-radius: 4px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
 /* Skill create modal */
 
 /* ── Detail view (skills + library split editor) ──────── */
 
 /* ── Skill editor ────────────────────────────────────────── */
 
-#skill-editor {
+#skill-editor:not(.hidden) {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-#skill-editor .skill-field-grow {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-#skill-editor .skill-field-grow .skill-prompt-area {
-  flex: 1;
-  min-height: 80px;
 }
 .skill-field {
   margin-bottom: 14px;

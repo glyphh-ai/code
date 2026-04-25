@@ -706,79 +706,54 @@
           </div>
           <div id="skills-list" class="crud-cards"></div>
 
-          <!-- Skill editor (folder-based: SKILL.md + SKILL.js + files) -->
-          <div id="skill-editor" class="crud-inline-form hidden skill-editor-shell">
-            <!-- Header: breadcrumb back + Run/Export at top right -->
+          <!-- Skill editor (folder-based: SKILL.md + SKILL.js + files) — same pattern as drips -->
+          <div id="skill-editor" class="crud-inline-form hidden">
             <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="skill-back-link">← Skills</a>
               <div class="crud-spacer"></div>
               <button id="skill-run" class="action-btn primary" title="Run skill">▶ Run</button>
               <button id="skill-export" class="action-btn" title="Export .yo bundle">Export</button>
+              <button id="skill-delete" class="action-btn danger">Delete</button>
             </div>
             <div id="skill-form-error" class="crud-form-error hidden"></div>
 
-            <!-- Split layout like App → Panel: form on left, editor on right -->
-            <div class="app-builder-split skill-builder-split">
-              <!-- Left: file tree at top, form, then cancel/save at bottom -->
-              <div class="app-builder-controls skill-left-pane">
-                <!-- File tree at top -->
-                <div class="skill-file-tree">
-                  <div class="skill-file-tree-header">
-                    <span class="skill-file-tree-title">Files</span>
-                    <button id="skill-new-file-btn" class="action-btn" title="Add file" style="padding:2px 6px;font-size:11px;">+</button>
-                  </div>
-                  <div id="skill-file-list" class="skill-file-list"></div>
+            <label class="settings-label">Name</label>
+            <input type="text" id="skill-name" class="settings-input" placeholder="skill-name" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Description</label>
+            <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
+
+            <label class="settings-label">Allowed tools <span style="color:var(--text-2);font-weight:400;">(one per line — yo.&lt;tool&gt; or &lt;app&gt;.&lt;tool&gt;)</span></label>
+            <textarea id="skill-allowed-tools" class="settings-input" rows="3" placeholder="yo.search_captures&#10;gmail.read_messages" spellcheck="false" style="font-family:var(--font-mono);font-size:12px;"></textarea>
+
+            <label class="settings-label">Requires <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
+            <input type="text" id="skill-requires" class="settings-input" placeholder="fetch-emails, summarize" spellcheck="false" />
+
+            <label class="settings-label">Schedule <span style="color:var(--text-2);font-weight:400;">(cron or @hourly/@daily)</span></label>
+            <input type="text" id="skill-schedule" class="settings-input" placeholder="0 9 * * *" spellcheck="false" />
+
+            <button id="skill-generate" class="action-btn skill-generate-btn hidden" title="Generate prompt with AI" style="margin-top:4px;align-self:flex-start;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
+              Generate prompt from description
+            </button>
+
+            <label class="settings-label" style="margin-top:8px;">Files</label>
+            <div class="skill-code-widget">
+              <aside class="skill-code-tree">
+                <div class="skill-code-tree-header">
+                  <span id="skill-editor-status">SKILL.md</span>
+                  <button id="skill-new-file-btn" class="action-btn" title="Add file" style="padding:1px 6px;font-size:11px;">+</button>
                 </div>
-
-                <!-- Form with delete button in its header row -->
-                <div class="skill-form-section">
-                  <div class="skill-form-header">
-                    <span class="skill-form-title">Details</span>
-                    <button id="skill-delete" class="action-btn danger" style="padding:3px 10px;font-size:11px;">Delete</button>
-                  </div>
-
-                  <label class="settings-label">Name</label>
-                  <input type="text" id="skill-name" class="settings-input" placeholder="skill-name" spellcheck="false" autocomplete="off" />
-
-                  <label class="settings-label">Description</label>
-                  <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
-
-                  <label class="settings-label">Allowed tools <span style="color:var(--text-2);font-weight:400;">(one per line — yo.&lt;tool&gt; or &lt;app&gt;.&lt;tool&gt;)</span></label>
-                  <textarea id="skill-allowed-tools" class="settings-input" rows="3" placeholder="yo.search_captures&#10;gmail.read_messages" spellcheck="false" style="font-family:var(--font-mono);font-size:12px;"></textarea>
-
-                  <label class="settings-label">Requires <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
-                  <input type="text" id="skill-requires" class="settings-input" placeholder="fetch-emails, summarize" spellcheck="false" />
-
-                  <label class="settings-label">Schedule <span style="color:var(--text-2);font-weight:400;">(cron or @hourly/@daily)</span></label>
-                  <input type="text" id="skill-schedule" class="settings-input" placeholder="0 9 * * *" spellcheck="false" />
-
-                  <button id="skill-generate" class="action-btn skill-generate-btn hidden" title="Generate prompt with AI" style="margin-top:8px;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 10l-1.5-1.5M8 18.5 6.5 17"/><circle cx="12" cy="12" r="3"/></svg>
-                    Generate prompt from description
-                  </button>
-                </div>
-
-                <!-- Run history -->
-                <div class="skill-runs-section">
-                  <div class="skill-runs-header">
-                    <span>Recent runs</span>
-                    <span id="skill-runs-count" style="color:var(--text-2);font-size:11px;"></span>
-                  </div>
-                  <div id="skill-runs-list" class="skill-runs-list"></div>
-                </div>
-              </div>
-
-              <!-- Right: Monaco editor fills the space -->
-              <div class="app-builder-preview skill-builder-preview">
-                <div class="preview-toolbar">
-                  <span class="preview-label" id="skill-editor-status">SKILL.md</span>
-                </div>
-                <div id="skill-monaco-container" class="skill-monaco-container-right"></div>
-              </div>
+                <div id="skill-file-list" class="skill-file-list"></div>
+              </aside>
+              <div id="skill-monaco-container" class="skill-code-monaco"></div>
             </div>
 
-            <!-- Cancel/Save pinned to bottom-right of left pane -->
-            <div class="skill-footer-actions">
+            <label class="settings-label" style="margin-top:8px;">Recent runs</label>
+            <div id="skill-runs-list" class="skill-runs-list"></div>
+            <span id="skill-runs-count" style="color:var(--text-2);font-size:11px;display:none;"></span>
+
+            <div class="settings-actions" style="margin-top:8px;">
               <button id="skill-cancel" class="action-btn">Cancel</button>
               <button id="skill-save" class="action-btn primary">Save</button>
             </div>
