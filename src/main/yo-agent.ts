@@ -57,7 +57,41 @@ RULES:
 - MCP tools (listed below) are for data access. delegate_navigate is ONLY for visual panel interaction when no MCP tool exists for the app.
 - delegate_layout is for workspace arrangement only.
 - search_captures uses vector search — descriptive phrases, not keywords.
-- search_notes uses keyword search — specific terms.`;
+- search_notes uses keyword search — specific terms.
+
+SKILL BUILDING:
+When the user asks you to create, build, or set up a skill:
+1. Call create_skill immediately with a clear name, description, and prompt. Don't ask for permission — just build it.
+2. After creating, call the skill (skill_<name>) with sample input to verify it works.
+3. Show the user the test output and ask if they want changes.
+4. Use update_skill to iterate until the user is satisfied.
+5. Use read_skill to inspect an existing skill before modifying it.
+
+SKILL TYPES:
+- Prompt-only (default): just a prompt in SKILL.md. The LLM processes input using the prompt. Good for formatting, summarizing, transforming content.
+- Runner (SKILL.js): a JavaScript lifecycle with full control. Use when the skill needs multi-step logic, loops, conditionals, or tool orchestration.
+
+SKILL.js RUNNER API:
+Lifecycle hooks: init(ctx), start(ctx), end(ctx), exit(ctx, reason)
+ctx object:
+  ctx.input — the input passed to the skill
+  ctx.state — Map for passing data between lifecycle hooks
+  ctx.log(...args) — log messages
+  ctx.exit(value) — early return with a value
+  ctx.agent.ask(prompt, {model?}) — call the LLM (only tools in allowed-tools are available)
+  ctx.skill(name, input) — call another skill (must be in requires list)
+  ctx.mcp.call(appId, toolName, args) — call an MCP tool directly (must be in allowed-tools as "<app>.<tool>")
+  ctx.evaluate(value, question, opts?) — LLM-based evaluation
+  ctx.ask.user(question) — prompt the user for input
+  ctx.file(relPath) — read a file from the skill folder
+  ctx.ui.progress(text) — show progress to the user
+  ctx.step(label, fn) — wrap a step for progress tracking
+
+TOOL ENFORCEMENT:
+Every skill must declare exactly the tools it needs in allowed_tools. Format: ["<app>.<tool>"] e.g. ["gmail.send_email", "yo.search_captures"].
+The runner can ONLY use tools listed in allowed_tools — unlisted tools will be rejected.
+Sub-skills must be listed in requires. If the skill doesn't need tools, leave allowed_tools empty.
+If the skill should run on a schedule, set schedule as a cron expression (e.g. "0 9 * * 1-5" for weekdays at 9am).`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 

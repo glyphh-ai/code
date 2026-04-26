@@ -333,6 +333,13 @@ export async function runSkillLifecycle(
     mcp: {
       call: async (serverId: string, toolName: string, args: Record<string, unknown> = {}) => {
         if (!globalMcpManager) throw new SkillError("MCP manager not available", "NO_MCP");
+        // Enforce allowed-tools: the skill must declare <app>.<tool> to use it
+        if (allowedTools.length > 0) {
+          const qualified = `${serverId}.${toolName}`;
+          if (!allowedTools.includes(qualified)) {
+            throw new SkillError(`Tool "${qualified}" not in allowed-tools for skill "${name}"`, "TOOL_NOT_ALLOWED");
+          }
+        }
         const ev = startEvent(emitter, "mcp", `mcp: ${serverId}.${toolName}`, rootEvent.id, { toolName: `${serverId}.${toolName}` });
         try {
           const result = await globalMcpManager.callToolDirect(serverId, toolName, args);

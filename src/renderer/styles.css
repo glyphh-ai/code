@@ -1192,18 +1192,57 @@ body {
 }
 .skill-row-add-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Yo agent build hint */
+.yo-build-hint {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 6px 0 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 8px; font-size: 12px; color: var(--text-2); line-height: 1.4;
+}
+.yo-build-hint strong { color: var(--text); }
+.yo-build-hint-icon {
+  flex-shrink: 0; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--bg); border-radius: 6px;
+  font-weight: 700; font-size: 11px; letter-spacing: 0.5px;
+}
+
 /* Schedule builder */
-.skill-schedule-builder { display: flex; flex-direction: column; gap: 4px; }
-.skill-sched-select { font-size: 12px; max-width: 200px; }
+.skill-schedule-builder { display: flex; flex-direction: column; gap: 6px; }
+.skill-sched-select { font-size: 12px; max-width: 220px; }
+.sched-row { display: flex; align-items: center; gap: 6px; }
+.sched-sel {
+  font-size: 12px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px;
+  min-width: 50px;
+}
 .skill-schedule-opts {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
   font-size: 12px; color: var(--text-2);
 }
-.skill-schedule-opts select {
-  font-size: 12px; background: var(--bg); color: var(--text);
-  border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px;
+.sched-days { padding: 2px 0; }
+.sched-day-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.sched-day-chip {
+  padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text-2);
+  cursor: pointer; transition: all 0.15s; user-select: none;
 }
-.skill-schedule-opts label { font-size: 11px; color: var(--text-2); }
+.sched-day-chip:hover { border-color: var(--accent); color: var(--text); }
+.sched-day-chip.active {
+  background: var(--accent); color: var(--bg); border-color: var(--accent);
+}
+.sched-time-row, .sched-dom-row, .sched-interval-row {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2);
+}
+.sched-time-row label, .sched-dom-row label, .sched-interval-row label {
+  font-size: 11px; color: var(--text-2); min-width: 32px;
+}
+.sched-time-row span { color: var(--text-2); font-weight: 600; }
+.sched-preview {
+  font-size: 11px; color: var(--text-2); padding: 4px 0;
+  font-style: italic;
+}
 
 /* Recent runs inline styling */
 .skill-runs-section {

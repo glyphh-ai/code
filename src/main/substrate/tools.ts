@@ -26,7 +26,12 @@ export interface SubstrateToolDeps {
   skillEngine?: {
     runSkill: (name: string, input: unknown, opts?: { trigger?: string }) => Promise<unknown>;
     listSkillsDetailed: () => Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }>;
-    getSkill: (name: string) => { manifest: { description?: string; inputs?: Array<{ name: string; type: string; description?: string }> } } | null;
+    getSkill: (name: string) => { manifest: Record<string, unknown>; prompt: string; hasRunner: boolean; folderPath: string } | null;
+    writeSkill: (name: string, manifest: Record<string, unknown>, prompt: string, runnerCode?: string | null) => boolean;
+    deleteSkill: (name: string) => boolean;
+    readSkillFile: (name: string, rel: string) => string | null;
+    writeSkillFile: (name: string, rel: string, content: string) => boolean;
+    listSkillFiles: (name: string) => string[];
   };
   council?: { start: (opts: { participants: string[]; prompt: string; rounds: number }, log: (msg: string) => void) => Promise<{ status: string; rounds: number; participants: string[]; totalCaptures: number; responses: Map<string, string[]> }> };
   navigatorAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; listPanels: () => string; setBudget?: (budget: any) => void };
@@ -141,6 +146,116 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (!deps.memoryStore) return "Memory not available.";
       const id = await deps.memoryStore.save(content, category);
       return `Memory saved (${id}).`;
+    },
+  },
+  {
+    name: "create_skill",
+    namespace: "yo",
+    description: "Create or overwrite a skill. Provide the full SKILL.md prompt body and manifest fields. Call with just 'name' to get the current skill template.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill name (lowercase, hyphens ok)" },
+        description: { type: "string", description: "One-line description of what the skill does" },
+        prompt: { type: "string", description: "The skill prompt (instructions for the LLM when this skill runs)" },
+        allowed_tools: { type: "array", items: { type: "string" }, description: "Tools this skill can use, e.g. ['gmail.send_email', 'yo.search_captures']" },
+        requires: { type: "array", items: { type: "string" }, description: "Other skills this skill can call" },
+        schedule: { type: "string", description: "Cron expression for auto-scheduling, e.g. '0 9 * * 1-5' for weekdays at 9am" },
+        inputs: { type: "array", items: { type: "object", properties: { name: { type: "string" }, type: { type: "string" }, description: { type: "string" } } }, description: "Input parameters the skill accepts" },
+        runner_code: { type: "string", description: "Optional SKILL.js lifecycle runner code (advanced)" },
+      },
+      required: ["name", "description", "prompt"],
+    },
+    async run(input) {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const name = input.name as string;
+      if (!name) return "Skill name is required.";
+      const manifest: Record<string, unknown> = {
+        name,
+        description: input.description as string || "",
+      };
+      if (input.allowed_tools) manifest["allowed-tools"] = input.allowed_tools;
+      if (input.requires) manifest.requires = input.requires;
+      if (input.schedule) manifest.schedule = input.schedule;
+      if (input.inputs) manifest.inputs = input.inputs;
+      const prompt = input.prompt as string || "";
+      const runner = input.runner_code as string | undefined;
+      const ok = deps.skillEngine.writeSkill(name, manifest, prompt, runner);
+      if (!ok) return `Failed to create skill "${name}".`;
+      return `Skill "${name}" created. The user can run it with .yo format <content> ${name}, or you can call skill_${name.replace(/[^a-zA-Z0-9_]/g, "_")} to test it.`;
+    },
+  },
+  {
+    name: "update_skill",
+    namespace: "yo",
+    description: "Update an existing skill's prompt, manifest fields, or runner code. Only provided fields are changed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill name to update" },
+        description: { type: "string", description: "Updated description" },
+        prompt: { type: "string", description: "Updated prompt body" },
+        allowed_tools: { type: "array", items: { type: "string" }, description: "Updated allowed tools list" },
+        requires: { type: "array", items: { type: "string" }, description: "Updated skill dependencies" },
+        schedule: { type: "string", description: "Updated cron schedule (empty string to remove)" },
+        inputs: { type: "array", items: { type: "object", properties: { name: { type: "string" }, type: { type: "string" }, description: { type: "string" } } }, description: "Updated input parameters" },
+        runner_code: { type: "string", description: "Updated SKILL.js code (null to remove)" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const name = input.name as string;
+      const existing = deps.skillEngine.getSkill(name);
+      if (!existing) return `Skill "${name}" not found. Use create_skill to create it.`;
+      const manifest = { ...existing.manifest };
+      if (input.description !== undefined) manifest.description = input.description;
+      if (input.allowed_tools !== undefined) manifest["allowed-tools"] = input.allowed_tools;
+      if (input.requires !== undefined) manifest.requires = input.requires;
+      if (input.schedule !== undefined) manifest.schedule = (input.schedule as string) || null;
+      if (input.inputs !== undefined) manifest.inputs = input.inputs;
+      const prompt = (input.prompt as string) ?? existing.prompt;
+      const runner = input.runner_code !== undefined ? (input.runner_code as string | null) : undefined;
+      const ok = deps.skillEngine.writeSkill(name, manifest, prompt, runner);
+      if (!ok) return `Failed to update skill "${name}".`;
+      return `Skill "${name}" updated.`;
+    },
+  },
+  {
+    name: "read_skill",
+    namespace: "yo",
+    description: "Read a skill's full definition — manifest, prompt, runner status, and files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill name" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const name = input.name as string;
+      const skill = deps.skillEngine.getSkill(name);
+      if (!skill) return `Skill "${name}" not found.`;
+      const lines = [
+        `Skill: ${name}`,
+        `Description: ${(skill.manifest as any).description || "(none)"}`,
+        `Has runner: ${skill.hasRunner}`,
+      ];
+      const m = skill.manifest as Record<string, unknown>;
+      if (m["allowed-tools"]) lines.push(`Allowed tools: ${(m["allowed-tools"] as string[]).join(", ")}`);
+      if (m.requires) lines.push(`Requires: ${(m.requires as string[]).join(", ")}`);
+      if (m.schedule) lines.push(`Schedule: ${m.schedule}`);
+      if (m.inputs) lines.push(`Inputs: ${JSON.stringify(m.inputs)}`);
+      lines.push("", "--- PROMPT ---", skill.prompt);
+      if (skill.hasRunner) {
+        const jsContent = deps.skillEngine.readSkillFile(name, "SKILL.js");
+        if (jsContent) lines.push("", "--- SKILL.js ---", jsContent);
+      }
+      const files = deps.skillEngine.listSkillFiles(name);
+      const extraFiles = files.filter(f => f !== "SKILL.md" && f !== "SKILL.js");
+      if (extraFiles.length > 0) lines.push("", `Other files: ${extraFiles.join(", ")}`);
+      return lines.join("\n");
     },
   },
   {
@@ -380,14 +495,13 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
       const qualified = `skill.${s.name}`;
       if (allowed && !allowed.has(qualified)) continue;
       const skill = deps.skillEngine.getSkill(s.name);
-      const inputs = skill?.manifest.inputs ?? [];
+      const inputs = (skill?.manifest.inputs ?? []) as Array<{ name: string; type: string; description?: string }>;
       const props: Record<string, unknown> = {};
       const required: string[] = [];
       for (const i of inputs) {
         props[i.name] = { type: i.type === "string" ? "string" : i.type === "number" ? "number" : "string", description: i.description ?? "" };
         required.push(i.name);
       }
-      // Default: single 'input' string param if no schema declared
       const schema = inputs.length > 0
         ? { type: "object", properties: props, required }
         : { type: "object", properties: { input: { type: "string", description: "Input for the skill" } } };

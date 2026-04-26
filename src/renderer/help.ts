@@ -466,6 +466,13 @@ export function initHelp() {
   document.getElementById("skill-tools-add")!.addEventListener("click", () => addToolRow());
   document.getElementById("skill-requires-add")!.addEventListener("click", () => addRequiresRow());
   document.getElementById("skill-schedule-freq")!.addEventListener("change", updateScheduleOpts);
+  document.querySelectorAll("#sched-days-row .sched-day-chip").forEach(chip => {
+    chip.addEventListener("click", () => { chip.classList.toggle("active"); updateSchedulePreview(); });
+  });
+  for (const id of ["sched-hour", "sched-minute", "sched-dom", "sched-interval"]) {
+    document.getElementById(id)?.addEventListener("change", updateSchedulePreview);
+  }
+  document.getElementById("skill-schedule-cron")!.addEventListener("input", updateSchedulePreview);
   document.getElementById("skill-export")!.addEventListener("click", exportSkill);
   document.getElementById("skill-new-file-btn")!.addEventListener("click", addSkillFile);
   document.getElementById("skill-new-folder-btn")!.addEventListener("click", addSkillFolder);
@@ -3543,45 +3550,163 @@ function clearRequiresRows() {
 
 // ── Schedule builder ─────────────────────────────────────
 
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, i) => i + 1);
-const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const DAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function initScheduleSelects() {
+  const hourSel = document.getElementById("sched-hour") as HTMLSelectElement;
+  const minSel = document.getElementById("sched-minute") as HTMLSelectElement;
+  const domSel = document.getElementById("sched-dom") as HTMLSelectElement;
+  const intSel = document.getElementById("sched-interval") as HTMLSelectElement;
+  if (hourSel && hourSel.options.length === 0) {
+    for (let h = 0; h < 24; h++) {
+      const ampm = h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`;
+      hourSel.add(new Option(ampm, String(h)));
+    }
+    hourSel.value = "9";
+  }
+  if (minSel && minSel.options.length === 0) {
+    for (let m = 0; m < 60; m += 5) minSel.add(new Option(String(m).padStart(2, "0"), String(m)));
+    minSel.value = "0";
+  }
+  if (domSel && domSel.options.length === 0) {
+    for (let d = 1; d <= 31; d++) {
+      const suffix = d === 1 || d === 21 || d === 31 ? "st" : d === 2 || d === 22 ? "nd" : d === 3 || d === 23 ? "rd" : "th";
+      domSel.add(new Option(`${d}${suffix}`, String(d)));
+    }
+  }
+  if (intSel && intSel.options.length === 0) {
+    for (const n of [5, 10, 15, 20, 30, 45]) intSel.add(new Option(String(n), String(n)));
+    intSel.value = "15";
+  }
+}
+
+function getSelectedDays(): number[] {
+  const chips = document.querySelectorAll("#sched-days-row .sched-day-chip.active");
+  return Array.from(chips).map(c => Number((c as HTMLElement).dataset.dow));
+}
+
+function setSelectedDays(dows: number[]) {
+  const set = new Set(dows);
+  document.querySelectorAll("#sched-days-row .sched-day-chip").forEach(c => {
+    const dow = Number((c as HTMLElement).dataset.dow);
+    c.classList.toggle("active", set.has(dow));
+  });
+}
 
 function updateScheduleOpts() {
   const freq = (document.getElementById("skill-schedule-freq") as HTMLSelectElement).value;
-  const opts = document.getElementById("skill-schedule-opts")!;
   const cronInput = document.getElementById("skill-schedule-cron") as HTMLInputElement;
+  const daysRow = document.getElementById("sched-days-row")!;
+  const timeRow = document.getElementById("sched-time-row")!;
+  const domRow = document.getElementById("sched-dom-row")!;
+  const intervalRow = document.getElementById("sched-interval-row")!;
+  const preview = document.getElementById("sched-preview")!;
 
-  opts.classList.toggle("hidden", freq === "" || freq === "custom");
+  initScheduleSelects();
+
   cronInput.classList.toggle("hidden", freq !== "custom");
-  opts.innerHTML = "";
+  daysRow.classList.add("hidden");
+  timeRow.classList.add("hidden");
+  domRow.classList.add("hidden");
+  intervalRow.classList.add("hidden");
+  preview.classList.toggle("hidden", !freq);
 
-  if (freq === "hourly") {
-    opts.innerHTML = `<label>at minute</label><select id="sched-minute">${MINUTES.map(m => `<option value="${m}">${String(m).padStart(2, "0")}</option>`).join("")}</select>`;
+  // Reset hourly-specific style overrides
+  const hourEl = document.getElementById("sched-hour") as HTMLSelectElement;
+  hourEl.style.display = "";
+  const colonEl = timeRow.querySelector("span") as HTMLElement;
+  if (colonEl) colonEl.style.display = "";
+  const labelEl = timeRow.querySelector("label") as HTMLElement;
+  if (labelEl) labelEl.textContent = "at";
+
+  if (freq === "minutes") {
+    intervalRow.classList.remove("hidden");
+  } else if (freq === "hourly") {
+    timeRow.classList.remove("hidden");
+    // For hourly, only minute matters — hide hour selector
+    const hourEl = document.getElementById("sched-hour") as HTMLSelectElement;
+    hourEl.style.display = "none";
+    (timeRow.querySelector("span") as HTMLElement).style.display = "none";
+    (timeRow.querySelector("label") as HTMLElement).textContent = "at minute";
   } else if (freq === "daily") {
-    opts.innerHTML = `<label>at</label><select id="sched-hour">${HOURS.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+    timeRow.classList.remove("hidden");
   } else if (freq === "weekly") {
-    opts.innerHTML = `<label>on</label><select id="sched-dow">${DAYS_OF_WEEK.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>` +
-      `<label>at</label><select id="sched-hour">${HOURS.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+    daysRow.classList.remove("hidden");
+    timeRow.classList.remove("hidden");
+  } else if (freq === "weekdays") {
+    timeRow.classList.remove("hidden");
   } else if (freq === "monthly") {
-    opts.innerHTML = `<label>on day</label><select id="sched-dom">${DAYS_OF_MONTH.map(d => `<option value="${d}">${d}</option>`).join("")}</select>` +
-      `<label>at</label><select id="sched-hour">${HOURS.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+    domRow.classList.remove("hidden");
+    timeRow.classList.remove("hidden");
   }
+
+  updateSchedulePreview();
+}
+
+function updateSchedulePreview() {
+  const preview = document.getElementById("sched-preview")!;
+  const cron = getScheduleCron();
+  if (!cron) { preview.classList.add("hidden"); return; }
+  preview.classList.remove("hidden");
+  preview.textContent = describeCron(cron);
+}
+
+function describeCron(cron: string): string {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return `cron: ${cron}`;
+  const [min, hr, dom, , dow] = parts;
+
+  const fmtTime = (h: string, m: string) => {
+    const hi = parseInt(h); const mi = parseInt(m);
+    const ampm = hi < 12 ? "AM" : "PM";
+    const h12 = hi === 0 ? 12 : hi > 12 ? hi - 12 : hi;
+    return mi === 0 ? `${h12} ${ampm}` : `${h12}:${String(mi).padStart(2, "0")} ${ampm}`;
+  };
+
+  if (min.includes("/")) {
+    const step = min.split("/")[1];
+    return `Runs every ${step} minutes`;
+  }
+  if (hr === "*" && dom === "*" && dow === "*") {
+    return `Runs every hour at :${min.padStart(2, "0")}`;
+  }
+  if (dom === "*" && dow === "*") {
+    return `Runs daily at ${fmtTime(hr, min)}`;
+  }
+  if (dom === "*" && dow === "1-5") {
+    return `Runs weekdays (Mon-Fri) at ${fmtTime(hr, min)}`;
+  }
+  if (dom === "*" && dow !== "*") {
+    const days = dow.split(",").map(d => DAYS_FULL[parseInt(d)] || d).join(", ");
+    return `Runs every ${days} at ${fmtTime(hr, min)}`;
+  }
+  if (dow === "*" && dom !== "*") {
+    const suffix = (d: number) => d === 1 || d === 21 || d === 31 ? "st" : d === 2 || d === 22 ? "nd" : d === 3 || d === 23 ? "rd" : "th";
+    return `Runs on the ${parseInt(dom)}${suffix(parseInt(dom))} of each month at ${fmtTime(hr, min)}`;
+  }
+  return `cron: ${cron}`;
 }
 
 function getScheduleCron(): string {
   const freq = (document.getElementById("skill-schedule-freq") as HTMLSelectElement).value;
   if (!freq) return "";
   if (freq === "custom") return (document.getElementById("skill-schedule-cron") as HTMLInputElement).value.trim();
+
   const minute = (document.getElementById("sched-minute") as HTMLSelectElement)?.value || "0";
-  const hour = (document.getElementById("sched-hour") as HTMLSelectElement)?.value || "0";
-  const dow = (document.getElementById("sched-dow") as HTMLSelectElement)?.value;
-  const dom = (document.getElementById("sched-dom") as HTMLSelectElement)?.value;
+  const hour = (document.getElementById("sched-hour") as HTMLSelectElement)?.value || "9";
+  const interval = (document.getElementById("sched-interval") as HTMLSelectElement)?.value || "15";
+  const dom = (document.getElementById("sched-dom") as HTMLSelectElement)?.value || "1";
+
+  if (freq === "minutes") return `*/${interval} * * * *`;
   if (freq === "hourly") return `${minute} * * * *`;
-  if (freq === "daily") return `0 ${hour} * * *`;
-  if (freq === "weekly") return `0 ${hour} * * ${dow}`;
-  if (freq === "monthly") return `0 ${hour} ${dom} * *`;
+  if (freq === "daily") return `${minute} ${hour} * * *`;
+  if (freq === "weekdays") return `${minute} ${hour} * * 1-5`;
+  if (freq === "weekly") {
+    const days = getSelectedDays();
+    const dowStr = days.length > 0 ? days.sort((a, b) => a - b).join(",") : "1";
+    return `${minute} ${hour} * * ${dowStr}`;
+  }
+  if (freq === "monthly") return `${minute} ${hour} ${dom} * *`;
   return "";
 }
 
@@ -3590,45 +3715,72 @@ function setScheduleFromCron(cron: string) {
   const cronInput = document.getElementById("skill-schedule-cron") as HTMLInputElement;
   if (!cron) { freqSel.value = ""; updateScheduleOpts(); return; }
 
-  const parts = cron.trim().split(/\s+/);
-  if (cron === "@hourly") { freqSel.value = "hourly"; updateScheduleOpts(); return; }
-  if (cron === "@daily") { freqSel.value = "daily"; updateScheduleOpts(); return; }
-  if (cron === "@weekly") { freqSel.value = "weekly"; updateScheduleOpts(); return; }
-  if (cron === "@monthly") { freqSel.value = "monthly"; updateScheduleOpts(); return; }
+  const shorthand: Record<string, string> = { "@hourly": "hourly", "@daily": "daily", "@weekly": "weekly", "@monthly": "monthly" };
+  if (shorthand[cron]) { freqSel.value = shorthand[cron]; updateScheduleOpts(); return; }
 
-  if (parts.length === 5) {
-    const [min, hr, dom, , dow] = parts;
-    if (min !== "*" && hr === "*" && dom === "*" && dow === "*") {
-      freqSel.value = "hourly"; updateScheduleOpts();
-      const el = document.getElementById("sched-minute") as HTMLSelectElement;
-      if (el) el.value = min;
-      return;
-    }
-    if (hr !== "*" && dom === "*" && dow === "*") {
-      freqSel.value = "daily"; updateScheduleOpts();
-      const el = document.getElementById("sched-hour") as HTMLSelectElement;
-      if (el) el.value = hr;
-      return;
-    }
-    if (hr !== "*" && dom === "*" && dow !== "*") {
-      freqSel.value = "weekly"; updateScheduleOpts();
-      const hEl = document.getElementById("sched-hour") as HTMLSelectElement;
-      const dEl = document.getElementById("sched-dow") as HTMLSelectElement;
-      if (hEl) hEl.value = hr;
-      if (dEl) dEl.value = dow;
-      return;
-    }
-    if (hr !== "*" && dom !== "*" && dow === "*") {
-      freqSel.value = "monthly"; updateScheduleOpts();
-      const hEl = document.getElementById("sched-hour") as HTMLSelectElement;
-      const dEl = document.getElementById("sched-dom") as HTMLSelectElement;
-      if (hEl) hEl.value = hr;
-      if (dEl) dEl.value = dom;
-      return;
-    }
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) { freqSel.value = "custom"; updateScheduleOpts(); cronInput.value = cron; return; }
+
+  const [min, hr, dom, , dow] = parts;
+
+  // Every N minutes
+  if (min.startsWith("*/") && hr === "*" && dom === "*" && dow === "*") {
+    freqSel.value = "minutes"; updateScheduleOpts();
+    const el = document.getElementById("sched-interval") as HTMLSelectElement;
+    if (el) el.value = min.split("/")[1];
+    updateSchedulePreview();
+    return;
   }
+  // Hourly at minute N
+  if (min !== "*" && !min.includes("/") && hr === "*" && dom === "*" && dow === "*") {
+    freqSel.value = "hourly"; updateScheduleOpts();
+    const el = document.getElementById("sched-minute") as HTMLSelectElement;
+    if (el) el.value = min;
+    updateSchedulePreview();
+    return;
+  }
+  // Weekdays
+  if (hr !== "*" && dom === "*" && dow === "1-5") {
+    freqSel.value = "weekdays"; updateScheduleOpts();
+    setTimeFromCron(hr, min);
+    updateSchedulePreview();
+    return;
+  }
+  // Weekly with specific days
+  if (hr !== "*" && dom === "*" && dow !== "*") {
+    freqSel.value = "weekly"; updateScheduleOpts();
+    const days = dow.split(",").map(d => parseInt(d));
+    setSelectedDays(days);
+    setTimeFromCron(hr, min);
+    updateSchedulePreview();
+    return;
+  }
+  // Daily
+  if (hr !== "*" && dom === "*" && dow === "*") {
+    freqSel.value = "daily"; updateScheduleOpts();
+    setTimeFromCron(hr, min);
+    updateSchedulePreview();
+    return;
+  }
+  // Monthly
+  if (hr !== "*" && dom !== "*" && dow === "*") {
+    freqSel.value = "monthly"; updateScheduleOpts();
+    setTimeFromCron(hr, min);
+    const el = document.getElementById("sched-dom") as HTMLSelectElement;
+    if (el) el.value = dom;
+    updateSchedulePreview();
+    return;
+  }
+
   freqSel.value = "custom"; updateScheduleOpts();
   cronInput.value = cron;
+}
+
+function setTimeFromCron(hr: string, min: string) {
+  const hEl = document.getElementById("sched-hour") as HTMLSelectElement;
+  const mEl = document.getElementById("sched-minute") as HTMLSelectElement;
+  if (hEl) hEl.value = hr;
+  if (mEl) mEl.value = min;
 }
 
 async function loadSkills() {

@@ -401,10 +401,12 @@ async function boot() {
     skillEngine: {
       runSkill: (name, input, opts) => skillEngine.runSkill(name, input, opts as any),
       listSkillsDetailed: () => skillEngine.listSkillsDetailed(),
-      getSkill: (name) => {
-        const s = skillEngine.getSkill(name);
-        return s ? { manifest: { description: s.manifest.description, inputs: s.manifest.inputs } } : null;
-      },
+      getSkill: (name) => { const s = skillEngine.getSkill(name); return s ? { manifest: s.manifest as any, prompt: s.prompt, hasRunner: s.hasRunner, folderPath: s.folderPath } : null; },
+      writeSkill: (name, manifest, prompt, runnerCode) => skillEngine.writeSkill(name, manifest as any, prompt, runnerCode),
+      deleteSkill: (name) => skillEngine.deleteSkill(name),
+      readSkillFile: (name, rel) => skillEngine.readSkillFile(name, rel),
+      writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
+      listSkillFiles: (name) => skillEngine.listSkillFiles(name),
     },
     council: { start: (opts, log) => council.start(opts, log) as any },
     navigatorAgent: {
