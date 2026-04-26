@@ -1031,7 +1031,7 @@ body {
   min-height: 0;
 }
 .skill-split-right .skill-code-widget {
-  height: 100%;
+  flex: 1;
   min-height: 420px;
 }
 
@@ -1106,6 +1106,63 @@ body {
   color: var(--text);
 }
 .skill-code-monaco { background: #1e1e1e; }
+
+/* Skill editor right-pane tabs (Code / Preview) */
+.skill-right-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.skill-right-tab {
+  background: none;
+  border: none;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--text-3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.skill-right-tab:hover {
+  color: var(--text);
+}
+.skill-right-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.skill-tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.skill-preview-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.skill-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.skill-preview-note {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+}
+.skill-preview-webview {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  background: #0a0a0a;
+}
 
 /* File tree items with subfolder indent support */
 .skill-file-list {

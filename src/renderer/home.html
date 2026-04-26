@@ -735,6 +735,12 @@
                   <label class="settings-label">Description</label>
                   <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
 
+                  <label class="settings-label">Type</label>
+                  <select id="skill-type" class="settings-input">
+                    <option value="skill">Skill</option>
+                    <option value="vibe">Vibe App</option>
+                  </select>
+
                   <label class="settings-label">Allowed tools</label>
                   <div id="skill-tools-list" class="skill-row-list"></div>
                   <button id="skill-tools-add" class="skill-row-add-btn" type="button">+ Add tool</button>
@@ -800,29 +806,48 @@
                 </div>
               </div>
 
-              <!-- RIGHT: file tree + Monaco -->
+              <!-- RIGHT: tabs + file tree + Monaco + Preview -->
               <div class="skill-split-right">
-                <div class="skill-code-widget">
-                  <aside class="skill-code-tree" id="skill-code-tree">
-                    <div class="skill-code-tree-header">
-                      <span id="skill-editor-status">SKILL.md</span>
-                      <div class="skill-tree-actions">
-                        <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        </button>
-                        <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                        </button>
-                        <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        </button>
+                <div class="skill-right-tabs" id="skill-right-tabs">
+                  <button class="skill-right-tab active" data-tab="code">Code</button>
+                  <button class="skill-right-tab" data-tab="preview">Preview</button>
+                </div>
+
+                <div id="skill-tab-code" class="skill-tab-content">
+                  <div class="skill-code-widget">
+                    <aside class="skill-code-tree" id="skill-code-tree">
+                      <div class="skill-code-tree-header">
+                        <span id="skill-editor-status">SKILL.md</span>
+                        <div class="skill-tree-actions">
+                          <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          </button>
+                          <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                          </button>
+                          <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                          </button>
+                        </div>
                       </div>
+                      <div id="skill-file-list" class="skill-file-list"></div>
+                      <input type="file" id="skill-upload-input" multiple style="display:none" />
+                    </aside>
+                    <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
+                    <div id="skill-monaco-container" class="skill-code-monaco"></div>
+                  </div>
+                </div>
+
+                <div id="skill-tab-preview" class="skill-tab-content" style="display:none;">
+                  <div class="skill-preview-container">
+                    <div class="skill-preview-toolbar">
+                      <button id="skill-preview-refresh" class="skill-tree-action-btn" title="Refresh preview">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      </button>
+                      <span class="skill-preview-note">Preview only — vibe API not available in editor</span>
                     </div>
-                    <div id="skill-file-list" class="skill-file-list"></div>
-                    <input type="file" id="skill-upload-input" multiple style="display:none" />
-                  </aside>
-                  <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
-                  <div id="skill-monaco-container" class="skill-code-monaco"></div>
+                    <webview id="skill-preview-webview" class="skill-preview-webview" partition="persist:vibe-preview"></webview>
+                  </div>
                 </div>
               </div>
             </div>

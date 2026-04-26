@@ -121,15 +121,23 @@ export class SkillEngine {
   listSkillsDetailed(): SkillSummary[] {
     return this.listSkills().map((name) => {
       const s = this.getSkill(name);
-      if (!s) return { name, hasRunner: false, scheduled: false };
+      if (!s) return { name, hasRunner: false, hasApp: false, scheduled: false };
       return {
         name,
         description: s.manifest.description,
         hasRunner: s.hasRunner,
+        hasApp: s.hasApp,
         scheduled: !!s.manifest.schedule,
         scheduleExpr: s.manifest.schedule ?? undefined,
       };
     });
+  }
+
+  listVibes(): Array<{ name: string; description?: string; folderPath: string }> {
+    return this.listSkills()
+      .map(name => this.getSkill(name))
+      .filter((s): s is Skill => s !== null && (s.manifest.type === "vibe" || s.hasApp))
+      .map(s => ({ name: s.name, description: s.manifest.description, folderPath: s.folderPath }));
   }
 
   getSkill(name: string): Skill | null {
@@ -145,6 +153,7 @@ export class SkillEngine {
       manifest,
       prompt: body,
       hasRunner: fs.existsSync(path.join(folder, SKILL_JS)),
+      hasApp: fs.existsSync(path.join(folder, "APP.html")),
       folderPath: folder,
     };
   }

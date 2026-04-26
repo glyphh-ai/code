@@ -21,9 +21,9 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
-  skillsListDetailed: () => ipcRenderer.invoke("skills-list-detailed") as Promise<Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }>>,
+  skillsListDetailed: () => ipcRenderer.invoke("skills-list-detailed") as Promise<Array<{ name: string; description?: string; hasRunner: boolean; hasApp: boolean; scheduled: boolean; scheduleExpr?: string }>>,
   skillsRead: (name: string) => ipcRenderer.invoke("skills-read", name) as Promise<string | null>,
-  skillsGet: (name: string) => ipcRenderer.invoke("skills-get", name) as Promise<{ name: string; manifest: any; prompt: string; hasRunner: boolean; runnerCode: string | null } | null>,
+  skillsGet: (name: string) => ipcRenderer.invoke("skills-get", name) as Promise<{ name: string; manifest: any; prompt: string; hasRunner: boolean; hasApp: boolean; runnerCode: string | null } | null>,
   skillsWrite: (name: string, prompt: string) => ipcRenderer.invoke("skills-write", name, prompt) as Promise<boolean | { error: string }>,
   skillsWriteFull: (name: string, manifest: any, prompt: string, runnerCode?: string | null) =>
     ipcRenderer.invoke("skills-write-full", name, manifest, prompt, runnerCode) as Promise<boolean | { error: string }>,

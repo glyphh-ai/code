@@ -45,7 +45,7 @@ import { ActionGrabber } from "./action-grabber";
 import { Council } from "./council";
 import { McpExpose } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
-import { DripManager } from "./drip-manager";
+import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
@@ -407,6 +407,7 @@ async function boot() {
       readSkillFile: (name, rel) => skillEngine.readSkillFile(name, rel),
       writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
       listSkillFiles: (name) => skillEngine.listSkillFiles(name),
+      listVibes: () => skillEngine.listVibes(),
     },
     council: { start: (opts, log) => council.start(opts, log) as any },
     navigatorAgent: {
@@ -417,6 +418,18 @@ async function boot() {
     layoutAgent: {
       execute: (instruction, ctx) => yoAgent.layout.execute(instruction, ctx),
       setBudget: (budget) => yoAgent.layout.setBudget(budget),
+    },
+    dripManager: {
+      listCustoms: () => dripManager!.listCustoms(),
+      saveCustom: (name: string, recipe: string) => dripManager!.saveCustom(name, recipe),
+      deleteCustom: (name: string) => dripManager!.deleteCustom(name),
+      listBuiltinEffects: () => BUILTIN_EFFECTS.slice(),
+    },
+    layoutManager: {
+      listLayouts: () => layoutManager.listLayouts() as any,
+      getLayout: (name: string) => layoutManager.getLayout(name) as any,
+      saveLayout: (grid: any) => layoutManager.saveLayout(grid),
+      deleteLayout: (name: string) => layoutManager.deleteLayout(name),
     },
     mcpRouter: (() => {
       const shortToQualified = new Map<string, string>();
@@ -506,7 +519,15 @@ async function boot() {
     }
   }
 
+  // Track vibe panel webContents for IPC scoping (populated by onCreated callback below)
+  const vibeWebContentsMap = new Map<number, string>();
+
   panelManager = new PanelManager((id, wc) => {
+    if (id.startsWith("vibe-")) {
+      const vibeName = id.slice(5);
+      vibeWebContentsMap.set(wc.id, vibeName);
+      wc.on("destroyed", () => vibeWebContentsMap.delete(wc.id));
+    }
     if (id === "term") {
       // Spawn pty when terminal page loads
       wc.on("did-finish-load", () => terminalManager.spawn(wc));
@@ -704,10 +725,34 @@ async function boot() {
         </div></body></html>`)}`;
         panelManager.addPanel(app.id, infoPage);
       }
+    } else if (app.url?.startsWith("yo://vibe/")) {
+      const vibeName = app.url.replace("yo://vibe/", "");
+      const appHtmlPath = path.join(os.homedir(), "yo", "skills", vibeName, "APP.html");
+      if (fs.existsSync(appHtmlPath)) {
+        const vibePreload = path.join(__dirname, "vibe-preload.js");
+        panelManager.addPanel(app.id, `file://${appHtmlPath}`, vibePreload);
+      }
     } else {
       panelManager.addPanel(app.id, app.url!, undefined, app.forceWeb);
     }
   }
+
+  // ── Vibe registration (skill-based apps) ───────────────
+  function registerVibes(): void {
+    const vibePreload = path.join(__dirname, "vibe-preload.js");
+    for (const vibe of skillEngine.listVibes()) {
+      const panelId = `vibe-${vibe.name}`;
+      const appHtmlPath = path.join(vibe.folderPath, "APP.html");
+      if (!fs.existsSync(appHtmlPath)) continue;
+      const fileUrl = `file://${appHtmlPath}`;
+      panelManager.addPanel(panelId, fileUrl, vibePreload);
+      if (!appConnector.get(panelId)) {
+        appConnector.add(panelId, vibe.description || vibe.name, `yo://vibe/${vibe.name}`);
+      }
+    }
+  }
+  registerVibes();
+  skillEngine.onChange(() => registerVibes());
 
   // Start VS Code server in the background if enabled and CLI is available
   if (enableVscode && vscodeServer.available) {
@@ -2078,6 +2123,52 @@ async function boot() {
   ipcMain.handle("drips-preview", async (_e, recipe: string) => {
     if (!dripManager) return "drip manager not ready";
     return dripManager.execute(recipe.split(/\s+/));
+  });
+
+  // IPC: Vibe panels
+  ipcMain.handle("vibe:run-skill", async (e, name: string, input: unknown) => {
+    const vibeName = vibeWebContentsMap.get(e.sender.id);
+    if (!vibeName) return { ok: false, error: "Not a vibe panel" };
+    const vibe = skillEngine.getSkill(vibeName);
+    if (!vibe) return { ok: false, error: "Vibe not found" };
+    const requires = vibe.manifest.requires || [];
+    if (!requires.includes(name)) return { ok: false, error: `Skill "${name}" not in vibe's requires list` };
+    try {
+      const output = await skillEngine.runSkill(name, input, { trigger: "skill" });
+      return { ok: true, output };
+    } catch (err: any) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+  ipcMain.handle("vibe:ask", async (_e, prompt: string) => {
+    if (!llmConfig?.apiKey) return "No API key configured.";
+    try {
+      const resp = await createCompletion(llmConfig, {
+        system: "You are a helpful assistant inside a vibe app. Be concise.",
+        messages: [{ role: "user", content: prompt }],
+        maxTokens: 2048,
+      });
+      const block = resp.content[0];
+      return block?.type === "text" ? block.text : "";
+    } catch (err: any) {
+      return `Error: ${err.message || err}`;
+    }
+  });
+  ipcMain.handle("vibe:search-captures", async (_e, query: string, limit?: number) => {
+    const results = await captureStore.search(query, limit || 10);
+    return results.map(r => ({ source: r.meta.source, content: r.content, score: r.score }));
+  });
+  ipcMain.handle("vibe:read-file", async (e, relPath: string) => {
+    const vibeName = vibeWebContentsMap.get(e.sender.id);
+    if (!vibeName) return null;
+    return skillEngine.readSkillFile(vibeName, relPath);
+  });
+  ipcMain.handle("vibe:get-name", (e) => {
+    return vibeWebContentsMap.get(e.sender.id) ?? null;
+  });
+  ipcMain.handle("vibe:copy", (_e, text: string) => {
+    const { clipboard } = require("electron");
+    clipboard.writeText(text);
   });
 
   // IPC: Capture store

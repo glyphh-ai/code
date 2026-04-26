@@ -3357,7 +3357,7 @@ async function saveSettings() {
 // Folder-based skills: SKILL.md (frontmatter + prompt) + SKILL.js (optional runner) + arbitrary files.
 
 let skillsPage = 0;
-let allSkillsDetailed: Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }> = [];
+let allSkillsDetailed: Array<{ name: string; description?: string; hasRunner: boolean; hasApp: boolean; scheduled: boolean; scheduleExpr?: string }> = [];
 const skillsListEl = document.getElementById("skills-list")!;
 const skillsToolbar = document.getElementById("skills-toolbar")!;
 const skillEditor = document.getElementById("skill-editor")!;
@@ -3374,6 +3374,81 @@ let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
 let cachedToolGroups: Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }> = [];
 let collapsedFolders = new Set<string>();
+const skillTypeSelect = document.getElementById("skill-type") as HTMLSelectElement;
+const skillRightTabs = document.getElementById("skill-right-tabs")!;
+const skillTabCode = document.getElementById("skill-tab-code")!;
+const skillTabPreview = document.getElementById("skill-tab-preview")!;
+const skillPreviewWebview = document.getElementById("skill-preview-webview") as any;
+let activeRightTab: "code" | "preview" = "code";
+
+function switchSkillRightTab(tab: "code" | "preview") {
+  activeRightTab = tab;
+  skillTabCode.style.display = tab === "code" ? "" : "none";
+  skillTabPreview.style.display = tab === "preview" ? "" : "none";
+  Array.from(skillRightTabs.querySelectorAll(".skill-right-tab")).forEach(btn => {
+    btn.classList.toggle("active", (btn as HTMLElement).dataset.tab === tab);
+  });
+  if (tab === "preview") refreshVibePreview();
+}
+
+function refreshVibePreview() {
+  const html = editingFileContents.get("APP.html") || "";
+  if (!html.trim()) {
+    skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(
+      `<body style="background:#0a0a0a;color:#999;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>No APP.html content</p></body>`
+    );
+    return;
+  }
+  skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+}
+
+function updatePreviewTabVisibility() {
+  const isVibe = skillTypeSelect.value === "vibe" || editingSkillFiles.includes("APP.html");
+  const previewBtn = skillRightTabs.querySelector('[data-tab="preview"]') as HTMLElement;
+  if (previewBtn) previewBtn.style.display = isVibe ? "" : "none";
+  if (!isVibe && activeRightTab === "preview") switchSkillRightTab("code");
+}
+
+skillRightTabs.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest(".skill-right-tab") as HTMLElement | null;
+  if (!btn) return;
+  switchSkillRightTab(btn.dataset.tab as "code" | "preview");
+});
+
+document.getElementById("skill-preview-refresh")?.addEventListener("click", () => {
+  captureCurrentEditorContent();
+  refreshVibePreview();
+});
+
+skillTypeSelect.addEventListener("change", () => {
+  if (skillTypeSelect.value === "vibe" && !editingSkillFiles.includes("APP.html")) {
+    const starter = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; padding: 24px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+  <h1>My Vibe</h1>
+  <p>Edit this file to build your app.</p>
+  <script>
+    // window.vibe.runSkill(name, input) — call a skill
+    // window.vibe.ask(prompt) — one-shot LLM call
+    // window.vibe.searchCaptures(query, limit?) — vector search
+    // window.vibe.copyToClipboard(text)
+  </script>
+</body>
+</html>`;
+    editingSkillFiles.push("APP.html");
+    editingFileContents.set("APP.html", starter);
+    renderSkillFileTree();
+  }
+  updatePreviewTabVisibility();
+});
 
 function ensureMonaco(): Promise<void> {
   if (monacoReady) return monacoReady;
@@ -3828,6 +3903,7 @@ function renderSkillsList() {
 
   for (const skill of items) {
     const badges: string[] = [];
+    if (skill.hasApp) badges.push('<span class="app-card-badge" style="background:rgba(168,85,247,0.15);color:#a855f7;font-size:9px;padding:1px 5px;">VIBE</span>');
     if (skill.hasRunner) badges.push('<span class="app-card-badge" style="font-size:9px;padding:1px 5px;">JS</span>');
     if (skill.scheduled) badges.push(`<span class="app-card-badge" style="background:rgba(74,158,255,0.15);color:#4A9EFF;font-size:9px;padding:1px 5px;" title="${skill.scheduleExpr || ''}">⏰</span>`);
     const card = document.createElement("div");
@@ -3880,6 +3956,7 @@ async function openSkillEditor(name: string | null) {
     editingSelectedFile = "SKILL.md";
     editingFileContents.set("SKILL.md", "");
     skillDescInput.value = "";
+    skillTypeSelect.value = "skill";
     setScheduleFromCron("");
     skillDeleteBtn.style.display = "none";
   } else {
@@ -3887,6 +3964,7 @@ async function openSkillEditor(name: string | null) {
     const full = await window.yo.skillsGet(name!);
     if (full) {
       skillDescInput.value = full.manifest?.description || "";
+      skillTypeSelect.value = full.manifest?.type === "vibe" || full.hasApp ? "vibe" : "skill";
       const tools: string[] = full.manifest?.["allowed-tools"] || [];
       for (const entry of tools) {
         const dot = entry.indexOf(".");
@@ -3909,6 +3987,8 @@ async function openSkillEditor(name: string | null) {
   skillsListEl.classList.add("hidden");
   skillsToolbar.classList.add("hidden");
   skillEditor.classList.remove("hidden");
+  switchSkillRightTab("code");
+  updatePreviewTabVisibility();
 
   renderSkillFileTree();
   await openSkillFile(editingSelectedFile);
@@ -4069,6 +4149,7 @@ async function saveSkill() {
   const schedule = getScheduleCron();
 
   const manifest: any = { name, description };
+  if (skillTypeSelect.value === "vibe") manifest.type = "vibe";
   if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
   if (requires.length) manifest.requires = requires;
   if (schedule) manifest.schedule = schedule;
@@ -4234,6 +4315,7 @@ async function saveSkillInline() {
   const requires = getRequiresEntries();
   const schedule = getScheduleCron();
   const manifest: any = { name, description };
+  if (skillTypeSelect.value === "vibe") manifest.type = "vibe";
   if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
   if (requires.length) manifest.requires = requires;
   if (schedule) manifest.schedule = schedule;

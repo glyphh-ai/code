@@ -32,11 +32,24 @@ export interface SubstrateToolDeps {
     readSkillFile: (name: string, rel: string) => string | null;
     writeSkillFile: (name: string, rel: string, content: string) => boolean;
     listSkillFiles: (name: string) => string[];
+    listVibes: () => Array<{ name: string; description?: string; folderPath: string }>;
   };
   council?: { start: (opts: { participants: string[]; prompt: string; rounds: number }, log: (msg: string) => void) => Promise<{ status: string; rounds: number; participants: string[]; totalCaptures: number; responses: Map<string, string[]> }> };
   navigatorAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; listPanels: () => string; setBudget?: (budget: any) => void };
   layoutAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; setBudget?: (budget: any) => void };
   mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (name: string, input: Record<string, unknown>) => Promise<string>; hasTool?: (name: string) => boolean; mcpCoveredApps?: () => Map<string, string[]> };
+  dripManager?: {
+    listCustoms: () => Array<{ name: string; recipe: string }>;
+    saveCustom: (name: string, recipe: string) => string;
+    deleteCustom: (name: string) => string;
+    listBuiltinEffects: () => string[];
+  };
+  layoutManager?: {
+    listLayouts: () => Array<{ name: string; version: 2; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>;
+    getLayout: (name: string) => { name: string; version: 2; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | undefined;
+    saveLayout: (grid: { name: string; version: 2; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => void;
+    deleteLayout: (name: string) => boolean;
+  };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -256,6 +269,319 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const files = deps.skillEngine.listSkillFiles(name);
       const extraFiles = files.filter(f => f !== "SKILL.md" && f !== "SKILL.js");
       if (extraFiles.length > 0) lines.push("", `Other files: ${extraFiles.join(", ")}`);
+      return lines.join("\n");
+    },
+  },
+  {
+    name: "create_drip",
+    namespace: "yo",
+    description: "Create or overwrite a custom drip recipe. A drip is a visual effect overlay. Recipes combine built-in effects with optional count and opacity.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Drip name (lowercase, no spaces)" },
+        recipe: { type: "string", description: "Recipe string, e.g. 'fireworks hearts 2' or '-1 0.5 matrix' for persistent" },
+      },
+      required: ["name", "recipe"],
+    },
+    async run(input) {
+      if (!deps.dripManager) return "Drip manager not available.";
+      const name = (input.name as string).toLowerCase().replace(/\s+/g, "-");
+      const recipe = input.recipe as string;
+      if (!name || !recipe) return "Name and recipe are required.";
+      return deps.dripManager.saveCustom(name, recipe);
+    },
+  },
+  {
+    name: "update_drip",
+    namespace: "yo",
+    description: "Update an existing custom drip recipe.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Drip name to update" },
+        recipe: { type: "string", description: "New recipe string" },
+      },
+      required: ["name", "recipe"],
+    },
+    async run(input) {
+      if (!deps.dripManager) return "Drip manager not available.";
+      const name = (input.name as string).toLowerCase();
+      const customs = deps.dripManager.listCustoms();
+      if (!customs.find(c => c.name === name)) return `Drip "${name}" not found. Use create_drip to create it.`;
+      return deps.dripManager.saveCustom(name, input.recipe as string);
+    },
+  },
+  {
+    name: "read_drip",
+    namespace: "yo",
+    description: "Read drip definitions — a specific custom drip, or list all available effects and custom drips.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Drip name (omit to list all)" },
+      },
+    },
+    async run(input) {
+      if (!deps.dripManager) return "Drip manager not available.";
+      const name = input.name as string;
+      if (name) {
+        const customs = deps.dripManager.listCustoms();
+        const found = customs.find(c => c.name === name.toLowerCase());
+        if (found) return `Drip: ${found.name}\nRecipe: ${found.recipe}`;
+        const builtins = deps.dripManager.listBuiltinEffects();
+        if (builtins.includes(name.toLowerCase())) return `"${name}" is a built-in effect (not a custom drip).`;
+        return `Drip "${name}" not found.`;
+      }
+      const builtins = deps.dripManager.listBuiltinEffects();
+      const customs = deps.dripManager.listCustoms();
+      const lines = [`Built-in effects: ${builtins.join(", ")}`];
+      if (customs.length > 0) {
+        lines.push("", "Custom drips:");
+        for (const c of customs) lines.push(`  ${c.name} → ${c.recipe}`);
+      } else {
+        lines.push("", "No custom drips yet.");
+      }
+      lines.push("", "Recipe syntax:", "  [count] [effects...] — one-shot, e.g. 'fireworks hearts 2'", "  -1 [opacity] [effects...] — persistent loop, e.g. '-1 0.5 matrix'", "  Opacity: 0-1 float (default 0.5 for persistent)", "  Count: integer 1-10 (default 1)");
+      return lines.join("\n");
+    },
+  },
+  {
+    name: "create_layout",
+    namespace: "yo",
+    description: "Create or overwrite a named panel layout. A layout is a grid arrangement of app panels.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Layout name" },
+        cols: { type: "number", description: "Number of columns (1-4)" },
+        rows: { type: "number", description: "Number of rows (1-4)" },
+        col_widths: { type: "array", items: { type: "number" }, description: "Column width fractions (must sum to ~1), e.g. [0.5, 0.5]" },
+        row_heights: { type: "array", items: { type: "number" }, description: "Row height fractions (must sum to ~1), e.g. [0.6, 0.4]" },
+        cells: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              panel_id: { type: "string", description: "App panel ID (e.g. 'gmail', 'claude', 'slack')" },
+              col: { type: "number", description: "0-based column" },
+              row: { type: "number", description: "0-based row" },
+              col_span: { type: "number", description: "Width in grid cells (default 1)" },
+              row_span: { type: "number", description: "Height in grid cells (default 1)" },
+            },
+            required: ["panel_id", "col", "row"],
+          },
+          description: "Panel placements in the grid",
+        },
+      },
+      required: ["name", "cols", "rows", "cells"],
+    },
+    async run(input) {
+      if (!deps.layoutManager) return "Layout manager not available.";
+      const name = input.name as string;
+      const cols = Math.max(1, Math.min(4, input.cols as number));
+      const rows = Math.max(1, Math.min(4, input.rows as number));
+      const colWidths = (input.col_widths as number[]) || Array(cols).fill(1 / cols);
+      const rowHeights = (input.row_heights as number[]) || Array(rows).fill(1 / rows);
+      const rawCells = input.cells as Array<{ panel_id: string; col: number; row: number; col_span?: number; row_span?: number }>;
+      if (!rawCells || rawCells.length === 0) return "At least one cell is required.";
+      const cells = rawCells.map(c => ({
+        panelId: c.panel_id,
+        col: c.col,
+        row: c.row,
+        colSpan: c.col_span || 1,
+        rowSpan: c.row_span || 1,
+      }));
+      const grid = { name, version: 2 as const, cols, rows, colWidths, rowHeights, cells };
+      deps.layoutManager.saveLayout(grid);
+      return `Layout "${name}" saved (${cols}x${rows} grid, ${cells.length} panels). The user can apply it from the layouts page or with .dip layout ${name}.`;
+    },
+  },
+  {
+    name: "update_layout",
+    namespace: "yo",
+    description: "Update an existing layout's grid, panels, or proportions. Only provided fields are changed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Layout name to update" },
+        cols: { type: "number", description: "Updated column count" },
+        rows: { type: "number", description: "Updated row count" },
+        col_widths: { type: "array", items: { type: "number" }, description: "Updated column widths" },
+        row_heights: { type: "array", items: { type: "number" }, description: "Updated row heights" },
+        cells: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              panel_id: { type: "string" },
+              col: { type: "number" },
+              row: { type: "number" },
+              col_span: { type: "number" },
+              row_span: { type: "number" },
+            },
+            required: ["panel_id", "col", "row"],
+          },
+          description: "Updated panel placements",
+        },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.layoutManager) return "Layout manager not available.";
+      const name = input.name as string;
+      const existing = deps.layoutManager.getLayout(name);
+      if (!existing) return `Layout "${name}" not found. Use create_layout to create it.`;
+      const grid = { ...existing };
+      if (input.cols !== undefined) grid.cols = Math.max(1, Math.min(4, input.cols as number));
+      if (input.rows !== undefined) grid.rows = Math.max(1, Math.min(4, input.rows as number));
+      if (input.col_widths) grid.colWidths = input.col_widths as number[];
+      if (input.row_heights) grid.rowHeights = input.row_heights as number[];
+      if (input.cells) {
+        grid.cells = (input.cells as Array<{ panel_id: string; col: number; row: number; col_span?: number; row_span?: number }>).map(c => ({
+          panelId: c.panel_id,
+          col: c.col,
+          row: c.row,
+          colSpan: c.col_span || 1,
+          rowSpan: c.row_span || 1,
+        }));
+      }
+      deps.layoutManager.saveLayout(grid);
+      return `Layout "${name}" updated.`;
+    },
+  },
+  {
+    name: "read_layout",
+    namespace: "yo",
+    description: "Read a layout's definition, or list all saved layouts.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Layout name (omit to list all)" },
+      },
+    },
+    async run(input) {
+      if (!deps.layoutManager) return "Layout manager not available.";
+      const name = input.name as string;
+      if (name) {
+        const layout = deps.layoutManager.getLayout(name);
+        if (!layout) return `Layout "${name}" not found.`;
+        const lines = [
+          `Layout: ${layout.name}`,
+          `Grid: ${layout.cols}x${layout.rows}`,
+          `Column widths: ${layout.colWidths.map(w => w.toFixed(2)).join(", ")}`,
+          `Row heights: ${layout.rowHeights.map(h => h.toFixed(2)).join(", ")}`,
+          "", "Cells:",
+        ];
+        for (const c of layout.cells) {
+          const span = (c.colSpan > 1 || c.rowSpan > 1) ? ` (span ${c.colSpan}x${c.rowSpan})` : "";
+          lines.push(`  [${c.col},${c.row}] ${c.panelId}${span}`);
+        }
+        return lines.join("\n");
+      }
+      const layouts = deps.layoutManager.listLayouts();
+      if (layouts.length === 0) return "No saved layouts.";
+      return layouts.map(l => {
+        const panels = l.cells.map(c => c.panelId).join(", ");
+        return `${l.name} — ${l.cols}x${l.rows} grid — ${panels}`;
+      }).join("\n");
+    },
+  },
+  {
+    name: "create_vibe",
+    namespace: "yo",
+    description: "Create a vibe app — an interactive HTML panel powered by skills. Creates a skill with type: vibe and writes APP.html.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Vibe name (lowercase, hyphens ok)" },
+        description: { type: "string", description: "One-line description" },
+        html: { type: "string", description: "Full APP.html content — the vibe's UI (self-contained HTML with inline CSS/JS)" },
+        prompt: { type: "string", description: "System prompt for the vibe's backing skill (optional)" },
+        requires: { type: "array", items: { type: "string" }, description: "Skills this vibe can call via window.vibe.runSkill()" },
+        allowed_tools: { type: "array", items: { type: "string" }, description: "Tools the backing skill can use" },
+      },
+      required: ["name", "description", "html"],
+    },
+    async run(input) {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const name = input.name as string;
+      if (!name) return "Vibe name is required.";
+      const manifest: Record<string, unknown> = {
+        name,
+        description: input.description as string || "",
+        type: "vibe",
+      };
+      if (input.requires) manifest.requires = input.requires;
+      if (input.allowed_tools) manifest["allowed-tools"] = input.allowed_tools;
+      const prompt = (input.prompt as string) || "";
+      const ok = deps.skillEngine.writeSkill(name, manifest, prompt);
+      if (!ok) return `Failed to create vibe "${name}".`;
+      deps.skillEngine.writeSkillFile(name, "APP.html", input.html as string);
+      return `Vibe "${name}" created. Open it with .dip vibe-${name}`;
+    },
+  },
+  {
+    name: "update_vibe",
+    namespace: "yo",
+    description: "Update a vibe's HTML, prompt, or manifest. Only provided fields are changed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Vibe name to update" },
+        html: { type: "string", description: "Updated APP.html content" },
+        description: { type: "string", description: "Updated description" },
+        prompt: { type: "string", description: "Updated skill prompt" },
+        requires: { type: "array", items: { type: "string" }, description: "Updated skill dependencies" },
+        allowed_tools: { type: "array", items: { type: "string" }, description: "Updated allowed tools" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const name = input.name as string;
+      const existing = deps.skillEngine.getSkill(name);
+      if (!existing) return `Vibe "${name}" not found. Use create_vibe to create it.`;
+      const manifest = { ...existing.manifest };
+      if (input.description !== undefined) manifest.description = input.description;
+      if (input.requires !== undefined) manifest.requires = input.requires;
+      if (input.allowed_tools !== undefined) manifest["allowed-tools"] = input.allowed_tools;
+      manifest.type = "vibe";
+      const prompt = (input.prompt as string) ?? existing.prompt;
+      deps.skillEngine.writeSkill(name, manifest, prompt);
+      if (input.html !== undefined) {
+        deps.skillEngine.writeSkillFile(name, "APP.html", input.html as string);
+      }
+      return `Vibe "${name}" updated.`;
+    },
+  },
+  {
+    name: "read_vibe",
+    namespace: "yo",
+    description: "Read a vibe's HTML and manifest, or list all vibes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Vibe name (omit to list all)" },
+      },
+    },
+    async run(input) {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const name = input.name as string;
+      if (!name) {
+        const vibes = deps.skillEngine.listVibes();
+        if (vibes.length === 0) return "No vibes found. Use create_vibe to make one.";
+        return vibes.map(v => `${v.name} — ${v.description || "(no description)"}`).join("\n");
+      }
+      const skill = deps.skillEngine.getSkill(name);
+      if (!skill) return `Vibe "${name}" not found.`;
+      const lines = [`Vibe: ${name}`, `Description: ${(skill.manifest as any).description || "(none)"}`];
+      const m = skill.manifest as Record<string, unknown>;
+      if (m.requires) lines.push(`Requires: ${(m.requires as string[]).join(", ")}`);
+      if (m["allowed-tools"]) lines.push(`Allowed tools: ${(m["allowed-tools"] as string[]).join(", ")}`);
+      const html = deps.skillEngine.readSkillFile(name, "APP.html");
+      if (html) lines.push("", "--- APP.html ---", html);
+      if (skill.prompt) lines.push("", "--- PROMPT ---", skill.prompt);
       return lines.join("\n");
     },
   },

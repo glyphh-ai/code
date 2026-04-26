@@ -91,7 +91,50 @@ TOOL ENFORCEMENT:
 Every skill must declare exactly the tools it needs in allowed_tools. Format: ["<app>.<tool>"] e.g. ["gmail.send_email", "yo.search_captures"].
 The runner can ONLY use tools listed in allowed_tools — unlisted tools will be rejected.
 Sub-skills must be listed in requires. If the skill doesn't need tools, leave allowed_tools empty.
-If the skill should run on a schedule, set schedule as a cron expression (e.g. "0 9 * * 1-5" for weekdays at 9am).`;
+If the skill should run on a schedule, set schedule as a cron expression (e.g. "0 9 * * 1-5" for weekdays at 9am).
+
+DRIP BUILDING:
+When the user asks you to create a drip (visual effect overlay):
+1. Call read_drip (no name) to see built-in effects and existing customs.
+2. Call create_drip with a name and recipe. Recipes combine built-in effects.
+3. Tell the user to run .drip <name> to test it.
+4. Use update_drip to iterate on the recipe.
+
+RECIPE SYNTAX:
+- One-shot: "[count] [effects...]" e.g. "fireworks hearts 2" plays fireworks+hearts twice
+- Persistent: "-1 [opacity] [effects...]" e.g. "-1 0.5 matrix" loops matrix at 50% opacity
+- Built-in one-shot: fireworks, hearts, confetti, stars, rain, bubbles, sparkle, spiral, emoji, wave, thumbsup
+- Built-in loops: matrix, aurora, nebula, plasma, fireflies, starfield
+- Custom names can reference other customs (chaining)
+
+LAYOUT BUILDING:
+When the user asks you to create a layout (panel grid arrangement):
+1. Call read_layout (no name) to see existing layouts.
+2. Call create_layout with grid dimensions and panel placements.
+3. Tell the user to apply it from the layouts page or with .dip layout <name>.
+4. Use update_layout to adjust proportions or swap panels.
+
+LAYOUT MODEL:
+- Grid: 1-4 cols x 1-4 rows
+- col_widths/row_heights: fractions summing to ~1 (e.g. [0.6, 0.4] for 60/40 split)
+- Each cell: panel_id + col/row position + optional col_span/row_span for spanning
+- Panel IDs are app names (gmail, claude, slack, etc.) matching the user's registered apps.
+
+VIBE BUILDING:
+When the user asks you to create an interactive app, dashboard, or preview panel:
+1. Call create_vibe with name, description, and full APP.html content.
+2. APP.html has access to the window.vibe API:
+   - vibe.runSkill(name, input) — call a skill listed in requires, returns {ok, output} or {ok:false, error}
+   - vibe.ask(prompt) — one-shot LLM prompt, returns text
+   - vibe.searchCaptures(query, limit?) — vector search over captured content
+   - vibe.readFile(relPath) — read a file from the vibe's skill folder
+   - vibe.copyToClipboard(text) — copy to clipboard
+   - vibe.onData(cb) — listen for pushed data
+3. APP.html must be self-contained — inline all CSS and JS. Use dark theme (#0a0a0a background, #e0e0e0 text, #25C75E accent).
+4. The vibe appears as an app: .dip vibe-<name> to open it.
+5. Use update_vibe to iterate on HTML or dependencies.
+6. For data processing, create helper skills (with create_skill), list them in the vibe's requires, and call via vibe.runSkill().
+7. Use read_vibe to inspect an existing vibe before modifying it.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -482,7 +525,11 @@ export class YoAgent {
       !t.name.startsWith("skill_") &&
       !["search_captures","get_context","format","save_memory","search_notes",
         "read_file","list_files","run_command","start_council",
-        "delegate_navigate","delegate_layout"].includes(t.name)
+        "delegate_navigate","delegate_layout",
+        "create_skill","update_skill","read_skill",
+        "create_drip","update_drip","read_drip",
+        "create_layout","update_layout","read_layout",
+        "create_vibe","update_vibe","read_vibe"].includes(t.name)
     );
     if (mcpTools.length > 0) {
       prompt += `\n\nCONNECTED MCP TOOLS (use these directly — do NOT use delegate_navigate for these apps):\n${mcpTools.map(t => `- ${t.name}: ${t.description}`).join("\n")}`;
