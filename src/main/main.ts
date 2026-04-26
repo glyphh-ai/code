@@ -434,12 +434,7 @@ async function boot() {
             }
           }
           return allTools.map((t) => {
-            let short: string;
-            if (t.serverId.startsWith("pipedream-connect-")) {
-              short = t.name.replace(/-/g, "_");
-            } else {
-              short = `${t.serverId.replace(/-/g, "_")}__${t.name.replace(/-/g, "_")}`;
-            }
+            const short = `${t.serverId.replace(/-/g, "_")}__${t.name.replace(/-/g, "_")}`;
             shortToQualified.set(short, t.qualifiedName);
             return { name: short, description: t.description || "", input_schema: t.inputSchema };
           });
@@ -1946,17 +1941,16 @@ async function boot() {
       groups.push({ namespace: "yo", label: "yo (built-in)", tools: yoTools.map(t => ({ name: t.name, description: t.description })) });
     }
     if (mcpManager) {
-      const byServer = new Map<string, { label: string; tools: Array<{ name: string; description: string }> }>();
+      const byApp = new Map<string, { label: string; tools: Array<{ name: string; description: string }> }>();
       for (const t of mcpManager.getAllTools()) {
-        let ns = t.serverId;
-        if (ns.startsWith("pipedream-connect-")) ns = ns.replace("pipedream-connect-", "");
-        const userApp = appConnector?.findByPipedreamSlug(ns);
-        const label = userApp?.name || ns;
-        if (!byServer.has(ns)) byServer.set(ns, { label, tools: [] });
-        byServer.get(ns)!.tools.push({ name: t.name, description: t.description });
+        const appId = t.serverId;
+        const app = appConnector?.get(appId);
+        const label = app?.name || appId;
+        if (!byApp.has(appId)) byApp.set(appId, { label, tools: [] });
+        byApp.get(appId)!.tools.push({ name: t.name, description: t.description });
       }
-      for (const [ns, group] of byServer) {
-        groups.push({ namespace: ns, label: group.label, tools: group.tools });
+      for (const [appId, group] of byApp) {
+        groups.push({ namespace: appId, label: group.label, tools: group.tools });
       }
     }
     return groups;

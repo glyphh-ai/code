@@ -3,7 +3,7 @@
  *
  * Namespace:
  *   yo.<tool>            → agent tools from yo-agent TOOLS registry
- *   <app-id>.<tool>      → app-scoped via MCP server "pipedream-connect-<app-id>"
+ *   <app-id>.<tool>      → app-scoped MCP tools (server ID = app ID)
  *
  * Returns a filtered tool list suitable for handing to the LLM.
  */
@@ -62,12 +62,11 @@ export class SkillToolRouter {
           missingApps.add(ns);
           continue;
         }
-        const serverId = `pipedream-connect-${ns}`;
         const allTools = this.mcpManager.getAllTools();
-        const match = allTools.find((t) => t.serverId === serverId && t.name === toolName);
+        const match = allTools.find((t) => t.serverId === ns && t.name === toolName);
         if (!match) {
           // Check if the server exists at all
-          const serverState = this.mcpManager.getServerState(serverId);
+          const serverState = this.mcpManager.getServerState(ns);
           if (!serverState || serverState.status !== "connected") {
             missingApps.add(ns);
           }
@@ -98,7 +97,7 @@ export class SkillToolRouter {
       const ns = entry.slice(0, dotIdx);
       const tool = entry.slice(dotIdx + 1);
       if (ns === "yo" && toolName === tool) return true;
-      if (ns !== "yo" && toolName === `mcp__pipedream-connect-${ns}__${tool}`) return true;
+      if (ns !== "yo" && toolName === `mcp__${ns}__${tool}`) return true;
     }
     return false;
   }

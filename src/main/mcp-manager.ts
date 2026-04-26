@@ -34,22 +34,15 @@ export type McpToolOverride = "default" | "auto" | "ask";
 export class McpManager extends EventEmitter {
   private servers = new Map<string, { client: McpClient; state: McpServerState }>();
   private appConnector: AppConnector | null = null;
+  private ephemeralIds = new Set<string>();
 
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
 
   async init(): Promise<void> {
     this.migrateLegacyConfigs();
+    this.cleanupPipedreamApps();
     const configs = this.getConfigs();
     for (const config of configs) {
-      // Skip pipedream-connect servers — ConnectorManager owns their lifecycle
-      // and will call refreshMcp() with fresh ephemeral URLs.
-      if (config.id === "pipedream-connect" || config.id.startsWith("pipedream-connect-")) {
-        this.servers.set(config.id, {
-          client: new McpClient({ transport: config.transport }),
-          state: { config, status: "disconnected", tools: [] },
-        });
-        continue;
-      }
       if (config.enabled) {
         this.connectServer(config).catch(() => {});
       } else {
@@ -57,6 +50,18 @@ export class McpManager extends EventEmitter {
           client: new McpClient({ transport: config.transport }),
           state: { config, status: "disconnected", tools: [] },
         });
+      }
+    }
+  }
+
+  private cleanupPipedreamApps(): void {
+    if (!this.appConnector) return;
+    for (const app of this.appConnector.list()) {
+      if (app.id.startsWith("pipedream-connect-") || app.id === "pipedream-connect") {
+        this.appConnector.removeMcp(app.id);
+        if (!app.url && !app.connection && Object.keys(app.commands).length === 0) {
+          this.appConnector.remove(app.id);
+        }
       }
     }
   }
@@ -131,6 +136,27 @@ export class McpManager extends EventEmitter {
       client: new McpClient({ transport: config.transport }),
       state: { config, status: "disconnected", tools: [] },
     });
+    this.emit("changed");
+  }
+
+  /** Register an in-memory server without persisting to AppConnector.
+   *  Used by ConnectorManager for Pipedream endpoints with ephemeral tokens. */
+  addEphemeralServer(config: McpServerConfig): void {
+    this.ephemeralIds.add(config.id);
+    this.servers.set(config.id, {
+      client: new McpClient({ transport: config.transport }),
+      state: { config, status: "disconnected", tools: [] },
+    });
+    this.emit("changed");
+  }
+
+  removeEphemeralServer(id: string): void {
+    const entry = this.servers.get(id);
+    if (entry?.client.isConnected()) {
+      entry.client.disconnect().catch(() => {});
+    }
+    this.servers.delete(id);
+    this.ephemeralIds.delete(id);
     this.emit("changed");
   }
 

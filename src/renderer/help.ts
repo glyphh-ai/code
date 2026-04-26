@@ -1974,56 +1974,54 @@ async function loadConnectionTab() {
   toolsEl.innerHTML = "";
   noToolsEl.classList.add("hidden");
   if (isConnected && app.connection?.pipedreamSlug) {
-    await loadConnectionTools(app.connection.pipedreamSlug);
+    await loadConnectionTools(app.id);
   } else {
     noToolsEl.textContent = "Connect an app to see its tools.";
     noToolsEl.classList.remove("hidden");
   }
 }
 
-async function loadConnectionTools(appSlug: string) {
+async function loadConnectionTools(appId: string) {
   const toolsEl = document.getElementById("app-connection-tools")!;
   const noToolsEl = document.getElementById("app-connection-no-tools")!;
   toolsEl.innerHTML = "";
 
   const servers = await window.yo.mcpGetServers();
-  const targetId = `pipedream-connect-${appSlug}`;
-  // Find the per-app pipedream server (e.g. pipedream-connect-gmail)
-  const pdServer = servers.find((s) => s.config.id === targetId);
+  const pdServer = servers.find((s) => s.config.id === appId);
 
   if (!pdServer) {
-    noToolsEl.textContent = "Connecting to Pipedream...";
+    noToolsEl.textContent = "Connecting...";
     noToolsEl.classList.remove("hidden");
-    console.log(`[connection-tools] No server "${targetId}" found. Available:`, servers.map(s => s.config.id));
+    console.log(`[connection-tools] No server "${appId}" found. Available:`, servers.map(s => s.config.id));
 
     try {
       const refreshResult = await window.yo.connectorsRefreshMcp();
       console.log("[connection-tools] refreshMcp result:", refreshResult);
       const retryServers = await window.yo.mcpGetServers();
       console.log("[connection-tools] After refresh, servers:", retryServers.map(s => `${s.config.id} (${s.status}, ${s.tools.length} tools)`));
-      const retryPd = retryServers.find((s) => s.config.id === targetId);
+      const retryPd = retryServers.find((s) => s.config.id === appId);
       if (retryPd) {
         noToolsEl.classList.add("hidden");
-        return loadConnectionTools(appSlug);
+        return loadConnectionTools(appId);
       }
     } catch (err) {
       console.error("[connection-tools] refreshMcp error:", err);
     }
-    noToolsEl.textContent = "Pipedream tools not available for this app.";
+    noToolsEl.textContent = "Tools not available for this app.";
     return;
   }
 
   if (pdServer.status !== "connected") {
-    noToolsEl.textContent = `Pipedream server: ${pdServer.status}${pdServer.error ? " — " + pdServer.error : ""}. Reconnecting...`;
+    noToolsEl.textContent = `Server: ${pdServer.status}${pdServer.error ? " — " + pdServer.error : ""}. Reconnecting...`;
     noToolsEl.classList.remove("hidden");
 
     try {
       const result = await window.yo.connectorsRefreshMcp();
       if (result.ok) {
         noToolsEl.classList.add("hidden");
-        return loadConnectionTools(appSlug);
+        return loadConnectionTools(appId);
       }
-      noToolsEl.textContent = `Pipedream server: ${pdServer.status}${result.error ? " — " + result.error : ""}`;
+      noToolsEl.textContent = `Server: ${pdServer.status}${result.error ? " — " + result.error : ""}`;
     } catch { /* ignore */ }
     return;
   }
