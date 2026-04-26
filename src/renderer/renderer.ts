@@ -1658,23 +1658,22 @@ function showYoToolResult(id: string, detail: string) {
 /** Render markdown into the current open block and detach it. Subsequent
  *  appendYoToken calls will create a new block. */
 function closeOpenTextBlock() {
+  if (_mdRenderTimer) { clearTimeout(_mdRenderTimer); _mdRenderTimer = null; }
   if (yoResponseEl && yoLastAssistantText.trim()) {
+    yoResponseEl.classList.remove("yo-msg-streaming");
     yoResponseEl.innerHTML = formatYoText(yoLastAssistantText);
     attachCopyHandlers(yoResponseEl);
   } else if (yoResponseEl && !yoLastAssistantText.trim()) {
-    // No content actually streamed — drop the empty block.
     yoResponseEl.remove();
   }
   yoResponseEl = null;
   yoLastAssistantText = "";
 }
 
+let _mdRenderTimer: ReturnType<typeof setTimeout> | null = null;
+
 function appendYoToken(delta: string) {
   if (!delta) return;
-  // First delta of a new block → the streaming text itself is now the "still
-  // working" cue, so retire the spinner. Close any open timeline so the new
-  // text appears beneath the most recent tool group. The spinner reappears
-  // automatically in showYoToolUse if the model decides to call another tool.
   if (!yoResponseEl) {
     clearYoStatus();
     finishTimeline();
@@ -1684,9 +1683,17 @@ function appendYoToken(delta: string) {
   }
   yoLastAssistantText += delta;
   yoTurnFullText += delta;
-  // Stream as plain text live — the markdown render happens once at block close.
-  yoResponseEl.textContent = yoLastAssistantText;
-  yoScroll();
+
+  // Render markdown progressively — debounced to avoid per-token overhead.
+  if (!_mdRenderTimer) {
+    _mdRenderTimer = setTimeout(() => {
+      _mdRenderTimer = null;
+      if (yoResponseEl && yoLastAssistantText) {
+        yoResponseEl.innerHTML = formatYoText(yoLastAssistantText);
+        yoScroll();
+      }
+    }, 80);
+  }
 }
 
 function finalizeYoMessage(fullText: string) {
