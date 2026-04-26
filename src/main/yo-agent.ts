@@ -600,7 +600,7 @@ export class YoAgent {
             }
           }
 
-          const result = await this.execDelegation(block.name, block.input as Record<string, unknown>, context);
+          const result = await this.execDelegation(block.name, block.input as Record<string, unknown>, context) || "[no output]";
           cb.onToolResult?.(block.id, result.slice(0, 500));
           return { type: "tool_result", tool_use_id: block.id, content: result };
         });
@@ -629,7 +629,7 @@ export class YoAgent {
           }
         }
 
-        const result = await this.execDirectTool(block.name, block.input as Record<string, unknown>);
+        const result = await this.execDirectTool(block.name, block.input as Record<string, unknown>) || "[no output]";
         cb.onToolResult?.(block.id, result.slice(0, 500));
         results.push({ type: "tool_result", tool_use_id: block.id, content: result });
       }

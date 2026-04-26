@@ -121,6 +121,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (!content) return "No content provided.";
       try {
         const out = await deps.skillEngine.runSkill(skill, content, { trigger: "skill" });
+        if (out === undefined || out === null) return "[skill produced no output]";
         return typeof out === "string" ? out : JSON.stringify(out, null, 2);
       } catch (err) {
         return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
@@ -551,6 +552,7 @@ export async function executeTool(name: string, input: Record<string, unknown>):
     try {
       const skillInput = "input" in input ? input.input : input;
       const out = await deps.skillEngine.runSkill(skillName, skillInput, { trigger: "skill" });
+      if (out === undefined || out === null) return "[skill produced no output]";
       return typeof out === "string" ? out : JSON.stringify(out, null, 2);
     } catch (err) {
       return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
