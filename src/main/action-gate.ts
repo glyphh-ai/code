@@ -156,7 +156,7 @@ function getEffectiveOverride(toolName: string): ToolOverride {
 }
 
 export function getAgentMode(): AgentMode {
-  return getPreference<AgentMode>("agentMode", "auto");
+  return getPreference<AgentMode>("agentMode", "ask");
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {

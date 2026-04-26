@@ -1214,7 +1214,7 @@ const MODE_COLORS: Record<string, string> = {
   council: "#A855F7",
 };
 
-let currentMode = "auto";
+let currentMode = "ask";
 
 function setModeValue(mode: string) {
   currentMode = mode;
