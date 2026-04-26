@@ -7,6 +7,7 @@
  */
 
 import { getPreference } from "./preferences";
+import { isDestructiveTool } from "./substrate";
 
 export type AgentMode = "plan" | "ask" | "auto";
 export type ToolTier = "observe" | "mutate";
@@ -138,7 +139,11 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function getToolTier(toolName: string): ToolTier {
-  return TOOL_TIERS[toolName] || "mutate";
+  if (TOOL_TIERS[toolName]) return TOOL_TIERS[toolName];
+  // Unknown tool (MCP, user skill, etc.) → ask substrate.
+  // Substrate flags destructive ops via explicit `destructive: true` plus
+  // a name-keyword fallback (send|delete|remove|publish|push|deploy|destroy).
+  return isDestructiveTool(toolName) ? "mutate" : "observe";
 }
 
 export function getToolOverrides(): Record<string, ToolOverride> {
@@ -151,7 +156,7 @@ function getEffectiveOverride(toolName: string): ToolOverride {
 }
 
 export function getAgentMode(): AgentMode {
-  return getPreference<AgentMode>("agentMode", "ask");
+  return getPreference<AgentMode>("agentMode", "auto");
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {

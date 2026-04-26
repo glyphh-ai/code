@@ -1140,9 +1140,10 @@ const yoHistoryPanel = document.getElementById("yo-history")!;
 const yoHistoryList = document.getElementById("yo-history-list")!;
 const yoChatNewBtn = document.getElementById("yo-chat-new")!;
 
-let yoResponseEl: HTMLElement | null = null;  // the single assistant response element
+let yoResponseEl: HTMLElement | null = null;  // the *current* open assistant text block (resets on tool fire)
 let yoStatusEl: HTMLElement | null = null;    // spinner + tool status line (persists until response)
-let yoLastAssistantText = "";
+let yoLastAssistantText = "";                 // the current open block's accumulator (resets on tool fire)
+let yoTurnFullText = "";                      // the whole turn's text across all blocks — for copy/memo/plan
 let yoLastUserText = "";                      // track last user message for plan re-execution
 let yoToolsUsed = false;  // once a tool fires, suppress streamed text until done
 let yoThinking = false;   // true while agent is processing
@@ -1213,7 +1214,7 @@ const MODE_COLORS: Record<string, string> = {
   council: "#A855F7",
 };
 
-let currentMode = "ask";
+let currentMode = "auto";
 
 function setModeValue(mode: string) {
   currentMode = mode;
@@ -1367,6 +1368,7 @@ function closeYoPanel() {
     yoResponseEl = null;
     yoStatusEl = null;
     yoLastAssistantText = "";
+    yoTurnFullText = "";
     yoTimelineEl = null;
     yoSpinnerEl = null;
     renderGridHandles(); // available width restored
@@ -1623,11 +1625,9 @@ function showYoToolUse(id: string, name: string, input: unknown) {
   // already showing. It only clears when text streaming starts or the run ends.
   if (!yoStatusEl) showYoStatus("");
 
-  // Finalize any in-progress streaming text
-  if (yoResponseEl) {
-    yoResponseEl = null;
-    yoLastAssistantText = "";
-  }
+  // Close the in-progress text block so this tool appears AFTER it in source
+  // order, and any text that streams next opens a fresh block below the tool.
+  closeOpenTextBlock();
 
   startToolRow(id, name, input);
 
@@ -1639,31 +1639,68 @@ function showYoToolResult(id: string, detail: string) {
   finishToolRow(id, detail);
 }
 
+/** Render markdown into the current open block and detach it. Subsequent
+ *  appendYoToken calls will create a new block. */
+function closeOpenTextBlock() {
+  if (yoResponseEl && yoLastAssistantText.trim()) {
+    yoResponseEl.innerHTML = formatYoText(yoLastAssistantText);
+    attachCopyHandlers(yoResponseEl);
+  } else if (yoResponseEl && !yoLastAssistantText.trim()) {
+    // No content actually streamed — drop the empty block.
+    yoResponseEl.remove();
+  }
+  yoResponseEl = null;
+  yoLastAssistantText = "";
+}
+
 function appendYoToken(delta: string) {
-  // Accumulate silently — the existing spinner stays visible.
-  // Text only renders (formatted) when finalizeYoMessage fires.
+  if (!delta) return;
+  // First delta of a new block → close any open timeline so the new text
+  // appears beneath the most recent tool group, then create the block element.
+  if (!yoResponseEl) {
+    finishTimeline();
+    yoResponseEl = document.createElement("div");
+    yoResponseEl.className = "yo-msg yo-msg-assistant yo-msg-streaming";
+    yoPanelMessages.appendChild(yoResponseEl);
+  }
   yoLastAssistantText += delta;
+  yoTurnFullText += delta;
+  // Stream as plain text live — the markdown render happens once at block close.
+  yoResponseEl.textContent = yoLastAssistantText;
+  yoScroll();
 }
 
 function finalizeYoMessage(fullText: string) {
   clearYoStatus();
   setYoThinking(false);
-  finishTimeline();
 
-  const text = fullText || yoLastAssistantText;
-
-  if (yoResponseEl) {
-    yoResponseEl.innerHTML = formatYoText(text);
-    attachCopyHandlers(yoResponseEl);
-  } else {
+  // The last LLM round's text — already streamed live into the open block via
+  // appendYoToken, so it's already visible. We just need to close the block
+  // (markdown-format it) and attach the copy button to it.
+  // If `fullText` arrived but our live accumulator missed it (edge case where
+  // onDone fires without prior onText deltas), open a final block and inject.
+  if (!yoResponseEl && fullText && fullText.trim()) {
+    finishTimeline();
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant";
-    yoResponseEl.innerHTML = formatYoText(text);
-    attachCopyHandlers(yoResponseEl);
     yoPanelMessages.appendChild(yoResponseEl);
+    yoLastAssistantText = fullText;
+    yoTurnFullText += fullText;
   }
 
-  if (text.trim()) {
+  // Close any open timeline (tools that ran with no trailing text).
+  if (!yoResponseEl) finishTimeline();
+
+  // The whole turn's accumulated text — used for clipboard & memos.
+  const text = yoTurnFullText || yoLastAssistantText || fullText;
+
+  if (yoResponseEl) {
+    yoResponseEl.classList.remove("yo-msg-streaming");
+    yoResponseEl.innerHTML = formatYoText(yoLastAssistantText || fullText);
+    attachCopyHandlers(yoResponseEl);
+  }
+
+  if (yoResponseEl && text.trim()) {
     const actions = document.createElement("div");
     actions.className = "yo-msg-actions";
     const copyBtn = document.createElement("button");
@@ -1698,6 +1735,7 @@ function finalizeYoMessage(fullText: string) {
   }
 
   yoLastAssistantText = text;
+  yoTurnFullText = "";  // reset for next turn
   yoResponseEl = null;
 
   // In plan mode, show action buttons
@@ -2214,6 +2252,7 @@ async function loadYoHistory() {
         yoResponseEl = null;
         yoStatusEl = null;
         yoLastAssistantText = "";
+        yoTurnFullText = "";
         yoHistoryPanel.classList.add("hidden");
 
         // Render conversation messages (including tool calls from history)
@@ -2286,6 +2325,7 @@ yoChatNewBtn.addEventListener("click", async () => {
   yoResponseEl = null;
   yoStatusEl = null;
   yoLastAssistantText = "";
+  yoTurnFullText = "";
   yoHistoryPanel.classList.add("hidden");
   yoPanelInput.focus();
 });
