@@ -408,7 +408,13 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
     }
   }
 
-  return out;
+  // Deduplicate by name — MCP servers can register the same tool twice
+  const seen = new Set<string>();
+  return out.filter(t => {
+    if (seen.has(t.name)) return false;
+    seen.add(t.name);
+    return true;
+  });
 }
 
 /**
