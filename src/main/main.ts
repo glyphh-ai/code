@@ -1939,6 +1939,28 @@ async function boot() {
   ipcMain.handle("skills-generate", (_e, name: string, description: string) =>
     skillEngine.generatePrompt(name, description),
   );
+  ipcMain.handle("skills-available-tools", () => {
+    const groups: Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }> = [];
+    const yoTools = listBuiltinYoTools();
+    if (yoTools.length) {
+      groups.push({ namespace: "yo", label: "yo (built-in)", tools: yoTools.map(t => ({ name: t.name, description: t.description })) });
+    }
+    if (mcpManager) {
+      const byServer = new Map<string, { label: string; tools: Array<{ name: string; description: string }> }>();
+      for (const t of mcpManager.getAllTools()) {
+        let ns = t.serverId;
+        if (ns.startsWith("pipedream-connect-")) ns = ns.replace("pipedream-connect-", "");
+        const userApp = appConnector?.findByPipedreamSlug(ns);
+        const label = userApp?.name || ns;
+        if (!byServer.has(ns)) byServer.set(ns, { label, tools: [] });
+        byServer.get(ns)!.tools.push({ name: t.name, description: t.description });
+      }
+      for (const [ns, group] of byServer) {
+        groups.push({ namespace: ns, label: group.label, tools: group.tools });
+      }
+    }
+    return groups;
+  });
   // File operations within a skill folder
   ipcMain.handle("skills-list-files", (_e, name: string) => skillEngine.listSkillFiles(name));
   ipcMain.handle("skills-read-file", (_e, name: string, rel: string) => skillEngine.readSkillFile(name, rel));

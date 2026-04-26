@@ -24,9 +24,10 @@ const GRAB_SCRIPT = `(function() {
   // on the first hit.
 
   var selectorGroups = [
-    // Claude — combined selector for both user + assistant
+    // Claude
     '[data-testid*="message"]',
-    '[class*="font-claude-message"], [class*="font-user-message"]',
+    '[class*="font-claude-response"]',
+    '[class*="font-user-message"]',
     '[data-testid="chat-message-content"]',
     // ChatGPT
     '[data-message-author-role]',
@@ -45,19 +46,50 @@ const GRAB_SCRIPT = `(function() {
     '[class*="turn-"]',
     '[class*="chat-message"]',
     '[class*="ConversationItem"]',
-    // Broader Claude fallbacks
     '[class*="prose"]',
   ];
 
-  var bestMessages = [];
+  // Merge all selector results — different selectors may match user vs
+  // assistant messages separately. Deduplicate and skip nested elements
+  // (a child already covered by a parent match).
+  var seen = new Set();
+  var merged = [];
   for (var s = 0; s < selectorGroups.length; s++) {
     try {
       var found = document.querySelectorAll(selectorGroups[s]);
-      if (found.length > bestMessages.length) {
-        bestMessages = Array.from(found);
+      for (var f = 0; f < found.length; f++) {
+        var el = found[f];
+        if (seen.has(el)) continue;
+        // Skip if this element is inside an already-matched element
+        var dominated = false;
+        for (var m = 0; m < merged.length; m++) {
+          if (merged[m].contains(el)) { dominated = true; break; }
+        }
+        if (dominated) { seen.add(el); continue; }
+        // If a previously matched element is inside this one, replace it
+        var kept = [];
+        for (var m = 0; m < merged.length; m++) {
+          if (el.contains(merged[m])) seen.delete(merged[m]);
+          else kept.push(merged[m]);
+        }
+        merged = kept;
+        merged.push(el);
+        seen.add(el);
       }
     } catch(e) {}
   }
+  // Sort by document order
+  merged.sort(function(a, b) {
+    var pos = a.compareDocumentPosition(b);
+    return (pos & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
+  });
+  // Guard: if fewer than 2 elements have meaningful text, this probably
+  // isn't a chat page — fall through to main content extraction.
+  var meaningful = 0;
+  for (var c = 0; c < merged.length && meaningful < 2; c++) {
+    if (merged[c].innerText && merged[c].innerText.trim().length >= 20) meaningful++;
+  }
+  var bestMessages = meaningful >= 2 ? merged : [];
 
   // Build structured output from messages
   var structured = "";
@@ -159,7 +191,8 @@ const HASH_SCRIPT = `(function() {
 const GRAB_LAST_RESPONSE_SCRIPT = `(function() {
   var selectorGroups = [
     '[data-testid*="message"]',
-    '[class*="font-claude-message"], [class*="font-user-message"]',
+    '[class*="font-claude-response"]',
+    '[class*="font-user-message"]',
     '[data-testid="chat-message-content"]',
     'message-content',
     '[class*="response-container"]',
@@ -176,15 +209,35 @@ const GRAB_LAST_RESPONSE_SCRIPT = `(function() {
     '[class*="ConversationItem"]',
   ];
 
-  var bestMessages = [];
+  var seen = new Set();
+  var merged = [];
   for (var s = 0; s < selectorGroups.length; s++) {
     try {
       var found = document.querySelectorAll(selectorGroups[s]);
-      if (found.length > bestMessages.length) {
-        bestMessages = Array.from(found);
+      for (var f = 0; f < found.length; f++) {
+        var el = found[f];
+        if (seen.has(el)) continue;
+        var dominated = false;
+        for (var m = 0; m < merged.length; m++) {
+          if (merged[m].contains(el)) { dominated = true; break; }
+        }
+        if (dominated) { seen.add(el); continue; }
+        var kept = [];
+        for (var m = 0; m < merged.length; m++) {
+          if (el.contains(merged[m])) seen.delete(merged[m]);
+          else kept.push(merged[m]);
+        }
+        merged = kept;
+        merged.push(el);
+        seen.add(el);
       }
     } catch(e) {}
   }
+  merged.sort(function(a, b) {
+    var pos = a.compareDocumentPosition(b);
+    return (pos & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
+  });
+  var bestMessages = merged;
 
   if (bestMessages.length === 0) {
     var mainEl = document.querySelector('[role="main"]')

@@ -462,8 +462,10 @@ export function initHelp() {
   document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-back-link")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
-  document.getElementById("skill-generate")!.addEventListener("click", generateSkillPrompt);
   document.getElementById("skill-run")!.addEventListener("click", runSkillFromEditor);
+  document.getElementById("skill-tools-add")!.addEventListener("click", () => addToolRow());
+  document.getElementById("skill-requires-add")!.addEventListener("click", () => addRequiresRow());
+  document.getElementById("skill-schedule-freq")!.addEventListener("change", updateScheduleOpts);
   document.getElementById("skill-export")!.addEventListener("click", exportSkill);
   document.getElementById("skill-new-file-btn")!.addEventListener("click", addSkillFile);
   document.getElementById("skill-new-folder-btn")!.addEventListener("click", addSkillFolder);
@@ -3362,10 +3364,11 @@ const skillFormError = document.getElementById("skill-form-error")!;
 let editingSkillName: string | null = null;
 let editingSkillFiles: string[] = [];
 let editingSelectedFile: string = "SKILL.md";
-// Pending (unsaved) file contents — indexed by relPath
 let editingFileContents: Map<string, string> = new Map();
 let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
+let cachedToolGroups: Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }> = [];
+let collapsedFolders = new Set<string>();
 
 function ensureMonaco(): Promise<void> {
   if (monacoReady) return monacoReady;
@@ -3444,6 +3447,190 @@ function languageForFile(relPath: string): string {
     txt: "plaintext", log: "plaintext",
   };
   return map[ext] || "plaintext";
+}
+
+// ── Tool row list (allowed-tools) ────────────────────────
+
+async function ensureToolGroups() {
+  if (cachedToolGroups.length) return;
+  try { cachedToolGroups = await window.yo.skillsAvailableTools(); } catch { /* empty */ }
+}
+
+function addToolRow(ns?: string, tool?: string) {
+  const list = document.getElementById("skill-tools-list")!;
+  const row = document.createElement("div");
+  row.className = "skill-row";
+
+  const appSel = document.createElement("select");
+  appSel.innerHTML = `<option value="">App...</option>` +
+    cachedToolGroups.map(g => `<option value="${g.namespace}"${g.namespace === ns ? " selected" : ""}>${g.label}</option>`).join("");
+
+  const toolSel = document.createElement("select");
+  const populateTools = (selectedNs: string) => {
+    const group = cachedToolGroups.find(g => g.namespace === selectedNs);
+    toolSel.innerHTML = `<option value="">Tool...</option>` +
+      (group ? group.tools.map(t => `<option value="${t.name}"${t.name === tool ? " selected" : ""}>${t.name}</option>`) : []).join("");
+  };
+  if (ns) populateTools(ns);
+  else toolSel.innerHTML = `<option value="">Tool...</option>`;
+
+  appSel.addEventListener("change", () => { tool = undefined; populateTools(appSel.value); });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "skill-row-remove";
+  removeBtn.type = "button";
+  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+  removeBtn.addEventListener("click", () => row.remove());
+
+  row.appendChild(appSel);
+  row.appendChild(toolSel);
+  row.appendChild(removeBtn);
+  list.appendChild(row);
+}
+
+function getToolEntries(): string[] {
+  const rows = document.querySelectorAll("#skill-tools-list .skill-row");
+  const entries: string[] = [];
+  rows.forEach(row => {
+    const selects = row.querySelectorAll("select");
+    const ns = (selects[0] as HTMLSelectElement)?.value;
+    const tool = (selects[1] as HTMLSelectElement)?.value;
+    if (ns && tool) entries.push(`${ns}.${tool}`);
+  });
+  return entries;
+}
+
+function clearToolRows() {
+  document.getElementById("skill-tools-list")!.innerHTML = "";
+}
+
+// ── Requires row list (dependent skills) ─────────────────
+
+function addRequiresRow(skillName?: string) {
+  const list = document.getElementById("skill-requires-list")!;
+  const row = document.createElement("div");
+  row.className = "skill-row";
+
+  const sel = document.createElement("select");
+  sel.innerHTML = `<option value="">Select skill...</option>` +
+    allSkillsDetailed
+      .filter(s => s.name !== editingSkillName)
+      .map(s => `<option value="${s.name}"${s.name === skillName ? " selected" : ""}>${s.name}${s.description ? " — " + s.description : ""}</option>`)
+      .join("");
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "skill-row-remove";
+  removeBtn.type = "button";
+  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+  removeBtn.addEventListener("click", () => row.remove());
+
+  row.appendChild(sel);
+  row.appendChild(removeBtn);
+  list.appendChild(row);
+}
+
+function getRequiresEntries(): string[] {
+  const rows = document.querySelectorAll("#skill-requires-list .skill-row");
+  const entries: string[] = [];
+  rows.forEach(row => {
+    const val = (row.querySelector("select") as HTMLSelectElement)?.value;
+    if (val) entries.push(val);
+  });
+  return entries;
+}
+
+function clearRequiresRows() {
+  document.getElementById("skill-requires-list")!.innerHTML = "";
+}
+
+// ── Schedule builder ─────────────────────────────────────
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, i) => i + 1);
+const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+
+function updateScheduleOpts() {
+  const freq = (document.getElementById("skill-schedule-freq") as HTMLSelectElement).value;
+  const opts = document.getElementById("skill-schedule-opts")!;
+  const cronInput = document.getElementById("skill-schedule-cron") as HTMLInputElement;
+
+  opts.classList.toggle("hidden", freq === "" || freq === "custom");
+  cronInput.classList.toggle("hidden", freq !== "custom");
+  opts.innerHTML = "";
+
+  if (freq === "hourly") {
+    opts.innerHTML = `<label>at minute</label><select id="sched-minute">${MINUTES.map(m => `<option value="${m}">${String(m).padStart(2, "0")}</option>`).join("")}</select>`;
+  } else if (freq === "daily") {
+    opts.innerHTML = `<label>at</label><select id="sched-hour">${HOURS.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+  } else if (freq === "weekly") {
+    opts.innerHTML = `<label>on</label><select id="sched-dow">${DAYS_OF_WEEK.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>` +
+      `<label>at</label><select id="sched-hour">${HOURS.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+  } else if (freq === "monthly") {
+    opts.innerHTML = `<label>on day</label><select id="sched-dom">${DAYS_OF_MONTH.map(d => `<option value="${d}">${d}</option>`).join("")}</select>` +
+      `<label>at</label><select id="sched-hour">${HOURS.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+  }
+}
+
+function getScheduleCron(): string {
+  const freq = (document.getElementById("skill-schedule-freq") as HTMLSelectElement).value;
+  if (!freq) return "";
+  if (freq === "custom") return (document.getElementById("skill-schedule-cron") as HTMLInputElement).value.trim();
+  const minute = (document.getElementById("sched-minute") as HTMLSelectElement)?.value || "0";
+  const hour = (document.getElementById("sched-hour") as HTMLSelectElement)?.value || "0";
+  const dow = (document.getElementById("sched-dow") as HTMLSelectElement)?.value;
+  const dom = (document.getElementById("sched-dom") as HTMLSelectElement)?.value;
+  if (freq === "hourly") return `${minute} * * * *`;
+  if (freq === "daily") return `0 ${hour} * * *`;
+  if (freq === "weekly") return `0 ${hour} * * ${dow}`;
+  if (freq === "monthly") return `0 ${hour} ${dom} * *`;
+  return "";
+}
+
+function setScheduleFromCron(cron: string) {
+  const freqSel = document.getElementById("skill-schedule-freq") as HTMLSelectElement;
+  const cronInput = document.getElementById("skill-schedule-cron") as HTMLInputElement;
+  if (!cron) { freqSel.value = ""; updateScheduleOpts(); return; }
+
+  const parts = cron.trim().split(/\s+/);
+  if (cron === "@hourly") { freqSel.value = "hourly"; updateScheduleOpts(); return; }
+  if (cron === "@daily") { freqSel.value = "daily"; updateScheduleOpts(); return; }
+  if (cron === "@weekly") { freqSel.value = "weekly"; updateScheduleOpts(); return; }
+  if (cron === "@monthly") { freqSel.value = "monthly"; updateScheduleOpts(); return; }
+
+  if (parts.length === 5) {
+    const [min, hr, dom, , dow] = parts;
+    if (min !== "*" && hr === "*" && dom === "*" && dow === "*") {
+      freqSel.value = "hourly"; updateScheduleOpts();
+      const el = document.getElementById("sched-minute") as HTMLSelectElement;
+      if (el) el.value = min;
+      return;
+    }
+    if (hr !== "*" && dom === "*" && dow === "*") {
+      freqSel.value = "daily"; updateScheduleOpts();
+      const el = document.getElementById("sched-hour") as HTMLSelectElement;
+      if (el) el.value = hr;
+      return;
+    }
+    if (hr !== "*" && dom === "*" && dow !== "*") {
+      freqSel.value = "weekly"; updateScheduleOpts();
+      const hEl = document.getElementById("sched-hour") as HTMLSelectElement;
+      const dEl = document.getElementById("sched-dow") as HTMLSelectElement;
+      if (hEl) hEl.value = hr;
+      if (dEl) dEl.value = dow;
+      return;
+    }
+    if (hr !== "*" && dom !== "*" && dow === "*") {
+      freqSel.value = "monthly"; updateScheduleOpts();
+      const hEl = document.getElementById("sched-hour") as HTMLSelectElement;
+      const dEl = document.getElementById("sched-dom") as HTMLSelectElement;
+      if (hEl) hEl.value = hr;
+      if (dEl) dEl.value = dom;
+      return;
+    }
+  }
+  freqSel.value = "custom"; updateScheduleOpts();
+  cronInput.value = cron;
 }
 
 async function loadSkills() {
@@ -3529,29 +3716,35 @@ function renderSkillsList() {
 async function openSkillEditor(name: string | null) {
   editingSkillName = name;
   editingFileContents = new Map();
+  collapsedFolders.clear();
+
+  await ensureToolGroups();
 
   const newSkill = !name;
+  clearToolRows();
+  clearRequiresRows();
+
   if (newSkill) {
     skillNameInput.value = "";
     editingSkillFiles = ["SKILL.md"];
     editingSelectedFile = "SKILL.md";
     editingFileContents.set("SKILL.md", "");
     skillDescInput.value = "";
-    (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value = "";
-    (document.getElementById("skill-requires") as HTMLInputElement).value = "";
-    (document.getElementById("skill-schedule") as HTMLInputElement).value = "";
+    setScheduleFromCron("");
     skillDeleteBtn.style.display = "none";
   } else {
     skillNameInput.value = name!;
     const full = await window.yo.skillsGet(name!);
     if (full) {
       skillDescInput.value = full.manifest?.description || "";
-      (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value =
-        (full.manifest?.["allowed-tools"] || []).join("\n");
-      (document.getElementById("skill-requires") as HTMLInputElement).value =
-        (full.manifest?.requires || []).join(", ");
-      (document.getElementById("skill-schedule") as HTMLInputElement).value =
-        full.manifest?.schedule || "";
+      const tools: string[] = full.manifest?.["allowed-tools"] || [];
+      for (const entry of tools) {
+        const dot = entry.indexOf(".");
+        if (dot > 0) addToolRow(entry.slice(0, dot), entry.slice(dot + 1));
+      }
+      const requires: string[] = full.manifest?.requires || [];
+      for (const r of requires) addRequiresRow(r);
+      setScheduleFromCron(full.manifest?.schedule || "");
       editingFileContents.set("SKILL.md", full.prompt || "");
       if (full.runnerCode != null) {
         editingFileContents.set("SKILL.js", full.runnerCode);
@@ -3570,7 +3763,6 @@ async function openSkillEditor(name: string | null) {
   renderSkillFileTree();
   await openSkillFile(editingSelectedFile);
 
-  // Load run history
   if (name) loadSkillRunHistory(name);
   else renderRunList([]);
 
@@ -3581,43 +3773,51 @@ function renderSkillFileTree() {
   const list = document.getElementById("skill-file-list")!;
   list.innerHTML = "";
 
-  // Group files by folder for nested rendering
-  // Input example: ["SKILL.md", "SKILL.js", "examples/input.md", "examples/output.md", "scripts/validate.sh"]
-  // Output: sorted, folders first (collapsed by default), files leafward
   const sorted = [...editingSkillFiles].sort();
-  // Put SKILL.md then SKILL.js at the top if present
   const core = sorted.filter((f) => f === "SKILL.md" || f === "SKILL.js");
   const rest = sorted.filter((f) => f !== "SKILL.md" && f !== "SKILL.js");
   const ordered = [...core, ...rest];
 
-  // Render each file with indentation based on depth
-  const folders = new Set<string>();
-  for (const file of ordered) {
-    const parts = file.split("/");
-    for (let i = 0; i < parts.length - 1; i++) {
-      folders.add(parts.slice(0, i + 1).join("/"));
-    }
-  }
+  const renderedFolders = new Set<string>();
 
-  // Render folders first (as non-clickable headers), then files within
-  // Simple flat render with indentation — no collapse/expand in v1
-  const rendered = new Set<string>();
+  const renderFolder = (folderPath: string, depth: number) => {
+    if (renderedFolders.has(folderPath)) return;
+    renderedFolders.add(folderPath);
+    const name = folderPath.split("/").pop()!;
+    const isCollapsed = collapsedFolders.has(folderPath);
+    const item = document.createElement("div");
+    item.className = `skill-file-item folder collapsible${isCollapsed ? " collapsed" : ""}`;
+    item.style.paddingLeft = (10 + depth * 14) + "px";
+    item.innerHTML = `
+      <svg class="skill-folder-chevron" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 1l3 3-3 3"/></svg>
+      <svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h4l1 1h7v8H2V4z"/></svg>
+      <span class="skill-file-item-label">${name}</span>`;
+    item.addEventListener("click", () => {
+      if (collapsedFolders.has(folderPath)) collapsedFolders.delete(folderPath);
+      else collapsedFolders.add(folderPath);
+      renderSkillFileTree();
+    });
+    list.appendChild(item);
+  };
+
   const renderFile = (file: string) => {
-    if (rendered.has(file)) return;
-    rendered.add(file);
     const parts = file.split("/");
     const depth = parts.length - 1;
     const name = parts[parts.length - 1];
     const isCore = file === "SKILL.md" || file === "SKILL.js";
+
+    // Skip files inside collapsed parent folders
+    for (let i = 1; i <= depth; i++) {
+      if (collapsedFolders.has(parts.slice(0, i).join("/"))) return;
+    }
+
     const item = document.createElement("div");
     item.className = "skill-file-item" + (file === editingSelectedFile ? " active" : "");
-    item.style.paddingLeft = (10 + depth * 12) + "px";
-    const icon = `<svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l3 3v9H3V2z"/></svg>`;
+    item.style.paddingLeft = (10 + depth * 14) + "px";
     item.innerHTML = `
-      ${icon}
+      <svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l3 3v9H3V2z"/></svg>
       <span class="skill-file-item-label">${name}</span>
-      ${!isCore ? `<button class="skill-file-item-delete" title="Delete">×</button>` : ""}
-    `;
+      ${!isCore ? `<button class="skill-file-item-delete" title="Delete">×</button>` : ""}`;
     item.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest(".skill-file-item-delete")) return;
       captureCurrentEditorContent();
@@ -3640,27 +3840,14 @@ function renderSkillFileTree() {
     list.appendChild(item);
   };
 
-  const renderedFolders = new Set<string>();
-  const renderFolderHeader = (path: string) => {
-    if (renderedFolders.has(path)) return;
-    renderedFolders.add(path);
-    const parts = path.split("/");
-    const depth = parts.length - 1;
-    const name = parts[parts.length - 1];
-    const item = document.createElement("div");
-    item.className = "skill-file-item folder";
-    item.style.paddingLeft = (10 + depth * 12) + "px";
-    const icon = `<svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h4l1 1h7v8H2V4z"/></svg>`;
-    item.innerHTML = `${icon}<span class="skill-file-item-label">${name}/</span>`;
-    list.appendChild(item);
-  };
-
-  // Render with folder headers interleaved
   for (const file of ordered) {
     const parts = file.split("/");
-    // Render folder headers for all ancestor folders
     for (let i = 0; i < parts.length - 1; i++) {
-      renderFolderHeader(parts.slice(0, i + 1).join("/"));
+      const folderPath = parts.slice(0, i + 1).join("/");
+      const parentCollapsed = Array.from({ length: i }, (_, j) =>
+        collapsedFolders.has(parts.slice(0, j + 1).join("/"))
+      ).some(Boolean);
+      if (!parentCollapsed) renderFolder(folderPath, i);
     }
     renderFile(file);
   }
@@ -3671,11 +3858,7 @@ async function openSkillFile(relPath: string) {
   renderSkillFileTree();
 
   const container = document.getElementById("skill-monaco-container")!;
-  const generateBtn = document.getElementById("skill-generate")!;
   const status = document.getElementById("skill-editor-status")!;
-
-  // Generate button only relevant for SKILL.md
-  generateBtn.classList.toggle("hidden", relPath !== "SKILL.md");
   status.textContent = relPath;
 
   // Lazy-load file content if we don't have it cached yet
@@ -3731,14 +3914,14 @@ async function saveSkill() {
   }
 
   const description = skillDescInput.value.trim();
-  const allowedToolsText = (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value.trim();
-  const requiresText = (document.getElementById("skill-requires") as HTMLInputElement).value.trim();
-  const scheduleText = (document.getElementById("skill-schedule") as HTMLInputElement).value.trim();
+  const allowedTools = getToolEntries();
+  const requires = getRequiresEntries();
+  const schedule = getScheduleCron();
 
   const manifest: any = { name, description };
-  if (allowedToolsText) manifest["allowed-tools"] = allowedToolsText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  if (requiresText) manifest.requires = requiresText.split(",").map((s) => s.trim()).filter(Boolean);
-  if (scheduleText) manifest.schedule = scheduleText;
+  if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
+  if (requires.length) manifest.requires = requires;
+  if (schedule) manifest.schedule = schedule;
 
   const prompt = editingFileContents.get("SKILL.md") ?? "";
   const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
@@ -3772,59 +3955,75 @@ async function deleteSkill() {
   closeSkillEditor();
 }
 
-async function generateSkillPrompt() {
-  const name = skillNameInput.value.trim();
-  const desc = skillDescInput.value.trim();
-  if (!desc) { skillDescInput.focus(); return; }
-  const btn = document.getElementById("skill-generate") as HTMLButtonElement;
-  btn.textContent = "Working...";
-  btn.disabled = true;
-  try {
-    const result = await window.yo.skillsGenerate(name || "unnamed", desc);
-    if (result) {
-      editingFileContents.set("SKILL.md", result);
-      if (editingSelectedFile === "SKILL.md" && monacoEditor) {
-        monacoEditor.setValue(result);
-      }
-    }
-  } catch {}
-  btn.textContent = "Generate";
-  btn.disabled = false;
-}
+
 
 // ── New file / Run / Export / Import ──────────────────────
 
-async function addSkillFile() {
-  const name = await promptAction(
-    "New file",
-    "",
-    "e.g. template.md or examples/input.md"
-  );
-  if (!name) return;
-  const trimmed = name.trim().replace(/^\/+/, "").replace(/\/+/g, "/");
-  if (!trimmed || trimmed === "SKILL.md" || trimmed === "SKILL.js") return;
-  if (editingSkillFiles.includes(trimmed)) return;
-  editingSkillFiles.push(trimmed);
-  editingFileContents.set(trimmed, "");
-  captureCurrentEditorContent();
-  await openSkillFile(trimmed);
+function addSkillFile() {
+  const list = document.getElementById("skill-file-list")!;
+  const placeholder = "new-file.md";
+  const item = document.createElement("div");
+  item.className = "skill-file-item active";
+  item.style.paddingLeft = "10px";
+  const icon = `<svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l3 3v9H3V2z"/></svg>`;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "skill-file-rename-input";
+  input.value = placeholder;
+  item.innerHTML = icon;
+  item.appendChild(input);
+  list.appendChild(item);
+  input.focus();
+  input.setSelectionRange(0, placeholder.lastIndexOf("."));
+
+  const commit = () => {
+    const val = input.value.trim().replace(/^\/+/, "").replace(/\/+/g, "/");
+    if (!val || val === "SKILL.md" || val === "SKILL.js" || editingSkillFiles.includes(val)) {
+      item.remove();
+      return;
+    }
+    editingSkillFiles.push(val);
+    editingFileContents.set(val, "");
+    captureCurrentEditorContent();
+    openSkillFile(val);
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { item.remove(); }
+  });
+  input.addEventListener("blur", commit);
 }
 
-async function addSkillFolder() {
-  const folderName = await promptAction(
-    "New folder",
-    "",
-    "e.g. examples or scripts/helpers"
-  );
-  if (!folderName) return;
-  const trimmed = folderName.trim().replace(/^\/+/, "").replace(/\/+/g, "/").replace(/\/$/, "");
-  if (!trimmed) return;
-  // Folders are implied by file paths — create a placeholder file inside it
-  const placeholder = `${trimmed}/.keep`;
-  if (editingSkillFiles.includes(placeholder)) return;
-  editingSkillFiles.push(placeholder);
-  editingFileContents.set(placeholder, "");
-  renderSkillFileTree();
+function addSkillFolder() {
+  const list = document.getElementById("skill-file-list")!;
+  const item = document.createElement("div");
+  item.className = "skill-file-item folder";
+  item.style.paddingLeft = "10px";
+  const icon = `<svg class="skill-file-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h4l1 1h7v8H2V4z"/></svg>`;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "skill-file-rename-input";
+  input.value = "new-folder";
+  item.innerHTML = icon;
+  item.appendChild(input);
+  list.appendChild(item);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    const val = input.value.trim().replace(/^\/+/, "").replace(/\/+/g, "/").replace(/\/$/, "");
+    if (!val) { item.remove(); return; }
+    const placeholder = `${val}/.keep`;
+    if (editingSkillFiles.includes(placeholder)) { item.remove(); return; }
+    editingSkillFiles.push(placeholder);
+    editingFileContents.set(placeholder, "");
+    renderSkillFileTree();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { item.remove(); }
+  });
+  input.addEventListener("blur", commit);
 }
 
 async function uploadSkillFiles(e: Event) {
@@ -3881,13 +4080,13 @@ async function saveSkillInline() {
   const name = skillNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
   if (!name) return;
   const description = skillDescInput.value.trim();
-  const allowedToolsText = (document.getElementById("skill-allowed-tools") as HTMLTextAreaElement).value.trim();
-  const requiresText = (document.getElementById("skill-requires") as HTMLInputElement).value.trim();
-  const scheduleText = (document.getElementById("skill-schedule") as HTMLInputElement).value.trim();
+  const allowedTools = getToolEntries();
+  const requires = getRequiresEntries();
+  const schedule = getScheduleCron();
   const manifest: any = { name, description };
-  if (allowedToolsText) manifest["allowed-tools"] = allowedToolsText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  if (requiresText) manifest.requires = requiresText.split(",").map((s) => s.trim()).filter(Boolean);
-  if (scheduleText) manifest.schedule = scheduleText;
+  if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
+  if (requires.length) manifest.requires = requires;
+  if (schedule) manifest.schedule = schedule;
   const promptBody = editingFileContents.get("SKILL.md") ?? "";
   const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
   await window.yo.skillsWriteFull(name, manifest, promptBody, runnerCode);

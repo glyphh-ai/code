@@ -34,6 +34,7 @@ declare global {
       skillsWriteFull: (name: string, manifest: any, prompt: string, runnerCode?: string | null) => Promise<boolean | { error: string }>;
       skillsRemove: (name: string) => Promise<boolean>;
       skillsGenerate: (name: string, description: string) => Promise<string>;
+      skillsAvailableTools: () => Promise<Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }>>;
       skillsListFiles: (name: string) => Promise<string[]>;
       skillsReadFile: (name: string, rel: string) => Promise<string | null>;
       skillsWriteFile: (name: string, rel: string, content: string) => Promise<boolean>;
