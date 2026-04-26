@@ -376,6 +376,12 @@ export class YoAgent {
         const blocks = Array.isArray(lastAssistant.content) ? lastAssistant.content : [];
         responseText = blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
       }
+
+      // Ingest the conversation turn into the capture store for search
+      if (this.captureStore && responseText) {
+        const turnContent = `[user]\n${message}\n\n[assistant]\n${responseText}`;
+        this.captureStore.ingest("yo-agent", turnContent).catch(() => {});
+      }
       promptLog.record({
         id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
         startTs,

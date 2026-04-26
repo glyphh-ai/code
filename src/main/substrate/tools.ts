@@ -538,7 +538,11 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
   // 1. Substrate built-in?
   if (BUILTIN_BY_NAME.has(name)) {
-    return BUILTIN_BY_NAME.get(name)!.run(input);
+    try {
+      return await BUILTIN_BY_NAME.get(name)!.run(input);
+    } catch (err) {
+      return `Tool error (${name}): ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
   // 2. User skill via the skill_<name> convention?
   if (name.startsWith("skill_")) {
