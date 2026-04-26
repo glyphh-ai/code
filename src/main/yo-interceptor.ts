@@ -775,14 +775,14 @@ document.addEventListener('keydown',function(e){
     }
     // Fall back to body text if app-specific grab returned nothing useful
     if (!content || content.startsWith("[Element not found")) {
-      content = await wc.executeJavaScript("document.body.innerText.slice(0,10000)");
+      content = await wc.executeJavaScript("document.body.innerText.slice(0, 200000)");
     }
     if (!content) return null;
 
     // Raw body text → capture store for search indexing
     if (appId) {
       try {
-        const raw = await wc.executeJavaScript("document.body.innerText.slice(0, 30000)");
+        const raw = await wc.executeJavaScript("document.body.innerText.slice(0, 200000)");
         if (raw) {
           const title = await wc.executeJavaScript("document.title");
           this.session.rawCapture(appId, `PAGE: ${title}\nURL: ${wc.getURL()}\n\n${raw}`);

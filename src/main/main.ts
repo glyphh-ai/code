@@ -411,23 +411,47 @@ async function boot() {
     navigatorAgent: {
       execute: (instruction, ctx) => yoAgent.navigator.execute(instruction, ctx),
       listPanels: () => yoAgent.navigator.listPanels() ?? "",
+      setBudget: (budget) => yoAgent.navigator.setBudget(budget),
     },
     layoutAgent: {
       execute: (instruction, ctx) => yoAgent.layout.execute(instruction, ctx),
+      setBudget: (budget) => yoAgent.layout.setBudget(budget),
     },
-    mcpRouter: {
-      resolveAll: () => {
-        try {
-          if (!mcpManager) return [];
-          return mcpManager.getAllTools().map((t) => ({
-            name: t.qualifiedName,
-            description: t.description || "",
-            input_schema: t.inputSchema,
-          }));
-        } catch { return []; }
-      },
-      callMcp: (qualifiedName, input) => mcpManager!.callTool(qualifiedName, input),
-    },
+    mcpRouter: (() => {
+      const shortToQualified = new Map<string, string>();
+      return {
+        resolveAll: () => {
+          if (!mcpManager) {
+            console.warn("[mcp-router] mcpManager not available");
+            return [];
+          }
+          shortToQualified.clear();
+          const allTools = mcpManager.getAllTools();
+          if (allTools.length === 0) {
+            const servers = mcpManager.getServerStates();
+            const summary = servers.map(s => `${s.config.id}: ${s.status}`).join(", ");
+            if (servers.length > 0) {
+              console.warn(`[mcp-router] 0 tools resolved. Server states: ${summary}`);
+            }
+          }
+          return allTools.map((t) => {
+            let short: string;
+            if (t.serverId.startsWith("pipedream-connect-")) {
+              short = t.name.replace(/-/g, "_");
+            } else {
+              short = `${t.serverId.replace(/-/g, "_")}__${t.name.replace(/-/g, "_")}`;
+            }
+            shortToQualified.set(short, t.qualifiedName);
+            return { name: short, description: t.description || "", input_schema: t.inputSchema };
+          });
+        },
+        callMcp: (name: string, input: Record<string, unknown>) => {
+          const qualified = shortToQualified.get(name) || name;
+          return mcpManager!.callTool(qualified, input);
+        },
+        hasTool: (name: string) => shortToQualified.has(name),
+      };
+    })(),
   });
 
   // Pipedream Connectors — managed OAuth connections (Advanced tier)
@@ -464,13 +488,13 @@ async function boot() {
   yoInterceptor.setAgentMode(getPreference<string>("agentMode", "ask"));
   yoInterceptor.setCurrentModel(llmConfig.model);
   yoInterceptor.setAvailableModels(PROVIDER_PRESETS[llmConfig.provider]?.models || []);
-  const initialTheme = getPreference<string>("theme", "dark");
+  const initialTheme = getPreference<string>("theme", "light");
   nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
   const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
   yoInterceptor.setTheme(resolvedTheme);
 
   nativeTheme.on("updated", () => {
-    if (getPreference<string>("theme", "dark") !== "system") return;
+    if (getPreference<string>("theme", "light") !== "system") return;
     const resolved = nativeTheme.shouldUseDarkColors ? "dark" : "light";
     broadcastTheme(resolved);
   });
@@ -2118,7 +2142,7 @@ async function boot() {
   ipcMain.handle("get-entitlements", () => getCurrentLimits());
 
   // IPC: theme
-  ipcMain.handle("get-theme", () => getPreference<string>("theme", "dark"));
+  ipcMain.handle("get-theme", () => getPreference<string>("theme", "light"));
   ipcMain.handle("set-theme", (_e, theme: string) => {
     setPreference("theme", theme);
     nativeTheme.themeSource = theme === "system" ? "system" : theme as "light" | "dark";
@@ -2701,7 +2725,7 @@ async function boot() {
       apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding: currentNeedsOnboarding,
       hideWelcome,
-      theme: (() => { const t = getPreference<string>("theme", "dark"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
+      theme: (() => { const t = getPreference<string>("theme", "light"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
     });
     if (!currentNeedsOnboarding && !panelsReady) {
       restorePanels();

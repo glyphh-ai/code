@@ -1413,6 +1413,19 @@ const DIRECT_TOOL_DESC: Record<string, string> = {
   start_council:   "Starting council",
 };
 
+function formatToolDisplayName(name: string): string {
+  if (DELEGATION_DESC[name]) return DELEGATION_DESC[name];
+  if (DIRECT_TOOL_DESC[name]) return DIRECT_TOOL_DESC[name];
+  if (name.startsWith("skill_")) return name.slice(6).replace(/_/g, " ");
+  const parts = name.split("_");
+  if (parts.length >= 2) {
+    const app = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+    const action = parts.slice(1).join(" ");
+    return `${app}: ${action}`;
+  }
+  return name.replace(/_/g, " ");
+}
+
 const BRAILLE = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
 const PHRASES = ["thinking", "cooking", "vibing", "brewing", "conjuring", "channeling"];
 const STOP_QUIPS = [
@@ -1530,7 +1543,7 @@ function startToolRow(id: string, name: string, input: unknown) {
 
   const nameEl = document.createElement("span");
   nameEl.className = "yo-result-name";
-  nameEl.textContent = DELEGATION_DESC[name] || DIRECT_TOOL_DESC[name] || name.replace(/_/g, " ");
+  nameEl.textContent = formatToolDisplayName(name);
   headings.appendChild(nameEl);
 
   const subtitleText = toolInputSummary(name, input);
@@ -2288,7 +2301,7 @@ async function loadYoHistory() {
               headings.className = "yo-result-headings";
               const nameEl = document.createElement("span");
               nameEl.className = "yo-result-name";
-              nameEl.textContent = DELEGATION_DESC[tool.name] || DIRECT_TOOL_DESC[tool.name] || tool.name.replace(/_/g, " ");
+              nameEl.textContent = formatToolDisplayName(tool.name);
               headings.appendChild(nameEl);
               const sub = toolInputSummary(tool.name, tool.input);
               if (sub) {

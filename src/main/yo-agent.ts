@@ -56,16 +56,16 @@ WORKFLOW:
 6. Use format with a named skill to present results cleanly
 
 DELEGATION:
-- delegate_navigate: panel interaction specialist — scan, click, type, navigate, open panels. Use for ANY visual interaction with app panels (Gmail, Slack, Claude, etc). The navigator has its own tool loop and will chain scan→click→type as needed.
+- delegate_navigate: panel interaction specialist — scan, click, type, navigate, open panels. Use ONLY for visual interaction with panels that have NO MCP tools connected. If an app has MCP tools listed below, use those tools directly instead.
 - delegate_layout: workspace layout specialist — split views, grids, tabs, saved layouts. Use when the user wants to arrange panels on screen.
 - Delegations run in parallel when possible. Each sub-agent runs on a cheap model to minimize cost.
-- NEVER open_panel or delegate_navigate for apps that have MCP tools — use MCP tools for data access, delegate_navigate for visual-only interaction.
 
 RULES:
+- ACT FIRST. Call tools immediately — never describe what you're about to do. Skip preambles like "Let me search for..." or "I'll start by...". Just call the tool.
 - search_captures is vector search — use descriptive phrases, not keywords
 - search_notes is keyword search — use specific terms
 - read_file can read any file under ~/ but defaults to ~/yo/ for relative paths
-- Be concise. Return the actual content, not descriptions of it.
+- Be concise. Return the actual content, not descriptions of it. No filler.
 - Use save_memory for user preferences and patterns you learn.
 - Use start_council when the user needs multiple AI perspectives — debates, brainstorming, comparing approaches. Council is zero-cost orchestration: each model runs on the user's own API key, responses are SmartGrabbed and indexed. After council completes, synthesize the captured results.`;
 
@@ -105,9 +105,9 @@ export class YoAgent {
   private _currentUserMessage = "";
   private _critiqueAttempted = false;
 
-  // Sub-agents
-  navigator = new NavigatorAgent();
-  layout = new LayoutAgent();
+  // Sub-agents — sync mode from preferences at init
+  navigator = (() => { const n = new NavigatorAgent(); n.setMode(getAgentMode()); return n; })();
+  layout = (() => { const l = new LayoutAgent(); l.setMode(getAgentMode()); return l; })();
   private _layoutStateGetter: (() => { cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | null) | null = null;
 
   // ── Setters ────────────────────────────────────────────
@@ -444,6 +444,20 @@ export class YoAgent {
       }
     }
 
+    // MCP tools — inject into system prompt so agent always knows what it has.
+    // The tool spec includes these as callable functions, but listing them here
+    // makes the agent explicitly aware even if tool names are opaque.
+    const toolSpec = getAgentToolSpec();
+    const mcpTools = toolSpec.filter(t =>
+      !t.name.startsWith("skill_") &&
+      !["search_captures","get_context","format","save_memory","search_notes",
+        "read_file","list_files","run_command","start_council",
+        "delegate_navigate","delegate_layout"].includes(t.name)
+    );
+    if (mcpTools.length > 0) {
+      prompt += `\n\nCONNECTED MCP TOOLS (use these directly — do NOT use delegate_navigate for these apps):\n${mcpTools.map(t => `- ${t.name}: ${t.description}`).join("\n")}`;
+    }
+
     // Substrate-suggested skills (think.compose) — already ranked by relevance.
     if (this._substrateComposed.length > 0) {
       prompt += `\n\nSUBSTRATE SUGGESTED SKILLS for this message (in priority order):\n${this._substrateComposed.map((s) => `- ${s}`).join("\n")}\nPrefer these via the format tool when applicable.`;
@@ -673,6 +687,7 @@ export class YoAgent {
       let result;
       switch (name) {
         case "delegate_navigate": {
+          this.navigator.setBudget(this._substrateBudget);
           const panelList = this.navigator.listPanels();
           const enriched = panelList
             ? `${instruction}\n\nAVAILABLE APP PANELS (use scan_panel, click_element, type_text, run_command — grab_panel only as last resort):\n${panelList}`
@@ -681,6 +696,7 @@ export class YoAgent {
           break;
         }
         case "delegate_layout":
+          this.layout.setBudget(this._substrateBudget);
           result = await this.layout.execute(instruction, context);
           break;
         default:

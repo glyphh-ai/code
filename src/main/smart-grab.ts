@@ -1,13 +1,12 @@
 /**
  * SmartGrab — intelligent content extraction from webview panels.
  *
- * Extracts page title + URL, then tries to find the main content area
- * (role="main", <main>, chat/conversation containers). For chat apps,
- * extracts the last N messages individually. For other pages, strips
- * nav/header/footer/sidebar noise and grabs clean body text.
+ * Extracts page title + URL, then tries to find the main content area.
+ * For chat apps, extracts messages with role tagging. For other pages,
+ * strips nav/header/footer/sidebar noise and grabs clean body text.
  *
- * No LLM involved — pure DOM heuristics. Designed for action-driven
- * capture where quality matters more than raw completeness.
+ * Grabs aggressively — the capture store chunker handles splitting.
+ * No LLM involved — pure DOM heuristics.
  */
 
 import { WebContents } from "electron";
@@ -18,22 +17,27 @@ const GRAB_SCRIPT = `(function() {
   lines.push("URL: " + location.href);
   lines.push("");
 
-  // AI chat message selectors — try site-specific first, then generic
-  var msgSelectors = [
-    // Claude
+  // ── Chat message extraction ──────────────────────────────
+  // Try ALL selectors, keep the set with the most results.
+  // Site-specific selectors may go stale — casting a wide net
+  // and picking the best catch is more robust than breaking
+  // on the first hit.
+
+  var selectorGroups = [
+    // Claude — combined selector for both user + assistant
+    '[data-testid*="message"]',
+    '[class*="font-claude-message"], [class*="font-user-message"]',
     '[data-testid="chat-message-content"]',
-    '[class*="font-claude-message"]',
+    // ChatGPT
+    '[data-message-author-role]',
+    '[data-message-id]',
     // Gemini
     'message-content',
     '[class*="response-container"]',
     'model-response',
     // Grok
     '[data-testid*="response"]',
-    // ChatGPT
-    '[data-message-author-role]',
-    // Generic
-    '[data-message-id]',
-    '[data-testid*="message"]',
+    // Generic patterns
     '[data-role]',
     '[role="article"]',
     '[class*="message-"]',
@@ -41,30 +45,51 @@ const GRAB_SCRIPT = `(function() {
     '[class*="turn-"]',
     '[class*="chat-message"]',
     '[class*="ConversationItem"]',
+    // Broader Claude fallbacks
+    '[class*="prose"]',
   ];
 
-  var messages = [];
-  for (var s = 0; s < msgSelectors.length; s++) {
+  var bestMessages = [];
+  for (var s = 0; s < selectorGroups.length; s++) {
     try {
-      var found = document.querySelectorAll(msgSelectors[s]);
-      if (found.length > 0) { messages = Array.from(found); break; }
+      var found = document.querySelectorAll(selectorGroups[s]);
+      if (found.length > bestMessages.length) {
+        bestMessages = Array.from(found);
+      }
     } catch(e) {}
   }
 
-  // Build structured output from message selectors
+  // Build structured output from messages
   var structured = "";
-  if (messages.length > 0) {
+  if (bestMessages.length > 0) {
     var parts = [];
-    var recent = messages.slice(-15);
+    // Grab up to 100 messages — let the chunker handle size
+    var recent = bestMessages.slice(-100);
     for (var i = 0; i < recent.length; i++) {
       var msg = recent[i];
+
+      // Role detection — try multiple attributes
       var role = msg.getAttribute('data-role')
         || msg.getAttribute('data-message-author-role')
-        || msg.getAttribute('data-testid')
         || '';
+
+      // Fallback: infer role from data-testid or class names
+      if (!role) {
+        var testId = msg.getAttribute('data-testid') || '';
+        var cls = msg.className || '';
+        if (/user/i.test(testId) || /user/i.test(cls)) role = 'user';
+        else if (/assistant|bot|claude|model|ai/i.test(testId) || /assistant|bot|claude|model|ai/i.test(cls)) role = 'assistant';
+        else if (/human/i.test(testId) || /human/i.test(cls)) role = 'human';
+        else if (testId) role = testId;
+      }
+
       var text = msg.innerText.trim();
       if (text.length < 5) continue;
-      if (text.length > 8000) text = text.slice(0, 8000) + '...';
+
+      // Per-message cap at 64K — individual messages can be very long
+      // (code blocks, long responses). Let the chunker split downstream.
+      if (text.length > 64000) text = text.slice(0, 64000) + '\\n[truncated]';
+
       if (role) parts.push("[" + role + "]");
       parts.push(text);
       parts.push("");
@@ -78,7 +103,8 @@ const GRAB_SCRIPT = `(function() {
     || document.querySelector('main')
     || document.querySelector('[data-testid*="conversation"]')
     || document.querySelector('[data-testid*="chat"]')
-    || document.querySelector('[data-testid*="thread"]');
+    || document.querySelector('[data-testid*="thread"]')
+    || document.querySelector('article');
   if (mainEl) {
     mainText = mainEl.innerText.trim();
   }
@@ -100,15 +126,18 @@ const GRAB_SCRIPT = `(function() {
 
   // Use whichever captured more content — selectors can go stale
   var content = (structured.length >= mainText.length) ? structured : mainText;
-  if (content.length > 20000) content = content.slice(-20000);
+
+  // Cap at 200K chars — generous, let the chunker split downstream.
+  // Take the LAST 200K so recent content (newest messages) is preserved.
+  if (content.length > 200000) content = content.slice(-200000);
   lines.push(content);
 
   return lines.join("\\n").trim();
 })()`;
 
 /** Hash script — returns a quick content fingerprint for delta detection.
- *  Hashes title + first 2500 chars + last 2500 chars so both navigation
- *  changes (top) and new chat messages (bottom) are detected. */
+ *  Hashes title + head/tail sample so both navigation changes (top)
+ *  and new chat messages (bottom) are detected. */
 const HASH_SCRIPT = `(function() {
   var raw = document.body ? document.body.innerText : "";
   var text = (document.title || "") + "\\n";
@@ -128,16 +157,16 @@ const HASH_SCRIPT = `(function() {
 
 /** Grab only the last AI response — used by council for clean cross-pollination. */
 const GRAB_LAST_RESPONSE_SCRIPT = `(function() {
-  var msgSelectors = [
+  var selectorGroups = [
+    '[data-testid*="message"]',
+    '[class*="font-claude-message"], [class*="font-user-message"]',
     '[data-testid="chat-message-content"]',
-    '[class*="font-claude-message"]',
     'message-content',
     '[class*="response-container"]',
     'model-response',
     '[data-testid*="response"]',
     '[data-message-author-role="assistant"]',
     '[data-message-id]',
-    '[data-testid*="message"]',
     '[data-role]',
     '[role="article"]',
     '[class*="message-"]',
@@ -147,30 +176,32 @@ const GRAB_LAST_RESPONSE_SCRIPT = `(function() {
     '[class*="ConversationItem"]',
   ];
 
-  var messages = [];
-  for (var s = 0; s < msgSelectors.length; s++) {
+  var bestMessages = [];
+  for (var s = 0; s < selectorGroups.length; s++) {
     try {
-      var found = document.querySelectorAll(msgSelectors[s]);
-      if (found.length > 0) { messages = Array.from(found); break; }
+      var found = document.querySelectorAll(selectorGroups[s]);
+      if (found.length > bestMessages.length) {
+        bestMessages = Array.from(found);
+      }
     } catch(e) {}
   }
 
-  if (messages.length === 0) {
+  if (bestMessages.length === 0) {
     var mainEl = document.querySelector('[role="main"]')
       || document.querySelector('main')
       || document.querySelector('[data-testid*="conversation"]')
       || document.querySelector('[data-testid*="chat"]');
     if (mainEl) {
       var text = mainEl.innerText.trim();
-      return text.length > 4000 ? text.slice(-4000) : text;
+      return text.length > 16000 ? text.slice(-16000) : text;
     }
     return null;
   }
 
   // Get the last message (most likely the AI response)
-  var last = messages[messages.length - 1];
+  var last = bestMessages[bestMessages.length - 1];
   var text = last.innerText.trim();
-  if (text.length > 12000) text = text.slice(0, 12000) + '...';
+  if (text.length > 32000) text = text.slice(0, 32000) + '\\n[truncated]';
   return text || null;
 })()`;
 

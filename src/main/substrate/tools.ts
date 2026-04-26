@@ -29,9 +29,9 @@ export interface SubstrateToolDeps {
     getSkill: (name: string) => { manifest: { description?: string; inputs?: Array<{ name: string; type: string; description?: string }> } } | null;
   };
   council?: { start: (opts: { participants: string[]; prompt: string; rounds: number }, log: (msg: string) => void) => Promise<{ status: string; rounds: number; participants: string[]; totalCaptures: number; responses: Map<string, string[]> }> };
-  navigatorAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; listPanels: () => string };
-  layoutAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }> };
-  mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (qualifiedName: string, input: Record<string, unknown>) => Promise<string> };
+  navigatorAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; listPanels: () => string; setBudget?: (budget: any) => void };
+  layoutAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; setBudget?: (budget: any) => void };
+  mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (name: string, input: Record<string, unknown>) => Promise<string>; hasTool?: (name: string) => boolean; mcpCoveredApps?: () => Map<string, string[]> };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -317,6 +317,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (!instruction) return "No instruction provided.";
       if (!deps.navigatorAgent) return "Navigator not available.";
       try {
+        deps.navigatorAgent.setBudget?.(null);
         const panelList = deps.navigatorAgent.listPanels();
         const enriched = panelList
           ? `${instruction}\n\nAVAILABLE APP PANELS:\n${panelList}`
@@ -342,6 +343,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (!instruction) return "No instruction provided.";
       if (!deps.layoutAgent) return "Layout agent not available.";
       try {
+        deps.layoutAgent.setBudget?.(null);
         const result = await deps.layoutAgent.execute(instruction, null);
         return result.summary;
       } catch (err) {
@@ -399,13 +401,11 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
 
   // MCP tools (already namespaced via skill-tool-router)
   if (deps.mcpRouter) {
-    try {
-      const mcpTools = deps.mcpRouter.resolveAll();
-      for (const t of mcpTools) {
-        if (allowed && !allowed.has(t.name)) continue;
-        out.push(t);
-      }
-    } catch { /* connector may not be ready */ }
+    const mcpTools = deps.mcpRouter.resolveAll();
+    for (const t of mcpTools) {
+      if (allowed && !allowed.has(t.name)) continue;
+      out.push(t);
+    }
   }
 
   return out;
@@ -432,9 +432,8 @@ export async function executeTool(name: string, input: Record<string, unknown>):
       return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
-  // 3. MCP qualified call (e.g. mcp__pipedream-connect-gmail__read_messages)?
-  if (name.startsWith("mcp__")) {
-    if (!deps.mcpRouter?.callMcp) return "MCP router not available.";
+  // 3. MCP tool (short name or legacy qualified name)?
+  if (deps.mcpRouter?.callMcp && (name.startsWith("mcp__") || deps.mcpRouter.hasTool?.(name))) {
     return deps.mcpRouter.callMcp(name, input);
   }
   return `Unknown tool: ${name}`;

@@ -21,7 +21,7 @@
     // Apply theme synchronously before anything renders (avoids flash).
     // Reads from localStorage which the main renderer keeps in sync.
     try {
-      var t = localStorage.getItem("yoTheme") || "dark";
+      var t = localStorage.getItem("yoTheme") || "light";
       var r = t === "system"
         ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
         : t;
@@ -1369,11 +1369,11 @@
 
                 <h3 class="settings-subheading" style="margin-top:0;">Theme</h3>
                 <div id="theme-picker" class="theme-picker">
-                  <button class="theme-option active" data-theme="dark">
+                  <button class="theme-option" data-theme="dark">
                     <div class="theme-preview theme-preview-dark"><div class="tp-sidebar"></div><div class="tp-main"><div class="tp-bar"></div><div class="tp-content"></div></div></div>
                     <span>Dark</span>
                   </button>
-                  <button class="theme-option" data-theme="light">
+                  <button class="theme-option active" data-theme="light">
                     <div class="theme-preview theme-preview-light"><div class="tp-sidebar"></div><div class="tp-main"><div class="tp-bar"></div><div class="tp-content"></div></div></div>
                     <span>Light</span>
                   </button>

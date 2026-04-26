@@ -3694,7 +3694,7 @@ async function openSkillFile(relPath: string) {
     monacoEditor = w.monaco.editor.create(container, {
       value: content,
       language: languageForFile(relPath),
-      theme: "vs-dark",
+      theme: document.documentElement.getAttribute("data-theme") === "dark" ? "vs-dark" : "vs",
       fontSize: 12,
       fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
       minimap: { enabled: false },

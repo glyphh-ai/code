@@ -2,8 +2,13 @@
  * BaseSubAgent — abstract sub-agent with non-streaming tool loop.
  *
  * Each specialist extends this, providing its own tools, system prompt,
- * and tool execution. The base handles the LLM call loop, abort, and
- * result summarisation.
+ * and tool execution. The base handles the LLM call loop, abort,
+ * result summarisation, and substrate breath cycle.
+ *
+ * Substrate integration:
+ *   - Budget: shared with the orchestrator (same BudgetTracker instance)
+ *   - Reflex: each run is recorded so sense.recall can surface patterns
+ *   - Firewall: content tools are scanned for prompt injection
  */
 
 import type { LLMConfig } from "../llm-config";
@@ -12,6 +17,9 @@ import { usageTracker } from "../usage-tracker";
 import type { SubAgentResult, SubAgentContext, ToolDef, AgentMode } from "./types";
 import { gate } from "../action-gate";
 import { scanForInjection } from "../firewall";
+import { BudgetTracker } from "../substrate/think-budget";
+import { reflexRemember } from "../substrate/reflex-remember";
+import type { Intent } from "../substrate/types";
 
 /** Provider-specific cheap model overrides. */
 const CHEAP_MODELS: Record<string, string> = {
@@ -30,9 +38,10 @@ export abstract class BaseSubAgent {
   private aborted = false;
   private _mode: AgentMode = "ask";
   private _approvalCallback: ApprovalCallback | null = null;
-  private _modelOverride: string | null = null;  // "auto" | specific model | "orchestrator" | null
+  private _modelOverride: string | null = null;
+  private _budget: BudgetTracker | null = null;
 
-  /** Name used for usage tracking. Override in subclasses. */
+  /** Name used for usage tracking + substrate reflex. Override in subclasses. */
   protected agentName = "sub-agent";
 
   /** Max tool-loop iterations before forcing a response. */
@@ -42,6 +51,7 @@ export abstract class BaseSubAgent {
   setMode(mode: AgentMode): void { this._mode = mode; }
   setModelOverride(model: string | null): void { this._modelOverride = model; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
+  setBudget(budget: BudgetTracker | null): void { this._budget = budget; }
   abort(): void { this.aborted = true; }
   resetAbort(): void { this.aborted = false; }
   get isAborted(): boolean { return this.aborted; }
@@ -59,10 +69,6 @@ export abstract class BaseSubAgent {
 
   // ── Execution ─────────────────────────────────────────
 
-  /**
-   * Run the sub-agent with an instruction and context.
-   * Returns a concise SubAgentResult for the orchestrator.
-   */
   async execute(
     instruction: string,
     context: SubAgentContext,
@@ -73,7 +79,10 @@ export abstract class BaseSubAgent {
     }
     this.aborted = false;
 
-    // Build messages: context preamble + instruction
+    // Substrate: enter depth on shared budget
+    this._budget?.enterDepth();
+    const startTs = Date.now();
+
     const preamble = context.conversationSummary
       ? `[Conversation context: ${context.conversationSummary}]\n\nUser's original message: ${context.userMessage}\n\nYour task: ${instruction}`
       : `User's original message: ${context.userMessage}\n\nYour task: ${instruction}`;
@@ -81,7 +90,32 @@ export abstract class BaseSubAgent {
     const messages: any[] = [{ role: "user", content: preamble }];
     const toolsUsed: string[] = [];
 
-    return this.toolLoop(messages, toolsUsed, onToolUse, 0);
+    let result: SubAgentResult;
+    let outcome: "success" | "error" = "success";
+    try {
+      result = await this.toolLoop(messages, toolsUsed, onToolUse, 0);
+      outcome = result.success ? "success" : "error";
+    } catch (err) {
+      outcome = "error";
+      result = { summary: err instanceof Error ? err.message : String(err), success: false, toolsUsed };
+    } finally {
+      this._budget?.exitDepth();
+
+      // Substrate reflex: record this run for future recall
+      try {
+        reflexRemember({
+          intent: "do" as Intent,
+          skill: this.agentName,
+          chain: [...new Set(toolsUsed)],
+          outcome,
+          durationMs: Date.now() - startTs,
+          input: instruction,
+          output: result!.summary,
+        });
+      } catch { /* non-fatal */ }
+    }
+
+    return result;
   }
 
   private async toolLoop(
@@ -106,6 +140,8 @@ export abstract class BaseSubAgent {
 
     if (response.usage) {
       usageTracker.record(this.agentName, response.usage);
+      // Substrate budget: count against shared parent budget
+      this._budget?.countTokens(response.usage.inputTokens + response.usage.outputTokens);
     }
 
     messages.push({ role: "assistant", content: response.content });
@@ -113,7 +149,6 @@ export abstract class BaseSubAgent {
     const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
 
     if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
-      // Enforce iteration limit
       if (iteration >= this.maxIterations) {
         const results = toolBlocks.map((b: any) => ({
           type: "tool_result",
@@ -121,15 +156,18 @@ export abstract class BaseSubAgent {
           content: "[iteration limit — summarise what you have]",
         }));
         messages.push({ role: "user", content: results });
-        // One more call to get the summary
         return this.toolLoop(messages, toolsUsed, onToolUse, iteration + 1);
+      }
+
+      // Budget: count tool calls before executing
+      for (const _block of toolBlocks) {
+        this._budget?.countToolCall();
       }
 
       const results: any[] = [];
       for (const block of toolBlocks) {
         if (this.aborted) break;
 
-        // Gate check: decide whether to execute, request approval, or skip
         const decision = gate(block.name, this._mode);
         if (decision === "skip") {
           results.push({ type: "tool_result", tool_use_id: block.id, content: "[skipped — plan mode]" });
@@ -143,7 +181,6 @@ export abstract class BaseSubAgent {
               continue;
             }
           } else {
-            // No callback set — fail closed: deny mutate tools without approval
             results.push({ type: "tool_result", tool_use_id: block.id, content: "[blocked — no approval handler available]" });
             continue;
           }
@@ -152,11 +189,10 @@ export abstract class BaseSubAgent {
         if (onToolUse) onToolUse(block.name);
         toolsUsed.push(block.name);
         let result = await this.execTool(block.name, block.input as Record<string, unknown>);
-        // Cap tool results to prevent context blowup across iterations
         if (result.length > 6000) {
           result = result.slice(0, 6000) + "\n\n[truncated — content too long]";
         }
-        // Firewall: scan tool results that contain web content for prompt injection
+        // Firewall: scan content tools for prompt injection
         const CONTENT_TOOLS = new Set(["grab_panel", "scan_panel", "read_file", "clipboard_read"]);
         if (CONTENT_TOOLS.has(block.name) && result.length > 50) {
           const scan = scanForInjection(result);
@@ -186,13 +222,10 @@ export abstract class BaseSubAgent {
       return this.toolLoop(messages, toolsUsed, onToolUse, iteration + 1);
     }
 
-    // End turn — extract text
     return this.extractResult(messages, toolsUsed, true);
   }
 
-  /** Extract the final text from the last assistant message. */
   private extractResult(messages: any[], toolsUsed: string[], success: boolean): SubAgentResult {
-    // Walk backwards to find last assistant text
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -208,7 +241,6 @@ export abstract class BaseSubAgent {
     return { summary: "(no response)", success: false, toolsUsed };
   }
 
-  /** Get the model for sub-agent calls. Respects user override. */
   private getCheapModel(): string {
     if (!this.llmConfig) return "";
     if (this._modelOverride === "orchestrator") return this.llmConfig.model;
