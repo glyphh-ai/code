@@ -5166,6 +5166,12 @@ select.settings-input {
 .yo-mode-option:hover { background: var(--hover); }
 .yo-mode-option.active { background: var(--border); }
 
+/* Bypass mode: alert-red so the user can't pick it accidentally */
+.yo-mode-option[data-value="bypass"] .yo-mode-opt-label { color: #FF2D55; font-weight: 700; }
+.yo-mode-option[data-value="bypass"] .yo-mode-opt-desc  { color: #FF2D55; opacity: 0.85; }
+.yo-mode-option[data-value="bypass"]:hover { background: rgba(255, 45, 85, 0.12); }
+.yo-mode-option[data-value="bypass"].active { background: rgba(255, 45, 85, 0.22); }
+
 .yo-mode-opt-icon {
   font-size: 14px;
   width: 20px;

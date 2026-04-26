@@ -1205,6 +1205,7 @@ const MODE_ICONS: Record<string, string> = {
   ask: "\u2753",
   plan: "\uD83D\uDCCB",
   auto: "\u26A1",
+  bypass: "\uD83D\uDD25",
   council: "\uD83C\uDFDB",
 };
 
@@ -1212,6 +1213,7 @@ const MODE_COLORS: Record<string, string> = {
   ask: "#25C75E",
   plan: "#4A9EFF",
   auto: "#FF8C00",
+  bypass: "#FF2D55",
   council: "#A855F7",
 };
 

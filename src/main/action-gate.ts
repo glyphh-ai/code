@@ -9,7 +9,7 @@
 import { getPreference } from "./preferences";
 import { isDestructiveTool } from "./substrate";
 
-export type AgentMode = "plan" | "ask" | "auto";
+export type AgentMode = "plan" | "ask" | "auto" | "bypass";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask" | "off";
 
@@ -161,6 +161,10 @@ export function getAgentMode(): AgentMode {
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (mode === "plan") return "skip";
+
+  // Bypass mode: the user explicitly opted into "run everything, no questions".
+  // Per-tool overrides are deliberately ignored — bypass means bypass.
+  if (mode === "bypass") return "execute";
 
   const override = getEffectiveOverride(toolName);
   if (override === "off") return "skip";
