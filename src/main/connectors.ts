@@ -391,15 +391,15 @@ export class ConnectorManager extends EventEmitter {
 
   /** Initialize — load accounts and set up MCP if any exist. */
   async init(): Promise<void> {
-    if (!this.isPro()) return;
-
     try {
-      await this.getAccounts();
-      if (this.cachedAccounts.length > 0) {
-        await this.refreshMcp();
+      const accounts = await this.getAccounts();
+      console.log(`[connectors] init: ${accounts.length} accounts found`);
+      if (accounts.length > 0) {
+        const result = await this.refreshMcp();
+        console.log(`[connectors] init: ${result.toolCount} MCP tools loaded`);
       }
-    } catch {
-      // Silent — connectors are non-critical
+    } catch (err) {
+      console.warn("[connectors] init failed:", err);
     }
   }
 

@@ -289,12 +289,11 @@ async function boot() {
     });
   }
 
-  // MCP Manager — user-configured external MCP servers (Advanced tier)
+  // MCP Manager — always init so tools are ready when the agent needs them.
+  // Tier gates apply at the UI level (add/connect), not at boot.
   mcpManager = new McpManager();
   mcpManager.setAppConnector(appConnector);
-  if (canUseMcp().allowed) {
-    mcpManager.init().catch((err) => console.error("[mcp-manager]", err));
-  }
+  mcpManager.init().catch((err) => console.error("[mcp-manager]", err));
   mcpManager.on("changed", () => {
     mainWindow?.webContents.send("mcp-changed");
   });
@@ -1532,10 +1531,8 @@ async function boot() {
     cloudSyncInstance.start();
   }
 
-  // Initialize Pipedream connectors if authenticated (Advanced tier)
-  if (authenticated) {
-    connectorManager?.init().catch((err) => console.error("[connectors]", err));
-  }
+  // Initialize Pipedream connectors — always attempt so MCP tools are available.
+  connectorManager?.init().catch((err) => console.error("[connectors]", err));
 
   // ── Auto-updater ───────────────────────────────────────────
   const autoUpdateEnabled = getPreference<boolean>("autoUpdate", true);
