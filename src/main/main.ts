@@ -58,8 +58,9 @@ import {
   setComposeDeps as setSubstrateComposeDeps,
   setCritiqueDeps as setSubstrateCritiqueDeps,
   setRememberOpts as setSubstrateRememberOpts,
+  setSubstrateToolDeps,
+  listBuiltinYoTools,
 } from "./substrate";
-import { TOOLS as YO_AGENT_TOOLS } from "./yo-agent";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -300,11 +301,7 @@ async function boot() {
 
   // Skill system — tool router, runner dependencies, scheduler
   skillToolRouter = new SkillToolRouter();
-  skillToolRouter.setYoTools(YO_AGENT_TOOLS.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema as Record<string, unknown>,
-  })));
+  skillToolRouter.setYoTools(listBuiltinYoTools());
   skillToolRouter.setMcpManager(mcpManager);
   setRunnerDependencies({
     toolRouter: skillToolRouter,
@@ -391,6 +388,46 @@ async function boot() {
     maxToolCalls: getPreference<number>("substrate.budget.maxToolCalls", 20),
     maxDepth: getPreference<number>("substrate.budget.maxDepth", 5),
     maxDepthMs: getPreference<number>("substrate.budget.maxDepthMs", 120_000),
+  });
+
+  // Unified tool registry deps (substrate + user skills + MCP)
+  setSubstrateToolDeps({
+    captureStore: { search: (q, n) => captureStore.search(q, n) },
+    sessionCache: { get: () => session.get() },
+    noteStore: {
+      search: (q, n) => noteStore.search(q, n),
+      write: (title, content, source) => noteStore.write(title, content, source),
+    },
+    memoryStore: { save: (content, category) => memoryStore.save(content, category as any) },
+    skillEngine: {
+      runSkill: (name, input, opts) => skillEngine.runSkill(name, input, opts as any),
+      listSkillsDetailed: () => skillEngine.listSkillsDetailed(),
+      getSkill: (name) => {
+        const s = skillEngine.getSkill(name);
+        return s ? { manifest: { description: s.manifest.description, inputs: s.manifest.inputs } } : null;
+      },
+    },
+    council: { start: (opts, log) => council.start(opts, log) as any },
+    navigatorAgent: {
+      execute: (instruction, ctx) => yoAgent.navigator.execute(instruction, ctx),
+      listPanels: () => yoAgent.navigator.listPanels() ?? "",
+    },
+    layoutAgent: {
+      execute: (instruction, ctx) => yoAgent.layout.execute(instruction, ctx),
+    },
+    mcpRouter: {
+      resolveAll: () => {
+        try {
+          if (!mcpManager) return [];
+          return mcpManager.getAllTools().map((t) => ({
+            name: t.qualifiedName,
+            description: t.description || "",
+            input_schema: t.inputSchema,
+          }));
+        } catch { return []; }
+      },
+      callMcp: (qualifiedName, input) => mcpManager!.callTool(qualifiedName, input),
+    },
   });
 
   // Pipedream Connectors — managed OAuth connections (Advanced tier)

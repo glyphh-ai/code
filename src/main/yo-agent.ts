@@ -10,8 +10,17 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync } from "child_process";
 import { LLMConfig, createStream, createCompletion } from "./llm-config";
+import {
+  getAgentToolSpec,
+  executeTool,
+  BudgetTracker,
+  inhale as substrateInhale,
+  exhale as substrateExhale,
+  reflex as substrateReflex,
+  thinkCritique,
+} from "./substrate";
+import { BudgetExceededError } from "./substrate/types";
 import { usageTracker } from "./usage-tracker";
 import { promptLog } from "./prompt-log";
 import type { MemoryStore } from "./memory-store";
@@ -60,141 +69,6 @@ RULES:
 - Use save_memory for user preferences and patterns you learn.
 - Use start_council when the user needs multiple AI perspectives — debates, brainstorming, comparing approaches. Council is zero-cost orchestration: each model runs on the user's own API key, responses are SmartGrabbed and indexed. After council completes, synthesize the captured results.`;
 
-export const TOOLS = [
-  {
-    name: "search_captures",
-    description: "Vector search across all captured content (.sup captures). Returns ranked results with confidence scores. Use descriptive natural language queries for best results.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        query: { type: "string" as const, description: "Descriptive search query, e.g. 'email about the product launch' or 'conversation where we discussed pricing'" },
-        limit: { type: "number" as const, description: "Max results to return (default: 10)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "get_context",
-    description: "Read current session context — in-memory .sup captures from this session. Check this first before searching the full capture store.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-    },
-  },
-  {
-    name: "format",
-    description: "Apply a named skill to format content. If no skill specified, lists available skills. Skills are reusable prompts that transform content (summarize, extract action items, etc.).",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        content: { type: "string" as const, description: "The content to format" },
-        skill: { type: "string" as const, description: "Skill name to apply. Omit to list available skills." },
-      },
-    },
-  },
-  {
-    name: "save_memory",
-    description: "Save something you learned about the user to persistent memory. Use for preferences, workflow patterns, facts about their work. Don't save trivial or one-off things.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        content: { type: "string" as const, description: "What to remember, e.g. 'User prefers Gmail over Outlook'" },
-        category: {
-          type: "string" as const,
-          enum: ["preference", "fact", "workflow", "app_pattern", "context"],
-          description: "Category of memory",
-        },
-      },
-      required: ["content", "category"],
-    },
-  },
-  {
-    name: "search_notes",
-    description: "Search saved notes in ~/yo/notes/. Notes are .md files created by captures, agent, or the user. Returns matching notes ranked by relevance.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        query: { type: "string" as const, description: "Search query — keywords to match against note titles and content" },
-        limit: { type: "number" as const, description: "Max results (default: 10)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "read_file",
-    description: "Read a file from the local filesystem. Returns the file content. Use for reading notes, configs, or any accessible file.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        path: { type: "string" as const, description: "Absolute file path, or relative to ~/yo/ (e.g. 'notes/my-note.md')" },
-      },
-      required: ["path"],
-    },
-  },
-  {
-    name: "list_files",
-    description: "List files in a directory. Defaults to ~/yo/notes/ if no path given. Returns filenames with size and modified date.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        path: { type: "string" as const, description: "Directory path. Defaults to ~/yo/notes/" },
-        pattern: { type: "string" as const, description: "Glob filter, e.g. '*.md' (default: all files)" },
-      },
-    },
-  },
-  {
-    name: "run_command",
-    description: "Run a read-only shell command. Allowed commands: git (log, diff, status, show, branch), ls, cat, head, tail, wc, find, which, echo. Use this for checking git history, file contents, or system info. Max 30 second timeout.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        command: { type: "string" as const, description: "The shell command to run, e.g. 'git log --oneline -5' or 'ls -la ~/projects'" },
-        cwd: { type: "string" as const, description: "Working directory (defaults to ~/)" },
-      },
-      required: ["command"],
-    },
-  },
-  {
-    name: "start_council",
-    description: "Convene a multi-model council. Opens AI chat panels (claude, chatgpt, gemini, grok, etc.), fans out the same prompt to all participants, captures their responses each round, and cross-pollinates between rounds. All orchestration is deterministic — no LLM tokens spent on coordination. Use this when the user would benefit from multiple AI perspectives on a topic. After council completes, use search_captures to retrieve and synthesize the results.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        participants: {
-          type: "array" as const,
-          items: { type: "string" as const },
-          description: "Panel IDs of AI models to include, e.g. [\"claude\", \"chatgpt\", \"gemini\", \"grok\"]",
-        },
-        prompt: { type: "string" as const, description: "The topic or question to debate" },
-        rounds: { type: "number" as const, description: "Number of debate rounds (default: 2). Round 1 is independent, subsequent rounds include other participants' responses." },
-      },
-      required: ["participants", "prompt"],
-    },
-  },
-  {
-    name: "delegate_navigate",
-    description: "Delegate to the navigation specialist. Handles all panel interaction: scanning DOM elements, clicking buttons, typing text, navigating URLs, opening panels, running mapped app commands, taking screenshots. The navigator has its own tool loop — give it a high-level instruction and it will chain actions as needed.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        instruction: { type: "string" as const, description: "What to do, e.g. 'Click the Compose button in Gmail and type a reply to the latest email from John'" },
-      },
-      required: ["instruction"],
-    },
-  },
-  {
-    name: "delegate_layout",
-    description: "Delegate to the layout specialist. Handles workspace arrangement: split views, grid layouts, tab management, saved layouts, zoom. Give it a high-level instruction about how to arrange panels.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        instruction: { type: "string" as const, description: "What to arrange, e.g. 'Put Claude and Gemini side by side' or 'Set up a 2x2 grid with all AI panels'" },
-      },
-      required: ["instruction"],
-    },
-  },
-];
-
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
 export interface ChatSummary {
@@ -223,10 +97,17 @@ export class YoAgent {
   private _sendInputTokens = 0;
   private _sendOutputTokens = 0;
   private _sendToolsUsed: string[] = [];
+  // ── Substrate state for the current turn ──
+  private _substrateBudget: import("./substrate").BudgetTracker | null = null;
+  private _substrateIntent: import("./substrate").Intent = "ask";
+  private _substrateRecall: { patterns: Array<{ outcome: string; skills: string[]; durationMs: number }>; evidence: Array<{ preview: string; score: number }> } | null = null;
+  private _substrateComposed: string[] = [];
+  private _currentUserMessage = "";
+  private _critiqueAttempted = false;
 
   // Sub-agents
-  private navigator = new NavigatorAgent();
-  private layout = new LayoutAgent();
+  navigator = new NavigatorAgent();
+  layout = new LayoutAgent();
   private _layoutStateGetter: (() => { cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | null) | null = null;
 
   // ── Setters ────────────────────────────────────────────
@@ -437,6 +318,28 @@ export class YoAgent {
     this._sendToolsUsed = [];
     const startTs = Date.now();
 
+    // ── Substrate inhale: classify intent, snapshot context, recall similar runs.
+    // Failures here are non-fatal — degrade to defaults so the agent still runs.
+    this._substrateBudget = new BudgetTracker();
+    this._currentUserMessage = message;
+    this._critiqueAttempted = false;
+    this._substrateRecall = null;
+    this._substrateComposed = [];
+    try {
+      const inhaleResult = await substrateInhale({
+        userMessage: message,
+        skillName: "yo-agent",
+        budget: this._substrateBudget,
+      });
+      this._substrateIntent = inhaleResult.intent;
+      this._substrateRecall = inhaleResult.recall;
+      this._substrateComposed = inhaleResult.composed;
+    } catch (err) {
+      console.warn("[yo-agent] substrate inhale failed:", err);
+      this._substrateIntent = "ask";
+    }
+
+    let outcome: "success" | "error" = "success";
     try {
       await this.agentLoop(cb);
       this.saveChat();
@@ -462,8 +365,44 @@ export class YoAgent {
         mode: this._mode,
         toolsUsed: [...new Set(this._sendToolsUsed)],
       });
+
+      // ── Substrate exhale: best-effort critique on final response.
+      // We don't re-stream/re-format — the bytes already went to the user — but
+      // recording the critique lets reflex.remember surface bad patterns.
+      try {
+        await substrateExhale({
+          output: responseText,
+          intent: this._substrateIntent,
+          userMessage: message,
+          formatTarget: "chat",
+        });
+      } catch (err) {
+        console.warn("[yo-agent] substrate exhale failed:", err);
+      }
     } catch (err) {
-      cb.onError(err instanceof Error ? err.message : String(err));
+      outcome = "error";
+      if (err instanceof BudgetExceededError) {
+        const msg = `Stopped — substrate budget exceeded (${err.kind}). Used ${err.state.usedTokens} tokens / ${err.state.usedToolCalls} tool calls. Try a narrower request.`;
+        cb.onText(`\n\n_${msg}_\n`);
+        cb.onDone(msg);
+        this.patchDanglingToolUse();
+      } else {
+        cb.onError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      // ── Substrate reflex: persist the run so future prompts can recall it.
+      try {
+        substrateReflex({
+          intent: this._substrateIntent,
+          skillName: "yo-agent",
+          chain: [...new Set(this._sendToolsUsed)],
+          outcome,
+          durationMs: Date.now() - startTs,
+          input: message,
+        });
+      } catch (err) {
+        console.warn("[yo-agent] substrate reflex failed:", err);
+      }
     }
   }
 
@@ -505,6 +444,20 @@ export class YoAgent {
       }
     }
 
+    // Substrate-suggested skills (think.compose) — already ranked by relevance.
+    if (this._substrateComposed.length > 0) {
+      prompt += `\n\nSUBSTRATE SUGGESTED SKILLS for this message (in priority order):\n${this._substrateComposed.map((s) => `- ${s}`).join("\n")}\nPrefer these via the format tool when applicable.`;
+    }
+
+    // Substrate recall — show prior run patterns so the agent learns from itself.
+    if (this._substrateRecall && this._substrateRecall.patterns.length > 0) {
+      const summarized = this._substrateRecall.patterns.slice(0, 5).map((p) => {
+        const chain = p.skills.length > 0 ? p.skills.join("→") : "(no tools)";
+        return `- ${p.outcome.toUpperCase()} | ${chain} | ${Math.round(p.durationMs / 100) / 10}s`;
+      }).join("\n");
+      prompt += `\n\nRECENT SIMILAR RUNS (intent=${this._substrateIntent}):\n${summarized}\nLearn from these patterns. If a chain previously failed, consider a different approach.`;
+    }
+
     if (this.activeMemories) {
       prompt += `\n\nYOUR MEMORIES:\n${this.activeMemories}`;
     }
@@ -531,7 +484,7 @@ export class YoAgent {
       {
         system: systemPrompt,
         messages: this.history,
-        tools: TOOLS,
+        tools: getAgentToolSpec(),
         maxTokens: 4096,
       },
       (delta) => {
@@ -544,12 +497,21 @@ export class YoAgent {
       usageTracker.record("orchestrator", response.usage);
       this._sendInputTokens += response.usage.inputTokens;
       this._sendOutputTokens += response.usage.outputTokens;
+      // Substrate budget: throws BudgetExceededError if over the limit.
+      // Caught by send() and rendered as a clean stop message to the user.
+      this._substrateBudget?.countTokens(response.usage.inputTokens + response.usage.outputTokens);
     }
 
     this.history.push({ role: "assistant", content: response.content });
     if (this.aborted) { this.patchDanglingToolUse(); return; }
 
     const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
+    // Budget: count this turn's tool calls before executing them.
+    if (toolBlocks.length > 0) {
+      for (let i = 0; i < toolBlocks.length; i++) {
+        this._substrateBudget?.countToolCall();
+      }
+    }
     if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
       if (iteration >= YoAgent.MAX_TOOL_ITERATIONS) {
         const results = toolBlocks.map((b: any) => ({
@@ -638,6 +600,36 @@ export class YoAgent {
       fullText = "";
       await this.agentLoop(cb, iteration + 1);
     } else {
+      // Final text response — substrate critique gate. One retry max per turn,
+      // and only for action-y intents where correctness > tone (do/create/iterate).
+      // The streamed bytes already went out, so we honestly tell the user the
+      // first attempt missed something rather than silently re-streaming.
+      const shouldCritique =
+        !this._critiqueAttempted &&
+        fullText.trim().length >= 20 &&
+        (this._substrateIntent === "do" ||
+         this._substrateIntent === "create" ||
+         this._substrateIntent === "iterate");
+
+      if (shouldCritique) {
+        this._critiqueAttempted = true;
+        try {
+          const verdict = await thinkCritique(this._currentUserMessage, fullText, this._substrateIntent);
+          if (!verdict.ok && verdict.issues && verdict.issues.length > 0) {
+            const issuesText = verdict.issues.map((i) => `- ${i}`).join("\n");
+            const correctionNote = `\n\n_Substrate critique flagged issues — revising:_\n${issuesText}\n\n`;
+            cb.onText(correctionNote);
+            this.history.push({
+              role: "user",
+              content: `Your previous response had these issues per a self-critique:\n${issuesText}\n\nPlease revise to address them. Be concise — no need to re-explain everything, just fix the gaps.`,
+            });
+            await this.agentLoop(cb, iteration + 1);
+            return;
+          }
+        } catch (err) {
+          console.warn("[yo-agent] critique failed:", err);
+        }
+      }
       cb.onDone(fullText);
     }
   }
@@ -701,239 +693,16 @@ export class YoAgent {
   }
 
   // ── Tool execution ─────────────────────────────────────
+  // All direct tools dispatch through the substrate's unified registry.
+  // Substrate handles built-in `yo.*` tools, `skill_*` user skills, and
+  // `mcp__*` qualified MCP calls in one place.
 
   private async execDirectTool(name: string, input: Record<string, unknown>): Promise<string> {
     try {
-      switch (name) {
-        case "search_captures": return await this.toolSearchCaptures(input);
-        case "get_context": return this.toolGetContext();
-        case "format": return await this.toolFormat(input);
-        case "save_memory": return await this.toolSaveMemory(input);
-        case "search_notes": return await this.toolSearchNotes(input);
-        case "read_file": return this.toolReadFile(input);
-        case "list_files": return this.toolListFiles(input);
-        case "run_command": return this.toolRunCommand(input);
-        case "start_council": return await this.toolStartCouncil(input);
-        default: return `Unknown tool: ${name}`;
-      }
+      return await executeTool(name, input);
     } catch (err) {
       return `Error: ${err instanceof Error ? err.message : err}`;
     }
-  }
-
-  private async toolSearchCaptures(input: Record<string, unknown>): Promise<string> {
-    const query = input.query as string;
-    const limit = (input.limit as number) || 10;
-    if (!query) return "No query provided.";
-    if (!this.captureStore) return "Capture store not available.";
-
-    const results = await this.captureStore.search(query, limit);
-    if (results.length === 0) return "No matching captures found.";
-
-    return results
-      .map((r, i) => {
-        const age = this.formatAge(r.meta.created);
-        return `[${i + 1}] score: ${r.score.toFixed(2)} | source: ${r.meta.source} | ${age}\n${r.content.slice(0, 800)}`;
-      })
-      .join("\n\n---\n\n");
-  }
-
-  private toolGetContext(): string {
-    if (!this.sessionCache) return "Session cache not available.";
-    const content = this.sessionCache.get();
-    if (!content) return "No captures in this session yet.";
-    return content;
-  }
-
-  private async toolFormat(input: Record<string, unknown>): Promise<string> {
-    const content = input.content as string;
-    const skill = input.skill as string;
-
-    if (!this.skillEngine) return "Skill engine not available.";
-
-    if (!skill) {
-      const skills = this.skillEngine.listSkills();
-      if (skills.length === 0) return "No skills available. Create skills in Settings.";
-      return `Available skills:\n${skills.map((s) => `- ${s}`).join("\n")}\n\nCall format again with a skill name.`;
-    }
-
-    if (!content) return "No content provided to format.";
-    try {
-      const out = await this.skillEngine.runSkill(skill, content, { trigger: "skill" });
-      return typeof out === "string" ? out : JSON.stringify(out, null, 2);
-    } catch (err) {
-      return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
-
-  private async toolSaveMemory(input: Record<string, unknown>): Promise<string> {
-    const content = input.content as string;
-    const category = input.category as "preference" | "fact" | "workflow" | "app_pattern" | "context";
-    if (!content) return "No content provided.";
-    if (!this.memoryStore) return "Memory not available.";
-    const id = await this.memoryStore.save(content, category || "context");
-    return `Memory saved (${id}).`;
-  }
-
-  private async toolSearchNotes(input: Record<string, unknown>): Promise<string> {
-    const query = input.query as string;
-    const limit = (input.limit as number) || 10;
-    if (!query) return "No query provided.";
-    if (!this.noteStore) return "Note store not available.";
-
-    const results = await this.noteStore.search(query, limit);
-    if (results.length === 0) return "No matching notes found.";
-
-    return results
-      .map((r, i) => `[${i + 1}] ${r.title} (${r.file}) — rank: ${r.rank.toFixed(2)}\n${r.content.slice(0, 600)}`)
-      .join("\n\n---\n\n");
-  }
-
-  private toolReadFile(input: Record<string, unknown>): string {
-    let filePath = input.path as string;
-    if (!filePath) return "No path provided.";
-
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.join(os.homedir(), "yo", filePath);
-    }
-
-    const resolved = path.resolve(filePath);
-    const yoDir = path.join(os.homedir(), "yo");
-    const homeDir = os.homedir();
-    if (!resolved.startsWith(yoDir) && !resolved.startsWith(homeDir)) {
-      return "Access denied — can only read files under ~/";
-    }
-
-    if (!fs.existsSync(resolved)) return `File not found: ${resolved}`;
-
-    const stat = fs.statSync(resolved);
-    if (stat.isDirectory()) return `${resolved} is a directory. Use list_files instead.`;
-    if (stat.size > 500_000) return `File too large (${(stat.size / 1024).toFixed(0)} KB). Max 500 KB.`;
-
-    return fs.readFileSync(resolved, "utf-8");
-  }
-
-  private toolListFiles(input: Record<string, unknown>): string {
-    let dirPath = (input.path as string) || path.join(os.homedir(), "yo", "notes");
-    const pattern = (input.pattern as string) || "";
-
-    if (!path.isAbsolute(dirPath)) {
-      dirPath = path.join(os.homedir(), "yo", dirPath);
-    }
-
-    const resolved = path.resolve(dirPath);
-    if (!resolved.startsWith(os.homedir())) {
-      return "Access denied — can only list files under ~/";
-    }
-
-    if (!fs.existsSync(resolved)) return `Directory not found: ${resolved}`;
-    if (!fs.statSync(resolved).isDirectory()) return `Not a directory: ${resolved}`;
-
-    let entries = fs.readdirSync(resolved);
-    if (pattern) {
-      const re = new RegExp("^" + pattern.replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
-      entries = entries.filter((e) => re.test(e));
-    }
-
-    if (entries.length === 0) return "No files found.";
-
-    const lines = entries.slice(0, 100).map((name) => {
-      try {
-        const stat = fs.statSync(path.join(resolved, name));
-        const size = stat.isDirectory() ? "dir" : `${(stat.size / 1024).toFixed(1)}K`;
-        const modified = new Date(stat.mtimeMs).toISOString().slice(0, 16).replace("T", " ");
-        return `${name.padEnd(40)} ${size.padStart(8)}  ${modified}`;
-      } catch {
-        return name;
-      }
-    });
-
-    if (entries.length > 100) lines.push(`... and ${entries.length - 100} more`);
-    return lines.join("\n");
-  }
-
-  private toolRunCommand(input: Record<string, unknown>): string {
-    const command = input.command as string;
-    if (!command) return "No command provided.";
-
-    // Allowlist of safe read-only commands
-    const firstWord = command.trim().split(/\s+/)[0];
-    const allowed = new Set(["git", "ls", "cat", "head", "tail", "wc", "find", "which", "echo", "pwd", "date"]);
-    if (!firstWord || !allowed.has(firstWord)) {
-      return `Command not allowed: ${firstWord}. Allowed: ${[...allowed].join(", ")}`;
-    }
-
-    // Block destructive git subcommands
-    if (firstWord === "git") {
-      const subCmd = command.trim().split(/\s+/)[1];
-      const destructive = new Set(["push", "reset", "clean", "checkout", "rebase", "merge", "commit", "stash", "rm", "mv"]);
-      if (subCmd && destructive.has(subCmd)) {
-        return `Destructive git command not allowed: git ${subCmd}`;
-      }
-    }
-
-    let cwd = (input.cwd as string) || os.homedir();
-    if (!path.isAbsolute(cwd)) {
-      cwd = path.join(os.homedir(), cwd);
-    }
-
-    try {
-      const output = execSync(command, {
-        cwd,
-        timeout: 30_000,
-        maxBuffer: 512 * 1024,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      return output.slice(0, 10_000) || "(no output)";
-    } catch (err: any) {
-      return `Command failed: ${err.stderr || err.message || err}`.slice(0, 2000);
-    }
-  }
-
-  private async toolStartCouncil(input: Record<string, unknown>): Promise<string> {
-    const participants = input.participants as string[];
-    const prompt = input.prompt as string;
-    const rounds = (input.rounds as number) || 2;
-
-    if (!participants || participants.length < 2) return "Council requires at least 2 participants.";
-    if (!prompt) return "No prompt provided.";
-    if (!this.council) return "Council not available.";
-
-    const result = await this.council.start(
-      { participants, prompt, rounds },
-      (msg) => console.log("[council]", msg),
-    );
-
-    if (result.status === "error") return "Council failed to start.";
-    if (result.status === "cancelled") return "Council was cancelled.";
-
-    const lines = [
-      `Council complete: ${result.rounds} round(s), ${result.participants.length} participants, ${result.totalCaptures} responses captured.`,
-      "",
-      "Participants: " + result.participants.join(", "),
-    ];
-
-    for (const [participant, resps] of result.responses) {
-      if (resps.length > 0) {
-        const lastResp = resps[resps.length - 1];
-        lines.push(`\n--- ${participant} (final response) ---`);
-        lines.push(lastResp.slice(0, 3000));
-      }
-    }
-
-    lines.push("\nAll responses are indexed in captures. Use search_captures with 'council' to retrieve specific responses.");
-    return lines.join("\n");
-  }
-
-  private formatAge(timestamp: number): string {
-    const mins = Math.floor((Date.now() - timestamp) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
   }
 
   // ── Memory loop ────────────────────────────────────────

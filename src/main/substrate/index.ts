@@ -41,6 +41,18 @@ export { reflexRemember, setRememberOpts } from "./reflex-remember";
 // store admin
 export { recentRuns, clearMemory } from "./store";
 
+// unified tool registry (substrate + user skills + MCP)
+export {
+  setSubstrateToolDeps,
+  getAgentToolSpec,
+  executeTool,
+  isDestructiveTool,
+  listAllTools,
+  listBuiltinYoTools,
+  type ToolDef,
+  type SubstrateToolDeps,
+} from "./tools";
+
 // ── Orchestrator: one breath cycle around a skill invocation ──────
 
 import { Intent } from "./types";
