@@ -204,6 +204,7 @@ declare global {
       yoPanelDismiss: () => void;
       yoPanelStop: () => void;
       onYoPanelOpen: (cb: (query: string) => void) => void;
+      onYoPanelToggle: (cb: () => void) => void;
       onYoPanelToken: (cb: (delta: string) => void) => void;
       onYoPanelToolUse: (cb: (id: string, name: string, input: unknown) => void) => void;
       onYoPanelToolResult: (cb: (id: string, detail: string) => void) => void;
@@ -1989,6 +1990,15 @@ yoPanelInput.addEventListener("input", autoGrowYoInput);
 
 // IPC listeners
 window.yo.onYoPanelOpen((query) => openYoPanel(query));
+// Cmd+. forwarded from a focused panel (home, browser, etc.) → toggle here.
+window.yo.onYoPanelToggle(() => {
+  if (isYoPanelOpen()) {
+    window.yo.yoPanelDismiss();
+  } else {
+    window.yo.yoPanelOpen("");
+    openYoPanel("");
+  }
+});
 window.yo.onYoPanelToken((delta) => appendYoToken(delta));
 window.yo.onYoPanelToolUse((id, name, input) => showYoToolUse(id, name, input));
 window.yo.onYoPanelToolResult((id, detail) => showYoToolResult(id, detail));

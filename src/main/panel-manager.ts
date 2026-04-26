@@ -650,6 +650,11 @@ export class PanelManager {
         // Cmd+Opt+I (mac) or Ctrl+Shift+I (win/linux) — DevTools for active panel
         e.preventDefault();
         this.toggleDevTools();
+      } else if (input.key === ".") {
+        // Cmd+. — toggle yo agent panel (forward to main window since this
+        // panel's own keydown listener can't reach the main renderer)
+        e.preventDefault();
+        if (!parent.isDestroyed()) parent.webContents.send("yo-panel-toggle");
       }
     });
 
@@ -683,6 +688,9 @@ export class PanelManager {
         } else if (input.key === "r") {
           e.preventDefault();
           this.refresh(this.activePanel ?? undefined);
+        } else if (input.key === ".") {
+          e.preventDefault();
+          if (!parent.isDestroyed()) parent.webContents.send("yo-panel-toggle");
         }
       });
     });
