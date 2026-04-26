@@ -1656,9 +1656,12 @@ function closeOpenTextBlock() {
 
 function appendYoToken(delta: string) {
   if (!delta) return;
-  // First delta of a new block → close any open timeline so the new text
-  // appears beneath the most recent tool group, then create the block element.
+  // First delta of a new block → the streaming text itself is now the "still
+  // working" cue, so retire the spinner. Close any open timeline so the new
+  // text appears beneath the most recent tool group. The spinner reappears
+  // automatically in showYoToolUse if the model decides to call another tool.
   if (!yoResponseEl) {
+    clearYoStatus();
     finishTimeline();
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant yo-msg-streaming";
