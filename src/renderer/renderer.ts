@@ -1760,7 +1760,7 @@ function finalizeYoMessage(fullText: string) {
     yoResponseEl.appendChild(actions);
   }
 
-  yoLastAssistantText = text;
+  yoLastAssistantText = "";
   yoTurnFullText = "";  // reset for next turn
   yoResponseEl = null;
 
@@ -1823,14 +1823,15 @@ function formatYoText(text: string): string {
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
-        // Sanitize URL: only allow http(s) and mailto protocols
         const trimmed = url.trim().toLowerCase();
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("mailto:")) {
           return `<a class="yo-md-link" href="${url}" title="${url}">${text}</a>`;
         }
-        // Strip dangerous protocols (javascript:, data:, vbscript:, file:, etc.)
         return `<span class="yo-md-link" title="[blocked: unsafe URL]">${text}</span>`;
-      });
+      })
+      .replace(/(^|[^"=])(https?:\/\/[^\s<>&]+)/g, (_match: string, prefix: string, url: string) =>
+        `${prefix}<a class="yo-md-link" href="${url}" title="${url}">${url}</a>`
+      );
 
   const lines = text.split("\n");
   const out: string[] = [];

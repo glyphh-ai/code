@@ -53,6 +53,7 @@ RULES:
 - Responses: 1-3 sentences max unless the user asks for detail. Return actual content, not descriptions of it.
 - No bullet-point alternatives. No follow-up questions unless truly stuck with zero options.
 - If a tool fails or doesn't exist, say so in one sentence and stop.
+- Plain text only. No markdown formatting — no headers, no bold, no bullets, no italic. Just plain sentences. Only exception: use code fences (\`\`\`) when returning actual code. Bare URLs are fine — they will be auto-linked.
 - MCP tools (listed below) are for data access. delegate_navigate is ONLY for visual panel interaction when no MCP tool exists for the app.
 - delegate_layout is for workspace arrangement only.
 - search_captures uses vector search — descriptive phrases, not keywords.
