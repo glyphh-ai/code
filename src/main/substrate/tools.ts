@@ -50,6 +50,17 @@ export interface SubstrateToolDeps {
     saveLayout: (grid: { name: string; version: 2; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => void;
     deleteLayout: (name: string) => boolean;
   };
+  dataStore?: {
+    get: (namespace: string, key: string) => unknown | null;
+    set: (namespace: string, key: string, value: unknown) => void;
+    delete: (namespace: string, key: string) => boolean;
+    list: (namespace: string, prefix?: string, limit?: number) => Array<{ key: string; value: unknown; updatedAt: number }>;
+    query: (namespace: string, filter: Record<string, unknown>, limit?: number) => Array<{ key: string; value: unknown; updatedAt: number }>;
+    keys: (namespace: string) => string[];
+    count: (namespace: string) => number;
+    clear: (namespace: string) => number;
+    listNamespaces: () => string[];
+  };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -583,6 +594,131 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (html) lines.push("", "--- APP.html ---", html);
       if (skill.prompt) lines.push("", "--- PROMPT ---", skill.prompt);
       return lines.join("\n");
+    },
+  },
+  // ── Data store tools ──────────────────────────────────────
+  {
+    name: "store_set",
+    namespace: "yo",
+    description: "Store a value in a namespaced key-value store. Values are JSON — store objects, arrays, strings, numbers, etc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Store namespace (e.g. skill/vibe name, or any logical group)" },
+        key: { type: "string", description: "Key to store under" },
+        value: { description: "JSON value to store (object, array, string, number, boolean)" },
+      },
+      required: ["namespace", "key", "value"],
+    },
+    async run(input) {
+      if (!deps.dataStore) return "Data store not available.";
+      const ns = input.namespace as string;
+      const key = input.key as string;
+      deps.dataStore.set(ns, key, input.value);
+      return `Stored "${key}" in "${ns}".`;
+    },
+  },
+  {
+    name: "store_get",
+    namespace: "yo",
+    description: "Get a value by key from a namespaced store.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Store namespace" },
+        key: { type: "string", description: "Key to retrieve" },
+      },
+      required: ["namespace", "key"],
+    },
+    async run(input) {
+      if (!deps.dataStore) return "Data store not available.";
+      const val = deps.dataStore.get(input.namespace as string, input.key as string);
+      if (val === null) return `Key "${input.key}" not found in "${input.namespace}".`;
+      return JSON.stringify(val, null, 2);
+    },
+  },
+  {
+    name: "store_delete",
+    namespace: "yo",
+    description: "Delete a key from a namespaced store.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Store namespace" },
+        key: { type: "string", description: "Key to delete" },
+      },
+      required: ["namespace", "key"],
+    },
+    async run(input) {
+      if (!deps.dataStore) return "Data store not available.";
+      const deleted = deps.dataStore.delete(input.namespace as string, input.key as string);
+      return deleted ? `Deleted "${input.key}" from "${input.namespace}".` : `Key "${input.key}" not found.`;
+    },
+  },
+  {
+    name: "store_list",
+    namespace: "yo",
+    description: "List entries in a namespaced store. Optional prefix filter. Returns keys and values.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Store namespace" },
+        prefix: { type: "string", description: "Key prefix filter (optional)" },
+        limit: { type: "number", description: "Max results (default 100)" },
+      },
+      required: ["namespace"],
+    },
+    async run(input) {
+      if (!deps.dataStore) return "Data store not available.";
+      const ns = input.namespace as string;
+      const entries = deps.dataStore.list(ns, input.prefix as string | undefined, (input.limit as number) || 100);
+      if (entries.length === 0) return `No entries in "${ns}"${input.prefix ? ` with prefix "${input.prefix}"` : ""}.`;
+      return entries.map(e => `${e.key}: ${JSON.stringify(e.value)}`).join("\n");
+    },
+  },
+  {
+    name: "store_query",
+    namespace: "yo",
+    description: "Query a namespaced store by field values inside JSON objects. Filter by one or more fields to find matching entries.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Store namespace" },
+        filter: { type: "object", description: "Field-value pairs to match (e.g. {\"status\": \"active\", \"role\": \"admin\"})" },
+        limit: { type: "number", description: "Max results (default 100)" },
+      },
+      required: ["namespace", "filter"],
+    },
+    async run(input) {
+      if (!deps.dataStore) return "Data store not available.";
+      const ns = input.namespace as string;
+      const filter = input.filter as Record<string, unknown>;
+      if (!filter || Object.keys(filter).length === 0) return "Filter must have at least one field.";
+      const entries = deps.dataStore.query(ns, filter, (input.limit as number) || 100);
+      if (entries.length === 0) return `No entries in "${ns}" matching filter.`;
+      return entries.map(e => `${e.key}: ${JSON.stringify(e.value)}`).join("\n");
+    },
+  },
+  {
+    name: "store_info",
+    namespace: "yo",
+    description: "Get info about stores: list all namespaces, or count entries in a specific namespace.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Namespace to count (omit to list all namespaces)" },
+      },
+    },
+    async run(input) {
+      if (!deps.dataStore) return "Data store not available.";
+      const ns = input.namespace as string;
+      if (!ns) {
+        const namespaces = deps.dataStore.listNamespaces();
+        if (namespaces.length === 0) return "No data stores exist yet. Use store_set to create one.";
+        return namespaces.join("\n");
+      }
+      const count = deps.dataStore.count(ns);
+      return `Store "${ns}": ${count} entries.`;
     },
   },
   {

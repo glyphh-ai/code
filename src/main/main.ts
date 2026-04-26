@@ -49,6 +49,7 @@ import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
+import { DataStore } from "./data-store";
 import { setRunnerDependencies, setSubstrateBudgetOpts } from "./skill-runner";
 import {
   setContextDeps as setSubstrateContextDeps,
@@ -265,6 +266,8 @@ async function boot() {
   captureStore.setEmbedder(embedder);
   captureStore.setPolicyResolver((source) => appConnector.getCapturePolicy(source));
 
+  const dataStore = new DataStore();
+
   // Action-driven capture — grabs content on blur/navigate + polls chat panels
   actionGrabber = new ActionGrabber();
   actionGrabber.setCaptureStore(captureStore);
@@ -430,6 +433,17 @@ async function boot() {
       getLayout: (name: string) => layoutManager.getLayout(name) as any,
       saveLayout: (grid: any) => layoutManager.saveLayout(grid),
       deleteLayout: (name: string) => layoutManager.deleteLayout(name),
+    },
+    dataStore: {
+      get: (ns, key) => dataStore.get(ns, key),
+      set: (ns, key, val) => dataStore.set(ns, key, val),
+      delete: (ns, key) => dataStore.delete(ns, key),
+      list: (ns, prefix?, limit?) => dataStore.list(ns, prefix, limit),
+      query: (ns, filter, limit?) => dataStore.query(ns, filter, limit),
+      keys: (ns) => dataStore.keys(ns),
+      count: (ns) => dataStore.count(ns),
+      clear: (ns) => dataStore.clear(ns),
+      listNamespaces: () => dataStore.listNamespaces(),
     },
     mcpRouter: (() => {
       const shortToQualified = new Map<string, string>();
@@ -2169,6 +2183,48 @@ async function boot() {
   ipcMain.handle("vibe:copy", (_e, text: string) => {
     const { clipboard } = require("electron");
     clipboard.writeText(text);
+  });
+
+  // IPC: Vibe data store (namespaced to the vibe's skill name)
+  ipcMain.handle("vibe:store-get", (e, key: string) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return null;
+    return dataStore.get(ns, key);
+  });
+  ipcMain.handle("vibe:store-set", (e, key: string, value: unknown) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return;
+    dataStore.set(ns, key, value);
+  });
+  ipcMain.handle("vibe:store-delete", (e, key: string) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return false;
+    return dataStore.delete(ns, key);
+  });
+  ipcMain.handle("vibe:store-list", (e, prefix?: string, limit?: number) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return [];
+    return dataStore.list(ns, prefix, limit).map(r => ({ key: r.key, value: r.value }));
+  });
+  ipcMain.handle("vibe:store-query", (e, filter: Record<string, unknown>, limit?: number) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return [];
+    return dataStore.query(ns, filter, limit).map(r => ({ key: r.key, value: r.value }));
+  });
+  ipcMain.handle("vibe:store-keys", (e) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return [];
+    return dataStore.keys(ns);
+  });
+  ipcMain.handle("vibe:store-count", (e) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return 0;
+    return dataStore.count(ns);
+  });
+  ipcMain.handle("vibe:store-clear", (e) => {
+    const ns = vibeWebContentsMap.get(e.sender.id);
+    if (!ns) return 0;
+    return dataStore.clear(ns);
   });
 
   // IPC: Capture store

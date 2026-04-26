@@ -22,4 +22,23 @@ contextBridge.exposeInMainWorld("vibe", {
   onData: (cb: (data: unknown) => void) => {
     ipcRenderer.on("vibe:data", (_e, data) => cb(data));
   },
+
+  store: {
+    get: (key: string) =>
+      ipcRenderer.invoke("vibe:store-get", key) as Promise<unknown | null>,
+    set: (key: string, value: unknown) =>
+      ipcRenderer.invoke("vibe:store-set", key, value) as Promise<void>,
+    delete: (key: string) =>
+      ipcRenderer.invoke("vibe:store-delete", key) as Promise<boolean>,
+    list: (prefix?: string, limit?: number) =>
+      ipcRenderer.invoke("vibe:store-list", prefix, limit) as Promise<Array<{ key: string; value: unknown }>>,
+    query: (filter: Record<string, unknown>, limit?: number) =>
+      ipcRenderer.invoke("vibe:store-query", filter, limit) as Promise<Array<{ key: string; value: unknown }>>,
+    keys: () =>
+      ipcRenderer.invoke("vibe:store-keys") as Promise<string[]>,
+    count: () =>
+      ipcRenderer.invoke("vibe:store-count") as Promise<number>,
+    clear: () =>
+      ipcRenderer.invoke("vibe:store-clear") as Promise<number>,
+  },
 });

@@ -130,11 +130,24 @@ When the user asks you to create an interactive app, dashboard, or preview panel
    - vibe.readFile(relPath) — read a file from the vibe's skill folder
    - vibe.copyToClipboard(text) — copy to clipboard
    - vibe.onData(cb) — listen for pushed data
+   - vibe.store.get(key), .set(key, value), .delete(key), .list(prefix?, limit?), .query(filter, limit?), .keys(), .count(), .clear() — persistent KV store scoped to this vibe
 3. APP.html must be self-contained — inline all CSS and JS. Use dark theme (#0a0a0a background, #e0e0e0 text, #25C75E accent).
 4. The vibe appears as an app: .dip vibe-<name> to open it.
 5. Use update_vibe to iterate on HTML or dependencies.
 6. For data processing, create helper skills (with create_skill), list them in the vibe's requires, and call via vibe.runSkill().
-7. Use read_vibe to inspect an existing vibe before modifying it.`;
+7. Use read_vibe to inspect an existing vibe before modifying it.
+
+DATA STORE:
+A namespaced key-value store for persisting structured data. Each namespace is an independent store — use a descriptive name (e.g. "customers", "inventory", the vibe name, etc.).
+- store_set(namespace, key, value) — store any JSON value (object, array, string, number)
+- store_get(namespace, key) — retrieve by key
+- store_delete(namespace, key) — remove a key
+- store_list(namespace, prefix?, limit?) — list entries, optionally filtered by key prefix
+- store_query(namespace, filter, limit?) — query by field values inside stored objects (e.g. filter: {"status": "active"})
+- store_info(namespace?) — list all namespaces, or count entries in one
+
+Use store_query when users need to find records by properties. Vibes access the same stores via window.vibe.store.* API.
+When building vibes that manage data (customer lists, inventory, logs, settings), create a store namespace and use it for persistence.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -529,7 +542,8 @@ export class YoAgent {
         "create_skill","update_skill","read_skill",
         "create_drip","update_drip","read_drip",
         "create_layout","update_layout","read_layout",
-        "create_vibe","update_vibe","read_vibe"].includes(t.name)
+        "create_vibe","update_vibe","read_vibe",
+        "store_set","store_get","store_delete","store_list","store_query","store_info"].includes(t.name)
     );
     if (mcpTools.length > 0) {
       prompt += `\n\nCONNECTED MCP TOOLS (use these directly — do NOT use delegate_navigate for these apps):\n${mcpTools.map(t => `- ${t.name}: ${t.description}`).join("\n")}`;
