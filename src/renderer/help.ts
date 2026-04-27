@@ -3434,8 +3434,8 @@ async function refreshVibePreview() {
 <script>
 document.documentElement.setAttribute("data-theme","${currentTheme}");
 window.vibe={
-  runSkill:function(){return Promise.resolve({ok:false,error:"Preview mode"})},
-  ask:function(){return Promise.resolve("Preview mode — vibe API not available")},
+  runSkill:function(name){return Promise.resolve({ok:true,output:{_preview:true,skill:name,message:"Mock data — open in panel for live API"}})},
+  ask:function(){return Promise.resolve("This is mock preview data. Open the vibe in a panel to get live responses.")},
   searchCaptures:function(){return Promise.resolve([])},
   readFile:function(){return Promise.resolve(null)},
   getName:function(){return Promise.resolve("preview")},
