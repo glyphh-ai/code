@@ -41,6 +41,10 @@ function project(x3: number, y3: number, z3: number, hw: number, hh: number) {
   return { sx: hw + x3 * hw * scale, sy: hh - y3 * hh * scale, scale: hw * scale };
 }
 
+function isLightTheme(): boolean {
+  return document.documentElement.getAttribute("data-theme") === "light";
+}
+
 function initAnimation(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d")!;
 
@@ -95,6 +99,7 @@ function initAnimation(canvas: HTMLCanvasElement) {
     const hh = h / 2;
 
     ctx.clearRect(0, 0, w, h);
+    const light = isLightTheme();
 
     // Draw walls
     for (const wp of walls) {
@@ -111,23 +116,37 @@ function initAnimation(canvas: HTMLCanvasElement) {
       const pulse = 1 + Math.sin(t * wp.flickerRate + wp.tOffset) * 0.1;
       const sz = 0.07 * depthScale * pulse * scale;
 
-      const headBright = 0.2 + (1 - cycle) * 0.8;  // floor at 0.2, never fully dark
+      const headBright = 0.2 + (1 - cycle) * 0.8;
       const depthDim = 0.35 + (1 - zNorm) * 0.65;
       const b = headBright * wp.brightness * depthDim;
       const flicker = Math.sin(t * wp.flickerRate * 2 + wp.tOffset * 5) * 0.5 + 0.5;
       const isHead = cycle < 0.15;
       const isBright = flicker > 0.7 && b > 0.3;
 
-      let r: number, g: number, bl: number;
-      if (isHead) {
-        r = (0.8 * b + 0.2) * 255; g = (0.85 * b + 0.22) * 255; bl = (0.8 * b + 0.2) * 255;
-      } else if (isBright) {
-        r = 0.55 * b * 255; g = 0.65 * b * 255; bl = 0.55 * b * 255;
+      let r: number, g: number, bl: number, a: number;
+      if (light) {
+        // Light: soft green tints that don't fight dark text
+        const lb = b * 0.45;
+        if (isHead) {
+          r = 150 + lb * 80; g = 210 + lb * 40; bl = 150 + lb * 80;
+        } else if (isBright) {
+          r = 170 + lb * 60; g = 220 + lb * 30; bl = 170 + lb * 60;
+        } else {
+          r = 190 + lb * 40; g = 225 + lb * 20; bl = 190 + lb * 40;
+        }
+        a = 0.35 + b * 0.15;
       } else {
-        r = 0.4 * b * 255; g = 0.48 * b * 255; bl = 0.4 * b * 255;
+        if (isHead) {
+          r = (0.8 * b + 0.2) * 255; g = (0.85 * b + 0.22) * 255; bl = (0.8 * b + 0.2) * 255;
+        } else if (isBright) {
+          r = 0.55 * b * 255; g = 0.65 * b * 255; bl = 0.55 * b * 255;
+        } else {
+          r = 0.4 * b * 255; g = 0.48 * b * 255; bl = 0.4 * b * 255;
+        }
+        a = 0.85;
       }
 
-      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.85)`;
+      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},${a})`;
       ctx.fillRect(sx - sz * 0.5, sy - sz * 0.75, sz, sz * 1.5);
     }
 
@@ -146,17 +165,24 @@ function initAnimation(canvas: HTMLCanvasElement) {
       const headGlow = normY < 0.1 ? 1.5 : 1;
       const finalB = Math.min(b * headGlow, 0.7);
 
-      let r: number, g: number, bl: number;
-      const whiteChance = flicker > 0.85 && finalB > 0.25;
-      if (whiteChance) {
-        r = finalB * 1.2 * 255; g = finalB * 1.3 * 255; bl = finalB * 1.2 * 255;
-      } else if (sp.col % 3 === 0) {
-        r = finalB * 0.7 * 255; g = finalB * 0.85 * 255; bl = finalB * 0.7 * 255;
+      let r: number, g: number, bl: number, sa: number;
+      if (light) {
+        const lb = finalB * 0.5;
+        r = 180 + lb * 60; g = 220 + lb * 30; bl = 180 + lb * 60;
+        sa = 0.15 + finalB * 0.1;
       } else {
-        r = finalB * 0.5 * 255; g = finalB * 0.6 * 255; bl = finalB * 0.5 * 255;
+        const whiteChance = flicker > 0.85 && finalB > 0.25;
+        if (whiteChance) {
+          r = finalB * 1.2 * 255; g = finalB * 1.3 * 255; bl = finalB * 1.2 * 255;
+        } else if (sp.col % 3 === 0) {
+          r = finalB * 0.7 * 255; g = finalB * 0.85 * 255; bl = finalB * 0.7 * 255;
+        } else {
+          r = finalB * 0.5 * 255; g = finalB * 0.6 * 255; bl = finalB * 0.5 * 255;
+        }
+        sa = 0.35;
       }
 
-      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},0.35)`;
+      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},${sa})`;
       ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
     }
 

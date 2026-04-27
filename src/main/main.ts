@@ -1410,7 +1410,7 @@ async function boot() {
         panelManager.switchTo(lastView.id, mainWindow);
       }
     } else if (mainWindow) {
-      panelManager.switchTo("claude", mainWindow);
+      panelManager.switchTo("home", mainWindow);
     }
 
     // Restore all saved tabs (not just those in the current view)
@@ -1816,6 +1816,7 @@ async function boot() {
       panelManager.showActive(mainWindow);
     }
     sendSplitState();
+    sendTabState();
     // After first reveal (post-splash), reload active panel
     // — sites like Gmail don't render CSS properly when loaded at zero size
     if (firstPanelReveal && panelManager.activePanelId) {
@@ -2437,7 +2438,11 @@ async function boot() {
     const hb = await refreshHeartbeat();
     return { tier: hb?.tier || "free", status: hb?.status || "unknown" };
   });
-  ipcMain.handle("logout", () => { logout(); });
+  ipcMain.handle("logout", () => {
+    logout();
+    if (mainWindow) panelManager.hideActive(mainWindow);
+    mainWindow?.webContents.send("show-onboarding");
+  });
   ipcMain.handle("validate-api-key", async (_e, key: string) => {
     // Legacy handler — validates as Anthropic by default
     const config: LLMConfig = { ...llmConfig, apiKey: key };

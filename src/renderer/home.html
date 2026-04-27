@@ -232,9 +232,13 @@
               <div class="dash-split-subhead">Data Store</div>
               <div id="data-toolbar" class="crud-toolbar">
                 <input id="data-search" type="text" class="crud-search" placeholder="Search captures..." spellcheck="false" autocomplete="off" />
-                <button id="data-clear-btn" class="action-btn danger">Clear all</button>
+                <div class="data-clear-group">
+                  <select id="data-clear-select" class="data-clear-select">
+                    <option value="__all__">All sources</option>
+                  </select>
+                  <button id="data-clear-btn" class="action-btn danger">Clear</button>
+                </div>
               </div>
-              <div id="data-sources-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
               <div id="data-list" class="crud-cards"></div>
 
               <div id="data-detail" class="crud-inline-form hidden">

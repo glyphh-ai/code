@@ -105,6 +105,7 @@ declare global {
       getApiKey: () => Promise<string | null>;
       onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => void;
       onThemeChanged: (callback: (theme: string) => void) => void;
+      onShowOnboarding: (callback: () => void) => void;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
@@ -2027,6 +2028,8 @@ function showYoError(err: string) {
   setYoThinking(false);
   finishTimeline();
   if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
   const el = document.createElement("div");
   el.className = "yo-msg yo-msg-error";
   el.textContent = err;
@@ -2053,11 +2056,14 @@ function sendYoPanelMessage() {
   }
 
   hideYoWelcome();
+  closeOpenTextBlock();
   yoPanelInput.value = "";
   autoGrowYoInput();
   yoToolsUsed = false;
   yoTimelineEl = null;
   yoSpinnerEl = null;
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
   yoLastUserText = text;
   addYoUserMessage(text);
   showYoStatus("");
@@ -2389,10 +2395,11 @@ async function loadYoHistory() {
             el.className = "yo-msg yo-msg-assistant";
             el.innerHTML = formatYoText(msg.text);
             attachCopyHandlers(el);
-            yoLastAssistantText = msg.text;
           }
           yoPanelMessages.appendChild(el);
         }
+        yoLastAssistantText = "";
+        yoTurnFullText = "";
         yoScroll();
       }
     });
@@ -2543,9 +2550,18 @@ window.yo.onThemeChanged((theme) => {
   try { localStorage.setItem("yoTheme", theme); } catch {}
 });
 
-// After onboarding activation, show tutorial
-window.addEventListener("yo-onboarding-done", () => {
-  showTutorial();
+window.yo.onShowOnboarding(() => {
+  showOnboarding(true);
+});
+
+// After onboarding activation, show tutorial (first time only) or restore panels
+window.addEventListener("yo-onboarding-done", async () => {
+  const seen = await window.yo.getPreference("hasSeenTutorial", false);
+  if (!seen) {
+    showTutorial();
+  } else {
+    window.yo.panelsShow();
+  }
 });
 
 // ── First-time tutorial ──────────────────────────────────

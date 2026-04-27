@@ -185,6 +185,9 @@ contextBridge.exposeInMainWorld("yo", {
   onThemeChanged: (callback: (theme: string) => void) => {
     ipcRenderer.on("theme-changed", (_event, theme) => callback(theme));
   },
+  onShowOnboarding: (callback: () => void) => {
+    ipcRenderer.on("show-onboarding", () => callback());
+  },
   onSplashStatus: (callback: (msg: string) => void) => {
     ipcRenderer.on("splash-status", (_event, msg) => callback(msg));
   },

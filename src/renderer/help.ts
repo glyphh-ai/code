@@ -2,8 +2,6 @@
  * Help overlay — combined docs + settings (layouts, panels, apps).
  */
 
-import { showOnboarding } from "./onboarding.js";
-
 declare const Chart: any;
 
 // ── Confirm modal ──────────────────────────────────────────
@@ -384,11 +382,8 @@ export function initHelp() {
     window.yo.execCommand(`dip ${window.yo.platformUrl}`);
   });
   document.getElementById("user-menu-logout")!.addEventListener("click", async () => {
-    await window.yo.logout();
-    // Hide help overlay without restoring panels (they should stay hidden for onboarding)
     overlay.classList.add("hidden");
-    window.yo.panelsHide();
-    showOnboarding(true);
+    await window.yo.logout();
   });
 
   // Settings
@@ -954,7 +949,7 @@ const dataDetail = document.getElementById("data-detail")!;
 const dataSearchInput = document.getElementById("data-search") as HTMLInputElement;
 const dataDetailMeta = document.getElementById("data-detail-meta")!;
 const dataDetailContent = document.getElementById("data-detail-content")!;
-const dataSourcesBar = document.getElementById("data-sources-bar")!;
+const dataClearSelect = document.getElementById("data-clear-select") as HTMLSelectElement;
 let dataOffset = 0;
 const DATA_PAGE_SIZE = 20;
 let viewingEntryId: string | null = null;
@@ -991,20 +986,21 @@ async function loadData() {
 
   const stats = await window.yo.capturesStats();
 
-  dataSourcesBar.innerHTML = "";
+  const prevVal = dataClearSelect.value;
+  dataClearSelect.innerHTML = "";
+  const allOpt = document.createElement("option");
+  allOpt.value = "__all__";
+  allOpt.textContent = `All sources (${stats.count})`;
+  dataClearSelect.appendChild(allOpt);
   const sorted = Object.entries(stats.sources).sort((a, b) => b[1] - a[1]);
   for (const [source, count] of sorted) {
-    const chip = document.createElement("span");
-    chip.className = "store-source-chip";
-    chip.innerHTML = `${source} <span class="chip-count">${count}</span>`;
-    chip.title = `Click to delete all captures from ${source}`;
-    chip.addEventListener("click", async () => {
-      const confirmed = await confirmAction(`Delete all ${count} captures from "${source}"?`);
-      if (!confirmed) return;
-      await window.yo.capturesDeleteBySource(source);
-      loadData();
-    });
-    dataSourcesBar.appendChild(chip);
+    const opt = document.createElement("option");
+    opt.value = source;
+    opt.textContent = `${source} (${count})`;
+    dataClearSelect.appendChild(opt);
+  }
+  if (Array.from(dataClearSelect.options).some(o => o.value === prevVal)) {
+    dataClearSelect.value = prevVal;
   }
 
   renderDataList();
@@ -1124,7 +1120,6 @@ async function openDataDetail(id: string, source: string, created: number) {
 
   dataListEl.classList.add("hidden");
   dataToolbar.classList.add("hidden");
-  dataSourcesBar.classList.add("hidden");
   dataDetail.classList.remove("hidden");
 }
 
@@ -1132,7 +1127,6 @@ function closeDataDetail() {
   dataDetail.classList.add("hidden");
   dataListEl.classList.remove("hidden");
   dataToolbar.classList.remove("hidden");
-  dataSourcesBar.classList.remove("hidden");
   viewingEntryId = null;
   loadData();
 }
@@ -1146,9 +1140,16 @@ async function deleteDataEntry() {
 }
 
 async function clearData() {
-  const confirmed = await confirmAction("Delete ALL captures? This cannot be undone.");
-  if (!confirmed) return;
-  await window.yo.capturesClear();
+  const selected = dataClearSelect.value;
+  if (selected === "__all__") {
+    const confirmed = await confirmAction("Delete ALL captures? This cannot be undone.");
+    if (!confirmed) return;
+    await window.yo.capturesClear();
+  } else {
+    const confirmed = await confirmAction(`Delete all captures from "${selected}"? This cannot be undone.`);
+    if (!confirmed) return;
+    await window.yo.capturesDeleteBySource(selected);
+  }
   loadData();
 }
 
@@ -3122,11 +3123,8 @@ function initSettings() {
 
   // Sign out
   document.getElementById("account-logout-btn")?.addEventListener("click", async () => {
-    await window.yo.logout();
-    // Hide help overlay without restoring panels (they should stay hidden for onboarding)
     overlay.classList.add("hidden");
-    window.yo.panelsHide();
-    showOnboarding(true);
+    await window.yo.logout();
   });
 }
 
