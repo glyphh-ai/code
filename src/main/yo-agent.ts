@@ -61,6 +61,7 @@ RULES:
 - delegate_build for building skills, vibes, and wiring data stores — always delegate coding work to the builder.
 - search_captures uses vector search — descriptive phrases, not keywords.
 - search_notes uses keyword search — specific terms.
+- web_search + web_read for live web content. Search first, then read specific URLs. Use for news, docs, current info.
 
 BUILDING SKILLS, VIBES & DATA:
 When the user asks to build, create, or modify a skill, vibe, or data pipeline — use delegate_build.
@@ -538,7 +539,8 @@ export class YoAgent {
         "create_drip","update_drip","read_drip",
         "create_layout","update_layout","read_layout",
         "create_vibe","update_vibe","read_vibe",
-        "store_set","store_get","store_delete","store_list","store_query","store_info"].includes(t.name)
+        "store_set","store_get","store_delete","store_list","store_query","store_info",
+        "web_search","web_read"].includes(t.name)
     );
     if (mcpTools.length > 0) {
       prompt += `\n\nCONNECTED MCP TOOLS (use these directly — do NOT use delegate_navigate for these apps):\n${mcpTools.map(t => `- ${t.name}: ${t.description}`).join("\n")}`;
@@ -768,7 +770,8 @@ export class YoAgent {
         "create_drip","update_drip","read_drip",
         "create_layout","update_layout","read_layout",
         "create_vibe","update_vibe","read_vibe",
-        "store_set","store_get","store_delete","store_list","store_query","store_info"].includes(t.name)
+        "store_set","store_get","store_delete","store_list","store_query","store_info",
+        "web_search","web_read"].includes(t.name)
     );
     const mcpToolsStr = mcpToolsList.length > 0
       ? mcpToolsList.map(t => `- ${t.name}: ${t.description}`).join("\n")

@@ -15,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
+import { webSearch, fetchPage } from "../web-search";
 
 // Privileged accessors injected by main.ts. Substrate tools use these;
 // user-skill ctx never sees them.
@@ -951,6 +952,59 @@ const BUILTIN_TOOLS: ToolDef[] = [
         return result.summary;
       } catch (err) {
         return `Delegation error: ${err instanceof Error ? err.message : err}`;
+      }
+    },
+  },
+  {
+    name: "web_search",
+    namespace: "yo",
+    description: "Search the web via DuckDuckGo. Returns titles, URLs, and snippets. Use this to find current information, news, documentation, or any web content. Chain with web_read to get full page content from specific results.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        limit: { type: "number", description: "Max results (default 8, max 20)" },
+      },
+      required: ["query"],
+    },
+    async run(input) {
+      const query = input.query as string;
+      if (!query) return "No query provided.";
+      const limit = Math.min((input.limit as number) || 8, 20);
+      try {
+        const results = await webSearch(query, limit);
+        if (results.length === 0) return "No results found.";
+        return results.map((r, i) =>
+          `[${i + 1}] ${r.title}\n    ${r.url}\n    ${r.snippet}`
+        ).join("\n\n");
+      } catch (err) {
+        return `Search failed: ${err instanceof Error ? err.message : err}`;
+      }
+    },
+  },
+  {
+    name: "web_read",
+    namespace: "yo",
+    description: "Fetch a web page and extract its text content. Strips navigation, scripts, and ads — returns the readable body text. Use after web_search to read specific pages, or directly with a known URL.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Full URL to fetch (https://...)" },
+        max_length: { type: "number", description: "Max characters to return (default 8000)" },
+      },
+      required: ["url"],
+    },
+    async run(input) {
+      const url = input.url as string;
+      if (!url) return "No URL provided.";
+      if (!url.startsWith("http://") && !url.startsWith("https://")) return "URL must start with http:// or https://";
+      const maxChars = Math.min((input.max_length as number) || 8000, 30000);
+      try {
+        const content = await fetchPage(url, maxChars);
+        if (!content.trim()) return "Page returned no readable content.";
+        return `Source: ${url}\n\n${content}`;
+      } catch (err) {
+        return `Fetch failed: ${err instanceof Error ? err.message : err}`;
       }
     },
   },

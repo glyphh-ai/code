@@ -92,7 +92,13 @@ SKILL.JS RUNNER:
 - ctx.search(query, limit?) — vector search captures
 - ctx.readFile(rel) — read from skill folder
 - ctx.store.get/set/delete/list/query — data store (namespace = skill name)
+- ctx.mcp.call(app, tool, args) — call an MCP tool (must be in allowed_tools)
 - Return value is the skill's output (JSON preferred for data skills)
+
+WEB TOOLS (available as yo.web_search and yo.web_read in allowed_tools):
+- web_search: search the web, returns titles + URLs + snippets
+- web_read: fetch a URL and extract readable text content
+Skills can use these via ctx.mcp.call or by listing in allowed_tools. The orchestrator agent can also call them directly.
 
 VIBE APP.HTML API (window.vibe):
 - vibe.runSkill(name, input) → {ok, output} or {ok:false, error} — call a skill in requires list
