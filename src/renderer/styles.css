@@ -1390,6 +1390,29 @@ body {
 .skill-run-event { padding: 2px 0; font-size: 11px; color: var(--text-2); }
 .skill-run-event.status-error { color: var(--danger); }
 .skill-run-event.status-success { color: var(--accent); }
+
+.skill-run-section { margin-bottom: 6px; }
+.skill-run-section-header {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 2px 0;
+  user-select: none;
+}
+.skill-run-section-header:hover { color: var(--text); }
+.skill-run-chevron {
+  display: inline-block;
+  width: 12px;
+  font-size: 9px;
+  color: var(--text-3);
+}
+.skill-run-section-body {
+  margin-left: 14px;
+  padding: 4px 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 /* Skill create modal */
 
 /* ── Detail view (skills + library split editor) ──────── */
@@ -2310,6 +2333,8 @@ ol.docs-list li::before {
 .crud-card-btn:hover { background: var(--hover); color: var(--white); }
 .crud-card-btn.danger { color: var(--danger); }
 .crud-card-btn.danger:hover { background: var(--danger-bg); color: var(--danger); }
+.crud-card-btn.crud-open-btn { color: var(--accent); }
+.crud-card-btn.crud-open-btn:hover { background: var(--accent-bg); color: var(--accent); }
 
 .crud-empty {
   padding: 40px 16px;

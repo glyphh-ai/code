@@ -3438,6 +3438,12 @@ document.getElementById("skill-preview-refresh")?.addEventListener("click", () =
   refreshVibePreview();
 });
 
+document.getElementById("skill-preview-open")?.addEventListener("click", async () => {
+  if (!editingSkillName) return;
+  await saveSkillInline();
+  window.yo.execCommand(`.dip vibe-${editingSkillName}`);
+});
+
 skillTypeSelect.addEventListener("change", () => {
   if (skillTypeSelect.value === "vibe" && !editingSkillFiles.includes("APP.html")) {
     const starter = `<!DOCTYPE html>
@@ -3936,6 +3942,9 @@ function renderSkillsList() {
         ${skill.description ? `<span class="crud-card-meta">${skill.description}</span>` : ""}
       </div>
       <div class="crud-card-actions">
+        ${skill.hasApp ? `<button class="crud-card-btn crud-open-btn" title="Open vibe">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>` : ""}
         <button class="crud-card-btn crud-edit-btn" title="Edit">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
         </button>
@@ -3944,6 +3953,13 @@ function renderSkillsList() {
         </button>
       </div>`;
 
+    const openBtn = card.querySelector(".crud-open-btn");
+    if (openBtn) {
+      openBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.yo.execCommand(`.dip vibe-${skill.name}`);
+      });
+    }
     card.querySelector(".crud-edit-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
       openSkillEditor(skill.name);
@@ -4422,20 +4438,35 @@ function renderRunList(runs: any[]) {
 
 function renderRunDetails(run: any): string {
   const parts: string[] = [];
-  if (run.input) parts.push(`<b>Input:</b> ${typeof run.input === "string" ? escapeHtml(run.input.slice(0, 300)) : escapeHtml(JSON.stringify(run.input).slice(0, 300))}`);
-  if (run.error) parts.push(`<b style="color:var(--danger);">Error:</b> ${escapeHtml(run.error)}`);
-  if (run.output !== undefined && run.output !== null && !run.error) {
+  if (run.input) {
+    const inputStr = typeof run.input === "string" ? run.input : JSON.stringify(run.input, null, 2);
+    parts.push(renderRunSection("Input", escapeHtml(inputStr), inputStr.length > 200));
+  }
+  if (run.error) {
+    parts.push(renderRunSection("Error", `<span style="color:var(--danger);">${escapeHtml(run.error)}</span>`, false));
+  }
+  if (run.output !== undefined && run.output !== null) {
     const out = typeof run.output === "string" ? run.output : JSON.stringify(run.output, null, 2);
-    parts.push(`<b>Output:</b> ${escapeHtml(out.slice(0, 500))}`);
+    parts.push(renderRunSection("Output", escapeHtml(out), out.length > 200));
   }
   if (run.events && run.events.length) {
     const tree = renderEventTree(run.events);
-    parts.push(`<b>Events:</b>\n${tree}`);
+    parts.push(renderRunSection("Events", tree, run.events.length > 5));
   }
   if (run.logs && run.logs.length) {
-    parts.push(`<b>Logs:</b>\n${run.logs.map((l: string) => escapeHtml(l)).join("\n")}`);
+    parts.push(renderRunSection("Logs", run.logs.map((l: string) => escapeHtml(l)).join("\n"), run.logs.length > 5));
   }
-  return parts.join("\n\n");
+  return parts.join("");
+}
+
+function renderRunSection(label: string, content: string, collapsed: boolean): string {
+  const id = `run-section-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  return `<div class="skill-run-section">
+    <div class="skill-run-section-header" onclick="(function(){var d=document.getElementById('${id}');var a=d.previousElementSibling.querySelector('.skill-run-chevron');d.classList.toggle('hidden');a.textContent=d.classList.contains('hidden')?'\\u25B6':'\\u25BC'})()">
+      <span class="skill-run-chevron">${collapsed ? "▶" : "▼"}</span> <b>${label}</b>
+    </div>
+    <div id="${id}" class="skill-run-section-body${collapsed ? " hidden" : ""}">${content}</div>
+  </div>`;
 }
 
 function renderEventTree(events: any[]): string {
