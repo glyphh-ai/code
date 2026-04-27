@@ -1588,6 +1588,20 @@ function startToolRow(id: string, name: string, input: unknown) {
   yoScroll();
 }
 
+function cleanToolDetail(raw: string): string {
+  let text = raw.trim();
+  const stackIdx = text.indexOf("\n    at ");
+  if (stackIdx > 0) text = text.slice(0, stackIdx).trim();
+  const traceIdx = text.indexOf("\nstack:");
+  if (traceIdx > 0) text = text.slice(0, traceIdx).trim();
+  text = text.replace(/^(Error|ConfigurationError|TypeError|ReferenceError):\s*/i, "");
+  const msgMatch = text.match(/"message"\s*:\s*"([^"]+)"/);
+  if (msgMatch) text = msgMatch[1];
+  const seeMore = text.indexOf("[See more information here]");
+  if (seeMore > 0) text = text.slice(0, seeMore).trim();
+  return text;
+}
+
 /** Finalize a tool row: stop pulsing and attach expandable detail if present. */
 function finishToolRow(id: string, detail: string) {
   const block = yoToolRows.get(id);
@@ -1596,7 +1610,7 @@ function finishToolRow(id: string, detail: string) {
   block.classList.remove("yo-active");
   block.classList.add("yo-done");
 
-  const trimmed = detail.trim();
+  const trimmed = cleanToolDetail(detail);
   if (trimmed) {
     const content = document.createElement("div");
     content.className = "yo-result-content";
