@@ -64,6 +64,12 @@ Example — email summary vibe:
 - UI renders from vibe.store.list("email-") with consistent card layout
 - Refresh button re-runs the skill and updates the store
 
+MCP TOOLS (critical):
+The preamble includes a [Connected MCP tools] section listing all tools the user has connected (Gmail, Slack, Calendar, etc.).
+When a skill needs external data, you MUST set allowed_tools to the exact tool names from that list.
+Example: if you see "claude_ai_Gmail.search_emails" in the list, use allowed_tools: ["claude_ai_Gmail.search_emails"].
+DO NOT guess tool names — only use names from the connected tools list. If no tools are connected, use prompt-based skills instead.
+
 SKILL.MD FRONTMATTER:
 \`\`\`yaml
 ---
@@ -73,7 +79,7 @@ type: vibe          # only for vibes
 requires:           # skills this vibe can call
   - helper-skill-1
   - helper-skill-2
-allowed-tools:      # MCP tools the skill can use
+allowed-tools:      # MCP tools the skill can use (from connected tools list)
   - namespace.tool
 ---
 Prompt body here (used as system prompt for the skill's LLM call)
@@ -388,14 +394,19 @@ After ALL tools have been called and skills/vibes are saved, respond with:
     const manifest: Record<string, unknown> = existing ? { ...existing.manifest } : { name };
     manifest.type = "vibe";
     if (input.description !== undefined) manifest.description = input.description;
-    if (input.requires) manifest.requires = [...new Set(input.requires as string[])];
+
+    // Auto-extract skill names from vibe.runSkill() calls in HTML and merge into requires
+    const explicit = (input.requires as string[]) || (existing?.manifest as any)?.requires || [];
+    const fromHtml = [...html.matchAll(/vibe\.runSkill\(\s*["']([^"']+)["']/g)].map(m => m[1]);
+    manifest.requires = [...new Set([...explicit, ...fromHtml])];
+
     if (input.allowed_tools) manifest["allowed-tools"] = [...new Set(input.allowed_tools as string[])];
 
     const prompt = (input.prompt as string) ?? existing?.prompt ?? "";
     const ok = this.skillCallbacks.writeSkill(name, manifest, prompt, null);
     if (!ok) return `Failed to save vibe "${name}".`;
     this.skillCallbacks.writeSkillFile(name, "APP.html", html);
-    return `Vibe "${name}" saved with APP.html.`;
+    return `Vibe "${name}" saved with APP.html. Requires: ${(manifest.requires as string[]).join(", ") || "none"}.`;
   }
 
   private execWriteFile(input: Record<string, unknown>): string {

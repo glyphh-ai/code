@@ -257,8 +257,11 @@ async function boot() {
   // ── yo-asset:// protocol — serves shared assets (Chart.js etc.) to vibe panels ──
   const rendererDir = path.join(__dirname, "..", "renderer");
   protocol.handle("yo-asset", (request) => {
-    const url = new URL(request.url);
-    const filePath = path.join(rendererDir, decodeURIComponent(url.pathname));
+    const assetName = decodeURIComponent(request.url.replace(/^yo-asset:\/\//, "").replace(/^\/+/, ""));
+    const filePath = path.join(rendererDir, assetName);
+    if (!fs.existsSync(filePath)) {
+      return new Response(`yo-asset not found: ${assetName}`, { status: 404 });
+    }
     return net.fetch(`file://${filePath}`);
   });
 
