@@ -209,6 +209,7 @@ declare global {
       onYoPanelToken: (cb: (delta: string) => void) => void;
       onYoPanelToolUse: (cb: (id: string, name: string, input: unknown) => void) => void;
       onYoPanelToolResult: (cb: (id: string, detail: string) => void) => void;
+      onYoPanelToolProgress: (cb: (id: string, status: string) => void) => void;
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
@@ -1400,6 +1401,7 @@ function addYoUserMessage(text: string) {
 const DELEGATION_DESC: Record<string, string> = {
   delegate_navigate: "Navigating panels",
   delegate_layout:   "Arranging layout",
+  delegate_build:    "Building",
 };
 
 const DIRECT_TOOL_DESC: Record<string, string> = {
@@ -1547,8 +1549,31 @@ function startToolRow(id: string, name: string, input: unknown) {
   nameEl.textContent = formatToolDisplayName(name);
   headings.appendChild(nameEl);
 
+  const isDelegate = name.startsWith("delegate_");
   const subtitleText = toolInputSummary(name, input);
-  if (subtitleText) {
+
+  if (isDelegate && subtitleText) {
+    const instrBox = document.createElement("div");
+    instrBox.className = "yo-delegate-instruction";
+    const preview = document.createElement("div");
+    preview.className = "yo-delegate-preview";
+    preview.textContent = subtitleText.length > 120 ? subtitleText.slice(0, 120) + "..." : subtitleText;
+    instrBox.appendChild(preview);
+    if (subtitleText.length > 120) {
+      const full = document.createElement("div");
+      full.className = "yo-delegate-full hidden";
+      full.textContent = subtitleText;
+      instrBox.appendChild(full);
+      instrBox.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isExpanded = !full.classList.contains("hidden");
+        full.classList.toggle("hidden");
+        preview.classList.toggle("hidden");
+        instrBox.classList.toggle("yo-delegate-expanded", !isExpanded);
+      });
+    }
+    headings.appendChild(instrBox);
+  } else if (subtitleText) {
     const sub = document.createElement("span");
     sub.className = "yo-result-subtitle";
     sub.textContent = subtitleText;
@@ -1606,6 +1631,21 @@ function finishToolRow(id: string, detail: string) {
     });
   }
   yoScroll();
+}
+
+/** Update a tool row's subtitle with progress status from a sub-agent. */
+function updateToolProgress(id: string, status: string) {
+  const block = yoToolRows.get(id);
+  if (!block) return;
+  const headings = block.querySelector(".yo-result-headings");
+  if (!headings) return;
+  let sub = headings.querySelector(".yo-result-subtitle") as HTMLElement | null;
+  if (!sub) {
+    sub = document.createElement("span");
+    sub.className = "yo-result-subtitle";
+    headings.appendChild(sub);
+  }
+  sub.textContent = status;
 }
 
 /** Close the timeline (done state) */
@@ -2029,6 +2069,7 @@ window.yo.onYoPanelToggle(() => {
 window.yo.onYoPanelToken((delta) => appendYoToken(delta));
 window.yo.onYoPanelToolUse((id, name, input) => showYoToolUse(id, name, input));
 window.yo.onYoPanelToolResult((id, detail) => showYoToolResult(id, detail));
+window.yo.onYoPanelToolProgress((id, status) => updateToolProgress(id, status));
 window.yo.onYoPanelDone((fullText) => finalizeYoMessage(fullText));
 window.yo.onYoPanelError((err) => showYoError(err));
 window.yo.onYoPanelClose(() => closeYoPanel());

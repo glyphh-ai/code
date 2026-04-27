@@ -1877,6 +1877,7 @@ async function boot() {
             onText: (delta) => wc.send("yo-panel-token", delta),
             onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
             onToolResult: (id, detail) => wc.send("yo-panel-tool-result", id, detail),
+            onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
             onDone: (fullText) => wc.send("yo-panel-done", fullText),
             onError: (err) => wc.send("yo-panel-error", err),
           });
@@ -1894,6 +1895,7 @@ async function boot() {
       onText: (delta) => wc.send("yo-panel-token", delta),
       onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
       onToolResult: (id, detail) => wc.send("yo-panel-tool-result", id, detail),
+      onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
       onDone: (fullText) => wc.send("yo-panel-done", fullText),
       onError: (err) => wc.send("yo-panel-error", err),
     });

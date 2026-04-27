@@ -274,6 +274,9 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelToolResult: (cb: (id: string, detail: string) => void) => {
     ipcRenderer.on("yo-panel-tool-result", (_e, id, detail) => cb(id, detail));
   },
+  onYoPanelToolProgress: (cb: (id: string, status: string) => void) => {
+    ipcRenderer.on("yo-panel-tool-progress", (_e, id, status) => cb(id, status));
+  },
   onYoPanelDone: (cb: (fullText: string) => void) => {
     ipcRenderer.on("yo-panel-done", (_e, text) => cb(text));
   },

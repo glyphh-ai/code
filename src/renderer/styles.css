@@ -4869,11 +4869,11 @@ select.settings-input {
   left: 5px;
   top: 0;
   bottom: 0;
-  width: 1px;
-  background: rgba(37, 199, 94, 0.19);
+  width: 1.5px;
+  background: rgba(37, 199, 94, 0.35);
 }
 .yo-ag-timeline.done::before {
-  background: rgba(37, 199, 94, 0.08);
+  background: rgba(37, 199, 94, 0.15);
 }
 
 /* ── Tool row (per-call: dot + bold name + subtitle) ── */
@@ -4945,6 +4945,24 @@ select.settings-input {
 .yo-result-block.yo-has-detail { cursor: pointer; }
 .yo-result-block.yo-has-detail:hover .yo-result-name { color: var(--white); }
 
+/* Delegate instruction box — bordered, collapsible */
+.yo-delegate-instruction {
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+.yo-delegate-instruction:hover { border-color: var(--border-3); }
+.yo-delegate-preview { display: block; }
+.yo-delegate-full { display: block; }
+.yo-delegate-expanded { border-color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-2)); }
+
 .yo-result-content {
   position: relative;
   background: var(--surface-3);
@@ -4977,8 +4995,8 @@ select.settings-input {
   opacity: 1;
 }
 .yo-result-block.yo-expanded .yo-result-content {
-  max-height: 320px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 .yo-result-block.yo-expanded .yo-result-content::after {
   opacity: 0;

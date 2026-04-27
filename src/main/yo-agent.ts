@@ -42,6 +42,7 @@ export interface YoAgentCallbacks {
   onText: (delta: string) => void;
   onToolUse: (id: string, name: string, input: unknown) => void;
   onToolResult?: (id: string, detail: string) => void;
+  onToolProgress?: (id: string, status: string) => void;
   onDone: (fullText: string) => void;
   onError: (error: string) => void;
 }
@@ -637,8 +638,11 @@ export class YoAgent {
             }
           }
 
-          const result = await this.execDelegation(block.name, block.input as Record<string, unknown>, context) || "[no output]";
-          cb.onToolResult?.(block.id, result.slice(0, 500));
+          const onProgress = (toolName: string) => {
+            cb.onToolProgress?.(block.id, toolName.replace(/_/g, " "));
+          };
+          const result = await this.execDelegation(block.name, block.input as Record<string, unknown>, context, onProgress) || "[no output]";
+          cb.onToolResult?.(block.id, result);
           return { type: "tool_result", tool_use_id: block.id, content: result };
         });
         const delegateResults = await Promise.all(delegatePromises);
@@ -746,6 +750,7 @@ export class YoAgent {
     name: string,
     input: Record<string, unknown>,
     context: SubAgentContext,
+    onProgress?: (toolName: string) => void,
   ): Promise<string> {
     const instruction = input.instruction as string;
     if (!instruction) return "No instruction provided.";
@@ -759,16 +764,16 @@ export class YoAgent {
           const enriched = panelList
             ? `${instruction}\n\nAVAILABLE APP PANELS (use scan_panel, click_element, type_text, run_command — grab_panel only as last resort):\n${panelList}`
             : instruction;
-          result = await this.navigator.execute(enriched, context);
+          result = await this.navigator.execute(enriched, context, onProgress);
           break;
         }
         case "delegate_layout":
           this.layout.setBudget(this._substrateBudget);
-          result = await this.layout.execute(instruction, context);
+          result = await this.layout.execute(instruction, context, onProgress);
           break;
         case "delegate_build":
           this.builder.setBudget(this._substrateBudget);
-          result = await this.builder.execute(instruction, context);
+          result = await this.builder.execute(instruction, context, onProgress);
           break;
         default:
           return `Unknown delegation: ${name}`;
