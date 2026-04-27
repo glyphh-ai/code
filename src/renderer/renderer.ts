@@ -1112,6 +1112,104 @@ function playDrip(effect: string) {
 
 window.yo.onDripEffect(playDrip);
 
+// -- Yo Cat peek effect --
+
+function yoCatPeek(anchor: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  const panel = anchor.closest("#yo-panel-messages");
+  if (!panel) return;
+  const panelRect = panel.getBoundingClientRect();
+
+  const cat = document.createElement("canvas");
+  cat.width = 24;
+  cat.height = 24;
+  cat.style.cssText =
+    `position:absolute;left:${rect.left + rect.width / 2 - 12 - panelRect.left}px;` +
+    `top:${rect.bottom - panelRect.top}px;` +
+    `width:24px;height:24px;pointer-events:none;z-index:100;` +
+    `image-rendering:pixelated;transform:translateY(14px);opacity:0;`;
+  panel.appendChild(cat);
+
+  const ctx = cat.getContext("2d")!;
+  const P = (x: number, y: number, w: number, h: number, c: string) => {
+    ctx.fillStyle = c;
+    ctx.fillRect(x, y, w, h);
+  };
+  const drawCat = (blinking: boolean) => {
+    ctx.clearRect(0, 0, 24, 24);
+    const g = "#555";
+    const w = "#fff";
+    // ears
+    P(4, 0, 3, 3, g); P(17, 0, 3, 3, g);
+    P(5, 3, 2, 2, g); P(17, 3, 2, 2, g);
+    // head
+    P(4, 5, 16, 12, g);
+    // inner ears
+    P(5, 1, 1, 2, "#f9a8d4"); P(18, 1, 1, 2, "#f9a8d4");
+    // eyes
+    if (blinking) {
+      P(7, 10, 3, 1, w);
+      P(14, 10, 3, 1, w);
+    } else {
+      P(7, 9, 3, 3, w); P(14, 9, 3, 3, w);
+      P(8, 10, 2, 2, "#222"); P(15, 10, 2, 2, "#222");
+    }
+    // nose + mouth
+    P(11, 13, 2, 1, "#f9a8d4");
+    P(10, 14, 1, 1, g); P(13, 14, 1, 1, g);
+    P(11, 15, 2, 1, g);
+    // whiskers
+    P(1, 11, 4, 1, g); P(19, 11, 4, 1, g);
+    P(2, 13, 3, 1, g); P(19, 13, 3, 1, g);
+  };
+
+  drawCat(false);
+
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) {
+    cat.style.opacity = "1";
+    cat.style.transform = "translateY(0)";
+    setTimeout(() => cat.remove(), 400);
+    return;
+  }
+
+  let start = 0;
+  let blinked = false;
+  function frame(ts: number) {
+    if (!start) start = ts;
+    const t = ts - start;
+
+    if (t <= 180) {
+      // rise phase
+      const p = t / 180;
+      const ease = 1 - Math.pow(1 - p, 3);
+      cat.style.transform = `translateY(${14 * (1 - ease)}px)`;
+      cat.style.opacity = String(Math.min(1, p * 2));
+    } else if (t <= 520) {
+      // hover + blink
+      cat.style.transform = "translateY(0)";
+      cat.style.opacity = "1";
+      if (!blinked && t >= 320 && t <= 400) {
+        drawCat(true);
+        blinked = true;
+      } else if (blinked && t > 400) {
+        drawCat(false);
+      }
+    } else if (t <= 700) {
+      // fall phase
+      const p = (t - 520) / 180;
+      const ease = p * p;
+      cat.style.transform = `translateY(${14 * ease}px)`;
+      cat.style.opacity = String(1 - ease);
+    } else {
+      cat.remove();
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
 // -- Yo agent slide-out panel --
 
 const yoPanel = document.getElementById("yo-panel")!;
@@ -2080,6 +2178,11 @@ function sendYoPanelMessage() {
   yoTurnFullText = "";
   yoLastUserText = text;
   addYoUserMessage(text);
+  if (/\.yo\b/i.test(text)) {
+    const msgs = yoPanelMessages.querySelectorAll(".yo-msg-user");
+    const last = msgs[msgs.length - 1] as HTMLElement | undefined;
+    if (last) yoCatPeek(last);
+  }
   showYoStatus("");
   setYoThinking(true);
   window.yo.yoPanelSend(text);
