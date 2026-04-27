@@ -1391,26 +1391,19 @@ body {
 .skill-run-event.status-error { color: var(--danger); }
 .skill-run-event.status-success { color: var(--accent); }
 
-.skill-run-section { margin-bottom: 6px; }
+.skill-run-section { margin-bottom: 8px; }
 .skill-run-section-header {
-  cursor: pointer;
   font-size: 11px;
   color: var(--text-2);
   padding: 2px 0;
-  user-select: none;
-}
-.skill-run-section-header:hover { color: var(--text); }
-.skill-run-chevron {
-  display: inline-block;
-  width: 12px;
-  font-size: 9px;
-  color: var(--text-3);
 }
 .skill-run-section-body {
-  margin-left: 14px;
   padding: 4px 0;
-  max-height: 300px;
-  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
 }
 
 /* Skill create modal */

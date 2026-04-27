@@ -4514,13 +4514,10 @@ function renderRunDetails(run: any): string {
   return parts.join("");
 }
 
-function renderRunSection(label: string, content: string, collapsed: boolean): string {
-  const id = `run-section-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+function renderRunSection(label: string, content: string, _collapsed: boolean): string {
   return `<div class="skill-run-section">
-    <div class="skill-run-section-header" onclick="(function(){var d=document.getElementById('${id}');var a=d.previousElementSibling.querySelector('.skill-run-chevron');d.classList.toggle('hidden');a.textContent=d.classList.contains('hidden')?'\\u25B6':'\\u25BC'})()">
-      <span class="skill-run-chevron">${collapsed ? "▶" : "▼"}</span> <b>${label}</b>
-    </div>
-    <div id="${id}" class="skill-run-section-body${collapsed ? " hidden" : ""}">${content}</div>
+    <div class="skill-run-section-header"><b>${label}</b></div>
+    <div class="skill-run-section-body">${content}</div>
   </div>`;
 }
 
