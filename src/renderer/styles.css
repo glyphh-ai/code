@@ -5107,6 +5107,22 @@ select.settings-input {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.yo-md-cmd {
+  cursor: pointer;
+  border: 1px solid var(--border-2);
+  padding: 2px 7px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.yo-md-cmd:hover {
+  background: var(--accent-bg);
+  border-color: rgba(37, 199, 94, 0.4);
+  color: var(--accent);
+}
+.yo-md-cmd.yo-cmd-copied {
+  background: rgba(37, 199, 94, 0.15);
+  border-color: rgba(37, 199, 94, 0.5);
+  color: var(--accent);
+}
 
 .yo-md-link {
   color: var(--accent);

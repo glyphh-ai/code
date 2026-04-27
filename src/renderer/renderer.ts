@@ -1860,7 +1860,12 @@ function formatYoText(text: string): string {
   // Inline formatting (applied within already-escaped text)
   const inline = (s: string) =>
     s
-      .replace(/`([^`]+)`/g, '<code class="yo-md-inline">$1</code>')
+      .replace(/`([^`]+)`/g, (_m: string, code: string) => {
+        if (/^\.(dip|yo|sup|drip)\s/.test(code)) {
+          return `<code class="yo-md-inline yo-md-cmd" data-cmd="${code}" title="Click to copy">${code}</code>`;
+        }
+        return `<code class="yo-md-inline">${code}</code>`;
+      })
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
@@ -1997,6 +2002,18 @@ function attachCopyHandlers(container: HTMLElement) {
       btn.textContent = "Copied";
       btn.classList.add("yo-copied");
       setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("yo-copied"); }, 2000);
+    });
+  });
+  // Command chips (.dip, .yo, .sup, .drip) — click to copy
+  container.querySelectorAll<HTMLElement>(".yo-md-cmd").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const cmd = el.dataset.cmd || el.textContent || "";
+      window.yo.copyToClipboard(cmd);
+      el.classList.add("yo-cmd-copied");
+      const orig = el.textContent;
+      el.textContent = "Copied!";
+      setTimeout(() => { el.textContent = orig; el.classList.remove("yo-cmd-copied"); }, 1500);
     });
   });
   // Links open externally instead of navigating the panel

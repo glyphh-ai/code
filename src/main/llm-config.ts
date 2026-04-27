@@ -137,11 +137,23 @@ function secureRead(filePath: string): string | null {
   }
 }
 
+const MODEL_MIGRATIONS: Record<string, string> = {
+  "claude-opus-4-7-20250715": "claude-opus-4-7",
+  "claude-opus-4-6-20250626": "claude-opus-4-6",
+  "claude-sonnet-4-6-20250626": "claude-sonnet-4-6",
+};
+
 export function loadLLMConfig(): LLMConfig {
   const data = secureRead(LLM_CONFIG_FILE);
   if (data) {
     try {
-      return JSON.parse(data);
+      const config = JSON.parse(data) as LLMConfig;
+      const newModel = MODEL_MIGRATIONS[config.model];
+      if (newModel) {
+        config.model = newModel;
+        saveLLMConfig(config);
+      }
+      return config;
     } catch { /* fall through */ }
   }
 
