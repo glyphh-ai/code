@@ -108,16 +108,31 @@ VIBE APP.HTML API (window.vibe):
 CHART.JS:
 Chart.js is available via <script src="yo-asset://chart.umd.min.js"></script>.
 Use new Chart(ctx, config) to create charts. Works with all Chart.js chart types (bar, line, pie, doughnut, radar, etc.).
-Use dark theme colors: background #0a0a0a, grid lines rgba(255,255,255,0.06), text #999.
+For Chart.js theme colors: use getComputedStyle(document.documentElement) to read CSS variables at runtime.
+Example: const style = getComputedStyle(document.documentElement); const textColor = style.getPropertyValue('--text-2').trim();
 
 VIBE STYLING:
-- Self-contained: inline all CSS and JS in APP.html
-- Dark theme: #0a0a0a background, #e0e0e0 text, #25C75E accent
-- Use system-ui font, clean spacing, subtle borders (rgba(255,255,255,0.08))
-- Cards: #111 background, 8px border-radius, 1px border rgba(255,255,255,0.06)
-- Buttons: #25C75E background, #111 text, 6px border-radius
-- Inputs: #1a1a1a background, 1px border rgba(255,255,255,0.1), #e0e0e0 text
-- Keep UI clean and functional — no unnecessary decoration
+A base design system CSS is auto-injected into every vibe. It includes both light and dark theme variables, reset, typography, buttons, inputs, cards, badges, tables, and utility classes. Vibes are theme-aware — they follow the app's light/dark mode automatically via data-theme attribute.
+
+DO NOT hardcode colors. Always use CSS variables:
+- Backgrounds: var(--bg), var(--surface), var(--surface-2), var(--card-bg), var(--input-bg)
+- Text: var(--text), var(--text-bright), var(--text-2), var(--text-3), var(--text-muted)
+- Borders: var(--border), var(--border-2), var(--border-3)
+- Accent: var(--accent), var(--accent-hover), var(--accent-dark), var(--accent-bg)
+- Semantic: var(--danger), var(--warning), var(--success), var(--blue), var(--purple)
+- Radii: var(--radius), var(--radius-sm), var(--radius-lg)
+- Fonts: var(--font-sans), var(--font-mono)
+
+Available base classes (no need to redefine):
+- Buttons: .btn-primary, .btn-danger, .btn-ghost, .btn-sm, .btn-lg
+- Cards: .card, .card-sm, .card-lg, .card-header
+- Badges: .badge, .badge-accent, .badge-danger, .badge-info, .badge-muted
+- Layout: .flex, .flex-col, .items-center, .justify-between, .justify-center, .gap-1 through .gap-4
+- Spacing: .p-2 through .p-4, .mt-2 through .mt-4, .mb-2, .mb-3
+- Text: .text-accent, .text-muted, .text-danger, .text-sm, .text-xs, .text-center, .font-mono, .font-bold
+- Other: .spinner, .divider, .truncate, .rounded, .hidden, .fade-in, .w-full
+
+Write minimal custom CSS — use the base system. Keep UI clean and functional.
 
 RULES:
 - CALL TOOLS IMMEDIATELY. Do not describe code — write it and call write_skill or write_vibe to save it.

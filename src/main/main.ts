@@ -2230,6 +2230,10 @@ async function boot() {
     const { clipboard } = require("electron");
     clipboard.writeText(text);
   });
+  ipcMain.handle("vibe:get-theme", () => {
+    const pref = getPreference<string>("theme", "light");
+    return pref === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : pref;
+  });
 
   // IPC: Vibe data store (namespaced to the vibe's skill name)
   ipcMain.handle("vibe:store-get", (e, key: string) => {

@@ -81,6 +81,7 @@ AVAILABLE RESOURCES FOR BUILDING:
 - Chart.js is available in vibes via <script src="yo-asset://chart.umd.min.js"></script>
 - Data store: namespaced KV with JSON query (store_set/get/delete/list/query/info)
 - Vibes: interactive HTML apps with window.vibe API (runSkill, ask, searchCaptures, store.*)
+- Vibes auto-inherit the full yo design system (CSS variables, components, light/dark theme) — no hardcoded colors
 - Skills: prompt-based or SKILL.js runners with ctx.llm, ctx.skill, ctx.mcp, ctx.store
 
 SKILL TYPES (for direct create_skill use):

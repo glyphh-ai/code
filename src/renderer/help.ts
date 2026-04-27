@@ -3393,6 +3393,7 @@ function switchSkillRightTab(tab: "code" | "preview") {
 
 function refreshVibePreview() {
   const html = editingFileContents.get("APP.html") || "";
+  const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
   if (!html.trim()) {
     skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(
       `<body style="background:#0a0a0a;color:#999;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>No APP.html content</p></body>`
@@ -3400,6 +3401,7 @@ function refreshVibePreview() {
     return;
   }
   const vibeStub = `<script>
+document.documentElement.setAttribute("data-theme","${currentTheme}");
 window.vibe={
   runSkill:function(){return Promise.resolve({ok:false,error:"Preview mode"})},
   ask:function(){return Promise.resolve("Preview mode — vibe API not available")},
@@ -3411,7 +3413,7 @@ window.vibe={
   store:{get:function(){return Promise.resolve(null)},set:function(){return Promise.resolve()},delete:function(){return Promise.resolve(false)},list:function(){return Promise.resolve([])},query:function(){return Promise.resolve([])},keys:function(){return Promise.resolve([])},count:function(){return Promise.resolve(0)},clear:function(){return Promise.resolve(0)}}
 };
 </script>
-<div style="position:fixed;top:0;left:0;right:0;background:#1a1a1a;color:#999;font:11px system-ui;padding:4px 10px;text-align:center;z-index:99999;border-bottom:1px solid rgba(255,255,255,0.06)">Preview — vibe API calls return mock data</div>
+<div style="position:fixed;top:0;left:0;right:0;background:var(--surface-2);color:var(--text-3);font:11px system-ui;padding:4px 10px;text-align:center;z-index:99999;border-bottom:1px solid var(--border)">Preview — vibe API calls return mock data</div>
 <div style="height:28px"></div>`;
   const injected = html.replace(/<body([^>]*)>/i, `<body$1>${vibeStub}`);
   const finalHtml = injected === html ? vibeStub + html : injected;
@@ -3443,18 +3445,17 @@ skillTypeSelect.addEventListener("change", () => {
 <head>
 <meta charset="UTF-8">
 <style>
-  * { margin: 0; box-sizing: border-box; }
-  body { background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; padding: 24px; }
-  h1 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+  body { padding: 24px; }
+  h1 { margin-bottom: 16px; }
 </style>
 </head>
 <body>
   <h1>My Vibe</h1>
-  <p>Edit this file to build your app.</p>
+  <p class="text-muted">Edit this file to build your app. Base theme CSS is auto-injected.</p>
   <script>
     // window.vibe.runSkill(name, input) — call a skill
     // window.vibe.ask(prompt) — one-shot LLM call
-    // window.vibe.searchCaptures(query, limit?) — vector search
+    // window.vibe.store.get/set/list/query — data store
     // window.vibe.copyToClipboard(text)
   </script>
 </body>
