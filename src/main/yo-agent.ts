@@ -410,10 +410,28 @@ export class YoAgent {
         responseText = blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
       }
 
-      // Ingest the conversation turn into the capture store for search
-      if (this.captureStore && responseText) {
-        const turnContent = `[user]\n${message}\n\n[assistant]\n${responseText}`;
-        this.captureStore.ingest("yo-agent", turnContent).catch(() => {});
+      // Ingest full conversation turn into capture store (including tool calls)
+      if (this.captureStore) {
+        const turnParts = [`[user]\n${message}`];
+        for (const msg of this.history.slice(-10)) {
+          if (msg.role !== "assistant") continue;
+          const blocks = Array.isArray(msg.content) ? msg.content : [];
+          for (const b of blocks as any[]) {
+            if (b.type === "text" && b.text?.trim()) turnParts.push(`[assistant]\n${b.text}`);
+            if (b.type === "tool_use") turnParts.push(`[tool:${b.name}]\n${typeof b.input === "string" ? b.input : JSON.stringify(b.input)}`);
+          }
+        }
+        for (const msg of this.history.slice(-10)) {
+          if (msg.role !== "user") continue;
+          const blocks = Array.isArray(msg.content) ? msg.content : [];
+          for (const b of blocks as any[]) {
+            if (b.type === "tool_result" && typeof b.content === "string" && b.content.trim()) {
+              turnParts.push(`[tool_result]\n${b.content.slice(0, 2000)}`);
+            }
+          }
+        }
+        const turnContent = turnParts.join("\n\n");
+        if (turnContent.trim()) this.captureStore.ingest("yo-agent", turnContent).catch(() => {});
       }
       promptLog.record({
         id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
@@ -740,9 +758,26 @@ export class YoAgent {
       ? this.history[this.history.length - 2].content
       : exchanges[exchanges.length - 1] || "";
 
+    const toolSpec = getAgentToolSpec();
+    const mcpToolsList = toolSpec.filter(t =>
+      !t.name.startsWith("skill_") &&
+      !["search_captures","get_context","format","save_memory","search_notes",
+        "read_file","list_files","run_command","start_council",
+        "delegate_navigate","delegate_layout","delegate_build",
+        "create_skill","update_skill","read_skill",
+        "create_drip","update_drip","read_drip",
+        "create_layout","update_layout","read_layout",
+        "create_vibe","update_vibe","read_vibe",
+        "store_set","store_get","store_delete","store_list","store_query","store_info"].includes(t.name)
+    );
+    const mcpToolsStr = mcpToolsList.length > 0
+      ? mcpToolsList.map(t => `- ${t.name}: ${t.description}`).join("\n")
+      : undefined;
+
     return {
       conversationSummary: exchanges.length > 1 ? exchanges.slice(0, -1).join("\n") : undefined,
       userMessage,
+      availableMcpTools: mcpToolsStr,
     };
   }
 

@@ -33,17 +33,19 @@ export const PROVIDER_PRESETS: Record<string, {
   anthropic: {
     name: "Anthropic",
     models: [
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
       "claude-sonnet-4-20250514",
-      "claude-opus-4-20250514",
-      "claude-opus-4-6-20250626",
       "claude-haiku-4-5-20251001",
     ],
-    defaultModel: "claude-sonnet-4-20250514",
+    defaultModel: "claude-sonnet-4-6",
     keyPlaceholder: "sk-ant-...",
   },
   openai: {
     name: "OpenAI",
     models: [
+      "gpt-5.5",
       "gpt-4.1",
       "gpt-4.1-mini",
       "gpt-4.1-nano",

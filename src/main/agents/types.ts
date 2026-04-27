@@ -13,6 +13,7 @@ export interface SubAgentResult {
 export interface SubAgentContext {
   conversationSummary?: string;  // Last few exchanges from orchestrator history
   userMessage: string;           // Original user message
+  availableMcpTools?: string;    // MCP tools from connected apps (for builder)
 }
 
 /** Anthropic-style tool definition. */

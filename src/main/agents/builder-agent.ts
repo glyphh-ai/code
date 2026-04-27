@@ -364,8 +364,8 @@ After ALL tools have been called and skills/vibes are saved, respond with:
     const manifest: Record<string, unknown> = existing ? { ...existing.manifest } : { name };
 
     if (input.description !== undefined) manifest.description = input.description;
-    if (input.allowed_tools) manifest["allowed-tools"] = input.allowed_tools;
-    if (input.requires) manifest.requires = input.requires;
+    if (input.allowed_tools) manifest["allowed-tools"] = [...new Set(input.allowed_tools as string[])];
+    if (input.requires) manifest.requires = [...new Set(input.requires as string[])];
     if (input.schedule !== undefined) manifest.schedule = input.schedule;
 
     const prompt = (input.prompt as string) ?? existing?.prompt ?? "";
@@ -388,8 +388,8 @@ After ALL tools have been called and skills/vibes are saved, respond with:
     const manifest: Record<string, unknown> = existing ? { ...existing.manifest } : { name };
     manifest.type = "vibe";
     if (input.description !== undefined) manifest.description = input.description;
-    if (input.requires) manifest.requires = input.requires;
-    if (input.allowed_tools) manifest["allowed-tools"] = input.allowed_tools;
+    if (input.requires) manifest.requires = [...new Set(input.requires as string[])];
+    if (input.allowed_tools) manifest["allowed-tools"] = [...new Set(input.allowed_tools as string[])];
 
     const prompt = (input.prompt as string) ?? existing?.prompt ?? "";
     const ok = this.skillCallbacks.writeSkill(name, manifest, prompt, null);

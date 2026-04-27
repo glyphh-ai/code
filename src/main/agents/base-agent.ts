@@ -86,9 +86,12 @@ export abstract class BaseSubAgent {
     this._budget?.enterDepth();
     const startTs = Date.now();
 
-    const preamble = context.conversationSummary
-      ? `[Conversation context: ${context.conversationSummary}]\n\nUser's original message: ${context.userMessage}\n\nYour task: ${instruction}`
-      : `User's original message: ${context.userMessage}\n\nYour task: ${instruction}`;
+    const parts: string[] = [];
+    if (context.conversationSummary) parts.push(`[Conversation context: ${context.conversationSummary}]`);
+    if (context.availableMcpTools) parts.push(`[Connected MCP tools — use these in allowed_tools when building skills/vibes]\n${context.availableMcpTools}`);
+    parts.push(`User's original message: ${context.userMessage}`);
+    parts.push(`Your task: ${instruction}`);
+    const preamble = parts.join("\n\n");
 
     const messages: any[] = [{ role: "user", content: preamble }];
     const toolsUsed: string[] = [];
