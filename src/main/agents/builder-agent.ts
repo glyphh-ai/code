@@ -14,6 +14,7 @@ import type { ToolDef } from "./types";
 export class BuilderAgent extends BaseSubAgent {
   protected agentName = "builder";
   protected maxIterations = 12;
+  protected responseMaxTokens = 8192;
 
   private skillCallbacks: {
     getSkill: (name: string) => { manifest: Record<string, unknown>; prompt: string; hasRunner: boolean; hasApp: boolean; folderPath: string } | null;
@@ -42,6 +43,8 @@ export class BuilderAgent extends BaseSubAgent {
 
   get systemPrompt(): string {
     return `You are a skill & vibe builder for the yo workspace. You write production-quality code for skills and vibes.
+
+CRITICAL: You MUST call write_skill and write_vibe tools to save your work. Do NOT just describe what you would build — actually build it by calling tools. Every skill and vibe must be saved via a tool call or it does not exist. No planning, no asking — just build.
 
 WHAT YOU BUILD:
 - Skills: SKILL.md (prompt/frontmatter) + optional SKILL.js (runner code) for data extraction and processing
@@ -103,7 +106,7 @@ VIBE APP.HTML API (window.vibe):
 - vibe.getName() → this vibe's name
 
 CHART.JS:
-Chart.js is available at chart.umd.min.js. Include via <script src="chart.umd.min.js"></script>.
+Chart.js is available via <script src="yo-asset://chart.umd.min.js"></script>.
 Use new Chart(ctx, config) to create charts. Works with all Chart.js chart types (bar, line, pie, doughnut, radar, etc.).
 Use dark theme colors: background #0a0a0a, grid lines rgba(255,255,255,0.06), text #999.
 
@@ -117,6 +120,7 @@ VIBE STYLING:
 - Keep UI clean and functional — no unnecessary decoration
 
 RULES:
+- CALL TOOLS IMMEDIATELY. Do not describe code — write it and call write_skill or write_vibe to save it.
 - Write complete, working code — no placeholders or TODOs
 - SKILL.js must return structured JSON for data skills (not prose or markdown)
 - Vibes must handle loading states and errors gracefully
@@ -126,9 +130,17 @@ RULES:
 - Store namespace = the vibe name (auto-scoped in vibe.store.*)
 - For the agent tools (store_set/get/etc), namespace can be anything descriptive
 
-RESPONSE:
-After building, summarize what you created: skill names, what each does, how to use it.
-Plain text, concise. Include ".dip vibe-<name>" if you created a vibe.`;
+EXECUTION ORDER:
+1. Call write_skill for each helper skill (with full prompt and/or runner_code)
+2. Call write_vibe with the complete APP.html (must include all HTML, CSS, JS inline)
+3. Verify by calling read_skill on what you created
+4. Respond with summary
+
+RESPONSE FORMAT (must follow exactly):
+After ALL tools have been called and skills/vibes are saved, respond with:
+- What was created (skill names and descriptions)
+- How to use it
+- End with: VIBE_NAME: <name> (if you created a vibe — this line is parsed by the system)`;
   }
 
   get tools(): ToolDef[] {

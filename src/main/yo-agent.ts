@@ -74,8 +74,11 @@ Examples:
 For simple skill reads/updates you can still use create_skill, update_skill, read_skill directly.
 For quick data store queries use store_get, store_list, store_query, store_info directly.
 
+AFTER BUILDING A VIBE:
+When delegate_build returns and mentions a vibe name (look for "VIBE_NAME: <name>" in the response), tell the user to open it with .dip vibe-<name>. Do NOT use delegate_navigate to open vibes — just tell the user the command.
+
 AVAILABLE RESOURCES FOR BUILDING:
-- Chart.js is available in vibes via <script src="chart.umd.min.js"></script>
+- Chart.js is available in vibes via <script src="yo-asset://chart.umd.min.js"></script>
 - Data store: namespaced KV with JSON query (store_set/get/delete/list/query/info)
 - Vibes: interactive HTML apps with window.vibe API (runSkill, ask, searchCaptures, store.*)
 - Skills: prompt-based or SKILL.js runners with ctx.llm, ctx.skill, ctx.mcp, ctx.store
@@ -154,7 +157,7 @@ export class YoAgent {
   // Sub-agents — sync mode from preferences at init
   navigator = (() => { const n = new NavigatorAgent(); n.setMode(getAgentMode()); return n; })();
   layout = (() => { const l = new LayoutAgent(); l.setMode(getAgentMode()); return l; })();
-  builder = (() => { const b = new BuilderAgent(); b.setMode(getAgentMode()); return b; })();
+  builder = (() => { const b = new BuilderAgent(); b.setMode(getAgentMode()); b.setModelOverride("orchestrator"); return b; })();
   private _layoutStateGetter: (() => { cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | null) | null = null;
 
   // ── Setters ────────────────────────────────────────────
@@ -239,7 +242,7 @@ export class YoAgent {
   setSubAgentModel(model: string | null): void {
     this.navigator.setModelOverride(model);
     this.layout.setModelOverride(model);
-    this.builder.setModelOverride(model);
+    this.builder.setModelOverride(model || "orchestrator");
   }
 
   abort(): void {

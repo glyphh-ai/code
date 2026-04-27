@@ -3399,7 +3399,23 @@ function refreshVibePreview() {
     );
     return;
   }
-  skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  const vibeStub = `<script>
+window.vibe={
+  runSkill:function(){return Promise.resolve({ok:false,error:"Preview mode"})},
+  ask:function(){return Promise.resolve("Preview mode — vibe API not available")},
+  searchCaptures:function(){return Promise.resolve([])},
+  readFile:function(){return Promise.resolve(null)},
+  getName:function(){return Promise.resolve("preview")},
+  copyToClipboard:function(){},
+  onData:function(){},
+  store:{get:function(){return Promise.resolve(null)},set:function(){return Promise.resolve()},delete:function(){return Promise.resolve(false)},list:function(){return Promise.resolve([])},query:function(){return Promise.resolve([])},keys:function(){return Promise.resolve([])},count:function(){return Promise.resolve(0)},clear:function(){return Promise.resolve(0)}}
+};
+</script>
+<div style="position:fixed;top:0;left:0;right:0;background:#1a1a1a;color:#999;font:11px system-ui;padding:4px 10px;text-align:center;z-index:99999;border-bottom:1px solid rgba(255,255,255,0.06)">Preview — vibe API calls return mock data</div>
+<div style="height:28px"></div>`;
+  const injected = html.replace(/<body([^>]*)>/i, `<body$1>${vibeStub}`);
+  const finalHtml = injected === html ? vibeStub + html : injected;
+  skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(finalHtml);
 }
 
 function updatePreviewTabVisibility() {
@@ -3902,15 +3918,20 @@ function renderSkillsList() {
   skillsListEl.innerHTML = "";
 
   for (const skill of items) {
-    const badges: string[] = [];
-    if (skill.hasApp) badges.push('<span class="app-card-badge" style="background:rgba(168,85,247,0.15);color:#a855f7;font-size:9px;padding:1px 5px;">VIBE</span>');
-    if (skill.hasRunner) badges.push('<span class="app-card-badge" style="font-size:9px;padding:1px 5px;">JS</span>');
-    if (skill.scheduled) badges.push(`<span class="app-card-badge" style="background:rgba(74,158,255,0.15);color:#4A9EFF;font-size:9px;padding:1px 5px;" title="${skill.scheduleExpr || ''}">⏰</span>`);
+    const pills: string[] = [];
+    if (skill.hasApp) {
+      pills.push('<span class="skill-pill skill-pill-vibe">Vibe</span>');
+    } else if (skill.hasRunner) {
+      pills.push('<span class="skill-pill skill-pill-js">JS</span>');
+    } else {
+      pills.push('<span class="skill-pill skill-pill-prompt">Prompt</span>');
+    }
+    if (skill.scheduled) pills.push(`<span class="skill-pill skill-pill-scheduled" title="${skill.scheduleExpr || ''}">Scheduled</span>`);
     const card = document.createElement("div");
     card.className = "crud-card";
     card.innerHTML = `
       <div class="crud-card-info">
-        <span class="crud-card-name">${skill.name}${badges.length ? " " + badges.join(" ") : ""}</span>
+        <span class="crud-card-name">${skill.name} ${pills.join(" ")}</span>
         ${skill.description ? `<span class="crud-card-meta">${skill.description}</span>` : ""}
       </div>
       <div class="crud-card-actions">

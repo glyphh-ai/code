@@ -47,6 +47,9 @@ export abstract class BaseSubAgent {
   /** Max tool-loop iterations before forcing a response. */
   protected maxIterations = 10;
 
+  /** Max tokens per LLM response. Override in subclasses that produce large outputs. */
+  protected responseMaxTokens = 2048;
+
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
   setMode(mode: AgentMode): void { this._mode = mode; }
   setModelOverride(model: string | null): void { this._modelOverride = model; }
@@ -134,7 +137,7 @@ export abstract class BaseSubAgent {
       system: this.systemPrompt,
       messages,
       tools: this.tools,
-      maxTokens: 2048,
+      maxTokens: this.responseMaxTokens,
       model,
     });
 

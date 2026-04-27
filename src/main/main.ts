@@ -6,7 +6,7 @@
  */
 
 import "dotenv/config";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeTheme, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -253,6 +253,27 @@ async function boot() {
     yoInterceptor?.setCurrentModel(config.model);
     yoInterceptor?.setAvailableModels(PROVIDER_PRESETS[config.provider]?.models || []);
   }
+
+  // ── yo-asset:// protocol — serves shared assets (Chart.js etc.) to vibe panels ──
+  const rendererDir = path.join(__dirname, "..", "renderer");
+  protocol.handle("yo-asset", (request) => {
+    const url = new URL(request.url);
+    const filePath = path.join(rendererDir, decodeURIComponent(url.pathname));
+    return net.fetch(`file://${filePath}`);
+  });
+
+  // Backward compat: redirect file:// requests for chart.umd.min.js from skill folders
+  const yoDir = path.join(os.homedir(), "yo", "skills");
+  electronSession.defaultSession.webRequest.onBeforeRequest(
+    { urls: ["file://*chart.umd.min.js"] },
+    (details: { url: string }, callback: (response: { redirectURL?: string }) => void) => {
+      if (details.url.includes(yoDir)) {
+        callback({ redirectURL: `file://${path.join(rendererDir, "chart.umd.min.js")}` });
+      } else {
+        callback({});
+      }
+    },
+  );
 
   // Core services
   skillEngine = new SkillEngine();
@@ -2425,8 +2446,11 @@ async function boot() {
   }));
   ipcMain.handle("get-llm-presets", () => PROVIDER_PRESETS);
   ipcMain.handle("save-llm-config", async (_e, config: LLMConfig) => {
-    // Skip validation if only model/provider changed (same key)
     const existing = loadLLMConfig();
+    // Preserve the real key when the renderer sends back a masked one
+    if (config.apiKey && config.apiKey.startsWith("...") && existing.apiKey) {
+      config.apiKey = existing.apiKey;
+    }
     const keyChanged = config.apiKey !== existing.apiKey;
     if (keyChanged) {
       const result = await validateLLMConfig(config);
@@ -2923,6 +2947,10 @@ async function boot() {
     }
   });
 }
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: "yo-asset", privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
 
 app.whenReady().then(boot);
 
