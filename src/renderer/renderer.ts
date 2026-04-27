@@ -247,7 +247,7 @@ declare global {
       mcpExposeStop: () => Promise<void>;
       mcpExposeStatus: () => Promise<{ running: boolean; port: number }>;
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
-      mcpExposeGenToken: (label: string) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
+      mcpExposeGenToken: (label: string, ttlDays?: number) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
       // MCP Servers (custom user-configured)
       mcpGetServers: () => Promise<Array<{ config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }; status: string; error?: string; tools: Array<{ name: string; description?: string }> }>>;

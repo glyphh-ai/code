@@ -2847,19 +2847,25 @@ let settingsPresets: Record<string, { name: string; models: string[]; defaultMod
 async function refreshMcpExposeStatus() {
   const status = await window.yo.mcpExposeStatus();
   const port = status.port || parseInt(mcpExposePort.value, 10) || 7860;
+  const startBtn = document.getElementById("mcp-expose-start-btn") as HTMLButtonElement;
+  const stopBtn = document.getElementById("mcp-expose-stop-btn") as HTMLButtonElement;
   if (status.running) {
     mcpExposeStatus.textContent = `Running on http://127.0.0.1:${port}`;
     mcpExposeStatus.style.color = "var(--accent)";
+    startBtn.classList.add("hidden");
+    stopBtn.classList.remove("hidden");
   } else {
     mcpExposeStatus.textContent = "Stopped";
     mcpExposeStatus.style.color = "var(--text-2)";
+    startBtn.classList.remove("hidden");
+    stopBtn.classList.add("hidden");
   }
-  // Update example config
   const configEl = document.getElementById("mcp-expose-config-example");
   if (configEl) {
     configEl.textContent = `{
   "mcpServers": {
     "yo": {
+      "type": "sse",
       "url": "http://127.0.0.1:${port}/sse",
       "headers": {
         "Authorization": "Bearer <your-token>"
@@ -2889,10 +2895,22 @@ async function renderMcpTokens() {
     created.style.cssText = "font-size:11px;color:var(--text-2);font-family:'SF Mono','Fira Code',monospace;";
     created.textContent = new Date(t.createdAt).toLocaleDateString();
 
-    const daysLeft = Math.ceil((new Date(t.expiresAt).getTime() - Date.now()) / 86400000);
+    const expiresMs = new Date(t.expiresAt).getTime();
+    const isNever = expiresMs > new Date("9990-01-01").getTime();
+    const daysLeft = Math.ceil((expiresMs - Date.now()) / 86400000);
     const expires = document.createElement("span");
-    expires.style.cssText = `font-size:11px;font-family:'SF Mono','Fira Code',monospace;color:${daysLeft <= 7 ? "var(--danger)" : "var(--text-2)"};`;
-    expires.textContent = `Expires ${new Date(t.expiresAt).toLocaleDateString()}`;
+    expires.style.cssText = `font-size:11px;font-family:'SF Mono','Fira Code',monospace;color:${!isNever && daysLeft <= 7 ? "var(--danger)" : "var(--text-2)"};`;
+    expires.textContent = isNever ? "Never expires" : `Expires ${new Date(t.expiresAt).toLocaleDateString()}`;
+
+    const copy = document.createElement("button");
+    copy.className = "action-btn";
+    copy.style.cssText = "font-size:10px;padding:2px 8px;";
+    copy.textContent = "Copy";
+    copy.addEventListener("click", () => {
+      window.yo.copyToClipboard(t.token);
+      copy.textContent = "Copied";
+      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+    });
 
     const revoke = document.createElement("button");
     revoke.className = "action-btn danger";
@@ -2906,6 +2924,7 @@ async function renderMcpTokens() {
     row.appendChild(label);
     row.appendChild(created);
     row.appendChild(expires);
+    row.appendChild(copy);
     row.appendChild(revoke);
     mcpExposeTokensEl.appendChild(row);
   }
@@ -2991,26 +3010,37 @@ function initSettings() {
       mcpExposeStatus.style.color = "var(--text-2)";
     }
   });
-  document.getElementById("mcp-expose-port-save")!.addEventListener("click", async () => {
+  document.getElementById("mcp-expose-port-save")!.addEventListener("click", () => {
     const port = parseInt(mcpExposePort.value, 10);
     if (port >= 1024 && port <= 65535) {
       window.yo.setPreference("mcpExposePort", port);
-      if (toggleMcpExpose.checked) {
-        await window.yo.mcpExposeStop();
-        const result = await window.yo.mcpExposeStart();
-        if (!result.ok) {
-          mcpExposeStatus.textContent = `Error: ${result.error}`;
-          mcpExposeStatus.style.color = "var(--danger)";
-        } else {
-          await refreshMcpExposeStatus();
-        }
-      }
     }
+  });
+  document.getElementById("mcp-expose-start-btn")!.addEventListener("click", async () => {
+    const port = parseInt(mcpExposePort.value, 10);
+    if (port >= 1024 && port <= 65535) {
+      window.yo.setPreference("mcpExposePort", port);
+    }
+    const result = await window.yo.mcpExposeStart();
+    if (!result.ok) {
+      mcpExposeStatus.textContent = `Error: ${result.error}`;
+      mcpExposeStatus.style.color = "var(--danger)";
+    } else {
+      toggleMcpExpose.checked = true;
+      window.yo.setPreference("mcpExposeEnabled", true);
+      await refreshMcpExposeStatus();
+    }
+  });
+  document.getElementById("mcp-expose-stop-btn")!.addEventListener("click", async () => {
+    await window.yo.mcpExposeStop();
+    await refreshMcpExposeStatus();
   });
   document.getElementById("mcp-expose-gen-token")!.addEventListener("click", async () => {
     const labelInput = document.getElementById("mcp-expose-token-label") as HTMLInputElement;
+    const ttlSelect = document.getElementById("mcp-expose-token-ttl") as HTMLSelectElement;
     const label = labelInput.value.trim() || "default";
-    const result = await window.yo.mcpExposeGenToken(label);
+    const ttlDays = parseInt(ttlSelect.value, 10);
+    const result = await window.yo.mcpExposeGenToken(label, ttlDays);
     labelInput.value = "";
     // Show the new token in the highlighted box
     const newTokenBox = document.getElementById("mcp-expose-new-token")!;

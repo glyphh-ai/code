@@ -92,10 +92,12 @@ export class McpExpose {
     }
   }
 
-  /** Generate a new access token with label and expiration, persist it. */
-  generateToken(label: string = "default"): McpToken {
+  /** Generate a new access token with label and expiration, persist it. ttlDays=0 means never expires. */
+  generateToken(label: string = "default", ttlDays: number = TOKEN_TTL_DAYS): McpToken {
     const now = new Date();
-    const expires = new Date(now.getTime() + TOKEN_TTL_DAYS * 86400000);
+    const expires = ttlDays > 0
+      ? new Date(now.getTime() + ttlDays * 86400000)
+      : new Date("9999-12-31T23:59:59.999Z");
     const entry: McpToken = {
       token: `yo_${crypto.randomBytes(24).toString("hex")}`,
       label: label || "default",

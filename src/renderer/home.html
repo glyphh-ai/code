@@ -1585,7 +1585,9 @@
                       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
                         <label class="settings-label" style="margin:0;min-width:36px;">Port</label>
                         <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" style="width:90px;" />
-                        <button id="mcp-expose-port-save" class="action-btn primary" style="font-size:12px;">Save &amp; Restart</button>
+                        <button id="mcp-expose-port-save" class="action-btn" style="font-size:12px;">Save</button>
+                        <button id="mcp-expose-start-btn" class="action-btn primary" style="font-size:12px;">Start</button>
+                        <button id="mcp-expose-stop-btn" class="action-btn danger hidden" style="font-size:12px;">Stop</button>
                       </div>
                       <label class="settings-label">Available Tools</label>
                       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
@@ -1612,6 +1614,13 @@
                       <div id="mcp-expose-tokens" style="margin-bottom:10px;"></div>
                       <div style="display:flex;gap:6px;align-items:center;">
                         <input id="mcp-expose-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude Desktop, Cursor)" style="flex:1;font-size:12px;padding:5px 8px;" />
+                        <select id="mcp-expose-token-ttl" class="settings-input" style="width:auto;font-size:12px;padding:5px 8px;">
+                          <option value="7">7 days</option>
+                          <option value="30">30 days</option>
+                          <option value="90" selected>90 days</option>
+                          <option value="365">1 year</option>
+                          <option value="0">Never</option>
+                        </select>
                         <button id="mcp-expose-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
                       </div>
                     </div>

@@ -2,10 +2,10 @@
  * Preload script — exposes IPC to the renderer safely.
  */
 
-import { contextBridge, ipcRenderer, clipboard } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("yo", {
-  copyToClipboard: (text: string) => clipboard.writeText(text),
+  copyToClipboard: (text: string) => ipcRenderer.invoke("copy-to-clipboard", text),
   windowClose: () => ipcRenderer.send("window-close"),
   windowMinimize: () => ipcRenderer.send("window-minimize"),
   windowMaximize: () => ipcRenderer.send("window-maximize"),
@@ -356,7 +356,7 @@ contextBridge.exposeInMainWorld("yo", {
   mcpExposeStop: () => ipcRenderer.invoke("mcp-expose-stop") as Promise<void>,
   mcpExposeStatus: () => ipcRenderer.invoke("mcp-expose-status") as Promise<{ running: boolean; port: number }>,
   mcpExposeGetTokens: () => ipcRenderer.invoke("mcp-expose-get-tokens") as Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>,
-  mcpExposeGenToken: (label: string) => ipcRenderer.invoke("mcp-expose-gen-token", label) as Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>,
+  mcpExposeGenToken: (label: string, ttlDays?: number) => ipcRenderer.invoke("mcp-expose-gen-token", label, ttlDays) as Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>,
   mcpExposeRevokeToken: (token: string) => ipcRenderer.invoke("mcp-expose-revoke-token", token) as Promise<void>,
 
   // MCP Servers (custom user-configured servers — Advanced plan)

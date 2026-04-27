@@ -2438,6 +2438,9 @@ async function boot() {
     const hb = await refreshHeartbeat();
     return { tier: hb?.tier || "free", status: hb?.status || "unknown" };
   });
+  ipcMain.handle("copy-to-clipboard", (_e, text: string) => {
+    clipboard.writeText(text);
+  });
   ipcMain.handle("logout", () => {
     logout();
     if (mainWindow) panelManager.hideActive(mainWindow);
@@ -2494,7 +2497,7 @@ async function boot() {
     port: mcpExpose!.getPort(),
   }));
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose!.getTokens());
-  ipcMain.handle("mcp-expose-gen-token", (_e, label: string) => mcpExpose!.generateToken(label));
+  ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose!.generateToken(label, ttlDays));
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose!.revokeToken(token); });
 
   // ── MCP Servers IPC handlers (custom user servers) ─────
