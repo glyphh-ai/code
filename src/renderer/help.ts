@@ -3391,7 +3391,9 @@ function switchSkillRightTab(tab: "code" | "preview") {
   if (tab === "preview") refreshVibePreview();
 }
 
-function refreshVibePreview() {
+let _vibeBaseCssCache: string | null = null;
+
+async function refreshVibePreview() {
   const html = editingFileContents.get("APP.html") || "";
   const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
   if (!html.trim()) {
@@ -3400,7 +3402,11 @@ function refreshVibePreview() {
     );
     return;
   }
-  const vibeStub = `<script>
+  if (!_vibeBaseCssCache) {
+    try { _vibeBaseCssCache = await (window as any).yo.getVibeBaseCss(); } catch { _vibeBaseCssCache = ""; }
+  }
+  const vibeStub = `<style id="__yo_vibe_base__">${_vibeBaseCssCache || ""}</style>
+<script>
 document.documentElement.setAttribute("data-theme","${currentTheme}");
 window.vibe={
   runSkill:function(){return Promise.resolve({ok:false,error:"Preview mode"})},
@@ -3415,8 +3421,10 @@ window.vibe={
 </script>
 <div style="position:fixed;top:0;left:0;right:0;background:var(--surface-2);color:var(--text-3);font:11px system-ui;padding:4px 10px;text-align:center;z-index:99999;border-bottom:1px solid var(--border)">Preview — vibe API calls return mock data</div>
 <div style="height:28px"></div>`;
-  const injected = html.replace(/<body([^>]*)>/i, `<body$1>${vibeStub}`);
-  const finalHtml = injected === html ? vibeStub + html : injected;
+  const injected = html.replace(/<head([^>]*)>/i, `<head$1>${vibeStub}`);
+  const finalHtml = injected === html
+    ? `<html><head>${vibeStub}</head>${html}</html>`
+    : injected;
   skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(finalHtml);
 }
 

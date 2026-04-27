@@ -2239,6 +2239,10 @@ async function boot() {
     const pref = getPreference<string>("theme", "light");
     return pref === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : pref;
   });
+  ipcMain.handle("vibe:get-base-css", () => {
+    const { VIBE_BASE_CSS } = require("./vibe-base-css");
+    return VIBE_BASE_CSS;
+  });
 
   // IPC: Vibe data store (namespaced to the vibe's skill name)
   ipcMain.handle("vibe:store-get", (e, key: string) => {
