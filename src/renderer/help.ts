@@ -3597,17 +3597,39 @@ function addToolRow(ns?: string, tool?: string) {
   const row = document.createElement("div");
   row.className = "skill-row";
 
+  // Resolve namespace: exact match first, then case-insensitive suffix match
+  let resolvedNs = ns;
+  if (ns && !cachedToolGroups.find(g => g.namespace === ns)) {
+    const lower = ns.toLowerCase();
+    const fuzzy = cachedToolGroups.find(g =>
+      g.namespace.toLowerCase().endsWith(lower) ||
+      g.namespace.toLowerCase().includes(lower)
+    );
+    if (fuzzy) resolvedNs = fuzzy.namespace;
+  }
+
   const appSel = document.createElement("select");
-  appSel.innerHTML = `<option value="">App...</option>` +
-    cachedToolGroups.map(g => `<option value="${g.namespace}"${g.namespace === ns ? " selected" : ""}>${g.label}</option>`).join("");
+  let appOptions = cachedToolGroups.map(g =>
+    `<option value="${g.namespace}"${g.namespace === resolvedNs ? " selected" : ""}>${g.label}</option>`
+  ).join("");
+  if (resolvedNs && !cachedToolGroups.find(g => g.namespace === resolvedNs)) {
+    appOptions += `<option value="${resolvedNs}" selected>${resolvedNs} (unresolved)</option>`;
+  }
+  appSel.innerHTML = `<option value="">App...</option>` + appOptions;
 
   const toolSel = document.createElement("select");
-  const populateTools = (selectedNs: string) => {
+  const populateTools = (selectedNs: string, preselect?: string) => {
     const group = cachedToolGroups.find(g => g.namespace === selectedNs);
-    toolSel.innerHTML = `<option value="">Tool...</option>` +
-      (group ? group.tools.map(t => `<option value="${t.name}"${t.name === tool ? " selected" : ""}>${t.name}</option>`) : []).join("");
+    const toolOptions = group ? group.tools.map(t =>
+      `<option value="${t.name}"${t.name === preselect ? " selected" : ""}>${t.name}</option>`
+    ).join("") : "";
+    const hasMatch = group?.tools.some(t => t.name === preselect);
+    const unresolvedOpt = preselect && !hasMatch
+      ? `<option value="${preselect}" selected>${preselect} (unresolved)</option>`
+      : "";
+    toolSel.innerHTML = `<option value="">Tool...</option>` + toolOptions + unresolvedOpt;
   };
-  if (ns) populateTools(ns);
+  if (resolvedNs) populateTools(resolvedNs, tool);
   else toolSel.innerHTML = `<option value="">Tool...</option>`;
 
   appSel.addEventListener("change", () => { tool = undefined; populateTools(appSel.value); });
