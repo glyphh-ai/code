@@ -402,11 +402,18 @@ function serverPost<T>(endpoint: string, body: Record<string, unknown>): Promise
     const data = JSON.stringify(body);
     const request = net.request({ url, method: "POST" });
     request.setHeader("Content-Type", "application/json");
+    const timer = setTimeout(() => { request.abort(); reject(new Error("Request timeout")); }, 10_000);
 
     let responseBody = "";
     request.on("response", (response) => {
+      const status = response.statusCode ?? 500;
+      clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status < 200 || status >= 300) {
+          reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
+          return;
+        }
         try {
           resolve(JSON.parse(responseBody) as T);
         } catch {
@@ -428,11 +435,18 @@ export function serverGetAuthed<T>(endpoint: string): Promise<T> {
     const url = `${AUTH_SERVER}${endpoint}`;
     const request = net.request({ url, method: "GET" });
     request.setHeader("Authorization", `Bearer ${token}`);
+    const timer = setTimeout(() => { request.abort(); reject(new Error("Request timeout")); }, 10_000);
 
     let responseBody = "";
     request.on("response", (response) => {
+      const status = response.statusCode ?? 500;
+      clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status < 200 || status >= 300) {
+          reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
+          return;
+        }
         try {
           resolve(JSON.parse(responseBody) as T);
         } catch {
@@ -455,11 +469,18 @@ export function serverPostAuthed<T>(endpoint: string, body: Record<string, unkno
     const request = net.request({ url, method: "POST" });
     request.setHeader("Content-Type", "application/json");
     request.setHeader("Authorization", `Bearer ${token}`);
+    const timer = setTimeout(() => { request.abort(); reject(new Error("Request timeout")); }, 10_000);
 
     let responseBody = "";
     request.on("response", (response) => {
+      const status = response.statusCode ?? 500;
+      clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status < 200 || status >= 300) {
+          reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
+          return;
+        }
         try {
           resolve(JSON.parse(responseBody) as T);
         } catch {
@@ -473,36 +494,8 @@ export function serverPostAuthed<T>(endpoint: string, body: Record<string, unkno
   });
 }
 
-// ── API key storage (separate concern — LLM keys, not auth) ──
+// ── API key storage (use llm-config.ts secureWrite/secureRead) ──
+// Legacy plaintext saveApiKey/loadApiKey removed — all API key
+// storage now goes through llm-config.ts which uses safeStorage.
 
-const API_KEY_FILE = path.join(CONFIG_DIR, ".apikey");
-
-export function saveApiKey(key: string): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(API_KEY_FILE, key, "utf-8");
-}
-
-export function loadApiKey(): string | null {
-  if (!fs.existsSync(API_KEY_FILE)) return null;
-  const key = fs.readFileSync(API_KEY_FILE, "utf-8").trim();
-  return key || null;
-}
-
-export async function validateApiKey(key: string): Promise<{ valid: boolean; error?: string }> {
-  try {
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey: key });
-    await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 16,
-      messages: [{ role: "user", content: "Say ok" }],
-    });
-    return { valid: true };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    if (msg.includes("401") || msg.includes("authentication") || msg.includes("invalid")) {
-      return { valid: false, error: "Invalid API key" };
-    }
-    return { valid: false, error: msg };
-  }
-}
+// validateApiKey removed — use validateLLMConfig from llm-config.ts

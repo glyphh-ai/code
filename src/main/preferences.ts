@@ -22,7 +22,7 @@ function load(): Record<string, unknown> {
 
 function save() {
   fs.mkdirSync(path.dirname(PREFS_FILE), { recursive: true });
-  fs.writeFileSync(PREFS_FILE, JSON.stringify(cache, null, 2), "utf-8");
+  fs.writeFileSync(PREFS_FILE, JSON.stringify(cache, null, 2), { encoding: "utf-8", mode: 0o600 });
 }
 
 export function getPreference<T = unknown>(key: string, fallback?: T): T {

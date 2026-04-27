@@ -97,7 +97,7 @@ export class CloudSync {
 
       // 3. ACK all fetched IDs
       const ids = items.map((i) => i.id);
-      await fetch(`${this.serverUrl}/api/ack`, {
+      const ackRes = await fetch(`${this.serverUrl}/api/ack`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -105,6 +105,11 @@ export class CloudSync {
         },
         body: JSON.stringify({ ids }),
       });
+
+      if (!ackRes.ok) {
+        console.warn(`[cloud-sync] ACK failed with ${ackRes.status} — will retry next poll`);
+        return;
+      }
 
       console.log(`[cloud-sync] pulled ${items.length} item(s)`);
     } catch (err) {
