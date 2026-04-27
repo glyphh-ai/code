@@ -47,17 +47,29 @@ export function setSubstrateBudgetOpts(o: typeof globalSubstrateBudgetOpts): voi
 }
 let globalLibraryRead: ((name: string) => string | null) | null = null;
 let globalLibraryWrite: ((name: string, content: string) => boolean) | null = null;
+let globalDataStore: {
+  get: (namespace: string, key: string) => unknown | null;
+  set: (namespace: string, key: string, value: unknown) => void;
+  delete: (namespace: string, key: string) => boolean;
+  list: (namespace: string, prefix?: string, limit?: number) => Array<{ key: string; value: unknown; updatedAt: number }>;
+  query: (namespace: string, filter: Record<string, unknown>, limit?: number) => Array<{ key: string; value: unknown; updatedAt: number }>;
+  keys: (namespace: string) => string[];
+  count: (namespace: string) => number;
+  clear: (namespace: string) => number;
+} | null = null;
 
 export function setRunnerDependencies(deps: {
   toolRouter?: SkillToolRouter;
   mcpManager?: McpManager;
   libraryRead?: (name: string) => string | null;
   libraryWrite?: (name: string, content: string) => boolean;
+  dataStore?: typeof globalDataStore;
 }): void {
   if (deps.toolRouter) globalToolRouter = deps.toolRouter;
   if (deps.mcpManager) globalMcpManager = deps.mcpManager;
   if (deps.libraryRead) globalLibraryRead = deps.libraryRead;
   if (deps.libraryWrite) globalLibraryWrite = deps.libraryWrite;
+  if (deps.dataStore) globalDataStore = deps.dataStore;
 }
 
 // ── Sentinel for ctx.exit ────────────────────────────────
@@ -402,6 +414,17 @@ export async function runSkillLifecycle(
         const ev = startEvent(emitter, "message", text, rootEvent.id);
         completeEvent(emitter, ev, "success");
       },
+    },
+
+    store: {
+      get: (key: string) => globalDataStore ? globalDataStore.get(name, key) : null,
+      set: (key: string, value: unknown) => { if (globalDataStore) globalDataStore.set(name, key, value); },
+      delete: (key: string) => globalDataStore ? globalDataStore.delete(name, key) : false,
+      list: (prefix?: string, limit?: number) => globalDataStore ? globalDataStore.list(name, prefix, limit).map(r => ({ key: r.key, value: r.value })) : [],
+      query: (filter: Record<string, unknown>, limit?: number) => globalDataStore ? globalDataStore.query(name, filter, limit).map(r => ({ key: r.key, value: r.value })) : [],
+      keys: () => globalDataStore ? globalDataStore.keys(name) : [],
+      count: () => globalDataStore ? globalDataStore.count(name) : 0,
+      clear: () => globalDataStore ? globalDataStore.clear(name) : 0,
     },
 
     step: async (label: string, fn: () => Promise<unknown>) => {

@@ -324,6 +324,7 @@ async function boot() {
         return true;
       } catch { return false; }
     },
+    dataStore,
   });
   skillScheduler = new SkillScheduler(skillEngine);
   skillScheduler.start();
@@ -422,6 +423,10 @@ async function boot() {
       execute: (instruction, ctx) => yoAgent.layout.execute(instruction, ctx),
       setBudget: (budget) => yoAgent.layout.setBudget(budget),
     },
+    builderAgent: {
+      execute: (instruction, ctx) => yoAgent.builder.execute(instruction, ctx),
+      setBudget: (budget) => yoAgent.builder.setBudget(budget),
+    },
     dripManager: {
       listCustoms: () => dripManager!.listCustoms(),
       saveCustom: (name: string, recipe: string) => dripManager!.saveCustom(name, recipe),
@@ -494,6 +499,26 @@ async function boot() {
   yoAgent.setCaptureStore(captureStore);
   yoAgent.setSkillEngine(skillEngine);
   yoAgent.setCouncil(council);
+  yoAgent.builder.setSkillCallbacks({
+    getSkill: (name) => { const s = skillEngine.getSkill(name); return s ? { manifest: s.manifest as any, prompt: s.prompt, hasRunner: s.hasRunner, hasApp: s.hasApp, folderPath: s.folderPath } : null; },
+    writeSkill: (name, manifest, prompt, runnerCode) => skillEngine.writeSkill(name, manifest as any, prompt, runnerCode),
+    readSkillFile: (name, rel) => skillEngine.readSkillFile(name, rel),
+    writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
+    listSkillFiles: (name) => skillEngine.listSkillFiles(name),
+    listSkillsDetailed: () => skillEngine.listSkillsDetailed() as any,
+    listVibes: () => skillEngine.listVibes(),
+  });
+  yoAgent.builder.setStoreCallbacks({
+    get: (ns, key) => dataStore.get(ns, key),
+    set: (ns, key, val) => dataStore.set(ns, key, val),
+    delete: (ns, key) => dataStore.delete(ns, key),
+    list: (ns, prefix?, limit?) => dataStore.list(ns, prefix, limit).map(r => ({ key: r.key, value: r.value })),
+    query: (ns, filter, limit?) => dataStore.query(ns, filter, limit).map(r => ({ key: r.key, value: r.value })),
+    keys: (ns) => dataStore.keys(ns),
+    count: (ns) => dataStore.count(ns),
+    clear: (ns) => dataStore.clear(ns),
+    listNamespaces: () => dataStore.listNamespaces(),
+  });
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();

@@ -37,6 +37,7 @@ export interface SubstrateToolDeps {
   council?: { start: (opts: { participants: string[]; prompt: string; rounds: number }, log: (msg: string) => void) => Promise<{ status: string; rounds: number; participants: string[]; totalCaptures: number; responses: Map<string, string[]> }> };
   navigatorAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; listPanels: () => string; setBudget?: (budget: any) => void };
   layoutAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; setBudget?: (budget: any) => void };
+  builderAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; setBudget?: (budget: any) => void };
   mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (name: string, input: Record<string, unknown>) => Promise<string>; hasTool?: (name: string) => boolean; mcpCoveredApps?: () => Map<string, string[]> };
   dripManager?: {
     listCustoms: () => Array<{ name: string; recipe: string }>;
@@ -923,6 +924,30 @@ const BUILTIN_TOOLS: ToolDef[] = [
       try {
         deps.layoutAgent.setBudget?.(null);
         const result = await deps.layoutAgent.execute(instruction, null);
+        return result.summary;
+      } catch (err) {
+        return `Delegation error: ${err instanceof Error ? err.message : err}`;
+      }
+    },
+  },
+  {
+    name: "delegate_build",
+    namespace: "yo",
+    description: "Delegate skill/vibe building to a coding sub-agent. Use for creating or updating skills, vibes, data pipelines, and wiring stores. The builder writes production code, follows the data pipeline pattern (skill extracts → store normalizes → vibe renders), and knows Chart.js, the vibe API, and SKILL.js runner API.",
+    input_schema: {
+      type: "object",
+      properties: {
+        instruction: { type: "string", description: "What to build — describe the skill/vibe, what data it handles, how the user interacts with it, and any connected skills or stores." },
+      },
+      required: ["instruction"],
+    },
+    async run(input) {
+      const instruction = input.instruction as string;
+      if (!instruction) return "No instruction provided.";
+      if (!deps.builderAgent) return "Builder agent not available.";
+      try {
+        deps.builderAgent.setBudget?.(null);
+        const result = await deps.builderAgent.execute(instruction, null);
         return result.summary;
       } catch (err) {
         return `Delegation error: ${err instanceof Error ? err.message : err}`;

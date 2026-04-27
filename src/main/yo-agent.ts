@@ -3,7 +3,7 @@
  *
  * Direct tools: search_captures, get_context, format, save_memory,
  *   search_notes, read_file, list_files, run_command, start_council.
- * Delegation: delegate_navigate (panel interaction), delegate_layout (workspace arrangement).
+ * Delegation: delegate_navigate (panel interaction), delegate_layout (workspace arrangement), delegate_build (skill/vibe coding).
  * Streams responses to the UI.
  */
 
@@ -33,6 +33,7 @@ import type { AgentMode } from "./action-gate";
 import type { Council, CouncilConfig } from "./council";
 import { NavigatorAgent } from "./agents/navigator-agent";
 import { LayoutAgent } from "./agents/layout-agent";
+import { BuilderAgent } from "./agents/builder-agent";
 import type { SubAgentContext } from "./agents/types";
 
 export type ApprovalCallback = (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
@@ -56,42 +57,36 @@ RULES:
 - Plain text only. No markdown formatting — no headers, no bold, no bullets, no italic. Just plain sentences. Only exception: use code fences (\`\`\`) when returning actual code. Bare URLs are fine — they will be auto-linked.
 - MCP tools (listed below) are for data access. delegate_navigate is ONLY for visual panel interaction when no MCP tool exists for the app.
 - delegate_layout is for workspace arrangement only.
+- delegate_build for building skills, vibes, and wiring data stores — always delegate coding work to the builder.
 - search_captures uses vector search — descriptive phrases, not keywords.
 - search_notes uses keyword search — specific terms.
 
-SKILL BUILDING:
-When the user asks you to create, build, or set up a skill:
-1. Call create_skill immediately with a clear name, description, and prompt. Don't ask for permission — just build it.
-2. After creating, call the skill (skill_<name>) with sample input to verify it works.
-3. Show the user the test output and ask if they want changes.
-4. Use update_skill to iterate until the user is satisfied.
-5. Use read_skill to inspect an existing skill before modifying it.
+BUILDING SKILLS, VIBES & DATA:
+When the user asks to build, create, or modify a skill, vibe, or data pipeline — use delegate_build.
+The builder sub-agent is a coding specialist that writes skills (SKILL.md + SKILL.js), vibes (APP.html), and wires data stores.
+Give it a clear instruction describing what to build, what data it should handle, and how the user wants to interact with it.
 
-SKILL TYPES:
-- Prompt-only (default): just a prompt in SKILL.md. The LLM processes input using the prompt. Good for formatting, summarizing, transforming content.
-- Runner (SKILL.js): a JavaScript lifecycle with full control. Use when the skill needs multi-step logic, loops, conditionals, or tool orchestration.
+Examples:
+- "Build an email summary vibe that pulls from Gmail, stores summaries, and shows them in a dashboard with charts"
+- "Create a skill that extracts customer data from captured pages and stores it for querying"
+- "Update the sales-dashboard vibe to add a pie chart breakdown by region"
 
-SKILL.js RUNNER API:
-Lifecycle hooks: init(ctx), start(ctx), end(ctx), exit(ctx, reason)
-ctx object:
-  ctx.input — the input passed to the skill
-  ctx.state — Map for passing data between lifecycle hooks
-  ctx.log(...args) — log messages
-  ctx.exit(value) — early return with a value
-  ctx.agent.ask(prompt, {model?}) — call the LLM (only tools in allowed-tools are available)
-  ctx.skill(name, input) — call another skill (must be in requires list)
-  ctx.mcp.call(appId, toolName, args) — call an MCP tool directly (must be in allowed-tools as "<app>.<tool>")
-  ctx.evaluate(value, question, opts?) — LLM-based evaluation
-  ctx.ask.user(question) — prompt the user for input
-  ctx.file(relPath) — read a file from the skill folder
-  ctx.ui.progress(text) — show progress to the user
-  ctx.step(label, fn) — wrap a step for progress tracking
+For simple skill reads/updates you can still use create_skill, update_skill, read_skill directly.
+For quick data store queries use store_get, store_list, store_query, store_info directly.
+
+AVAILABLE RESOURCES FOR BUILDING:
+- Chart.js is available in vibes via <script src="chart.umd.min.js"></script>
+- Data store: namespaced KV with JSON query (store_set/get/delete/list/query/info)
+- Vibes: interactive HTML apps with window.vibe API (runSkill, ask, searchCaptures, store.*)
+- Skills: prompt-based or SKILL.js runners with ctx.llm, ctx.skill, ctx.mcp, ctx.store
+
+SKILL TYPES (for direct create_skill use):
+- Prompt-only (default): just a prompt in SKILL.md. The LLM processes input using the prompt.
+- Runner (SKILL.js): JavaScript lifecycle with ctx.input, ctx.llm(prompt), ctx.skill(name, input), ctx.mcp.call(app, tool, args), ctx.store.get/set/query, ctx.ask.user(question), ctx.file(relPath).
 
 TOOL ENFORCEMENT:
-Every skill must declare exactly the tools it needs in allowed_tools. Format: ["<app>.<tool>"] e.g. ["gmail.send_email", "yo.search_captures"].
-The runner can ONLY use tools listed in allowed_tools — unlisted tools will be rejected.
-Sub-skills must be listed in requires. If the skill doesn't need tools, leave allowed_tools empty.
-If the skill should run on a schedule, set schedule as a cron expression (e.g. "0 9 * * 1-5" for weekdays at 9am).
+Every skill must declare exactly the tools it needs in allowed_tools. Format: ["<app>.<tool>"].
+Sub-skills must be listed in requires. Schedule with cron expressions if needed.
 
 DRIP BUILDING:
 When the user asks you to create a drip (visual effect overlay):
@@ -118,36 +113,7 @@ LAYOUT MODEL:
 - Grid: 1-4 cols x 1-4 rows
 - col_widths/row_heights: fractions summing to ~1 (e.g. [0.6, 0.4] for 60/40 split)
 - Each cell: panel_id + col/row position + optional col_span/row_span for spanning
-- Panel IDs are app names (gmail, claude, slack, etc.) matching the user's registered apps.
-
-VIBE BUILDING:
-When the user asks you to create an interactive app, dashboard, or preview panel:
-1. Call create_vibe with name, description, and full APP.html content.
-2. APP.html has access to the window.vibe API:
-   - vibe.runSkill(name, input) — call a skill listed in requires, returns {ok, output} or {ok:false, error}
-   - vibe.ask(prompt) — one-shot LLM prompt, returns text
-   - vibe.searchCaptures(query, limit?) — vector search over captured content
-   - vibe.readFile(relPath) — read a file from the vibe's skill folder
-   - vibe.copyToClipboard(text) — copy to clipboard
-   - vibe.onData(cb) — listen for pushed data
-   - vibe.store.get(key), .set(key, value), .delete(key), .list(prefix?, limit?), .query(filter, limit?), .keys(), .count(), .clear() — persistent KV store scoped to this vibe
-3. APP.html must be self-contained — inline all CSS and JS. Use dark theme (#0a0a0a background, #e0e0e0 text, #25C75E accent).
-4. The vibe appears as an app: .dip vibe-<name> to open it.
-5. Use update_vibe to iterate on HTML or dependencies.
-6. For data processing, create helper skills (with create_skill), list them in the vibe's requires, and call via vibe.runSkill().
-7. Use read_vibe to inspect an existing vibe before modifying it.
-
-DATA STORE:
-A namespaced key-value store for persisting structured data. Each namespace is an independent store — use a descriptive name (e.g. "customers", "inventory", the vibe name, etc.).
-- store_set(namespace, key, value) — store any JSON value (object, array, string, number)
-- store_get(namespace, key) — retrieve by key
-- store_delete(namespace, key) — remove a key
-- store_list(namespace, prefix?, limit?) — list entries, optionally filtered by key prefix
-- store_query(namespace, filter, limit?) — query by field values inside stored objects (e.g. filter: {"status": "active"})
-- store_info(namespace?) — list all namespaces, or count entries in one
-
-Use store_query when users need to find records by properties. Vibes access the same stores via window.vibe.store.* API.
-When building vibes that manage data (customer lists, inventory, logs, settings), create a store namespace and use it for persistence.`;
+- Panel IDs are app names (gmail, claude, slack, etc.) matching the user's registered apps.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -188,6 +154,7 @@ export class YoAgent {
   // Sub-agents — sync mode from preferences at init
   navigator = (() => { const n = new NavigatorAgent(); n.setMode(getAgentMode()); return n; })();
   layout = (() => { const l = new LayoutAgent(); l.setMode(getAgentMode()); return l; })();
+  builder = (() => { const b = new BuilderAgent(); b.setMode(getAgentMode()); return b; })();
   private _layoutStateGetter: (() => { cols: number; rows: number; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> } | null) | null = null;
 
   // ── Setters ────────────────────────────────────────────
@@ -196,6 +163,7 @@ export class YoAgent {
     this.llmConfig = config;
     this.navigator.setLLMConfig(config);
     this.layout.setLLMConfig(config);
+    this.builder.setLLMConfig(config);
   }
   setMemoryStore(store: MemoryStore): void { this.memoryStore = store; }
   setCaptureStore(store: CaptureStore): void { this.captureStore = store; }
@@ -208,11 +176,13 @@ export class YoAgent {
     this._mode = mode;
     this.navigator.setMode(mode);
     this.layout.setMode(mode);
+    this.builder.setMode(mode);
   }
   setApprovalCallback(cb: ApprovalCallback | null): void {
     this._approvalCallback = cb;
     this.navigator.setApprovalCallback(cb);
     this.layout.setApprovalCallback(cb);
+    this.builder.setApprovalCallback(cb);
   }
   setCouncil(council: Council): void { this.council = council; }
 
@@ -269,12 +239,14 @@ export class YoAgent {
   setSubAgentModel(model: string | null): void {
     this.navigator.setModelOverride(model);
     this.layout.setModelOverride(model);
+    this.builder.setModelOverride(model);
   }
 
   abort(): void {
     this.aborted = true;
     this.navigator.abort();
     this.layout.abort();
+    this.builder.abort();
   }
 
   // ── Chat management ────────────────────────────────────
@@ -538,7 +510,7 @@ export class YoAgent {
       !t.name.startsWith("skill_") &&
       !["search_captures","get_context","format","save_memory","search_notes",
         "read_file","list_files","run_command","start_council",
-        "delegate_navigate","delegate_layout",
+        "delegate_navigate","delegate_layout","delegate_build",
         "create_skill","update_skill","read_skill",
         "create_drip","update_drip","read_drip",
         "create_layout","update_layout","read_layout",
@@ -789,6 +761,10 @@ export class YoAgent {
         case "delegate_layout":
           this.layout.setBudget(this._substrateBudget);
           result = await this.layout.execute(instruction, context);
+          break;
+        case "delegate_build":
+          this.builder.setBudget(this._substrateBudget);
+          result = await this.builder.execute(instruction, context);
           break;
         default:
           return `Unknown delegation: ${name}`;
