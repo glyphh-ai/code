@@ -411,10 +411,10 @@ async function boot() {
   });
   // think.budget: tunable via preferences
   setSubstrateBudgetOpts({
-    maxTokens: getPreference<number>("substrate.budget.maxTokens", 60_000),
-    maxToolCalls: getPreference<number>("substrate.budget.maxToolCalls", 20),
+    maxTokens: getPreference<number>("substrate.budget.maxTokens", 200_000),
+    maxToolCalls: getPreference<number>("substrate.budget.maxToolCalls", 40),
     maxDepth: getPreference<number>("substrate.budget.maxDepth", 5),
-    maxDepthMs: getPreference<number>("substrate.budget.maxDepthMs", 120_000),
+    maxDepthMs: getPreference<number>("substrate.budget.maxDepthMs", 300_000),
   });
 
   // Unified tool registry deps (substrate + user skills + MCP)

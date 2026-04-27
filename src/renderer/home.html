@@ -1424,6 +1424,24 @@
                     <input id="settings-context-window" type="number" class="settings-input settings-input-sm" min="10" max="200" step="10" value="40" />
                     <span class="settings-hint">messages before compaction</span>
                   </div>
+
+                  <h3 class="settings-subheading">Budget Limits</h3>
+                  <p class="section-desc">Per-turn limits on agent resource usage. Higher = more capable but costlier.</p>
+                  <label class="settings-label">Max Tokens</label>
+                  <div class="settings-inline">
+                    <input id="settings-budget-tokens" type="number" class="settings-input settings-input-sm" min="50000" max="1000000" step="50000" value="200000" />
+                    <span class="settings-hint">token budget per turn (input + output combined)</span>
+                  </div>
+                  <label class="settings-label">Max Tool Calls</label>
+                  <div class="settings-inline">
+                    <input id="settings-budget-tools" type="number" class="settings-input settings-input-sm" min="5" max="100" step="5" value="40" />
+                    <span class="settings-hint">maximum tool invocations per turn</span>
+                  </div>
+                  <label class="settings-label">Timeout</label>
+                  <div class="settings-inline">
+                    <input id="settings-budget-timeout" type="number" class="settings-input settings-input-sm" min="60" max="600" step="30" value="300" />
+                    <span class="settings-hint">seconds before the agent stops</span>
+                  </div>
                 </div>
 
                 <h3 class="settings-subheading">Tool Permissions</h3>

@@ -1717,7 +1717,6 @@ function appendYoToken(delta: string) {
   if (!delta) return;
   if (!yoResponseEl) {
     clearYoStatus();
-    finishTimeline();
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant yo-msg-streaming";
     yoPanelMessages.appendChild(yoResponseEl);
@@ -1740,6 +1739,7 @@ function appendYoToken(delta: string) {
 function finalizeYoMessage(fullText: string) {
   clearYoStatus();
   setYoThinking(false);
+  finishTimeline();
 
   // The last LLM round's text — already streamed live into the open block via
   // appendYoToken, so it's already visible. We just need to close the block
@@ -1747,16 +1747,12 @@ function finalizeYoMessage(fullText: string) {
   // If `fullText` arrived but our live accumulator missed it (edge case where
   // onDone fires without prior onText deltas), open a final block and inject.
   if (!yoResponseEl && fullText && fullText.trim()) {
-    finishTimeline();
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant";
     yoPanelMessages.appendChild(yoResponseEl);
     yoLastAssistantText = fullText;
     yoTurnFullText += fullText;
   }
-
-  // Close any open timeline (tools that ran with no trailing text).
-  if (!yoResponseEl) finishTimeline();
 
   // The whole turn's accumulated text — used for clipboard & memos.
   const text = yoTurnFullText || yoLastAssistantText || fullText;

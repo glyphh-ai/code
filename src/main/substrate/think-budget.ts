@@ -21,10 +21,10 @@ export interface BudgetOpts {
 }
 
 const DEFAULTS: Required<BudgetOpts> = {
-  maxTokens: 60_000,
-  maxToolCalls: 20,
+  maxTokens: 200_000,
+  maxToolCalls: 40,
   maxDepth: 5,
-  maxDepthMs: 120_000,
+  maxDepthMs: 300_000,
 };
 
 export class BudgetTracker {

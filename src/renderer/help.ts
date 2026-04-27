@@ -3057,6 +3057,23 @@ function initSettings() {
     window.yo.setPreference("subAgentModel", settingsSubagentModel.value);
   });
 
+  // Budget settings
+  const budgetTokensEl = document.getElementById("settings-budget-tokens") as HTMLInputElement;
+  const budgetToolsEl = document.getElementById("settings-budget-tools") as HTMLInputElement;
+  const budgetTimeoutEl = document.getElementById("settings-budget-timeout") as HTMLInputElement;
+  budgetTokensEl?.addEventListener("change", () => {
+    const val = parseInt(budgetTokensEl.value, 10);
+    if (val >= 50000) window.yo.setPreference("substrate.budget.maxTokens", val);
+  });
+  budgetToolsEl?.addEventListener("change", () => {
+    const val = parseInt(budgetToolsEl.value, 10);
+    if (val >= 5) window.yo.setPreference("substrate.budget.maxToolCalls", val);
+  });
+  budgetTimeoutEl?.addEventListener("change", () => {
+    const val = parseInt(budgetTimeoutEl.value, 10);
+    if (val >= 60) window.yo.setPreference("substrate.budget.maxDepthMs", val * 1000);
+  });
+
   toggleShowTabs.addEventListener("change", () => {
     window.yo.setPreference("showTabs", toggleShowTabs.checked);
     // Immediately refresh tab visibility
@@ -3203,6 +3220,14 @@ async function loadSettings() {
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
+
+  // Budget settings
+  const bTokens = document.getElementById("settings-budget-tokens") as HTMLInputElement;
+  const bTools = document.getElementById("settings-budget-tools") as HTMLInputElement;
+  const bTimeout = document.getElementById("settings-budget-timeout") as HTMLInputElement;
+  if (bTokens) bTokens.value = String(await window.yo.getPreference("substrate.budget.maxTokens", 200000));
+  if (bTools) bTools.value = String(await window.yo.getPreference("substrate.budget.maxToolCalls", 40));
+  if (bTimeout) bTimeout.value = String(Math.round((await window.yo.getPreference("substrate.budget.maxDepthMs", 300000) as number) / 1000));
 
   // MCP Expose — gate behind Advanced tier
   const mcpSectionWrap = document.getElementById("mcp-section-wrap")!;
