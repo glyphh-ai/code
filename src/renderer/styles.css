@@ -4489,6 +4489,7 @@ select.settings-input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  position: relative;
 }
 
 /* ── Yo scroll-to-bottom button ──────────────── */
