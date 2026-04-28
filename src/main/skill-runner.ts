@@ -155,7 +155,9 @@ function loadRunner(jsPath: string): LoadedModule {
   const ctx = vm.createContext(sandbox);
   const script = new vm.Script(transformed, { filename: jsPath });
   script.runInContext(ctx, { timeout: 5000 });
-  return moduleObj.exports || (sandbox.exports as LoadedModule);
+  const exported = moduleObj.exports || (sandbox.exports as LoadedModule);
+  if (typeof exported === "function") return { start: exported } as LoadedModule;
+  return exported;
 }
 
 // ── Main lifecycle executor ─────────────────────────────
@@ -450,7 +452,8 @@ export async function runSkillLifecycle(
     if (opts.signal?.aborted) throw new Error("Aborted");
     if (mod.start) {
       try {
-        await mod.start(ctx);
+        const startResult = await mod.start(ctx);
+        if (startResult !== undefined) output = startResult;
       } catch (err) {
         if (err instanceof EarlyExit) {
           state.set("result", err.value);

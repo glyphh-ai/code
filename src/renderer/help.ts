@@ -4539,13 +4539,20 @@ function renderRunDetails(run: any): string {
   if (run.logs && run.logs.length) {
     parts.push(renderRunSection("Logs", run.logs.map((l: string) => escapeHtml(l)).join("\n"), run.logs.length > 5));
   }
+  if (parts.length === 0) {
+    parts.push(`<div style="color:var(--text-2);font-size:11px;">No output recorded for this run.</div>`);
+  }
   return parts.join("");
 }
 
-function renderRunSection(label: string, content: string, _collapsed: boolean): string {
+function renderRunSection(label: string, content: string, collapsed: boolean): string {
+  const bodyStyle = collapsed ? ' style="max-height:120px;overflow:hidden;position:relative;"' : '';
+  const toggle = collapsed
+    ? `<span style="cursor:pointer;color:var(--accent);font-size:10px;margin-left:6px;" onclick="const b=this.parentElement.nextElementSibling;if(b.style.maxHeight){b.style.maxHeight='';b.style.overflow='';this.textContent='▾ collapse'}else{b.style.maxHeight='120px';b.style.overflow='hidden';this.textContent='▸ expand'}">▸ expand</span>`
+    : '';
   return `<div class="skill-run-section">
-    <div class="skill-run-section-header"><b>${label}</b></div>
-    <div class="skill-run-section-body">${content}</div>
+    <div class="skill-run-section-header"><b>${label}</b>${toggle}</div>
+    <div class="skill-run-section-body"${bodyStyle}>${content}</div>
   </div>`;
 }
 

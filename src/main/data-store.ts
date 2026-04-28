@@ -58,7 +58,7 @@ export class DataStore {
     const d = ensureDb();
     d.prepare(
       "INSERT OR REPLACE INTO kv (namespace, key, value, updated_at) VALUES (?, ?, ?, ?)"
-    ).run(namespace, key, JSON.stringify(value), Date.now());
+    ).run(namespace, key, JSON.stringify(value) ?? "null", Date.now());
   }
 
   delete(namespace: string, key: string): boolean {

@@ -92,8 +92,8 @@
   --overlay-bg:  rgba(0, 0, 0, 0.6);
   --shadow:      rgba(0, 0, 0, 0.4);
   --selection:   rgba(37, 199, 94, 0.3);
-  --scrollbar:   var(--accent);
-  --scrollbar-hover: #25C75E;
+  --scrollbar:   #333;
+  --scrollbar-hover: #555;
   --toast-bg:    #1a1a2e;
   --code-inline: #e0a0ff;
   --input-bg:    var(--surface);
@@ -1385,7 +1385,10 @@ body {
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
 }
 .skill-run-event { padding: 2px 0; font-size: 11px; color: var(--text-2); }
 .skill-run-event.status-error { color: var(--danger); }
