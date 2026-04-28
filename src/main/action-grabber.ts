@@ -78,17 +78,27 @@ export class ActionGrabber {
 
   /** Called when a panel finishes navigating to a new URL. */
   async onPanelNavigate(panelId: string): Promise<void> {
+    this.lastHashes.delete(panelId);
+    this.lastContent.delete(panelId);
     setTimeout(() => this.captureIfChanged(panelId), 1500);
+    setTimeout(() => this.captureIfChanged(panelId), 4000);
   }
 
   /** Called when a page finishes loading (initial load or reload). */
   async onPageLoad(panelId: string): Promise<void> {
+    // Chat SPAs can take a while to hydrate — retry capture at 2s and 5s
     setTimeout(() => this.captureIfChanged(panelId), 2000);
+    setTimeout(() => this.captureIfChanged(panelId), 5000);
   }
 
   /** Called on in-page navigation (SPA route changes, hash changes). */
   async onInPageNavigate(panelId: string): Promise<void> {
-    setTimeout(() => this.captureIfChanged(panelId), 1000);
+    // SPA navigation — clear previous hash so next capture isn't deduped
+    // against the old conversation's content
+    this.lastHashes.delete(panelId);
+    this.lastContent.delete(panelId);
+    setTimeout(() => this.captureIfChanged(panelId), 1500);
+    setTimeout(() => this.captureIfChanged(panelId), 4000);
   }
 
   private async pollConversationalPanels(): Promise<void> {

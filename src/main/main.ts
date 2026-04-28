@@ -591,6 +591,18 @@ async function boot() {
       vibeWebContentsMap.set(wc.id, vibeName);
       wc.on("destroyed", () => vibeWebContentsMap.delete(wc.id));
     }
+    if (id === "home") {
+      (wc as any).on("did-attach-webview", (_ev: unknown, childWc: Electron.WebContents) => {
+        childWc.on("did-navigate", (_e: unknown, url: string) => {
+          if (url.includes("yo-vibe-preview")) {
+            const match = url.match(/\/([^/.]+)\.html/);
+            const name = match?.[1] || "preview";
+            vibeWebContentsMap.set(childWc.id, name);
+            childWc.on("destroyed", () => vibeWebContentsMap.delete(childWc.id));
+          }
+        });
+      });
+    }
     if (id === "term") {
       // Spawn pty when terminal page loads
       wc.on("did-finish-load", () => terminalManager.spawn(wc));
@@ -810,7 +822,7 @@ async function boot() {
       const fileUrl = `file://${appHtmlPath}`;
       panelManager.addPanel(panelId, fileUrl, vibePreload);
       if (!appConnector.get(panelId)) {
-        appConnector.add(panelId, vibe.description || vibe.name, `yo://vibe/${vibe.name}`);
+        appConnector.add(panelId, vibe.name, `yo://vibe/${vibe.name}`);
       }
     }
   }
@@ -2243,6 +2255,19 @@ async function boot() {
   ipcMain.handle("vibe:get-base-css", () => {
     const { VIBE_BASE_CSS } = require("./vibe-base-css");
     return VIBE_BASE_CSS;
+  });
+  ipcMain.handle("vibe:preview-write", (_e, html: string, vibeName: string) => {
+    const tmpDir = path.join(os.tmpdir(), "yo-vibe-preview");
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const filePath = path.join(tmpDir, `${vibeName || "preview"}.html`);
+    fs.writeFileSync(filePath, html, "utf-8");
+    return {
+      fileUrl: `file://${filePath}`,
+      preloadPath: path.join(__dirname, "vibe-preload.js"),
+    };
+  });
+  ipcMain.handle("vibe:preview-register", (e, vibeName: string) => {
+    vibeWebContentsMap.set(e.sender.id, vibeName);
   });
 
   // IPC: Vibe data store (namespaced to the vibe's skill name)

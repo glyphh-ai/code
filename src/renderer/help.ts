@@ -3433,6 +3433,7 @@ const skillTabCode = document.getElementById("skill-tab-code")!;
 const skillTabPreview = document.getElementById("skill-tab-preview")!;
 const skillPreviewWebview = document.getElementById("skill-preview-webview") as any;
 let activeRightTab: "code" | "preview" = "code";
+let _vibePreloadPath: string | null = null;
 
 function switchSkillRightTab(tab: "code" | "preview") {
   activeRightTab = tab;
@@ -3444,41 +3445,27 @@ function switchSkillRightTab(tab: "code" | "preview") {
   if (tab === "preview") refreshVibePreview();
 }
 
-let _vibeBaseCssCache: string | null = null;
-
 async function refreshVibePreview() {
   const html = editingFileContents.get("APP.html") || "";
-  const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
   if (!html.trim()) {
     skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(
       `<body style="background:#0a0a0a;color:#999;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>No APP.html content</p></body>`
     );
     return;
   }
-  if (!_vibeBaseCssCache) {
-    try { _vibeBaseCssCache = await (window as any).yo.getVibeBaseCss(); } catch { _vibeBaseCssCache = ""; }
+  try {
+    const vibeName = editingSkillName || "preview";
+    const result = await window.yo.vibePreviewWrite(html, vibeName);
+    if (!_vibePreloadPath) {
+      _vibePreloadPath = result.preloadPath;
+      skillPreviewWebview.setAttribute("preload", `file://${_vibePreloadPath}`);
+    }
+    skillPreviewWebview.src = result.fileUrl;
+  } catch {
+    skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(
+      `<body style="background:#0a0a0a;color:#999;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Preview failed to load</p></body>`
+    );
   }
-  const vibeStub = `<style id="__yo_vibe_base__">${_vibeBaseCssCache || ""}</style>
-<script>
-document.documentElement.setAttribute("data-theme","${currentTheme}");
-window.vibe={
-  runSkill:function(name){return Promise.resolve({ok:true,output:{_preview:true,skill:name,message:"Mock data — open in panel for live API"}})},
-  ask:function(){return Promise.resolve("This is mock preview data. Open the vibe in a panel to get live responses.")},
-  searchCaptures:function(){return Promise.resolve([])},
-  readFile:function(){return Promise.resolve(null)},
-  getName:function(){return Promise.resolve("preview")},
-  copyToClipboard:function(){},
-  onData:function(){},
-  store:{get:function(){return Promise.resolve(null)},set:function(){return Promise.resolve()},delete:function(){return Promise.resolve(false)},list:function(){return Promise.resolve([])},query:function(){return Promise.resolve([])},keys:function(){return Promise.resolve([])},count:function(){return Promise.resolve(0)},clear:function(){return Promise.resolve(0)}}
-};
-</script>
-<div style="position:fixed;top:0;left:0;right:0;background:var(--surface-2);color:var(--text-3);font:11px system-ui;padding:4px 10px;text-align:center;z-index:99999;border-bottom:1px solid var(--border)">Preview — vibe API calls return mock data</div>
-<div style="height:28px"></div>`;
-  const injected = html.replace(/<head([^>]*)>/i, `<head$1>${vibeStub}`);
-  const finalHtml = injected === html
-    ? `<html><head>${vibeStub}</head>${html}</html>`
-    : injected;
-  skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(finalHtml);
 }
 
 function updatePreviewTabVisibility() {

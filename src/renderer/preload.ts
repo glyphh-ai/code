@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld("yo", {
   skillsAvailableTools: () => ipcRenderer.invoke("skills-available-tools") as Promise<Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }>>,
   // Vibe base CSS for preview
   getVibeBaseCss: () => ipcRenderer.invoke("vibe:get-base-css") as Promise<string>,
+  vibePreviewWrite: (html: string, vibeName: string) => ipcRenderer.invoke("vibe:preview-write", html, vibeName) as Promise<{ fileUrl: string; preloadPath: string }>,
+  vibePreviewRegister: (vibeName: string) => ipcRenderer.invoke("vibe:preview-register", vibeName) as Promise<void>,
   // Files in a skill folder
   skillsListFiles: (name: string) => ipcRenderer.invoke("skills-list-files", name) as Promise<string[]>,
   skillsReadFile: (name: string, rel: string) => ipcRenderer.invoke("skills-read-file", name, rel) as Promise<string | null>,

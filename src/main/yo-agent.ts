@@ -77,7 +77,7 @@ For simple skill reads/updates you can still use create_skill, update_skill, rea
 For quick data store queries use store_get, store_list, store_query, store_info directly.
 
 AFTER BUILDING A VIBE:
-When delegate_build returns and mentions a vibe name (look for "VIBE_NAME: <name>" in the response), tell the user to open it with .dip vibe-<name>. Do NOT use delegate_navigate to open vibes — just tell the user the command.
+When delegate_build returns and mentions a vibe name (look for "VIBE_NAME: <name>" in the response), immediately run_command with ".dip vibe-<name>" to open it for the user. Then tell them it's open.
 
 AVAILABLE RESOURCES FOR BUILDING:
 - Chart.js is available in vibes via <script src="yo-asset://chart.umd.min.js"></script>
