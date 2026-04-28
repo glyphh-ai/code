@@ -2259,8 +2259,10 @@ async function boot() {
   ipcMain.handle("vibe:preview-write", (_e, html: string, vibeName: string) => {
     const tmpDir = path.join(os.tmpdir(), "yo-vibe-preview");
     fs.mkdirSync(tmpDir, { recursive: true });
+    const assetDir = path.join(__dirname, "..", "renderer");
+    const resolved = html.replace(/yo-asset:\/\/\/?/g, `file://${assetDir}/`);
     const filePath = path.join(tmpDir, `${vibeName || "preview"}.html`);
-    fs.writeFileSync(filePath, html, "utf-8");
+    fs.writeFileSync(filePath, resolved, "utf-8");
     return {
       fileUrl: `file://${filePath}`,
       preloadPath: path.join(__dirname, "vibe-preload.js"),
