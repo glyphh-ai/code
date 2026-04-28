@@ -3455,7 +3455,7 @@ async function refreshVibePreview() {
   }
   try {
     const vibeName = editingSkillName || "preview";
-    const result = await window.yo.vibePreviewWrite(html, vibeName);
+    const result = await (window as any).yo.vibePreviewWrite(html, vibeName);
     if (!_vibePreloadPath) {
       _vibePreloadPath = result.preloadPath;
       skillPreviewWebview.setAttribute("preload", `file://${_vibePreloadPath}`);
