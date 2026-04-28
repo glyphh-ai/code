@@ -36,6 +36,7 @@ export class ActionGrabber {
   private lastHashes = new Map<string, string>();
   private lastContent = new Map<string, string>();
   private lastCaptureTimes = new Map<string, number>();
+  private inFlight = new Set<string>();
   private wcGetter: ((id: string) => WebContents | null) | null = null;
   private panelIdGetter: (() => string[]) | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -110,12 +111,22 @@ export class ActionGrabber {
   private async captureIfChanged(panelId: string): Promise<void> {
     if (!this.captureStore || !this.wcGetter) return;
     if (this.shouldSkip(panelId)) return;
+    if (this.inFlight.has(panelId)) return;
 
     const now = Date.now();
     const lastTime = this.lastCaptureTimes.get(panelId) || 0;
     if (now - lastTime < DEBOUNCE_MS) return;
 
-    const wc = this.wcGetter(panelId);
+    this.inFlight.add(panelId);
+    try {
+      await this._doCapture(panelId, now);
+    } finally {
+      this.inFlight.delete(panelId);
+    }
+  }
+
+  private async _doCapture(panelId: string, now: number): Promise<void> {
+    const wc = this.wcGetter!(panelId);
     if (!wc || wc.isDestroyed()) return;
 
     // Quick hash check — skip if nothing changed at all
@@ -138,11 +149,27 @@ export class ActionGrabber {
     this.lastContent.set(panelId, content);
     this.lastCaptureTimes.set(panelId, now);
 
+    // For conversational panels, use a URL-derived source key so each
+    // conversation gets its own entry (e.g. "claude:chat/abc123" instead
+    // of just "claude"). This prevents deduplicate from wiping unrelated
+    // conversations and prevents incremental from fragmenting streams.
+    const sourceKey = this.deriveSourceKey(panelId, wc);
+
     try {
-      await this.captureStore.ingest(panelId, content);
+      await this.captureStore!.ingest(sourceKey, content);
     } catch (err) {
       console.error("[action-grabber] ingest failed:", panelId, err);
     }
+  }
+
+  private deriveSourceKey(panelId: string, wc: WebContents): string {
+    if (!this.appConnector?.isConversational(panelId)) return panelId;
+    try {
+      const url = new URL(wc.getURL());
+      const pathKey = url.pathname.replace(/^\//, "").replace(/\//g, ":") || "";
+      if (pathKey && pathKey !== panelId) return `${panelId}:${pathKey}`;
+    } catch {}
+    return panelId;
   }
 }
 

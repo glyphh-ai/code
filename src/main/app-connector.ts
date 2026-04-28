@@ -257,7 +257,7 @@ function inferCapturePolicy(source: string, url?: string): CapturePolicy {
   }
 
   if (CONVERSATIONAL_DOMAINS.some((d) => domain.includes(d))) {
-    return { type: "incremental", minDeltaChars: 50 };
+    return { type: "deduplicate" };
   }
 
   if (EPHEMERAL_DOMAINS.some((d) => domain.includes(d))) {
