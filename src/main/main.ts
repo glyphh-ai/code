@@ -1282,8 +1282,17 @@ async function boot() {
     // Sync tab state (dip commands change active panel / open grids)
     if (gridInfo) {
       for (const id of gridInfo.panelIds) ensureTab(id);
+      setPreference("suspendedLayout", null);
     } else if (panelManager.activePanelId) {
       ensureTab(panelManager.activePanelId);
+    }
+    // Persist suspended grid if command suspended it
+    const suspended = layoutManager.getSuspendedGridInfo();
+    if (suspended) {
+      setPreference("suspendedLayout", {
+        version: 2, name: suspended.name, cols: suspended.cols, rows: suspended.rows,
+        colWidths: suspended.colWidths, rowHeights: suspended.rowHeights, cells: suspended.cells,
+      });
     }
     sendTabState();
     return result;
@@ -1431,11 +1440,21 @@ async function boot() {
         openTabs.push(id);
       }
     }
-    // Also ensure panels from the active layout are in tabs
+    // Restore suspended layout from previous session
+    const savedSuspended = getPreference<import("./layout-manager").GridLayout | null>("suspendedLayout", null);
+    if (savedSuspended && !layoutManager.hasSplit) {
+      layoutManager.setSuspendedGrid(savedSuspended);
+    }
+
+    // Also ensure panels from the active/suspended layout are in tabs
     const gridInfo = layoutManager.getGridInfo();
+    const suspendedInfo = layoutManager.getSuspendedGridInfo();
     if (gridInfo) {
       for (const id of gridInfo.panelIds) ensureTab(id);
-    } else if (panelManager.activePanelId) {
+    } else if (suspendedInfo) {
+      for (const id of suspendedInfo.panelIds) ensureTab(id);
+    }
+    if (panelManager.activePanelId) {
       ensureTab(panelManager.activePanelId);
     }
     sendTabState();
@@ -1464,7 +1483,10 @@ async function boot() {
   function buildTabState() {
     const visible = getPreference<boolean>("showTabs", true);
     const gridInfo = layoutManager.getGridInfo();
-    const isLayout = gridInfo && gridInfo.panelIds.length > 1;
+    const suspendedInfo = layoutManager.getSuspendedGridInfo();
+    const layoutInfo = gridInfo || suspendedInfo;
+    const hasLayout = layoutInfo && layoutInfo.panelIds.length > 1;
+    const isActiveLayout = gridInfo && gridInfo.panelIds.length > 1;
 
     // Ensure "home" is always the leftmost tab
     if (!openTabs.includes("home")) {
@@ -1476,11 +1498,11 @@ async function boot() {
     }
 
     let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean }>;
-    if (isLayout) {
-      const layoutName = gridInfo.name || gridInfo.panelIds.map((id) => getTabName(id)).join(" + ");
-      const layoutFavicons = gridInfo.panelIds.map((id) => panelFavicons[id] || "").filter(Boolean);
+    if (hasLayout) {
+      const layoutName = layoutInfo.panelIds.map((id) => getTabName(id)).join(" + ");
+      const layoutFavicons = layoutInfo.panelIds.map((id) => panelFavicons[id] || "").filter(Boolean);
       const layoutTabId = "__layout__";
-      const gridSet = new Set(gridInfo.panelIds);
+      const gridSet = new Set(layoutInfo.panelIds);
       tabs = [
         ...(openTabs.includes("home") ? [{ id: "home", name: "Home", favicon: "", pinned: true }] : []),
         { id: layoutTabId, name: layoutName, layoutFavicons },
@@ -1499,7 +1521,7 @@ async function boot() {
 
     return {
       tabs,
-      activeId: isLayout ? "__layout__" : (panelManager.activePanelId || ""),
+      activeId: isActiveLayout ? "__layout__" : (panelManager.activePanelId || ""),
       visible,
     };
   }
@@ -2675,20 +2697,33 @@ async function boot() {
   ipcMain.on("tab-switch", (_e, id: string) => {
     if (!mainWindow) return;
     if (id === "__layout__") {
-      // Clicking the layout tab restores the grid
-      layoutManager.restoreSplit(mainWindow);
+      // Clicking the layout tab restores the grid (from active or suspended)
+      if (!layoutManager.hasSplit) {
+        layoutManager.resumeSplit(mainWindow);
+      } else {
+        layoutManager.restoreSplit(mainWindow);
+      }
       const gridInfo = layoutManager.getGridInfo();
       if (gridInfo) {
         setPreference("lastView", {
           type: "grid-full",
           grid: { name: "", version: 2, cols: gridInfo.cols, rows: gridInfo.rows, colWidths: gridInfo.colWidths, rowHeights: gridInfo.rowHeights, cells: gridInfo.cells },
         });
+        setPreference("suspendedLayout", null);
       }
     } else {
-      // Switching to a non-layout tab exits the grid
-      layoutManager.clearSplit();
+      // Suspend grid so the layout tab persists
+      layoutManager.suspendSplit();
       panelManager.switchTo(id, mainWindow);
       setPreference("lastView", { type: "panel", id });
+      // Persist suspended grid for restart
+      const suspended = layoutManager.getSuspendedGridInfo();
+      if (suspended) {
+        setPreference("suspendedLayout", {
+          version: 2, name: suspended.name, cols: suspended.cols, rows: suspended.rows,
+          colWidths: suspended.colWidths, rowHeights: suspended.rowHeights, cells: suspended.cells,
+        });
+      }
     }
     sendSplitState();
     sendTabState();
@@ -2722,9 +2757,9 @@ async function boot() {
     // Home tab is pinned — cannot be closed
     if (id === "home") return;
 
-    // Closing the layout tab closes all panels in the grid
+    // Closing the layout tab clears the grid (active or suspended)
     if (id === "__layout__") {
-      const gridInfo = layoutManager.getGridInfo();
+      const gridInfo = layoutManager.getGridInfo() || layoutManager.getSuspendedGridInfo();
       if (gridInfo) {
         for (const panelId of gridInfo.panelIds) {
           const idx = openTabs.indexOf(panelId);
@@ -2733,6 +2768,8 @@ async function boot() {
         }
       }
       layoutManager.clearSplit();
+      layoutManager.clearSuspended();
+      setPreference("suspendedLayout", null);
       // Switch to first remaining tab
       if (openTabs.length > 0) {
         panelManager.switchTo(openTabs[0], mainWindow);

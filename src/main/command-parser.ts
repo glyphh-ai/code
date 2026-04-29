@@ -268,7 +268,7 @@ export class CommandParser {
         return `→ ${targetId}`;
       }
       // No active grid — fall through to a normal full switch
-      this.layouts.clearSplit();
+      this.layouts.suspendSplit();
       const switched = this.panels.switchTo(targetId, win);
       if (switched) setPreference("lastView", { type: "panel", id: targetId });
       return switched ? `Switched to ${targetId}` : `Unknown panel: ${targetId}. Try: dip list`;
@@ -425,7 +425,7 @@ export class CommandParser {
     }
 
     // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands
-    this.layouts.clearSplit();
+    this.layouts.suspendSplit();
     const switched = this.panels.switchTo(sub, win);
     if (!switched) return `Unknown panel: ${sub}. Try: dip list`;
     setPreference("lastView", { type: "panel", id: sub });

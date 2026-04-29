@@ -78,6 +78,7 @@ const CELL_URL_HEIGHT = 22;
 export class LayoutManager {
   private layouts: Map<string, GridLayout> = new Map();
   private activeGrid: GridLayout | null = null;
+  private suspendedGrid: GridLayout | null = null;
   private boundWindow: BrowserWindow | null = null;
   private lastCellBounds: CellBounds[] = [];
 
@@ -102,6 +103,7 @@ export class LayoutManager {
     if (!this.panelManager.getOrCreateView(leftId, win)) return false;
     if (!this.panelManager.getOrCreateView(rightId, win)) return false;
 
+    this.suspendedGrid = null;
     this.activeGrid = {
       name: "",
       version: 2,
@@ -125,6 +127,7 @@ export class LayoutManager {
       if (!this.panelManager.getOrCreateView(id, win)) return false;
     }
     const n = panelIds.length;
+    this.suspendedGrid = null;
     this.activeGrid = {
       name: "",
       version: 2,
@@ -158,6 +161,7 @@ export class LayoutManager {
       }
     }
 
+    this.suspendedGrid = null;
     this.activeGrid = {
       name: "",
       version: 2,
@@ -177,6 +181,7 @@ export class LayoutManager {
     for (const cell of grid.cells) {
       if (!this.panelManager.getOrCreateView(cell.panelId, win)) return false;
     }
+    this.suspendedGrid = null;
     this.activeGrid = JSON.parse(JSON.stringify(grid));
     this.applyGrid(win, true);
     this.bindResize(win);
@@ -243,6 +248,7 @@ export class LayoutManager {
   apply(name: string, win: BrowserWindow): boolean {
     const layout = this.layouts.get(name);
     if (!layout) return false;
+    this.suspendedGrid = null;
     this.activeGrid = JSON.parse(JSON.stringify(layout));
     this.applyGrid(win, true);
     this.bindResize(win);
@@ -309,6 +315,43 @@ export class LayoutManager {
 
   restoreSplit(win: BrowserWindow): void {
     if (this.activeGrid) this.applyGrid(win);
+  }
+
+  suspendSplit(): void {
+    if (this.activeGrid) {
+      this.suspendedGrid = this.activeGrid;
+      this.activeGrid = null;
+    }
+  }
+
+  resumeSplit(win: BrowserWindow): boolean {
+    if (!this.suspendedGrid) return false;
+    this.activeGrid = this.suspendedGrid;
+    this.suspendedGrid = null;
+    this.applyGrid(win, true);
+    this.bindResize(win);
+    return true;
+  }
+
+  getSuspendedGridInfo(): GridSplitInfo | null {
+    if (!this.suspendedGrid) return null;
+    return {
+      panelIds: this.suspendedGrid.cells.map((c) => c.panelId),
+      name: this.suspendedGrid.name || "",
+      cols: this.suspendedGrid.cols,
+      rows: this.suspendedGrid.rows,
+      colWidths: [...this.suspendedGrid.colWidths],
+      rowHeights: [...this.suspendedGrid.rowHeights],
+      cells: this.suspendedGrid.cells.map((c) => ({ ...c })),
+    };
+  }
+
+  clearSuspended(): void {
+    this.suspendedGrid = null;
+  }
+
+  setSuspendedGrid(grid: GridLayout): void {
+    this.suspendedGrid = grid;
   }
 
   /** Swap one cell's panel by cell index */
