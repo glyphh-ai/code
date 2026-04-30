@@ -276,33 +276,51 @@ export class McpClient extends EventEmitter {
     if (sessionId) this.httpSessionId = sessionId;
 
     const contentType = response.headers.get("content-type") || "";
-    const text = await response.text();
-    if (!text.trim()) return undefined;
 
     if (contentType.includes("text/event-stream")) {
-      for (const line of text.split("\n")) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6).trim();
-          if (!data) continue;
-          try {
-            const msg = JSON.parse(data) as JsonRpcResponse;
-            if ("id" in msg && msg.id === request.id) {
-              if (msg.error) throw new Error(`MCP error ${msg.error.code}: ${msg.error.message}`);
-              return msg.result;
-            }
-          } catch (e) {
-            if (e instanceof Error && e.message.startsWith("MCP error")) throw e;
-          }
-        }
-      }
-      return undefined;
+      return this.readSseResponse(response, request.id);
     }
+
+    const text = await response.text();
+    if (!text.trim()) return undefined;
 
     const msg = JSON.parse(text) as JsonRpcResponse;
     if (msg.error) {
       throw new Error(`MCP error ${msg.error.code}: ${msg.error.message}`);
     }
     return msg.result;
+  }
+
+  private async readSseResponse(response: Response, requestId: number): Promise<unknown> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (!data) continue;
+        try {
+          const msg = JSON.parse(data) as JsonRpcResponse;
+          if ("id" in msg && msg.id === requestId) {
+            reader.cancel().catch(() => {});
+            if (msg.error) throw new Error(`MCP error ${msg.error.code}: ${msg.error.message}`);
+            return msg.result;
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message.startsWith("MCP error")) throw e;
+        }
+      }
+    }
+    return undefined;
   }
 
   private sendNotification(method: string, params?: Record<string, unknown>): void {

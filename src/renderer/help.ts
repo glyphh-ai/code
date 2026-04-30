@@ -3431,7 +3431,7 @@ const skillTypeSelect = document.getElementById("skill-type") as HTMLSelectEleme
 const skillRightTabs = document.getElementById("skill-right-tabs")!;
 const skillTabCode = document.getElementById("skill-tab-code")!;
 const skillTabPreview = document.getElementById("skill-tab-preview")!;
-const skillPreviewWebview = document.getElementById("skill-preview-webview") as any;
+let skillPreviewWebview = document.getElementById("skill-preview-webview") as any;
 let activeRightTab: "code" | "preview" = "code";
 let _vibePreloadPath: string | null = null;
 
@@ -3456,9 +3456,20 @@ async function refreshVibePreview() {
   try {
     const vibeName = editingSkillName || "preview";
     const result = await (window as any).yo.vibePreviewWrite(html, vibeName);
+    // Setting preload via setAttribute on an attached <webview> is unreliable —
+    // its webContents is created on DOM attach, before any later attribute change.
+    // Replace the element with a fresh one that has preload set before insertion.
     if (!_vibePreloadPath) {
       _vibePreloadPath = result.preloadPath;
-      skillPreviewWebview.setAttribute("preload", `file://${_vibePreloadPath}`);
+      const old = skillPreviewWebview;
+      const fresh = document.createElement("webview") as any;
+      fresh.id = old.id;
+      fresh.className = old.className;
+      const partition = old.getAttribute("partition");
+      if (partition) fresh.setAttribute("partition", partition);
+      fresh.setAttribute("preload", `file://${_vibePreloadPath}`);
+      old.parentElement!.replaceChild(fresh, old);
+      skillPreviewWebview = fresh;
     }
     skillPreviewWebview.src = result.fileUrl;
   } catch {

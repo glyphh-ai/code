@@ -9,7 +9,7 @@
 // Help overlay moved to yo://home app
 import { showOnboarding } from "./onboarding.js";
 
-type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean };
+type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
 declare global {
   interface Window {
@@ -410,6 +410,16 @@ function renderTabs(tabs: TabInfo[], activeId: string) {
       el.appendChild(close);
     }
 
+    // Right-click "Add as app" — only for browser tabs with a real URL
+    const isBrowserTab = tab.id === "browser" || tab.id.startsWith("browse-");
+    if (isBrowserTab && tab.url && /^https?:\/\//i.test(tab.url)) {
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openTabContextMenu(e.clientX, e.clientY, tab.url!, tab.name);
+      });
+    }
+
     // Drag-and-drop reordering (not for pinned or layout tabs)
     if (!tab.pinned && tab.id !== "__layout__") {
       el.draggable = true;
@@ -469,6 +479,66 @@ function closeTabNewMenu() {
     tabNewMenu = null;
     window.yo.panelsShow();
   }
+}
+
+let tabCtxMenu: HTMLElement | null = null;
+
+function closeTabCtxMenu() {
+  if (tabCtxMenu) {
+    tabCtxMenu.remove();
+    tabCtxMenu = null;
+    window.yo.panelsShow();
+  }
+}
+
+function openTabContextMenu(x: number, y: number, url: string, tabName: string) {
+  closeTabCtxMenu();
+  closeTabNewMenu();
+  window.yo.panelsHide();
+
+  const menu = document.createElement("div");
+  menu.className = "tab-new-menu tab-ctx-menu";
+
+  const addBtn = document.createElement("button");
+  addBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg><span>Add as app</span>`;
+  addBtn.addEventListener("click", async () => {
+    closeTabCtxMenu();
+    let host = "";
+    try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
+    const baseName = (tabName && tabName.trim()) || host || "App";
+    const id = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `app-${Date.now()}`;
+    const result = await window.yo.appsAdd(id, baseName, url);
+    if (result && typeof result === "object" && "error" in result) {
+      alert((result as { error: string }).error);
+    }
+  });
+  menu.appendChild(addBtn);
+
+  // Position; clamp to viewport
+  menu.style.top = `${y}px`;
+  menu.style.left = `${x}px`;
+  menu.style.visibility = "hidden";
+  document.body.appendChild(menu);
+  tabCtxMenu = menu;
+
+  const margin = 8;
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  if (x + w + margin > window.innerWidth) menu.style.left = `${Math.max(margin, window.innerWidth - w - margin)}px`;
+  if (y + h + margin > window.innerHeight) menu.style.top = `${Math.max(margin, window.innerHeight - h - margin)}px`;
+  menu.style.visibility = "";
+
+  const onClickOutside = (ev: MouseEvent) => {
+    if (!menu.contains(ev.target as Node)) {
+      closeTabCtxMenu();
+      document.removeEventListener("click", onClickOutside);
+      document.removeEventListener("contextmenu", onClickOutside);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener("click", onClickOutside);
+    document.addEventListener("contextmenu", onClickOutside);
+  }, 0);
 }
 
 tabNewBtn.addEventListener("click", async (e) => {
@@ -542,9 +612,19 @@ tabNewBtn.addEventListener("click", async (e) => {
   const rect = tabNewBtn.getBoundingClientRect();
   menu.style.top = `${rect.bottom + 4}px`;
   menu.style.left = `${rect.left}px`;
+  menu.style.visibility = "hidden";
 
   document.body.appendChild(menu);
   tabNewMenu = menu;
+
+  // Flip to right-anchored if the menu would overflow the window
+  const menuWidth = menu.offsetWidth;
+  const margin = 8;
+  if (rect.left + menuWidth + margin > window.innerWidth) {
+    menu.style.left = `${Math.max(margin, rect.right - menuWidth)}px`;
+  }
+  menu.style.visibility = "";
+
   searchInput.focus();
 
   const onClickOutside = (ev: MouseEvent) => {
@@ -1134,7 +1214,7 @@ const yoScrollBtn = document.getElementById("yo-scroll-btn")!;
 // Scroll-to-bottom button — show when user scrolls up from bottom
 yoPanelMessages.addEventListener("scroll", () => {
   const gap = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight;
-  yoScrollBtn.classList.toggle("visible", gap > 80);
+  yoScrollBtn.classList.toggle("visible", gap > 40);
 });
 yoScrollBtn.addEventListener("click", () => {
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
@@ -1719,6 +1799,9 @@ function showYoToolUse(id: string, name: string, input: unknown) {
 
 function showYoToolResult(id: string, detail: string) {
   finishToolRow(id, detail);
+  // Re-show spinner after tool completes — the agent is still working
+  if (yoThinking && !yoStatusEl) showYoStatus("");
+  if (yoStatusEl) yoPanelMessages.appendChild(yoStatusEl);
 }
 
 /** Render markdown into the current open block and detach it. Subsequent

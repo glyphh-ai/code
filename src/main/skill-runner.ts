@@ -356,7 +356,16 @@ export async function runSkillLifecycle(
         }
         const ev = startEvent(emitter, "mcp", `mcp: ${serverId}.${toolName}`, rootEvent.id, { toolName: `${serverId}.${toolName}` });
         try {
-          const result = await globalMcpManager.callToolDirect(serverId, toolName, args);
+          // 60s ceiling so a hung MCP server (e.g. streamable-http with no response) can't spin a vibe forever.
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new SkillError(`MCP call ${serverId}.${toolName} timed out after 60s`, "MCP_TIMEOUT")), 60000);
+          });
+          const result = await Promise.race([
+            globalMcpManager.callToolDirect(serverId, toolName, args),
+            timeout,
+          ]);
+          if (timer) clearTimeout(timer);
           completeEvent(emitter, ev, "success");
           return result;
         } catch (err) {

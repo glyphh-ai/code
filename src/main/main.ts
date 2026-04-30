@@ -626,6 +626,7 @@ async function boot() {
             panelUrls[id] = url;
             if (panelManager.activePanelId === id) sendUrlUpdate();
             sendPanelUrl(id);
+            sendTabState();
           }
         };
         childWc.on("did-navigate", (_e: unknown, url: string) => {
@@ -657,6 +658,7 @@ async function boot() {
           panelUrls[id] = url;
           if (panelManager.activePanelId === id) sendUrlUpdate();
           sendPanelUrl(id);
+          sendTabState();
         }
       };
       wc.on("did-navigate", (_e: unknown, url: string) => {
@@ -1498,7 +1500,12 @@ async function boot() {
       openTabs.unshift("home");
     }
 
-    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean }>;
+    const urlForTab = (id: string): string | undefined => {
+      const isBrowser = id === "browser" || id.startsWith("browse-");
+      return isBrowser ? (panelUrls[id] || undefined) : undefined;
+    };
+
+    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string }>;
     if (hasLayout) {
       const layoutName = layoutInfo.panelIds.map((id) => getTabName(id)).join(" + ");
       const layoutFavicons = layoutInfo.panelIds.map((id) => panelFavicons[id] || "").filter(Boolean);
@@ -1508,7 +1515,7 @@ async function boot() {
         ...(openTabs.includes("home") ? [{ id: "home", name: "Home", favicon: "", pinned: true }] : []),
         { id: layoutTabId, name: layoutName, layoutFavicons },
         ...openTabs.filter((id) => id !== "home" && !gridSet.has(id)).map((id) => ({
-          id, name: getTabName(id), favicon: panelFavicons[id] || "",
+          id, name: getTabName(id), favicon: panelFavicons[id] || "", url: urlForTab(id),
         })),
       ];
     } else {
@@ -1517,6 +1524,7 @@ async function boot() {
         name: id === "home" ? "Home" : getTabName(id),
         favicon: panelFavicons[id] || "",
         pinned: id === "home",
+        url: urlForTab(id),
       }));
     }
 
