@@ -75,7 +75,7 @@ jobs:
           malware_block: false
 
       - name: Replace unsigned exe with signed
-        run: move /Y release\signed\Yo-Setup.exe release\Yo-Setup.exe
+        run: Move-Item -Force release\signed\Yo-Setup.exe release\Yo-Setup.exe
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
