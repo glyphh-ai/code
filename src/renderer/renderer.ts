@@ -476,7 +476,7 @@ tabNewBtn.addEventListener("click", async (e) => {
   if (tabNewMenu) { closeTabNewMenu(); return; }
 
   const apps = await window.yo.appsList();
-  const appsWithUrl = apps.filter((a) => a.url && !a.url.startsWith("yo://"));
+  const appsWithUrl = apps.filter((a) => a.url && a.id !== "home");
 
   if (appsWithUrl.length === 0) {
     window.yo.tabNew();
@@ -513,11 +513,15 @@ tabNewBtn.addEventListener("click", async (e) => {
     const btn = document.createElement("button");
     btn.dataset.name = app.name.toLowerCase();
     let iconHtml = "";
-    try {
-      const domain = new URL(app.url!).hostname;
-      iconHtml = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" width="14" height="14" style="border-radius:2px;" onerror="this.style.display='none'" />`;
-    } catch {
+    if (app.url!.startsWith("yo://")) {
       iconHtml = `<span class="tab-new-menu-initial">${app.name.charAt(0).toUpperCase()}</span>`;
+    } else {
+      try {
+        const domain = new URL(app.url!).hostname;
+        iconHtml = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" width="14" height="14" style="border-radius:2px;" onerror="this.style.display='none'" />`;
+      } catch {
+        iconHtml = `<span class="tab-new-menu-initial">${app.name.charAt(0).toUpperCase()}</span>`;
+      }
     }
     btn.innerHTML = `${iconHtml}<span>${app.name}</span>`;
     btn.addEventListener("click", () => { closeTabNewMenu(); window.yo.tabNewApp(app.id); });
