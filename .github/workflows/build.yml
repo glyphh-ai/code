@@ -57,8 +57,21 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Package Windows
+      - name: Package Windows (unsigned)
         run: npx electron-builder --win --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Sign Windows exe with SSL.com
+        uses: sslcom/esigner-codesign@develop
+        with:
+          command: sign
+          username: ${{ secrets.ES_USERNAME }}
+          password: ${{ secrets.ES_PASSWORD }}
+          credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.ES_TOTP_SECRET }}
+          file_path: release/Yo-Setup.exe
+          malware_block: false
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
