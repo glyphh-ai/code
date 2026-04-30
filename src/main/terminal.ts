@@ -45,7 +45,8 @@ export class TerminalManager {
     this.kill(wc.id);
 
     const shell = process.env.SHELL || (os.platform() === "win32" ? "powershell.exe" : "/bin/zsh");
-    const proc = pty.spawn(shell, [], {
+    const isLogin = os.platform() !== "win32";
+    const proc = pty.spawn(shell, isLogin ? ["-l"] : [], {
       name: "xterm-256color",
       cols: 80,
       rows: 24,
