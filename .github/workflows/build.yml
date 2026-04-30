@@ -71,7 +71,11 @@ jobs:
           credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
           totp_secret: ${{ secrets.ES_TOTP_SECRET }}
           file_path: release/Yo-Setup.exe
+          output_path: release/signed
           malware_block: false
+
+      - name: Replace unsigned exe with signed
+        run: move /Y release\signed\Yo-Setup.exe release\Yo-Setup.exe
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
