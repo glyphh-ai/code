@@ -326,6 +326,9 @@ contextBridge.exposeInMainWorld("yo", {
   onUrlUpdate: (cb: (info: { url: string; favicon: string }) => void) => {
     ipcRenderer.on("url-update", (_e, info) => cb(info));
   },
+  onUrlBarForce: (cb: (show: boolean) => void) => {
+    ipcRenderer.on("url-bar-force", (_e, show) => cb(show));
+  },
   onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => {
     ipcRenderer.on("tab-favicon", (_e, info) => cb(info));
   },

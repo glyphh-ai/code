@@ -184,6 +184,7 @@ declare global {
       panelNavTo: (panelId: string, url: string) => void;
       urlBarToggle: (show: boolean) => void;
       onUrlUpdate: (cb: (info: { url: string; favicon: string; canGoBack?: boolean; canGoForward?: boolean }) => void) => void;
+      onUrlBarForce: (cb: (show: boolean) => void) => void;
       onTabFavicon: (cb: (info: { id: string; favicon: string }) => void) => void;
       onPanelUrlUpdate: (cb: (info: { id: string; url: string; favicon: string }) => void) => void;
       // Theme
@@ -634,6 +635,11 @@ window.yo.onUrlUpdate((info: { url: string; favicon: string; canGoBack?: boolean
   urlBarFavicon.onerror = () => { urlBarFavicon.src = ""; };
   urlBarBack.disabled = !info.canGoBack;
   urlBarForward.disabled = !info.canGoForward;
+});
+
+// Force URL bar visible for browser panels even when globally hidden
+window.yo.onUrlBarForce((show: boolean) => {
+  setUrlBarVisible(show);
 });
 
 // -- Cmd+. opens yo agent panel --

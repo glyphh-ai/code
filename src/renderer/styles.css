@@ -4099,7 +4099,9 @@ select.settings-input {
   background: var(--active-bg);
 }
 .about-update-btn:disabled {
-  opacity: 0.5;
+  opacity: 1;
+  color: var(--text-bright);
+  border-color: var(--border);
   cursor: default;
 }
 

@@ -698,15 +698,16 @@ async function boot() {
 
   // Browser panel helpers (must be before app connector loop)
   const BROWSER_HOMES: Record<string, string> = {
+    google: "https://www.google.com",
     claude: "https://claude.ai",
     chatgpt: "https://chatgpt.com",
     gemini: "https://gemini.google.com",
   };
 
   function resolveBrowserHome(): string {
-    const pref = getPreference<string>("browserHomepage", "claude");
+    const pref = getPreference<string>("browserHomepage", "google");
     if (pref === "custom") return getPreference<string>("browserHomepageUrl", "");
-    return BROWSER_HOMES[pref] || BROWSER_HOMES.claude;
+    return BROWSER_HOMES[pref] || BROWSER_HOMES.google;
   }
 
   function browserHtmlUrl(initialUrl?: string): string {
@@ -1543,6 +1544,16 @@ async function boot() {
       canGoBack,
       canGoForward,
     });
+    // Browser panels always show the URL bar regardless of user preference
+    const isBrowser = id === "browser" || id.startsWith("browse-");
+    const urlBarPref = getPreference<boolean>("showUrlBar", true);
+    if (isBrowser && !urlBarPref) {
+      panelManager.setTopInset(URL_BAR_HEIGHT);
+      mainWindow.webContents.send("url-bar-force", true);
+    } else if (!isBrowser && !urlBarPref) {
+      panelManager.setTopInset(0);
+      mainWindow.webContents.send("url-bar-force", false);
+    }
   }
 
   /** Notify renderer of a specific panel's URL (for cell URL bars in grid mode) */
@@ -2836,13 +2847,15 @@ async function boot() {
     const id = panelManager.activePanelId;
     if (!id) return;
 
-    // Normalize: add protocol if missing
+    // Normalize: add protocol if missing, or search if not a URL
     let target = url.trim();
     if (target && !/^https?:\/\//i.test(target)) {
       if (/^localhost(:\d+)?(\/|$)/i.test(target) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(target)) {
         target = "http://" + target;
-      } else {
+      } else if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z]{2,})+/i.test(target)) {
         target = "https://" + target;
+      } else {
+        target = "https://www.google.com/search?q=" + encodeURIComponent(target);
       }
     }
 
