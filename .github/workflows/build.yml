@@ -63,7 +63,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Sign Windows exe with SSL.com
-        uses: sslcom/esigner-codesign@master
+        uses: sslcom/esigner-codesign@main
         with:
           command: sign
           username: ${{ secrets.ES_USERNAME }}
