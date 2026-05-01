@@ -1148,7 +1148,8 @@ async function boot() {
     return { ok: true, panelId };
   }
   commandParser.setCodeTerminalLauncher(launchCodeTerminal);
-  commandParser.setCodeWorkspaceActivator((agents) => {
+  commandParser.setCodeWorkspaceActivator((agents, layoutName) => {
+    if (layoutName) setPreference("codeWorkspaceLayout", layoutName);
     const err = ensureCodeLayoutAgents(agents);
     if (err) return { ok: false, error: err };
     const ok = activateCodeWorkspace();
@@ -1761,6 +1762,7 @@ async function boot() {
         const savedLayout = layoutManager.getLayout(lastView.name);
         if (savedLayout?.type === "code" && savedLayout.agents && savedLayout.agents.length > 0) {
           // Code layout: ensure agents exist and switch to code-workspace panel
+          setPreference("codeWorkspaceLayout", lastView.name);
           ensureCodeLayoutAgents(savedLayout.agents);
           panelManager.switchTo("code-workspace", mainWindow);
           panelManager.setInitialActive("code-workspace");
@@ -3301,54 +3303,57 @@ async function boot() {
     return null;
   });
 
-  ipcMain.handle("cw:get-layout", () => {
+  function getActiveCodeLayout(): import("./layout-manager").GridLayout | undefined {
     const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
     if (lastView?.type === "layout" && lastView.name) {
       const layout = layoutManager.getLayout(lastView.name);
-      if (layout?.type === "code") {
-        const inputAgents = new Set(
-          (layout.agents || []).filter(a => a.enableInput).map(a => a.name)
-        );
-        return {
-          name: lastView.name,
-          cells: layout.cells,
-          cols: layout.cols,
-          rows: layout.rows,
-          colWidths: layout.colWidths,
-          rowHeights: layout.rowHeights,
-          inputAgents: Array.from(inputAgents),
-        };
-      }
+      if (layout?.type === "code") return layout;
     }
-    return null;
+    const cwName = getPreference<string>("codeWorkspaceLayout", "");
+    if (cwName) {
+      const layout = layoutManager.getLayout(cwName);
+      if (layout?.type === "code") return layout;
+    }
+    return undefined;
+  }
+
+  ipcMain.handle("cw:get-layout", () => {
+    const layout = getActiveCodeLayout();
+    if (!layout) return null;
+    const inputAgents = new Set(
+      (layout.agents || []).filter(a => a.enableInput).map(a => a.name)
+    );
+    return {
+      name: layout.name,
+      cells: layout.cells,
+      cols: layout.cols,
+      rows: layout.rows,
+      colWidths: layout.colWidths,
+      rowHeights: layout.rowHeights,
+      inputAgents: Array.from(inputAgents),
+    };
   });
 
   ipcMain.handle("cw:save-layout-sizes", (_e, colWidths: number[], rowHeights: number[]) => {
-    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
-    if (lastView?.type === "layout" && lastView.name) {
-      const layout = layoutManager.getLayout(lastView.name);
-      if (layout?.type === "code") {
-        layout.colWidths = colWidths;
-        layout.rowHeights = rowHeights;
-        layoutManager.saveLayout(layout);
-        return true;
-      }
+    const layout = getActiveCodeLayout();
+    if (layout) {
+      layout.colWidths = colWidths;
+      layout.rowHeights = rowHeights;
+      layoutManager.saveLayout(layout);
+      return true;
     }
     return false;
   });
 
   ipcMain.handle("cw:add-agent-to-layout", (_e, name: string, role: string, prompt?: string) => {
-    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
-    if (lastView?.type === "layout" && lastView.name) {
-      const layout = layoutManager.getLayout(lastView.name);
-      if (layout?.type === "code") {
-        if (!layout.agents) layout.agents = [];
-        if (!layout.agents.find((a) => a.name === name)) {
-          layout.agents.push({ name, role, prompt });
-          layoutManager.saveLayout(layout);
-        }
-        return true;
+    const layout = getActiveCodeLayout();
+    if (layout) {
+      if (!layout.agents) layout.agents = [];
+      if (!layout.agents.find((a) => a.name === name)) {
+        layout.agents.push({ name, role, prompt });
+        layoutManager.saveLayout(layout);
       }
+      return true;
     }
     return false;
   });

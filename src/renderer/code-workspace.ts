@@ -345,16 +345,39 @@ function applyGridTemplate() {
   workspace.style.gridTemplateRows = gridRowHeights.map(h => `${h}fr`).join(" ");
 }
 
+function computeFractions(fraction: number, type: "col" | "row"): { a: number; b: number } | null {
+  const widths = type === "col" ? gridColWidths : gridRowHeights;
+  let before = 0;
+  for (let i = 0; i < dragIndex; i++) before += widths[i];
+  const after = 1 - before;
+  const aFrac = fraction - before;
+  const bFrac = after - aFrac;
+  if (aFrac < 0.02 || bFrac < 0.02) return null;
+  return { a: aFrac, b: bFrac };
+}
+
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
   if (dragType === "col") {
     const fraction = Math.max(0.05, Math.min(0.95, e.clientX / window.innerWidth));
     const handle = cwHandles.querySelector<HTMLElement>(`.cw-col-handle[data-index="${dragIndex}"]`);
     if (handle) handle.style.left = `${Math.round(fraction * window.innerWidth)}px`;
+    const fracs = computeFractions(fraction, "col");
+    if (fracs) {
+      gridColWidths[dragIndex] = fracs.a;
+      gridColWidths[dragIndex + 1] = fracs.b;
+      applyGridTemplate();
+    }
   } else {
     const fraction = Math.max(0.05, Math.min(0.95, e.clientY / window.innerHeight));
     const handle = cwHandles.querySelector<HTMLElement>(`.cw-row-handle[data-index="${dragIndex}"]`);
     if (handle) handle.style.top = `${Math.round(fraction * window.innerHeight)}px`;
+    const fracs = computeFractions(fraction, "row");
+    if (fracs) {
+      gridRowHeights[dragIndex] = fracs.a;
+      gridRowHeights[dragIndex + 1] = fracs.b;
+      applyGridTemplate();
+    }
   }
 });
 
@@ -363,40 +386,7 @@ document.addEventListener("mouseup", () => {
   isDragging = false;
   cwHandles.querySelectorAll(".dragging").forEach(el => el.classList.remove("dragging"));
   cwDragOverlay.className = "";
-
-  if (dragType === "col") {
-    const handle = cwHandles.querySelector<HTMLElement>(`.cw-col-handle[data-index="${dragIndex}"]`);
-    if (handle) {
-      const fraction = parseFloat(handle.style.left) / window.innerWidth;
-      let before = 0;
-      for (let i = 0; i < dragIndex; i++) before += gridColWidths[i];
-      const after = 1 - before;
-      const leftFrac = fraction - before;
-      const rightFrac = after - leftFrac;
-      if (leftFrac > 0.02 && rightFrac > 0.02) {
-        gridColWidths[dragIndex] = leftFrac;
-        gridColWidths[dragIndex + 1] = rightFrac;
-        applyGridTemplate();
-        api.saveLayoutSizes(gridColWidths, gridRowHeights);
-      }
-    }
-  } else {
-    const handle = cwHandles.querySelector<HTMLElement>(`.cw-row-handle[data-index="${dragIndex}"]`);
-    if (handle) {
-      const fraction = parseFloat(handle.style.top) / window.innerHeight;
-      let before = 0;
-      for (let i = 0; i < dragIndex; i++) before += gridRowHeights[i];
-      const after = 1 - before;
-      const topFrac = fraction - before;
-      const bottomFrac = after - topFrac;
-      if (topFrac > 0.02 && bottomFrac > 0.02) {
-        gridRowHeights[dragIndex] = topFrac;
-        gridRowHeights[dragIndex + 1] = bottomFrac;
-        applyGridTemplate();
-        api.saveLayoutSizes(gridColWidths, gridRowHeights);
-      }
-    }
-  }
+  api.saveLayoutSizes(gridColWidths, gridRowHeights);
   renderResizeHandles();
 });
 

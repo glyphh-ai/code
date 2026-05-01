@@ -29,7 +29,7 @@ export class CommandParser {
     | ((name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string })
     | null = null;
   private codeWorkspaceActivator:
-    | ((agents: Array<{ name: string; role: string; prompt?: string }>) => { ok: boolean; error?: string })
+    | ((agents: Array<{ name: string; role: string; prompt?: string }>, layoutName?: string) => { ok: boolean; error?: string })
     | null = null;
   private directoryPicker: (() => Promise<string | null>) | null = null;
 
@@ -78,7 +78,7 @@ export class CommandParser {
 
 
   setCodeWorkspaceActivator(
-    fn: (agents: Array<{ name: string; role: string; prompt?: string }>) => { ok: boolean; error?: string },
+    fn: (agents: Array<{ name: string; role: string; prompt?: string }>, layoutName?: string) => { ok: boolean; error?: string },
   ): void {
     this.codeWorkspaceActivator = fn;
   }
@@ -276,7 +276,7 @@ export class CommandParser {
     const exactLayout = this.layouts.getLayout(sub);
     if (exactLayout && exactLayout.type === "code" && args.length === 1) {
       if (exactLayout.agents && exactLayout.agents.length > 0 && this.codeWorkspaceActivator) {
-        const r = this.codeWorkspaceActivator(exactLayout.agents);
+        const r = this.codeWorkspaceActivator(exactLayout.agents, exactLayout.name);
         if (!r.ok) return r.error || "Failed to activate code workspace.";
         return `Launched "${exactLayout.name}" — ${exactLayout.agents.length} agent(s)`;
       }
@@ -318,7 +318,7 @@ export class CommandParser {
     // Activate code workspace
     if (this.codeWorkspaceActivator) {
       const allAgents = targetLayout.agents || [];
-      const r = this.codeWorkspaceActivator([...allAgents, ...parsed.agents]);
+      const r = this.codeWorkspaceActivator([...allAgents, ...parsed.agents], targetLayout.name);
       if (!r.ok) return r.error || "Failed to activate code workspace.";
     }
 
@@ -546,7 +546,7 @@ export class CommandParser {
       const layout = this.layouts.getLayout(sub);
       // Code layouts: activate code workspace panel
       if (layout?.type === "code" && layout.agents && layout.agents.length > 0 && this.codeWorkspaceActivator) {
-        const r = this.codeWorkspaceActivator(layout.agents);
+        const r = this.codeWorkspaceActivator(layout.agents, layout.name);
         if (!r.ok) return r.error || "Failed to activate code workspace.";
         setPreference("lastView", { type: "layout", name: sub });
         return `Launched "${layout.name}" — ${layout.agents.length} agent(s)`;
