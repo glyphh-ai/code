@@ -12,7 +12,7 @@ import fs from "fs";
 import os from "os";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager, AgentSpawnConfig } from "./terminal";
-import { writeAgentBriefing, ensureProjectClaudeMd, rewriteAllBriefings } from "./agent-briefing";
+import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewriteAllBriefings } from "./agent-briefing";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
@@ -36,6 +36,8 @@ import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
 import { resolveShellPath } from "./shell-path";
 import { WorkspaceManager } from "./workspace-manager";
+import { EventLog } from "./event-log";
+import { WorkspaceMcpServer } from "./workspace-mcp";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
@@ -82,6 +84,7 @@ let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
+let workspaceMcpServer: WorkspaceMcpServer | null = null;
 let mcpManager: McpManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
@@ -310,6 +313,12 @@ async function boot() {
   // Every component that writes to captureStore needs this to tag entries so
   // capture-store search / listeners scope correctly.
   const workspaceGetter = (): string => workspaceManager.getActiveSlug();
+
+  // Phase 3: workspace event log + MCP server. The server is started on-demand
+  // when the first code-terminal launches (no need to bind a port if no agent
+  // is running). EventLog is the canonical writer for events.jsonl.
+  const eventLog = new EventLog((slug) => workspaceManager.workspaceDir(slug));
+  workspaceMcpServer = new WorkspaceMcpServer(eventLog, workspaceManager);
 
   // Action-driven capture — grabs content on blur/navigate + polls chat panels
   actionGrabber = new ActionGrabber();
@@ -898,12 +907,14 @@ async function boot() {
   });
   commandParser.setWorkspaceManager(workspaceManager);
 
-  // Code-terminal launcher (Phase 2): called by `.dip code <name> [role]`.
-  // Resolves/creates the agent, ensures briefings + project CLAUDE.md are
-  // up to date, registers the spawn config, and adds the panel.
+  // Code-terminal launcher (Phase 2 + 3): called by `.dip code <name> [role]`.
+  // Resolves/creates the agent, ensures briefings + project CLAUDE.md +
+  // .mcp.json are up to date, starts the workspace MCP server if not yet
+  // running, registers the spawn config, and adds the panel.
   commandParser.setCodeTerminalLauncher((name: string, role?: string) => {
     const ws = workspaceManager.getActive();
     let agent = workspaceManager.getAgent(ws.slug, name);
+    const isNew = !agent;
     if (!agent) {
       if (!role) {
         return { ok: false, error: `Agent "${name}" not found in workspace "${ws.slug}". Try: .dip code ${name} <role>` };
@@ -921,6 +932,36 @@ async function boot() {
       console.warn("[code-terminal] failed to update project CLAUDE.md:", (err as Error).message);
     }
     writeAgentBriefing(ws, agent, allAgents);
+
+    // Phase 3: start the workspace MCP server (idempotent) and write the
+    // workspace's .mcp.json so claude code auto-connects on spawn.
+    const mcpServer = workspaceMcpServer;
+    if (mcpServer) {
+      mcpServer.start().then((r) => {
+        if (!r.ok) console.warn("[workspace-mcp] failed to start:", r.error);
+        const url = mcpServer.getUrl();
+        if (url) {
+          try { ensureProjectMcpJson(ws, url); } catch (err) {
+            console.warn("[workspace-mcp] failed to write .mcp.json:", (err as Error).message);
+          }
+        }
+      });
+    }
+
+    // Post a startup event so other agents see the new teammate appear in
+    // their next read_log / team_status.
+    if (isNew) {
+      try {
+        eventLog.append(ws.slug, {
+          from: ".yo",
+          tags: ["broadcast", `role:${agent.role}`, `workspace:${ws.slug}`],
+          kind: "status",
+          body: `Agent "${agent.name}" joined the team (role: ${agent.role}).`,
+        });
+      } catch (err) {
+        console.warn("[workspace-mcp] failed to append startup event:", (err as Error).message);
+      }
+    }
 
     const panelId = `code-${ws.slug}-${agent.name}`;
     panelIdToAgentConfig.set(panelId, {
@@ -3386,6 +3427,7 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpExpose?.stop();
+  workspaceMcpServer?.stop();
   mcpManager?.disconnectAll();
   connectorManager?.cleanup();
   actionGrabber?.stopPolling();

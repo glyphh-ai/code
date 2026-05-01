@@ -54,8 +54,10 @@ ${peerList}
 At the start of every turn, read \`.yo/inbox/${agent.name}.md\` if it
 exists — events above the last-read timestamp are new since your last turn.
 
-Workspace MCP tools (available once Phase 3 ships):
-\`team_status\`, \`read_log\`, \`read_agent\`, \`post\`, \`post_to\`, \`subscribe\`.
+Workspace MCP tools are configured at \`.mcp.json\` in this directory and
+should already be connected as the \`yo-workspace\` server:
+\`team_status\`, \`read_log\`, \`read_agent\`, \`post\`, \`post_to\`,
+\`subscribe\`, \`unsubscribe\`. Use them — they're how you talk to the team.
 
 **Sender conventions:**
 - Status updates: \`post(body, tags: ["broadcast"])\`
@@ -126,4 +128,38 @@ export function removeProjectClaudeMdManagedSection(workspace: Workspace): void 
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Ensure ${rootDir}/.mcp.json has a `yo-workspace` MCP server entry pointing
+ *  at the local workspace MCP HTTP server. We merge into the existing JSON
+ *  rather than overwrite — if the user has other MCP servers configured, they
+ *  stay. The agent's per-call identity headers are written into env vars
+ *  (claude code substitutes ${VAR} in headers); we set them at spawn time
+ *  via YO_AGENT_NAME / YO_WORKSPACE so each agent identifies as itself.
+ *
+ *  Note: a single .mcp.json is shared across all agents in the workspace —
+ *  identity comes from env vars expanded per-agent, not from the file. */
+export function ensureProjectMcpJson(workspace: Workspace, mcpUrl: string): void {
+  const file = path.join(workspace.rootDir, ".mcp.json");
+  let parsed: Record<string, unknown> = {};
+  if (fs.existsSync(file)) {
+    try {
+      parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+      if (typeof parsed !== "object" || parsed === null) parsed = {};
+    } catch (err) {
+      console.warn("[agent-briefing] .mcp.json was unparseable, recreating:", (err as Error).message);
+      parsed = {};
+    }
+  }
+  const servers = (parsed.mcpServers as Record<string, unknown>) || {};
+  servers["yo-workspace"] = {
+    type: "http",
+    url: mcpUrl,
+    headers: {
+      "X-Yo-Agent": "${YO_AGENT_NAME}",
+      "X-Yo-Workspace": "${YO_WORKSPACE}",
+    },
+  };
+  parsed.mcpServers = servers;
+  fs.writeFileSync(file, JSON.stringify(parsed, null, 2));
 }

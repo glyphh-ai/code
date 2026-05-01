@@ -34,6 +34,16 @@ export interface CodeAgent {
   agentCommand: string;   // default "claude"
   agentArgs: string[];    // default []
   createdAt: number;
+  subscriptions?: Subscription[];   // tag filters for orchestrator-mediated push (Phase 4)
+}
+
+/** Tag filter — orchestrator delivers events matching any subscription
+ *  to the agent's inbox at next prompt boundary. */
+export interface Subscription {
+  id: string;
+  tags?: string[];        // any of these tags
+  from?: string[];        // any of these senders
+  mentions_me?: boolean;  // events with to: <my-name>
 }
 
 interface WorkspacesIndex {
@@ -211,18 +221,57 @@ export class WorkspaceManager {
     }
 
     const cwd = def.cwd ? path.resolve(expandHome(def.cwd)) : ws.rootDir;
+    const role = (def.role || cleanName).trim();
+    // Defaults per MULTI-AGENT-PLAN §3.3 — every agent watches mentions of
+    // itself, its role, and broadcasts. Orchestrator push (Phase 4) reads
+    // these to decide what to drain into the agent's inbox.
+    const defaultSubs: Subscription[] = [
+      { id: makeSubId(), mentions_me: true },
+      { id: makeSubId(), tags: [`role:${role}`] },
+      { id: makeSubId(), tags: ["broadcast"] },
+    ];
     const agent: CodeAgent = {
       name: cleanName,
-      role: (def.role || cleanName).trim(),
+      role,
       cwd,
       agentCommand: (def.agentCommand || "claude").trim(),
       agentArgs: def.agentArgs ?? [],
       createdAt: Date.now(),
+      subscriptions: defaultSubs,
     };
     existing.agents.push(agent);
     this.writeAgents(workspaceSlug, existing);
 
     return { ok: true, agent };
+  }
+
+  /** Append a subscription to an agent. Returns the new sub's id, or error
+   *  if the agent doesn't exist. */
+  addSubscription(
+    workspaceSlug: string,
+    agentName: string,
+    filter: Omit<Subscription, "id">,
+  ): { ok: true; id: string } | { ok: false; error: string } {
+    const file = this.readAgents(workspaceSlug);
+    const agent = file.agents.find((a) => a.name === agentName);
+    if (!agent) return { ok: false, error: `Agent "${agentName}" not found in workspace "${workspaceSlug}".` };
+    const sub: Subscription = { id: makeSubId(), ...filter };
+    agent.subscriptions = agent.subscriptions ?? [];
+    agent.subscriptions.push(sub);
+    this.writeAgents(workspaceSlug, file);
+    return { ok: true, id: sub.id };
+  }
+
+  /** Remove a subscription by id. Returns false if no match. */
+  removeSubscription(workspaceSlug: string, agentName: string, subId: string): boolean {
+    const file = this.readAgents(workspaceSlug);
+    const agent = file.agents.find((a) => a.name === agentName);
+    if (!agent || !agent.subscriptions) return false;
+    const before = agent.subscriptions.length;
+    agent.subscriptions = agent.subscriptions.filter((s) => s.id !== subId);
+    if (agent.subscriptions.length === before) return false;
+    this.writeAgents(workspaceSlug, file);
+    return true;
   }
 
   deleteAgent(workspaceSlug: string, name: string): boolean {
@@ -292,4 +341,10 @@ function expandHome(p: string): string {
   if (p === "~") return os.homedir();
   if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
   return p;
+}
+
+/** Short, sortable subscription id — millis-since-epoch + 4 random hex.
+ *  Doesn't need to be globally unique; just unique within an agent. */
+function makeSubId(): string {
+  return `sub_${Date.now().toString(36)}${Math.random().toString(16).slice(2, 6)}`;
 }
