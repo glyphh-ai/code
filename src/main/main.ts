@@ -33,6 +33,7 @@ import { VoiceRelay } from "./voice-relay";
 import { smartGrab } from "./smart-grab";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
+import { resolveShellPath } from "./shell-path";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
@@ -224,6 +225,11 @@ async function createWindow() {
 async function boot() {
   app.setName("Yo");
 
+  // Resolve real shell PATH once — Electron on macOS launched from Finder
+  // inherits a sanitized PATH that breaks Homebrew/asdf/nvm tools. Cached for
+  // all later spawns (vscode-server, future code-terminals, etc.).
+  resolveShellPath();
+
   // Clear stale IndexedDB locks from previous crashes
   try {
     const idbDir = path.join(app.getPath("userData"), "Partitions", "yo", "IndexedDB");
@@ -292,6 +298,11 @@ async function boot() {
 
   const dataStore = new DataStore();
 
+  // Single source of truth for the active workspace slug. Every component that
+  // writes to captureStore needs this to tag entries so capture-store search /
+  // listeners scope correctly.
+  const workspaceGetter = (): string => getPreference<string>("activeWorkspace", "default");
+
   // Action-driven capture — grabs content on blur/navigate + polls chat panels
   actionGrabber = new ActionGrabber();
   actionGrabber.setCaptureStore(captureStore);
@@ -300,6 +311,7 @@ async function boot() {
   // MCP expose — read-only server for external LLM tools (Advanced tier)
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
+  mcpExpose.setWorkspaceGetter(workspaceGetter);
   // Auto-start MCP server if it was running when the app last closed.
   // Skip tier check here — heartbeat hasn't been fetched yet at boot.
   // The user had the right tier when they enabled it; if they've since
@@ -517,10 +529,12 @@ async function boot() {
   // Council — deterministic multi-model debate orchestrator
   const council = new Council();
   council.setCaptureStore(captureStore);
+  council.setWorkspaceGetter(workspaceGetter);
 
   // Yo agent — capture search + format assistant
   const yoAgent = new YoAgent();
   yoAgent.setCaptureStore(captureStore);
+  yoAgent.setWorkspaceGetter(workspaceGetter);
   yoAgent.setSkillEngine(skillEngine);
   yoAgent.setCouncil(council);
   yoAgent.builder.setSkillCallbacks({
@@ -1774,6 +1788,7 @@ async function boot() {
   if (authenticated && canUseSync().allowed) {
     cloudSyncInstance = new CloudSync(noteStore);
     cloudSyncInstance.setCaptureStore(captureStore);
+    cloudSyncInstance.setWorkspaceGetter(workspaceGetter);
     cloudSyncInstance.start();
   }
 

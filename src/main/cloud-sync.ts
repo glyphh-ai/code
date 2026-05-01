@@ -33,6 +33,11 @@ export class CloudSync {
     this.captureStore = store;
   }
 
+  private workspaceGetter: (() => string) | null = null;
+  setWorkspaceGetter(fn: () => string): void {
+    this.workspaceGetter = fn;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -92,7 +97,7 @@ export class CloudSync {
       // 2. Write each to local notes + capture store
       for (const item of items) {
         await this.noteStore.write(item.name, item.content, "cloud-sync");
-        this.captureStore?.ingest("cloud-sync", item.content).catch(() => {});
+        this.captureStore?.ingest("cloud-sync", item.content, this.workspaceGetter?.()).catch(() => {});
       }
 
       // 3. ACK all fetched IDs

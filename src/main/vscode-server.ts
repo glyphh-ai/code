@@ -8,6 +8,7 @@
 import { spawn, execSync, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
+import { envWithShellPath } from "./shell-path";
 
 const PORT = 9437;
 const HOST = "127.0.0.1";
@@ -100,7 +101,10 @@ export class VSCodeServer {
 
       this.proc = spawn(codePath, args, {
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
+        // Use resolved shell PATH so VS Code's git extension (and any other
+        // child it spawns — npm, language servers) can find user-installed
+        // binaries from Homebrew/asdf/nvm, etc.
+        env: envWithShellPath(),
       });
 
       let resolved = false;

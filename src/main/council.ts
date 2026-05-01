@@ -46,6 +46,8 @@ export class Council {
   private active = false;
 
   setCaptureStore(store: CaptureStore): void { this.captureStore = store; }
+  private workspaceGetter: (() => string) | null = null;
+  setWorkspaceGetter(fn: () => string): void { this.workspaceGetter = fn; }
   setPanelSwitcher(fn: (id: string) => boolean): void { this.panelSwitcher = fn; }
   setWebContentsGetter(fn: (id: string) => WebContents | null): void { this.wcGetter = fn; }
 
@@ -121,7 +123,7 @@ export class Council {
 
             if (this.captureStore) {
               try {
-                await this.captureStore.ingest(`council:${participant}:r${round}`, response);
+                await this.captureStore.ingest(`council:${participant}:r${round}`, response, this.workspaceGetter?.());
               } catch {}
             }
           } else {

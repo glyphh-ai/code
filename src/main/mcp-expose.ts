@@ -46,6 +46,11 @@ export class McpExpose {
     this.captureStore = store;
   }
 
+  private workspaceGetter: (() => string) | null = null;
+  setWorkspaceGetter(fn: () => string): void {
+    this.workspaceGetter = fn;
+  }
+
   get isRunning(): boolean {
     return this.server?.listening ?? false;
   }
@@ -389,7 +394,7 @@ export class McpExpose {
       return;
     }
 
-    const entryId = await this.captureStore.ingest(name, content);
+    const entryId = await this.captureStore.ingest(name, content, this.workspaceGetter?.());
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, id: entryId }));
   }
@@ -445,7 +450,7 @@ export class McpExpose {
           };
         }
 
-        const entryId = await this.captureStore.ingest(name, content);
+        const entryId = await this.captureStore.ingest(name, content, this.workspaceGetter?.());
         return {
           jsonrpc: "2.0",
           id,

@@ -173,6 +173,8 @@ export class YoAgent {
   }
   setMemoryStore(store: MemoryStore): void { this.memoryStore = store; }
   setCaptureStore(store: CaptureStore): void { this.captureStore = store; }
+  private workspaceGetter: (() => string) | null = null;
+  setWorkspaceGetter(fn: () => string): void { this.workspaceGetter = fn; }
   setSessionCache(cache: SessionCache): void { this.sessionCache = cache; }
   setSkillEngine(engine: SkillEngine): void { this.skillEngine = engine; }
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
@@ -432,7 +434,7 @@ export class YoAgent {
           }
         }
         const turnContent = turnParts.join("\n\n");
-        if (turnContent.trim()) this.captureStore.ingest("yo-agent", turnContent).catch(() => {});
+        if (turnContent.trim()) this.captureStore.ingest("yo-agent", turnContent, this.workspaceGetter?.()).catch(() => {});
       }
       promptLog.record({
         id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
