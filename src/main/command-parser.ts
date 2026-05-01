@@ -1,11 +1,12 @@
 /**
- * CommandParser — parses and executes yo/sup/dip/drip commands.
+ * CommandParser — parses and executes yo/sup/dip/drip/peace commands.
  *
  *   yo [query]      → open agent side panel (optionally with query)
  *   sup             → capture active panel to clipboard + session
  *   sup . <skill>   → capture + skill process → inject result
  *   dip <panel>     → switch/split/grid
  *   drip <effect>   → visual effect
+ *   peace [count]   → particle peace-sign gesture
  */
 
 import { BrowserWindow, WebContents } from "electron";
@@ -18,7 +19,7 @@ import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "waz", "council"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz", "council"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -126,12 +127,14 @@ export class CommandParser {
         return this.handleDip(args, sourcePanelId);
       case "drip":
         return this.handleDrip(args);
+      case "peace":
+        return this.handlePeace(args);
       case "waz":
         return this.handleWaz(args);
       case "council":
         return this.handleCouncil(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, waz, or council.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, peace, waz, or council.`;
     }
   }
 
@@ -140,7 +143,7 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|waz)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|waz)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
@@ -623,6 +626,14 @@ export class CommandParser {
   private handleDrip(args: string[]): string {
     if (this.dripManager) return this.dripManager.execute(args);
     this.onDrip?.(args[0] || "fireworks");
+    return "";
+  }
+
+  // ── peace: particle peace-sign gesture ──────────────────────
+
+  private handlePeace(args: string[]): string {
+    if (this.dripManager) return this.dripManager.execute(["peace", ...args]);
+    this.onDrip?.("peace");
     return "";
   }
 

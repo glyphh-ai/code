@@ -610,19 +610,40 @@ tabNewBtn.addEventListener("click", async (e) => {
   });
 
   const rect = tabNewBtn.getBoundingClientRect();
-  menu.style.top = `${rect.bottom + 4}px`;
-  menu.style.left = `${rect.left}px`;
+  // Pre-position off-screen so we can measure without flashing in the wrong spot.
+  menu.style.top = "0px";
+  menu.style.left = "-9999px";
   menu.style.visibility = "hidden";
 
   document.body.appendChild(menu);
   tabNewMenu = menu;
 
-  // Flip to right-anchored if the menu would overflow the window
+  // Measure now that the menu is in the DOM with its real content.
   const menuWidth = menu.offsetWidth;
+  const menuHeight = menu.offsetHeight;
   const margin = 8;
-  if (rect.left + menuWidth + margin > window.innerWidth) {
-    menu.style.left = `${Math.max(margin, rect.right - menuWidth)}px`;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // Horizontal: prefer left-anchored to button. Flip to right-anchored
+  // when the menu would overflow the right edge.
+  let left = rect.left;
+  if (left + menuWidth + margin > vw) {
+    left = rect.right - menuWidth;
   }
+  // Final viewport clamp on both sides.
+  left = Math.min(Math.max(margin, left), vw - menuWidth - margin);
+
+  // Vertical: prefer below button. Flip above if it would overflow the bottom
+  // and there's more room above.
+  let top = rect.bottom + 4;
+  if (top + menuHeight + margin > vh && rect.top - menuHeight - 4 >= margin) {
+    top = rect.top - menuHeight - 4;
+  }
+  top = Math.min(Math.max(margin, top), vh - menuHeight - margin);
+
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
   menu.style.visibility = "";
 
   searchInput.focus();

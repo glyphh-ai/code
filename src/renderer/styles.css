@@ -712,7 +712,7 @@ body {
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: all 0.12s;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
   flex: 0 1 180px;
   min-width: 56px;
   max-width: 180px;

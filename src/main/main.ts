@@ -823,17 +823,19 @@ async function boot() {
   }
 
   // ── Vibe registration (skill-based apps) ───────────────
+  // Vibes share the unified app/panel namespace. Their slug IS the panel id —
+  // no prefix. Vibes register after built-ins, so on slug collision the vibe
+  // wins (the customer's vibe takes precedence over a shipped built-in).
   function registerVibes(): void {
     const vibePreload = path.join(__dirname, "vibe-preload.js");
     for (const vibe of skillEngine.listVibes()) {
-      const panelId = `vibe-${vibe.name}`;
+      const panelId = vibe.name;
       const appHtmlPath = path.join(vibe.folderPath, "APP.html");
       if (!fs.existsSync(appHtmlPath)) continue;
       const fileUrl = `file://${appHtmlPath}`;
       panelManager.addPanel(panelId, fileUrl, vibePreload);
-      if (!appConnector.get(panelId)) {
-        appConnector.add(panelId, vibe.name, `yo://vibe/${vibe.name}`);
-      }
+      // Always (re)register in appConnector — vibes overwrite built-ins on collision.
+      appConnector.add(panelId, vibe.name, `yo://vibe/${vibe.name}`);
     }
   }
   registerVibes();

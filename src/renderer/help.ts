@@ -2526,9 +2526,18 @@ function reloadPanelApps(apps: Array<PanelApp>) {
 
 function initApps() {
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
+  const addSlugInput = document.getElementById("app-add-slug") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
   const addForceWeb = document.getElementById("app-add-force-web") as HTMLInputElement;
   const addDoNotRecord = document.getElementById("app-add-do-not-record") as HTMLInputElement;
+
+  // Slug helpers
+  const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  let slugTouched = false;
+  addSlugInput?.addEventListener("input", () => { slugTouched = addSlugInput.value.trim().length > 0; });
+  addNameInput?.addEventListener("input", () => {
+    if (!slugTouched) addSlugInput.value = slugify(addNameInput.value);
+  });
 
   // + New dropdown
   document.getElementById("apps-add-btn")!.addEventListener("click", (e) => {
@@ -2543,6 +2552,8 @@ function initApps() {
   document.getElementById("apps-add-app")!.addEventListener("click", () => {
     document.getElementById("apps-add-menu")!.classList.add("hidden");
     addNameInput.value = "";
+    addSlugInput.value = "";
+    slugTouched = false;
     addUrlInput.value = "";
     addForceWeb.checked = false;
     addDoNotRecord.checked = false;
@@ -2630,6 +2641,7 @@ function initApps() {
     let valid = true;
     const name = addNameInput.value.trim();
     const url = addUrlInput.value.trim();
+    const slugInput = addSlugInput.value.trim();
     if (!name) { addNameInput.classList.add("invalid"); clearInvalid(addNameInput); valid = false; }
     if (!url) { addUrlInput.classList.add("invalid"); clearInvalid(addUrlInput); valid = false; }
     if (!valid) {
@@ -2637,7 +2649,28 @@ function initApps() {
       appFormError.classList.remove("hidden");
       return;
     }
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+    const id = slugInput ? slugify(slugInput) : slugify(name);
+    if (!id) {
+      addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
+      appFormError.textContent = "Slug must contain at least one letter or number.";
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    const RESERVED = new Set(["yo", "sup", "dip", "drip", "peace", "waz", "council"]);
+    if (RESERVED.has(id)) {
+      addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
+      appFormError.textContent = `"${id}" is a reserved command. Pick a different slug.`;
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    // Uniqueness check — apps and vibes share one namespace.
+    const existing = await window.yo.appsList();
+    if (existing.some((a) => a.id === id)) {
+      addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
+      appFormError.textContent = `Slug "${id}" is already taken. Pick a different one.`;
+      appFormError.classList.remove("hidden");
+      return;
+    }
     await window.yo.appsAdd(id, name, url);
     if (addForceWeb.checked) await window.yo.appsUpdateForceWeb(id, true);
     if (addDoNotRecord.checked) await window.yo.appsUpdateDoNotRecord(id, true);

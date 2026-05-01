@@ -50,10 +50,6 @@ contextBridge.exposeInMainWorld("vibe", {
   copyToClipboard: (text: string) =>
     ipcRenderer.invoke("vibe:copy", text),
 
-  onData: (cb: (data: unknown) => void) => {
-    ipcRenderer.on("vibe:data", (_e, data) => cb(data));
-  },
-
   store: {
     get: (key: string) =>
       ipcRenderer.invoke("vibe:store-get", key) as Promise<unknown | null>,

@@ -106,7 +106,6 @@ VIBE APP.HTML API (window.vibe):
 - vibe.searchCaptures(query, limit?) → [{source, content, score}]
 - vibe.readFile(relPath) → file contents from skill folder
 - vibe.copyToClipboard(text)
-- vibe.onData(cb) — listen for pushed data
 - vibe.store.get(key) → value or null
 - vibe.store.set(key, value) — store JSON value
 - vibe.store.delete(key) → boolean
