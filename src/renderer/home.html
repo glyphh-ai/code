@@ -45,6 +45,7 @@
             <button class="help-nav-sub-item" data-section="docs" data-sub="apps">Apps</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="skills">Skills</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="layouts">Layouts</button>
+            <button class="help-nav-sub-item" data-section="docs" data-sub="devspaces">Dev Spaces</button>
 
             <button class="help-nav-sub-item" data-section="docs" data-sub="agent">Agent</button>
             <button class="help-nav-sub-item" data-section="docs" data-sub="mcp">MCP</button>
@@ -440,6 +441,7 @@
               <button class="settings-nav-item" data-doc="apps">Apps</button>
               <button class="settings-nav-item" data-doc="skills">Skills</button>
               <button class="settings-nav-item" data-doc="layouts">Layouts</button>
+              <button class="settings-nav-item" data-doc="devspaces">Dev Spaces</button>
 
               <button class="settings-nav-item" data-doc="agent">Agent</button>
               <button class="settings-nav-item" data-doc="mcp">MCP</button>
@@ -517,6 +519,25 @@
               <h4>.drip — Effects</h4>
               <p>Visual celebration effects. Reward yourself.</p>
               <div class="cmd-row"><code>.drip</code><span>Default fireworks effect</span></div>
+              <div class="cmd-row"><code>.drip 3 fireworks, hearts</code><span>Stacked count + mixed effects</span></div>
+
+              <h4>.peace — Sign off</h4>
+              <p>A particle peace-sign — for closing a session, finishing a deploy, marking the win. Same engine as <code>.drip</code>, but it lands as a gesture, not a recipe.</p>
+              <div class="cmd-row"><code>.peace</code><span>Throw a peace-sign</span></div>
+              <div class="cmd-row"><code>.peace 3</code><span>Stack three of them</span></div>
+
+              <h4>.yo .ws — Workspaces</h4>
+              <p>A workspace binds a yo session to a project directory. Captures, agents, and layouts are scoped to it. The active workspace persists across app restarts. See <strong>Dev Spaces</strong> for the full multi-agent flow.</p>
+              <div class="cmd-row"><code>.yo .ws</code><span>List all workspaces (active marked with *)</span></div>
+              <div class="cmd-row"><code>.yo .ws new yousup ~/dev/yousup</code><span>Create workspace bound to a directory</span></div>
+              <div class="cmd-row"><code>.yo .ws switch yousup</code><span>Set the active workspace</span></div>
+
+              <h4>.yo .code — Multi-agent dev spaces</h4>
+              <p>Scaffold a dev space — named code-terminals running Claude Code, each with a role. They coordinate through a shared event log + per-agent inboxes. See <strong>Dev Spaces</strong> for how they talk to each other.</p>
+              <div class="cmd-row"><code>.yo .code create a dev space with 3 agents — ui, server, web</code><span>Scaffold three named agents</span></div>
+              <div class="cmd-row"><code>.yo .code list</code><span>List saved dev-space layouts</span></div>
+              <div class="cmd-row"><code>.dip code ui frontend</code><span>Open (or create) a single agent terminal</span></div>
+              <div class="cmd-row"><code>.dip code-yousup</code><span>Recall the saved layout for this dev space</span></div>
 
               <h4>Chaining</h4>
               <p>Commands can be chained together. Each command runs in sequence.</p>
@@ -593,6 +614,65 @@
               <p>Drag the grid handles between panels to resize them live.</p>
             </div>
 
+
+            <div class="docs-panel" data-doc="devspaces">
+              <h3>Dev Spaces</h3>
+              <p>A <strong>dev space</strong> is a workspace bound to a project directory plus a team of named code-terminal agents that coordinate through a shared event log. Each agent runs its own Claude Code session with a role, an inbox, and a shared MCP toolkit for talking to the team.</p>
+
+              <h4>Workspaces</h4>
+              <p>A workspace = <code>{ slug, name, rootDir }</code>. It binds a yo session to a project directory. Captures, agents, and layouts are scoped to it. The active workspace persists across app restarts.</p>
+              <div class="cmd-row"><code>.yo .ws</code><span>List workspaces (active marked with *)</span></div>
+              <div class="cmd-row"><code>.yo .ws new yousup ~/dev/yousup</code><span>Create + bind to a directory</span></div>
+              <div class="cmd-row"><code>.yo .ws switch yousup</code><span>Set active workspace</span></div>
+              <p>Storage: <code>~/yo/workspaces.json</code> (index) + <code>~/yo/workspaces/&lt;slug&gt;/</code> (per-workspace event log, agent metadata, inbox state).</p>
+
+              <h4>Scaffolding agents</h4>
+              <p>A <strong>code-terminal</strong> is a named pty panel running an LLM CLI (default <code>claude</code>) in the workspace's <code>rootDir</code>. Each agent has a name and a role.</p>
+              <div class="cmd-row"><code>.yo .code create a dev space with 3 agents — ui, server, web</code><span>Scaffold three agents</span></div>
+              <div class="cmd-row"><code>.yo .code list</code><span>List saved dev-space layouts</span></div>
+              <div class="cmd-row"><code>.dip code ui frontend</code><span>Open or create a single agent</span></div>
+              <div class="cmd-row"><code>.dip code-yousup</code><span>Recall the saved dev-space layout</span></div>
+              <p>The parser accepts em-dash, hyphen, colon, "named", and bare comma lists. Roles can be specified inline: <code>ui (frontend), server (backend)</code> or <code>ui frontend, server backend</code>. Role defaults to the agent name.</p>
+
+              <h4>How agents coordinate</h4>
+              <p>Each code-terminal boots with <code>YO_AGENT_NAME</code> and <code>YO_WORKSPACE</code> in its env, plus a project-local <code>CLAUDE.md</code> dispatcher and a <code>.mcp.json</code> pointing at the workspace MCP server. Agents see a personalized briefing at <code>${rootDir}/.yo/agents/&lt;name&gt;.md</code>.</p>
+              <p>The workspace MCP server (loopback HTTP, no auth) exposes:</p>
+              <ul class="docs-list">
+                <li><strong>team_status()</strong> — list agents, roles, last-post timestamps</li>
+                <li><strong>read_log(filter?)</strong> — read the event log; filter by tag/from/to/kind/time</li>
+                <li><strong>read_agent(name, kind?)</strong> — read another agent's scratchpad or post history</li>
+                <li><strong>post(body, tags?, kind?, refs?)</strong> — append to the team event log</li>
+                <li><strong>post_to(agent, body, tags?)</strong> — direct message, fast-path delivery</li>
+                <li><strong>subscribe(filter)</strong> / <strong>unsubscribe(id)</strong> — manage tag-filter subscriptions</li>
+              </ul>
+
+              <h4>Default subscriptions</h4>
+              <p>Auto-added on agent creation: <code>mentions_me</code>, <code>role:&lt;my-role&gt;</code>, <code>broadcast</code>.</p>
+
+              <h4>Sender conventions</h4>
+              <ul class="docs-list">
+                <li>Status updates → <code>post(body, tags: ["broadcast"])</code></li>
+                <li>Cross-role asks → <code>post_to("server", body)</code> or <code>post(body, tags: ["role:server"])</code></li>
+                <li>Internal scratch → <code>post(body)</code> with no tags (logged but not delivered)</li>
+                <li>Use tag <code>blocking</code> for anything that needs a teammate response</li>
+              </ul>
+
+              <h4>Inbox delivery</h4>
+              <p>When an event lands and an agent has a matching subscription, the orchestrator appends it to <code>${rootDir}/.yo/inbox/&lt;agent&gt;.md</code> (rolling tail of the last 50 events). Each agent's <code>CLAUDE.md</code> instructs it to read this file at the start of every turn — events newer than its last activity are new.</p>
+
+              <h4>Storage layout</h4>
+              <pre class="docs-code">~/yo/workspaces.json                           # workspace index
+~/yo/workspaces/&lt;slug&gt;/agents.json             # roster + subscriptions
+~/yo/workspaces/&lt;slug&gt;/events.jsonl            # append-only event log
+~/yo/workspaces/&lt;slug&gt;/inbox-state.json        # per-agent lastDeliveredTs
+${rootDir}/.mcp.json                           # MCP config (managed)
+${rootDir}/CLAUDE.md                           # dispatcher section (managed)
+${rootDir}/.yo/agents/&lt;name&gt;.md                # per-agent role briefing
+${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
+
+              <h4>Embedded VS Code</h4>
+              <p>The built-in <code>vscode</code> panel is a <code>code serve-web</code> instance that runs your locally installed VS Code. On first launch, your Desktop VS Code <code>settings.json</code> and <code>keybindings.json</code> are copied into the embedded data dir so the editor inherits your preferences. Agents and the editor share <code>rootDir</code>, so file changes from agents appear live in the editor.</p>
+            </div>
 
             <div class="docs-panel" data-doc="agent">
               <h3>The .Yo Agent</h3>
