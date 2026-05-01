@@ -24,6 +24,7 @@ export interface GridCell {
 export interface LayoutAgent {
   name: string;
   role: string;
+  prompt?: string;
 }
 
 export interface GridLayout {

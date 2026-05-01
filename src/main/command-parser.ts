@@ -26,7 +26,7 @@ export class CommandParser {
   private dripManager: import("./drip-manager").DripManager | null = null;
   private onCouncil: ((participants: string[]) => void) | null = null;
   private codeTerminalLauncher:
-    | ((name: string, role?: string) => { ok: true; panelId: string } | { ok: false; error: string })
+    | ((name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string })
     | null = null;
   private directoryPicker: (() => Promise<string | null>) | null = null;
 
@@ -82,7 +82,7 @@ export class CommandParser {
    *  named agent and returns its panel id. Implementation lives in main.ts
    *  where it has access to TerminalManager + PanelManager. */
   setCodeTerminalLauncher(
-    fn: (name: string, role?: string) => { ok: true; panelId: string } | { ok: false; error: string },
+    fn: (name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string },
   ): void {
     this.codeTerminalLauncher = fn;
   }
@@ -268,9 +268,14 @@ export class CommandParser {
     if (exactLayout && exactLayout.type === "code" && args.length === 1) {
       if (exactLayout.agents && exactLayout.agents.length > 0 && this.codeTerminalLauncher) {
         const created: string[] = [];
+        const errors: string[] = [];
         for (const a of exactLayout.agents) {
-          const r = this.codeTerminalLauncher(a.name, a.role);
+          const r = this.codeTerminalLauncher(a.name, a.role, a.prompt);
           if (r.ok) created.push(r.panelId);
+          else errors.push(r.error);
+        }
+        if (created.length === 0 && errors.length > 0) {
+          return errors[0];
         }
         const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
         if (win && !win.isDestroyed() && created.length > 0) {
@@ -550,11 +555,23 @@ export class CommandParser {
     // Check for saved layout
     if (this.layouts.isLayout(sub)) {
       const layout = this.layouts.getLayout(sub);
-      // Code layouts: ensure code terminals are running before applying
-      if (layout?.type === "code" && layout.agents && this.codeTerminalLauncher) {
+      // Code layouts: launch agent terminals and split them directly
+      if (layout?.type === "code" && layout.agents && layout.agents.length > 0 && this.codeTerminalLauncher) {
+        const created: string[] = [];
+        const errors: string[] = [];
         for (const a of layout.agents) {
-          this.codeTerminalLauncher(a.name, a.role);
+          const r = this.codeTerminalLauncher(a.name, a.role, a.prompt);
+          if (r.ok) created.push(r.panelId);
+          else errors.push(r.error);
         }
+        if (created.length === 0 && errors.length > 0) {
+          return errors[0];
+        }
+        if (created.length > 0) {
+          this.handleDipSplit(created, win);
+        }
+        setPreference("lastView", { type: "layout", name: sub });
+        return `Launched "${layout.name}" — ${created.length} agent(s)`;
       }
       const ok = this.layouts.apply(sub, win);
       if (!ok) return `Failed to apply layout: ${sub}`;

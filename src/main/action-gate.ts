@@ -9,7 +9,7 @@
 import { getPreference } from "./preferences";
 import { isDestructiveTool } from "./substrate";
 
-export type AgentMode = "plan" | "ask" | "auto" | "bypass";
+export type AgentMode = "plan" | "ask" | "auto" | "code" | "bypass";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask" | "off";
 
@@ -171,7 +171,7 @@ export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (override === "auto") return "execute";
   if (override === "ask") return "needs_approval";
 
-  if (mode === "auto") {
+  if (mode === "auto" || mode === "code") {
     const tier = getToolTier(toolName);
     if (tier === "observe") return "execute";
     return "needs_approval";

@@ -31,6 +31,7 @@ export interface AgentSpawnConfig {
 
 export class TerminalManager {
   private processes = new Map<number, pty.IPty>();
+  private pendingSpawns = new Map<number, (...args: any[]) => void>();
   private onCommand: TerminalCommandHandler | null = null;
 
   /** Set handler for yo/sup/dip commands typed in the terminal. */
@@ -143,31 +144,47 @@ export class TerminalManager {
       YO_WORKSPACE: config.workspace,
     };
 
-    const proc = pty.spawn(config.command, config.args, {
-      name: "xterm-256color",
-      cols: 80,
-      rows: 24,
-      cwd: config.cwd,
-      env,
-    });
-
-    proc.onData((data) => {
+    const doSpawn = (cols: number, rows: number) => {
       if (wc.isDestroyed()) return;
-      wc.send("terminal:data", data);
-    });
+      const proc = pty.spawn(config.command, config.args, {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd: config.cwd,
+        env,
+      });
 
-    proc.onExit(({ exitCode }) => {
-      if (wc.isDestroyed()) return;
-      wc.send("terminal:data", `\r\n[agent "${config.name}" exited with code ${exitCode}; respawning…]\r\n`);
-      this.processes.delete(wc.id);
-      // Auto-restart so /clear, crashes, or manual `exit` keep the agent alive.
-      // Small delay to avoid tight crash loops if the binary is misconfigured.
-      setTimeout(() => {
-        if (!wc.isDestroyed()) this.spawnAgent(wc, config);
-      }, 500);
-    });
+      proc.onData((data) => {
+        if (wc.isDestroyed()) return;
+        wc.send("terminal:data", data);
+      });
 
-    this.processes.set(wc.id, proc);
+      proc.onExit(({ exitCode }) => {
+        if (wc.isDestroyed()) return;
+        wc.send("terminal:data", `\r\n[agent "${config.name}" exited with code ${exitCode}; respawning…]\r\n`);
+        this.processes.delete(wc.id);
+        setTimeout(() => {
+          if (!wc.isDestroyed()) this.spawnAgent(wc, config);
+        }, 500);
+      });
+
+      this.processes.set(wc.id, proc);
+    };
+
+    // Wait for the renderer to report its actual size before spawning so the
+    // PTY starts at the correct dimensions (avoids garbled text in split views).
+    if (this.pendingSpawns.has(wc.id)) {
+      ipcMain.removeListener("terminal:resize", this.pendingSpawns.get(wc.id)!);
+      this.pendingSpawns.delete(wc.id);
+    }
+    const onFirstResize = (_e: Electron.IpcMainEvent, cols: number, rows: number) => {
+      if (_e.sender.id !== wc.id) return;
+      ipcMain.removeListener("terminal:resize", onFirstResize);
+      this.pendingSpawns.delete(wc.id);
+      doSpawn(cols || 80, rows || 24);
+    };
+    this.pendingSpawns.set(wc.id, onFirstResize);
+    ipcMain.on("terminal:resize", onFirstResize);
   }
 
   /** Kill a pty process by webContents id. */

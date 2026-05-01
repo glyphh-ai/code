@@ -570,6 +570,10 @@ export class YoAgent {
       prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
     }
 
+    if (this._mode === "code") {
+      prompt += `\n\nMODE: CODE\nYou are in code mode — you are the orchestrator of a team of coding agents running in terminal panels. Use ws_team_status to see your team, ws_read_log to monitor their activity, ws_post_to to send tasks or questions to specific agents, ws_broadcast for team-wide announcements, and ws_read_agent to check an agent's scratchpad or history. Coordinate the team to accomplish the user's goals. You are ".yo" — the orchestrator.`;
+    }
+
     return prompt;
   }
 

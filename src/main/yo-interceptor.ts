@@ -80,7 +80,7 @@ export class YoInterceptor {
   setModeColor(color: string): void { this.modeColor = color; }
   setAgentMode(mode: string): void {
     this.agentMode = mode;
-    const colors: Record<string, string> = { ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7" };
+    const colors: Record<string, string> = { ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7", code: "#00D4FF" };
     this.modeColor = colors[mode] || colors.ask;
     this.pushToAll(`if(window.__yoSetMode)window.__yoSetMode(${JSON.stringify(mode)},${JSON.stringify(this.modeColor)})`);
   }
@@ -109,6 +109,57 @@ export class YoInterceptor {
     }
   }
   getActiveYoWc(): WebContents | null { return this.yoActiveWc; }
+
+  /** Inject only the command bar (tab + toggle + Cmd+Shift+.) into a panel
+   *  that doesn't get the full interceptor (e.g. terminal panels). Also
+   *  listens for console-message so bar commands get dispatched. */
+  activateBarOnly(wc: WebContents, appId: string): void {
+    const script = this.buildBarOnlyScript();
+    const inject = () => {
+      if (!wc.isDestroyed()) wc.executeJavaScript(script).catch(() => {});
+    };
+    const onConsole = (_e: any, _l: any, msg: string) => {
+      if (typeof msg !== "string" || !msg.startsWith(PREFIX)) return;
+      try {
+        const data = JSON.parse(msg.slice(PREFIX.length));
+        if (data._nonce !== this.sessionNonce) return;
+        delete data._nonce;
+        this.dispatch(wc, appId, data).catch((err) => {
+          console.error("YoInterceptor bar-only dispatch error:", err);
+        });
+      } catch {}
+    };
+    wc.on("did-finish-load", inject);
+    (wc as any).on("console-message", onConsole);
+    if (!wc.isLoading()) inject();
+    this.active.set(wc.id, () => {
+      wc.removeListener("did-finish-load", inject);
+      (wc as any).removeListener("console-message", onConsole);
+    });
+  }
+
+  private buildBarOnlyScript(): string {
+    const nonce = this.sessionNonce;
+    return `(function(){
+if(window.__yoBarActive)return;window.__yoBarActive=true;
+var __yoThemes={dark:{'surface':'#111','surface2':'#1a1a1a','surface3':'#141414','border':'#1e1e1e','border2':'#2a2a2a','border3':'#333','text':'#e0e0e0','text-bright':'#fff','text2':'#ccc','text3':'#666','text-muted':'#555','text-faint':'#444','text-dim':'#333','accent':'#25C75E','accent-hover':'#2ed96a','hover':'#222','shadow':'rgba(0,0,0,0.7)','shadow-med':'rgba(0,0,0,0.5)','shadow-sm':'rgba(0,0,0,0.3)'},light:{'surface':'#fff','surface2':'#f5f5f5','surface3':'#f0f0f0','border':'#e5e5e5','border2':'#d4d4d4','border3':'#c4c4c4','text':'#374151','text-bright':'#111','text2':'#4b5563','text3':'#6b7280','text-muted':'#6b7280','text-faint':'#9ca3af','text-dim':'#b0b8c4','accent':'#25C75E','accent-hover':'#22b855','hover':'#e5e5e5','shadow':'rgba(0,0,0,0.18)','shadow-med':'rgba(0,0,0,0.12)','shadow-sm':'rgba(0,0,0,0.06)'}};
+var __yoT=__yoThemes[${JSON.stringify(this.theme)}]||__yoThemes.dark;
+(function(){var s=document.getElementById('__yo-theme-vars');if(!s){s=document.createElement('style');s.id='__yo-theme-vars';(document.head||document.documentElement).appendChild(s);}var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;})();
+window.__yoSetTheme=function(t){__yoT=__yoThemes[t]||__yoThemes.dark;var s=document.getElementById('__yo-theme-vars');if(s){var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;}};
+var _n=${JSON.stringify(nonce)};
+var __yoTrust=null;
+try{if(window.trustedTypes&&window.trustedTypes.createPolicy)__yoTrust=window.trustedTypes.createPolicy('yo-bar',{createHTML:function(s){return s;}});}catch(e){}
+function safeInner(el,html){el.innerHTML=__yoTrust?__yoTrust.createHTML(html):html;}
+var tab=null,bar=null,barInput=null,barMsg=null,barOpen=false,barWaiting=false,barErrorTimer=null;
+function toggleBar(){createTab();if(barOpen){closeBar();}else{openBar();}}
+function openBar(){createTab();if(!bar)createBar();barOpen=true;barWaiting=false;bar.style.borderColor='var(--yo-border2,rgba(255,255,255,0.12))';bar.style.transform='translateY(-50%) translateX(0)';bar.style.opacity='1';bar.style.pointerEvents='auto';barInput.value='';barInput.style.display='';barInput.disabled=false;barInput.style.opacity='1';if(barMsg)barMsg.style.display='none';if(barErrorTimer){clearTimeout(barErrorTimer);barErrorTimer=null;}setTimeout(function(){barInput.focus();},60);}
+function closeBar(){barOpen=false;barWaiting=false;if(barErrorTimer){clearTimeout(barErrorTimer);barErrorTimer=null;}if(bar){bar.style.transform='translateY(-50%) translateX(100%)';bar.style.opacity='0';bar.style.pointerEvents='none';bar.style.borderColor='var(--yo-border2,rgba(255,255,255,0.12))';}if(barInput){barInput.value='';barInput.disabled=false;barInput.style.display='';barInput.style.opacity='1';}if(barMsg)barMsg.style.display='none';}
+window.__yoBarResult=function(msg,isError){if(!barOpen)return;if(!isError){closeBar();return;}barWaiting=false;barInput.style.display='none';if(!barMsg){barMsg=document.createElement('span');barMsg.id='__yo-bar-msg';barMsg.style.cssText='flex:1;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';bar.appendChild(barMsg);}barMsg.textContent=msg;barMsg.style.display='';barMsg.style.color='#ff6b6b';bar.style.borderColor='#ff6b6b';barErrorTimer=setTimeout(function(){closeBar();},4000);};
+function createBar(){if(bar)return;bar=document.createElement('div');bar.id='__yo-bar';bar.style.cssText='position:fixed;z-index:2147483647;right:0;top:50%;transform:translateY(-50%) translateX(100%);height:36px;width:280px;background:var(--yo-surface2,rgba(30,30,30,0.95));border:1px solid var(--yo-border2,rgba(255,255,255,0.12));border-right:none;border-radius:18px 0 0 18px;display:flex;align-items:center;padding:0 14px;box-shadow:-4px 0 20px var(--yo-shadow,rgba(0,0,0,0.4));backdrop-filter:blur(12px);opacity:0;pointer-events:none;transition:transform 0.2s ease,opacity 0.2s ease;';barInput=document.createElement('input');barInput.id='__yo-bar-input';barInput.type='text';barInput.placeholder='.code .dip .yo .peace';barInput.spellcheck=false;barInput.autocomplete='off';barInput.style.cssText='flex:1;background:transparent;border:none;outline:none;color:var(--yo-text,#e0e0e0);font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';barInput.addEventListener('keydown',function(e){if(e.key==='Escape'){e.stopPropagation();closeBar();return;}if(e.key==='Enter'){e.preventDefault();if(barWaiting)return;var cmd=barInput.value.trim();if(cmd){barWaiting=true;barInput.disabled=true;barInput.style.opacity='0.5';var instruction=cmd.replace(/^\\./, '');console.log('${PREFIX}'+JSON.stringify({type:'bar-command',instruction:instruction,_nonce:_n}));}return;}});barInput.addEventListener('blur',function(){setTimeout(function(){if(barOpen&&!barWaiting)closeBar();},150);});bar.appendChild(barInput);document.body.appendChild(bar);}
+function createTab(){if(tab)return;tab=document.createElement('div');tab.id='__yo-tab';tab.style.cssText='position:fixed;z-index:2147483646;right:0;top:50%;transform:translateY(-50%);width:28px;height:56px;border-radius:28px 0 0 28px;background:var(--yo-surface2,rgba(30,30,30,0.9));border:1px solid var(--yo-border2,rgba(255,255,255,0.1));border-right:none;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:-2px 0 12px var(--yo-shadow-sm,rgba(0,0,0,0.3));flex-direction:column;gap:1px;user-select:none;';safeInner(tab,'<span style="font-size:10px;font-weight:700;color:var(--yo-accent,#25C75E);font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1;">.Yo</span>');tab.addEventListener('mouseenter',function(){tab.style.background='var(--yo-hover,rgba(50,50,50,0.9))';tab.style.width='32px';});tab.addEventListener('mouseleave',function(){tab.style.background='var(--yo-surface2,rgba(30,30,30,0.9))';tab.style.width='28px';});tab.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();toggleBar();});document.body.appendChild(tab);}
+document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key==='.'){e.preventDefault();e.stopPropagation();toggleBar();}},true);
+})();`;
+  }
 
   /** Start watching a panel's webContents for commands. */
   activate(wc: WebContents, appId: string): void {
@@ -290,7 +341,10 @@ function safeInner(el,html){el.innerHTML=__yoTrust?__yoTrust.createHTML(html):ht
 var tab=null;
 var bar=null;
 var barInput=null;
+var barMsg=null;
 var barOpen=false;
+var barWaiting=false;
+var barErrorTimer=null;
 var currentEl=null;
 
 window.__yoSetMode=function(){};
@@ -304,17 +358,38 @@ function openBar(){
   createTab();
   if(!bar)createBar();
   barOpen=true;
+  barWaiting=false;
+  bar.style.borderColor='var(--yo-border2,rgba(255,255,255,0.12))';
   bar.style.transform='translateY(-50%) translateX(0)';
   bar.style.opacity='1';
   bar.style.pointerEvents='auto';
   barInput.value='';
+  barInput.style.display='';
+  barInput.disabled=false;
+  if(barMsg)barMsg.style.display='none';
+  if(barErrorTimer){clearTimeout(barErrorTimer);barErrorTimer=null;}
   setTimeout(function(){barInput.focus();},60);
 }
 function closeBar(){
   barOpen=false;
-  if(bar){bar.style.transform='translateY(-50%) translateX(100%)';bar.style.opacity='0';bar.style.pointerEvents='none';}
-  if(barInput)barInput.value='';
+  barWaiting=false;
+  if(barErrorTimer){clearTimeout(barErrorTimer);barErrorTimer=null;}
+  if(bar){bar.style.transform='translateY(-50%) translateX(100%)';bar.style.opacity='0';bar.style.pointerEvents='none';bar.style.borderColor='var(--yo-border2,rgba(255,255,255,0.12))';}
+  if(barInput){barInput.value='';barInput.disabled=false;barInput.style.display='';}
+  if(barMsg)barMsg.style.display='none';
 }
+window.__yoBarResult=function(msg,isError){
+  if(!barOpen)return;
+  if(!isError){closeBar();return;}
+  barWaiting=false;
+  barInput.style.display='none';
+  if(!barMsg){barMsg=document.createElement('span');barMsg.id='__yo-bar-msg';barMsg.style.cssText='flex:1;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';bar.appendChild(barMsg);}
+  barMsg.textContent=msg;
+  barMsg.style.display='';
+  barMsg.style.color='#ff6b6b';
+  bar.style.borderColor='#ff6b6b';
+  barErrorTimer=setTimeout(function(){closeBar();},4000);
+};
 function createBar(){
   if(bar)return;
   bar=document.createElement('div');
@@ -331,17 +406,20 @@ function createBar(){
     if(e.key==='Escape'){e.stopPropagation();closeBar();return;}
     if(e.key==='Enter'){
       e.preventDefault();
+      if(barWaiting)return;
       var cmd=barInput.value.trim();
       if(cmd){
+        barWaiting=true;
+        barInput.disabled=true;
+        barInput.style.opacity='0.5';
         window.__yoLastEl=currentEl;
         var instruction=cmd.replace(/^\./,'');
         console.log('${PREFIX}'+JSON.stringify({type:'bar-command',instruction:instruction,_nonce:_n}));
       }
-      closeBar();
       return;
     }
   });
-  barInput.addEventListener('blur',function(){setTimeout(function(){if(barOpen)closeBar();},150);});
+  barInput.addEventListener('blur',function(){setTimeout(function(){if(barOpen&&!barWaiting)closeBar();},150);});
   bar.appendChild(barInput);
   document.body.appendChild(bar);
 }
@@ -469,9 +547,20 @@ document.addEventListener('keydown',function(e){
       case "bar-command":
         if (this.commandHandler && data.instruction) {
           console.log("[bar-command]", data.instruction);
-          const result = await this.commandHandler(data.instruction);
-          console.log("[bar-command] result:", result);
-          if (result) this.notify(wc, result, "success");
+          let barResult: string;
+          let barIsError = false;
+          try {
+            barResult = await this.commandHandler(data.instruction);
+            barIsError = /not running|not found|not available|failed|error|unknown command|no code layout/i.test(barResult);
+          } catch (err) {
+            barResult = err instanceof Error ? err.message : String(err);
+            barIsError = true;
+          }
+          console.log("[bar-command] result:", barResult, "isError:", barIsError);
+          if (barResult) {
+            const escaped = JSON.stringify(barResult);
+            wc.executeJavaScript(`if(window.__yoBarResult)window.__yoBarResult(${escaped},${barIsError})`).catch(() => {});
+          }
           if (this.sessionNotifier) this.sessionNotifier();
         }
         break;

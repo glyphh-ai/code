@@ -403,7 +403,9 @@ export function initHelp() {
   document.getElementById("layout-delete-btn")!.addEventListener("click", deleteLayout);
   layoutSearchInput.addEventListener("input", () => { layoutsPage = 0; renderLayoutsList(); });
   layoutTypeSelect.addEventListener("change", () => {
-    layoutCodeFields.classList.toggle("hidden", layoutTypeSelect.value !== "code");
+    const isCode = layoutTypeSelect.value === "code";
+    layoutCodeFields.classList.toggle("hidden", !isCode);
+    layoutGridBuilder.classList.toggle("hidden", isCode);
   });
   layoutPickDirBtn.addEventListener("click", async () => {
     const dir = await window.yo.pickDirectory();
@@ -1164,7 +1166,7 @@ async function clearData() {
 // ── Layouts (Grid Builder) ──────────────────────────────────
 
 let layoutsPage = 0;
-let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }> = [];
+let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string }> }> = [];
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
 const layoutsToolbar = document.getElementById("layouts-toolbar")!;
@@ -1180,6 +1182,7 @@ const layoutRootDirInput = document.getElementById("layout-rootdir") as HTMLInpu
 const layoutAgentsList = document.getElementById("layout-agents-list")!;
 const layoutAgentsAddBtn = document.getElementById("layout-agents-add") as HTMLButtonElement;
 const layoutPickDirBtn = document.getElementById("layout-pick-dir") as HTMLButtonElement;
+const layoutGridBuilder = document.getElementById("layout-grid-builder")!;
 const gridPreview = document.getElementById("grid-preview")!;
 const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
 const gridRowsSelect = document.getElementById("grid-rows") as HTMLSelectElement;
@@ -1495,10 +1498,11 @@ async function editLayout(name: string) {
   const isCode = layout?.type === "code";
   layoutTypeSelect.value = isCode ? "code" : "standard";
   layoutCodeFields.classList.toggle("hidden", !isCode);
+  layoutGridBuilder.classList.toggle("hidden", isCode);
   layoutRootDirInput.value = (isCode && layout?.rootDir) || "";
   clearAgentRows();
   if (isCode && layout?.agents) {
-    layout.agents.forEach((a) => addAgentRow(a.name, a.role));
+    layout.agents.forEach((a) => addAgentRow(a.name, a.role, a.prompt));
   }
 
   layoutsList.classList.add("hidden");
@@ -1520,6 +1524,7 @@ async function newLayout() {
   layoutFormError.classList.add("hidden");
   layoutTypeSelect.value = "standard";
   layoutCodeFields.classList.add("hidden");
+  layoutGridBuilder.classList.remove("hidden");
   layoutRootDirInput.value = "";
   clearAgentRows();
   layoutsList.classList.add("hidden");
@@ -1546,8 +1551,9 @@ async function saveLayout() {
     layoutFormError.classList.remove("hidden");
     return;
   }
+  const isCode = layoutTypeSelect.value === "code";
   const assignedCells = builderCells.filter((c) => c.panelId);
-  if (assignedCells.length < 1) {
+  if (!isCode && assignedCells.length < 1) {
     layoutFormError.textContent = "Assign at least one panel to the grid.";
     layoutFormError.classList.remove("hidden");
     return;
@@ -1557,7 +1563,6 @@ async function saveLayout() {
     await window.yo.layoutsDelete(editingLayoutName);
   }
 
-  const isCode = layoutTypeSelect.value === "code";
   const agentRows = getAgentEntries();
   const agents = isCode && agentRows.length ? agentRows : undefined;
 
@@ -3770,7 +3775,10 @@ function clearToolRows() {
 
 // ── Agent row list (layout agents) ──────────────────────────
 
-function addAgentRow(name?: string, role?: string) {
+function addAgentRow(name?: string, role?: string, prompt?: string) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "agent-row-wrapper";
+
   const row = document.createElement("div");
   row.className = "skill-row";
 
@@ -3788,22 +3796,32 @@ function addAgentRow(name?: string, role?: string) {
   removeBtn.className = "skill-row-remove";
   removeBtn.type = "button";
   removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
-  removeBtn.addEventListener("click", () => row.remove());
+  removeBtn.addEventListener("click", () => wrapper.remove());
 
   row.appendChild(nameInput);
   row.appendChild(roleInput);
   row.appendChild(removeBtn);
-  layoutAgentsList.appendChild(row);
+
+  const promptArea = document.createElement("textarea");
+  promptArea.className = "agent-prompt";
+  promptArea.placeholder = "System prompt (optional) — appended to agent's startup instructions";
+  promptArea.rows = 2;
+  promptArea.value = prompt || "";
+
+  wrapper.appendChild(row);
+  wrapper.appendChild(promptArea);
+  layoutAgentsList.appendChild(wrapper);
 }
 
-function getAgentEntries(): Array<{ name: string; role: string }> {
-  const rows = layoutAgentsList.querySelectorAll(".skill-row");
-  const entries: Array<{ name: string; role: string }> = [];
-  rows.forEach(row => {
-    const inputs = row.querySelectorAll("input[type=\"text\"]");
+function getAgentEntries(): Array<{ name: string; role: string; prompt?: string }> {
+  const wrappers = layoutAgentsList.querySelectorAll(".agent-row-wrapper");
+  const entries: Array<{ name: string; role: string; prompt?: string }> = [];
+  wrappers.forEach(wrapper => {
+    const inputs = wrapper.querySelectorAll("input[type=\"text\"]");
     const n = (inputs[0] as HTMLInputElement)?.value.trim();
     const r = (inputs[1] as HTMLInputElement)?.value.trim();
-    if (n) entries.push({ name: n, role: r || n });
+    const p = (wrapper.querySelector(".agent-prompt") as HTMLTextAreaElement)?.value.trim();
+    if (n) entries.push({ name: n, role: r || n, prompt: p || undefined });
   });
   return entries;
 }

@@ -540,6 +540,63 @@ async function boot() {
         hasTool: (name: string) => shortToQualified.has(name),
       };
     })(),
+    workspace: {
+      teamStatus: () => {
+        const wsSlug = workspaceGetter();
+        const ws = workspaceManager.get(wsSlug);
+        if (!ws) return `Unknown workspace: ${wsSlug}`;
+        const agents = workspaceManager.listAgents(wsSlug);
+        const status = eventLog.teamStatus(wsSlug, agents);
+        return JSON.stringify({
+          workspace: ws.slug,
+          rootDir: ws.rootDir,
+          agents: status.map((s) => ({ ...s, lastPostAt: s.lastPostTs ? new Date(s.lastPostTs).toISOString() : null })),
+        }, null, 2);
+      },
+      readLog: (filter: Record<string, unknown>) => {
+        const wsSlug = workspaceGetter();
+        const events = eventLog.read(wsSlug, {
+          tags: Array.isArray(filter.tags) ? filter.tags as string[] : undefined,
+          from: Array.isArray(filter.from) ? filter.from as string[] : undefined,
+          to: typeof filter.to === "string" ? filter.to : undefined,
+          since: typeof filter.since === "number" ? filter.since : undefined,
+          until: typeof filter.until === "number" ? filter.until : undefined,
+          kinds: Array.isArray(filter.kinds) ? filter.kinds as any : undefined,
+          limit: typeof filter.limit === "number" ? filter.limit : undefined,
+        });
+        return JSON.stringify({ count: events.length, events }, null, 2);
+      },
+      postTo: (agent: string, body: string, kind?: string) => {
+        const wsSlug = workspaceGetter();
+        const evt = eventLog.append(wsSlug, {
+          from: ".yo",
+          to: agent,
+          tags: [`to:${agent}`],
+          kind: (kind as any) || "post",
+          body,
+        });
+        return JSON.stringify({ sent: true, ts: evt.ts });
+      },
+      post: (body: string, tags?: string[], kind?: string) => {
+        const wsSlug = workspaceGetter();
+        const evt = eventLog.append(wsSlug, {
+          from: ".yo",
+          tags: tags || ["broadcast"],
+          kind: (kind as any) || "post",
+          body,
+        });
+        return JSON.stringify({ sent: true, ts: evt.ts });
+      },
+      readAgent: (name: string, kind?: string) => {
+        const wsSlug = workspaceGetter();
+        if (kind === "log") {
+          const events = eventLog.read(wsSlug, { from: [name] });
+          return JSON.stringify({ agent: name, events }, null, 2);
+        }
+        const text = eventLog.readScratchpad(wsSlug, name);
+        return text || `(${name} has no scratchpad yet)`;
+      },
+    },
   });
 
   // Pipedream Connectors — managed OAuth connections (Advanced tier)
@@ -653,6 +710,7 @@ async function boot() {
         console.log(`[terminal] did-finish-load panel="${id}" wcId=${wc.id} — spawning pty`);
         terminalManager.spawn(wc);
       });
+      yoInterceptor.activateBarOnly(wc, id);
     } else if (baseAppId === "code") {
       // Code-terminal: spawn the named agent CLI (claude) with role env vars
       const cfg = panelIdToAgentConfig.get(id);
@@ -662,6 +720,7 @@ async function boot() {
         console.warn(`[code-terminal] no agent config for panel "${id}" — falling back to plain terminal`);
         wc.on("did-finish-load", () => terminalManager.spawn(wc));
       }
+      yoInterceptor.activateBarOnly(wc, id);
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
@@ -926,11 +985,13 @@ async function boot() {
     return result.filePaths[0];
   });
 
+  let restoring = false;
+
   // Code-terminal launcher (Phase 2 + 3): called by `.dip code <name> [role]`.
   // Resolves/creates the agent, ensures briefings + project CLAUDE.md +
   // .mcp.json are up to date, starts the workspace MCP server if not yet
   // running, registers the spawn config, and adds the panel.
-  commandParser.setCodeTerminalLauncher((name: string, role?: string) => {
+  function launchCodeTerminal(name: string, role?: string, prompt?: string): { ok: true; panelId: string } | { ok: false; error: string } {
     const ws = workspaceManager.getActive();
     let agent = workspaceManager.getAgent(ws.slug, name);
     const isNew = !agent;
@@ -938,7 +999,7 @@ async function boot() {
       if (!role) {
         return { ok: false, error: `Agent "${name}" not found in workspace "${ws.slug}". Try: .dip code ${name} <role>` };
       }
-      const result = workspaceManager.createAgent(ws.slug, { name, role });
+      const result = workspaceManager.createAgent(ws.slug, { name, role, prompt });
       if (!result.ok) return { ok: false, error: result.error };
       agent = result.agent;
     }
@@ -964,6 +1025,10 @@ async function boot() {
       try { ensureProjectMcpJson(ws, url, token); } catch (err) {
         console.warn("[mcp] failed to write .mcp.json:", (err as Error).message);
       }
+    } else if (!restoring) {
+      return { ok: false, error: "MCP server is not running. Start it in Home → MCP before launching code agents." };
+    } else {
+      console.log("[code-terminal] MCP not yet started — skipping .mcp.json update (will use existing)");
     }
 
     // Post a startup event so other agents see the new teammate appear in
@@ -982,19 +1047,26 @@ async function boot() {
     }
 
     const panelId = `code-${ws.slug}-${agent.name}`;
+    const spawnArgs = [...agent.agentArgs];
+    const effectivePrompt = prompt || agent.prompt;
+    if (effectivePrompt) {
+      spawnArgs.push("--append-system-prompt", effectivePrompt);
+    }
+    spawnArgs.push(`Read your agent briefing at .yo/agents/${agent.name}.md and check your inbox at .yo/inbox/${agent.name}.md. Report for duty.`);
     panelIdToAgentConfig.set(panelId, {
       name: agent.name,
       role: agent.role,
       cwd: agent.cwd,
       command: agent.agentCommand,
-      args: agent.agentArgs,
+      args: spawnArgs,
       workspace: ws.slug,
     });
 
     // Add the panel if it's not already present (re-uses terminal HTML/preload).
     panelManager.addPanel(panelId, terminalHtml, terminalPreload);
     return { ok: true, panelId };
-  });
+  }
+  commandParser.setCodeTerminalLauncher(launchCodeTerminal);
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
@@ -1557,6 +1629,11 @@ async function boot() {
       if (panelManager.hasPanel(id)) { console.log(`[restorePanels] skip "${id}" — already registered`); continue; }
       const baseId = resolveAppId(id);
       if (baseId === id) { console.log(`[restorePanels] skip "${id}" — is base app, already registered at boot`); continue; }
+      // Code-terminal panels need special handling — re-create via codeTerminalLauncher
+      if (baseId === "code") {
+        console.log(`[restorePanels] skip code panel "${id}" — will restore via layout`);
+        continue;
+      }
       const app = appConnector.get(baseId);
       if (!app?.url) continue;
       // Track counters so new instances don't collide
@@ -1594,11 +1671,24 @@ async function boot() {
         }
         panelManager.setInitialActive(deduped[0]);
       } else if (lastView.type === "layout" && lastView.name) {
-        layoutManager.apply(lastView.name, mainWindow);
-        // For named layouts, seed from the layout's first cell
-        const grid = layoutManager.getGridInfo();
-        if (grid && grid.panelIds.length > 0) {
-          panelManager.setInitialActive(grid.panelIds[0]);
+        const savedLayout = layoutManager.getLayout(lastView.name);
+        if (savedLayout?.type === "code" && savedLayout.agents && savedLayout.agents.length > 0) {
+          // Code layout: re-launch agent terminals and split them
+          const created: string[] = [];
+          for (const a of savedLayout.agents) {
+            const r = launchCodeTerminal(a.name, a.role, a.prompt);
+            if (r && r.ok) created.push(r.panelId);
+          }
+          if (created.length > 0) {
+            layoutManager.splitN(created, mainWindow);
+            panelManager.setInitialActive(created[0]);
+          }
+        } else {
+          layoutManager.apply(lastView.name, mainWindow);
+          const grid = layoutManager.getGridInfo();
+          if (grid && grid.panelIds.length > 0) {
+            panelManager.setInitialActive(grid.panelIds[0]);
+          }
         }
       } else if (lastView.type === "panel" && lastView.id) {
         panelManager.switchTo(lastView.id, mainWindow);
@@ -1607,9 +1697,10 @@ async function boot() {
       panelManager.switchTo("home", mainWindow);
     }
 
-    // Restore all saved tabs (not just those in the current view)
+    // Restore all saved tabs (not just those in the current view).
+    // Skip code panels — they're managed by the layout restore above, not as standalone tabs.
     for (const id of savedTabs) {
-      if (!openTabs.includes(id)) {
+      if (!openTabs.includes(id) && resolveAppId(id) !== "code") {
         openTabs.push(id);
       }
     }
@@ -1961,7 +2052,9 @@ async function boot() {
 
   // Only restore panels if not gated by onboarding
   if (!needsOnboarding) {
+    restoring = true;
     restorePanels();
+    restoring = false;
     panelsReady = true;
     // Hide panels during splash — renderer will show them after splash dismisses
     if (mainWindow) panelManager.hideActive(mainWindow);
@@ -3429,7 +3522,9 @@ async function boot() {
       theme: (() => { const t = getPreference<string>("theme", "light"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
     });
     if (!currentNeedsOnboarding && !panelsReady) {
+      restoring = true;
       restorePanels();
+      restoring = false;
       panelsReady = true;
       sendSplitState();
     } else if (!currentNeedsOnboarding) {

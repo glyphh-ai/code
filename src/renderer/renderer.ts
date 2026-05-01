@@ -80,9 +80,9 @@ declare global {
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
       // Layouts
-      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }>>;
+      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
-      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }) => Promise<boolean>;
+      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;
       pickDirectory: () => Promise<string | null>;
       // Grid resize
@@ -1311,35 +1311,46 @@ const yoModeDropdown = document.getElementById("yo-mode-dropdown")!;
 const yoModeTrigger = document.getElementById("yo-mode-trigger")!;
 const yoModeMenu = document.getElementById("yo-mode-menu")!;
 const yoModeOptions = yoModeMenu.querySelectorAll(".yo-mode-option");
-const yoModelDropdown = document.getElementById("yo-model-dropdown")!;
-const yoModelTrigger = document.getElementById("yo-model-trigger")!;
-const yoModelMenu = document.getElementById("yo-model-menu")!;
-let currentModel = "";
+const yoPermDropdown = document.getElementById("yo-perm-dropdown")!;
+const yoPermTrigger = document.getElementById("yo-perm-trigger")!;
+const yoPermMenu = document.getElementById("yo-perm-menu")!;
+const yoPermOptions = yoPermMenu.querySelectorAll(".yo-perm-option");
 let yoControlsInited = false;
 
 const MODE_ICONS: Record<string, string> = {
-  ask: "\u2753",
-  plan: "\uD83D\uDCCB",
-  auto: "\u26A1",
-  bypass: "\uD83D\uDD25",
+  standard: "\u2753",
   council: "\uD83C\uDFDB",
+  code: "\uD83D\uDCBB",
 };
 
 const MODE_COLORS: Record<string, string> = {
+  standard: "#25C75E",
+  council: "#A855F7",
+  code: "#00D4FF",
+};
+
+const PERM_ICONS: Record<string, string> = {
+  ask: "\uD83D\uDD12",
+  plan: "\uD83D\uDCCB",
+  auto: "\u26A1",
+  bypass: "\uD83D\uDD25",
+};
+
+const PERM_COLORS: Record<string, string> = {
   ask: "#25C75E",
   plan: "#4A9EFF",
   auto: "#FF8C00",
   bypass: "#FF2D55",
-  council: "#A855F7",
 };
 
-let currentMode = "ask";
+let currentMode = "standard";
+let currentPerm = "ask";
 
 function setModeValue(mode: string) {
   currentMode = mode;
   const icon = yoModeTrigger.querySelector(".yo-mode-icon")!;
   const label = yoModeTrigger.querySelector(".yo-mode-label")!;
-  icon.textContent = MODE_ICONS[mode] || MODE_ICONS.ask;
+  icon.textContent = MODE_ICONS[mode] || MODE_ICONS.standard;
   label.textContent = mode;
   yoModeOptions.forEach((opt) => {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
@@ -1347,25 +1358,59 @@ function setModeValue(mode: string) {
   applyModeColor();
 }
 
+function setPermValue(perm: string) {
+  currentPerm = perm;
+  const icon = yoPermTrigger.querySelector(".yo-perm-icon")!;
+  const label = yoPermTrigger.querySelector(".yo-perm-label")!;
+  icon.textContent = PERM_ICONS[perm] || PERM_ICONS.ask;
+  label.textContent = perm;
+  yoPermOptions.forEach((opt) => {
+    opt.classList.toggle("active", (opt as HTMLElement).dataset.value === perm);
+  });
+}
+
 function applyModeColor() {
-  const color = MODE_COLORS[currentMode] || MODE_COLORS.ask;
+  const color = MODE_COLORS[currentMode] || MODE_COLORS.standard;
   yoModeTrigger.style.borderColor = color;
   yoPanelInput.style.setProperty("--mode-color", color);
   yoPanelSendBtn.style.background = color;
   document.documentElement.style.setProperty("--yo-mode-color", color);
 }
 
+// Compute the effective agentMode sent to main: combines mode + perm
+function getEffectiveAgentMode(): string {
+  if (currentMode === "council") return "council";
+  if (currentMode === "code") return "code";
+  return currentPerm; // standard mode uses the perm value directly
+}
+
 yoModeTrigger.addEventListener("click", (e) => {
   e.stopPropagation();
   yoModeMenu.classList.toggle("hidden");
+  yoPermMenu.classList.add("hidden");
 });
 
 yoModeOptions.forEach((opt) => {
   opt.addEventListener("click", () => {
     const value = (opt as HTMLElement).dataset.value!;
     setModeValue(value);
-    window.yo.setAgentMode(value);
+    window.yo.setAgentMode(getEffectiveAgentMode());
     yoModeMenu.classList.add("hidden");
+  });
+});
+
+yoPermTrigger.addEventListener("click", (e) => {
+  e.stopPropagation();
+  yoPermMenu.classList.toggle("hidden");
+  yoModeMenu.classList.add("hidden");
+});
+
+yoPermOptions.forEach((opt) => {
+  opt.addEventListener("click", () => {
+    const value = (opt as HTMLElement).dataset.value!;
+    setPermValue(value);
+    window.yo.setAgentMode(getEffectiveAgentMode());
+    yoPermMenu.classList.add("hidden");
   });
 });
 
@@ -1373,65 +1418,35 @@ document.addEventListener("click", (e) => {
   if (!yoModeDropdown.contains(e.target as Node)) {
     yoModeMenu.classList.add("hidden");
   }
+  if (!yoPermDropdown.contains(e.target as Node)) {
+    yoPermMenu.classList.add("hidden");
+  }
 });
 
 // Listen for mode changes pushed from main process (e.g. .council)
-window.yo.onAgentModeChanged?.((mode: string) => setModeValue(mode));
+window.yo.onAgentModeChanged?.((mode: string) => {
+  if (mode === "council" || mode === "code") {
+    setModeValue(mode);
+  } else if (mode === "standard") {
+    setModeValue("standard");
+  } else {
+    // It's a permission value (ask/plan/auto/bypass)
+    setModeValue("standard");
+    setPermValue(mode);
+  }
+  applyModeColor();
+});
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
-  setModeValue(mode);
-
-  const [config, presets] = await Promise.all([
-    window.yo.getLLMConfig(),
-    window.yo.getLLMPresets(),
-  ]);
-  const preset = presets[config.provider];
-  populateModelDropdown(preset?.models || [config.model], config.model);
-}
-
-function populateModelDropdown(models: string[], activeModel: string) {
-  yoModelMenu.innerHTML = "";
-  for (const m of models) {
-    const div = document.createElement("div");
-    div.className = "yo-model-option" + (m === activeModel ? " active" : "");
-    div.dataset.value = m;
-    div.textContent = m.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
-    div.addEventListener("click", async () => {
-      setModelValue(m);
-      yoModelMenu.classList.add("hidden");
-      const cfg = await window.yo.getLLMConfig();
-      await window.yo.saveLLMConfig({
-        provider: cfg.provider,
-        model: m,
-        apiKey: cfg.apiKey,
-        baseUrl: cfg.baseUrl || undefined,
-      });
-    });
-    yoModelMenu.appendChild(div);
+  if (mode === "council" || mode === "code") {
+    setModeValue(mode);
+    setPermValue("ask");
+  } else {
+    setModeValue("standard");
+    setPermValue(mode);
   }
-  setModelValue(activeModel);
 }
-
-function setModelValue(model: string) {
-  currentModel = model;
-  const label = yoModelTrigger.querySelector(".yo-model-label")!;
-  label.textContent = model.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
-  yoModelMenu.querySelectorAll(".yo-model-option").forEach((opt) => {
-    opt.classList.toggle("active", (opt as HTMLElement).dataset.value === model);
-  });
-}
-
-yoModelTrigger.addEventListener("click", (e) => {
-  e.stopPropagation();
-  yoModelMenu.classList.toggle("hidden");
-});
-
-document.addEventListener("click", (e) => {
-  if (!yoModelDropdown.contains(e.target as Node)) {
-    yoModelMenu.classList.add("hidden");
-  }
-});
 
 async function openYoPanel(query: string) {
   if (!yoControlsInited) {

@@ -34,6 +34,7 @@ export interface CodeAgent {
   agentCommand: string;   // default "claude"
   agentArgs: string[];    // default []
   createdAt: number;
+  prompt?: string;        // custom system prompt appended via --append-system-prompt
   subscriptions?: Subscription[];   // tag filters for orchestrator-mediated push (Phase 4)
 }
 
@@ -199,7 +200,7 @@ export class WorkspaceManager {
 
   createAgent(
     workspaceSlug: string,
-    def: { name: string; role?: string; cwd?: string; agentCommand?: string; agentArgs?: string[] },
+    def: { name: string; role?: string; cwd?: string; agentCommand?: string; agentArgs?: string[]; prompt?: string },
   ): CreateAgentResult {
     const ws = this.get(workspaceSlug);
     if (!ws) return { ok: false, error: `No workspace "${workspaceSlug}".` };
@@ -237,6 +238,7 @@ export class WorkspaceManager {
       agentCommand: (def.agentCommand || "claude").trim(),
       agentArgs: def.agentArgs ?? [],
       createdAt: Date.now(),
+      prompt: def.prompt || undefined,
       subscriptions: defaultSubs,
     };
     existing.agents.push(agent);

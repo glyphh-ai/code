@@ -63,6 +63,13 @@ export interface SubstrateToolDeps {
     clear: (namespace: string) => number;
     listNamespaces: () => string[];
   };
+  workspace?: {
+    teamStatus: () => string;
+    readLog: (filter: Record<string, unknown>) => string;
+    postTo: (agent: string, body: string, kind?: string) => string;
+    post: (body: string, tags?: string[], kind?: string) => string;
+    readAgent: (name: string, kind?: string) => string;
+  };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -1006,6 +1013,93 @@ const BUILTIN_TOOLS: ToolDef[] = [
       } catch (err) {
         return `Fetch failed: ${err instanceof Error ? err.message : err}`;
       }
+    },
+  },
+  // ── Workspace tools (code mode) ─────────────────────────────
+  {
+    name: "ws_team_status",
+    namespace: "yo",
+    description: "List all agents in the active workspace with roles and last-post timestamps.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.workspace) return "Workspace not available. Is MCP running?";
+      return deps.workspace.teamStatus();
+    },
+  },
+  {
+    name: "ws_read_log",
+    namespace: "yo",
+    description: "Read workspace event log. Filter by tags, sender, kind, or time range.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tags: { type: "array", items: { type: "string" }, description: "Filter by tags" },
+        from: { type: "array", items: { type: "string" }, description: "Filter by sender agent names" },
+        to: { type: "string", description: "Filter events addressed to this agent" },
+        since: { type: "number", description: "Events after this timestamp (ms)" },
+        kinds: { type: "array", items: { type: "string" }, description: "Filter by event kind" },
+        limit: { type: "number", description: "Max events to return" },
+      },
+    },
+    run: async (input) => {
+      if (!deps.workspace) return "Workspace not available. Is MCP running?";
+      return deps.workspace.readLog(input);
+    },
+  },
+  {
+    name: "ws_post_to",
+    namespace: "yo",
+    description: "Send a direct message to a specific agent in the workspace.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Target agent name" },
+        body: { type: "string", description: "Message body" },
+        kind: { type: "string", enum: ["post", "status", "question", "answer", "artifact"], description: "Message kind" },
+      },
+      required: ["agent", "body"],
+    },
+    destructive: true,
+    run: async (input) => {
+      if (!deps.workspace) return "Workspace not available. Is MCP running?";
+      return deps.workspace.postTo(String(input.agent), String(input.body), input.kind as string | undefined);
+    },
+  },
+  {
+    name: "ws_broadcast",
+    namespace: "yo",
+    description: "Broadcast a message to all agents in the workspace.",
+    input_schema: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "Message body" },
+        tags: { type: "array", items: { type: "string" }, description: "Additional tags" },
+        kind: { type: "string", enum: ["post", "status", "question", "answer", "artifact"], description: "Message kind" },
+      },
+      required: ["body"],
+    },
+    destructive: true,
+    run: async (input) => {
+      if (!deps.workspace) return "Workspace not available. Is MCP running?";
+      const tags = (input.tags as string[] || []).concat(["broadcast"]);
+      return deps.workspace.post(String(input.body), tags, input.kind as string | undefined);
+    },
+  },
+  {
+    name: "ws_read_agent",
+    namespace: "yo",
+    description: "Read another agent's scratchpad or post history.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Agent name" },
+        kind: { type: "string", enum: ["scratchpad", "log"], description: "What to read (default: scratchpad)" },
+      },
+      required: ["name"],
+    },
+    run: async (input) => {
+      if (!deps.workspace) return "Workspace not available. Is MCP running?";
+      return deps.workspace.readAgent(String(input.name), input.kind as string | undefined);
     },
   },
 ];
