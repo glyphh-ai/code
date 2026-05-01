@@ -356,27 +356,33 @@ function computeFractions(fraction: number, type: "col" | "row"): { a: number; b
   return { a: aFrac, b: bFrac };
 }
 
+function cumulativePos(widths: number[], index: number, total: number): number {
+  let cum = 0;
+  for (let i = 0; i <= index; i++) cum += widths[i];
+  return Math.round(cum * total);
+}
+
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
   if (dragType === "col") {
     const fraction = Math.max(0.05, Math.min(0.95, e.clientX / window.innerWidth));
-    const handle = cwHandles.querySelector<HTMLElement>(`.cw-col-handle[data-index="${dragIndex}"]`);
-    if (handle) handle.style.left = `${Math.round(fraction * window.innerWidth)}px`;
     const fracs = computeFractions(fraction, "col");
     if (fracs) {
       gridColWidths[dragIndex] = fracs.a;
       gridColWidths[dragIndex + 1] = fracs.b;
       applyGridTemplate();
+      const handle = cwHandles.querySelector<HTMLElement>(`.cw-col-handle[data-index="${dragIndex}"]`);
+      if (handle) handle.style.left = `${cumulativePos(gridColWidths, dragIndex, window.innerWidth)}px`;
     }
   } else {
     const fraction = Math.max(0.05, Math.min(0.95, e.clientY / window.innerHeight));
-    const handle = cwHandles.querySelector<HTMLElement>(`.cw-row-handle[data-index="${dragIndex}"]`);
-    if (handle) handle.style.top = `${Math.round(fraction * window.innerHeight)}px`;
     const fracs = computeFractions(fraction, "row");
     if (fracs) {
       gridRowHeights[dragIndex] = fracs.a;
       gridRowHeights[dragIndex + 1] = fracs.b;
       applyGridTemplate();
+      const handle = cwHandles.querySelector<HTMLElement>(`.cw-row-handle[data-index="${dragIndex}"]`);
+      if (handle) handle.style.top = `${cumulativePos(gridRowHeights, dragIndex, window.innerHeight)}px`;
     }
   }
 });
