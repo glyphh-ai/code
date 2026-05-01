@@ -18,6 +18,7 @@ import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
+import type { WorkspaceManager } from "./workspace-manager";
 export class CommandParser {
   private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz", "council"]);
 
@@ -25,6 +26,7 @@ export class CommandParser {
   private onDrip: ((effect: string) => void) | null = null;
   private dripManager: import("./drip-manager").DripManager | null = null;
   private onCouncil: ((participants: string[]) => void) | null = null;
+  private workspaceManager: WorkspaceManager | null = null;
 
   // Sup conversation state
   private yoHistory: Array<{ role: string; content: string }> = [];
@@ -66,6 +68,10 @@ export class CommandParser {
   /** Register callback for council chat */
   setCouncilHandler(fn: (participants: string[]) => void) {
     this.onCouncil = fn;
+  }
+
+  setWorkspaceManager(mgr: WorkspaceManager): void {
+    this.workspaceManager = mgr;
   }
 
   /** Set the LLM engine for inline processing. */
@@ -173,11 +179,63 @@ export class CommandParser {
     return lastResult;
   }
 
-  // ── yo: always opens the agent side panel ────────────────────
+  // ── yo: opens the agent side panel, or dispatches a sub-mode ─────
 
   private async handleYo(args: string[]): Promise<string> {
+    // Sub-modes intercepted before the agent panel: `.yo .ws ...`
+    if (args[0] === ".ws" || args[0] === "ws") {
+      return this.handleWs(args.slice(1));
+    }
     const query = args.join(" ").trim();
     return `__YO_PANEL__${query ? `:${query}` : ""}`;
+  }
+
+  // ── yo .ws: workspace management ────────────────────────────
+
+  private handleWs(args: string[]): string {
+    if (!this.workspaceManager) {
+      return "Workspace manager not initialized.";
+    }
+    const sub = (args[0] || "").toLowerCase();
+
+    switch (sub) {
+      case "":
+      case "list": {
+        const list = this.workspaceManager.list();
+        const active = this.workspaceManager.getActiveSlug();
+        if (list.length === 0) return "No workspaces.";
+        return list
+          .map((w) => `${w.slug === active ? "* " : "  "}${w.slug}  ${w.name !== w.slug ? `(${w.name})  ` : ""}→ ${w.rootDir}`)
+          .join("\n");
+      }
+
+      case "new": {
+        const slug = args[1];
+        const rest = args.slice(2);
+        if (!slug || rest.length === 0) {
+          return "Usage: .yo .ws new <slug> <path> [name]";
+        }
+        // Last token *might* be a name if it's not a path component; for v1
+        // accept the simpler shape: `<slug> <path>` and default name = slug.
+        const rootDir = rest[0];
+        const name = rest.slice(1).join(" ").trim() || slug;
+        const result = this.workspaceManager.create(slug, name, rootDir);
+        if (!result.ok) return `Error: ${result.error}`;
+        const warning = result.warning ? `\n${result.warning}` : "";
+        return `Created workspace "${result.workspace.slug}" → ${result.workspace.rootDir}${warning}\nSwitch to it with: .yo .ws switch ${result.workspace.slug}`;
+      }
+
+      case "switch": {
+        const slug = args[1];
+        if (!slug) return "Usage: .yo .ws switch <slug>";
+        const result = this.workspaceManager.switch(slug);
+        if (!result.ok) return `Error: ${result.error}`;
+        return `Switched to "${result.workspace.slug}" → ${result.workspace.rootDir}`;
+      }
+
+      default:
+        return `Unknown .ws subcommand "${sub}". Try: list, new, switch.`;
+    }
   }
 
   // ── sup: capture screen ─────────────────────────────────

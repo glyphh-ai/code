@@ -34,6 +34,7 @@ import { smartGrab } from "./smart-grab";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
 import { resolveShellPath } from "./shell-path";
+import { WorkspaceManager } from "./workspace-manager";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
@@ -298,10 +299,16 @@ async function boot() {
 
   const dataStore = new DataStore();
 
-  // Single source of truth for the active workspace slug. Every component that
-  // writes to captureStore needs this to tag entries so capture-store search /
-  // listeners scope correctly.
-  const workspaceGetter = (): string => getPreference<string>("activeWorkspace", "default");
+  // Workspace registry — { slug, name, rootDir } per workspace, persisted to
+  // ~/yo/workspaces.json. Single source of truth for the active workspace.
+  // On first init, migrates from the legacy `activeWorkspace` preference and
+  // ensures a "default" workspace bound to the user's home dir.
+  const workspaceManager = new WorkspaceManager();
+  workspaceManager.init();
+
+  // Every component that writes to captureStore needs this to tag entries so
+  // capture-store search / listeners scope correctly.
+  const workspaceGetter = (): string => workspaceManager.getActiveSlug();
 
   // Action-driven capture — grabs content on blur/navigate + polls chat panels
   actionGrabber = new ActionGrabber();
@@ -875,6 +882,7 @@ async function boot() {
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
+  commandParser.setWorkspaceManager(workspaceManager);
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
@@ -2473,11 +2481,22 @@ async function boot() {
   ipcMain.handle("captures-daily-history-source", (_e, source: string, days: number) => captureStore.dailyHistoryForSource(source, days));
 
   // IPC: Context panel — workspace management
-  ipcMain.handle("workspace-get", () => getPreference<string>("activeWorkspace", "default"));
+  ipcMain.handle("workspace-get", () => workspaceManager.getActiveSlug());
   ipcMain.handle("workspace-set", (_e, name: string) => {
-    setPreference("activeWorkspace", name);
+    // Backward-compat with the legacy context-panel UX: any name becomes a
+    // workspace. If it doesn't exist yet, auto-create it bound to ~ before
+    // switching. Explicit creation via `.yo .ws new <slug> <path>` lets the
+    // user pick a real rootDir.
+    const slug = String(name || "").trim().toLowerCase();
+    if (!slug) return;
+    if (!workspaceManager.get(slug)) {
+      workspaceManager.create(slug, slug, os.homedir());
+    }
+    workspaceManager.switch(slug);
   });
   ipcMain.handle("workspace-list", () => captureStore.listWorkspaces());
+  // New: full workspace registry with rootDir (for upcoming UI in Phase 6)
+  ipcMain.handle("workspaces-registry", () => workspaceManager.list());
 
   // IPC: Context panel — live feed
   ipcMain.handle("context-recent", (_e, workspace: string, limit: number) => {
