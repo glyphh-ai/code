@@ -69,6 +69,7 @@ export interface SubstrateToolDeps {
     postTo: (agent: string, body: string, kind?: string) => string;
     post: (body: string, tags?: string[], kind?: string) => string;
     readAgent: (name: string, kind?: string) => string;
+    broadcastAndWait: (body: string, tags: string[], kind: string | undefined, timeoutMs: number) => Promise<string>;
   };
 }
 
@@ -1083,6 +1084,30 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (!deps.workspace) return "Workspace not available. Is MCP running?";
       const tags = (input.tags as string[] || []).concat(["broadcast"]);
       return deps.workspace.post(String(input.body), tags, input.kind as string | undefined);
+    },
+  },
+  {
+    name: "ws_request",
+    namespace: "yo",
+    description: "Broadcast a message and wait for agent responses. Returns all responses received within the timeout.",
+    input_schema: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "Message body to broadcast" },
+        tags: { type: "array", items: { type: "string" }, description: "Additional tags" },
+        kind: { type: "string", enum: ["post", "status", "question", "answer", "artifact"], description: "Message kind (default: question)" },
+        timeout: { type: "number", description: "Max seconds to wait for responses (default: 30, max: 120)" },
+      },
+      required: ["body"],
+    },
+    destructive: true,
+    run: async (input) => {
+      if (!deps.workspace) return "Workspace not available. Is MCP running?";
+      if (!deps.workspace.broadcastAndWait) return "broadcastAndWait not available.";
+      const timeoutSec = Math.min(Math.max(Number(input.timeout) || 30, 5), 120);
+      const tags = (input.tags as string[] || []).concat(["broadcast"]);
+      const kind = (input.kind as string) || "question";
+      return deps.workspace.broadcastAndWait(String(input.body), tags, kind, timeoutSec * 1000);
     },
   },
   {

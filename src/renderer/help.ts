@@ -405,7 +405,8 @@ export function initHelp() {
   layoutTypeSelect.addEventListener("change", () => {
     const isCode = layoutTypeSelect.value === "code";
     layoutCodeFields.classList.toggle("hidden", !isCode);
-    layoutGridBuilder.classList.toggle("hidden", isCode);
+    layoutGridBuilder.classList.remove("hidden");
+    renderGridPreview();
   });
   layoutPickDirBtn.addEventListener("click", async () => {
     const dir = await window.yo.pickDirectory();
@@ -1296,9 +1297,13 @@ function renderGridPreview() {
       const cls = ["grid-cell"];
       if (cell.panelId) cls.push("assigned");
       if (i === builderSelected) cls.push("selected");
+      let label = cell.panelId || "\u2014";
+      if (cell.panelId?.startsWith("agent:")) label = cell.panelId.slice(6);
+      else if (cell.panelId === "agents-tabbed") label = "Agents (tabbed)";
+      else if (cell.panelId === "vscode") label = "VS Code";
       return `<div class="${cls.join(" ")}" data-index="${i}"
         style="grid-column: ${cell.col + 1} / span ${cell.colSpan}; grid-row: ${cell.row + 1} / span ${cell.rowSpan}">
-        ${cell.panelId || "\u2014"}
+        ${label}
       </div>`;
     })
     .join("");
@@ -1316,12 +1321,26 @@ function renderGridPreview() {
 
 async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   document.querySelectorAll(".cell-panel-picker").forEach((el) => el.remove());
-  // Capture position before re-render destroys the anchor element
   const rect = anchor.getBoundingClientRect();
   builderSelected = cellIndex;
   renderGridPreview();
 
-  const apps = await window.yo.appsList();
+  const isCode = layoutTypeSelect.value === "code";
+
+  type PickerOption = { id: string; label: string };
+  let options: PickerOption[];
+
+  if (isCode) {
+    const agents = getAgentEntries();
+    options = [
+      { id: "vscode", label: "VS Code" },
+      { id: "agents-tabbed", label: "Agents (tabbed)" },
+      ...agents.map((a) => ({ id: `agent:${a.name}`, label: `${a.name} (${a.role})` })),
+    ];
+  } else {
+    const apps = await window.yo.appsList();
+    options = apps.map((a) => ({ id: a.id, label: a.name }));
+  }
 
   const picker = document.createElement("div");
   picker.className = "cell-panel-picker";
@@ -1331,7 +1350,7 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
     `<input class="cell-panel-search" placeholder="Search…" autocomplete="off" spellcheck="false" />`,
     `<div class="cell-panel-options">`,
     `<div class="cell-panel-option empty" data-id="">Empty</div>`,
-    ...apps.map((a) => `<div class="cell-panel-option" data-id="${a.id}">${a.name}</div>`),
+    ...options.map((o) => `<div class="cell-panel-option" data-id="${o.id}">${o.label}</div>`),
     `</div>`,
   ].join("");
 
@@ -1498,11 +1517,11 @@ async function editLayout(name: string) {
   const isCode = layout?.type === "code";
   layoutTypeSelect.value = isCode ? "code" : "standard";
   layoutCodeFields.classList.toggle("hidden", !isCode);
-  layoutGridBuilder.classList.toggle("hidden", isCode);
+  layoutGridBuilder.classList.remove("hidden");
   layoutRootDirInput.value = (isCode && layout?.rootDir) || "";
   clearAgentRows();
   if (isCode && layout?.agents) {
-    layout.agents.forEach((a) => addAgentRow(a.name, a.role, a.prompt));
+    layout.agents.forEach((a) => addAgentRow(a.name, a.role, a.prompt, (a as any).enableInput));
   }
 
   layoutsList.classList.add("hidden");
@@ -1525,6 +1544,7 @@ async function newLayout() {
   layoutTypeSelect.value = "standard";
   layoutCodeFields.classList.add("hidden");
   layoutGridBuilder.classList.remove("hidden");
+  renderGridPreview();
   layoutRootDirInput.value = "";
   clearAgentRows();
   layoutsList.classList.add("hidden");
@@ -1553,7 +1573,7 @@ async function saveLayout() {
   }
   const isCode = layoutTypeSelect.value === "code";
   const assignedCells = builderCells.filter((c) => c.panelId);
-  if (!isCode && assignedCells.length < 1) {
+  if (assignedCells.length < 1) {
     layoutFormError.textContent = "Assign at least one panel to the grid.";
     layoutFormError.classList.remove("hidden");
     return;
@@ -3775,7 +3795,7 @@ function clearToolRows() {
 
 // ── Agent row list (layout agents) ──────────────────────────
 
-function addAgentRow(name?: string, role?: string, prompt?: string) {
+function addAgentRow(name?: string, role?: string, prompt?: string, enableInput?: boolean) {
   const wrapper = document.createElement("div");
   wrapper.className = "agent-row-wrapper";
 
@@ -3808,20 +3828,31 @@ function addAgentRow(name?: string, role?: string, prompt?: string) {
   promptArea.rows = 2;
   promptArea.value = prompt || "";
 
+  const inputToggle = document.createElement("label");
+  inputToggle.className = "agent-input-toggle";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.className = "agent-input-cb";
+  cb.checked = !!enableInput;
+  inputToggle.appendChild(cb);
+  inputToggle.appendChild(document.createTextNode(" Enable user input"));
+
   wrapper.appendChild(row);
   wrapper.appendChild(promptArea);
+  wrapper.appendChild(inputToggle);
   layoutAgentsList.appendChild(wrapper);
 }
 
-function getAgentEntries(): Array<{ name: string; role: string; prompt?: string }> {
+function getAgentEntries(): Array<{ name: string; role: string; prompt?: string; enableInput?: boolean }> {
   const wrappers = layoutAgentsList.querySelectorAll(".agent-row-wrapper");
-  const entries: Array<{ name: string; role: string; prompt?: string }> = [];
+  const entries: Array<{ name: string; role: string; prompt?: string; enableInput?: boolean }> = [];
   wrappers.forEach(wrapper => {
     const inputs = wrapper.querySelectorAll("input[type=\"text\"]");
     const n = (inputs[0] as HTMLInputElement)?.value.trim();
     const r = (inputs[1] as HTMLInputElement)?.value.trim();
     const p = (wrapper.querySelector(".agent-prompt") as HTMLTextAreaElement)?.value.trim();
-    if (n) entries.push({ name: n, role: r || n, prompt: p || undefined });
+    const ei = (wrapper.querySelector(".agent-input-cb") as HTMLInputElement)?.checked;
+    if (n) entries.push({ name: n, role: r || n, prompt: p || undefined, enableInput: ei || undefined });
   });
   return entries;
 }

@@ -28,6 +28,9 @@ export class CommandParser {
   private codeTerminalLauncher:
     | ((name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string })
     | null = null;
+  private codeWorkspaceActivator:
+    | ((agents: Array<{ name: string; role: string; prompt?: string }>) => { ok: boolean; error?: string })
+    | null = null;
   private directoryPicker: (() => Promise<string | null>) | null = null;
 
   // Sup conversation state
@@ -73,6 +76,12 @@ export class CommandParser {
     this.onCouncil = fn;
   }
 
+
+  setCodeWorkspaceActivator(
+    fn: (agents: Array<{ name: string; role: string; prompt?: string }>) => { ok: boolean; error?: string },
+  ): void {
+    this.codeWorkspaceActivator = fn;
+  }
 
   setDirectoryPicker(fn: () => Promise<string | null>): void {
     this.directoryPicker = fn;
@@ -266,22 +275,10 @@ export class CommandParser {
     // .code <name> — recall an existing code layout
     const exactLayout = this.layouts.getLayout(sub);
     if (exactLayout && exactLayout.type === "code" && args.length === 1) {
-      if (exactLayout.agents && exactLayout.agents.length > 0 && this.codeTerminalLauncher) {
-        const created: string[] = [];
-        const errors: string[] = [];
-        for (const a of exactLayout.agents) {
-          const r = this.codeTerminalLauncher(a.name, a.role, a.prompt);
-          if (r.ok) created.push(r.panelId);
-          else errors.push(r.error);
-        }
-        if (created.length === 0 && errors.length > 0) {
-          return errors[0];
-        }
-        const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
-        if (win && !win.isDestroyed() && created.length > 0) {
-          this.handleDipSplit(created, win);
-        }
-        return `Launched "${exactLayout.name}" — ${created.length} agent(s)`;
+      if (exactLayout.agents && exactLayout.agents.length > 0 && this.codeWorkspaceActivator) {
+        const r = this.codeWorkspaceActivator(exactLayout.agents);
+        if (!r.ok) return r.error || "Failed to activate code workspace.";
+        return `Launched "${exactLayout.name}" — ${exactLayout.agents.length} agent(s)`;
       }
       return `Layout "${exactLayout.name}" has no agents. Add with: .code ui, server, web`;
     }
@@ -318,25 +315,17 @@ export class CommandParser {
     // Add agents to the layout
     this.layouts.addAgentsToLayout(targetLayout.name, parsed.agents);
 
-    // Launch code terminals
-    const created: string[] = [];
-    const errors: string[] = [];
-    for (const { name, role } of parsed.agents) {
-      const r = this.codeTerminalLauncher(name, role);
-      if (r.ok) created.push(r.panelId);
-      else errors.push(`${name}: ${r.error}`);
-    }
-
-    const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
-    if (win && !win.isDestroyed() && created.length > 0) {
-      this.handleDipSplit(created, win);
+    // Activate code workspace
+    if (this.codeWorkspaceActivator) {
+      const allAgents = targetLayout.agents || [];
+      const r = this.codeWorkspaceActivator([...allAgents, ...parsed.agents]);
+      if (!r.ok) return r.error || "Failed to activate code workspace.";
     }
 
     const lines = [
       `Scaffolded in "${targetLayout.name}":`,
       ...parsed.agents.map((a) => `  ${a.name} — ${a.role}`),
     ];
-    if (errors.length > 0) lines.push("", "Errors:", ...errors);
     lines.push(`\nRecall with: .dip ${targetLayout.name}`);
     return lines.join("\n");
   }
@@ -555,23 +544,12 @@ export class CommandParser {
     // Check for saved layout
     if (this.layouts.isLayout(sub)) {
       const layout = this.layouts.getLayout(sub);
-      // Code layouts: launch agent terminals and split them directly
-      if (layout?.type === "code" && layout.agents && layout.agents.length > 0 && this.codeTerminalLauncher) {
-        const created: string[] = [];
-        const errors: string[] = [];
-        for (const a of layout.agents) {
-          const r = this.codeTerminalLauncher(a.name, a.role, a.prompt);
-          if (r.ok) created.push(r.panelId);
-          else errors.push(r.error);
-        }
-        if (created.length === 0 && errors.length > 0) {
-          return errors[0];
-        }
-        if (created.length > 0) {
-          this.handleDipSplit(created, win);
-        }
+      // Code layouts: activate code workspace panel
+      if (layout?.type === "code" && layout.agents && layout.agents.length > 0 && this.codeWorkspaceActivator) {
+        const r = this.codeWorkspaceActivator(layout.agents);
+        if (!r.ok) return r.error || "Failed to activate code workspace.";
         setPreference("lastView", { type: "layout", name: sub });
-        return `Launched "${layout.name}" — ${created.length} agent(s)`;
+        return `Launched "${layout.name}" — ${layout.agents.length} agent(s)`;
       }
       const ok = this.layouts.apply(sub, win);
       if (!ok) return `Failed to apply layout: ${sub}`;

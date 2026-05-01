@@ -15,5 +15,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/renderer/renderer.ts", "src/renderer/help.ts", "src/renderer/home.ts", "src/renderer/onboarding.ts", "src/renderer/autocomplete.ts", "src/renderer/chat.ts", "src/renderer/terminal-renderer.ts", "src/renderer/dashboard-renderer.ts", "src/renderer/tsconfig.json"]
+  "exclude": ["node_modules", "dist", "src/renderer/renderer.ts", "src/renderer/help.ts", "src/renderer/home.ts", "src/renderer/onboarding.ts", "src/renderer/autocomplete.ts", "src/renderer/chat.ts", "src/renderer/terminal-renderer.ts", "src/renderer/dashboard-renderer.ts", "src/renderer/code-workspace.ts", "src/renderer/tsconfig.json"]
 }

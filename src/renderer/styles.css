@@ -1036,6 +1036,59 @@ body {
   min-height: 420px;
 }
 
+/* ── Layout editor split (mirrors skill-split) ────────────── */
+.layout-editor-split.crud-inline-form {
+  max-width: none !important;
+}
+.layout-split-body {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 16px;
+  margin-top: 10px;
+  min-height: 420px;
+}
+.layout-split-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.layout-left-topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.layout-left-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.layout-left-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.layout-split-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.layout-split-right .grid-builder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.layout-split-right #grid-preview {
+  flex: 1;
+  min-height: 300px;
+}
+
 .skill-code-widget {
   display: flex;
   border: 1px solid var(--border);
@@ -1301,6 +1354,14 @@ body {
 }
 .agent-prompt::placeholder { color: var(--text-2); }
 .agent-prompt:focus { border-color: var(--accent); }
+.agent-input-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-2); margin-top: 4px;
+  cursor: pointer;
+}
+.agent-input-toggle input[type="checkbox"] {
+  accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer;
+}
 
 /* Yo agent build hint */
 .yo-build-hint {

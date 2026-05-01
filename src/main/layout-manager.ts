@@ -25,6 +25,7 @@ export interface LayoutAgent {
   name: string;
   role: string;
   prompt?: string;
+  enableInput?: boolean;
 }
 
 export interface GridLayout {

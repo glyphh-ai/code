@@ -48,6 +48,7 @@ import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
 import { ActionGrabber } from "./action-grabber";
+import { AgentRunner, AgentConfig } from "./agent-runner";
 import { Council } from "./council";
 import { McpExpose } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
@@ -79,6 +80,7 @@ let skillEngine: SkillEngine;
 let appConnector: AppConnector;
 
 let terminalManager: TerminalManager;
+let agentRunner: AgentRunner;
 let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let voiceRelay: VoiceRelay | null = null;
@@ -596,6 +598,39 @@ async function boot() {
         const text = eventLog.readScratchpad(wsSlug, name);
         return text || `(${name} has no scratchpad yet)`;
       },
+      broadcastAndWait: async (body: string, tags: string[], kind: string | undefined, timeoutMs: number) => {
+        const wsSlug = workspaceGetter();
+        const evt = eventLog.append(wsSlug, {
+          from: ".yo",
+          tags,
+          kind: (kind as any) || "question",
+          body,
+        });
+        const sentTs = evt.ts;
+        const deadline = Date.now() + timeoutMs;
+        const pollInterval = 2000;
+        const responses: Array<{ from: string; body: string; ts: number; kind: string }> = [];
+        const seenTs = new Set<number>();
+
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, pollInterval));
+          const recent = eventLog.read(wsSlug, { since: sentTs, limit: 50 });
+          for (const r of recent) {
+            if (r.from === ".yo" || r.from === "user") continue;
+            if (r.ts <= sentTs) continue;
+            if (seenTs.has(r.ts)) continue;
+            seenTs.add(r.ts);
+            responses.push({ from: r.from, body: r.body, ts: r.ts, kind: r.kind });
+          }
+        }
+
+        return JSON.stringify({
+          broadcast: { body, ts: sentTs },
+          responses,
+          waitedMs: Date.now() - sentTs,
+          timedOut: responses.length === 0,
+        }, null, 2);
+      },
     },
   });
 
@@ -642,6 +677,7 @@ async function boot() {
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
   terminalManager.init();
+  agentRunner = new AgentRunner();
 
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
@@ -684,6 +720,7 @@ async function boot() {
   // Track code-terminal panels (Phase 2): panel id → spawn config used when
   // the panel's webContents finishes loading.
   const panelIdToAgentConfig = new Map<string, AgentSpawnConfig>();
+  const cwWcWorkspace = new Map<number, string>(); // code-workspace webContents.id → workspace slug
 
   panelManager = new PanelManager((id, wc) => {
     if (id.startsWith("vibe-")) {
@@ -721,6 +758,26 @@ async function boot() {
         wc.on("did-finish-load", () => terminalManager.spawn(wc));
       }
       yoInterceptor.activateBarOnly(wc, id);
+    } else if (baseAppId === "code-workspace") {
+      // Code workspace: SDK-driven agent runner (not terminal PTYs)
+      const wsSlug = workspaceManager.getActive().slug;
+      cwWcWorkspace.set(wc.id, wsSlug);
+      wc.on("destroyed", () => {
+        cwWcWorkspace.delete(wc.id);
+        agentRunner.stopAll(wc.id);
+      });
+      const ws = workspaceManager.getActive();
+      const wsAgents = workspaceManager.listAgents(wsSlug);
+      // Ensure briefings + MCP config
+      rewriteAllBriefings(ws, wsAgents);
+      try { ensureProjectClaudeMd(ws); } catch { /* */ }
+      if (mcpExpose?.isRunning) {
+        const url = `http://127.0.0.1:${mcpExpose.getPort()}/mcp`;
+        const tokens = mcpExpose.getTokens();
+        const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
+        try { ensureProjectMcpJson(ws, url, token); } catch { /* */ }
+      }
+      inboxRouter?.watch(wsSlug);
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
@@ -867,6 +924,8 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
+  const codeWorkspaceHtml = `file://${path.join(__dirname, "..", "renderer", "code-workspace.html")}`;
+  const codeWorkspacePreload = path.join(__dirname, "code-workspace-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
@@ -878,6 +937,8 @@ async function boot() {
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://code-workspace") {
+      panelManager.addPanel(app.id, codeWorkspaceHtml, codeWorkspacePreload, undefined, true);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -987,6 +1048,26 @@ async function boot() {
 
   let restoring = false;
 
+  /** Ensure agents from a code layout exist in the workspace. Returns error or null. */
+  function ensureCodeLayoutAgents(agents: Array<{ name: string; role: string; prompt?: string }>): string | null {
+    const ws = workspaceManager.getActive();
+    for (const a of agents) {
+      let agent = workspaceManager.getAgent(ws.slug, a.name);
+      if (!agent) {
+        const result = workspaceManager.createAgent(ws.slug, { name: a.name, role: a.role, prompt: a.prompt });
+        if (!result.ok) return result.error;
+      }
+    }
+    return null;
+  }
+
+  /** Activate the code workspace panel (switch to it). */
+  function activateCodeWorkspace(): boolean {
+    if (!mainWindow) return false;
+    panelManager.switchTo("code-workspace", mainWindow);
+    return true;
+  }
+
   // Code-terminal launcher (Phase 2 + 3): called by `.dip code <name> [role]`.
   // Resolves/creates the agent, ensures briefings + project CLAUDE.md +
   // .mcp.json are up to date, starts the workspace MCP server if not yet
@@ -1067,6 +1148,12 @@ async function boot() {
     return { ok: true, panelId };
   }
   commandParser.setCodeTerminalLauncher(launchCodeTerminal);
+  commandParser.setCodeWorkspaceActivator((agents) => {
+    const err = ensureCodeLayoutAgents(agents);
+    if (err) return { ok: false, error: err };
+    const ok = activateCodeWorkspace();
+    return ok ? { ok: true } : { ok: false, error: "Failed to switch to code workspace." };
+  });
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
@@ -1673,16 +1760,10 @@ async function boot() {
       } else if (lastView.type === "layout" && lastView.name) {
         const savedLayout = layoutManager.getLayout(lastView.name);
         if (savedLayout?.type === "code" && savedLayout.agents && savedLayout.agents.length > 0) {
-          // Code layout: re-launch agent terminals and split them
-          const created: string[] = [];
-          for (const a of savedLayout.agents) {
-            const r = launchCodeTerminal(a.name, a.role, a.prompt);
-            if (r && r.ok) created.push(r.panelId);
-          }
-          if (created.length > 0) {
-            layoutManager.splitN(created, mainWindow);
-            panelManager.setInitialActive(created[0]);
-          }
+          // Code layout: ensure agents exist and switch to code-workspace panel
+          ensureCodeLayoutAgents(savedLayout.agents);
+          panelManager.switchTo("code-workspace", mainWindow);
+          panelManager.setInitialActive("code-workspace");
         } else {
           layoutManager.apply(lastView.name, mainWindow);
           const grid = layoutManager.getGridInfo();
@@ -2599,7 +2680,7 @@ async function boot() {
     });
     return true;
   });
-  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }) => {
+  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string; enableInput?: boolean }> }) => {
     const existing = layoutManager.listLayouts().find(l => l.name === grid.name);
     if (!existing) {
       const gate = canSaveLayout(layoutManager.listLayouts().length);
@@ -3166,6 +3247,112 @@ async function boot() {
 
   // Billing/account managed via web dashboard — no client-side checkout needed
 
+  // IPC: code workspace
+  ipcMain.handle("cw:get-agents", (e) => {
+    const wsSlug = cwWcWorkspace.get(e.sender.id) || workspaceManager.getActive().slug;
+    return workspaceManager.listAgents(wsSlug).map((a) => ({ name: a.name, role: a.role, prompt: a.prompt }));
+  });
+
+  ipcMain.handle("cw:add-agent", (e, name: string, role: string, prompt?: string) => {
+    const wsSlug = cwWcWorkspace.get(e.sender.id) || workspaceManager.getActive().slug;
+    const result = workspaceManager.createAgent(wsSlug, { name, role, prompt });
+    if (!result.ok) return { ok: false, error: result.error };
+    const agent = result.agent;
+    const ws = workspaceManager.get(wsSlug)!;
+    const allAgents = workspaceManager.listAgents(wsSlug);
+    rewriteAllBriefings(ws, allAgents);
+    writeAgentBriefing(ws, agent, allAgents);
+    return { ok: true };
+  });
+
+  // Agent runner IPC: start/stop SDK-driven agents
+  function buildAgentConfig(wsSlug: string, agentName: string): AgentConfig | null {
+    const agent = workspaceManager.getAgent(wsSlug, agentName);
+    if (!agent) return null;
+    return {
+      name: agent.name,
+      role: agent.role,
+      cwd: agent.cwd,
+      prompt: agent.prompt,
+      startPrompt: `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Then check .yo/inbox/${agent.name}.md for pending tasks. If the inbox is empty or doesn't exist, say "Ready" and wait for instructions.`,
+      workspace: wsSlug,
+    };
+  }
+
+  ipcMain.on("cw:agent:start", (e, agentName: string) => {
+    const wsSlug = cwWcWorkspace.get(e.sender.id) || workspaceManager.getActive().slug;
+    const config = buildAgentConfig(wsSlug, agentName);
+    if (!config) return;
+    agentRunner.startAgent(e.sender, config).catch((err) => {
+      console.error(`[agent-runner] failed to start agent "${agentName}":`, err);
+    });
+  });
+
+  ipcMain.on("cw:agent:stop", (e, agentName: string) => {
+    agentRunner.stopAgent(e.sender.id, agentName);
+  });
+
+  ipcMain.on("cw:agent:send", (e, agentName: string, message: string) => {
+    agentRunner.sendMessage(e.sender.id, agentName, message);
+  });
+
+  ipcMain.handle("cw:vscode-url", () => {
+    if (vscodeServer?.available) return VSCodeServer.expectedUrl();
+    return null;
+  });
+
+  ipcMain.handle("cw:get-layout", () => {
+    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
+    if (lastView?.type === "layout" && lastView.name) {
+      const layout = layoutManager.getLayout(lastView.name);
+      if (layout?.type === "code") {
+        const inputAgents = new Set(
+          (layout.agents || []).filter(a => a.enableInput).map(a => a.name)
+        );
+        return {
+          name: lastView.name,
+          cells: layout.cells,
+          cols: layout.cols,
+          rows: layout.rows,
+          colWidths: layout.colWidths,
+          rowHeights: layout.rowHeights,
+          inputAgents: Array.from(inputAgents),
+        };
+      }
+    }
+    return null;
+  });
+
+  ipcMain.handle("cw:save-layout-sizes", (_e, colWidths: number[], rowHeights: number[]) => {
+    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
+    if (lastView?.type === "layout" && lastView.name) {
+      const layout = layoutManager.getLayout(lastView.name);
+      if (layout?.type === "code") {
+        layout.colWidths = colWidths;
+        layout.rowHeights = rowHeights;
+        layoutManager.saveLayout(layout);
+        return true;
+      }
+    }
+    return false;
+  });
+
+  ipcMain.handle("cw:add-agent-to-layout", (_e, name: string, role: string, prompt?: string) => {
+    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
+    if (lastView?.type === "layout" && lastView.name) {
+      const layout = layoutManager.getLayout(lastView.name);
+      if (layout?.type === "code") {
+        if (!layout.agents) layout.agents = [];
+        if (!layout.agents.find((a) => a.name === name)) {
+          layout.agents.push({ name, role, prompt });
+          layoutManager.saveLayout(layout);
+        }
+        return true;
+      }
+    }
+    return false;
+  });
+
   // IPC: tabs
   ipcMain.handle("tab-list", () => {
     return buildTabState();
@@ -3627,6 +3814,7 @@ function cleanupAll() {
   configSync?.stop();
   configSync = null;
   terminalManager?.killAll();
+  // agentRunner instances are aborted when their webContents are destroyed
   vscodeServer?.stop();
   mcpExpose?.stop();
   inboxRouter?.stop();

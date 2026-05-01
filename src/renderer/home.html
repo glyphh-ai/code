@@ -968,56 +968,66 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <button id="layout-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="layouts-list" class="crud-cards"></div>
-          <div id="layout-editor" class="crud-inline-form hidden">
+          <div id="layout-editor" class="crud-inline-form hidden layout-editor-split">
             <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="layout-back-link">← Layouts</a>
               <div class="crud-spacer"></div>
-              <button id="layout-delete-btn" class="action-btn danger">Delete</button>
             </div>
-            <div id="layout-form-error" class="crud-form-error hidden"></div>
-            <label class="settings-label">Name</label>
-            <input id="layout-new-name" type="text" class="settings-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
-            <div id="layout-type-row" class="layout-type-row">
-              <label class="settings-label">Type</label>
-              <select id="layout-type-select" class="settings-input" style="width:auto;">
-                <option value="standard">Standard</option>
-                <option value="code">Code</option>
-              </select>
-            </div>
-            <div id="layout-code-fields" class="hidden">
-              <label class="settings-label">Project directory</label>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <input id="layout-rootdir" type="text" class="settings-input" placeholder="/path/to/project" spellcheck="false" autocomplete="off" style="flex:1;" readonly />
-                <button id="layout-pick-dir" class="action-btn">Browse</button>
+            <div class="layout-split-body">
+              <div class="layout-split-left">
+                <div class="layout-left-topbar">
+                  <button id="layout-delete-btn" class="action-btn danger">Delete</button>
+                </div>
+                <div class="layout-left-form">
+                  <div id="layout-form-error" class="crud-form-error hidden"></div>
+                  <label class="settings-label">Name</label>
+                  <input id="layout-new-name" type="text" class="settings-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
+                  <div id="layout-type-row" class="layout-type-row">
+                    <label class="settings-label">Type</label>
+                    <select id="layout-type-select" class="settings-input" style="width:auto;">
+                      <option value="standard">Standard</option>
+                      <option value="code">Code</option>
+                    </select>
+                  </div>
+                  <div id="layout-code-fields" class="hidden">
+                    <label class="settings-label">Project directory</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                      <input id="layout-rootdir" type="text" class="settings-input" placeholder="/path/to/project" spellcheck="false" autocomplete="off" style="flex:1;" readonly />
+                      <button id="layout-pick-dir" class="action-btn">Browse</button>
+                    </div>
+                    <label class="settings-label">Agents</label>
+                    <div id="layout-agents-list" class="skill-row-list"></div>
+                    <button id="layout-agents-add" type="button" class="skill-row-add-btn">+ Add agent</button>
+                  </div>
+                </div>
+                <div class="layout-left-footer">
+                  <button id="layout-cancel-btn" class="action-btn">Cancel</button>
+                  <button id="layout-save-btn" class="action-btn primary">Save</button>
+                </div>
               </div>
-              <label class="settings-label">Agents</label>
-              <div id="layout-agents-list" class="skill-row-list"></div>
-              <button id="layout-agents-add" type="button" class="skill-row-add-btn">+ Add agent</button>
-            </div>
-            <div id="layout-grid-builder" class="grid-builder">
-              <div class="grid-dims">
-                <label>Cols <select id="grid-cols">
-                  <option value="1">1</option>
-                  <option value="2" selected>2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                </select></label>
-                <span class="dim-sep">&times;</span>
-                <label>Rows <select id="grid-rows">
-                  <option value="1" selected>1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                </select></label>
-                <button id="grid-merge-right" class="action-btn" disabled>&rarr; Merge</button>
-                <button id="grid-merge-down" class="action-btn" disabled>&darr; Merge</button>
-                <button id="grid-split-btn" class="action-btn" disabled>Split</button>
+              <div class="layout-split-right">
+                <div id="layout-grid-builder" class="grid-builder">
+                  <div class="grid-dims">
+                    <label>Cols <select id="grid-cols">
+                      <option value="1">1</option>
+                      <option value="2" selected>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                    </select></label>
+                    <span class="dim-sep">&times;</span>
+                    <label>Rows <select id="grid-rows">
+                      <option value="1" selected>1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                    </select></label>
+                    <button id="grid-merge-right" class="action-btn" disabled>&rarr; Merge</button>
+                    <button id="grid-merge-down" class="action-btn" disabled>&darr; Merge</button>
+                    <button id="grid-split-btn" class="action-btn" disabled>Split</button>
+                  </div>
+                  <div id="grid-preview"></div>
+                </div>
               </div>
-              <div id="grid-preview"></div>
-            </div>
-            <div class="settings-actions" style="margin-top:8px;">
-              <button id="layout-cancel-btn" class="action-btn">Cancel</button>
-              <button id="layout-save-btn" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>
