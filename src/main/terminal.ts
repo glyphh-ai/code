@@ -11,12 +11,23 @@
 import * as pty from "node-pty";
 import { ipcMain, WebContents } from "electron";
 import os from "os";
+import { getShellPath } from "./shell-path";
 
 /** Marker wrapping command output from injected shell functions */
 const CMD_MARKER_START = "\x1b]7770;";
 const CMD_MARKER_END = "\x07";
 
 export type TerminalCommandHandler = (cmd: string, wc: WebContents) => void;
+
+/** Config for spawning a code-terminal (named Claude Code agent panel). */
+export interface AgentSpawnConfig {
+  name: string;          // agent name (e.g. "ui")
+  role: string;          // free-text role label (e.g. "frontend")
+  cwd: string;           // resolved absolute path
+  command: string;       // e.g. "claude"
+  args: string[];        // extra CLI args
+  workspace: string;     // workspace slug
+}
 
 export class TerminalManager {
   private processes = new Map<number, pty.IPty>();
@@ -109,6 +120,54 @@ export class TerminalManager {
         `clear\r`,
       );
     }, 400);
+  }
+
+  /**
+   * Spawn a code-terminal pty: a named agent running an LLM CLI (default `claude`).
+   * Differs from spawn() in three ways: cwd is workspace-rooted, command is the
+   * agent CLI directly (not a user shell), and env carries YO_AGENT_NAME so
+   * the agent can identify itself via the project CLAUDE.md dispatcher.
+   *
+   * Auto-restarts on exit so the agent persists across `/clear` and crashes.
+   * Slash commands are handled by the agent CLI itself, so we do NOT inject
+   * the yo/sup/dip shell-function marker scheme used by regular terminals.
+   */
+  spawnAgent(wc: WebContents, config: AgentSpawnConfig): void {
+    this.kill(wc.id);
+
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      PATH: getShellPath(),
+      YO_AGENT_NAME: config.name,
+      YO_AGENT_ROLE: config.role,
+      YO_WORKSPACE: config.workspace,
+    };
+
+    const proc = pty.spawn(config.command, config.args, {
+      name: "xterm-256color",
+      cols: 80,
+      rows: 24,
+      cwd: config.cwd,
+      env,
+    });
+
+    proc.onData((data) => {
+      if (wc.isDestroyed()) return;
+      wc.send("terminal:data", data);
+    });
+
+    proc.onExit(({ exitCode }) => {
+      if (wc.isDestroyed()) return;
+      wc.send("terminal:data", `\r\n[agent "${config.name}" exited with code ${exitCode}; respawning…]\r\n`);
+      this.processes.delete(wc.id);
+      // Auto-restart so /clear, crashes, or manual `exit` keep the agent alive.
+      // Small delay to avoid tight crash loops if the binary is misconfigured.
+      setTimeout(() => {
+        if (!wc.isDestroyed()) this.spawnAgent(wc, config);
+      }, 500);
+    });
+
+    this.processes.set(wc.id, proc);
   }
 
   /** Kill a pty process by webContents id. */

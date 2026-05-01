@@ -11,7 +11,8 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { PanelManager } from "./panel-manager";
-import { TerminalManager } from "./terminal";
+import { TerminalManager, AgentSpawnConfig } from "./terminal";
+import { writeAgentBriefing, ensureProjectClaudeMd, rewriteAllBriefings } from "./agent-briefing";
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
@@ -607,6 +608,10 @@ async function boot() {
   // Track vibe panel webContents for IPC scoping (populated by onCreated callback below)
   const vibeWebContentsMap = new Map<number, string>();
 
+  // Track code-terminal panels (Phase 2): panel id → spawn config used when
+  // the panel's webContents finishes loading.
+  const panelIdToAgentConfig = new Map<string, AgentSpawnConfig>();
+
   panelManager = new PanelManager((id, wc) => {
     if (id.startsWith("vibe-")) {
       const vibeName = id.slice(5);
@@ -629,6 +634,15 @@ async function boot() {
     if (baseAppId === "term") {
       // Spawn pty when terminal page loads
       wc.on("did-finish-load", () => terminalManager.spawn(wc));
+    } else if (baseAppId === "code") {
+      // Code-terminal: spawn the named agent CLI (claude) with role env vars
+      const cfg = panelIdToAgentConfig.get(id);
+      if (cfg) {
+        wc.on("did-finish-load", () => terminalManager.spawnAgent(wc, cfg));
+      } else {
+        console.warn(`[code-terminal] no agent config for panel "${id}" — falling back to plain terminal`);
+        wc.on("did-finish-load", () => terminalManager.spawn(wc));
+      }
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
@@ -883,6 +897,45 @@ async function boot() {
     mainWindow?.webContents.send("show-welcome");
   });
   commandParser.setWorkspaceManager(workspaceManager);
+
+  // Code-terminal launcher (Phase 2): called by `.dip code <name> [role]`.
+  // Resolves/creates the agent, ensures briefings + project CLAUDE.md are
+  // up to date, registers the spawn config, and adds the panel.
+  commandParser.setCodeTerminalLauncher((name: string, role?: string) => {
+    const ws = workspaceManager.getActive();
+    let agent = workspaceManager.getAgent(ws.slug, name);
+    if (!agent) {
+      if (!role) {
+        return { ok: false, error: `Agent "${name}" not found in workspace "${ws.slug}". Try: .dip code ${name} <role>` };
+      }
+      const result = workspaceManager.createAgent(ws.slug, { name, role });
+      if (!result.ok) return { ok: false, error: result.error };
+      agent = result.agent;
+    }
+
+    // Keep all briefings in sync (peer lists update when roster grows) and
+    // ensure the project's CLAUDE.md has the dispatcher section.
+    const allAgents = workspaceManager.listAgents(ws.slug);
+    rewriteAllBriefings(ws, allAgents);
+    try { ensureProjectClaudeMd(ws); } catch (err) {
+      console.warn("[code-terminal] failed to update project CLAUDE.md:", (err as Error).message);
+    }
+    writeAgentBriefing(ws, agent, allAgents);
+
+    const panelId = `code-${ws.slug}-${agent.name}`;
+    panelIdToAgentConfig.set(panelId, {
+      name: agent.name,
+      role: agent.role,
+      cwd: agent.cwd,
+      command: agent.agentCommand,
+      args: agent.agentArgs,
+      workspace: ws.slug,
+    });
+
+    // Add the panel if it's not already present (re-uses terminal HTML/preload).
+    panelManager.addPanel(panelId, terminalHtml, terminalPreload);
+    return { ok: true, panelId };
+  });
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
@@ -1512,6 +1565,8 @@ async function boot() {
   function resolveAppId(panelId: string): string {
     if (appConnector.get(panelId)) return panelId;
     if (panelId.startsWith("browse-")) return "browser";
+    // Code-terminals (Phase 2): id shape is `code-<workspace>-<agent>`.
+    if (panelId.startsWith("code-")) return "code";
     const dash = panelId.lastIndexOf("-");
     if (dash > 0) {
       const base = panelId.slice(0, dash);

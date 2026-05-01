@@ -27,6 +27,9 @@ export class CommandParser {
   private dripManager: import("./drip-manager").DripManager | null = null;
   private onCouncil: ((participants: string[]) => void) | null = null;
   private workspaceManager: WorkspaceManager | null = null;
+  private codeTerminalLauncher:
+    | ((name: string, role?: string) => { ok: true; panelId: string } | { ok: false; error: string })
+    | null = null;
 
   // Sup conversation state
   private yoHistory: Array<{ role: string; content: string }> = [];
@@ -72,6 +75,15 @@ export class CommandParser {
 
   setWorkspaceManager(mgr: WorkspaceManager): void {
     this.workspaceManager = mgr;
+  }
+
+  /** Register a callback that creates/ensures a code-terminal panel for a
+   *  named agent and returns its panel id. Implementation lives in main.ts
+   *  where it has access to TerminalManager + PanelManager. */
+  setCodeTerminalLauncher(
+    fn: (name: string, role?: string) => { ok: true; panelId: string } | { ok: false; error: string },
+  ): void {
+    this.codeTerminalLauncher = fn;
   }
 
   /** Set the LLM engine for inline processing. */
@@ -333,6 +345,21 @@ export class CommandParser {
       const switched = this.panels.switchTo(targetId, win);
       if (switched) setPreference("lastView", { type: "panel", id: targetId });
       return switched ? `Switched to ${targetId}` : `Unknown panel: ${targetId}. Try: dip list`;
+    }
+
+    // dip code <name> [role] — open (or create) a code-terminal for a named
+    // agent in the active workspace. Role is required only on first creation.
+    if (sub === "code") {
+      const name = args[1]?.toLowerCase().trim();
+      if (!name) return "Usage: .dip code <name> [role]";
+      if (!this.codeTerminalLauncher) return "Code-terminal launcher not available.";
+      const role = args.slice(2).join(" ").trim() || undefined;
+      const result = this.codeTerminalLauncher(name, role);
+      if (!result.ok) return result.error;
+      this.layouts.suspendSplit();
+      const switched = this.panels.switchTo(result.panelId, win);
+      if (switched) setPreference("lastView", { type: "panel", id: result.panelId });
+      return switched ? `→ ${result.panelId}` : `Created agent "${name}" but failed to switch panels.`;
     }
 
     if (sub === "close") {

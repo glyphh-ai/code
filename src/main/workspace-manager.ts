@@ -26,10 +26,28 @@ export interface Workspace {
   createdAt: number;
 }
 
+/** A code-terminal agent — a named Claude Code instance scoped to a workspace. */
+export interface CodeAgent {
+  name: string;
+  role: string;
+  cwd: string;            // resolved absolute path; defaults to workspace.rootDir
+  agentCommand: string;   // default "claude"
+  agentArgs: string[];    // default []
+  createdAt: number;
+}
+
 interface WorkspacesIndex {
   workspaces: Workspace[];
   active: string;
 }
+
+interface AgentsFile {
+  agents: CodeAgent[];
+}
+
+export type CreateAgentResult =
+  | { ok: true; agent: CodeAgent }
+  | { ok: false; error: string };
 
 const YO_DIR = path.join(os.homedir(), "yo");
 const INDEX_FILE = path.join(YO_DIR, "workspaces.json");
@@ -136,6 +154,84 @@ export class WorkspaceManager {
   /** Path to per-workspace data dir (events.jsonl, agents/, inbox/, etc.) */
   workspaceDir(slug: string): string {
     return path.join(WORKSPACES_DIR, slug);
+  }
+
+  // ── Code-terminal agents (Phase 2) ─────────────────────────
+
+  private agentsFile(slug: string): string {
+    return path.join(this.workspaceDir(slug), "agents.json");
+  }
+
+  private readAgents(slug: string): AgentsFile {
+    const file = this.agentsFile(slug);
+    if (!fs.existsSync(file)) return { agents: [] };
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+      if (raw && Array.isArray(raw.agents)) return raw;
+    } catch (err) {
+      console.warn("[workspace-manager] failed to read agents.json:", (err as Error).message);
+    }
+    return { agents: [] };
+  }
+
+  private writeAgents(slug: string, data: AgentsFile): void {
+    fs.mkdirSync(this.workspaceDir(slug), { recursive: true });
+    fs.writeFileSync(this.agentsFile(slug), JSON.stringify(data, null, 2));
+  }
+
+  listAgents(slug: string): CodeAgent[] {
+    return this.readAgents(slug).agents;
+  }
+
+  getAgent(slug: string, name: string): CodeAgent | null {
+    return this.readAgents(slug).agents.find((a) => a.name === name) ?? null;
+  }
+
+  createAgent(
+    workspaceSlug: string,
+    def: { name: string; role?: string; cwd?: string; agentCommand?: string; agentArgs?: string[] },
+  ): CreateAgentResult {
+    const ws = this.get(workspaceSlug);
+    if (!ws) return { ok: false, error: `No workspace "${workspaceSlug}".` };
+
+    const cleanName = def.name.toLowerCase().trim();
+    if (!SLUG_PATTERN.test(cleanName)) {
+      return {
+        ok: false,
+        error: `Invalid agent name "${def.name}" — use lowercase letters, digits, and dashes (must start with a letter or digit).`,
+      };
+    }
+    if (RESERVED_SLUGS.has(cleanName)) {
+      return { ok: false, error: `"${cleanName}" is a reserved keyword.` };
+    }
+    // Workspace-scoped uniqueness — same name allowed in a different workspace.
+    const existing = this.readAgents(workspaceSlug);
+    if (existing.agents.find((a) => a.name === cleanName)) {
+      return { ok: false, error: `Agent "${cleanName}" already exists in workspace "${workspaceSlug}".` };
+    }
+
+    const cwd = def.cwd ? path.resolve(expandHome(def.cwd)) : ws.rootDir;
+    const agent: CodeAgent = {
+      name: cleanName,
+      role: (def.role || cleanName).trim(),
+      cwd,
+      agentCommand: (def.agentCommand || "claude").trim(),
+      agentArgs: def.agentArgs ?? [],
+      createdAt: Date.now(),
+    };
+    existing.agents.push(agent);
+    this.writeAgents(workspaceSlug, existing);
+
+    return { ok: true, agent };
+  }
+
+  deleteAgent(workspaceSlug: string, name: string): boolean {
+    const file = this.readAgents(workspaceSlug);
+    const before = file.agents.length;
+    file.agents = file.agents.filter((a) => a.name !== name);
+    if (file.agents.length === before) return false;
+    this.writeAgents(workspaceSlug, file);
+    return true;
   }
 
   create(slug: string, name: string, rootDir: string): CreateResult {
