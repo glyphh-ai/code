@@ -462,6 +462,11 @@ export class AppConnector {
     return true;
   }
 
+  /** Check if an ID is a directly registered app (not an instance resolution) */
+  hasDirect(id: string): boolean {
+    return this.apps.has(id);
+  }
+
   /** Get an app config */
   get(id: string): AppConfig | null {
     const direct = this.apps.get(id);

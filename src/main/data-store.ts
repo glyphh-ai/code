@@ -38,6 +38,10 @@ function ensureDb(): Database.Database {
   return db;
 }
 
+export function closeDataStoreDb(): void {
+  if (db) { try { db.close(); } catch {} db = null; }
+}
+
 export interface KVEntry {
   key: string;
   value: unknown;

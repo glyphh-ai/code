@@ -181,29 +181,27 @@
       loadBar.classList.add("active");
     });
 
-    webview.addEventListener("did-stop-loading", () => {
-      loadBar.classList.remove("active");
+    function updateNavButtons() {
       try {
         btnBack.disabled = !webview.canGoBack();
         btnFwd.disabled  = !webview.canGoForward();
       } catch(e) {}
+    }
+
+    webview.addEventListener("did-stop-loading", () => {
+      loadBar.classList.remove("active");
+      updateNavButtons();
     });
 
     webview.addEventListener("did-navigate", (e) => {
       if (e.url && e.url !== "about:blank") urlBar.value = e.url;
-      try {
-        btnBack.disabled = !webview.canGoBack();
-        btnFwd.disabled  = !webview.canGoForward();
-      } catch(e) {}
+      updateNavButtons();
     });
 
     webview.addEventListener("did-navigate-in-page", (e) => {
       if (e.isMainFrame) {
         urlBar.value = e.url;
-        try {
-          btnBack.disabled = !webview.canGoBack();
-          btnFwd.disabled  = !webview.canGoForward();
-        } catch(e) {}
+        updateNavButtons();
       }
     });
 

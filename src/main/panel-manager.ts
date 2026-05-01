@@ -438,13 +438,17 @@ export class PanelManager {
       // If the view or its webContents was destroyed, drop it and recreate
       try {
         if (!existing.webContents || existing.webContents.isDestroyed()) {
+          console.log(`[getOrCreate] panel="${id}" — existing view destroyed, recreating`);
           this.panels.delete(id);
         } else {
           return existing;
         }
       } catch {
+        console.log(`[getOrCreate] panel="${id}" — existing view threw, recreating`);
         this.panels.delete(id);
       }
+    } else {
+      console.log(`[getOrCreate] panel="${id}" — not in panels map, creating fresh`);
     }
 
     const config = this.configs.get(id);
@@ -705,9 +709,7 @@ export class PanelManager {
       if (config.forceWeb) {
         view.webContents.executeJavaScript(PanelManager.FORCE_WEB_JS).catch(() => {});
       }
-      if (this.activePanel === id) {
-        this.onReady?.(id, view.webContents);
-      }
+      this.onReady?.(id, view.webContents);
     });
     this.panels.set(id, view);
 
@@ -867,6 +869,7 @@ export class PanelManager {
   setOnInsetChange(cb: () => void): void { this.onInsetChange = cb; }
 
   setRightInset(px: number): void {
+    if (px === this._rightInset) return;
     this._rightInset = px;
     this.onInsetChange?.();
   }
@@ -884,6 +887,7 @@ export class PanelManager {
   }
 
   setTopInset(px: number): void {
+    if (px === this._topInset) return;
     this._topInset = px;
     this.onInsetChange?.();
   }

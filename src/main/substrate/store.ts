@@ -41,6 +41,10 @@ function ensureDb(): Database.Database {
   return db;
 }
 
+export function closeSubstrateDb(): void {
+  if (db) { try { db.close(); } catch {} db = null; }
+}
+
 export function recordRun(run: RememberedRun): void {
   const d = ensureDb();
   d.prepare(`

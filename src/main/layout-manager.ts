@@ -495,10 +495,12 @@ export class LayoutManager {
     let firstView: import("electron").BrowserView | null = null;
     const urlOffset = this.cellUrlBars ? CELL_URL_HEIGHT : 0;
     this.lastCellBounds = [];
+    const addedViews = new Set<import("electron").BrowserView>();
 
     for (const cell of grid.cells) {
       const view = this.panelManager.getOrCreateView(cell.panelId, win);
-      if (!view) continue;
+      if (!view || addedViews.has(view)) continue;
+      addedViews.add(view);
       if (!firstView) firstView = view;
 
       // Raw pixel bounds from grid fractions

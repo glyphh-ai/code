@@ -55,7 +55,8 @@ import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
-import { DataStore } from "./data-store";
+import { DataStore, closeDataStoreDb } from "./data-store";
+import { closeSubstrateDb } from "./substrate/store";
 import { setRunnerDependencies, setSubstrateBudgetOpts } from "./skill-runner";
 import {
   setContextDeps as setSubstrateContextDeps,
@@ -218,6 +219,8 @@ async function createWindow() {
   };
   mainWindow.on("resize", saveBounds);
   mainWindow.on("move", saveBounds);
+
+  mainWindow.setMaxListeners(30);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -645,9 +648,12 @@ async function boot() {
       });
     }
     const baseAppId = resolveAppId(id);
+    console.log(`[onCreated] panel="${id}" baseApp="${baseAppId}" wcId=${wc.id}`);
     if (baseAppId === "term") {
-      // Spawn pty when terminal page loads
-      wc.on("did-finish-load", () => terminalManager.spawn(wc));
+      wc.on("did-finish-load", () => {
+        console.log(`[terminal] did-finish-load panel="${id}" wcId=${wc.id} — spawning pty`);
+        terminalManager.spawn(wc);
+      });
     } else if (baseAppId === "code") {
       // Code-terminal: spawn the named agent CLI (claude) with role env vars
       const cfg = panelIdToAgentConfig.get(id);
@@ -1515,6 +1521,21 @@ async function boot() {
   commandParser.setDripManager(dripManager);
   yoInterceptor.setDripCustomsGetter(() => dripManager!.listCustoms());
 
+  function deduplicateRestorePanels(ids: string[]): string[] {
+    const seen = new Set<string>();
+    return ids.map((id) => {
+      if (!seen.has(id)) { seen.add(id); return id; }
+      const app = appConnector.get(resolveAppId(id));
+      if (!app?.url) return id;
+      panelInstanceCounter++;
+      const instanceId = `${id}-${panelInstanceCounter}`;
+      createPanelForApp(instanceId, app);
+      ensureTab(instanceId);
+      seen.add(instanceId);
+      return instanceId;
+    });
+  }
+
   // Restore panels from last view (or default to claude)
   function restorePanels() {
     const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
@@ -1528,10 +1549,11 @@ async function boot() {
       if (lastView.rows) lastView.rows.forEach(row => allPanelIds.push(...row));
       if (lastView.id) allPanelIds.push(lastView.id);
     }
+    console.log(`[restorePanels] allPanelIds:`, allPanelIds);
     for (const id of allPanelIds) {
-      if (panelManager.hasPanel(id)) continue;
+      if (panelManager.hasPanel(id)) { console.log(`[restorePanels] skip "${id}" — already registered`); continue; }
       const baseId = resolveAppId(id);
-      if (baseId === id) continue; // not an instance id — already registered at boot
+      if (baseId === id) { console.log(`[restorePanels] skip "${id}" — is base app, already registered at boot`); continue; }
       const app = appConnector.get(baseId);
       if (!app?.url) continue;
       // Track counters so new instances don't collide
@@ -1544,23 +1566,30 @@ async function boot() {
 
     if (lastView && mainWindow) {
       if (lastView.type === "grid-full" && lastView.grid) {
-        layoutManager.applyGridLayout(lastView.grid, mainWindow);
-        // Seed active panel so dip back works after first dip
-        if (lastView.grid.cells.length > 0) {
-          panelManager.setInitialActive(lastView.grid.cells[0].panelId);
+        const allCellIds = lastView.grid.cells.map(c => c.panelId);
+        const dedupedCellIds = deduplicateRestorePanels(allCellIds);
+        const dedupedGrid = { ...lastView.grid, cells: lastView.grid.cells.map((c, i) => ({ ...c, panelId: dedupedCellIds[i] })) };
+        layoutManager.applyGridLayout(dedupedGrid, mainWindow);
+        if (dedupedGrid.cells.length > 0) {
+          panelManager.setInitialActive(dedupedGrid.cells[0].panelId);
         }
       } else if (lastView.type === "grid" && lastView.rows) {
-        layoutManager.splitGrid(lastView.rows, mainWindow);
-        if (lastView.rows.length > 0 && lastView.rows[0].length > 0) {
-          panelManager.setInitialActive(lastView.rows[0][0]);
+        const flatIds = lastView.rows.flat();
+        const dedupedFlat = deduplicateRestorePanels(flatIds);
+        let idx = 0;
+        const dedupedRows = lastView.rows.map(row => row.map(() => dedupedFlat[idx++]));
+        layoutManager.splitGrid(dedupedRows, mainWindow);
+        if (dedupedRows.length > 0 && dedupedRows[0].length > 0) {
+          panelManager.setInitialActive(dedupedRows[0][0]);
         }
       } else if (lastView.type === "split" && lastView.panels) {
-        if (lastView.panels.length === 2) {
-          layoutManager.splitTwo(lastView.panels[0], lastView.panels[1], mainWindow);
-        } else {
-          layoutManager.splitN(lastView.panels, mainWindow);
+        const deduped = deduplicateRestorePanels(lastView.panels);
+        if (deduped.length === 2) {
+          layoutManager.splitTwo(deduped[0], deduped[1], mainWindow);
+        } else if (deduped.length > 2) {
+          layoutManager.splitN(deduped, mainWindow);
         }
-        panelManager.setInitialActive(lastView.panels[0]);
+        panelManager.setInitialActive(deduped[0]);
       } else if (lastView.type === "layout" && lastView.name) {
         layoutManager.apply(lastView.name, mainWindow);
         // For named layouts, seed from the layout's first cell
@@ -1613,15 +1642,14 @@ async function boot() {
   let panelInstanceCounter = 0;
 
   function resolveAppId(panelId: string): string {
-    if (appConnector.get(panelId)) return panelId;
+    if (appConnector.hasDirect(panelId)) return panelId;
     if (panelId.startsWith("browse-")) return "browser";
-    // Code-terminals (Phase 2): id shape is `code-<workspace>-<agent>`.
     if (panelId.startsWith("code-")) return "code";
     const dash = panelId.lastIndexOf("-");
     if (dash > 0) {
       const base = panelId.slice(0, dash);
       const suffix = panelId.slice(dash + 1);
-      if (/^\d+$/.test(suffix) && appConnector.get(base)) return base;
+      if (/^\d+$/.test(suffix) && appConnector.hasDirect(base)) return base;
     }
     return panelId;
   }
@@ -1754,28 +1782,34 @@ async function boot() {
     mainWindow?.webContents.send("tab-state", buildTabState());
   }
 
+  const URL_BAR_HEIGHT = 34;
+
   /** Push the active panel's URL + favicon + nav state to the renderer URL bar */
   function sendUrlUpdate() {
     const id = panelManager.activePanelId;
     if (!id || !mainWindow || mainWindow.isDestroyed()) return;
     const nwc = panelNavWc[id];
-    const canGoBack = nwc && !nwc.isDestroyed() ? nwc.canGoBack() : false;
-    const canGoForward = nwc && !nwc.isDestroyed() ? nwc.canGoForward() : false;
+    const canGoBack = nwc && !nwc.isDestroyed() ? nwc.navigationHistory.canGoBack() : false;
+    const canGoForward = nwc && !nwc.isDestroyed() ? nwc.navigationHistory.canGoForward() : false;
     mainWindow.webContents.send("url-update", {
       url: panelUrls[id] || "",
       favicon: panelFavicons[id] || "",
       canGoBack,
       canGoForward,
     });
-    // Browser panels always show the URL bar regardless of user preference
-    const isBrowser = resolveAppId(id) === "browser";
-    const urlBarPref = getPreference<boolean>("showUrlBar", true);
-    if (isBrowser && !urlBarPref) {
-      panelManager.setTopInset(URL_BAR_HEIGHT);
-      mainWindow.webContents.send("url-bar-force", true);
-    } else if (!isBrowser && !urlBarPref) {
-      panelManager.setTopInset(0);
-      mainWindow.webContents.send("url-bar-force", false);
+    // In grid mode, per-cell URL bars are handled by the layout manager — don't
+    // change the global topInset or it will trigger restoreSplit and re-apply the grid,
+    // stealing focus in a loop.
+    if (!layoutManager.hasSplit) {
+      const isBrowser = resolveAppId(id) === "browser";
+      const urlBarPref = getPreference<boolean>("showUrlBar", true);
+      if (isBrowser || urlBarPref) {
+        panelManager.setTopInset(URL_BAR_HEIGHT);
+        mainWindow.webContents.send("url-bar-force", true);
+      } else {
+        panelManager.setTopInset(0);
+        mainWindow.webContents.send("url-bar-force", false);
+      }
     }
   }
 
@@ -1819,9 +1853,32 @@ async function boot() {
     sendUrlUpdate();
   });
 
-  // Activate interceptor on browser panel guest webviews
+  // When a browser panel's webview guest attaches, focus it so clicks pass through
+  panelManager.setOnPanelReady((id, wc) => {
+    if (resolveAppId(id) === "browser") {
+      const focusWebview = () => {
+        if (wc.isDestroyed()) return;
+        wc.executeJavaScript(`
+          const wv = document.getElementById("webview");
+          if (wv) { wv.focus(); }
+        `).catch(() => {});
+      };
+      // Focus immediately (for already-attached guests) and again after a delay
+      // to handle the case where the guest process attaches after the host loads
+      focusWebview();
+      setTimeout(focusWebview, 500);
+      setTimeout(focusWebview, 1500);
+    }
+  });
+
+  // Activate interceptor on browser panel guest webviews and ensure they're focusable
   panelManager.setOnWebviewAttach((childWc, panelId) => {
     yoInterceptor.activate(childWc, panelId);
+    if (resolveAppId(panelId) === "browser") {
+      childWc.on("did-finish-load", () => {
+        if (!childWc.isDestroyed()) childWc.focus();
+      });
+    }
   });
 
   // Give command parser tab close/list for .dip close
@@ -1848,6 +1905,16 @@ async function boot() {
       return id;
     },
   );
+
+  commandParser.setInstanceCreator((appId: string) => {
+    const app = appConnector.get(appId);
+    if (!app?.url) return null;
+    panelInstanceCounter++;
+    const instanceId = `${appId}-${panelInstanceCounter}`;
+    createPanelForApp(instanceId, app);
+    ensureTab(instanceId);
+    return instanceId;
+  });
 
   // Wire yo agent tab manager + sub-agent model
   yoAgent.setTabManager({
@@ -3108,29 +3175,33 @@ async function boot() {
     if (!mainWindow) return;
     const app = appConnector.get(appId);
     if (!app?.url) return;
-    // Home is always singleton
+
+    layoutManager.suspendSplit();
+
     if (appId === "home") {
-      if (panelManager.hasPanel(appId)) {
-        panelManager.switchTo(appId, mainWindow);
+      if (!panelManager.hasPanel(appId)) createPanelForApp(appId, app);
+      panelManager.switchTo(appId, mainWindow);
+      ensureTab(appId);
+    } else {
+      const alreadyOpen = openTabs.some(t => t === appId || resolveAppId(t) === appId);
+      if (alreadyOpen) {
+        panelInstanceCounter++;
+        const instanceId = `${appId}-${panelInstanceCounter}`;
+        createPanelForApp(instanceId, app);
+        panelManager.switchTo(instanceId, mainWindow);
+        ensureTab(instanceId);
       } else {
-        createPanelForApp(appId, app);
+        if (!panelManager.hasPanel(appId)) createPanelForApp(appId, app);
         panelManager.switchTo(appId, mainWindow);
         ensureTab(appId);
       }
-    } else {
-      panelInstanceCounter++;
-      const instanceId = `${appId}-${panelInstanceCounter}`;
-      createPanelForApp(instanceId, app);
-      panelManager.switchTo(instanceId, mainWindow);
-      ensureTab(instanceId);
     }
+    setPreference("lastView", { type: "panel", id: openTabs[openTabs.length - 1] });
     sendSplitState();
     sendTabState();
   });
 
   // IPC: URL bar
-  const URL_BAR_HEIGHT = 34;
-
   // Apply initial URL bar state
   if (getPreference<boolean>("showUrlBar", true)) {
     panelManager.setTopInset(URL_BAR_HEIGHT);
@@ -3179,7 +3250,7 @@ async function boot() {
     if (!id) return;
     const nwc = panelNavWc[id];
     if (nwc && !nwc.isDestroyed()) {
-      nwc.goBack();
+      nwc.navigationHistory.goBack();
     }
   });
 
@@ -3188,7 +3259,7 @@ async function boot() {
     if (!id) return;
     const nwc = panelNavWc[id];
     if (nwc && !nwc.isDestroyed()) {
-      nwc.goForward();
+      nwc.navigationHistory.goForward();
     }
   });
 
@@ -3204,11 +3275,11 @@ async function boot() {
   // Per-panel nav (for cell URL bars in grid mode)
   ipcMain.on("panel-nav-back", (_e, panelId: string) => {
     const nwc = panelNavWc[panelId];
-    if (nwc && !nwc.isDestroyed()) nwc.goBack();
+    if (nwc && !nwc.isDestroyed()) nwc.navigationHistory.goBack();
   });
   ipcMain.on("panel-nav-forward", (_e, panelId: string) => {
     const nwc = panelNavWc[panelId];
-    if (nwc && !nwc.isDestroyed()) nwc.goForward();
+    if (nwc && !nwc.isDestroyed()) nwc.navigationHistory.goForward();
   });
   ipcMain.on("panel-nav-refresh", (_e, panelId: string) => {
     const nwc = panelNavWc[panelId];
@@ -3235,7 +3306,13 @@ async function boot() {
 
   ipcMain.on("url-bar-toggle", (_e, show: boolean) => {
     setPreference("showUrlBar", show);
-    panelManager.setTopInset(show ? URL_BAR_HEIGHT : 0);
+    const id = panelManager.activePanelId;
+    const isBrowser = id ? resolveAppId(id) === "browser" : false;
+    const showBar = show || isBrowser;
+    panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("url-bar-force", showBar);
+    }
   });
 
   ipcMain.on("open-external", (_e, url: string) => {
@@ -3443,6 +3520,8 @@ function cleanupAll() {
   actionGrabber?.stopPolling();
   embedder?.cleanup();
   dripManager?.cleanup();
+  closeDataStoreDb();
+  closeSubstrateDb();
   usageTracker.flush();
   promptLog.flush();
   // Hard exit if anything keeps the process alive

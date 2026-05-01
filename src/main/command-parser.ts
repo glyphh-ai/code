@@ -41,6 +41,7 @@ export class CommandParser {
   private tabCloser: ((id: string) => void) | null = null;
   private tabLister: (() => string[]) | null = null;
   private tabCreator: ((url: string) => string) | null = null;
+  private instanceCreator: ((appId: string) => string | null) | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -106,6 +107,11 @@ export class CommandParser {
     this.tabCloser = closer;
     this.tabLister = lister;
     if (creator) this.tabCreator = creator;
+  }
+
+  /** Set callback that creates a new instance of an app and returns the instance panel ID. */
+  setInstanceCreator(fn: (appId: string) => string | null): void {
+    this.instanceCreator = fn;
   }
 
   /** Split input at dot-prefixed command keyword boundaries for chaining.
@@ -632,8 +638,26 @@ export class CommandParser {
 
   // ── dip split ────────────────────────────────────────────────
 
+  private deduplicatePanelIds(ids: string[]): string[] {
+    const seen = new Set<string>();
+    return ids.map((id) => {
+      if (!seen.has(id)) {
+        seen.add(id);
+        return id;
+      }
+      if (this.instanceCreator) {
+        const instanceId = this.instanceCreator(id);
+        if (instanceId) {
+          seen.add(instanceId);
+          return instanceId;
+        }
+      }
+      return id;
+    });
+  }
+
   private handleDipSplit(splitArgs: string[], win: BrowserWindow): string {
-    const ids = splitArgs.map((a) => a.toLowerCase());
+    const ids = this.deduplicatePanelIds(splitArgs.map((a) => a.toLowerCase()));
 
     // Check for "/" row separator → multi-row grid
     if (ids.includes("/")) {
@@ -718,12 +742,19 @@ export class CommandParser {
     const rowColCounts = parsedRows.map((r) => r.reduce((s, c) => s + c.colSpan, 0));
     const numCols = Math.max(...rowColCounts);
 
+    const seenIds = new Set<string>();
     const cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> = [];
     for (let r = 0; r < parsedRows.length; r++) {
       let col = 0;
       for (const pc of parsedRows[r]) {
+        let panelId = pc.id;
+        if (seenIds.has(panelId) && this.instanceCreator) {
+          const instanceId = this.instanceCreator(panelId);
+          if (instanceId) panelId = instanceId;
+        }
+        seenIds.add(panelId);
         cells.push({
-          panelId: pc.id,
+          panelId,
           col,
           row: r,
           colSpan: pc.colSpan,
