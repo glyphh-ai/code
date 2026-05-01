@@ -8,11 +8,29 @@
 import { spawn, execSync, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
 import { envWithShellPath } from "./shell-path";
 
 const PORT = 9437;
 const HOST = "127.0.0.1";
 const DATA_DIR = `${os.homedir()}/yo/vscode`;
+
+/** Where `code serve-web` expects its User config files. The directory layout
+ *  matches Desktop VS Code's `~/Library/Application Support/Code/User/`. */
+const USER_DIR = path.join(DATA_DIR, "data", "User");
+
+/** Per-platform path to the user's Desktop VS Code User dir. We copy from
+ *  here into the code-server data dir so the in-app editor feels like the
+ *  user's editor on first launch (Phase 5 — see MULTI-AGENT-PLAN §3.8). */
+function userConfigSourceDir(): string | null {
+  const home = os.homedir();
+  switch (process.platform) {
+    case "darwin": return path.join(home, "Library", "Application Support", "Code", "User");
+    case "win32": return path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "Code", "User");
+    case "linux": return path.join(home, ".config", "Code", "User");
+    default: return null;
+  }
+}
 
 /** Paths to check for the VS Code CLI on macOS */
 const CODE_PATHS = [
@@ -84,6 +102,11 @@ export class VSCodeServer {
 
       // Ensure data dirs exist for state persistence
       fs.mkdirSync(DATA_DIR, { recursive: true });
+
+      // Phase 5: copy user's Desktop VS Code settings into the code-server
+      // data dir so the embedded editor inherits their preferences on first
+      // launch. Only runs once per machine (skipped if files already exist).
+      VSCodeServer.seedUserConfig();
 
       const args = [
         "serve-web",
@@ -175,5 +198,28 @@ export class VSCodeServer {
   /** Get the expected URL (even before server starts) */
   static expectedUrl(): string {
     return `http://${HOST}:${PORT}`;
+  }
+
+  /** Copy the user's Desktop VS Code `settings.json` and `keybindings.json`
+   *  into the code-server User dir on first launch. No-op if either the
+   *  source is missing or the destination already exists (we never overwrite
+   *  the user's tweaks once they've started using the embedded editor). */
+  static seedUserConfig(): void {
+    const src = userConfigSourceDir();
+    if (!src || !fs.existsSync(src)) return;
+
+    fs.mkdirSync(USER_DIR, { recursive: true });
+    for (const name of ["settings.json", "keybindings.json"]) {
+      const from = path.join(src, name);
+      const to = path.join(USER_DIR, name);
+      if (!fs.existsSync(from)) continue;
+      if (fs.existsSync(to)) continue; // never clobber existing
+      try {
+        fs.copyFileSync(from, to);
+        console.log(`[vscode-server] seeded ${name} from Desktop VS Code`);
+      } catch (err) {
+        console.warn(`[vscode-server] failed to seed ${name}:`, (err as Error).message);
+      }
+    }
   }
 }

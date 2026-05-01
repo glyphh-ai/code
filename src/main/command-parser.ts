@@ -194,9 +194,12 @@ export class CommandParser {
   // ── yo: opens the agent side panel, or dispatches a sub-mode ─────
 
   private async handleYo(args: string[]): Promise<string> {
-    // Sub-modes intercepted before the agent panel: `.yo .ws ...`
+    // Sub-modes intercepted before the agent panel: `.yo .ws ...`, `.yo .code ...`
     if (args[0] === ".ws" || args[0] === "ws") {
       return this.handleWs(args.slice(1));
+    }
+    if (args[0] === ".code" || args[0] === "code") {
+      return this.handleCode(args.slice(1));
     }
     const query = args.join(" ").trim();
     return `__YO_PANEL__${query ? `:${query}` : ""}`;
@@ -248,6 +251,87 @@ export class CommandParser {
       default:
         return `Unknown .ws subcommand "${sub}". Try: list, new, switch.`;
     }
+  }
+
+  // ── yo .code: scaffold a multi-agent dev space ─────────────
+
+  /** `.yo .code <prompt>` — scaffold a multi-agent dev space in the active
+   *  workspace. v3.0 is deterministic-parser only: extracts agent names from
+   *  the canonical pattern. LLM-driven scaffolding lands in v3.1. */
+  private handleCode(args: string[]): string {
+    if (args.length === 0) {
+      return [
+        "Usage: .yo .code <prompt>",
+        "  e.g. .yo .code create a dev space with 3 agents — ui, server, web",
+        "  e.g. .yo .code ui, server, web",
+        "Subcommands: list",
+      ].join("\n");
+    }
+    if (!this.workspaceManager) return "Workspace manager not initialized.";
+    if (!this.codeTerminalLauncher) return "Code-terminal launcher not available.";
+
+    const sub = (args[0] || "").toLowerCase();
+
+    // .yo .code list — list dev-space layouts (saved as `code-<workspace>`)
+    if (sub === "list") {
+      const layouts = this.layouts.listLayouts().filter((l) => l.name.startsWith("code-"));
+      if (layouts.length === 0) return "No dev-space layouts saved yet.";
+      return layouts.map((l) => `  ${l.name} — ${l.cells.map((c) => c.panelId).join(" | ")}`).join("\n");
+    }
+
+    const ws = this.workspaceManager.getActive();
+    const prompt = args.join(" ").trim();
+    const parsed = parseDevSpacePrompt(prompt);
+    if (!parsed.ok) {
+      return [
+        `Couldn't parse "${prompt}".`,
+        parsed.error,
+        "Try: .yo .code create a dev space with 3 agents — ui, server, web",
+      ].join("\n");
+    }
+
+    const created: string[] = [];
+    const errors: string[] = [];
+    for (const { name, role } of parsed.agents) {
+      const r = this.codeTerminalLauncher(name, role);
+      if (r.ok) created.push(r.panelId);
+      else errors.push(`${name}: ${r.error}`);
+    }
+
+    // Apply a side-by-side split with all created panels and save it under the
+    // workspace name so users can recall with `.dip code-<workspace>`.
+    const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
+    let layoutNote = "";
+    if (win && !win.isDestroyed() && created.length > 0) {
+      this.handleDipSplit(created, win);
+      const grid = this.layouts.getGridInfo();
+      if (grid) {
+        const layoutName = `code-${ws.slug}`;
+        this.layouts.saveLayout({
+          name: layoutName,
+          version: 2,
+          cols: grid.cols,
+          rows: grid.rows,
+          colWidths: grid.colWidths,
+          rowHeights: grid.rowHeights,
+          cells: grid.cells.map((c) => ({
+            panelId: c.panelId,
+            col: c.col,
+            row: c.row,
+            colSpan: c.colSpan,
+            rowSpan: c.rowSpan,
+          })),
+        });
+        layoutNote = `\n\nLayout saved as "${layoutName}". Recall with: .dip ${layoutName}`;
+      }
+    }
+
+    const lines = [
+      `Scaffolded dev space in workspace "${ws.slug}":`,
+      ...parsed.agents.map((a) => `  ${a.name} — ${a.role}`),
+    ];
+    if (errors.length > 0) lines.push("", "Errors:", ...errors);
+    return lines.join("\n") + layoutNote;
   }
 
   // ── sup: capture screen ─────────────────────────────────
@@ -722,4 +806,47 @@ export class CommandParser {
     return "";
   }
 
+}
+
+// ── helpers ──────────────────────────────────────────────────
+
+interface ParsedDevSpace {
+  agents: { name: string; role: string }[];
+}
+
+/** Extract agent names from a `.yo .code <prompt>` invocation. Recognizes:
+ *    "create a dev space with 3 agents — ui, server, web"
+ *    "ui, server, web"
+ *    "agents named ui, server, and web"
+ *    "ui (frontend), server (backend), web (marketing)"
+ *  Strategy: split on the most natural delimiter (em-dash, hyphen, colon,
+ *  "named"), take the tail, comma-split. Each token is `name [role-words]`
+ *  or `name (role)`. Falls back to using the name as the role.
+ */
+function parseDevSpacePrompt(
+  prompt: string,
+): { ok: true } & ParsedDevSpace | { ok: false; error: string } {
+  // Find the segment after the most "agent-list-introducing" delimiter.
+  const sepRegex = /[\u2014:]|\s-\s|\bnamed\b/i;
+  const parts = prompt.split(sepRegex);
+  let tail = parts[parts.length - 1].trim();
+  // If no delimiter matched and the whole prompt looks like a comma list, use it.
+  if (parts.length === 1 && !tail.includes(",")) {
+    return { ok: false, error: "No agent names found." };
+  }
+  tail = tail.replace(/\band\b/gi, ",").replace(/,+/g, ",");
+  const tokens = tail.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+  if (tokens.length === 0) return { ok: false, error: "No agent names found." };
+
+  const agents = tokens.map((tok) => {
+    const parenMatch = tok.match(/^(\S+)\s*\((.+)\)$/);
+    if (parenMatch) return { name: parenMatch[1].toLowerCase(), role: parenMatch[2].trim() };
+    const spaceParts = tok.split(/\s+/);
+    if (spaceParts.length >= 2) {
+      return { name: spaceParts[0].toLowerCase(), role: spaceParts.slice(1).join(" ") };
+    }
+    return { name: tok.toLowerCase(), role: tok.toLowerCase() };
+  });
+
+  return { ok: true, agents };
 }
