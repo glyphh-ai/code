@@ -45,8 +45,10 @@ export class TerminalManager {
     this.kill(wc.id);
 
     const shell = process.env.SHELL || (os.platform() === "win32" ? "powershell.exe" : "/bin/zsh");
-    const isLogin = os.platform() !== "win32";
-    const proc = pty.spawn(shell, isLogin ? ["-l"] : [], {
+    // -i ensures .zshrc/.bashrc loads (where Homebrew + most PATH tweaks live);
+    // -l ensures .zprofile loads. Both are needed on macOS launched from GUI.
+    const shellArgs = os.platform() === "win32" ? [] : ["-il"];
+    const proc = pty.spawn(shell, shellArgs, {
       name: "xterm-256color",
       cols: 80,
       rows: 24,

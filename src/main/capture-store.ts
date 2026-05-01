@@ -34,6 +34,7 @@ export interface CaptureEntryMeta {
   chunkParent?: string;
   contentHash?: string;
   version?: number;
+  workspace?: string;
 }
 
 export class CaptureStore {
@@ -42,6 +43,7 @@ export class CaptureStore {
   private embedQueue: CaptureEntryMeta[] = [];
   private draining = false;
   private policyResolver: ((source: string) => CapturePolicy) | null = null;
+  private listeners: Array<(meta: CaptureEntryMeta) => void> = [];
   private _ingestCount = 0;
   private _searchCount = 0;
   private _ingestBytes = 0;
@@ -61,35 +63,40 @@ export class CaptureStore {
     this.policyResolver = resolver;
   }
 
+  onCapture(fn: (meta: CaptureEntryMeta) => void): () => void {
+    this.listeners.push(fn);
+    return () => { this.listeners = this.listeners.filter(l => l !== fn); };
+  }
+
   // ── Ingest ─────────────────────────────────────────────
 
   private hashContent(content: string): string {
     return crypto.createHash("sha256").update(content).digest("hex").slice(0, 16);
   }
 
-  async ingest(appId: string, content: string): Promise<string> {
+  async ingest(appId: string, content: string, workspace?: string): Promise<string> {
     const policy = this.policyResolver?.(appId) ?? { type: "deduplicate" as const };
 
     switch (policy.type) {
       case "manual":
         return "";
       case "deduplicate":
-        return this.ingestDeduplicate(appId, content);
+        return this.ingestDeduplicate(appId, content, workspace);
       case "versioned":
-        return this.ingestVersioned(appId, content, policy.maxVersions ?? 3);
+        return this.ingestVersioned(appId, content, policy.maxVersions ?? 3, workspace);
       case "incremental":
-        return this.ingestIncremental(appId, content, policy.minDeltaChars ?? 50);
+        return this.ingestIncremental(appId, content, policy.minDeltaChars ?? 50, workspace);
       case "sliding-window":
         this.pruneWindow(appId, policy.windowHours ?? 24);
-        return this.ingestRaw(appId, content);
+        return this.ingestRaw(appId, content, workspace);
       case "append":
       default:
-        return this.ingestRaw(appId, content);
+        return this.ingestRaw(appId, content, workspace);
     }
   }
 
   /** Append — always write, no dedup. */
-  private async ingestRaw(appId: string, content: string): Promise<string> {
+  private async ingestRaw(appId: string, content: string, workspace?: string): Promise<string> {
     this._ingestCount++;
     this._ingestBytes += Buffer.byteLength(content, "utf-8");
     const hash = this.hashContent(content);
@@ -103,6 +110,7 @@ export class CaptureStore {
         const meta: CaptureEntryMeta = {
           id: chunkId, source: appId, created: Date.now(),
           chunkParent: parentId, contentHash: hash,
+          ...(workspace ? { workspace } : {}),
         };
         this.writeEntry(chunkId, chunks[i], meta);
         this.index.push(meta);
@@ -111,32 +119,40 @@ export class CaptureStore {
 
       this.persistIndex();
       this.drainEmbedQueue();
+      // Notify listeners with the first chunk's meta as representative
+      const notifyMeta: CaptureEntryMeta = {
+        id: parentId, source: appId, created: Date.now(), contentHash: hash,
+        ...(workspace ? { workspace } : {}),
+      };
+      this.listeners.forEach(fn => fn(notifyMeta));
       return parentId;
     }
 
     const id = crypto.randomBytes(6).toString("hex");
     const meta: CaptureEntryMeta = {
       id, source: appId, created: Date.now(), contentHash: hash,
+      ...(workspace ? { workspace } : {}),
     };
     this.writeEntry(id, content, meta);
     this.index.push(meta);
     this.persistIndex();
     this.embedQueue.push(meta);
     this.drainEmbedQueue();
+    this.listeners.forEach(fn => fn(meta));
     return id;
   }
 
   /** Deduplicate — skip if content hash matches most recent from same source, otherwise replace. */
-  private async ingestDeduplicate(appId: string, content: string): Promise<string> {
+  private async ingestDeduplicate(appId: string, content: string, workspace?: string): Promise<string> {
     const hash = this.hashContent(content);
     const existing = this.entriesForSource(appId);
     if (existing.length > 0 && existing[0].contentHash === hash) return "";
     if (existing.length > 0) this.deleteEntriesForSource(appId);
-    return this.ingestRaw(appId, content);
+    return this.ingestRaw(appId, content, workspace);
   }
 
   /** Versioned — keep last N ingestions, prune oldest. */
-  private async ingestVersioned(appId: string, content: string, maxVersions: number): Promise<string> {
+  private async ingestVersioned(appId: string, content: string, maxVersions: number, workspace?: string): Promise<string> {
     const hash = this.hashContent(content);
     const existing = this.entriesForSource(appId);
     if (existing.length > 0 && existing[0].contentHash === hash) return "";
@@ -149,11 +165,11 @@ export class CaptureStore {
       }
     }
 
-    return this.ingestRaw(appId, content);
+    return this.ingestRaw(appId, content, workspace);
   }
 
   /** Incremental — diff against a snapshot reference, only store new content. */
-  private async ingestIncremental(appId: string, content: string, minDelta: number): Promise<string> {
+  private async ingestIncremental(appId: string, content: string, minDelta: number, workspace?: string): Promise<string> {
     const refPath = path.join(STORE_DIR, `ref-${appId}.txt`);
     let previous = "";
     try { previous = fs.readFileSync(refPath, "utf-8"); } catch {}
@@ -162,11 +178,11 @@ export class CaptureStore {
       const delta = this.extractDelta(previous, content);
       if (delta.length < minDelta) return "";
       fs.writeFileSync(refPath, content, "utf-8");
-      return this.ingestRaw(appId, delta);
+      return this.ingestRaw(appId, delta, workspace);
     }
 
     fs.writeFileSync(refPath, content, "utf-8");
-    return this.ingestRaw(appId, content);
+    return this.ingestRaw(appId, content, workspace);
   }
 
   /** Prune entries older than windowHours for a source. */
@@ -280,6 +296,32 @@ export class CaptureStore {
       meta,
       content: this.readContent(meta.id) || "",
     }));
+  }
+
+  recentByWorkspace(workspace: string, limit = 50): Array<{ meta: CaptureEntryMeta; content: string }> {
+    const filtered = this.index.filter((m) => m.workspace === workspace);
+    const sorted = [...filtered].sort((a, b) => b.created - a.created).slice(0, limit);
+    return sorted.map((meta) => ({
+      meta,
+      content: this.readContent(meta.id) || "",
+    }));
+  }
+
+  listWorkspaces(): string[] {
+    const ws = new Set<string>();
+    for (const meta of this.index) {
+      if (meta.workspace) ws.add(meta.workspace);
+    }
+    return Array.from(ws);
+  }
+
+  async searchWorkspace(workspace: string, query: string, limit = 20): Promise<Array<{ meta: CaptureEntryMeta; content: string; score: number }>> {
+    this._searchCount++;
+    const wsEntries = new Set(this.index.filter((m) => m.workspace === workspace).map((m) => m.id));
+    if (wsEntries.size === 0) return [];
+
+    const results = await this.search(query, limit * 3);
+    return results.filter((r) => wsEntries.has(r.meta.id)).slice(0, limit);
   }
 
   readContent(id: string): string | null {
@@ -504,6 +546,7 @@ export class CaptureStore {
       `source: ${meta.source}`,
       `created: ${new Date(meta.created).toISOString()}`,
       meta.chunkParent ? `chunkParent: ${meta.chunkParent}` : null,
+      meta.workspace ? `workspace: ${meta.workspace}` : null,
       "---",
     ].filter(Boolean).join("\n");
 

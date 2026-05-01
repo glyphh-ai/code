@@ -552,7 +552,8 @@ async function boot() {
   const session = new SessionCache();
   session.setOnCapture(() => {});
   session.setOnRawCapture((appId, content) => {
-    captureStore.ingest(appId, content).catch(() => {});
+    const ws = getPreference<string>("activeWorkspace", "default");
+    captureStore.ingest(appId, content, ws).catch(() => {});
   });
 
   // yo/dip/drip interceptor — injected into ALL app panels
@@ -603,20 +604,21 @@ async function boot() {
         });
       });
     }
-    if (id === "term") {
+    const baseAppId = resolveAppId(id);
+    if (baseAppId === "term") {
       // Spawn pty when terminal page loads
       wc.on("did-finish-load", () => terminalManager.spawn(wc));
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
       // Track URL changes in browser tabs for persistence
-      if (id === "browser" || id.startsWith("browse-")) trackBrowserUrl(id, wc);
+      if (baseAppId === "browser") trackBrowserUrl(id, wc);
       // Track VS Code folder for persistence across restarts
-      if (id === "vscode") trackVscodeFolder(wc);
+      if (baseAppId === "vscode") trackVscodeFolder(wc);
     }
 
     // Track URL + favicon for URL bar and tab favicons
-    const isBrowserPanel = id === "browser" || id.startsWith("browse-");
+    const isBrowserPanel = baseAppId === "browser";
     if (isBrowserPanel) {
       // Browser panels use <webview> — track the guest's URL/favicon
       (wc as any).on("did-attach-webview", (_event: unknown, childWc: Electron.WebContents) => {
@@ -687,6 +689,7 @@ async function boot() {
   // Wire action grabber to panel manager for webContents access + polling
   actionGrabber.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
   actionGrabber.setPanelIdGetter(() => panelManager.getLoadedPanelIds());
+  actionGrabber.setWorkspaceGetter(() => getPreference<string>("activeWorkspace", "default"));
   actionGrabber.startPolling();
 
   // Wire council to panel manager
@@ -768,6 +771,10 @@ async function boot() {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
       panelManager.addPanel(app.id, browserHtmlUrl(browserUrl), undefined, undefined, true);
+    } else if (app.url === "yo://context") {
+      const contextHtml = `file://${path.join(__dirname, "..", "renderer", "context.html")}`;
+      const renderPreload = path.join(__dirname, "..", "renderer", "preload.js");
+      panelManager.addPanel(app.id, contextHtml, renderPreload);
     } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
       // VS Code uses local `code serve-web` for full file access
       if (enableVscode && vscodeServer.available) {
@@ -1386,8 +1393,7 @@ async function boot() {
     const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
     const savedTabs = getPreference<string[]>("openTabs", []);
 
-    // Re-register any browse-* panels from saved tabs or view so they exist for restore
-    const savedUrls = getPreference<Record<string, string>>("browserTabUrls", {});
+    // Re-register instance panels from saved tabs/view so they exist for restore
     const allPanelIds: string[] = [...savedTabs];
     if (lastView) {
       if (lastView.grid?.cells) allPanelIds.push(...lastView.grid.cells.map(c => c.panelId));
@@ -1396,12 +1402,17 @@ async function boot() {
       if (lastView.id) allPanelIds.push(lastView.id);
     }
     for (const id of allPanelIds) {
-      if (id.startsWith("browse-") && !panelManager.hasPanel(id)) {
-        const num = parseInt(id.split("-")[1], 10);
-        if (num > tabBrowserCounter) tabBrowserCounter = num;
-        const url = savedUrls[id] || resolveBrowserHome();
-        panelManager.addPanel(id, browserHtmlUrl(url), undefined, undefined, true);
-      }
+      if (panelManager.hasPanel(id)) continue;
+      const baseId = resolveAppId(id);
+      if (baseId === id) continue; // not an instance id — already registered at boot
+      const app = appConnector.get(baseId);
+      if (!app?.url) continue;
+      // Track counters so new instances don't collide
+      const dash = id.lastIndexOf("-");
+      const num = dash > 0 ? parseInt(id.slice(dash + 1), 10) : 0;
+      if (num > panelInstanceCounter) panelInstanceCounter = num;
+      if (baseId === "browser" && num > tabBrowserCounter) tabBrowserCounter = num;
+      createPanelForApp(id, app);
     }
 
     if (lastView && mainWindow) {
@@ -1472,6 +1483,81 @@ async function boot() {
   // ── Tab management ─────────���───────────────────────────────
   const openTabs: string[] = [];
   let tabBrowserCounter = 0;
+  let panelInstanceCounter = 0;
+
+  function resolveAppId(panelId: string): string {
+    if (appConnector.get(panelId)) return panelId;
+    if (panelId.startsWith("browse-")) return "browser";
+    const dash = panelId.lastIndexOf("-");
+    if (dash > 0) {
+      const base = panelId.slice(0, dash);
+      const suffix = panelId.slice(dash + 1);
+      if (/^\d+$/.test(suffix) && appConnector.get(base)) return base;
+    }
+    return panelId;
+  }
+
+  function createPanelForApp(instanceId: string, app: { id: string; url?: string; forceWeb?: boolean }): void {
+    if (!app.url) return;
+    if (app.url === "yo://home") {
+      const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
+      panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
+    } else if (app.url === "yo://terminal") {
+      panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://monaco") {
+      panelManager.addPanel(instanceId, monacoHtml);
+    } else if (app.url === "yo://browser") {
+      const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
+      const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
+      panelManager.addPanel(instanceId, browserHtmlUrl(browserUrl), undefined, undefined, true);
+    } else if (app.url === "yo://context") {
+      const contextHtml = `file://${path.join(__dirname, "..", "renderer", "context.html")}`;
+      const renderPreload = path.join(__dirname, "..", "renderer", "preload.js");
+      panelManager.addPanel(instanceId, contextHtml, renderPreload);
+    } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
+      if (enableVscode && vscodeServer.available) {
+        panelManager.addPanel(instanceId, VSCodeServer.expectedUrl());
+      } else {
+        const reason = !enableVscode
+          ? "VS Code Server is disabled."
+          : "VS Code CLI not found on this machine.";
+        const infoPage = `data:text/html,${encodeURIComponent(`<html><head><style>
+          body{background:#0a0a0a;color:#999;font-family:-apple-system,system-ui,sans-serif;
+            display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+          .card{text-align:center;max-width:420px;padding:40px}
+          h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
+          p{font-size:14px;line-height:1.6;margin:8px 0}
+          .reason{color:#777;font-size:13px;margin-bottom:16px}
+          a{color:#25C75E;text-decoration:none;font-weight:500;cursor:pointer}
+          a:hover{text-decoration:underline}
+          .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
+          .steps li{padding:6px 0;font-size:13px;color:#888}
+          .steps li::before{content:"→ ";color:#25C75E}
+          code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
+            background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
+        </style></head><body><div class="card">
+          <h2>VS Code Server</h2>
+          <p class="reason">${reason}</p>
+          <ul class="steps">
+            <li>Install <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a></li>
+            <li>Run <code>Shell Command: Install 'code' in PATH</code> from the VS Code command palette</li>
+            <li>Enable <strong>VS Code Server</strong> in <a href="yo://open-settings">Settings</a></li>
+            <li>Restart the app</li>
+          </ul>
+        </div></body></html>`)}`;
+        panelManager.addPanel(instanceId, infoPage);
+      }
+    } else if (app.url?.startsWith("yo://vibe/")) {
+      const vibeName = app.url.replace("yo://vibe/", "");
+      const appHtmlPath = path.join(os.homedir(), "yo", "skills", vibeName, "APP.html");
+      if (fs.existsSync(appHtmlPath)) {
+        const vibePreload = path.join(__dirname, "vibe-preload.js");
+        panelManager.addPanel(instanceId, `file://${appHtmlPath}`, vibePreload);
+      }
+    } else {
+      panelManager.addPanel(instanceId, app.url!, undefined, app.forceWeb);
+    }
+  }
 
   // Per-panel URL + favicon tracking
   const panelUrls: Record<string, string> = {};
@@ -1479,7 +1565,7 @@ async function boot() {
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
 
   function getTabName(id: string): string {
-    const app = appConnector.get(id);
+    const app = appConnector.get(id) || appConnector.get(resolveAppId(id));
     return app?.name || id;
   }
 
@@ -1501,7 +1587,7 @@ async function boot() {
     }
 
     const urlForTab = (id: string): string | undefined => {
-      const isBrowser = id === "browser" || id.startsWith("browse-");
+      const isBrowser = resolveAppId(id) === "browser";
       return isBrowser ? (panelUrls[id] || undefined) : undefined;
     };
 
@@ -1553,7 +1639,7 @@ async function boot() {
       canGoForward,
     });
     // Browser panels always show the URL bar regardless of user preference
-    const isBrowser = id === "browser" || id.startsWith("browse-");
+    const isBrowser = resolveAppId(id) === "browser";
     const urlBarPref = getPreference<boolean>("showUrlBar", true);
     if (isBrowser && !urlBarPref) {
       panelManager.setTopInset(URL_BAR_HEIGHT);
@@ -2369,6 +2455,56 @@ async function boot() {
   ipcMain.handle("captures-list-source", (_e, source: string, offset: number, limit: number) => captureStore.listEntriesForSource(source, offset, limit));
   ipcMain.handle("captures-daily-history-source", (_e, source: string, days: number) => captureStore.dailyHistoryForSource(source, days));
 
+  // IPC: Context panel — workspace management
+  ipcMain.handle("workspace-get", () => getPreference<string>("activeWorkspace", "default"));
+  ipcMain.handle("workspace-set", (_e, name: string) => {
+    setPreference("activeWorkspace", name);
+  });
+  ipcMain.handle("workspace-list", () => captureStore.listWorkspaces());
+
+  // IPC: Context panel — live feed
+  ipcMain.handle("context-recent", (_e, workspace: string, limit: number) => {
+    return captureStore.recentByWorkspace(workspace, limit || 50).map(c => ({
+      id: c.meta.id,
+      source: c.meta.source,
+      created: c.meta.created,
+      workspace: c.meta.workspace,
+      snippet: c.content.slice(0, 500),
+    }));
+  });
+
+  ipcMain.handle("context-search", async (_e, workspace: string, query: string, limit: number) => {
+    const results = await captureStore.searchWorkspace(workspace, query, limit || 20);
+    return results.map(r => ({
+      id: r.meta.id,
+      source: r.meta.source,
+      created: r.meta.created,
+      workspace: r.meta.workspace,
+      snippet: r.content.slice(0, 500),
+      score: r.score,
+    }));
+  });
+
+  ipcMain.handle("context-read", (_e, id: string) => {
+    return captureStore.readContent(id) || "";
+  });
+
+  // Push live capture updates to any context panel
+  captureStore.onCapture((meta) => {
+    for (const id of panelManager.getLoadedPanelIds()) {
+      if (resolveAppId(id) !== "context") continue;
+      const wc = panelManager.getGuestOrWebContents(id);
+      if (wc && !wc.isDestroyed()) {
+        wc.send("context-update", {
+          id: meta.id,
+          source: meta.source,
+          created: meta.created,
+          workspace: meta.workspace,
+        });
+      }
+    }
+  });
+
   // IPC: grid resize (drag dividers)
   ipcMain.on("grid-drag-end", (_e, type: "col" | "row", index: number, fraction: number) => {
     if (!mainWindow) return;
@@ -2806,7 +2942,7 @@ async function boot() {
     const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
     panelManager.closePanel(id, mainWindow, nextId);
     // Clean up saved browser URL
-    if (id === "browser" || id.startsWith("browse-")) {
+    if (resolveAppId(id) === "browser") {
       const saved = getPreference<Record<string, string>>("browserTabUrls", {});
       delete saved[id];
       setPreference("browserTabUrls", saved);
@@ -2831,12 +2967,21 @@ async function boot() {
     if (!mainWindow) return;
     const app = appConnector.get(appId);
     if (!app?.url) return;
-    if (panelManager.hasPanel(appId)) {
-      panelManager.switchTo(appId, mainWindow);
+    // Home is always singleton
+    if (appId === "home") {
+      if (panelManager.hasPanel(appId)) {
+        panelManager.switchTo(appId, mainWindow);
+      } else {
+        createPanelForApp(appId, app);
+        panelManager.switchTo(appId, mainWindow);
+        ensureTab(appId);
+      }
     } else {
-      panelManager.addPanel(appId, app.url, undefined, app.forceWeb);
-      panelManager.switchTo(appId, mainWindow);
-      ensureTab(appId);
+      panelInstanceCounter++;
+      const instanceId = `${appId}-${panelInstanceCounter}`;
+      createPanelForApp(instanceId, app);
+      panelManager.switchTo(instanceId, mainWindow);
+      ensureTab(instanceId);
     }
     sendSplitState();
     sendTabState();
@@ -2867,7 +3012,7 @@ async function boot() {
       }
     }
 
-    const isBrowser = id === "browser" || id.startsWith("browse-");
+    const isBrowser = resolveAppId(id) === "browser";
     if (isBrowser) {
       // Navigate the webview guest inside browser.html
       const wc = panelManager.activeWebContents;
@@ -2932,7 +3077,7 @@ async function boot() {
     let target = url.trim();
     if (!target) return;
     if (!/^https?:\/\//i.test(target)) target = "https://" + target;
-    const isBrowser = panelId === "browser" || panelId.startsWith("browse-");
+    const isBrowser = resolveAppId(panelId) === "browser";
     const nwc = panelNavWc[panelId];
     if (!nwc || nwc.isDestroyed()) return;
     if (isBrowser) {

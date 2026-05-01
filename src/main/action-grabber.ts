@@ -28,7 +28,7 @@ const MIN_CONTENT_LENGTH = 200;
 const SIMILARITY_THRESHOLD = 0.92;
 
 /** Panels to skip (internal yo:// panels, terminals, etc). */
-const SKIP_PREFIXES = ["yo:", "term", "devtools"];
+const SKIP_PREFIXES = ["yo:", "term", "devtools", "context"];
 
 export class ActionGrabber {
   private captureStore: CaptureStore | null = null;
@@ -39,6 +39,7 @@ export class ActionGrabber {
   private inFlight = new Set<string>();
   private wcGetter: ((id: string) => WebContents | null) | null = null;
   private panelIdGetter: (() => string[]) | null = null;
+  private workspaceGetter: (() => string) | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   setCaptureStore(store: CaptureStore): void {
@@ -55,6 +56,10 @@ export class ActionGrabber {
 
   setPanelIdGetter(fn: () => string[]): void {
     this.panelIdGetter = fn;
+  }
+
+  setWorkspaceGetter(fn: () => string): void {
+    this.workspaceGetter = fn;
   }
 
   /** Start polling conversational panels for content changes. */
@@ -166,7 +171,8 @@ export class ActionGrabber {
     const sourceKey = this.deriveSourceKey(panelId, wc);
 
     try {
-      await this.captureStore!.ingest(sourceKey, content);
+      const ws = this.workspaceGetter?.() || undefined;
+      await this.captureStore!.ingest(sourceKey, content, ws);
     } catch (err) {
       console.error("[action-grabber] ingest failed:", panelId, err);
     }

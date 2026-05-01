@@ -190,6 +190,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "browser", name: "Browser", url: "yo://browser" },
+  { id: "context", name: "Context", url: "yo://context" },
 ];
 
 // Default panel apps — seeded on first launch so the workspace isn't empty
@@ -463,7 +464,15 @@ export class AppConnector {
 
   /** Get an app config */
   get(id: string): AppConfig | null {
-    return this.apps.get(id) ?? null;
+    const direct = this.apps.get(id);
+    if (direct) return direct;
+    // Instance IDs: "gmail-2" → "gmail", "browse-3" → "browser"
+    if (id.startsWith("browse-")) return this.apps.get("browser") ?? null;
+    const dash = id.lastIndexOf("-");
+    if (dash > 0 && /^\d+$/.test(id.slice(dash + 1))) {
+      return this.apps.get(id.slice(0, dash)) ?? null;
+    }
+    return null;
   }
 
   /** List all apps */

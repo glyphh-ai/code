@@ -377,4 +377,18 @@ contextBridge.exposeInMainWorld("yo", {
   onMcpChanged: (cb: () => void) => {
     ipcRenderer.on("mcp-changed", () => cb());
   },
+
+  // Workspace / context panel
+  workspaceGet: () => ipcRenderer.invoke("workspace-get") as Promise<string>,
+  workspaceSet: (name: string) => ipcRenderer.invoke("workspace-set", name) as Promise<void>,
+  workspaceList: () => ipcRenderer.invoke("workspace-list") as Promise<string[]>,
+  contextRecent: (workspace: string, limit?: number) =>
+    ipcRenderer.invoke("context-recent", workspace, limit ?? 50) as Promise<Array<{id: string; source: string; created: number; workspace?: string; snippet: string}>>,
+  contextSearch: (workspace: string, query: string, limit?: number) =>
+    ipcRenderer.invoke("context-search", workspace, query, limit ?? 20) as Promise<Array<{id: string; source: string; created: number; workspace?: string; snippet: string; score: number}>>,
+  contextRead: (id: string) =>
+    ipcRenderer.invoke("context-read", id) as Promise<string>,
+  onContextUpdate: (cb: (entry: {id: string; source: string; created: number; workspace?: string}) => void) => {
+    ipcRenderer.on("context-update", (_e, entry) => cb(entry));
+  },
 });
