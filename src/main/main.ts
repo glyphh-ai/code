@@ -38,6 +38,7 @@ import { resolveShellPath } from "./shell-path";
 import { WorkspaceManager } from "./workspace-manager";
 import { EventLog } from "./event-log";
 import { WorkspaceMcpServer } from "./workspace-mcp";
+import { InboxRouter } from "./inbox-router";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
@@ -85,6 +86,7 @@ let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
 let workspaceMcpServer: WorkspaceMcpServer | null = null;
+let inboxRouter: InboxRouter | null = null;
 let mcpManager: McpManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
@@ -319,6 +321,9 @@ async function boot() {
   // is running). EventLog is the canonical writer for events.jsonl.
   const eventLog = new EventLog((slug) => workspaceManager.workspaceDir(slug));
   workspaceMcpServer = new WorkspaceMcpServer(eventLog, workspaceManager);
+  // Phase 4: orchestrator-mediated push. Watches each workspace's events.jsonl
+  // and drains subscription-matched events into per-agent inbox files.
+  inboxRouter = new InboxRouter(workspaceManager, eventLog);
 
   // Action-driven capture — grabs content on blur/navigate + polls chat panels
   actionGrabber = new ActionGrabber();
@@ -932,6 +937,10 @@ async function boot() {
       console.warn("[code-terminal] failed to update project CLAUDE.md:", (err as Error).message);
     }
     writeAgentBriefing(ws, agent, allAgents);
+
+    // Phase 4: start watching this workspace's events.jsonl so subscription-
+    // matched events get drained into per-agent inbox files. Idempotent.
+    inboxRouter?.watch(ws.slug);
 
     // Phase 3: start the workspace MCP server (idempotent) and write the
     // workspace's .mcp.json so claude code auto-connects on spawn.
@@ -3428,6 +3437,7 @@ function cleanupAll() {
   vscodeServer?.stop();
   mcpExpose?.stop();
   workspaceMcpServer?.stop();
+  inboxRouter?.stop();
   mcpManager?.disconnectAll();
   connectorManager?.cleanup();
   actionGrabber?.stopPolling();

@@ -52,7 +52,10 @@ ${peerList}
 ## Coordination protocol
 
 At the start of every turn, read \`.yo/inbox/${agent.name}.md\` if it
-exists — events above the last-read timestamp are new since your last turn.
+exists. The orchestrator drains team events that match your subscriptions
+into this file as they happen — events with a timestamp newer than your
+last activity are new since your last turn. The file is a rolling tail
+(last 50 events) so you never need to clear it.
 
 Workspace MCP tools are configured at \`.mcp.json\` in this directory and
 should already be connected as the \`yo-workspace\` server:
