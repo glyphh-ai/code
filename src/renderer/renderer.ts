@@ -80,10 +80,11 @@ declare global {
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
       // Layouts
-      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }>>;
+      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
-      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => Promise<boolean>;
+      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;
+      pickDirectory: () => Promise<string | null>;
       // Grid resize
       gridDragEnd: (type: "col" | "row", index: number, fraction: number) => void;
       // Session
@@ -765,8 +766,8 @@ document.addEventListener("keydown", (e) => {
     if (isYoPanelOpen()) window.yo.yoPanelDismiss();
   }
 
-  // Cmd+. — toggle yo agent panel
-  if (e.key === "." && (e.metaKey || e.ctrlKey)) {
+  // Cmd+. (without shift) — toggle yo agent panel
+  if (e.key === "." && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     if (isYoPanelOpen()) {
       window.yo.yoPanelDismiss();
@@ -774,6 +775,7 @@ document.addEventListener("keydown", (e) => {
       window.yo.yoPanelOpen("");
       openYoPanel("");
     }
+    return;
   }
 
   // Cmd+R / Ctrl+R to refresh panels

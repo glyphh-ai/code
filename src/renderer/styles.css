@@ -1280,6 +1280,12 @@ body {
   transition: border-color 0.15s, color 0.15s; text-align: left; width: fit-content;
 }
 .skill-row-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+.skill-row input[type="text"] {
+  flex: 1; min-width: 0; font-size: 12px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 6px; outline: none;
+}
+.skill-row input[type="text"]:focus { border-color: var(--accent); }
 
 /* Yo agent build hint */
 .yo-build-hint {
@@ -1892,7 +1898,8 @@ body {
 
 .help-section[data-section="apps"] #app-detail,
 .help-section[data-section="skills"] #skill-detail,
-.help-section[data-section="library"] #lib-detail {
+.help-section[data-section="library"] #lib-detail,
+.help-section[data-section="layouts"] #layout-editor {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -2305,6 +2312,48 @@ ol.docs-list li::before {
   white-space: nowrap;
 }
 
+.layout-type-row {
+  margin-bottom: 8px;
+}
+
+#layout-code-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.crud-card-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  background: var(--active-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.crud-card-dir {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crud-card-agents {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .crud-card-actions {
   display: flex;
   gap: 4px;
@@ -2571,6 +2620,8 @@ ol.docs-list li::before {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .crud-inline-form .settings-actions,
 #app-detail .settings-actions {
@@ -4502,8 +4553,9 @@ select.settings-input {
 
 .yo-scroll-btn {
   position: absolute;
-  right: 12px;
-  bottom: 70px;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%);
   z-index: 10;
   width: 24px;
   height: 24px;

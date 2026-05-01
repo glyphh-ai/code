@@ -6,7 +6,7 @@
  */
 
 import "dotenv/config";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -37,7 +37,7 @@ import { VSCodeServer } from "./vscode-server";
 import { resolveShellPath } from "./shell-path";
 import { WorkspaceManager } from "./workspace-manager";
 import { EventLog } from "./event-log";
-import { WorkspaceMcpServer } from "./workspace-mcp";
+// WorkspaceMcpServer removed — workspace tools merged into McpExpose
 import { InboxRouter } from "./inbox-router";
 import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
@@ -86,7 +86,6 @@ let cloudSyncInstance: CloudSync | null = null;
 let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
-let workspaceMcpServer: WorkspaceMcpServer | null = null;
 let inboxRouter: InboxRouter | null = null;
 let mcpManager: McpManager | null = null;
 let dripManager: DripManager | null = null;
@@ -323,7 +322,6 @@ async function boot() {
   // when the first code-terminal launches (no need to bind a port if no agent
   // is running). EventLog is the canonical writer for events.jsonl.
   const eventLog = new EventLog((slug) => workspaceManager.workspaceDir(slug));
-  workspaceMcpServer = new WorkspaceMcpServer(eventLog, workspaceManager);
   // Phase 4: orchestrator-mediated push. Watches each workspace's events.jsonl
   // and drains subscription-matched events into per-agent inbox files.
   inboxRouter = new InboxRouter(workspaceManager, eventLog);
@@ -337,6 +335,7 @@ async function boot() {
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
   mcpExpose.setWorkspaceGetter(workspaceGetter);
+  mcpExpose.setWorkspaceBackend(eventLog, workspaceManager);
   // Auto-start MCP server if it was running when the app last closed.
   // Skip tier check here — heartbeat hasn't been fetched yet at boot.
   // The user had the right tier when they enabled it; if they've since
@@ -916,7 +915,16 @@ async function boot() {
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
-  commandParser.setWorkspaceManager(workspaceManager);
+  commandParser.setDirectoryPicker(async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory", "createDirectory"],
+      title: "Choose project directory",
+      buttonLabel: "Select",
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 
   // Code-terminal launcher (Phase 2 + 3): called by `.dip code <name> [role]`.
   // Resolves/creates the agent, ensures briefings + project CLAUDE.md +
@@ -948,19 +956,14 @@ async function boot() {
     // matched events get drained into per-agent inbox files. Idempotent.
     inboxRouter?.watch(ws.slug);
 
-    // Phase 3: start the workspace MCP server (idempotent) and write the
-    // workspace's .mcp.json so claude code auto-connects on spawn.
-    const mcpServer = workspaceMcpServer;
-    if (mcpServer) {
-      mcpServer.start().then((r) => {
-        if (!r.ok) console.warn("[workspace-mcp] failed to start:", r.error);
-        const url = mcpServer.getUrl();
-        if (url) {
-          try { ensureProjectMcpJson(ws, url); } catch (err) {
-            console.warn("[workspace-mcp] failed to write .mcp.json:", (err as Error).message);
-          }
-        }
-      });
+    // Write .mcp.json pointing at the unified MCP server (McpExpose)
+    if (mcpExpose?.isRunning) {
+      const url = `http://127.0.0.1:${mcpExpose.getPort()}/mcp`;
+      const tokens = mcpExpose.getTokens();
+      const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
+      try { ensureProjectMcpJson(ws, url, token); } catch (err) {
+        console.warn("[mcp] failed to write .mcp.json:", (err as Error).message);
+      }
     }
 
     // Post a startup event so other agents see the new teammate appear in
@@ -1858,10 +1861,10 @@ async function boot() {
     if (resolveAppId(id) === "browser") {
       const focusWebview = () => {
         if (wc.isDestroyed()) return;
-        wc.executeJavaScript(`
-          const wv = document.getElementById("webview");
+        wc.executeJavaScript(`(function(){
+          var wv = document.getElementById("webview");
           if (wv) { wv.focus(); }
-        `).catch(() => {});
+        })()`).catch(() => {});
       };
       // Focus immediately (for already-attached guests) and again after a delay
       // to handle the case where the guest process attaches after the host loads
@@ -2474,6 +2477,9 @@ async function boot() {
       colWidths: l.colWidths,
       rowHeights: l.rowHeights,
       splits: l.cells.map((c) => ({ panelId: c.panelId, col: c.col, row: c.row, colSpan: c.colSpan, rowSpan: c.rowSpan })),
+      type: l.type || "standard",
+      rootDir: l.rootDir,
+      agents: l.agents,
     }))
   );
   ipcMain.handle("layouts-save", (_e, name: string, panelIds: string[]) => {
@@ -2500,7 +2506,7 @@ async function boot() {
     });
     return true;
   });
-  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => {
+  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }) => {
     const existing = layoutManager.listLayouts().find(l => l.name === grid.name);
     if (!existing) {
       const gate = canSaveLayout(layoutManager.listLayouts().length);
@@ -2509,6 +2515,9 @@ async function boot() {
     layoutManager.saveLayout({
       ...grid,
       version: 2,
+      type: (grid.type as "standard" | "code") || undefined,
+      rootDir: grid.rootDir || undefined,
+      agents: grid.agents || undefined,
     });
     return true;
   });
@@ -2892,6 +2901,18 @@ async function boot() {
     saveLLMConfig(config);
     applyLLMConfig(config);
     return { ok: true };
+  });
+
+  // ── Directory picker (for workspace creation) ──────────
+  ipcMain.handle("pick-directory", async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory", "createDirectory"],
+      title: "Choose project directory",
+      buttonLabel: "Select",
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
   });
 
   // ── MCP Expose IPC handlers ────────────────────────────
@@ -3513,7 +3534,6 @@ function cleanupAll() {
   terminalManager?.killAll();
   vscodeServer?.stop();
   mcpExpose?.stop();
-  workspaceMcpServer?.stop();
   inboxRouter?.stop();
   mcpManager?.disconnectAll();
   connectorManager?.cleanup();

@@ -12,6 +12,8 @@
 import http from "http";
 import crypto from "crypto";
 import type { CaptureStore } from "./capture-store";
+import type { EventLog, YoEvent } from "./event-log";
+import type { WorkspaceManager } from "./workspace-manager";
 import { getPreference, setPreference } from "./preferences";
 
 const DEFAULT_PORT = 7860;
@@ -36,14 +38,26 @@ interface SseClient {
   id: string;
 }
 
+interface CallContext {
+  agent: string;
+  workspace: string;
+}
+
 export class McpExpose {
   private server: http.Server | null = null;
   private captureStore: CaptureStore | null = null;
   private clients = new Map<string, SseClient>();
   private port = DEFAULT_PORT;
+  private eventLog: EventLog | null = null;
+  private workspaceManager: WorkspaceManager | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
+  }
+
+  setWorkspaceBackend(eventLog: EventLog, wm: WorkspaceManager): void {
+    this.eventLog = eventLog;
+    this.workspaceManager = wm;
   }
 
   private workspaceGetter: (() => string) | null = null;
@@ -138,6 +152,13 @@ export class McpExpose {
     return active;
   }
 
+  private extractContext(req: http.IncomingMessage): CallContext {
+    return {
+      agent: String(req.headers["x-yo-agent"] || ".yo"),
+      workspace: String(req.headers["x-yo-workspace"] || this.workspaceGetter?.() || "default"),
+    };
+  }
+
   // ── HTTP handling ─────────────────────────────────────────
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -151,7 +172,7 @@ export class McpExpose {
     // CORS for local tools
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Yo-Agent, X-Yo-Workspace");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -255,7 +276,8 @@ export class McpExpose {
       return;
     }
 
-    const response = await this.processRpc(rpc);
+    const ctx = this.extractContext(req);
+    const response = await this.processRpc(rpc, ctx);
     if (response) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(response));
@@ -299,7 +321,7 @@ export class McpExpose {
     }
   }
 
-  private async processRpc(rpc: McpRequest): Promise<Record<string, unknown> | null> {
+  private async processRpc(rpc: McpRequest, ctx?: CallContext): Promise<Record<string, unknown> | null> {
     const { id, method, params } = rpc;
 
     switch (method) {
@@ -318,41 +340,10 @@ export class McpExpose {
         return null; // No response needed
 
       case "tools/list":
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: {
-            tools: [
-              {
-                name: "yo",
-                description: "Search the user's .Yo capture store. Returns context from across all the user's apps — conversations, code, emails, docs, anything they've worked on. Uses vector similarity for semantic search with keyword fallback. Use descriptive natural language queries, not keywords.",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    query: { type: "string", description: "Natural language search query — describe what you're looking for, not just keywords" },
-                    limit: { type: "number", description: "Max results to return (default 10)" },
-                  },
-                  required: ["query"],
-                },
-              },
-              {
-                name: "sup",
-                description: "Push context into the user's .Yo capture store. The content will be chunked, embedded, and indexed for future search via the 'yo' tool. Use this to share code, conversation snippets, research, notes, or any context the user might want to recall later.",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    name: { type: "string", description: "Short label for this context (e.g. 'pricing-thread', 'auth-refactor', 'meeting-notes')" },
-                    content: { type: "string", description: "The content to store — markdown, code, conversation text, etc." },
-                  },
-                  required: ["name", "content"],
-                },
-              },
-            ],
-          },
-        };
+        return { jsonrpc: "2.0", id, result: { tools: this.buildToolList() } };
 
       case "tools/call":
-        return this.handleToolCall(id, params as { name: string; arguments?: Record<string, unknown> });
+        return this.handleToolCall(id, params as { name: string; arguments?: Record<string, unknown> }, ctx);
 
       case "ping":
         return { jsonrpc: "2.0", id, result: {} };
@@ -402,68 +393,280 @@ export class McpExpose {
   private async handleToolCall(
     id: string | number | undefined,
     params: { name: string; arguments?: Record<string, unknown> },
+    ctx?: CallContext,
   ): Promise<Record<string, unknown>> {
-    if (!this.captureStore) {
-      return {
-        jsonrpc: "2.0",
-        id,
-        result: { content: [{ type: "text", text: "Capture store not available." }], isError: true },
-      };
-    }
-
     const args = params.arguments || {};
+    const reply = (text: string, isError = false) => ({
+      jsonrpc: "2.0" as const, id,
+      result: { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) },
+    });
+    const replyJson = (data: unknown) => reply(JSON.stringify(data, null, 2));
 
     switch (params.name) {
+      // ── Capture store tools ────────────────────────────────
       case "yo": {
+        if (!this.captureStore) return reply("Capture store not available.", true);
         const query = String(args.query || "");
         const limit = Number(args.limit) || 10;
-
-        if (!query) {
-          return {
-            jsonrpc: "2.0",
-            id,
-            result: { content: [{ type: "text", text: "query is required" }], isError: true },
-          };
-        }
+        if (!query) return reply("query is required", true);
 
         const results = await this.captureStore.search(query, limit);
-        if (results.length === 0) {
-          return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `No results for "${query}".` }] } };
-        }
+        if (results.length === 0) return reply(`No results for "${query}".`);
 
         const text = results.map((r) =>
           `[${r.meta.source}] (score: ${r.score.toFixed(2)}) ${new Date(r.meta.created).toLocaleString()}\n${r.content}`,
         ).join("\n\n---\n\n");
-
-        return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } };
+        return reply(text);
       }
 
       case "sup": {
+        if (!this.captureStore) return reply("Capture store not available.", true);
         const name = String(args.name || "").trim();
         const content = String(args.content || "").trim();
-
-        if (!name || !content) {
-          return {
-            jsonrpc: "2.0",
-            id,
-            result: { content: [{ type: "text", text: "Both name and content are required." }], isError: true },
-          };
-        }
+        if (!name || !content) return reply("Both name and content are required.", true);
 
         const entryId = await this.captureStore.ingest(name, content, this.workspaceGetter?.());
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: { content: [{ type: "text", text: `Stored "${name}" (id: ${entryId}). Content chunked, embedded, and indexed.` }] },
-        };
+        return reply(`Stored "${name}" (id: ${entryId}). Content chunked, embedded, and indexed.`);
+      }
+
+      // ── Workspace tools ────────────────────────────────────
+      case "team_status": {
+        if (!this.workspaceManager || !this.eventLog) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const ws = this.workspaceManager.get(wsSlug);
+        if (!ws) return reply(`Unknown workspace: ${wsSlug}`, true);
+        const agents = this.workspaceManager.listAgents(wsSlug);
+        const status = this.eventLog.teamStatus(wsSlug, agents);
+        return replyJson({
+          workspace: ws.slug,
+          rootDir: ws.rootDir,
+          agents: status.map((s) => ({
+            ...s,
+            lastPostAt: s.lastPostTs ? new Date(s.lastPostTs).toISOString() : null,
+          })),
+        });
+      }
+
+      case "read_log": {
+        if (!this.eventLog) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const filter = (args.filter as Record<string, unknown>) || args;
+        const events = this.eventLog.read(wsSlug, {
+          tags: asStringArray(filter.tags),
+          from: asStringArray(filter.from),
+          to: typeof filter.to === "string" ? filter.to : undefined,
+          since: typeof filter.since === "number" ? filter.since : undefined,
+          until: typeof filter.until === "number" ? filter.until : undefined,
+          kinds: asStringArray(filter.kinds) as YoEvent["kind"][] | undefined,
+          limit: typeof filter.limit === "number" ? filter.limit : undefined,
+        });
+        return replyJson({ count: events.length, events });
+      }
+
+      case "read_agent": {
+        if (!this.eventLog) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const name = String(args.name || "").trim();
+        if (!name) return reply("name is required", true);
+        const kind = String(args.kind || "scratchpad");
+        if (kind === "log") {
+          const events = this.eventLog.read(wsSlug, { from: [name] });
+          return replyJson({ agent: name, events });
+        }
+        const text = this.eventLog.readScratchpad(wsSlug, name);
+        return reply(text || `(${name} has no scratchpad yet)`);
+      }
+
+      case "post": {
+        if (!this.eventLog) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const body = String(args.body || "").trim();
+        if (!body) return reply("body is required", true);
+        const tags = mergeTags(asStringArray(args.tags) ?? [], ctx || { agent: ".yo", workspace: wsSlug });
+        const evt = this.eventLog.append(wsSlug, {
+          from: ctx?.agent || ".yo",
+          tags,
+          kind: (args.kind as YoEvent["kind"]) || "post",
+          body,
+          refs: asStringArray(args.refs),
+        });
+        return replyJson({ ts: evt.ts });
+      }
+
+      case "post_to": {
+        if (!this.eventLog) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const to = String(args.agent || "").trim();
+        const body = String(args.body || "").trim();
+        if (!to) return reply("agent is required", true);
+        if (!body) return reply("body is required", true);
+        const tags = mergeTags(asStringArray(args.tags) ?? [], ctx || { agent: ".yo", workspace: wsSlug });
+        const evt = this.eventLog.append(wsSlug, {
+          from: ctx?.agent || ".yo",
+          to,
+          tags,
+          kind: (args.kind as YoEvent["kind"]) || "post",
+          body,
+          refs: asStringArray(args.refs),
+        });
+        return replyJson({ ts: evt.ts });
+      }
+
+      case "subscribe": {
+        if (!this.workspaceManager) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const filter = (args.filter as Record<string, unknown>) || args;
+        const result = this.workspaceManager.addSubscription(wsSlug, ctx?.agent || ".yo", {
+          tags: asStringArray(filter.tags),
+          from: asStringArray(filter.from),
+          mentions_me: filter.mentions_me === true,
+        });
+        if (!result.ok) return reply(result.error!, true);
+        return replyJson({ id: result.id });
+      }
+
+      case "unsubscribe": {
+        if (!this.workspaceManager) return reply("Workspace backend not available.", true);
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const subId = String(args.id || "").trim();
+        if (!subId) return reply("id is required", true);
+        const ok = this.workspaceManager.removeSubscription(wsSlug, ctx?.agent || ".yo", subId);
+        return reply(ok ? "ok" : `No subscription ${subId}`, !ok);
       }
 
       default:
-        return {
-          jsonrpc: "2.0",
-          id,
-          error: { code: -32602, message: `Unknown tool: ${params.name}` },
-        };
+        return { jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown tool: ${params.name}` } };
     }
   }
+
+  // ── Tool definitions ───────────────────────────────────────
+
+  private buildToolList() {
+    const tools: Record<string, unknown>[] = [
+      {
+        name: "yo",
+        description: "Search the user's .Yo capture store. Returns context from across all the user's apps — conversations, code, emails, docs, anything they've worked on.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Natural language search query" },
+            limit: { type: "number", description: "Max results (default 10)" },
+          },
+          required: ["query"],
+        },
+      },
+      {
+        name: "sup",
+        description: "Push context into the user's .Yo capture store. Content is chunked, embedded, and indexed for future search.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Short label (e.g. 'auth-refactor')" },
+            content: { type: "string", description: "The content to store" },
+          },
+          required: ["name", "content"],
+        },
+      },
+    ];
+
+    if (this.workspaceManager && this.eventLog) {
+      tools.push(
+        {
+          name: "team_status",
+          description: "List all agents in this workspace with roles and last-post timestamps.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "read_log",
+          description: "Read workspace event log. Filter by tags, sender, kind, or time.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              tags: { type: "array", items: { type: "string" } },
+              from: { type: "array", items: { type: "string" } },
+              to: { type: "string" },
+              since: { type: "number" },
+              until: { type: "number" },
+              kinds: { type: "array", items: { type: "string" } },
+              limit: { type: "number" },
+            },
+          },
+        },
+        {
+          name: "read_agent",
+          description: "Read another agent's scratchpad or post history.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Agent name" },
+              kind: { type: "string", enum: ["scratchpad", "log"] },
+            },
+            required: ["name"],
+          },
+        },
+        {
+          name: "post",
+          description: "Append an event to the workspace log. Tags: ['broadcast'] for status, ['role:X'] for role-targeted, 'blocking' if response needed.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              body: { type: "string" },
+              tags: { type: "array", items: { type: "string" } },
+              kind: { type: "string", enum: ["post", "status", "question", "answer", "artifact"] },
+              refs: { type: "array", items: { type: "string" } },
+            },
+            required: ["body"],
+          },
+        },
+        {
+          name: "post_to",
+          description: "Direct message another agent.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              agent: { type: "string" },
+              body: { type: "string" },
+              tags: { type: "array", items: { type: "string" } },
+              kind: { type: "string", enum: ["post", "status", "question", "answer", "artifact"] },
+              refs: { type: "array", items: { type: "string" } },
+            },
+            required: ["agent", "body"],
+          },
+        },
+        {
+          name: "subscribe",
+          description: "Register a tag-filter for inbox delivery of matching events.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              tags: { type: "array", items: { type: "string" } },
+              from: { type: "array", items: { type: "string" } },
+              mentions_me: { type: "boolean" },
+            },
+          },
+        },
+        {
+          name: "unsubscribe",
+          description: "Remove a subscription by id.",
+          inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        },
+      );
+    }
+
+    return tools;
+  }
+}
+
+// ── helpers ─────────────────────────────────────────────────
+
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.filter((x): x is string => typeof x === "string");
+}
+
+function mergeTags(userTags: string[], ctx: CallContext): string[] {
+  const merged = new Set<string>(userTags);
+  merged.add(`from:${ctx.agent}`);
+  merged.add(`workspace:${ctx.workspace}`);
+  return Array.from(merged);
 }

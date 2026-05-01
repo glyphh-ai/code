@@ -402,6 +402,14 @@ export function initHelp() {
   document.getElementById("layout-back-link")!.addEventListener("click", cancelLayout);
   document.getElementById("layout-delete-btn")!.addEventListener("click", deleteLayout);
   layoutSearchInput.addEventListener("input", () => { layoutsPage = 0; renderLayoutsList(); });
+  layoutTypeSelect.addEventListener("change", () => {
+    layoutCodeFields.classList.toggle("hidden", layoutTypeSelect.value !== "code");
+  });
+  layoutPickDirBtn.addEventListener("click", async () => {
+    const dir = await window.yo.pickDirectory();
+    if (dir) layoutRootDirInput.value = dir;
+  });
+  layoutAgentsAddBtn.addEventListener("click", () => addAgentRow());
 
   // Grid builder dimension controls
   gridColsSelect.addEventListener("change", () => {
@@ -1156,7 +1164,7 @@ async function clearData() {
 // ── Layouts (Grid Builder) ──────────────────────────────────
 
 let layoutsPage = 0;
-let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }> }> = [];
+let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }> = [];
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
 const layoutsToolbar = document.getElementById("layouts-toolbar")!;
@@ -1166,6 +1174,12 @@ const layoutFormError = document.getElementById("layout-form-error")!;
 const layoutDeleteBtn = document.getElementById("layout-delete-btn") as HTMLButtonElement;
 const layoutEditorTitle: HTMLElement | null = document.getElementById("layout-editor-title");
 let editingLayoutName: string | null = null;
+const layoutTypeSelect = document.getElementById("layout-type-select") as HTMLSelectElement;
+const layoutCodeFields = document.getElementById("layout-code-fields")!;
+const layoutRootDirInput = document.getElementById("layout-rootdir") as HTMLInputElement;
+const layoutAgentsList = document.getElementById("layout-agents-list")!;
+const layoutAgentsAddBtn = document.getElementById("layout-agents-add") as HTMLButtonElement;
+const layoutPickDirBtn = document.getElementById("layout-pick-dir") as HTMLButtonElement;
 const gridPreview = document.getElementById("grid-preview")!;
 const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
 const gridRowsSelect = document.getElementById("grid-rows") as HTMLSelectElement;
@@ -1309,7 +1323,6 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   const picker = document.createElement("div");
   picker.className = "cell-panel-picker";
   picker.style.left = `${rect.left}px`;
-  picker.style.top = `${rect.bottom + 4}px`;
 
   picker.innerHTML = [
     `<input class="cell-panel-search" placeholder="Search…" autocomplete="off" spellcheck="false" />`,
@@ -1320,6 +1333,14 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   ].join("");
 
   document.body.appendChild(picker);
+
+  const pickerHeight = picker.offsetHeight;
+  const spaceBelow = window.innerHeight - rect.bottom - 4;
+  if (spaceBelow < pickerHeight && rect.top > pickerHeight) {
+    picker.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+  } else {
+    picker.style.top = `${rect.bottom + 4}px`;
+  }
 
   const closePicker = (ev: MouseEvent) => {
     if (!(ev.target as HTMLElement).closest(".cell-panel-picker")) {
@@ -1403,11 +1424,16 @@ function renderLayoutsList() {
   for (const layout of layouts) {
     const card = document.createElement("div");
     card.className = "crud-card";
+    const isCode = layout.type === "code";
     const panels = layout.splits.map((s) => s.panelId).filter(Boolean).join(" | ");
+    const typeBadge = isCode ? `<span class="crud-card-badge">code</span>` : "";
+    const dirLine = isCode && layout.rootDir ? `<span class="crud-card-dir">${layout.rootDir}</span>` : "";
+    const agentLine = isCode && layout.agents?.length ? `<span class="crud-card-agents">${layout.agents.map((a) => a.name).join(", ")}</span>` : "";
     card.innerHTML = `
       <div class="crud-card-info">
-        <span class="crud-card-name">${layout.name}</span>
-        <span class="crud-card-meta">${panels || "empty"}</span>
+        <span class="crud-card-name">${typeBadge}${layout.name}</span>
+        ${dirLine}
+        ${agentLine || (!isCode ? `<span class="crud-card-meta">${panels || "empty"}</span>` : "")}
       </div>
       <div class="crud-card-actions">
         <button class="crud-card-btn crud-edit-btn" title="Edit">
@@ -1465,6 +1491,16 @@ async function editLayout(name: string) {
   layoutDeleteBtn.style.display = "";
   if (layoutEditorTitle) layoutEditorTitle.textContent = name;
   layoutFormError.classList.add("hidden");
+
+  const isCode = layout?.type === "code";
+  layoutTypeSelect.value = isCode ? "code" : "standard";
+  layoutCodeFields.classList.toggle("hidden", !isCode);
+  layoutRootDirInput.value = (isCode && layout?.rootDir) || "";
+  clearAgentRows();
+  if (isCode && layout?.agents) {
+    layout.agents.forEach((a) => addAgentRow(a.name, a.role));
+  }
+
   layoutsList.classList.add("hidden");
   layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
@@ -1482,6 +1518,10 @@ async function newLayout() {
   layoutDeleteBtn.style.display = "none";
   if (layoutEditorTitle) layoutEditorTitle.textContent = "New Layout";
   layoutFormError.classList.add("hidden");
+  layoutTypeSelect.value = "standard";
+  layoutCodeFields.classList.add("hidden");
+  layoutRootDirInput.value = "";
+  clearAgentRows();
   layoutsList.classList.add("hidden");
   layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
@@ -1517,6 +1557,10 @@ async function saveLayout() {
     await window.yo.layoutsDelete(editingLayoutName);
   }
 
+  const isCode = layoutTypeSelect.value === "code";
+  const agentRows = getAgentEntries();
+  const agents = isCode && agentRows.length ? agentRows : undefined;
+
   await window.yo.layoutsSaveGrid({
     name,
     cols: builderCols,
@@ -1524,6 +1568,9 @@ async function saveLayout() {
     colWidths: Array(builderCols).fill(1 / builderCols),
     rowHeights: Array(builderRows).fill(1 / builderRows),
     cells: assignedCells,
+    type: isCode ? "code" : undefined,
+    rootDir: isCode ? layoutRootDirInput.value.trim() || undefined : undefined,
+    agents,
   });
   cancelLayout();
 }
@@ -3719,6 +3766,50 @@ function getToolEntries(): string[] {
 
 function clearToolRows() {
   document.getElementById("skill-tools-list")!.innerHTML = "";
+}
+
+// ── Agent row list (layout agents) ──────────────────────────
+
+function addAgentRow(name?: string, role?: string) {
+  const row = document.createElement("div");
+  row.className = "skill-row";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "Name";
+  nameInput.value = name || "";
+
+  const roleInput = document.createElement("input");
+  roleInput.type = "text";
+  roleInput.placeholder = "Role";
+  roleInput.value = role || "";
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "skill-row-remove";
+  removeBtn.type = "button";
+  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+  removeBtn.addEventListener("click", () => row.remove());
+
+  row.appendChild(nameInput);
+  row.appendChild(roleInput);
+  row.appendChild(removeBtn);
+  layoutAgentsList.appendChild(row);
+}
+
+function getAgentEntries(): Array<{ name: string; role: string }> {
+  const rows = layoutAgentsList.querySelectorAll(".skill-row");
+  const entries: Array<{ name: string; role: string }> = [];
+  rows.forEach(row => {
+    const inputs = row.querySelectorAll("input[type=\"text\"]");
+    const n = (inputs[0] as HTMLInputElement)?.value.trim();
+    const r = (inputs[1] as HTMLInputElement)?.value.trim();
+    if (n) entries.push({ name: n, role: r || n });
+  });
+  return entries;
+}
+
+function clearAgentRows() {
+  layoutAgentsList.innerHTML = "";
 }
 
 // ── Requires row list (dependent skills) ─────────────────

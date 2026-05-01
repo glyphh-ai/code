@@ -12,13 +12,12 @@
 import { BrowserWindow, WebContents } from "electron";
 import { PanelManager } from "./panel-manager";
 import { SkillEngine } from "./skill-engine";
-import { LayoutManager } from "./layout-manager";
+import { LayoutManager, type LayoutAgent } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
-import type { WorkspaceManager } from "./workspace-manager";
 export class CommandParser {
   private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz", "council"]);
 
@@ -26,10 +25,10 @@ export class CommandParser {
   private onDrip: ((effect: string) => void) | null = null;
   private dripManager: import("./drip-manager").DripManager | null = null;
   private onCouncil: ((participants: string[]) => void) | null = null;
-  private workspaceManager: WorkspaceManager | null = null;
   private codeTerminalLauncher:
     | ((name: string, role?: string) => { ok: true; panelId: string } | { ok: false; error: string })
     | null = null;
+  private directoryPicker: (() => Promise<string | null>) | null = null;
 
   // Sup conversation state
   private yoHistory: Array<{ role: string; content: string }> = [];
@@ -74,8 +73,9 @@ export class CommandParser {
     this.onCouncil = fn;
   }
 
-  setWorkspaceManager(mgr: WorkspaceManager): void {
-    this.workspaceManager = mgr;
+
+  setDirectoryPicker(fn: () => Promise<string | null>): void {
+    this.directoryPicker = fn;
   }
 
   /** Register a callback that creates/ensures a code-terminal panel for a
@@ -157,8 +157,10 @@ export class CommandParser {
         return this.handleWaz(args);
       case "council":
         return this.handleCouncil(args);
+      case "code":
+        return this.handleCode(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, peace, waz, or council.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, code, drip, peace, or council.`;
     }
   }
 
@@ -200,102 +202,118 @@ export class CommandParser {
   // ── yo: opens the agent side panel, or dispatches a sub-mode ─────
 
   private async handleYo(args: string[]): Promise<string> {
-    // Sub-modes intercepted before the agent panel: `.yo .ws ...`, `.yo .code ...`
-    if (args[0] === ".ws" || args[0] === "ws") {
-      return this.handleWs(args.slice(1));
-    }
-    if (args[0] === ".code" || args[0] === "code") {
+    // Legacy sub-modes redirect to unified .code command
+    if (args[0] === ".ws" || args[0] === "ws" || args[0] === ".code" || args[0] === "code") {
       return this.handleCode(args.slice(1));
     }
     const query = args.join(" ").trim();
     return `__YO_PANEL__${query ? `:${query}` : ""}`;
   }
 
-  // ── yo .ws: workspace management ────────────────────────────
 
-  private handleWs(args: string[]): string {
-    if (!this.workspaceManager) {
-      return "Workspace manager not initialized.";
-    }
+  // ── .code: code layout command ────────────────────────────
+
+  /** `.code` — create/manage code-type layouts.
+   *  - `.code` (bare) → show active code layout or list them
+   *  - `.code new` → directory picker + create code layout
+   *  - `.code list` → list code layouts
+   *  - `.code <name>` → recall a code layout
+   *  - `.code <agents...>` → scaffold agents in active code layout */
+  private async handleCode(args: string[]): Promise<string> {
     const sub = (args[0] || "").toLowerCase();
 
-    switch (sub) {
-      case "":
-      case "list": {
-        const list = this.workspaceManager.list();
-        const active = this.workspaceManager.getActiveSlug();
-        if (list.length === 0) return "No workspaces.";
-        return list
-          .map((w) => `${w.slug === active ? "* " : "  "}${w.slug}  ${w.name !== w.slug ? `(${w.name})  ` : ""}→ ${w.rootDir}`)
-          .join("\n");
-      }
-
-      case "new": {
-        const slug = args[1];
-        const rest = args.slice(2);
-        if (!slug || rest.length === 0) {
-          return "Usage: .yo .ws new <slug> <path> [name]";
-        }
-        // Last token *might* be a name if it's not a path component; for v1
-        // accept the simpler shape: `<slug> <path>` and default name = slug.
-        const rootDir = rest[0];
-        const name = rest.slice(1).join(" ").trim() || slug;
-        const result = this.workspaceManager.create(slug, name, rootDir);
-        if (!result.ok) return `Error: ${result.error}`;
-        const warning = result.warning ? `\n${result.warning}` : "";
-        return `Created workspace "${result.workspace.slug}" → ${result.workspace.rootDir}${warning}\nSwitch to it with: .yo .ws switch ${result.workspace.slug}`;
-      }
-
-      case "switch": {
-        const slug = args[1];
-        if (!slug) return "Usage: .yo .ws switch <slug>";
-        const result = this.workspaceManager.switch(slug);
-        if (!result.ok) return `Error: ${result.error}`;
-        return `Switched to "${result.workspace.slug}" → ${result.workspace.rootDir}`;
-      }
-
-      default:
-        return `Unknown .ws subcommand "${sub}". Try: list, new, switch.`;
-    }
-  }
-
-  // ── yo .code: scaffold a multi-agent dev space ─────────────
-
-  /** `.yo .code <prompt>` — scaffold a multi-agent dev space in the active
-   *  workspace. v3.0 is deterministic-parser only: extracts agent names from
-   *  the canonical pattern. LLM-driven scaffolding lands in v3.1. */
-  private handleCode(args: string[]): string {
+    // .code (bare) — show active code layout or prompt
     if (args.length === 0) {
-      return [
-        "Usage: .yo .code <prompt>",
-        "  e.g. .yo .code create a dev space with 3 agents — ui, server, web",
-        "  e.g. .yo .code ui, server, web",
-        "Subcommands: list",
-      ].join("\n");
+      const codeLayouts = this.layouts.listCodeLayouts();
+      if (codeLayouts.length === 0) {
+        return "No code layouts yet. Run .code new to create one.";
+      }
+      const lines = ["Code layouts:"];
+      for (const l of codeLayouts) {
+        const agents = l.agents?.map((a) => a.name).join(", ") || "no agents";
+        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${agents})`);
+      }
+      return lines.join("\n");
     }
-    if (!this.workspaceManager) return "Workspace manager not initialized.";
+
+    // .code new — pick a directory, create a code layout
+    if (sub === "new") {
+      if (!this.directoryPicker) return "Directory picker not available.";
+      const dir = await this.directoryPicker();
+      if (!dir) return "Cancelled.";
+      let name = dir.split("/").pop()!.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+/, "");
+      if (!name) name = "project";
+      const existing = this.layouts.getLayout(name);
+      if (existing) {
+        return `Layout "${name}" already exists. Use .dip ${name} to recall it.`;
+      }
+      this.layouts.createCodeLayout(name, dir);
+      return `Created code layout "${name}" → ${dir}\nAdd agents: .code ui, server, web`;
+    }
+
+    // .code list
+    if (sub === "list") {
+      const codeLayouts = this.layouts.listCodeLayouts();
+      if (codeLayouts.length === 0) return "No code layouts. Run .code new to create one.";
+      const lines = ["Code layouts:"];
+      for (const l of codeLayouts) {
+        const agents = l.agents?.map((a) => a.name).join(", ") || "no agents";
+        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${agents})`);
+      }
+      return lines.join("\n");
+    }
+
+    // .code <name> — recall an existing code layout
+    const exactLayout = this.layouts.getLayout(sub);
+    if (exactLayout && exactLayout.type === "code" && args.length === 1) {
+      if (exactLayout.agents && exactLayout.agents.length > 0 && this.codeTerminalLauncher) {
+        const created: string[] = [];
+        for (const a of exactLayout.agents) {
+          const r = this.codeTerminalLauncher(a.name, a.role);
+          if (r.ok) created.push(r.panelId);
+        }
+        const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
+        if (win && !win.isDestroyed() && created.length > 0) {
+          this.handleDipSplit(created, win);
+        }
+        return `Launched "${exactLayout.name}" — ${created.length} agent(s)`;
+      }
+      return `Layout "${exactLayout.name}" has no agents. Add with: .code ui, server, web`;
+    }
+
+    // .code <agents...> — scaffold agents into active/last code layout
     if (!this.codeTerminalLauncher) return "Code-terminal launcher not available.";
 
-    const sub = (args[0] || "").toLowerCase();
-
-    // .yo .code list — list dev-space layouts (saved as `code-<workspace>`)
-    if (sub === "list") {
-      const layouts = this.layouts.listLayouts().filter((l) => l.name.startsWith("code-"));
-      if (layouts.length === 0) return "No dev-space layouts saved yet.";
-      return layouts.map((l) => `  ${l.name} — ${l.cells.map((c) => c.panelId).join(" | ")}`).join("\n");
+    // Find which code layout to use
+    let targetLayout = this.layouts.getActiveCodeLayout();
+    if (!targetLayout) {
+      const codeLayouts = this.layouts.listCodeLayouts();
+      if (codeLayouts.length === 1) {
+        targetLayout = codeLayouts[0];
+      } else if (codeLayouts.length === 0) {
+        // No code layout exists — auto-create via picker
+        if (!this.directoryPicker) return "No code layout. Run .code new first.";
+        const dir = await this.directoryPicker();
+        if (!dir) return "Cancelled.";
+        let name = dir.split("/").pop()!.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+/, "");
+        if (!name) name = "project";
+        targetLayout = this.layouts.createCodeLayout(name, dir);
+      } else {
+        return `Multiple code layouts exist. Specify one: .code <layout-name> or use .dip <name> first.\n` +
+          codeLayouts.map((l) => `  ${l.name}`).join("\n");
+      }
     }
 
-    const ws = this.workspaceManager.getActive();
     const prompt = args.join(" ").trim();
     const parsed = parseDevSpacePrompt(prompt);
     if (!parsed.ok) {
-      return [
-        `Couldn't parse "${prompt}".`,
-        parsed.error,
-        "Try: .yo .code create a dev space with 3 agents — ui, server, web",
-      ].join("\n");
+      return [`Couldn't parse "${prompt}".`, parsed.error, "Try: .code ui, server, web"].join("\n");
     }
 
+    // Add agents to the layout
+    this.layouts.addAgentsToLayout(targetLayout.name, parsed.agents);
+
+    // Launch code terminals
     const created: string[] = [];
     const errors: string[] = [];
     for (const { name, role } of parsed.agents) {
@@ -304,40 +322,18 @@ export class CommandParser {
       else errors.push(`${name}: ${r.error}`);
     }
 
-    // Apply a side-by-side split with all created panels and save it under the
-    // workspace name so users can recall with `.dip code-<workspace>`.
     const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
-    let layoutNote = "";
     if (win && !win.isDestroyed() && created.length > 0) {
       this.handleDipSplit(created, win);
-      const grid = this.layouts.getGridInfo();
-      if (grid) {
-        const layoutName = `code-${ws.slug}`;
-        this.layouts.saveLayout({
-          name: layoutName,
-          version: 2,
-          cols: grid.cols,
-          rows: grid.rows,
-          colWidths: grid.colWidths,
-          rowHeights: grid.rowHeights,
-          cells: grid.cells.map((c) => ({
-            panelId: c.panelId,
-            col: c.col,
-            row: c.row,
-            colSpan: c.colSpan,
-            rowSpan: c.rowSpan,
-          })),
-        });
-        layoutNote = `\n\nLayout saved as "${layoutName}". Recall with: .dip ${layoutName}`;
-      }
     }
 
     const lines = [
-      `Scaffolded dev space in workspace "${ws.slug}":`,
+      `Scaffolded in "${targetLayout.name}":`,
       ...parsed.agents.map((a) => `  ${a.name} — ${a.role}`),
     ];
     if (errors.length > 0) lines.push("", "Errors:", ...errors);
-    return lines.join("\n") + layoutNote;
+    lines.push(`\nRecall with: .dip ${targetLayout.name}`);
+    return lines.join("\n");
   }
 
   // ── sup: capture screen ─────────────────────────────────
@@ -553,6 +549,13 @@ export class CommandParser {
 
     // Check for saved layout
     if (this.layouts.isLayout(sub)) {
+      const layout = this.layouts.getLayout(sub);
+      // Code layouts: ensure code terminals are running before applying
+      if (layout?.type === "code" && layout.agents && this.codeTerminalLauncher) {
+        for (const a of layout.agents) {
+          this.codeTerminalLauncher(a.name, a.role);
+        }
+      }
       const ok = this.layouts.apply(sub, win);
       if (!ok) return `Failed to apply layout: ${sub}`;
       setPreference("lastView", { type: "layout", name: sub });

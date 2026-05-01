@@ -178,7 +178,7 @@ var __yoT=__yoThemes[${JSON.stringify(this.theme)}]||__yoThemes.dark;
 (function(){var s=document.getElementById('__yo-theme-vars');if(!s){s=document.createElement('style');s.id='__yo-theme-vars';(document.head||document.documentElement).appendChild(s);}var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;})();
 window.__yoSetTheme=function(t){__yoT=__yoThemes[t]||__yoThemes.dark;var s=document.getElementById('__yo-theme-vars');if(s){var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;}};
 var _n=${JSON.stringify(nonce)};
-var CMD_RE=/^\\.(yo|sup|dip|drip|waz|council)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|code|peace|waz|council)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -202,6 +202,7 @@ window.__yoInject=function(text){
 function ed(){
   var a=document.activeElement;if(!a||a===document.body)a=null;
   while(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;
+  if(a&&a.id&&a.id.startsWith('__yo'))return null;
   if(a){
     if(a.tagName==='INPUT'||a.tagName==='TEXTAREA')return a;
     if(a.isContentEditable)return a;
@@ -281,20 +282,68 @@ window.addEventListener('beforeunload',function(e){
   e.preventDefault();
 },true);
 
-// ── .Yo tab + agent panel trigger ────────────────────────
+// ── .Yo tab + command bar (inline in panel) ────────────────────────
 (function(){
 var __yoTrust=null;
 try{if(window.trustedTypes&&window.trustedTypes.createPolicy)__yoTrust=window.trustedTypes.createPolicy('yo-overlay',{createHTML:function(s){return s;}});}catch(e){}
 function safeInner(el,html){el.innerHTML=__yoTrust?__yoTrust.createHTML(html):html;}
 var tab=null;
+var bar=null;
+var barInput=null;
+var barOpen=false;
 var currentEl=null;
 
 window.__yoSetMode=function(){};
 window.__yoSetModel=function(){};
 
-function openPanel(){
-  window.__yoLastEl=currentEl;
-  console.log('${PREFIX}'+JSON.stringify({type:'yo-toggle-panel',_nonce:_n}));
+function toggleBar(){
+  createTab();
+  if(barOpen){closeBar();}else{openBar();}
+}
+function openBar(){
+  createTab();
+  if(!bar)createBar();
+  barOpen=true;
+  bar.style.transform='translateY(-50%) translateX(0)';
+  bar.style.opacity='1';
+  bar.style.pointerEvents='auto';
+  barInput.value='';
+  setTimeout(function(){barInput.focus();},60);
+}
+function closeBar(){
+  barOpen=false;
+  if(bar){bar.style.transform='translateY(-50%) translateX(100%)';bar.style.opacity='0';bar.style.pointerEvents='none';}
+  if(barInput)barInput.value='';
+}
+function createBar(){
+  if(bar)return;
+  bar=document.createElement('div');
+  bar.id='__yo-bar';
+  bar.style.cssText='position:fixed;z-index:2147483647;right:0;top:50%;transform:translateY(-50%) translateX(100%);height:36px;width:280px;background:var(--yo-surface2,rgba(30,30,30,0.95));border:1px solid var(--yo-border2,rgba(255,255,255,0.12));border-right:none;border-radius:18px 0 0 18px;display:flex;align-items:center;padding:0 14px;box-shadow:-4px 0 20px var(--yo-shadow,rgba(0,0,0,0.4));backdrop-filter:blur(12px);opacity:0;pointer-events:none;transition:transform 0.2s ease,opacity 0.2s ease;';
+  barInput=document.createElement('input');
+  barInput.id='__yo-bar-input';
+  barInput.type='text';
+  barInput.placeholder='.code .dip .yo .peace';
+  barInput.spellcheck=false;
+  barInput.autocomplete='off';
+  barInput.style.cssText='flex:1;background:transparent;border:none;outline:none;color:var(--yo-text,#e0e0e0);font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+  barInput.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){e.stopPropagation();closeBar();return;}
+    if(e.key==='Enter'){
+      e.preventDefault();
+      var cmd=barInput.value.trim();
+      if(cmd){
+        window.__yoLastEl=currentEl;
+        var instruction=cmd.replace(/^\./,'');
+        console.log('${PREFIX}'+JSON.stringify({type:'bar-command',instruction:instruction,_nonce:_n}));
+      }
+      closeBar();
+      return;
+    }
+  });
+  barInput.addEventListener('blur',function(){setTimeout(function(){if(barOpen)closeBar();},150);});
+  bar.appendChild(barInput);
+  document.body.appendChild(bar);
 }
 
 // ── Half-moon tab on right edge ──
@@ -302,16 +351,16 @@ function createTab(){
   if(tab)return;
   tab=document.createElement('div');
   tab.id='__yo-tab';
-  tab.style.cssText='position:fixed;z-index:2147483646;right:0;top:50%;transform:translateY(-50%);width:28px;height:56px;border-radius:28px 0 0 28px;background:var(--yo-surface2);border:1px solid var(--yo-border2);border-right:none;display:none;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:-2px 0 12px var(--yo-shadow-sm);flex-direction:column;gap:1px;user-select:none;';
-  safeInner(tab,'<span style="font-size:10px;font-weight:700;color:var(--yo-accent);font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1;">.Yo</span>');
-  tab.addEventListener('mouseenter',function(){tab.style.background='var(--yo-hover)';tab.style.width='32px';});
-  tab.addEventListener('mouseleave',function(){tab.style.background='var(--yo-surface2)';tab.style.width='28px';});
-  tab.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();openPanel();});
+  tab.style.cssText='position:fixed;z-index:2147483646;right:0;top:50%;transform:translateY(-50%);width:28px;height:56px;border-radius:28px 0 0 28px;background:var(--yo-surface2,rgba(30,30,30,0.9));border:1px solid var(--yo-border2,rgba(255,255,255,0.1));border-right:none;display:none;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:-2px 0 12px var(--yo-shadow-sm,rgba(0,0,0,0.3));flex-direction:column;gap:1px;user-select:none;';
+  safeInner(tab,'<span style="font-size:10px;font-weight:700;color:var(--yo-accent,#25C75E);font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1;">.Yo</span>');
+  tab.addEventListener('mouseenter',function(){tab.style.background='var(--yo-hover,rgba(50,50,50,0.9))';tab.style.width='32px';});
+  tab.addEventListener('mouseleave',function(){tab.style.background='var(--yo-surface2,rgba(30,30,30,0.9))';tab.style.width='28px';});
+  tab.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();toggleBar();});
   document.body.appendChild(tab);
 }
 
 function showTab(){createTab();tab.style.display='flex';}
-function hideTab(){if(tab)tab.style.display='none';}
+function hideTab(){if(tab)tab.style.display='none';if(barOpen)closeBar();}
 
 // ── Track focused inputs → show tab ──
 function isInputEl(el){
@@ -338,6 +387,7 @@ document.addEventListener('focusout',function(){
     var a=document.activeElement;
     if(a&&a.id&&a.id.startsWith('__yo'))return;
     if(tab&&tab.contains(a))return;
+    if(bar&&bar.contains(a))return;
     hideTab();
     currentEl=null;
   },250);
@@ -349,11 +399,11 @@ setTimeout(function(){
   if(isInputEl(a)){currentEl=a;showTab();}
 },500);
 
-// Cmd+. — open agent panel
+// Cmd+Shift+. — toggle command bar
 document.addEventListener('keydown',function(e){
-  if((e.metaKey||e.ctrlKey)&&e.key==='.'){
+  if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key==='.'){
     e.preventDefault();e.stopPropagation();
-    openPanel();
+    toggleBar();
   }
 },true);
 })();
@@ -400,8 +450,30 @@ document.addEventListener('keydown',function(e){
           await this.commandHandler(cmd);
         }
         break;
+      case "code":
+        if (this.commandHandler) {
+          const cmd = data.instruction ? `code ${data.instruction}` : "code";
+          const result = await this.commandHandler(cmd);
+          if (result) this.notify(wc, result, "success");
+        }
+        break;
+      case "peace":
+        if (this.commandHandler) {
+          const cmd = data.instruction ? `peace ${data.instruction}` : "peace";
+          await this.commandHandler(cmd);
+        }
+        break;
       case "yo-toggle-panel":
         if (this.panelOpener) this.panelOpener("", appId);
+        break;
+      case "bar-command":
+        if (this.commandHandler && data.instruction) {
+          console.log("[bar-command]", data.instruction);
+          const result = await this.commandHandler(data.instruction);
+          console.log("[bar-command] result:", result);
+          if (result) this.notify(wc, result, "success");
+          if (this.sessionNotifier) this.sessionNotifier();
+        }
         break;
       case "set-mode":
         if (data.instruction && this.modeChanger) this.modeChanger(data.instruction);

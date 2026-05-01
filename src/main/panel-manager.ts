@@ -654,9 +654,10 @@ export class PanelManager {
         // Cmd+Opt+I (mac) or Ctrl+Shift+I (win/linux) — DevTools for active panel
         e.preventDefault();
         this.toggleDevTools();
-      } else if (input.key === ".") {
-        // Cmd+. — toggle yo agent panel (forward to main window since this
-        // panel's own keydown listener can't reach the main renderer)
+      } else if (input.key === "." && input.shift) {
+        // Cmd+Shift+. — let through to injected keydown (toggles command bar in panel)
+      } else if (input.key === "." && !input.shift) {
+        // Cmd+. — toggle yo agent panel
         e.preventDefault();
         if (!parent.isDestroyed()) parent.webContents.send("yo-panel-toggle");
       }
@@ -692,7 +693,9 @@ export class PanelManager {
         } else if (input.key === "r") {
           e.preventDefault();
           this.refresh(this.activePanel ?? undefined);
-        } else if (input.key === ".") {
+        } else if (input.key === "." && input.shift) {
+          // Cmd+Shift+. — let through to injected keydown (toggles command bar in panel)
+        } else if (input.key === "." && !input.shift) {
           e.preventDefault();
           if (!parent.isDestroyed()) parent.webContents.send("yo-panel-toggle");
         }

@@ -21,6 +21,11 @@ export interface GridCell {
   rowSpan: number;
 }
 
+export interface LayoutAgent {
+  name: string;
+  role: string;
+}
+
 export interface GridLayout {
   name: string;
   version: 2;
@@ -29,6 +34,9 @@ export interface GridLayout {
   colWidths: number[];    // fractions summing to ~1
   rowHeights: number[];   // fractions summing to ~1
   cells: GridCell[];
+  type?: "standard" | "code";
+  rootDir?: string;       // code layouts: project directory
+  agents?: LayoutAgent[]; // code layouts: agent definitions
 }
 
 /** Per-cell bounds for renderer overlays (URL bars in grid) */
@@ -277,6 +285,61 @@ export class LayoutManager {
   /** Get a layout by name */
   getLayout(name: string): GridLayout | undefined {
     return this.layouts.get(name);
+  }
+
+  /** List only code-type layouts */
+  listCodeLayouts(): GridLayout[] {
+    return Array.from(this.layouts.values()).filter((l) => l.type === "code");
+  }
+
+  /** Get the active code layout (if current grid matches a saved code layout) */
+  getActiveCodeLayout(): GridLayout | undefined {
+    const active = this.getGridInfo();
+    if (!active) return undefined;
+    return this.layouts.get(active.name);
+  }
+
+  /** Create a code layout (no grid yet — just metadata) */
+  createCodeLayout(name: string, rootDir: string, agents?: LayoutAgent[]): GridLayout {
+    const layout: GridLayout = {
+      name,
+      version: 2,
+      cols: agents?.length || 1,
+      rows: 1,
+      colWidths: Array(agents?.length || 1).fill(1 / (agents?.length || 1)),
+      rowHeights: [1],
+      cells: (agents || []).map((a, i) => ({
+        panelId: `code-${name}-${a.name}`,
+        col: i,
+        row: 0,
+        colSpan: 1,
+        rowSpan: 1,
+      })),
+      type: "code",
+      rootDir,
+      agents,
+    };
+    this.layouts.set(name, layout);
+    this.persist();
+    return layout;
+  }
+
+  /** Add agents to an existing code layout */
+  addAgentsToLayout(name: string, agents: LayoutAgent[]): GridLayout | undefined {
+    const layout = this.layouts.get(name);
+    if (!layout || layout.type !== "code") return undefined;
+    layout.agents = [...(layout.agents || []), ...agents];
+    layout.cols = layout.agents.length;
+    layout.colWidths = Array(layout.agents.length).fill(1 / layout.agents.length);
+    layout.cells = layout.agents.map((a, i) => ({
+      panelId: `code-${name}-${a.name}`,
+      col: i,
+      row: 0,
+      colSpan: 1,
+      rowSpan: 1,
+    }));
+    this.persist();
+    return layout;
   }
 
   /** Rename a panelId across all saved layouts and the active grid. */

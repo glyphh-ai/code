@@ -142,7 +142,7 @@ function escapeRegex(s: string): string {
  *
  *  Note: a single .mcp.json is shared across all agents in the workspace —
  *  identity comes from env vars expanded per-agent, not from the file. */
-export function ensureProjectMcpJson(workspace: Workspace, mcpUrl: string): void {
+export function ensureProjectMcpJson(workspace: Workspace, mcpUrl: string, bearerToken?: string): void {
   const file = path.join(workspace.rootDir, ".mcp.json");
   let parsed: Record<string, unknown> = {};
   if (fs.existsSync(file)) {
@@ -155,14 +155,14 @@ export function ensureProjectMcpJson(workspace: Workspace, mcpUrl: string): void
     }
   }
   const servers = (parsed.mcpServers as Record<string, unknown>) || {};
-  servers["yo-workspace"] = {
-    type: "http",
-    url: mcpUrl,
-    headers: {
-      "X-Yo-Agent": "${YO_AGENT_NAME}",
-      "X-Yo-Workspace": "${YO_WORKSPACE}",
-    },
+  const headers: Record<string, string> = {
+    "X-Yo-Agent": "${YO_AGENT_NAME}",
+    "X-Yo-Workspace": "${YO_WORKSPACE}",
   };
+  if (bearerToken) {
+    headers["Authorization"] = `Bearer ${bearerToken}`;
+  }
+  servers["yo-workspace"] = { type: "http", url: mcpUrl, headers };
   parsed.mcpServers = servers;
   fs.writeFileSync(file, JSON.stringify(parsed, null, 2));
 }
