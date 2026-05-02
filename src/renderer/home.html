@@ -51,6 +51,8 @@
             <button class="help-nav-sub-item" data-section="docs" data-sub="mcp">MCP</button>
           </div>
         </div>
+        <button class="help-nav-item" data-section="cyphers">Cyphers</button>
+        <button class="help-nav-item" data-section="agents">Agents</button>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="drips">Drips</button>
@@ -89,6 +91,19 @@
             <h2><span class="dot">.</span>Yo Dashboard</h2>
             <div class="dash-provider" id="dash-provider">—</div>
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
+          </div>
+
+          <!-- Yos balance card — the wallet at a glance -->
+          <div id="dash-yos-card" style="display:flex;align-items:center;gap:16px;padding:16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-bg);margin-bottom:16px;">
+            <div style="flex:1;">
+              <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Your wallet</div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
+                <span id="dash-yos-amount" style="font-size:32px;font-weight:700;color:var(--accent);font-family:'SF Mono','Fira Code',monospace;">—</span>
+                <span style="font-size:14px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.5px;">yos</span>
+              </div>
+              <div id="dash-yos-hint" style="font-size:11px;color:var(--text-2);margin-top:4px;">Spend on cyphers · earn by serving them</div>
+            </div>
+            <button id="dash-yos-buy-btn" class="action-btn primary" style="font-size:13px;padding:8px 16px;">Buy yos</button>
           </div>
 
           <div class="dash-split-row">
@@ -995,9 +1010,9 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                       <input id="layout-rootdir" type="text" class="settings-input" placeholder="/path/to/project" spellcheck="false" autocomplete="off" style="flex:1;" readonly />
                       <button id="layout-pick-dir" class="action-btn">Browse</button>
                     </div>
-                    <label class="settings-label">Agents</label>
-                    <div id="layout-agents-list" class="skill-row-list"></div>
-                    <button id="layout-agents-add" type="button" class="skill-row-add-btn">+ Add agent</button>
+                    <label class="settings-label">Agent slots <span class="settings-hint">— each slot is a placeholder; bind an agent at runtime via the panel's + button</span></label>
+                    <div id="layout-slots-list" class="skill-row-list"></div>
+                    <button id="layout-slots-add" type="button" class="skill-row-add-btn">+ Add slot</button>
                   </div>
                 </div>
                 <div class="layout-left-footer">
@@ -1086,6 +1101,371 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <button id="drip-save-btn" class="action-btn primary">Save</button>
             </div>
           </div>
+        </div>
+
+        <!-- Cyphers -->
+        <div class="help-section" data-section="cyphers">
+          <h2>Cyphers</h2>
+          <p class="section-desc">Collaborative gatherings of agents. Host one to pool tokens with others, or join one to put your agent to work for yos.</p>
+
+          <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:12px;">
+            <button id="cypher-tab-mine" class="settings-nav-item active" data-cypher-tab="mine" style="border-radius:0;border-bottom:2px solid var(--accent);">Mine</button>
+            <button id="cypher-tab-discover" class="settings-nav-item" data-cypher-tab="discover" style="border-radius:0;border-bottom:2px solid transparent;">Discover</button>
+          </div>
+
+          <!-- Mine tab toolbar -->
+          <div id="cypher-mine-view">
+            <div class="crud-toolbar">
+              <input id="cypher-search" type="text" class="crud-search" placeholder="Search your cyphers..." spellcheck="false" autocomplete="off" />
+              <div style="display:flex; gap:8px; align-items:center;">
+                <span id="cypher-yos-balance" style="font-size:12px;color:var(--text-2);font-family:var(--font-mono);">— yos</span>
+                <button id="cypher-new-btn" class="action-btn primary">+ New</button>
+              </div>
+            </div>
+            <div id="cyphers-list" class="crud-cards"></div>
+          </div>
+
+          <!-- Discover tab -->
+          <div id="cypher-discover-view" class="hidden">
+            <div class="crud-toolbar">
+              <input id="cypher-discover-search" type="text" class="crud-search" placeholder="Search live cyphers..." spellcheck="false" autocomplete="off" />
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="cypher-discover-type" class="settings-input settings-input-md" style="font-size:12px;">
+                  <option value="">All types</option>
+                  <option value="open">Open</option>
+                  <option value="bounty">Bounty</option>
+                  <option value="coop">Co-op</option>
+                  <option value="sponsored">Sponsored</option>
+                </select>
+                <button id="cypher-discover-refresh" class="action-btn">↻</button>
+              </div>
+            </div>
+            <div id="cypher-discover-list" class="crud-cards"></div>
+          </div>
+
+          <!-- Create / publish form (shared with workspace publish flow) -->
+          <div id="cypher-publish-form" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="cypher-publish-cancel">← Cyphers</a>
+              <div class="crud-spacer"></div>
+            </div>
+            <div id="cypher-publish-error" class="crud-form-error hidden"></div>
+
+            <label class="settings-label">Title</label>
+            <input id="cypher-publish-title" type="text" class="settings-input" placeholder="e.g. Acme SDK Documentation" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Goal <span class="settings-hint">— what's this cypher trying to make</span></label>
+            <input id="cypher-publish-goal" type="text" class="settings-input" placeholder="e.g. write the SDK docs and ship them" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Description</label>
+            <textarea id="cypher-publish-description" class="settings-input" rows="3" spellcheck="false" placeholder="What jammers should know before joining"></textarea>
+
+            <label class="settings-label">Type</label>
+            <select id="cypher-publish-type" class="settings-input">
+              <option value="open">Open — anyone joins, kitty pays for compute, leftover refunded pro-rata</option>
+              <option value="bounty">Bounty — you pre-fund, free join, distribution at wrap</option>
+              <option value="coop">Co-op — every joiner contributes equally, output shared</option>
+              <option value="sponsored">Sponsored — single sponsor funds, agents earn for participation</option>
+            </select>
+
+            <label class="settings-label">Visibility</label>
+            <select id="cypher-publish-visibility" class="settings-input">
+              <option value="public">Public — listed in discovery</option>
+              <option value="unlisted">Unlisted — only people with the link</option>
+              <option value="invite">Invite-only — only members can see</option>
+            </select>
+
+            <label class="settings-label">Sensitivity</label>
+            <select id="cypher-publish-sensitivity" class="settings-input">
+              <option value="public">Public — anyone may see the work</option>
+              <option value="internal" selected>Internal — visible to jammers only</option>
+              <option value="confidential">Confidential — verified providers only (currently local-only)</option>
+            </select>
+
+            <h3 class="settings-subheading" style="margin-top:16px;">Joiner requirements</h3>
+            <p class="section-desc">Filter which agents may join. Comma-separated lists; leave blank for no filter.</p>
+            <label class="settings-label">Required skills</label>
+            <input id="cypher-publish-req-skills" type="text" class="settings-input" placeholder="e.g. rust, testing" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">Required apps</label>
+            <input id="cypher-publish-req-apps" type="text" class="settings-input" placeholder="e.g. github, linear" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">Minimum hardware tier</label>
+            <select id="cypher-publish-req-tier" class="settings-input settings-input-md">
+              <option value="">Any</option>
+              <option value="low">Low</option>
+              <option value="standard">Standard</option>
+              <option value="premiere">Premiere</option>
+            </select>
+            <label class="settings-label">Max jammers <span class="settings-hint">— blank for unlimited</span></label>
+            <input id="cypher-publish-max-jammers" type="number" min="1" class="settings-input settings-input-md" placeholder="50" />
+
+            <h3 class="settings-subheading" style="margin-top:16px;">Kitty deposit</h3>
+            <p class="section-desc">Initial yos to escrow into the kitty. <span id="cypher-publish-kitty-hint" style="color:var(--text-2);"></span></p>
+            <label class="settings-label">Initial deposit</label>
+            <input id="cypher-publish-kitty-amount" type="number" min="0" class="settings-input settings-input-md" placeholder="1000" />
+
+            <div class="settings-actions" style="margin-top:16px;">
+              <button id="cypher-publish-cancel-btn" class="action-btn">Cancel</button>
+              <div style="flex:1;"></div>
+              <button id="cypher-publish-save" class="action-btn primary">Publish cypher</button>
+            </div>
+          </div>
+
+          <!-- Detail (manage a single cypher) -->
+          <div id="cypher-detail" class="hidden">
+            <div class="crud-inline-header" style="padding:0 16px;">
+              <a class="crud-breadcrumb-back" id="cypher-detail-close">← Cyphers</a>
+              <span id="cypher-detail-heading" style="font-size:14px;font-weight:600;color:var(--text);margin-left:8px;"></span>
+              <span id="cypher-detail-status-badge" style="margin-left:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;background:var(--bg-2);color:var(--text-2);"></span>
+              <span id="cypher-detail-type-badge" style="margin-left:6px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;background:var(--bg-2);color:var(--accent);"></span>
+            </div>
+
+            <div style="padding:12px 16px;">
+              <div id="cypher-detail-meta" style="font-size:12px;color:var(--text-2);margin-bottom:16px;font-family:var(--font-mono);"></div>
+
+              <div id="cypher-detail-stats" style="display:flex;gap:24px;margin-bottom:16px;">
+                <div>
+                  <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Kitty</div>
+                  <div id="cypher-detail-kitty" style="font-size:18px;font-weight:600;color:var(--accent);font-family:var(--font-mono);">— yos</div>
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Jammers</div>
+                  <div id="cypher-detail-jammers-count" style="font-size:18px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</div>
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Events</div>
+                  <div id="cypher-detail-events-count" style="font-size:18px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</div>
+                </div>
+              </div>
+
+              <h3 class="settings-subheading">Jammers</h3>
+              <div id="cypher-detail-jammers" style="margin-bottom:16px;font-size:12px;font-family:var(--font-mono);color:var(--text-2);"></div>
+
+              <h3 class="settings-subheading">Recent events</h3>
+              <div id="cypher-detail-events" style="margin-bottom:16px;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--font-mono);font-size:11px;"></div>
+
+              <h3 class="settings-subheading">Add to kitty</h3>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
+                <input id="cypher-detail-deposit-amount" type="number" min="1" class="settings-input settings-input-md" placeholder="amount" />
+                <button id="cypher-detail-deposit-btn" class="action-btn primary">Deposit</button>
+                <span id="cypher-detail-deposit-status" style="font-size:11px;color:var(--text-2);"></span>
+              </div>
+
+              <div class="settings-actions" style="margin-top:16px;">
+                <button id="cypher-detail-cancel-cypher" class="action-btn danger">Cancel cypher</button>
+                <div style="flex:1;"></div>
+                <button id="cypher-detail-wrap" class="action-btn primary">Wrap (end + refund)</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Join modal -->
+          <div id="cypher-join-modal" style="display:none;position:fixed;inset:0;background:var(--overlay-bg);z-index:9999;align-items:center;justify-content:center;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;width:520px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 30px var(--shadow);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <h3 id="cypher-join-title" style="font-size:14px;font-weight:600;color:var(--text-bright);margin:0;"></h3>
+                <button id="cypher-join-close" class="action-btn" style="font-size:11px;padding:2px 8px;">×</button>
+              </div>
+              <div id="cypher-join-meta" style="font-size:11px;color:var(--text-2);font-family:var(--font-mono);margin-bottom:12px;"></div>
+
+              <div id="cypher-join-stats" style="display:flex;gap:16px;margin-bottom:16px;">
+                <div>
+                  <div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Type</div>
+                  <div id="cypher-join-type" style="font-size:13px;color:var(--accent);text-transform:uppercase;"></div>
+                </div>
+                <div>
+                  <div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Kitty</div>
+                  <div id="cypher-join-kitty" style="font-size:13px;color:var(--accent);font-family:var(--font-mono);"></div>
+                </div>
+                <div>
+                  <div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Sensitivity</div>
+                  <div id="cypher-join-sensitivity" style="font-size:13px;color:var(--text);text-transform:uppercase;"></div>
+                </div>
+              </div>
+
+              <div id="cypher-join-requirements" style="margin-bottom:16px;font-size:11px;color:var(--text-2);"></div>
+
+              <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin:0 0 8px;">Pick the agent that joins</h4>
+              <div id="cypher-join-agent-list" style="display:flex;flex-direction:column;gap:4px;max-height:30vh;overflow-y:auto;margin-bottom:12px;"></div>
+
+              <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin:0 0 6px;">Role</h4>
+              <select id="cypher-join-role" class="settings-input settings-input-md" style="margin-bottom:12px;">
+                <option value="jammer">Jammer (default)</option>
+                <option value="reviewer">Reviewer</option>
+                <option value="observer">Observer</option>
+              </select>
+
+              <div id="cypher-join-error" class="crud-form-error hidden"></div>
+
+              <div class="settings-actions">
+                <div style="flex:1;"></div>
+                <button id="cypher-join-cancel" class="action-btn">Cancel</button>
+                <button id="cypher-join-confirm" class="action-btn primary">Join cypher</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agents -->
+        <div class="help-section" data-section="agents">
+          <h2>Agents</h2>
+          <p class="section-desc">Local prompts and remote machines you can deploy. Remote agents reserve a slot on another .yo client and burn yos.</p>
+
+          <div id="agents-toolbar" class="crud-toolbar">
+            <input id="agent-search" type="text" class="crud-search" placeholder="Search agents..." spellcheck="false" autocomplete="off" />
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span id="agent-yos-balance" style="font-size:12px;color:var(--text-2);font-family:var(--font-mono);">— yos</span>
+              <button id="agent-add-btn" class="action-btn primary">+ New</button>
+            </div>
+          </div>
+
+          <div id="agents-list" class="crud-cards"></div>
+
+          <!-- Add form -->
+          <div id="agent-add-form" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="agent-add-cancel">← Agents</a>
+              <div class="crud-spacer"></div>
+            </div>
+            <div id="agent-add-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input id="agent-add-name" type="text" class="settings-input" placeholder="e.g. Frontend Helper" spellcheck="false" autocomplete="off" />
+            <label class="settings-label">Slug <span class="settings-hint">— how it's referenced internally</span></label>
+            <input id="agent-add-slug" type="text" class="settings-input" placeholder="auto" spellcheck="false" autocomplete="off" pattern="[a-z0-9_-]+" />
+            <label class="settings-label">Type</label>
+            <select id="agent-add-type" class="settings-input">
+              <option value="local">Local — runs your own LLM</option>
+              <option value="remote">Remote — reserves another .yo client (burns yos)</option>
+            </select>
+            <div class="settings-actions" style="margin-top:8px;">
+              <button id="agent-add-cancel-btn" class="action-btn">Cancel</button>
+              <button id="agent-add-save" class="action-btn primary">Save</button>
+            </div>
+          </div>
+
+          <!-- Detail (tabbed) -->
+          <div id="agent-detail" class="crud-inline-form skill-editor-split hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="agent-detail-close">← Agents</a>
+              <span id="agent-detail-heading" style="font-size:14px;font-weight:600;color:var(--text);margin-left:8px;"></span>
+              <span id="agent-detail-type-badge" style="margin-left:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;background:var(--surface-3);color:var(--text-2);border:1px solid var(--border);"></span>
+              <div style="flex:1;"></div>
+              <button id="agent-detail-delete" class="action-btn danger">Delete</button>
+            </div>
+
+            <div class="app-detail-tabs">
+              <button class="app-detail-tab" data-tab="general">General</button>
+              <button class="app-detail-tab" data-tab="apps">Apps</button>
+              <button class="app-detail-tab" data-tab="skills">Skills</button>
+              <button class="app-detail-tab" data-tab="guardrails">Guardrails</button>
+              <button class="app-detail-tab agent-tab-remote" data-tab="remote">Remote</button>
+            </div>
+
+            <div class="skill-split-body">
+              <div class="skill-split-left">
+
+                <div class="skill-left-form">
+                  <!-- General -->
+                  <div class="app-tab-left" data-tab="general">
+                    <label class="settings-label">ID</label>
+                    <input id="agent-detail-id" class="settings-input" spellcheck="false" style="font-family:var(--font-mono);font-size:12px;" readonly />
+                    <label class="settings-label">Name</label>
+                    <input id="agent-detail-name" class="settings-input" spellcheck="false" />
+                    <label class="settings-label">Role <span class="settings-hint">— short label shown in workspaces</span></label>
+                    <input id="agent-detail-role" class="settings-input" spellcheck="false" placeholder="e.g. frontend engineer" />
+                    <label class="settings-label">System Prompt</label>
+                    <textarea id="agent-detail-prompt" class="settings-input" rows="10" spellcheck="false" placeholder="Optional system prompt that sets behavior, tone, constraints..." style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+
+                    <label class="settings-toggle" style="margin-top:16px;padding:8px 12px;">
+                      <input type="checkbox" id="agent-detail-joinable" />
+                      <span class="toggle-switch"></span>
+                      <div class="toggle-info">
+                        <span class="toggle-title">Joinable to cyphers</span>
+                        <span class="toggle-desc">Publish this agent's profile so cypher posters can discover and invite it.</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  <!-- Apps -->
+                  <div class="app-tab-left" data-tab="apps" style="display:none;">
+                    <p class="section-desc" style="margin-top:0;">Apps this agent can call. Add apps in Home → Apps.</p>
+                    <div id="agent-apps-list" class="skill-row-list"></div>
+                    <button id="agent-apps-add" class="skill-row-add-btn" type="button">+ Add app</button>
+                  </div>
+
+                  <!-- Skills -->
+                  <div class="app-tab-left" data-tab="skills" style="display:none;">
+                    <p class="section-desc" style="margin-top:0;">Skills this agent can run. Add skills in Home → Skills.</p>
+                    <div id="agent-skills-list" class="skill-row-list"></div>
+                    <button id="agent-skills-add" class="skill-row-add-btn" type="button">+ Add skill</button>
+                  </div>
+
+                  <!-- Guardrails -->
+                  <div class="app-tab-left" data-tab="guardrails" style="display:none;">
+                    <p class="section-desc" style="margin-top:0;">Hard caps on yos spend so a remote agent can't burn your wallet in one turn. Leave blank for no cap.</p>
+                    <label class="settings-label">Max yos per turn</label>
+                    <input id="agent-guard-per-turn" type="number" min="0" step="1" class="settings-input settings-input-md" placeholder="e.g. 200" />
+                    <label class="settings-label">Max yos per session</label>
+                    <input id="agent-guard-per-session" type="number" min="0" step="1" class="settings-input settings-input-md" placeholder="e.g. 5000" />
+                    <label class="settings-label">Max yos per day</label>
+                    <input id="agent-guard-per-day" type="number" min="0" step="1" class="settings-input settings-input-md" placeholder="e.g. 20000" />
+                    <label class="settings-label">Max idle minutes <span class="settings-hint">— auto-release reservations after N min idle</span></label>
+                    <input id="agent-guard-max-idle" type="number" min="1" max="1440" step="1" class="settings-input settings-input-md" placeholder="30" />
+                    <label class="settings-label">Max concurrent reservations</label>
+                    <input id="agent-guard-max-concurrent" type="number" min="1" step="1" class="settings-input settings-input-md" placeholder="1" />
+                  </div>
+
+                  <!-- Remote — only meaningful when type=remote -->
+                  <div class="app-tab-left" data-tab="remote" style="display:none;">
+                    <p class="section-desc" style="margin-top:0;">Filter the live picker by what you want from a provider. Pick one below to reserve.</p>
+                    <label class="settings-label">Preferred tier</label>
+                    <select id="agent-remote-pref-tier" class="settings-input settings-input-md">
+                      <option value="any">Any</option>
+                      <option value="premiere">Premiere</option>
+                      <option value="standard">Standard</option>
+                      <option value="low">Low</option>
+                    </select>
+                    <label class="settings-label">Default idle minutes</label>
+                    <input id="agent-remote-default-idle" type="number" min="1" max="1440" step="1" class="settings-input settings-input-md" placeholder="30" />
+
+                    <!-- Active reservation status -->
+                    <div id="agent-active-reservation" class="hidden" style="margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:4px;background:var(--surface-3);">
+                      <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                          <div style="font-size:12px;font-weight:600;color:var(--text);">Reserved</div>
+                          <div id="agent-active-meta" style="font-size:11px;color:var(--text-2);font-family:var(--font-mono);margin-top:2px;"></div>
+                        </div>
+                        <button id="agent-release-btn" class="action-btn danger">Release</button>
+                      </div>
+                    </div>
+
+                    <!-- Live picker (mirrors app's connector-grid) -->
+                    <div style="margin-top:24px;">
+                      <h3 class="settings-subheading">Available remote agents</h3>
+                      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+                        <input id="agent-remote-search" type="text" class="settings-input" placeholder="Filter providers..." spellcheck="false" autocomplete="off" style="flex:1;" />
+                        <button id="agent-remote-refresh" class="action-btn">Refresh</button>
+                    </div>
+                    <div id="agent-remote-grid" class="connector-grid" style="margin-top:8px;"></div>
+                    <div id="agent-remote-empty" class="hidden" style="padding:24px 8px;text-align:center;color:var(--text-2);font-size:12px;">No agents available right now. Try refresh.</div>
+                  </div>
+                </div>
+              </div><!-- /skill-left-form -->
+
+              <div class="skill-left-footer">
+                <button id="agent-detail-cancel" class="action-btn">Cancel</button>
+                <button id="agent-detail-save" class="action-btn primary">Save</button>
+              </div>
+            </div><!-- /skill-split-left -->
+
+            <!-- RIGHT: test prompt -->
+            <div class="skill-split-right" style="display:flex;flex-direction:column;gap:8px;">
+              <h3 class="settings-subheading" style="margin-top:0;">Test prompt</h3>
+              <p class="section-desc" style="margin:0;">Try a prompt against this agent.</p>
+              <textarea id="agent-test-prompt" class="settings-input" rows="14" spellcheck="false" placeholder="Write a prompt to test this agent..." style="resize:vertical;font-family:var(--font-mono);font-size:12px;flex:1;"></textarea>
+              <div id="agent-test-output" class="hidden" style="padding:12px;border:1px solid var(--border);border-radius:4px;background:var(--surface-3);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;"></div>
+            </div><!-- /skill-split-right -->
+          </div><!-- /skill-split-body -->
+          </div><!-- /agent-detail -->
         </div>
 
         <!-- Apps -->
@@ -1748,6 +2128,27 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <h2>Advanced</h2>
                 <p class="section-desc">Optional services and system settings.</p>
                 <div class="settings-toggles">
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-offer-usage" />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Offer Usage</span>
+                      <span class="toggle-desc">List this machine on yo-server as available for distributed agentic work — discovers hardware, software, and LLM providers and registers them. Tier is set server-side from kernel signals.</span>
+                    </div>
+                  </label>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="toggle-cypher-auto-terminate" />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Auto-terminate cyphers on suspicious sandbox access</span>
+                      <span class="toggle-desc">When on, the cypher runtime kills the session and posts an audit event if the sandbox dir is touched by anything other than the agent process. Best-effort; trips on legit OS background tasks too — leave off unless you're handling sensitive code.</span>
+                    </div>
+                  </label>
+                  <div id="offer-usage-status" class="settings-form hidden" style="margin: 4px 0 16px 44px; font-size: 11px; color: var(--text-2);">
+                    <div>Client ID: <span id="offer-usage-client-id" style="font-family: 'SF Mono','Fira Code',monospace;">—</span></div>
+                    <div>Tier: <span id="offer-usage-tier">—</span></div>
+                    <div>Providers: <span id="offer-usage-providers">—</span></div>
+                  </div>
                   <label class="settings-toggle">
                     <input type="checkbox" id="toggle-voice-input" />
                     <span class="toggle-switch"></span>

@@ -12,7 +12,7 @@
 import { BrowserWindow, WebContents } from "electron";
 import { PanelManager } from "./panel-manager";
 import { SkillEngine } from "./skill-engine";
-import { LayoutManager, type LayoutAgent } from "./layout-manager";
+import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { SessionCache } from "./session-cache";
 import { executeCommand } from "./dom-bridge";
@@ -29,7 +29,7 @@ export class CommandParser {
     | ((name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string })
     | null = null;
   private codeWorkspaceActivator:
-    | ((agents: Array<{ name: string; role: string; prompt?: string }>, layoutName?: string) => { ok: boolean; error?: string })
+    | ((layoutName?: string) => { ok: boolean; error?: string })
     | null = null;
   private directoryPicker: (() => Promise<string | null>) | null = null;
 
@@ -78,7 +78,7 @@ export class CommandParser {
 
 
   setCodeWorkspaceActivator(
-    fn: (agents: Array<{ name: string; role: string; prompt?: string }>, layoutName?: string) => { ok: boolean; error?: string },
+    fn: (layoutName?: string) => { ok: boolean; error?: string },
   ): void {
     this.codeWorkspaceActivator = fn;
   }
@@ -239,8 +239,8 @@ export class CommandParser {
       }
       const lines = ["Code layouts:"];
       for (const l of codeLayouts) {
-        const agents = l.agents?.map((a) => a.name).join(", ") || "no agents";
-        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${agents})`);
+        const slotCount = l.slots?.length ?? 0;
+        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${slotCount} slot${slotCount === 1 ? "" : "s"})`);
       }
       return lines.join("\n");
     }
@@ -266,8 +266,8 @@ export class CommandParser {
       if (codeLayouts.length === 0) return "No code layouts. Run .code new to create one.";
       const lines = ["Code layouts:"];
       for (const l of codeLayouts) {
-        const agents = l.agents?.map((a) => a.name).join(", ") || "no agents";
-        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${agents})`);
+        const slotCount = l.slots?.length ?? 0;
+        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${slotCount} slot${slotCount === 1 ? "" : "s"})`);
       }
       return lines.join("\n");
     }
@@ -275,12 +275,13 @@ export class CommandParser {
     // .code <name> — recall an existing code layout
     const exactLayout = this.layouts.getLayout(sub);
     if (exactLayout && exactLayout.type === "code" && args.length === 1) {
-      if (exactLayout.agents && exactLayout.agents.length > 0 && this.codeWorkspaceActivator) {
-        const r = this.codeWorkspaceActivator(exactLayout.agents, exactLayout.name);
+      if (this.codeWorkspaceActivator) {
+        const r = this.codeWorkspaceActivator(exactLayout.name);
         if (!r.ok) return r.error || "Failed to activate code workspace.";
-        return `Launched "${exactLayout.name}" — ${exactLayout.agents.length} agent(s)`;
+        const slotCount = exactLayout.slots?.length ?? 0;
+        return `Launched "${exactLayout.name}" — ${slotCount} slot${slotCount === 1 ? "" : "s"} (bind agents from each panel's + menu)`;
       }
-      return `Layout "${exactLayout.name}" has no agents. Add with: .code ui, server, web`;
+      return `Code workspace activator not available.`;
     }
 
     // .code <agents...> — scaffold agents into active/last code layout
@@ -306,28 +307,14 @@ export class CommandParser {
       }
     }
 
-    const prompt = args.join(" ").trim();
-    const parsed = parseDevSpacePrompt(prompt);
-    if (!parsed.ok) {
-      return [`Couldn't parse "${prompt}".`, parsed.error, "Try: .code ui, server, web"].join("\n");
-    }
-
-    // Add agents to the layout
-    this.layouts.addAgentsToLayout(targetLayout.name, parsed.agents);
-
-    // Activate code workspace
+    // Slots are static after layout save — no shorthand scaffolding here.
+    // Activate the layout; user binds agents from each panel's + menu.
     if (this.codeWorkspaceActivator) {
-      const allAgents = targetLayout.agents || [];
-      const r = this.codeWorkspaceActivator([...allAgents, ...parsed.agents], targetLayout.name);
+      const r = this.codeWorkspaceActivator(targetLayout.name);
       if (!r.ok) return r.error || "Failed to activate code workspace.";
     }
-
-    const lines = [
-      `Scaffolded in "${targetLayout.name}":`,
-      ...parsed.agents.map((a) => `  ${a.name} — ${a.role}`),
-    ];
-    lines.push(`\nRecall with: .dip ${targetLayout.name}`);
-    return lines.join("\n");
+    const slotCount = targetLayout.slots?.length ?? 0;
+    return `Launched "${targetLayout.name}" — ${slotCount} slot${slotCount === 1 ? "" : "s"}. Configure agents in Home → Agents, then bind via the + on each panel.`;
   }
 
   // ── sup: capture screen ─────────────────────────────────
@@ -545,11 +532,12 @@ export class CommandParser {
     if (this.layouts.isLayout(sub)) {
       const layout = this.layouts.getLayout(sub);
       // Code layouts: activate code workspace panel
-      if (layout?.type === "code" && layout.agents && layout.agents.length > 0 && this.codeWorkspaceActivator) {
-        const r = this.codeWorkspaceActivator(layout.agents, layout.name);
+      if (layout?.type === "code" && this.codeWorkspaceActivator) {
+        const r = this.codeWorkspaceActivator(layout.name);
         if (!r.ok) return r.error || "Failed to activate code workspace.";
         setPreference("lastView", { type: "layout", name: sub });
-        return `Launched "${layout.name}" — ${layout.agents.length} agent(s)`;
+        const slotCount = layout.slots?.length ?? 0;
+        return `Launched "${layout.name}" — ${slotCount} slot${slotCount === 1 ? "" : "s"}`;
       }
       const ok = this.layouts.apply(sub, win);
       if (!ok) return `Failed to apply layout: ${sub}`;

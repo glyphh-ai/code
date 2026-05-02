@@ -5,7 +5,7 @@
  * Hosts all sections that used to live in the help overlay.
  */
 
-import { initHelp, loadActiveSection } from "./help.js";
+import { initHelp, loadActiveSection } from "./help/index.js";
 
 // Theme: the inline script in home.html applied localStorage theme synchronously.
 // Here we re-fetch the authoritative value from main and keep localStorage in sync.

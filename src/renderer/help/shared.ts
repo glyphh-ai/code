@@ -1,0 +1,258 @@
+/**
+ * Shared utilities and types used across help sections.
+ */
+
+declare const Chart: any;
+
+// ── Utility functions ──────────────────────────────────────
+
+export function $a<T extends HTMLElement = HTMLElement>(id: string): T {
+  return document.getElementById(id) as T;
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export function slugify(s: string): string {
+  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "agent";
+}
+
+export function formatYos(n: number): string {
+  if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "k yos";
+  return `${n} yos`;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+export function relativeTime(ts: number): string {
+  if (!ts) return "—";
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+export function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ── Confirm modal ──────────────────────────────────────────
+
+export function confirmAction(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("confirm-modal")!;
+    document.getElementById("confirm-message")!.textContent = message;
+    overlay.classList.remove("hidden");
+
+    const yesBtn = document.getElementById("confirm-yes")!;
+    const noBtn = document.getElementById("confirm-no")!;
+
+    function cleanup() {
+      overlay.classList.add("hidden");
+      yesBtn.removeEventListener("click", onYes);
+      noBtn.removeEventListener("click", onNo);
+    }
+    function onYes() { cleanup(); resolve(true); }
+    function onNo() { cleanup(); resolve(false); }
+
+    yesBtn.addEventListener("click", onYes);
+    noBtn.addEventListener("click", onNo);
+  });
+}
+
+export function clearInvalid(el: HTMLElement) {
+  el.addEventListener("input", () => el.classList.remove("invalid"), { once: true });
+}
+
+/** Simple prompt modal (Electron BrowserViews don't support window.prompt). */
+export function promptAction(message: string, defaultValue = "", placeholder = ""): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("skill-ask-user-modal");
+    const qEl = document.getElementById("skill-ask-user-question");
+    const ansEl = document.getElementById("skill-ask-user-answer") as HTMLTextAreaElement | null;
+    const submitBtn = document.getElementById("skill-ask-user-submit");
+    const cancelBtn = document.getElementById("skill-ask-user-cancel");
+    if (!overlay || !qEl || !ansEl || !submitBtn || !cancelBtn) {
+      resolve(null);
+      return;
+    }
+    qEl.textContent = message;
+    ansEl.value = defaultValue;
+    ansEl.placeholder = placeholder;
+    overlay.classList.remove("hidden");
+    ansEl.focus();
+
+    function cleanup() {
+      overlay!.classList.add("hidden");
+      submitBtn!.removeEventListener("click", onSubmit);
+      cancelBtn!.removeEventListener("click", onCancel);
+      ansEl!.removeEventListener("keydown", onKey);
+    }
+    function onSubmit() { const v = ansEl!.value; cleanup(); resolve(v); }
+    function onCancel() { cleanup(); resolve(null); }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+    }
+    submitBtn.addEventListener("click", onSubmit);
+    cancelBtn.addEventListener("click", onCancel);
+    ansEl.addEventListener("keydown", onKey);
+  });
+}
+
+// ── Pagination utility ──────────────────────────────────────
+
+export const PAGE_SIZE = 50;
+
+export interface PaginationState {
+  page: number;
+  totalPages: number;
+  total: number;
+}
+
+export function renderPaginationBar(state: PaginationState, onPage: (page: number) => void): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "pagination-bar";
+  if (state.totalPages <= 1) return bar;
+
+  const info = document.createElement("span");
+  info.className = "pagination-info";
+  const start = state.page * PAGE_SIZE + 1;
+  const end = Math.min((state.page + 1) * PAGE_SIZE, state.total);
+  info.textContent = `${start}–${end} of ${state.total}`;
+
+  const nav = document.createElement("div");
+  nav.className = "pagination-nav";
+
+  const prev = document.createElement("button");
+  prev.className = "pagination-btn";
+  prev.textContent = "‹ Prev";
+  prev.disabled = state.page === 0;
+  prev.addEventListener("click", () => onPage(state.page - 1));
+
+  // Page buttons — show max 7 with ellipsis
+  const pages: (number | "...")[] = [];
+  const tp = state.totalPages;
+  const cp = state.page;
+  if (tp <= 7) {
+    for (let i = 0; i < tp; i++) pages.push(i);
+  } else {
+    pages.push(0);
+    if (cp > 2) pages.push("...");
+    for (let i = Math.max(1, cp - 1); i <= Math.min(tp - 2, cp + 1); i++) pages.push(i);
+    if (cp < tp - 3) pages.push("...");
+    pages.push(tp - 1);
+  }
+
+  const next = document.createElement("button");
+  next.className = "pagination-btn";
+  next.textContent = "Next ›";
+  next.disabled = state.page >= state.totalPages - 1;
+  next.addEventListener("click", () => onPage(state.page + 1));
+
+  nav.appendChild(prev);
+  for (const p of pages) {
+    if (p === "...") {
+      const ell = document.createElement("span");
+      ell.className = "pagination-ellipsis";
+      ell.textContent = "…";
+      nav.appendChild(ell);
+    } else {
+      const btn = document.createElement("button");
+      btn.className = "pagination-btn" + (p === state.page ? " active" : "");
+      btn.textContent = String(p + 1);
+      btn.addEventListener("click", () => onPage(p));
+      nav.appendChild(btn);
+    }
+  }
+  nav.appendChild(next);
+
+  bar.appendChild(info);
+  bar.appendChild(nav);
+  return bar;
+}
+
+export function paginate<T>(items: T[], page: number): { items: T[]; state: PaginationState } {
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  return {
+    items: items.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
+    state: { page: safePage, totalPages, total: items.length },
+  };
+}
+
+export function buildPaginationBar(offset: number, pageSize: number, total: number, onNavigate: (newOffset: number) => void): HTMLElement {
+  const page = Math.floor(offset / pageSize) + 1;
+  const pages = Math.ceil(total / pageSize);
+  const bar = document.createElement("div");
+  bar.className = "pagination-bar";
+
+  const prev = document.createElement("button");
+  prev.className = "action-btn";
+  prev.textContent = "←";
+  prev.disabled = page <= 1;
+  prev.addEventListener("click", () => onNavigate(Math.max(0, offset - pageSize)));
+  bar.appendChild(prev);
+
+  const label = document.createElement("span");
+  label.className = "pagination-label";
+  label.textContent = `${page} / ${pages}`;
+  bar.appendChild(label);
+
+  const next = document.createElement("button");
+  next.className = "action-btn";
+  next.textContent = "→";
+  next.disabled = page >= pages;
+  next.addEventListener("click", () => onNavigate(offset + pageSize));
+  bar.appendChild(next);
+
+  return bar;
+}
+
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  return `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`;
+}
+
+// ── Help overlay state (shared so sections can close without circular deps) ──
+
+const overlay = document.getElementById("help-overlay")!;
+let helpTransitioning = false;
+
+export function closeHelp() {
+  if (helpTransitioning) return;
+  helpTransitioning = true;
+  setTimeout(() => { helpTransitioning = false; }, 300);
+  overlay.classList.add("hidden");
+  window.yo.panelsShow();
+}
+
+export function getHelpOverlay(): HTMLElement {
+  return overlay;
+}
+
+export function getHelpTransitioning(): boolean {
+  return helpTransitioning;
+}
+
+export function setHelpTransitioning(v: boolean) {
+  helpTransitioning = v;
+}

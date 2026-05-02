@@ -15,6 +15,14 @@ interface CodeWorkspaceAPI {
   } | null>;
   saveLayoutSizes: (colWidths: number[], rowHeights: number[]) => Promise<boolean>;
   addAgentToLayout: (name: string, role: string, prompt?: string) => Promise<boolean>;
+  cypherStatus: () => Promise<
+    | { associated: false; layout_name: string | null; error?: string }
+    | { associated: true; layout_name: string; cypher_id: string; slug: string; title: string; status: string; type: string; kitty: number; jammers: number }
+  >;
+  cypherCreateAndPublish: (input: Record<string, unknown>) => Promise<
+    { ok: boolean; cypher?: { id: string; slug: string }; kitty_balance?: number; error?: string }
+  >;
+  cypherDisassociate: () => Promise<{ ok: boolean }>;
 }
 
 const api = (window as any).codeWorkspace as CodeWorkspaceAPI;
@@ -866,6 +874,150 @@ async function init() {
   for (const a of agentList) {
     api.startAgent(a.name);
   }
+
+  // Cypher widget — show status, allow publish-this-workspace
+  initCypherWidget();
+}
+
+// ── Cypher widget ────────────────────────────────────────────
+const cyWidget = document.getElementById("cw-cypher-widget") as HTMLDivElement;
+const cyStatusText = document.getElementById("cw-cy-status-text")!;
+const cyStats = document.getElementById("cw-cy-stats") as HTMLSpanElement;
+const cyKittyEl = document.getElementById("cw-cy-kitty")!;
+const cyJammersEl = document.getElementById("cw-cy-jammers")!;
+const cyAction = document.getElementById("cw-cy-action") as HTMLButtonElement;
+const cyModal = document.getElementById("cw-cy-publish-modal") as HTMLDivElement;
+const cyTitle = document.getElementById("cw-cy-title") as HTMLInputElement;
+const cyGoal = document.getElementById("cw-cy-goal") as HTMLInputElement;
+const cyDesc = document.getElementById("cw-cy-description") as HTMLTextAreaElement;
+const cyType = document.getElementById("cw-cy-type") as HTMLSelectElement;
+const cyVis = document.getElementById("cw-cy-visibility") as HTMLSelectElement;
+const cyReqSkills = document.getElementById("cw-cy-req-skills") as HTMLInputElement;
+const cyReqApps = document.getElementById("cw-cy-req-apps") as HTMLInputElement;
+const cyReqTier = document.getElementById("cw-cy-req-tier") as HTMLSelectElement;
+const cyMaxJammers = document.getElementById("cw-cy-max-jammers") as HTMLInputElement;
+const cyKittyAmount = document.getElementById("cw-cy-kitty-amount") as HTMLInputElement;
+const cyKittyHint = document.getElementById("cw-cy-kitty-hint")!;
+const cyErr = document.getElementById("cw-cy-publish-err")!;
+const cyCancel = document.getElementById("cw-cy-cancel")!;
+const cyPublishGo = document.getElementById("cw-cy-publish-go")!;
+
+let cypherWidgetTimer: ReturnType<typeof setInterval> | null = null;
+let cypherCurrentId: string | null = null;
+
+function fmtYos(n: number): string {
+  if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "k";
+  return String(n);
+}
+
+function csvList(s: string): string[] | undefined {
+  const arr = s.split(",").map((x) => x.trim()).filter(Boolean);
+  return arr.length ? arr : undefined;
+}
+
+function updateCyKittyHint() {
+  const t = cyType.value;
+  if (t === "bounty") cyKittyHint.textContent = "Bounty cyphers must pre-fund > 0.";
+  else if (t === "coop") cyKittyHint.textContent = "Co-op: each joiner contributes equally; this is your share.";
+  else if (t === "sponsored") cyKittyHint.textContent = "You're the sponsor — fund what jammers will draw.";
+  else cyKittyHint.textContent = "Anyone can add to the kitty after publish.";
+}
+cyType.addEventListener("change", updateCyKittyHint);
+
+async function refreshCypherWidget(): Promise<void> {
+  if (!api.cypherStatus) return;          // older preload — no-op
+  let s: Awaited<ReturnType<typeof api.cypherStatus>>;
+  try { s = await api.cypherStatus(); } catch { cyWidget.style.display = "none"; return; }
+  cyWidget.style.display = "flex";
+
+  if (s.associated === true) {
+    cyWidget.classList.add("live");
+    cyStatusText.textContent = `${s.title} · ${s.status}`;
+    cyStats.style.display = "inline-flex";
+    cyKittyEl.textContent = fmtYos(s.kitty) + " yos";
+    cyJammersEl.textContent = String(s.jammers);
+    cyAction.textContent = "Manage";
+    cypherCurrentId = s.cypher_id;
+  } else {
+    cyWidget.classList.remove("live");
+    cyStatusText.textContent = "Local cypher";
+    cyStats.style.display = "none";
+    cyAction.textContent = "Publish";
+    cypherCurrentId = null;
+  }
+}
+
+function openPublishModal() {
+  cyTitle.value = "";
+  cyGoal.value = "";
+  cyDesc.value = "";
+  cyType.value = "open";
+  cyVis.value = "public";
+  cyReqSkills.value = "";
+  cyReqApps.value = "";
+  cyReqTier.value = "";
+  cyMaxJammers.value = "";
+  cyKittyAmount.value = "1000";
+  cyErr.classList.remove("visible");
+  updateCyKittyHint();
+  cyModal.classList.add("visible");
+  cyTitle.focus();
+}
+
+function closePublishModal() {
+  cyModal.classList.remove("visible");
+}
+
+cyCancel.addEventListener("click", closePublishModal);
+cyModal.addEventListener("click", (e) => {
+  if (e.target === cyModal) closePublishModal();
+});
+
+cyAction.addEventListener("click", () => {
+  if (cypherCurrentId) {
+    // Already published — leave the workspace, the user can manage in Home → Cyphers
+    // For v1 just open the publish-cypher detail in Home would require an IPC roundtrip;
+    // here we just nudge the user via alert so they know where to go.
+    alert(`Open Home (cmd+H) → Cyphers → "${cyStatusText.textContent}" to manage.`);
+  } else {
+    openPublishModal();
+  }
+});
+
+cyPublishGo.addEventListener("click", async () => {
+  cyErr.classList.remove("visible");
+  const title = cyTitle.value.trim();
+  if (!title) { cyErr.textContent = "Title required"; cyErr.classList.add("visible"); return; }
+  const requirements: Record<string, unknown> = {};
+  const skills = csvList(cyReqSkills.value); if (skills) requirements.skills = skills;
+  const apps = csvList(cyReqApps.value); if (apps) requirements.apps = apps;
+  if (cyReqTier.value) requirements.min_tier = cyReqTier.value;
+  const maxJ = Number(cyMaxJammers.value);
+  const r = await api.cypherCreateAndPublish({
+    title,
+    goal: cyGoal.value.trim() || undefined,
+    description: cyDesc.value.trim() || undefined,
+    type: cyType.value,
+    visibility: cyVis.value,
+    sensitivity: "internal",
+    max_jammers: Number.isFinite(maxJ) && maxJ > 0 ? maxJ : undefined,
+    requirements,
+    work_package: { kind: "blank" },
+    initial_kitty_deposit: Math.max(0, Number(cyKittyAmount.value) || 0),
+  });
+  if (!r.ok) {
+    cyErr.textContent = r.error || "Publish failed";
+    cyErr.classList.add("visible");
+    return;
+  }
+  closePublishModal();
+  await refreshCypherWidget();
+});
+
+function initCypherWidget(): void {
+  if (cypherWidgetTimer) return;
+  void refreshCypherWidget();
+  cypherWidgetTimer = setInterval(() => { void refreshCypherWidget(); }, 10000);
 }
 
 init();

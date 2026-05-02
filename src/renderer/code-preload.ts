@@ -32,5 +32,15 @@ contextBridge.exposeInMainWorld("codeWorkspace", {
     cols: number; rows: number; colWidths: number[]; rowHeights: number[];
   } | null>,
   saveLayoutSizes: (colWidths: number[], rowHeights: number[]) => ipcRenderer.invoke("cw:save-layout-sizes", colWidths, rowHeights),
-  addAgentToLayout: (name: string, role: string, prompt?: string) => ipcRenderer.invoke("cw:add-agent-to-layout", name, role, prompt),
+
+  // Cypher overlay — workspace publish + status polling
+  cypherStatus: () => ipcRenderer.invoke("cw:cypher-status") as Promise<
+    | { associated: false; layout_name: string | null }
+    | { associated: true; layout_name: string; cypher_id: string; slug: string; title: string; status: string; type: string; kitty: number; jammers: number }
+    | { error: string }
+  >,
+  cypherCreateAndPublish: (input: Record<string, unknown>) => ipcRenderer.invoke("cw:cypher-create-and-publish", input) as Promise<
+    { ok: boolean; cypher?: { id: string; slug: string }; kitty_balance?: number; error?: string }
+  >,
+  cypherDisassociate: () => ipcRenderer.invoke("cw:cypher-disassociate") as Promise<{ ok: boolean }>,
 });

@@ -80,9 +80,9 @@ declare global {
       onPickerResult: (cb: (result: { selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean }) => void) => void;
 
       // Layouts
-      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string }> }>>;
+      layoutsList: () => Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }>>;
       layoutsSave: (name: string, panelIds: string[]) => Promise<boolean>;
-      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string }> }) => Promise<boolean>;
+      layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }) => Promise<boolean>;
       layoutsDelete: (name: string) => Promise<boolean>;
       pickDirectory: () => Promise<string | null>;
       // Grid resize
@@ -251,6 +251,45 @@ declare global {
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
       mcpExposeGenToken: (label: string, ttlDays?: number) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
+      // Capability Offer
+      capabilitiesSetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>;
+      capabilitiesGetStatus: () => Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>;
+      // Agents
+      agentsList: () => Promise<unknown[]>;
+      agentsGet: (id: string) => Promise<unknown>;
+      agentsSave: (cfg: unknown) => Promise<unknown>;
+      agentsRemove: (id: string) => Promise<boolean>;
+      agentsIdAvailable: (id: string) => Promise<boolean>;
+      // yos wallet
+      yosBalance: () => Promise<{ user_id: string; balance: number } | { error: string }>;
+      yosRateCards: () => Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>;
+      yosBuyUrl: () => Promise<{ url: string }>;
+      // Marketplace + reservations
+      marketplaceAvailable: (opts?: { tier?: string; provider?: string; limit?: number }) => Promise<{ entries: Array<{ offer_handle: string; derived_tier: string; providers: string[]; pricing: { terms: string; tier: string; yos_per_1k_input?: number; yos_per_1k_output?: number } | null; last_seen_at: string }>; count: number; ts: string } | { error: string }>;
+      reservationCreate: (body: { provider_handle: string; idle_minutes: number; guardrails?: unknown }) => Promise<{ ok: boolean; reservation?: { id: string; status: string; idle_budget_yos: number; release_at: string }; buyer_balance_after?: number; error?: string }>;
+      reservationRelease: (id: string, reason?: string) => Promise<{ ok: boolean; reservation?: unknown; buyer_balance_after?: number; idle_yos_settled?: number; provider_earned?: number; error?: string }>;
+      reservationList: (opts?: { status?: string }) => Promise<{ reservations: Array<{ id: string; provider_client_id: string; status: string; idle_budget_yos: number; idle_yos_used: number; release_at: string; reserved_at: string }>; count: number } | { error: string }>;
+      // Cyphers
+      cypherCreate: (input: Record<string, unknown>) => Promise<{ ok: boolean; cypher?: { id: string; slug: string; status: string; type: string; visibility: string; title: string }; error?: string }>;
+      cypherUpdate: (id: string, patch: Record<string, unknown>) => Promise<{ ok: boolean; cypher?: unknown; error?: string }>;
+      cypherPublish: (id: string, initial_kitty_deposit: number) => Promise<{ ok: boolean; cypher?: { id: string; slug: string; status: string }; kitty_balance?: number; error?: string }>;
+      cypherWrap: (id: string) => Promise<{ ok: boolean; cypher?: { id: string; status: string }; refunds?: Array<{ user_id: string; amount: number }>; error?: string }>;
+      cypherCancel: (id: string) => Promise<{ ok: boolean; cypher?: unknown; error?: string }>;
+      cypherDiscover: (opts?: { status?: string; type?: string; limit?: number; offset?: number }) => Promise<{ cyphers: Array<{ id: string; slug: string; title: string; description: string | null; type: string; status: string; visibility: string; max_jammers: number | null; created_at: string }>; count: number } | { error: string }>;
+      cypherListMine: () => Promise<{ cyphers: Array<{ id: string; slug: string; title: string; type: string; status: string; visibility: string; created_at: string; updated_at: string }>; count: number } | { error: string }>;
+      cypherGet: (id: string) => Promise<{ cypher: { id: string; slug: string; title: string; description: string | null; goal: string | null; type: string; status: string; visibility: string; max_jammers: number | null; min_tier: string | null; requirements: { skills?: string[]; apps?: string[]; mcp_servers?: string[]; model_provider?: string; min_tier?: string }; sensitivity: string; owner_user_id: string; created_at: string; started_at: string | null; ended_at: string | null }; kitty_balance: number } | { error: string }>;
+      cypherGetBySlug: (slug: string) => Promise<{ cypher: unknown } | { error: string }>;
+      cypherJoin: (id: string, agent_local_id: string, role?: string) => Promise<{ ok: boolean; cypher?: unknown; cohort_size?: number; error?: string }>;
+      cypherLeave: (id: string, agent_local_id: string) => Promise<{ ok: boolean }>;
+      cypherJammers: (id: string) => Promise<{ jammers: Array<{ user_id: string; agent_local_id: string; role: string; joined_at: string; left_at: string | null }>; count: number } | { error: string }>;
+      cypherJamsList: (id: string) => Promise<{ jams: Array<{ id: string; slug: string; title: string; description: string | null; state_doc: unknown; state_version: string }>; count: number } | { error: string }>;
+      cypherJamCreate: (id: string, slug: string, title: string, description?: string) => Promise<{ ok: boolean; jam?: { id: string; slug: string }; error?: string }>;
+      cypherJamSetState: (id: string, jam_id: string, expected_version: number, state: unknown) => Promise<{ ok: boolean; version?: number; error?: string }>;
+      cypherEventPost: (id: string, kind: string, payload: unknown, jam_id?: string, by_agent_id?: string) => Promise<{ ok: boolean; event?: { id: string; seq: string }; error?: string }>;
+      cypherEventsList: (id: string, opts?: { since?: number; jam_id?: string; limit?: number }) => Promise<{ events: Array<{ id: string; seq: string; kind: string; jam_id: string | null; by_user_id: string | null; by_agent_id: string | null; payload: unknown; created_at: string }>; count: number } | { error: string }>;
+      cypherKittyDeposit: (id: string, amount: number) => Promise<{ ok: boolean; kitty_balance?: number; user_balance?: number; error?: string }>;
+      cypherKittyBalance: (id: string) => Promise<{ balance: number } | { error: string }>;
+      cypherKittyLedger: (id: string, opts?: { limit?: number }) => Promise<{ entries: Array<{ id: string; user_id: string; delta: number; kind: string; description: string | null; created_at: string }>; count: number } | { error: string }>;
       // MCP Servers (custom user-configured)
       mcpGetServers: () => Promise<Array<{ config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }; status: string; error?: string; tools: Array<{ name: string; description?: string }> }>>;
       mcpAddServer: (config: Record<string, unknown>) => Promise<void>;
@@ -305,15 +344,21 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => {
 
 const mcpIndicator = document.getElementById("mcp-indicator")!;
 
+let mcpEverStarted = false;
+
 async function updateMcpIndicator() {
   try {
     const status = await window.yo.mcpExposeStatus();
     if (status.running) {
+      mcpEverStarted = true;
       mcpIndicator.classList.remove("hidden", "stopped");
       mcpIndicator.classList.add("running");
       mcpIndicator.title = `MCP Server running on port ${status.port} — click to stop`;
+    } else if (mcpEverStarted) {
+      mcpIndicator.classList.remove("hidden", "running");
+      mcpIndicator.classList.add("stopped");
+      mcpIndicator.title = "MCP Server stopped — click to start";
     } else {
-      // Check if it was enabled (show stopped state)
       const enabled = await window.yo.getPreference("mcpExposeRunning", false);
       if (enabled) {
         mcpIndicator.classList.remove("hidden", "running");
@@ -324,7 +369,7 @@ async function updateMcpIndicator() {
       }
     }
   } catch {
-    mcpIndicator.classList.add("hidden");
+    if (!mcpEverStarted) mcpIndicator.classList.add("hidden");
   }
 }
 
@@ -341,6 +386,42 @@ mcpIndicator.addEventListener("click", async () => {
 // Poll MCP status periodically and on boot
 updateMcpIndicator();
 setInterval(updateMcpIndicator, 10000);
+
+// -- Yos balance badge --
+
+const yosBadge = document.getElementById("yos-badge") as HTMLButtonElement | null;
+const yosBadgeAmount = document.getElementById("yos-badge-amount");
+
+function fmtYosCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1) + "k";
+  return String(n);
+}
+
+async function updateYosBadge(): Promise<void> {
+  if (!yosBadge || !yosBadgeAmount) return;
+  try {
+    const r = await window.yo.yosBalance();
+    if ("error" in r) { yosBadge.classList.add("hidden"); return; }
+    yosBadgeAmount.textContent = fmtYosCount(r.balance);
+    yosBadge.classList.remove("hidden");
+    yosBadge.title = `${r.balance} yos · click to buy more`;
+  } catch {
+    yosBadge.classList.add("hidden");
+  }
+}
+
+yosBadge?.addEventListener("click", () => {
+  window.yo.execCommand(`dip ${window.yo.platformUrl}`);
+});
+
+updateYosBadge();
+setInterval(updateYosBadge, 30000);
+// Refresh on window focus so credits land instantly when the user returns
+// from the platform Stripe Checkout.
+window.addEventListener("focus", updateYosBadge);
+// Expose so other modules can force a refresh after a known balance change.
+(window as unknown as { refreshYosBadge?: () => void }).refreshYosBadge = updateYosBadge;
 
 // -- Tab bar --
 

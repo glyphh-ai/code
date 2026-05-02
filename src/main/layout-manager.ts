@@ -21,11 +21,14 @@ export interface GridCell {
   rowSpan: number;
 }
 
-export interface LayoutAgent {
-  name: string;
-  role: string;
-  prompt?: string;
-  enableInput?: boolean;
+/**
+ * A code layout is a visual template. It declares N agent slots; the
+ * concrete agent that fills each slot is bound at workspace-runtime
+ * from the user's Agents registry (~/yo/agents/) or hand-created.
+ */
+export interface LayoutAgentSlot {
+  slotId: string;          // 'slot-1', 'slot-2'
+  enableInput?: boolean;   // surface the user input area in this slot's panel
 }
 
 export interface GridLayout {
@@ -37,8 +40,8 @@ export interface GridLayout {
   rowHeights: number[];   // fractions summing to ~1
   cells: GridCell[];
   type?: "standard" | "code";
-  rootDir?: string;       // code layouts: project directory
-  agents?: LayoutAgent[]; // code layouts: agent definitions
+  rootDir?: string;            // code layouts: project directory
+  slots?: LayoutAgentSlot[];   // code layouts: agent slots (no metadata baked in)
 }
 
 /** Per-cell bounds for renderer overlays (URL bars in grid) */
@@ -301,17 +304,18 @@ export class LayoutManager {
     return this.layouts.get(active.name);
   }
 
-  /** Create a code layout (no grid yet — just metadata) */
-  createCodeLayout(name: string, rootDir: string, agents?: LayoutAgent[]): GridLayout {
+  /** Create a code layout with N empty agent slots (one slot per cell). */
+  createCodeLayout(name: string, rootDir: string, slots?: LayoutAgentSlot[]): GridLayout {
+    const slotList = slots && slots.length > 0 ? slots : [{ slotId: "slot-1" }];
     const layout: GridLayout = {
       name,
       version: 2,
-      cols: agents?.length || 1,
+      cols: slotList.length,
       rows: 1,
-      colWidths: Array(agents?.length || 1).fill(1 / (agents?.length || 1)),
+      colWidths: Array(slotList.length).fill(1 / slotList.length),
       rowHeights: [1],
-      cells: (agents || []).map((a, i) => ({
-        panelId: `code-${name}-${a.name}`,
+      cells: slotList.map((s, i) => ({
+        panelId: `agent-slot:${s.slotId}`,
         col: i,
         row: 0,
         colSpan: 1,
@@ -319,27 +323,9 @@ export class LayoutManager {
       })),
       type: "code",
       rootDir,
-      agents,
+      slots: slotList,
     };
     this.layouts.set(name, layout);
-    this.persist();
-    return layout;
-  }
-
-  /** Add agents to an existing code layout */
-  addAgentsToLayout(name: string, agents: LayoutAgent[]): GridLayout | undefined {
-    const layout = this.layouts.get(name);
-    if (!layout || layout.type !== "code") return undefined;
-    layout.agents = [...(layout.agents || []), ...agents];
-    layout.cols = layout.agents.length;
-    layout.colWidths = Array(layout.agents.length).fill(1 / layout.agents.length);
-    layout.cells = layout.agents.map((a, i) => ({
-      panelId: `code-${name}-${a.name}`,
-      col: i,
-      row: 0,
-      colSpan: 1,
-      rowSpan: 1,
-    }));
     this.persist();
     return layout;
   }

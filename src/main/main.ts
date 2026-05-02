@@ -16,14 +16,18 @@ import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewrit
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed } from "./auth";
+import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed } from "./auth";
 import { CloudSync } from "./cloud-sync";
+import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
+import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher } from "./cypher-runtime";
+import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
+import { pushAgentProfile, deleteAgentProfile, syncAllAgents } from "./agent-sync";
 import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig, createCompletion } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { canAddApp, canCreateSkill, canSaveLayout, canUseMcp, canUseSync, canUseVoice, getCurrentLimits } from "./entitlements";
 import { executeCommand } from "./dom-bridge";
-import { getPreference, setPreference } from "./preferences";
+import { getPreference, setPreference } from "./stores/preferences-db";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import { SessionCache } from "./session-cache";
@@ -58,6 +62,8 @@ import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
 import { DataStore, closeDataStoreDb } from "./data-store";
 import { closeSubstrateDb } from "./substrate/store";
+import { initLocalDb, closeLocalDb } from "./local-db";
+import { migrateFromFiles } from "./stores/migrate-from-files";
 import { setRunnerDependencies, setSubstrateBudgetOpts } from "./skill-runner";
 import {
   setContextDeps as setSubstrateContextDeps,
@@ -252,6 +258,13 @@ async function boot() {
       }
     }
   } catch { /* non-critical */ }
+
+  // Initialize local SQLite database (agents, layouts, preferences)
+  initLocalDb();
+  const migrationResult = migrateFromFiles();
+  if (migrationResult.migrated) {
+    console.log(`[local-db] migrated from files: ${migrationResult.agents} agents, ${migrationResult.layouts} layouts, ${migrationResult.prefs} prefs`);
+  }
 
   // Load LLM config (auto-migrates from legacy .apikey if needed)
   let llmConfig = loadLLMConfig();
@@ -1048,19 +1061,6 @@ async function boot() {
 
   let restoring = false;
 
-  /** Ensure agents from a code layout exist in the workspace. Returns error or null. */
-  function ensureCodeLayoutAgents(agents: Array<{ name: string; role: string; prompt?: string }>): string | null {
-    const ws = workspaceManager.getActive();
-    for (const a of agents) {
-      let agent = workspaceManager.getAgent(ws.slug, a.name);
-      if (!agent) {
-        const result = workspaceManager.createAgent(ws.slug, { name: a.name, role: a.role, prompt: a.prompt });
-        if (!result.ok) return result.error;
-      }
-    }
-    return null;
-  }
-
   /** Activate the code workspace panel (switch to it). */
   function activateCodeWorkspace(): boolean {
     if (!mainWindow) return false;
@@ -1148,10 +1148,8 @@ async function boot() {
     return { ok: true, panelId };
   }
   commandParser.setCodeTerminalLauncher(launchCodeTerminal);
-  commandParser.setCodeWorkspaceActivator((agents, layoutName) => {
+  commandParser.setCodeWorkspaceActivator((layoutName) => {
     if (layoutName) setPreference("codeWorkspaceLayout", layoutName);
-    const err = ensureCodeLayoutAgents(agents);
-    if (err) return { ok: false, error: err };
     const ok = activateCodeWorkspace();
     return ok ? { ok: true } : { ok: false, error: "Failed to switch to code workspace." };
   });
@@ -1760,10 +1758,9 @@ async function boot() {
         panelManager.setInitialActive(deduped[0]);
       } else if (lastView.type === "layout" && lastView.name) {
         const savedLayout = layoutManager.getLayout(lastView.name);
-        if (savedLayout?.type === "code" && savedLayout.agents && savedLayout.agents.length > 0) {
-          // Code layout: ensure agents exist and switch to code-workspace panel
+        if (savedLayout?.type === "code") {
+          // Code layout: just switch to code-workspace; slots render empty until bound
           setPreference("codeWorkspaceLayout", lastView.name);
-          ensureCodeLayoutAgents(savedLayout.agents);
           panelManager.switchTo("code-workspace", mainWindow);
           panelManager.setInitialActive("code-workspace");
         } else {
@@ -2122,6 +2119,17 @@ async function boot() {
 
   // Initialize auth — restore session, schedule refresh, start heartbeat
   await initAuth();
+
+  // Resume capability publishing if the user had "Offer Usage" on
+  void initCapabilities();
+
+  // Start the cypher runtime — polls joined cyphers for prompt events.
+  // Brain is unwired (Phase 3.5 hooks the Agent SDK); for v1 the loop just
+  // tracks subscriptions so the protocol scaffolding is exercised.
+  if (isAuthenticated()) startCypherRuntime();
+
+  // Sync all joinable agents to server on boot (fire-and-forget)
+  if (isAuthenticated()) void syncAllAgents(listAgents());
 
   // Check if onboarding is needed BEFORE restoring panels
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
@@ -2655,7 +2663,7 @@ async function boot() {
       splits: l.cells.map((c) => ({ panelId: c.panelId, col: c.col, row: c.row, colSpan: c.colSpan, rowSpan: c.rowSpan })),
       type: l.type || "standard",
       rootDir: l.rootDir,
-      agents: l.agents,
+      slots: l.slots,
     }))
   );
   ipcMain.handle("layouts-save", (_e, name: string, panelIds: string[]) => {
@@ -2682,7 +2690,7 @@ async function boot() {
     });
     return true;
   });
-  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string; enableInput?: boolean }> }) => {
+  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }) => {
     const existing = layoutManager.listLayouts().find(l => l.name === grid.name);
     if (!existing) {
       const gate = canSaveLayout(layoutManager.listLayouts().length);
@@ -2693,7 +2701,7 @@ async function boot() {
       version: 2,
       type: (grid.type as "standard" | "code") || undefined,
       rootDir: grid.rootDir || undefined,
-      agents: grid.agents || undefined,
+      slots: grid.slots || undefined,
     });
     return true;
   });
@@ -3105,6 +3113,220 @@ async function boot() {
     running: mcpExpose!.isRunning,
     port: mcpExpose!.getPort(),
   }));
+  // ── Capability Offer (distributed work) IPC handlers ───
+  ipcMain.handle("capabilities-set-enabled", async (_e, enabled: boolean) => {
+    return setOfferEnabled(!!enabled);
+  });
+  ipcMain.handle("capabilities-get-status", async () => {
+    return getCapabilitiesStatus();
+  });
+
+  // ── Agents Registry IPC handlers ───────────────────────
+  ipcMain.handle("agents-list", async () => listAgents());
+  ipcMain.handle("agents-get", async (_e, id: string) => getAgent(id));
+  ipcMain.handle("agents-save", async (_e, cfg: AgentRegistryConfig) => {
+    const saved = saveAgent(cfg);
+    // Auto-sync to server: push profile if joinable, delete otherwise.
+    void (saved.joinable
+      ? pushAgentProfile(saved)
+      : deleteAgentProfile(saved.id));
+    return saved;
+  });
+  ipcMain.handle("agents-remove", async (_e, id: string) => {
+    const ok = removeAgent(id);
+    if (ok) void deleteAgentProfile(id);
+    return ok;
+  });
+  ipcMain.handle("agents-id-available", async (_e, id: string) => idAvailable(id));
+
+  // ── Marketplace + Reservations IPC handlers ────────────
+  ipcMain.handle("yos-balance", async () => {
+    try { return await serverGetAuthed<{ user_id: string; balance: number }>("/api/yos/balance"); }
+    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
+  });
+  ipcMain.handle("yos-rate-cards", async () => {
+    try { return await serverGetAuthed<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> }>("/api/yos/rate-cards"); }
+    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
+  });
+  // All payment lives on the platform — desktop just deep-links so the user
+  // gets the same checkout/invoice/portal experience whether they came from
+  // the web or the app. Returns the URL the renderer should send to.
+  ipcMain.handle("yos-buy-url", () => {
+    const base = process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";
+    return { url: `${base}/dashboard/billing#yos` };
+  });
+  ipcMain.handle("marketplace-available", async (_e, opts?: { tier?: string; provider?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.tier) params.set("tier", opts.tier);
+    if (opts?.provider) params.set("provider", opts.provider);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    try {
+      return await serverGetAuthed<{ entries: unknown[]; count: number; ts: string }>(
+        `/api/marketplace/available${qs ? "?" + qs : ""}`,
+      );
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "fetch failed" };
+    }
+  });
+  ipcMain.handle("reservation-create", async (_e, body: { provider_handle: string; idle_minutes: number; guardrails?: unknown }) => {
+    try { return await serverPostAuthed("/api/marketplace/reservations", body as Record<string, unknown>); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "reservation failed" }; }
+  });
+  ipcMain.handle("reservation-release", async (_e, id: string, reason?: string) => {
+    try { return await serverPostAuthed(`/api/marketplace/reservations/${encodeURIComponent(id)}/release`, { reason }); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "release failed" }; }
+  });
+  ipcMain.handle("reservation-list", async (_e, opts?: { status?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set("status", opts.status);
+    const qs = params.toString();
+    try { return await serverGetAuthed(`/api/marketplace/reservations/mine${qs ? "?" + qs : ""}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
+  });
+
+  // ── Cyphers IPC handlers ───────────────────────────────
+  ipcMain.handle("cypher-create", async (_e, input: Record<string, unknown>) => {
+    try { return await serverPostAuthed("/api/cyphers", input); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "create failed" }; }
+  });
+  ipcMain.handle("cypher-update", async (_e, id: string, patch: Record<string, unknown>) => {
+    try {
+      // PATCH not exposed in serverPostAuthed; reuse POST against PATCH-shaped endpoint via fetch
+      // For now we emulate via a dedicated path — the server route uses app.patch, so we add a small helper.
+      const token = (await import("./auth")).getAuthToken();
+      if (!token) return { ok: false, error: "Not authenticated" };
+      const { net } = await import("electron");
+      return await new Promise((resolve, reject) => {
+        const req = net.request({ url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}`, method: "PATCH" });
+        req.setHeader("Content-Type", "application/json");
+        req.setHeader("Authorization", `Bearer ${token}`);
+        let body = "";
+        req.on("response", (r) => {
+          r.on("data", (c) => { body += c.toString(); });
+          r.on("end", () => {
+            try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid response")); }
+          });
+        });
+        req.on("error", reject);
+        req.write(JSON.stringify(patch));
+        req.end();
+      });
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "update failed" }; }
+  });
+  ipcMain.handle("cypher-publish", async (_e, id: string, initial_kitty_deposit: number) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/publish`, { initial_kitty_deposit }); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "publish failed" }; }
+  });
+  ipcMain.handle("cypher-wrap", async (_e, id: string) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/wrap`, {}); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "wrap failed" }; }
+  });
+  ipcMain.handle("cypher-cancel", async (_e, id: string) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/cancel`, {}); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "cancel failed" }; }
+  });
+  ipcMain.handle("cypher-discover", async (_e, opts?: { status?: string; type?: string; limit?: number; offset?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.status) p.set("status", opts.status);
+    if (opts?.type) p.set("type", opts.type);
+    if (opts?.limit) p.set("limit", String(opts.limit));
+    if (opts?.offset) p.set("offset", String(opts.offset));
+    const qs = p.toString();
+    try { return await serverGetAuthed(`/api/cyphers/discover${qs ? "?" + qs : ""}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "discover failed" }; }
+  });
+  ipcMain.handle("cypher-list-mine", async () => {
+    try { return await serverGetAuthed(`/api/cyphers/mine`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "list failed" }; }
+  });
+  ipcMain.handle("cypher-get", async (_e, id: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "get failed" }; }
+  });
+  ipcMain.handle("cypher-get-by-slug", async (_e, slug: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/by-slug/${encodeURIComponent(slug)}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "get failed" }; }
+  });
+  ipcMain.handle("cypher-join", async (_e, id: string, agent_local_id: string, role?: string) => {
+    try {
+      const r = await serverPostAuthed<{ ok: boolean; cypher?: { id: string }; error?: string }>(
+        `/api/cyphers/${encodeURIComponent(id)}/join`,
+        { agent_local_id, role },
+      );
+      // If join succeeded and we're not just observing, start polling this cypher.
+      if (r.ok && role !== "observer") subscribeCypher(id, agent_local_id);
+      return r;
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "join failed" }; }
+  });
+  ipcMain.handle("cypher-leave", async (_e, id: string, agent_local_id: string) => {
+    try {
+      const r = await serverPostAuthed<{ ok: boolean }>(`/api/cyphers/${encodeURIComponent(id)}/leave`, { agent_local_id });
+      unsubscribeCypher(id);
+      return r;
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "leave failed" }; }
+  });
+  ipcMain.handle("cypher-jammers", async (_e, id: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/jammers`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "jammers failed" }; }
+  });
+  ipcMain.handle("cypher-jams-list", async (_e, id: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/jams`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "jams failed" }; }
+  });
+  ipcMain.handle("cypher-jam-create", async (_e, id: string, slug: string, title: string, description?: string) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/jams`, { slug, title, description }); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "jam create failed" }; }
+  });
+  ipcMain.handle("cypher-jam-set-state", async (_e, id: string, jam_id: string, expected_version: number, state: unknown) => {
+    try {
+      const token = (await import("./auth")).getAuthToken();
+      if (!token) return { ok: false, error: "Not authenticated" };
+      const { net } = await import("electron");
+      return await new Promise((resolve, reject) => {
+        const req = net.request({ url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}/jams/${encodeURIComponent(jam_id)}/state`, method: "PUT" });
+        req.setHeader("Content-Type", "application/json");
+        req.setHeader("Authorization", `Bearer ${token}`);
+        let body = "";
+        req.on("response", (r) => {
+          r.on("data", (c) => { body += c.toString(); });
+          r.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid response")); } });
+        });
+        req.on("error", reject);
+        req.write(JSON.stringify({ expected_version, state }));
+        req.end();
+      });
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "set state failed" }; }
+  });
+  ipcMain.handle("cypher-event-post", async (_e, id: string, kind: string, payload: unknown, jam_id?: string, by_agent_id?: string) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/events`, { kind, payload, jam_id, by_agent_id }); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "event post failed" }; }
+  });
+  ipcMain.handle("cypher-events-list", async (_e, id: string, opts?: { since?: number; jam_id?: string; limit?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.since != null) p.set("since", String(opts.since));
+    if (opts?.jam_id) p.set("jam_id", opts.jam_id);
+    if (opts?.limit) p.set("limit", String(opts.limit));
+    const qs = p.toString();
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/events${qs ? "?" + qs : ""}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "events failed" }; }
+  });
+  ipcMain.handle("cypher-kitty-deposit", async (_e, id: string, amount: number) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/deposit`, { amount }); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "deposit failed" }; }
+  });
+  ipcMain.handle("cypher-kitty-balance", async (_e, id: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/balance`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "balance failed" }; }
+  });
+  ipcMain.handle("cypher-kitty-ledger", async (_e, id: string, opts?: { limit?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.limit) p.set("limit", String(opts.limit));
+    const qs = p.toString();
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/ledger${qs ? "?" + qs : ""}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "ledger failed" }; }
+  });
+
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose!.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose!.generateToken(label, ttlDays));
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose!.revokeToken(token); });
@@ -3320,9 +3542,6 @@ async function boot() {
   ipcMain.handle("cw:get-layout", () => {
     const layout = getActiveCodeLayout();
     if (!layout) return null;
-    const inputAgents = new Set(
-      (layout.agents || []).filter(a => a.enableInput).map(a => a.name)
-    );
     return {
       name: layout.name,
       cells: layout.cells,
@@ -3330,8 +3549,79 @@ async function boot() {
       rows: layout.rows,
       colWidths: layout.colWidths,
       rowHeights: layout.rowHeights,
-      inputAgents: Array.from(inputAgents),
+      slots: layout.slots || [],
     };
+  });
+
+  // ── Cypher overlay (workspace ↔ cypher binding) ──────────
+  ipcMain.handle("cw:cypher-status", async () => {
+    const layout = getActiveCodeLayout();
+    const layoutName = layout?.name ?? null;
+    if (!layoutName) return { associated: false, layout_name: null };
+    const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
+    const cypherId = map[layoutName];
+    if (!cypherId) return { associated: false, layout_name: layoutName };
+    try {
+      const r = await serverGetAuthed<{
+        cypher: { id: string; slug: string; title: string; status: string; type: string };
+        kitty_balance: number;
+      }>(`/api/cyphers/${encodeURIComponent(cypherId)}`);
+      let jammers = 0;
+      try {
+        const j = await serverGetAuthed<{ jammers: Array<{ left_at: string | null }> }>(
+          `/api/cyphers/${encodeURIComponent(cypherId)}/jammers`,
+        );
+        jammers = j.jammers.filter((x) => !x.left_at).length;
+      } catch { /* ignore */ }
+      return {
+        associated: true, layout_name: layoutName,
+        cypher_id: r.cypher.id, slug: r.cypher.slug, title: r.cypher.title,
+        status: r.cypher.status, type: r.cypher.type,
+        kitty: r.kitty_balance, jammers,
+      };
+    } catch (err) {
+      // Server says the cypher's gone or we can't see it — clear local binding
+      const next = { ...map };
+      delete next[layoutName];
+      setPreference("codeWorkspaceCypher", next);
+      return { associated: false, layout_name: layoutName, error: err instanceof Error ? err.message : "fetch failed" };
+    }
+  });
+
+  ipcMain.handle("cw:cypher-create-and-publish", async (_e, input: Record<string, unknown>) => {
+    const layout = getActiveCodeLayout();
+    const layoutName = layout?.name;
+    if (!layoutName) return { ok: false, error: "No active code layout" };
+    try {
+      const create = await serverPostAuthed<{ ok: boolean; cypher?: { id: string }; error?: string }>(
+        "/api/cyphers", input,
+      );
+      if (!create.ok || !create.cypher) return { ok: false, error: create.error || "create failed" };
+      const cypherId = create.cypher.id;
+      const deposit = Number(input.initial_kitty_deposit ?? 0);
+      const pub = await serverPostAuthed<{ ok: boolean; cypher?: { id: string; slug: string }; kitty_balance?: number; error?: string }>(
+        `/api/cyphers/${encodeURIComponent(cypherId)}/publish`,
+        { initial_kitty_deposit: deposit },
+      );
+      if (!pub.ok) return { ok: false, error: pub.error || "publish failed" };
+      // Persist the workspace ↔ cypher association so reloads show the cypher.
+      const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
+      setPreference("codeWorkspaceCypher", { ...map, [layoutName]: cypherId });
+      return { ok: true, cypher: pub.cypher, kitty_balance: pub.kitty_balance };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "publish failed" };
+    }
+  });
+
+  ipcMain.handle("cw:cypher-disassociate", async () => {
+    const layout = getActiveCodeLayout();
+    const layoutName = layout?.name;
+    if (!layoutName) return { ok: false };
+    const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
+    const next = { ...map };
+    delete next[layoutName];
+    setPreference("codeWorkspaceCypher", next);
+    return { ok: true };
   });
 
   ipcMain.handle("cw:save-layout-sizes", (_e, colWidths: number[], rowHeights: number[]) => {
@@ -3345,18 +3635,7 @@ async function boot() {
     return false;
   });
 
-  ipcMain.handle("cw:add-agent-to-layout", (_e, name: string, role: string, prompt?: string) => {
-    const layout = getActiveCodeLayout();
-    if (layout) {
-      if (!layout.agents) layout.agents = [];
-      if (!layout.agents.find((a) => a.name === name)) {
-        layout.agents.push({ name, role, prompt });
-        layoutManager.saveLayout(layout);
-      }
-      return true;
-    }
-    return false;
-  });
+  // (cw:add-agent-to-layout removed — slots are static after layout save)
 
   // IPC: tabs
   ipcMain.handle("tab-list", () => {
@@ -3813,6 +4092,8 @@ function cleanupAll() {
   cleanedUp = true;
   globalShortcut.unregisterAll();
   cleanupAuthTimers();
+  cleanupCapabilities();
+  stopCypherRuntime();
   voiceRelay?.stop();
   cloudSyncInstance?.stop();
   cloudSyncInstance = null;
@@ -3828,6 +4109,7 @@ function cleanupAll() {
   actionGrabber?.stopPolling();
   embedder?.cleanup();
   dripManager?.cleanup();
+  closeLocalDb();
   closeDataStoreDb();
   closeSubstrateDb();
   usageTracker.flush();

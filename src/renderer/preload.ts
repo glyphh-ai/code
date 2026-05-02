@@ -60,9 +60,9 @@ contextBridge.exposeInMainWorld("yo", {
   skillsResumeSchedule: (name: string) => ipcRenderer.invoke("skills-resume-schedule", name) as Promise<void>,
 
   // Layouts CRUD
-  layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; splits: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string; prompt?: string }> }>>,
+  layoutsList: () => ipcRenderer.invoke("layouts-list") as Promise<Array<{ name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }>>,
   layoutsSave: (name: string, panelIds: string[]) => ipcRenderer.invoke("layouts-save", name, panelIds) as Promise<boolean>,
-  layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; agents?: Array<{ name: string; role: string }> }) =>
+  layoutsSaveGrid: (grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }) =>
     ipcRenderer.invoke("layouts-save-grid", grid) as Promise<boolean>,
   layoutsDelete: (name: string) => ipcRenderer.invoke("layouts-delete", name) as Promise<boolean>,
   pickDirectory: () => ipcRenderer.invoke("pick-directory") as Promise<string | null>,
@@ -364,6 +364,57 @@ contextBridge.exposeInMainWorld("yo", {
   mcpExposeGetTokens: () => ipcRenderer.invoke("mcp-expose-get-tokens") as Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>,
   mcpExposeGenToken: (label: string, ttlDays?: number) => ipcRenderer.invoke("mcp-expose-gen-token", label, ttlDays) as Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>,
   mcpExposeRevokeToken: (token: string) => ipcRenderer.invoke("mcp-expose-revoke-token", token) as Promise<void>,
+
+  // Capability Offer — share this client's compute/LLM capacity with the .yo network
+  capabilitiesSetEnabled: (enabled: boolean) => ipcRenderer.invoke("capabilities-set-enabled", enabled) as Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>,
+  capabilitiesGetStatus: () => ipcRenderer.invoke("capabilities-get-status") as Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>,
+
+  // Agents Registry (local + remote definitions)
+  agentsList: () => ipcRenderer.invoke("agents-list") as Promise<unknown[]>,
+  agentsGet: (id: string) => ipcRenderer.invoke("agents-get", id) as Promise<unknown>,
+  agentsSave: (cfg: unknown) => ipcRenderer.invoke("agents-save", cfg) as Promise<unknown>,
+  agentsRemove: (id: string) => ipcRenderer.invoke("agents-remove", id) as Promise<boolean>,
+  agentsIdAvailable: (id: string) => ipcRenderer.invoke("agents-id-available", id) as Promise<boolean>,
+
+  // yos wallet + rate cards
+  yosBalance: () => ipcRenderer.invoke("yos-balance") as Promise<{ user_id: string; balance: number } | { error: string }>,
+  yosRateCards: () => ipcRenderer.invoke("yos-rate-cards") as Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>,
+  yosBuyUrl: () => ipcRenderer.invoke("yos-buy-url") as Promise<{ url: string }>,
+
+  // Marketplace + reservations
+  marketplaceAvailable: (opts?: { tier?: string; provider?: string; limit?: number }) =>
+    ipcRenderer.invoke("marketplace-available", opts) as Promise<{ entries: Array<{ offer_handle: string; derived_tier: string; providers: string[]; pricing: unknown; last_seen_at: string }>; count: number; ts: string } | { error: string }>,
+  reservationCreate: (body: { provider_handle: string; idle_minutes: number; guardrails?: unknown }) =>
+    ipcRenderer.invoke("reservation-create", body) as Promise<{ ok: boolean; reservation?: unknown; buyer_balance_after?: number; error?: string }>,
+  reservationRelease: (id: string, reason?: string) =>
+    ipcRenderer.invoke("reservation-release", id, reason) as Promise<{ ok: boolean; reservation?: unknown; buyer_balance_after?: number; idle_yos_settled?: number; provider_earned?: number; error?: string }>,
+  reservationList: (opts?: { status?: string }) =>
+    ipcRenderer.invoke("reservation-list", opts) as Promise<{ reservations: unknown[]; count: number } | { error: string }>,
+
+  // Cyphers — collaborative gatherings of agents
+  cypherCreate: (input: Record<string, unknown>) => ipcRenderer.invoke("cypher-create", input) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
+  cypherUpdate: (id: string, patch: Record<string, unknown>) => ipcRenderer.invoke("cypher-update", id, patch) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
+  cypherPublish: (id: string, initial_kitty_deposit: number) => ipcRenderer.invoke("cypher-publish", id, initial_kitty_deposit) as Promise<{ ok: boolean; cypher?: unknown; kitty_balance?: number; error?: string }>,
+  cypherWrap: (id: string) => ipcRenderer.invoke("cypher-wrap", id) as Promise<{ ok: boolean; cypher?: unknown; refunds?: Array<{ user_id: string; amount: number }>; error?: string }>,
+  cypherCancel: (id: string) => ipcRenderer.invoke("cypher-cancel", id) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
+  cypherDiscover: (opts?: { status?: string; type?: string; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke("cypher-discover", opts) as Promise<{ cyphers: unknown[]; count: number } | { error: string }>,
+  cypherListMine: () => ipcRenderer.invoke("cypher-list-mine") as Promise<{ cyphers: unknown[]; count: number } | { error: string }>,
+  cypherGet: (id: string) => ipcRenderer.invoke("cypher-get", id) as Promise<{ cypher: unknown; kitty_balance: number } | { error: string }>,
+  cypherGetBySlug: (slug: string) => ipcRenderer.invoke("cypher-get-by-slug", slug) as Promise<{ cypher: unknown } | { error: string }>,
+  cypherJoin: (id: string, agent_local_id: string, role?: string) => ipcRenderer.invoke("cypher-join", id, agent_local_id, role) as Promise<{ ok: boolean; cypher?: unknown; cohort_size?: number; error?: string }>,
+  cypherLeave: (id: string, agent_local_id: string) => ipcRenderer.invoke("cypher-leave", id, agent_local_id) as Promise<{ ok: boolean }>,
+  cypherJammers: (id: string) => ipcRenderer.invoke("cypher-jammers", id) as Promise<{ jammers: Array<{ user_id: string; agent_local_id: string; role: string; joined_at: string; left_at: string | null }>; count: number } | { error: string }>,
+  cypherJamsList: (id: string) => ipcRenderer.invoke("cypher-jams-list", id) as Promise<{ jams: Array<{ id: string; slug: string; title: string; description: string | null; state_doc: unknown; state_version: string }>; count: number } | { error: string }>,
+  cypherJamCreate: (id: string, slug: string, title: string, description?: string) => ipcRenderer.invoke("cypher-jam-create", id, slug, title, description) as Promise<{ ok: boolean; jam?: { id: string; slug: string }; error?: string }>,
+  cypherJamSetState: (id: string, jam_id: string, expected_version: number, state: unknown) => ipcRenderer.invoke("cypher-jam-set-state", id, jam_id, expected_version, state) as Promise<{ ok: boolean; version?: number; error?: string }>,
+  cypherEventPost: (id: string, kind: string, payload: unknown, jam_id?: string, by_agent_id?: string) =>
+    ipcRenderer.invoke("cypher-event-post", id, kind, payload, jam_id, by_agent_id) as Promise<{ ok: boolean; event?: unknown; error?: string }>,
+  cypherEventsList: (id: string, opts?: { since?: number; jam_id?: string; limit?: number }) =>
+    ipcRenderer.invoke("cypher-events-list", id, opts) as Promise<{ events: Array<{ id: string; seq: string; kind: string; jam_id: string | null; by_user_id: string | null; by_agent_id: string | null; payload: unknown; created_at: string }>; count: number } | { error: string }>,
+  cypherKittyDeposit: (id: string, amount: number) => ipcRenderer.invoke("cypher-kitty-deposit", id, amount) as Promise<{ ok: boolean; kitty_balance?: number; user_balance?: number; error?: string }>,
+  cypherKittyBalance: (id: string) => ipcRenderer.invoke("cypher-kitty-balance", id) as Promise<{ balance: number } | { error: string }>,
+  cypherKittyLedger: (id: string, opts?: { limit?: number }) => ipcRenderer.invoke("cypher-kitty-ledger", id, opts) as Promise<{ entries: Array<{ id: string; user_id: string; delta: number; kind: string; description: string | null; created_at: string }>; count: number } | { error: string }>,
 
   // MCP Servers (custom user-configured servers — Advanced plan)
   mcpGetServers: () => ipcRenderer.invoke("mcp-get-servers") as Promise<Array<{ config: { id: string; name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }; status: string; error?: string; tools: Array<{ name: string; description?: string }> }>>,

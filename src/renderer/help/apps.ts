@@ -1,0 +1,1319 @@
+/**
+ * Apps section — apps list + all tabs (dashboard, panel, connection, mcp).
+ */
+
+import {
+  paginate, renderPaginationBar, confirmAction, clearInvalid,
+  formatBytes, relativeTime, buildPaginationBar, cssVar, closeHelp,
+} from "./shared.js";
+
+declare const Chart: any;
+
+// ── Apps (unified: apps + MCP + connections) ────────────
+
+let appsPage = 0;
+const appsList = document.getElementById("apps-list")!;
+const appDetail = document.getElementById("app-detail")!;
+const appAddForm = document.getElementById("app-add-form")!;
+const mcpAddForm = document.getElementById("mcp-add-form")!;
+const appDetailId = document.getElementById("app-detail-id") as HTMLInputElement;
+const appDetailName = document.getElementById("app-detail-name") as HTMLInputElement;
+const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
+const appForceWeb = document.getElementById("app-detail-force-web") as HTMLInputElement;
+const appDoNotRecord = document.getElementById("app-detail-do-not-record") as HTMLInputElement;
+const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
+const appConnectStatus = document.getElementById("app-connect-status")!;
+const appCommandsList = document.getElementById("app-commands-list")!;
+const appMapCommand = document.getElementById("app-map-command")!;
+const appPreview = document.getElementById("app-preview") as HTMLElement & {
+  src: string;
+  partition: string;
+  getWebContentsId: () => number;
+  reload: () => void;
+};
+const appsToolbar = document.getElementById("apps-toolbar")!;
+const appFormError = document.getElementById("app-form-error")!;
+const appDetailHeading = document.getElementById("app-detail-heading")!;
+
+let currentAppId = "";
+let activeAppTab: "dashboard" | "panel" | "connection" | "mcp" = "dashboard";
+let connectorSearchOffset = 0;
+
+interface PanelApp {
+  id: string;
+  name: string;
+  url?: string;
+  connectedSlug?: string;
+  forceWeb?: boolean;
+  doNotRecord?: boolean;
+  commands?: Record<string, { selector: string; action: string; description: string }>;
+  connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
+  mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+}
+
+let panelApps: PanelApp[] = [];
+
+async function loadApps() {
+  appDetail.classList.add("hidden");
+  appAddForm.classList.add("hidden");
+  mcpAddForm.classList.add("hidden");
+
+  document.getElementById("apps-pro-gate")!.classList.add("hidden");
+  appsList.classList.remove("hidden");
+  appsToolbar.classList.remove("hidden");
+
+  try {
+    const apps = await window.yo.appsList();
+    // Hide internal yo:// apps (browser, terminal, vscode, monaco, home) from the management list
+    panelApps = apps
+      .filter((a) => !a.url?.startsWith("yo://"))
+      .map((a) => ({
+        id: a.id, name: a.name, url: a.url,
+        connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
+        commands: a.commands, connection: a.connection, mcp: a.mcp,
+      }));
+  } catch { panelApps = []; }
+
+  // Check app limit for free tier
+  const appsLimitMsg = document.getElementById("apps-limit-msg")!;
+  const appsAddBtn = document.getElementById("apps-add-btn") as HTMLButtonElement;
+  try {
+    const auth = await window.yo.getAuthStatus();
+    const userApps = panelApps.filter(a => a.url && !a.url.startsWith("yo://"));
+    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && userApps.length >= 10;
+    appsLimitMsg.classList.toggle("hidden", !atLimit);
+    appsAddBtn.disabled = atLimit;
+    if (atLimit) {
+      document.getElementById("apps-upgrade-link")!.onclick = (e) => {
+        e.preventDefault();
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+    }
+  } catch { /* fall through */ }
+
+  renderAppsList();
+}
+
+function renderAppsList() {
+  const query = appSearchInput.value.trim().toLowerCase();
+
+  const filtered = query
+    ? panelApps.filter((a) => a.name.toLowerCase().includes(query) || (a.url || "").toLowerCase().includes(query))
+    : panelApps;
+
+  appsList.className = "app-grid";
+
+  if (panelApps.length === 0) {
+    appsList.innerHTML = `<div class="crud-empty">No apps yet. Click "+ New" to add one.</div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    appsList.innerHTML = `<div class="crud-empty">No apps matching "${query}"</div>`;
+    return;
+  }
+
+  const { items: pageApps, state } = paginate(filtered, appsPage);
+  appsPage = state.page;
+  appsList.innerHTML = "";
+
+  for (const app of pageApps) {
+    const isInternal = app.url?.startsWith("yo://");
+    const hasUrl = app.url && !isInternal;
+    const faviconUrl = hasUrl
+      ? `https://www.google.com/s2/favicons?domain=${new URL(app.url!).hostname}&sz=64`
+      : "";
+    const initial = app.name.charAt(0).toUpperCase();
+
+    const badges: string[] = [];
+    if (app.mcp && !app.url) badges.push(`<span class="app-card-badge">MCP</span>`);
+    if (app.connection?.accountId) badges.push(`<span class="app-card-badge badge-connection">API</span>`);
+
+    const card = document.createElement("div");
+    card.className = "app-card";
+    card.innerHTML = `
+      ${badges.join("")}
+      <div class="app-card-icon">
+        ${faviconUrl
+          ? `<img src="${faviconUrl}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><span class="app-card-initial" style="display:none">${initial}</span>`
+          : `<span class="app-card-initial">${initial}</span>`}
+      </div>
+      <div class="app-card-name">${app.name}</div>
+      <div class="app-card-id">${app.id}</div>`;
+
+    card.addEventListener("click", () => openPanelAppDetail(app));
+    appsList.appendChild(card);
+  }
+
+  appsList.appendChild(renderPaginationBar(state, (p) => { appsPage = p; renderAppsList(); }));
+}
+
+// ── Tab switching ────────────────────────────────────────
+
+function switchAppTab(tab: string) {
+  activeAppTab = tab as typeof activeAppTab;
+  document.querySelectorAll<HTMLButtonElement>(".app-detail-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  document.querySelectorAll<HTMLElement>(".app-tab-left").forEach(el => {
+    el.classList.toggle("active", el.dataset.tab === tab);
+  });
+  document.querySelectorAll<HTMLElement>(".app-tab-right").forEach(el => {
+    el.classList.toggle("active", el.dataset.tab === tab);
+  });
+  if (tab === "dashboard") loadDashboardTab();
+  if (tab === "panel") loadPanelTab();
+  if (tab === "connection") loadConnectionTab();
+  if (tab === "mcp") loadMcpTab();
+}
+
+// ── Dashboard tab ────────────────────────────────────────
+
+let appDashIntakeChart: any = null;
+let appDashRangeMode: "7" | "30" = "7";
+let appDashDataOffset = 0;
+const APP_DASH_PAGE_SIZE = 20;
+let appDashViewingId: string | null = null;
+// search not yet wired — placeholder for future use
+
+async function loadDashboardTab() {
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (!app) return;
+
+  const icon = document.getElementById("app-dash-icon")!;
+  const dashName = document.getElementById("app-dash-name")!;
+  dashName.textContent = app.name;
+
+  if (app.url && !app.url.startsWith("yo://")) {
+    try {
+      icon.innerHTML = `<img src="https://www.google.com/s2/favicons?domain=${new URL(app.url).hostname}&sz=64" onerror="this.outerHTML='${app.name.charAt(0).toUpperCase()}'" style="width:100%;height:100%;object-fit:contain;" />`;
+    } catch { icon.textContent = app.name.charAt(0).toUpperCase(); }
+  } else {
+    icon.textContent = app.name.charAt(0).toUpperCase();
+  }
+
+  appDashDataOffset = 0;
+  appDashViewingId = null;
+
+  const stats = await window.yo.capturesStatsForSource(app.id);
+
+  document.getElementById("app-dash-captures")!.textContent = String(stats.count);
+  document.getElementById("app-dash-embedded")!.textContent = String(stats.embeddedCount);
+  document.getElementById("app-dash-disk")!.textContent = formatBytes(stats.diskBytes);
+  document.getElementById("app-dash-oldest")!.textContent = relativeTime(stats.oldestTs);
+  document.getElementById("app-dash-newest")!.textContent = relativeTime(stats.newestTs);
+
+  renderAppDashIntakeChart();
+  renderAppDashDataList();
+}
+
+async function renderAppDashIntakeChart() {
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (!app) return;
+  const canvas = document.getElementById("app-dash-chart-intake") as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  const days = appDashRangeMode === "30" ? 30 : 7;
+  const history: Array<{ date: string; count: number; bytes: number }> = await window.yo.capturesDailyHistoryForSource(app.id, days);
+
+  const labels = history.map((d) => {
+    const dt = new Date(d.date + "T00:00:00");
+    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  });
+  const countData = history.map((d) => d.count);
+  const bytesData = history.map((d) => d.bytes);
+
+  const ctx = canvas.getContext("2d")!;
+  if (appDashIntakeChart) appDashIntakeChart.destroy();
+
+  appDashIntakeChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Captures", data: countData, backgroundColor: "rgba(37,199,94,0.6)", borderRadius: 3, yAxisID: "y" },
+        { label: "Bytes", data: bytesData, backgroundColor: "rgba(72,219,251,0.35)", borderRadius: 3, yAxisID: "y1" },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
+        y: { position: "left", ticks: { color: cssVar("--accent"), font: { size: 10 }, stepSize: 1 }, grid: { color: cssVar("--border") }, title: { display: false } },
+        y1: { position: "right", ticks: { color: "#48dbfb", font: { size: 10 }, callback: (v: string | number) => formatBytes(Number(v)) }, grid: { drawOnChartArea: false } },
+      },
+      plugins: {
+        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Bytes" ? `${c.dataset.label}: ${formatBytes(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } },
+      },
+    },
+  });
+}
+
+async function renderAppDashDataList() {
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (!app) return;
+
+  const listEl = document.getElementById("app-dash-data-list")!;
+  const toolbarEl = document.getElementById("app-dash-data-toolbar")!;
+  const detailEl = document.getElementById("app-dash-data-detail")!;
+
+  detailEl.classList.add("hidden");
+  listEl.classList.remove("hidden");
+  toolbarEl.classList.remove("hidden");
+
+  const entries = await window.yo.capturesListForSource(app.id, appDashDataOffset, APP_DASH_PAGE_SIZE);
+  const stats = await window.yo.capturesStatsForSource(app.id);
+  const total = stats.count;
+
+  listEl.innerHTML = "";
+  if (entries.length === 0 && appDashDataOffset === 0) {
+    listEl.innerHTML = `<div class="crud-empty">No captures yet. Use .sup on this app to start capturing.</div>`;
+    return;
+  }
+
+  for (const e of entries) {
+    const card = document.createElement("div");
+    card.className = "crud-card";
+    const info = document.createElement("div");
+    info.className = "crud-card-info";
+    info.style.cssText = "min-width:0;";
+
+    const nameRow = document.createElement("div");
+    nameRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "crud-card-name";
+    timeSpan.textContent = relativeTime(e.meta.created);
+    nameRow.appendChild(timeSpan);
+    if (e.size > 0) {
+      const sizeSpan = document.createElement("span");
+      sizeSpan.style.cssText = "font-size:10px;color:#48dbfb;flex-shrink:0;";
+      sizeSpan.textContent = formatBytes(e.size);
+      nameRow.appendChild(sizeSpan);
+    }
+    info.appendChild(nameRow);
+
+    const meta = document.createElement("span");
+    meta.className = "crud-card-meta";
+    meta.textContent = e.snippet;
+    meta.style.cssText = "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;";
+    info.appendChild(meta);
+    card.appendChild(info);
+
+    const actions = document.createElement("div");
+    actions.className = "crud-card-actions";
+    const delBtn = document.createElement("button");
+    delBtn.className = "crud-card-btn danger crud-delete-btn";
+    delBtn.title = "Delete";
+    delBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+    delBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      await window.yo.capturesDelete(e.meta.id);
+      renderAppDashDataList();
+    });
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+
+    card.addEventListener("click", () => openAppDashDataDetail(e.meta.id, e.meta.created));
+    listEl.appendChild(card);
+  }
+
+  if (total > APP_DASH_PAGE_SIZE) {
+    listEl.appendChild(buildPaginationBar(appDashDataOffset, APP_DASH_PAGE_SIZE, total, (newOffset) => {
+      appDashDataOffset = newOffset;
+      renderAppDashDataList();
+    }));
+  }
+}
+
+async function openAppDashDataDetail(id: string, created: number) {
+  appDashViewingId = id;
+  const [content, size] = await Promise.all([
+    window.yo.capturesRead(id),
+    window.yo.capturesEntrySize(id),
+  ]);
+  const detailEl = document.getElementById("app-dash-data-detail")!;
+  const listEl = document.getElementById("app-dash-data-list")!;
+  const toolbarEl = document.getElementById("app-dash-data-toolbar")!;
+  document.getElementById("app-dash-data-meta")!.textContent = `${new Date(created).toLocaleString()} · ${formatBytes(size)} · ${id}`;
+  document.getElementById("app-dash-data-content")!.textContent = content || "(empty)";
+
+  listEl.classList.add("hidden");
+  toolbarEl.classList.add("hidden");
+  detailEl.classList.remove("hidden");
+}
+
+function closeAppDashDataDetail() {
+  document.getElementById("app-dash-data-detail")!.classList.add("hidden");
+  document.getElementById("app-dash-data-list")!.classList.remove("hidden");
+  document.getElementById("app-dash-data-toolbar")!.classList.remove("hidden");
+  appDashViewingId = null;
+  renderAppDashDataList();
+}
+
+async function deleteAppDashDataEntry() {
+  if (!appDashViewingId) return;
+  const confirmed = await confirmAction("Delete this capture?");
+  if (!confirmed) return;
+  await window.yo.capturesDelete(appDashViewingId);
+  closeAppDashDataDetail();
+  loadDashboardTab();
+}
+
+// ── Panel tab ────────────────────────────────────────────
+
+let panelLoaded = false;
+
+function loadPanelTab() {
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (!app) return;
+  if (!app.url) {
+    document.getElementById("app-commands-list")!.innerHTML = `<div class="inline-empty">No URL configured for this app. Add a URL on the Dashboard tab to enable panel features.</div>`;
+    return;
+  }
+  if (!panelLoaded) {
+    appPreview.partition = "persist:yo";
+    appPreview.src = app.url;
+    panelLoaded = true;
+  }
+  refreshCommands();
+}
+
+// ── Connection tab ───────────────────────────────────────
+
+async function loadConnectionTab() {
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (!app) return;
+
+  const gate = document.getElementById("connection-upgrade-gate")!;
+  const statusEl = document.getElementById("app-connection-status")!;
+  const listEl = document.getElementById("app-connected-list")!;
+  const toolsEl = document.getElementById("app-connection-tools")!;
+  const noToolsEl = document.getElementById("app-connection-no-tools")!;
+  const browseEl = document.querySelector<HTMLElement>(".connection-browse")!;
+
+  // Gate behind Advanced tier
+  try {
+    const auth = await window.yo.getAuthStatus();
+    if (auth.tier !== "advanced") {
+      gate.classList.remove("hidden");
+      statusEl.innerHTML = "";
+      listEl.innerHTML = "";
+      browseEl.classList.add("hidden");
+      toolsEl.innerHTML = "";
+      noToolsEl.classList.add("hidden");
+      gate.querySelector<HTMLButtonElement>(".tab-upgrade-btn")!.onclick = () => {
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+      return;
+    }
+  } catch { /* fall through */ }
+  gate.classList.add("hidden");
+
+  // Left: this app's connection
+  listEl.innerHTML = "";
+  const isConnected = !!app.connection?.accountId;
+
+  if (app.connection && isConnected) {
+    // Connected — show status + disconnect, hide browse grid
+    browseEl.classList.add("hidden");
+    statusEl.innerHTML = `
+      <div class="connection-status">
+        <span class="connection-status-dot connected"></span>
+        <div class="connection-status-info">
+          <div class="connection-status-name">${app.connection.pipedreamSlug}</div>
+          <div class="connection-status-meta">Connected${app.connection.healthy === false ? " (unhealthy)" : ""}</div>
+        </div>
+        <button class="action-btn danger" id="app-conn-disconnect" style="height:28px;font-size:12px;">Disconnect</button>
+      </div>`;
+
+    document.getElementById("app-conn-disconnect")?.addEventListener("click", async () => {
+      if (!app.connection?.accountId) return;
+      const btn = document.getElementById("app-conn-disconnect") as HTMLButtonElement;
+      btn.disabled = true;
+      btn.textContent = "Disconnecting...";
+      await window.yo.connectorsDisconnect(app.connection.accountId);
+      // Also remove the connection from the app so it clears properly
+      await window.yo.appsRemoveConnection(app.id);
+      const apps = await window.yo.appsList();
+      reloadPanelApps(apps);
+      loadConnectionTab();
+    });
+  } else {
+    // Not connected — show browse grid to pick an app
+    statusEl.innerHTML = "";
+    browseEl.classList.remove("hidden");
+    connectorSearchOffset = 0;
+    const searchInput = document.getElementById("app-connector-search") as HTMLInputElement;
+    if (searchInput) searchInput.value = "";
+    loadConnectorGrid();
+  }
+
+  // Right: tools for this app's connection
+  toolsEl.innerHTML = "";
+  noToolsEl.classList.add("hidden");
+  if (isConnected && app.connection?.pipedreamSlug) {
+    await loadConnectionTools(app.id);
+  } else {
+    noToolsEl.textContent = "Connect an app to see its tools.";
+    noToolsEl.classList.remove("hidden");
+  }
+}
+
+async function loadConnectionTools(appId: string) {
+  const toolsEl = document.getElementById("app-connection-tools")!;
+  const noToolsEl = document.getElementById("app-connection-no-tools")!;
+  toolsEl.innerHTML = "";
+
+  const servers = await window.yo.mcpGetServers();
+  const pdServer = servers.find((s) => s.config.id === appId);
+
+  if (!pdServer) {
+    noToolsEl.textContent = "Connecting...";
+    noToolsEl.classList.remove("hidden");
+    console.log(`[connection-tools] No server "${appId}" found. Available:`, servers.map(s => s.config.id));
+
+    try {
+      const refreshResult = await window.yo.connectorsRefreshMcp();
+      console.log("[connection-tools] refreshMcp result:", refreshResult);
+      const retryServers = await window.yo.mcpGetServers();
+      console.log("[connection-tools] After refresh, servers:", retryServers.map(s => `${s.config.id} (${s.status}, ${s.tools.length} tools)`));
+      const retryPd = retryServers.find((s) => s.config.id === appId);
+      if (retryPd) {
+        noToolsEl.classList.add("hidden");
+        return loadConnectionTools(appId);
+      }
+    } catch (err) {
+      console.error("[connection-tools] refreshMcp error:", err);
+    }
+    noToolsEl.textContent = "Tools not available for this app.";
+    return;
+  }
+
+  if (pdServer.status !== "connected") {
+    noToolsEl.textContent = `Server: ${pdServer.status}${pdServer.error ? " — " + pdServer.error : ""}. Reconnecting...`;
+    noToolsEl.classList.remove("hidden");
+
+    try {
+      const result = await window.yo.connectorsRefreshMcp();
+      if (result.ok) {
+        noToolsEl.classList.add("hidden");
+        return loadConnectionTools(appId);
+      }
+      noToolsEl.textContent = `Server: ${pdServer.status}${result.error ? " — " + result.error : ""}`;
+    } catch { /* ignore */ }
+    return;
+  }
+
+  if (pdServer.tools.length === 0) {
+    noToolsEl.textContent = "Server connected but no tools discovered.";
+    noToolsEl.classList.remove("hidden");
+    return;
+  }
+
+  const toolsToShow = pdServer.tools;
+
+  noToolsEl.classList.add("hidden");
+  for (const tool of toolsToShow) {
+    const row = document.createElement("div");
+    row.className = "crud-card";
+    row.innerHTML = `
+      <div class="crud-card-info">
+        <span class="crud-card-name" style="font-family:var(--font-mono);font-size:11px;">${tool.name}</span>
+        <span class="crud-card-meta">${tool.description || ""}</span>
+      </div>`;
+    toolsEl.appendChild(row);
+  }
+}
+
+async function loadConnectorGrid(search?: string) {
+  const grid = document.getElementById("app-connector-grid")!;
+  const loadMore = document.getElementById("app-connector-load-more")!;
+
+  try {
+    const { apps, hasMore } = await window.yo.connectorsGetApps(search, connectorSearchOffset);
+    if (connectorSearchOffset === 0) grid.innerHTML = "";
+
+    for (const app of apps) {
+      const card = document.createElement("div");
+      card.className = "connector-card";
+      const initial = app.name.charAt(0).toUpperCase();
+      card.innerHTML = `
+        ${app.icon
+          ? `<img class="connector-card-icon" src="${app.icon}" onerror="this.outerHTML='<span class=\\'connector-card-initial\\'>${initial}</span>'" />`
+          : `<span class="connector-card-initial">${initial}</span>`}
+        <div class="connector-card-info">
+          <div class="connector-card-name">${app.name}</div>
+        </div>`;
+      card.addEventListener("click", async () => {
+        const nameEl = card.querySelector(".connector-card-name")!;
+        nameEl.textContent = "Connecting...";
+        // Set the pipedream slug on the current app FIRST so syncAccountsToApps can find it
+        const currentApp = panelApps.find((a) => a.id === currentAppId);
+        if (currentApp) {
+          await window.yo.appsSetConnection(currentApp.id, app.id);
+        }
+        const result = await window.yo.connectorsConnect(app.id);
+        if (!result.ok) {
+          nameEl.textContent = result.error || "Connection failed";
+          // Remove the connection we just set since connect failed
+          if (currentApp) await window.yo.appsRemoveConnection(currentApp.id);
+          setTimeout(() => { nameEl.textContent = app.name; }, 3000);
+          return;
+        }
+        const allApps = await window.yo.appsList();
+        reloadPanelApps(allApps);
+        loadConnectionTab();
+      });
+      grid.appendChild(card);
+    }
+
+    loadMore.classList.toggle("hidden", !hasMore);
+  } catch {
+    if (connectorSearchOffset === 0) grid.innerHTML = `<div class="crud-empty" style="grid-column:1/-1;">Could not load apps. Check your connection.</div>`;
+  }
+}
+
+// ── MCP tab ──────────────────────────────────────────────
+
+async function loadMcpTab() {
+  const app = panelApps.find((a) => a.id === currentAppId);
+  if (!app) return;
+
+  const mcpGate = document.getElementById("mcp-tab-upgrade-gate")!;
+  const statusRow = document.getElementById("app-mcp-status-row")!;
+
+  // Gate behind Advanced tier
+  try {
+    const auth = await window.yo.getAuthStatus();
+    if (auth.tier !== "advanced") {
+      mcpGate.classList.remove("hidden");
+      statusRow.classList.add("hidden");
+      // Hide all MCP form fields
+      document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
+        if (el.id !== "mcp-tab-upgrade-gate") el.classList.add("hidden");
+      });
+      document.getElementById("app-mcp-tools-table")?.classList.add("hidden");
+      document.getElementById("app-mcp-no-tools")?.classList.add("hidden");
+      mcpGate.querySelector<HTMLButtonElement>(".tab-upgrade-btn")!.onclick = () => {
+        closeHelp();
+        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
+      };
+      return;
+    }
+  } catch { /* fall through */ }
+  mcpGate.classList.add("hidden");
+  // Restore visibility of MCP form fields
+  document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
+    el.classList.remove("hidden");
+  });
+
+  const statusBadge = document.getElementById("app-mcp-status")!;
+  const connectBtn = document.getElementById("app-mcp-connect") as HTMLButtonElement;
+  const disconnectBtn = document.getElementById("app-mcp-disconnect") as HTMLButtonElement;
+  const transportSelect = document.getElementById("app-mcp-transport") as HTMLSelectElement;
+  const commandInput = document.getElementById("app-mcp-command") as HTMLInputElement;
+  const argsInput = document.getElementById("app-mcp-args") as HTMLInputElement;
+  const envInput = document.getElementById("app-mcp-env") as HTMLTextAreaElement;
+  const urlInput = document.getElementById("app-mcp-url") as HTMLInputElement;
+
+  if (!app.mcp) {
+    statusBadge.className = "mcp-status-badge status-disconnected";
+    statusBadge.textContent = "not configured";
+    connectBtn.classList.add("hidden");
+    disconnectBtn.classList.add("hidden");
+    transportSelect.value = "stdio";
+    commandInput.value = "";
+    argsInput.value = "";
+    envInput.value = "";
+    urlInput.value = "";
+    updateMcpFields();
+
+    const toolsTable = document.getElementById("app-mcp-tools-table")!;
+    const noTools = document.getElementById("app-mcp-no-tools")!;
+    toolsTable.classList.add("hidden");
+    noTools.classList.remove("hidden");
+    noTools.textContent = "Configure and save an MCP server to discover tools.";
+    return;
+  }
+
+  // Get live status from MCP manager
+  const servers = await window.yo.mcpGetServers();
+  const server = servers.find((s) => s.config.id === currentAppId);
+  const status = server?.status || "disconnected";
+
+  statusBadge.className = `mcp-status-badge status-${status}`;
+  statusBadge.textContent = status + (server?.error ? `: ${server.error}` : "");
+  connectBtn.classList.toggle("hidden", status === "connected" || status === "connecting");
+  disconnectBtn.classList.toggle("hidden", status !== "connected");
+
+  // Populate config form
+  transportSelect.value = app.mcp.transport;
+  commandInput.value = app.mcp.command || "";
+  argsInput.value = (app.mcp.args || []).join(" ");
+  envInput.value = app.mcp.env ? Object.entries(app.mcp.env).map(([k, v]) => `${k}=${v}`).join("\n") : "";
+  urlInput.value = app.mcp.url || "";
+  updateMcpFields();
+
+  // Tools table (right panel)
+  const toolsBody = document.getElementById("app-mcp-tools-body")!;
+  const toolsTable = document.getElementById("app-mcp-tools-table")!;
+  const noTools = document.getElementById("app-mcp-no-tools")!;
+  const tools = server?.tools || [];
+
+  if (tools.length === 0) {
+    toolsTable.classList.add("hidden");
+    noTools.classList.remove("hidden");
+  } else {
+    toolsTable.classList.remove("hidden");
+    noTools.classList.add("hidden");
+    toolsBody.innerHTML = "";
+
+    for (const tool of tools) {
+      const tr = document.createElement("tr");
+      tr.className = "tool-row";
+      const currentOverride = await window.yo.mcpGetToolOverride(currentAppId, tool.name);
+      tr.innerHTML = `
+        <td class="tool-td-name">${tool.name}</td>
+        <td class="tool-td-desc">${tool.description || ""}</td>
+        <td class="tool-td-perm">
+          <select class="tool-perm-select" data-tool="${tool.name}">
+            <option value="default"${currentOverride === "default" ? " selected" : ""}>Default</option>
+            <option value="auto"${currentOverride === "auto" ? " selected" : ""}>Auto</option>
+            <option value="ask"${currentOverride === "ask" ? " selected" : ""}>Ask</option>
+          </select>
+        </td>`;
+      toolsBody.appendChild(tr);
+    }
+
+    toolsBody.querySelectorAll<HTMLSelectElement>(".tool-perm-select").forEach(sel => {
+      sel.addEventListener("change", () => {
+        window.yo.mcpSetToolOverride(currentAppId, sel.dataset.tool!, sel.value);
+      });
+    });
+  }
+}
+
+function updateMcpFields() {
+  const transport = (document.getElementById("app-mcp-transport") as HTMLSelectElement).value;
+  document.getElementById("app-mcp-stdio-fields")!.classList.toggle("hidden", transport !== "stdio");
+  document.getElementById("app-mcp-sse-fields")!.classList.toggle("hidden", transport !== "sse");
+}
+
+async function saveMcpConfig() {
+  const transport = (document.getElementById("app-mcp-transport") as HTMLSelectElement).value as "stdio" | "sse";
+  const statusEl = document.getElementById("app-mcp-save-status")!;
+
+  const config: Record<string, unknown> = { transport, enabled: false };
+  if (transport === "stdio") {
+    const command = (document.getElementById("app-mcp-command") as HTMLInputElement).value.trim();
+    if (!command) { statusEl.textContent = "Command required"; return; }
+    config.command = command;
+    const args = (document.getElementById("app-mcp-args") as HTMLInputElement).value.trim();
+    if (args) config.args = args.split(/\s+/);
+    const envText = (document.getElementById("app-mcp-env") as HTMLTextAreaElement).value.trim();
+    if (envText) {
+      const env: Record<string, string> = {};
+      for (const line of envText.split("\n")) {
+        const eq = line.indexOf("=");
+        if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+      }
+      config.env = env;
+    }
+  } else {
+    const url = (document.getElementById("app-mcp-url") as HTMLInputElement).value.trim();
+    if (!url) { statusEl.textContent = "URL required"; return; }
+    config.url = url;
+  }
+
+  const app = panelApps.find((a) => a.id === currentAppId);
+  await window.yo.appsSetMcp(currentAppId, config as any);
+  if (app?.mcp) {
+    await window.yo.mcpUpdateServer(currentAppId, config);
+  } else {
+    await window.yo.mcpAddServer({ id: currentAppId, name: app?.name || currentAppId, ...config });
+  }
+  if (app) app.mcp = config as any;
+  statusEl.textContent = "Saved";
+  setTimeout(() => { statusEl.textContent = ""; loadMcpTab(); }, 1000);
+}
+
+
+const policySelect = document.getElementById("app-detail-capture-policy") as HTMLSelectElement;
+const policyParam = document.getElementById("app-detail-policy-param") as HTMLInputElement;
+const policyDesc = document.getElementById("app-detail-policy-desc")!;
+
+const POLICY_DESCRIPTIONS: Record<string, string> = {
+  append: "Every capture is stored as-is. Best for chat streams and logs.",
+  versioned: "Keeps the last N versions of the content. Older versions are pruned automatically.",
+  deduplicate: "Skips if content is identical to last capture. Replaces if changed.",
+  incremental: "Diffs against the last capture and only stores new lines. Ideal for conversations.",
+  "sliding-window": "Auto-prunes captures older than N hours. Good for ephemeral feeds.",
+  manual: "No automatic capture. Only explicit .sup commands are stored.",
+};
+
+const POLICY_PARAM_LABELS: Record<string, string> = {
+  versioned: "Versions",
+  "sliding-window": "Hours",
+  incremental: "Min chars",
+};
+
+function updatePolicyUI() {
+  const type = policySelect.value;
+  policyDesc.textContent = POLICY_DESCRIPTIONS[type] || "";
+  const paramLabel = POLICY_PARAM_LABELS[type];
+  if (paramLabel) {
+    policyParam.style.display = "";
+    policyParam.placeholder = paramLabel;
+    policyParam.title = paramLabel;
+  } else {
+    policyParam.style.display = "none";
+    policyParam.value = "";
+  }
+}
+
+async function openPanelAppDetail(app: PanelApp) {
+  currentAppId = app.id;
+  panelLoaded = false;
+  connectorSearchOffset = 0;
+
+  // Populate dashboard fields
+  appDetailId.value = app.id;
+  appDetailName.value = app.name;
+  appDetailUrl.value = app.url || "";
+  appForceWeb.checked = !!app.forceWeb;
+  appDoNotRecord.checked = !!app.doNotRecord;
+  appConnectStatus.textContent = "";
+  appMapCommand.classList.add("hidden");
+  appDetailHeading.textContent = app.name;
+
+  const policy = await window.yo.appsGetCapturePolicy(app.id);
+  policySelect.value = policy.type;
+  const paramVal = policy.maxVersions ?? policy.windowHours ?? policy.minDeltaChars;
+  policyParam.value = paramVal ? String(paramVal) : "";
+  updatePolicyUI();
+
+  // All tabs always visible
+  document.querySelectorAll<HTMLButtonElement>(".app-detail-tab").forEach(btn => {
+    btn.classList.remove("tab-hidden");
+  });
+
+  // Show detail, hide grid
+  appsList.classList.add("hidden");
+  appsToolbar.classList.add("hidden");
+  appAddForm.classList.add("hidden");
+  mcpAddForm.classList.add("hidden");
+  appDetail.classList.remove("hidden");
+
+  switchAppTab("dashboard");
+}
+
+async function refreshCommands() {
+  const apps = await window.yo.appsList();
+  const app = apps.find((a) => a.id === currentAppId);
+  const commands = app?.commands || {};
+  const keys = Object.keys(commands);
+
+  if (keys.length === 0) {
+    appCommandsList.innerHTML = `<div class="inline-empty">No commands mapped. Click "Pick Element" to add one.</div>`;
+    return;
+  }
+
+  appCommandsList.innerHTML = keys.map((key) => {
+    const cmd = commands[key];
+    return `<div class="command-row" data-key="${key}">
+      <span class="command-key">${key}</span>
+      <span class="command-desc">${cmd.description || cmd.action}</span>
+      <span class="command-selector" title="${cmd.selector}">${cmd.selector.length > 40 ? cmd.selector.slice(0, 40) + "…" : cmd.selector}</span>
+      <div class="command-actions">
+        <button class="action-btn command-edit-btn" title="Edit">Edit</button>
+        <button class="action-btn command-test-btn" title="Test">Test</button>
+        <button class="action-btn danger command-remove-btn" title="Remove">×</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  appCommandsList.querySelectorAll(".command-edit-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
+      const cmd = commands[key];
+      if (!cmd) return;
+      openMappingForm(key, cmd.selector, cmd.action, cmd.description || "", (cmd as any).text);
+    });
+  });
+
+  appCommandsList.querySelectorAll(".command-remove-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
+      await window.yo.appsRemoveCommand(currentAppId, key);
+      refreshCommands();
+    });
+  });
+
+  appCommandsList.querySelectorAll(".command-test-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = (btn.closest(".command-row") as HTMLElement).dataset.key!;
+      const wcId = getPreviewWebContentsId();
+      const result = await window.yo.appsTestCommand(currentAppId, key, wcId);
+      appConnectStatus.textContent = result ? `Test ${key}: ${result.slice(0, 80)}` : `Test ${key}: executed`;
+      setTimeout(() => { appConnectStatus.textContent = ""; }, 3000);
+    });
+  });
+}
+
+function getPreviewWebContentsId(): number | undefined {
+  try { return appPreview.getWebContentsId(); } catch { return undefined; }
+}
+
+async function pickElement() {
+  if (!currentAppId) return;
+  const wcId = getPreviewWebContentsId();
+  if (!wcId) {
+    appConnectStatus.textContent = "Preview not loaded yet.";
+    return;
+  }
+
+  appConnectStatus.textContent = "Click an element in the preview...";
+
+  const helpCloseBtn = document.getElementById("help-close") as HTMLButtonElement;
+  const detailCloseBtn = document.getElementById("app-detail-close") as HTMLButtonElement;
+  helpCloseBtn.disabled = true;
+  detailCloseBtn.disabled = true;
+  helpCloseBtn.style.opacity = "0.3";
+  detailCloseBtn.style.opacity = "0.3";
+
+  const picked = await new Promise<{
+    selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean;
+  } | null>((resolve) => {
+    window.yo.onPickerResult((result) => {
+      resolve(result);
+    });
+    window.yo.startPicker(wcId);
+  });
+
+  helpCloseBtn.disabled = false;
+  detailCloseBtn.disabled = false;
+  helpCloseBtn.style.opacity = "";
+  detailCloseBtn.style.opacity = "";
+
+  if (!picked) {
+    appConnectStatus.textContent = "";
+    appMapCommand.classList.add("hidden");
+    return;
+  }
+
+  appConnectStatus.textContent = "";
+
+  const action = picked.isEditable ? "setValue" : picked.isClickable ? "click" : "extractText";
+  const info = `<${picked.tag}>` +
+    `${picked.text ? ' "' + picked.text.slice(0, 60) + '"' : ""}` +
+    `${picked.isEditable ? " [editable]" : ""}${picked.isClickable ? " [clickable]" : ""}`;
+
+  document.getElementById("map-element-info")!.textContent = info;
+  openMappingForm("", picked.selector, action, "", picked.text);
+}
+
+let mappingText = "";
+
+function openMappingForm(key: string, selector: string, action: string, description: string, text?: string) {
+  document.getElementById("map-selector")!.textContent = selector;
+  mappingText = text ?? "";
+
+  const keySelect = document.getElementById("map-command-key") as HTMLSelectElement;
+  const customKeyInput = document.getElementById("map-custom-key") as HTMLInputElement;
+  const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
+  const descInput = document.getElementById("map-description") as HTMLInputElement;
+
+  // Check if key matches a preset option
+  const presetOption = keySelect.querySelector(`option[value="${key}"]`);
+  if (key && presetOption) {
+    keySelect.value = key;
+    customKeyInput.classList.add("hidden");
+  } else if (key) {
+    keySelect.value = "__custom__";
+    customKeyInput.value = key;
+    customKeyInput.classList.remove("hidden");
+  } else {
+    keySelect.value = "";
+    customKeyInput.value = "";
+    customKeyInput.classList.add("hidden");
+  }
+
+  actionSelect.value = action;
+  descInput.value = description;
+  appMapCommand.classList.remove("hidden");
+}
+
+async function saveMapping() {
+  const keySelect = document.getElementById("map-command-key") as HTMLSelectElement;
+  const customKeyInput = document.getElementById("map-custom-key") as HTMLInputElement;
+  const actionSelect = document.getElementById("map-action") as HTMLSelectElement;
+  const descInput = document.getElementById("map-description") as HTMLInputElement;
+  const selector = document.getElementById("map-selector")!.textContent || "";
+
+  let key = keySelect.value;
+  if (key === "__custom__") {
+    key = customKeyInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!key) { customKeyInput.focus(); return; }
+  }
+  if (!key || !selector) return;
+
+  const mapping: Record<string, string> = {
+    selector,
+    action: actionSelect.value,
+    description: descInput.value.trim() || key,
+  };
+  if (mappingText) mapping.text = mappingText;
+  await window.yo.appsSetCommand(currentAppId, key, mapping as any);
+
+  appMapCommand.classList.add("hidden");
+  appConnectStatus.textContent = `Mapped: ${key}`;
+  setTimeout(() => { appConnectStatus.textContent = ""; }, 2000);
+  refreshCommands();
+}
+
+
+function closeAppDetail() {
+  appPreview.src = "about:blank";
+  panelLoaded = false;
+  appMapCommand.classList.add("hidden");
+  appDetail.classList.add("hidden");
+  appsList.classList.remove("hidden");
+  appsToolbar.classList.remove("hidden");
+  if (appDashIntakeChart) { appDashIntakeChart.destroy(); appDashIntakeChart = null; }
+  loadApps();
+}
+
+function reloadPanelApps(apps: Array<PanelApp>) {
+  panelApps = apps.map((a) => ({
+    id: a.id, name: a.name, url: a.url,
+    connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
+    commands: a.commands, connection: a.connection, mcp: a.mcp,
+  }));
+}
+
+function initApps() {
+  const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
+  const addSlugInput = document.getElementById("app-add-slug") as HTMLInputElement;
+  const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
+  const addForceWeb = document.getElementById("app-add-force-web") as HTMLInputElement;
+  const addDoNotRecord = document.getElementById("app-add-do-not-record") as HTMLInputElement;
+
+  // Slug helpers
+  const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  let slugTouched = false;
+  addSlugInput?.addEventListener("input", () => { slugTouched = addSlugInput.value.trim().length > 0; });
+  addNameInput?.addEventListener("input", () => {
+    if (!slugTouched) addSlugInput.value = slugify(addNameInput.value);
+  });
+
+  // + New dropdown
+  document.getElementById("apps-add-btn")!.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("apps-add-menu")!.classList.toggle("hidden");
+  });
+  document.addEventListener("click", () => {
+    document.getElementById("apps-add-menu")?.classList.add("hidden");
+  });
+
+  // Add App
+  document.getElementById("apps-add-app")!.addEventListener("click", () => {
+    document.getElementById("apps-add-menu")!.classList.add("hidden");
+    addNameInput.value = "";
+    addSlugInput.value = "";
+    slugTouched = false;
+    addUrlInput.value = "";
+    addForceWeb.checked = false;
+    addDoNotRecord.checked = false;
+    appFormError.classList.add("hidden");
+    appsList.classList.add("hidden");
+    appsToolbar.classList.add("hidden");
+    appAddForm.classList.remove("hidden");
+    addNameInput.focus();
+  });
+
+  // Add MCP Server
+  document.getElementById("apps-add-mcp")!.addEventListener("click", () => {
+    document.getElementById("apps-add-menu")!.classList.add("hidden");
+    (document.getElementById("mcp-add-name") as HTMLInputElement).value = "";
+    (document.getElementById("mcp-add-transport") as HTMLSelectElement).value = "stdio";
+    (document.getElementById("mcp-add-command") as HTMLInputElement).value = "";
+    (document.getElementById("mcp-add-args") as HTMLInputElement).value = "";
+    (document.getElementById("mcp-add-env") as HTMLTextAreaElement).value = "";
+    (document.getElementById("mcp-add-url") as HTMLInputElement).value = "";
+    document.getElementById("mcp-form-error")!.classList.add("hidden");
+    document.getElementById("mcp-add-stdio-fields")!.classList.remove("hidden");
+    document.getElementById("mcp-add-sse-fields")!.classList.add("hidden");
+    appsList.classList.add("hidden");
+    appsToolbar.classList.add("hidden");
+    mcpAddForm.classList.remove("hidden");
+    (document.getElementById("mcp-add-name") as HTMLInputElement).focus();
+  });
+
+  // MCP add form transport toggle
+  document.getElementById("mcp-add-transport")!.addEventListener("change", () => {
+    const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value;
+    document.getElementById("mcp-add-stdio-fields")!.classList.toggle("hidden", transport !== "stdio");
+    document.getElementById("mcp-add-sse-fields")!.classList.toggle("hidden", transport !== "sse");
+  });
+
+  // MCP add form save
+  document.getElementById("mcp-add-save")!.addEventListener("click", async () => {
+    const name = (document.getElementById("mcp-add-name") as HTMLInputElement).value.trim();
+    const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value as "stdio" | "sse";
+    const errEl = document.getElementById("mcp-form-error")!;
+
+    if (!name) { errEl.textContent = "Name required"; errEl.classList.remove("hidden"); return; }
+
+    const mcpConfig: Record<string, unknown> = { transport, enabled: false };
+    if (transport === "stdio") {
+      const command = (document.getElementById("mcp-add-command") as HTMLInputElement).value.trim();
+      if (!command) { errEl.textContent = "Command required"; errEl.classList.remove("hidden"); return; }
+      mcpConfig.command = command;
+      const args = (document.getElementById("mcp-add-args") as HTMLInputElement).value.trim();
+      if (args) mcpConfig.args = args.split(/\s+/);
+      const envText = (document.getElementById("mcp-add-env") as HTMLTextAreaElement).value.trim();
+      if (envText) {
+        const env: Record<string, string> = {};
+        for (const line of envText.split("\n")) {
+          const eq = line.indexOf("=");
+          if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+        }
+        mcpConfig.env = env;
+      }
+    } else {
+      const url = (document.getElementById("mcp-add-url") as HTMLInputElement).value.trim();
+      if (!url) { errEl.textContent = "URL required"; errEl.classList.remove("hidden"); return; }
+      mcpConfig.url = url;
+    }
+
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+    await window.yo.appsAdd(id, name);
+    await window.yo.appsSetMcp(id, mcpConfig as any);
+    await window.yo.mcpAddServer({ id, name, ...mcpConfig } as any);
+
+    mcpAddForm.classList.add("hidden");
+    const apps = await window.yo.appsList();
+    reloadPanelApps(apps);
+    const created = panelApps.find((a) => a.id === id);
+    if (created) openPanelAppDetail(created);
+    else loadApps();
+  });
+
+  // MCP add form cancel
+  document.getElementById("mcp-add-cancel")!.addEventListener("click", () => loadApps());
+  document.getElementById("mcp-add-cancel-btn")!.addEventListener("click", () => loadApps());
+
+  // App add form save
+  document.getElementById("app-add-save")!.addEventListener("click", async () => {
+    let valid = true;
+    const name = addNameInput.value.trim();
+    const url = addUrlInput.value.trim();
+    const slugInput = addSlugInput.value.trim();
+    if (!name) { addNameInput.classList.add("invalid"); clearInvalid(addNameInput); valid = false; }
+    if (!url) { addUrlInput.classList.add("invalid"); clearInvalid(addUrlInput); valid = false; }
+    if (!valid) {
+      appFormError.textContent = "Name and URL are required.";
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    const id = slugInput ? slugify(slugInput) : slugify(name);
+    if (!id) {
+      addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
+      appFormError.textContent = "Slug must contain at least one letter or number.";
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    const RESERVED = new Set(["yo", "sup", "dip", "drip", "peace", "waz", "council"]);
+    if (RESERVED.has(id)) {
+      addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
+      appFormError.textContent = `"${id}" is a reserved command. Pick a different slug.`;
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    // Uniqueness check — apps and vibes share one namespace.
+    const existing = await window.yo.appsList();
+    if (existing.some((a) => a.id === id)) {
+      addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
+      appFormError.textContent = `Slug "${id}" is already taken. Pick a different one.`;
+      appFormError.classList.remove("hidden");
+      return;
+    }
+    await window.yo.appsAdd(id, name, url);
+    if (addForceWeb.checked) await window.yo.appsUpdateForceWeb(id, true);
+    if (addDoNotRecord.checked) await window.yo.appsUpdateDoNotRecord(id, true);
+    appAddForm.classList.add("hidden");
+    const apps = await window.yo.appsList();
+    reloadPanelApps(apps);
+    const created = panelApps.find((a) => a.id === id);
+    if (created) openPanelAppDetail(created);
+    else loadApps();
+  });
+
+  // App add form cancel
+  document.getElementById("app-add-cancel")!.addEventListener("click", () => loadApps());
+  document.getElementById("app-add-cancel-btn")!.addEventListener("click", () => loadApps());
+
+  policySelect.addEventListener("change", updatePolicyUI);
+
+  // Tab buttons
+  document.querySelectorAll<HTMLButtonElement>(".app-detail-tab").forEach(btn => {
+    btn.addEventListener("click", () => switchAppTab(btn.dataset.tab!));
+  });
+
+  // Dashboard save
+  document.getElementById("app-dash-save")!.addEventListener("click", async () => {
+    if (!currentAppId) return;
+    const newId = appDetailId.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    if (newId && newId !== currentAppId) {
+      const ok = await window.yo.appsUpdateId(currentAppId, newId);
+      if (ok) currentAppId = newId;
+    }
+    const name = appDetailName.value.trim();
+    const url = appDetailUrl.value.trim();
+    if (name) await window.yo.appsUpdateName(currentAppId, name);
+    if (url) await window.yo.appsUpdateUrl(currentAppId, url);
+    await window.yo.appsUpdateForceWeb(currentAppId, appForceWeb.checked);
+    await window.yo.appsUpdateDoNotRecord(currentAppId, appDoNotRecord.checked);
+
+    const pType = policySelect.value;
+    const pVal = parseInt(policyParam.value, 10) || undefined;
+    const policy: Record<string, unknown> = { type: pType };
+    if (pType === "versioned" && pVal) policy.maxVersions = pVal;
+    if (pType === "sliding-window" && pVal) policy.windowHours = pVal;
+    if (pType === "incremental" && pVal) policy.minDeltaChars = pVal;
+    await window.yo.appsUpdateCapturePolicy(currentAppId, policy as any);
+
+    closeAppDetail();
+  });
+
+  // Dashboard cancel
+  document.getElementById("app-dash-cancel")!.addEventListener("click", () => closeAppDetail());
+
+  // App dashboard range toggle
+  document.getElementById("app-dash-range-7")?.addEventListener("click", () => {
+    appDashRangeMode = "7";
+    document.getElementById("app-dash-range-7")!.classList.add("active");
+    document.getElementById("app-dash-range-30")!.classList.remove("active");
+    renderAppDashIntakeChart();
+  });
+  document.getElementById("app-dash-range-30")?.addEventListener("click", () => {
+    appDashRangeMode = "30";
+    document.getElementById("app-dash-range-30")!.classList.add("active");
+    document.getElementById("app-dash-range-7")!.classList.remove("active");
+    renderAppDashIntakeChart();
+  });
+
+  // App dashboard data detail
+  document.getElementById("app-dash-data-back")?.addEventListener("click", closeAppDashDataDetail);
+  document.getElementById("app-dash-data-delete")?.addEventListener("click", deleteAppDashDataEntry);
+
+  // Delete
+  document.getElementById("app-detail-delete")!.addEventListener("click", async () => {
+    if (!currentAppId) return;
+    const confirmed = await confirmAction(`Delete app "${appDetailName.value}"?`);
+    if (!confirmed) return;
+    await window.yo.appsRemove(currentAppId);
+    closeAppDetail();
+  });
+
+  // MCP tab: transport toggle, save, connect, disconnect
+  document.getElementById("app-mcp-transport")!.addEventListener("change", updateMcpFields);
+  document.getElementById("app-mcp-save")!.addEventListener("click", saveMcpConfig);
+
+  document.getElementById("app-mcp-connect")!.addEventListener("click", async () => {
+    if (!currentAppId) return;
+    const btn = document.getElementById("app-mcp-connect") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Connecting...";
+    const result = await window.yo.mcpConnectServer(currentAppId);
+    btn.disabled = false;
+    btn.textContent = "Connect";
+    if (result.ok) loadMcpTab();
+    else {
+      const badge = document.getElementById("app-mcp-status")!;
+      badge.className = "mcp-status-badge status-error";
+      badge.textContent = `error: ${result.error}`;
+    }
+  });
+
+  document.getElementById("app-mcp-disconnect")!.addEventListener("click", async () => {
+    if (!currentAppId) return;
+    await window.yo.mcpDisconnectServer(currentAppId);
+    loadMcpTab();
+  });
+
+  document.getElementById("app-mcp-server-override")!.addEventListener("change", (e) => {
+    if (!currentAppId) return;
+    window.yo.mcpSetServerOverride(currentAppId, (e.target as HTMLSelectElement).value);
+    loadMcpTab();
+  });
+
+  // Connection tab: connector search
+  document.getElementById("app-connector-search")!.addEventListener("input", (e) => {
+    connectorSearchOffset = 0;
+    loadConnectorGrid((e.target as HTMLInputElement).value.trim() || undefined);
+  });
+
+  document.getElementById("app-connector-load-more")!.addEventListener("click", () => {
+    connectorSearchOffset += 20;
+    const search = (document.getElementById("app-connector-search") as HTMLInputElement).value.trim() || undefined;
+    loadConnectorGrid(search);
+  });
+
+  appSearchInput.addEventListener("input", () => { appsPage = 0; renderAppsList(); });
+
+  // MCP changed event — refresh MCP tab if viewing
+  window.yo.onMcpChanged(() => {
+    if (!appDetail.classList.contains("hidden") && activeAppTab === "mcp" && currentAppId) {
+      loadMcpTab();
+    }
+  });
+
+  // Connectors changed event — refresh connection tab if viewing
+  window.yo.onConnectorsChanged(async () => {
+    if (!appDetail.classList.contains("hidden") && activeAppTab === "connection" && currentAppId) {
+      const apps = await window.yo.appsList();
+      reloadPanelApps(apps);
+      loadConnectionTab();
+    }
+  });
+
+  // Draggable split divider
+  const divider = document.getElementById("app-builder-divider")!;
+  const controls = document.querySelector(".app-builder-controls") as HTMLElement;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+
+  divider.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = controls.offsetWidth;
+    divider.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const w = Math.max(200, Math.min(800, startW + (e.clientX - startX)));
+    controls.style.width = w + "px";
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  });
+}
+
+export { loadApps, initApps, closeAppDetail, pickElement, saveMapping };
