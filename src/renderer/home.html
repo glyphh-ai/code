@@ -107,21 +107,17 @@
           </div>
 
           <div class="dash-split-row">
-            <!-- Left: Token Metrics -->
+            <!-- Left: Yos Usage -->
             <div class="dash-split-col">
-              <div class="dash-split-header">Token Metrics</div>
+              <div class="dash-split-header">Yos Usage</div>
 
               <div class="dash-stat-row">
                 <div class="dash-stat-card">
                   <div class="dash-stat-label">Today</div>
                   <div class="dash-stat-values">
                     <div class="dash-stat-item">
-                      <div class="dash-stat-num green" id="dash-today-input">0</div>
-                      <div class="dash-stat-sub">Input</div>
-                    </div>
-                    <div class="dash-stat-item">
-                      <div class="dash-stat-num" id="dash-today-output">0</div>
-                      <div class="dash-stat-sub">Output</div>
+                      <div class="dash-stat-num green" id="dash-today-yos">0</div>
+                      <div class="dash-stat-sub">Consumed</div>
                     </div>
                     <div class="dash-stat-item">
                       <div class="dash-stat-num" id="dash-today-calls">0</div>
@@ -133,12 +129,8 @@
                   <div class="dash-stat-label">All Time</div>
                   <div class="dash-stat-values">
                     <div class="dash-stat-item">
-                      <div class="dash-stat-num green" id="dash-alltime-input">0</div>
-                      <div class="dash-stat-sub">Input</div>
-                    </div>
-                    <div class="dash-stat-item">
-                      <div class="dash-stat-num" id="dash-alltime-output">0</div>
-                      <div class="dash-stat-sub">Output</div>
+                      <div class="dash-stat-num green" id="dash-alltime-yos">0</div>
+                      <div class="dash-stat-sub">Consumed</div>
                     </div>
                     <div class="dash-stat-item">
                       <div class="dash-stat-num" id="dash-alltime-calls">0</div>
@@ -811,18 +803,12 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="skill-back-link">← Skills</a>
               <div class="crud-spacer"></div>
-              <button id="skill-run" class="action-btn primary" title="Run skill">▶ Run</button>
               <button id="skill-export" class="action-btn" title="Export .yo bundle">Export</button>
             </div>
             <div id="skill-form-error" class="crud-form-error hidden"></div>
 
             <div class="skill-split-body">
-              <!-- LEFT: form with Delete top-right, Cancel/Save bottom-right -->
               <div class="skill-split-left">
-                <!-- Top-right Delete button -->
-                <div class="skill-left-topbar">
-                  <button id="skill-delete" class="action-btn danger">Delete</button>
-                </div>
 
                 <div class="skill-left-form">
                   <label class="settings-label">Name</label>
@@ -830,20 +816,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
                   <label class="settings-label">Description</label>
                   <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
-
-                  <label class="settings-label">Type</label>
-                  <select id="skill-type" class="settings-input">
-                    <option value="skill">Skill</option>
-                    <option value="vibe">Vibe App</option>
-                  </select>
-
-                  <label class="settings-label">Allowed tools</label>
-                  <div id="skill-tools-list" class="skill-row-list"></div>
-                  <button id="skill-tools-add" class="skill-row-add-btn" type="button">+ Add tool</button>
-
-                  <label class="settings-label">Depends on <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
-                  <div id="skill-requires-list" class="skill-row-list"></div>
-                  <button id="skill-requires-add" class="skill-row-add-btn" type="button">+ Add dependency</button>
 
                   <label class="settings-label">Schedule</label>
                   <div id="skill-schedule-builder" class="skill-schedule-builder">
@@ -890,62 +862,39 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     <div id="sched-preview" class="sched-preview hidden"></div>
                   </div>
 
-                  <label class="settings-label" style="margin-top:8px;">Recent runs</label>
-                  <div id="skill-runs-list" class="skill-runs-list"></div>
-                  <span id="skill-runs-count" style="color:var(--text-2);font-size:11px;display:none;"></span>
                 </div>
 
-                <!-- Bottom-right Cancel / Save -->
                 <div class="skill-left-footer">
+                  <button id="skill-delete" class="action-btn danger">Delete</button>
+                  <div style="flex:1;"></div>
                   <button id="skill-cancel" class="action-btn">Cancel</button>
                   <button id="skill-save" class="action-btn primary">Save</button>
                 </div>
               </div>
 
-              <!-- RIGHT: tabs + file tree + Monaco + Preview -->
+              <!-- RIGHT: file tree + Monaco editor -->
               <div class="skill-split-right">
-                <div class="skill-right-tabs" id="skill-right-tabs">
-                  <button class="skill-right-tab active" data-tab="code">Code</button>
-                  <button class="skill-right-tab" data-tab="preview">Preview</button>
-                </div>
-
-                <div id="skill-tab-code" class="skill-tab-content">
-                  <div class="skill-code-widget">
-                    <aside class="skill-code-tree" id="skill-code-tree">
-                      <div class="skill-code-tree-header">
-                        <span id="skill-editor-status">SKILL.md</span>
-                        <div class="skill-tree-actions">
-                          <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          </button>
-                          <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                          </button>
-                          <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                          </button>
-                        </div>
+                <div class="skill-code-widget">
+                  <aside class="skill-code-tree" id="skill-code-tree">
+                    <div class="skill-code-tree-header">
+                      <span id="skill-editor-status">SKILL.md</span>
+                      <div class="skill-tree-actions">
+                        <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </button>
+                        <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                        </button>
+                        <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        </button>
                       </div>
-                      <div id="skill-file-list" class="skill-file-list"></div>
-                      <input type="file" id="skill-upload-input" multiple style="display:none" />
-                    </aside>
-                    <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
-                    <div id="skill-monaco-container" class="skill-code-monaco"></div>
-                  </div>
-                </div>
-
-                <div id="skill-tab-preview" class="skill-tab-content" style="display:none;">
-                  <div class="skill-preview-container">
-                    <div class="skill-preview-toolbar">
-                      <button id="skill-preview-refresh" class="skill-tree-action-btn" title="Refresh preview">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                      </button>
-                      <button id="skill-preview-open" class="skill-tree-action-btn" title="Open in panel">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                      </button>
                     </div>
-                    <webview id="skill-preview-webview" class="skill-preview-webview" partition="persist:vibe-preview"></webview>
-                  </div>
+                    <div id="skill-file-list" class="skill-file-list"></div>
+                    <input type="file" id="skill-upload-input" multiple style="display:none" />
+                  </aside>
+                  <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
+                  <div id="skill-monaco-container" class="skill-code-monaco"></div>
                 </div>
               </div>
             </div>
@@ -990,9 +939,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             </div>
             <div class="layout-split-body">
               <div class="layout-split-left">
-                <div class="layout-left-topbar">
-                  <button id="layout-delete-btn" class="action-btn danger">Delete</button>
-                </div>
                 <div class="layout-left-form">
                   <div id="layout-form-error" class="crud-form-error hidden"></div>
                   <label class="settings-label">Name</label>
@@ -1016,6 +962,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                 </div>
                 <div class="layout-left-footer">
+                  <button id="layout-delete-btn" class="action-btn danger">Delete</button>
+                  <div style="flex:1;"></div>
                   <button id="layout-cancel-btn" class="action-btn">Cancel</button>
                   <button id="layout-save-btn" class="action-btn primary">Save</button>
                 </div>
@@ -1068,7 +1016,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="drip-back-link">&larr; Drips</a>
               <div class="crud-spacer"></div>
-              <button id="drip-delete-btn" class="action-btn danger">Delete</button>
             </div>
             <div id="drip-form-error" class="crud-form-error hidden"></div>
             <label class="settings-label">Name</label>
@@ -1097,6 +1044,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <button id="drip-preview-btn" class="action-btn">&#9654; Play</button>
             </div>
             <div class="settings-actions" style="margin-top:8px;">
+              <button id="drip-delete-btn" class="action-btn danger">Delete</button>
+              <div style="flex:1;"></div>
               <button id="drip-cancel-btn" class="action-btn">Cancel</button>
               <button id="drip-save-btn" class="action-btn primary">Save</button>
             </div>
@@ -1349,7 +1298,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <span id="agent-detail-heading" style="font-size:14px;font-weight:600;color:var(--text);margin-left:8px;"></span>
               <span id="agent-detail-type-badge" style="margin-left:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;background:var(--surface-3);color:var(--text-2);border:1px solid var(--border);"></span>
               <div style="flex:1;"></div>
-              <button id="agent-detail-delete" class="action-btn danger">Delete</button>
             </div>
 
             <div class="app-detail-tabs">
@@ -1452,6 +1400,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               </div><!-- /skill-left-form -->
 
               <div class="skill-left-footer">
+                <button id="agent-detail-delete" class="action-btn danger">Delete</button>
+                <div style="flex:1;"></div>
                 <button id="agent-detail-cancel" class="action-btn">Cancel</button>
                 <button id="agent-detail-save" class="action-btn primary">Save</button>
               </div>
@@ -1616,7 +1566,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     </div>
                     <span class="toggle-desc" id="app-detail-policy-desc" style="margin-top:4px;display:block;"></span>
                   </div>
-                  <div class="settings-actions" style="margin-top:12px;">
+                  <div class="settings-actions" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
                     <button id="app-detail-delete" class="action-btn danger">Delete</button>
                     <div style="flex:1;"></div>
                     <button id="app-dash-cancel" class="action-btn">Cancel</button>
@@ -1855,30 +1805,17 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             </nav>
             <div class="settings-panels">
 
-              <!-- General: Provider, Model, API Key -->
+              <!-- General: Model selection -->
               <div class="settings-panel active" data-sub="general">
                 <h2>General</h2>
-                <p class="section-desc">LLM provider and credentials.</p>
+                <p class="section-desc">AI model selection. All calls are proxied through yo — no API key needed.</p>
                 <div class="settings-form">
-                  <label class="settings-label">Provider</label>
-                  <select id="settings-provider" class="settings-input">
-                    <option value="anthropic">Anthropic</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="google">Google AI</option>
-                    <option value="custom">Custom</option>
-                  </select>
-
                   <label class="settings-label">Model</label>
-                  <div class="settings-model-wrap">
-                    <select id="settings-model-select" class="settings-input"></select>
-                    <input id="settings-model-custom" type="text" class="settings-input hidden" placeholder="model name" spellcheck="false" autocomplete="off" />
-                  </div>
-
-                  <label class="settings-label">API Key</label>
-                  <input id="settings-api-key" type="password" class="settings-input" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" />
-
-                  <label id="settings-base-url-label" class="settings-label hidden">Base URL</label>
-                  <input id="settings-base-url" type="text" class="settings-input hidden" placeholder="https://api.openai.com/v1" spellcheck="false" autocomplete="off" />
+                  <select id="settings-model-select" class="settings-input">
+                    <option value="claude-opus-4-6">Opus — 5x</option>
+                    <option value="claude-sonnet-4-6" selected>Sonnet — 3x</option>
+                    <option value="claude-haiku-4-5-20251001">Haiku — 1x</option>
+                  </select>
 
                   <div class="settings-actions">
                     <button id="settings-save" class="action-btn primary">Save</button>
@@ -1887,49 +1824,20 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 </div>
               </div>
 
-              <!-- Agent: Mode, Sub-Agent Model, Context, Tool Permissions -->
+              <!-- Agent: Mode, Tool Permissions -->
               <div class="settings-panel" data-sub="agent">
                 <h2>Agent</h2>
                 <p class="section-desc">Configure the .yo agent behavior.</p>
                 <div class="settings-form">
-                  <label class="settings-label">Default Mode</label>
+                  <label class="settings-label">Permission Mode</label>
                   <div class="settings-inline">
                     <select id="settings-agent-mode" class="settings-input settings-input-md">
-                      <option value="ask">Ask</option>
+                      <option value="default">Default</option>
                       <option value="plan">Plan</option>
-                      <option value="auto">Auto</option>
+                      <option value="acceptEdits">Accept Edits</option>
+                      <option value="bypassPermissions">Bypass Permissions</option>
                     </select>
-                    <span class="settings-hint">ask = approve actions, plan = preview first, auto = full trust</span>
-                  </div>
-                  <label class="settings-label">Sub-Agent Model</label>
-                  <div class="settings-inline">
-                    <select id="settings-subagent-model" class="settings-input settings-input-md">
-                      <option value="auto">Auto (cheapest)</option>
-                    </select>
-                    <span class="settings-hint">model for navigator, researcher, manager sub-agents</span>
-                  </div>
-                  <label class="settings-label">Context Window</label>
-                  <div class="settings-inline">
-                    <input id="settings-context-window" type="number" class="settings-input settings-input-sm" min="10" max="200" step="10" value="40" />
-                    <span class="settings-hint">messages before compaction</span>
-                  </div>
-
-                  <h3 class="settings-subheading">Budget Limits</h3>
-                  <p class="section-desc">Per-turn limits on agent resource usage. Higher = more capable but costlier.</p>
-                  <label class="settings-label">Max Tokens</label>
-                  <div class="settings-inline">
-                    <input id="settings-budget-tokens" type="number" class="settings-input settings-input-sm" min="50000" max="1000000" step="50000" value="200000" />
-                    <span class="settings-hint">token budget per turn (input + output combined)</span>
-                  </div>
-                  <label class="settings-label">Max Tool Calls</label>
-                  <div class="settings-inline">
-                    <input id="settings-budget-tools" type="number" class="settings-input settings-input-sm" min="5" max="100" step="5" value="40" />
-                    <span class="settings-hint">maximum tool invocations per turn</span>
-                  </div>
-                  <label class="settings-label">Timeout</label>
-                  <div class="settings-inline">
-                    <input id="settings-budget-timeout" type="number" class="settings-input settings-input-sm" min="60" max="600" step="30" value="300" />
-                    <span class="settings-hint">seconds before the agent stops</span>
+                    <span class="settings-hint">default = ask for everything, plan = preview first, acceptEdits = auto-approve edits, bypass = full trust</span>
                   </div>
                 </div>
 
@@ -2050,77 +1958,51 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
                 <div id="mcp-section-wrap" class="settings-form">
 
-                  <!-- Enable toggle + status -->
-                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-                    <label class="settings-toggle" style="flex:1;margin:0;padding:0;">
-                      <input type="checkbox" id="toggle-mcp-expose" />
-                      <span class="toggle-switch"></span>
-                      <div class="toggle-info">
-                        <span class="toggle-title">Enable MCP Server</span>
-                      </div>
-                    </label>
+                  <!-- Port -->
+                  <div style="margin-bottom:20px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                      <label class="settings-label" style="margin:0;min-width:36px;">Port</label>
+                      <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" style="width:90px;" />
+                      <button id="mcp-expose-port-save" class="action-btn" style="font-size:12px;">Save</button>
+                    </div>
                     <span id="mcp-expose-status" style="font-size:12px;color:var(--text-2);"></span>
                   </div>
 
-                  <div id="mcp-expose-settings" class="hidden">
-
-                    <!-- Connection -->
-                    <div style="margin-bottom:20px;">
-                      <h3 class="settings-subheading" style="margin:0 0 10px;">Connection</h3>
-                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-                        <label class="settings-label" style="margin:0;min-width:36px;">Port</label>
-                        <input id="mcp-expose-port" type="number" class="settings-input settings-input-sm" min="1024" max="65535" value="7860" style="width:90px;" />
-                        <button id="mcp-expose-port-save" class="action-btn" style="font-size:12px;">Save</button>
-                        <button id="mcp-expose-start-btn" class="action-btn primary" style="font-size:12px;">Start</button>
-                        <button id="mcp-expose-stop-btn" class="action-btn danger hidden" style="font-size:12px;">Stop</button>
-                      </div>
-                      <label class="settings-label">Available Tools</label>
-                      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
-                        <span class="mcp-tool-badge">sup</span>
-                        <span style="font-size:11px;color:var(--text-2);line-height:22px;">Push context into your capture store</span>
-                      </div>
-                      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                        <span class="mcp-tool-badge">yo</span>
-                        <span style="font-size:11px;color:var(--text-2);line-height:22px;">Search your capture store</span>
-                      </div>
-                    </div>
-
-                    <!-- Access Tokens -->
-                    <div style="margin-bottom:20px;">
-                      <h3 class="settings-subheading" style="margin:0 0 6px;">Access Tokens</h3>
-                      <p style="font-size:11px;color:var(--text-3);margin:0 0 10px;">Generate a token for each external tool. Tokens are shown once — copy immediately.</p>
-                      <div id="mcp-expose-new-token" class="hidden" style="background:var(--surface-2);border:1px solid var(--accent);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
-                        <p style="font-size:11px;color:var(--accent);margin:0 0 6px;font-weight:600;">Token created — copy it now, it won't be shown again</p>
-                        <div style="display:flex;gap:6px;align-items:center;">
-                          <code id="mcp-expose-new-token-value" style="flex:1;background:var(--bg);padding:5px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
-                          <button id="mcp-expose-copy-token" class="action-btn primary" style="font-size:11px;padding:4px 12px;white-space:nowrap;">Copy</button>
-                        </div>
-                      </div>
-                      <div id="mcp-expose-tokens" style="margin-bottom:10px;"></div>
+                  <!-- Access Tokens -->
+                  <div style="margin-bottom:20px;">
+                    <h3 class="settings-subheading" style="margin:0 0 6px;">Access Tokens</h3>
+                    <p style="font-size:11px;color:var(--text-3);margin:0 0 10px;">Generate a token for each external tool. Tokens are shown once — copy immediately.</p>
+                    <div id="mcp-expose-new-token" class="hidden" style="background:var(--surface-2);border:1px solid var(--accent);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+                      <p style="font-size:11px;color:var(--accent);margin:0 0 6px;font-weight:600;">Token created — copy it now, it won't be shown again</p>
                       <div style="display:flex;gap:6px;align-items:center;">
-                        <input id="mcp-expose-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude Desktop, Cursor)" style="flex:1;font-size:12px;padding:5px 8px;" />
-                        <select id="mcp-expose-token-ttl" class="settings-input" style="width:auto;font-size:12px;padding:5px 8px;">
-                          <option value="7">7 days</option>
-                          <option value="30">30 days</option>
-                          <option value="90" selected>90 days</option>
-                          <option value="365">1 year</option>
-                          <option value="0">Never</option>
-                        </select>
-                        <button id="mcp-expose-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
+                        <code id="mcp-expose-new-token-value" style="flex:1;background:var(--bg);padding:5px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
+                        <button id="mcp-expose-copy-token" class="action-btn primary" style="font-size:11px;padding:4px 12px;white-space:nowrap;">Copy</button>
                       </div>
                     </div>
-
-                    <!-- Example Config -->
-                    <div>
-                      <h3 class="settings-subheading" style="margin:0 0 6px;">Example Config</h3>
-                      <p style="font-size:11px;color:var(--text-3);margin:0 0 8px;">Add this to your Claude Desktop, Cursor, or Windsurf MCP config. Replace <code style="color:var(--accent);">&lt;your-token&gt;</code> with a generated token above.</p>
-                      <div style="position:relative;">
-                        <pre id="mcp-expose-config-example" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
-                        <button id="mcp-expose-copy-config" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
-                      </div>
+                    <div id="mcp-expose-tokens" style="margin-bottom:10px;"></div>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                      <input id="mcp-expose-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude Desktop, Cursor)" style="flex:1;font-size:12px;padding:5px 8px;" />
+                      <select id="mcp-expose-token-ttl" class="settings-input" style="width:auto;font-size:12px;padding:5px 8px;">
+                        <option value="7">7 days</option>
+                        <option value="30">30 days</option>
+                        <option value="90" selected>90 days</option>
+                        <option value="365">1 year</option>
+                        <option value="0">Never</option>
+                      </select>
+                      <button id="mcp-expose-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
                     </div>
-
                   </div>
+
+                  <!-- Example Config -->
+                  <div>
+                    <h3 class="settings-subheading" style="margin:0 0 6px;">Example Config</h3>
+                    <p style="font-size:11px;color:var(--text-3);margin:0 0 8px;">Add this to your Claude Desktop, Cursor, or Windsurf MCP config. Replace <code style="color:var(--accent);">&lt;your-token&gt;</code> with a generated token above.</p>
+                    <div style="position:relative;">
+                      <pre id="mcp-expose-config-example" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
+                      <button id="mcp-expose-copy-config" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 

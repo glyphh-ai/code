@@ -31,20 +31,6 @@
         <button id="onboarding-register" class="onboarding-register-btn">Create Account</button>
       </div>
 
-      <!-- Step 2: API key (shown after auth) -->
-      <div id="onboarding-step-apikey" class="onboarding-fields hidden">
-        <p class="onboarding-desc" id="onboarding-welcome-msg">Welcome! Enter your AI API key to get started.</p>
-        <select id="onboarding-provider">
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="google">Google AI</option>
-          <option value="custom">Custom</option>
-        </select>
-        <input id="onboarding-apikey" type="password" placeholder="Anthropic API key (sk-ant-...)" spellcheck="false" autocomplete="off" />
-        <input id="onboarding-base-url" type="text" placeholder="Base URL (for custom provider)" spellcheck="false" autocomplete="off" class="hidden" />
-        <input id="onboarding-model" type="text" placeholder="Model name" spellcheck="false" autocomplete="off" class="hidden" />
-        <button id="onboarding-activate">Continue</button>
-      </div>
 
       <div id="onboarding-status"></div>
       <div class="onboarding-policies">
@@ -67,10 +53,6 @@
     <div id="tab-bar">
       <button id="tab-new-btn" class="tab-new-btn" title="New tab">+</button>
     </div>
-    <button id="mcp-indicator" class="mcp-indicator hidden" title="MCP Server">
-      <span class="mcp-indicator-dot"></span>
-      <span class="mcp-indicator-label">MCP</span>
-    </button>
     <button id="yos-badge" class="yos-badge hidden" title="Click to buy yos">
       <span class="yos-badge-icon">◈</span>
       <span class="yos-badge-amount" id="yos-badge-amount">—</span>

@@ -24,6 +24,7 @@ export class CloudSync {
   private captureStore: CaptureStore | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private authFailed = false;
 
   constructor(noteStore: NoteStore) {
     this.noteStore = noteStore;
@@ -74,19 +75,23 @@ export class CloudSync {
     return getPreference<string>("cloudToken", null!);
   }
 
+  resetAuth(): void { this.authFailed = false; }
+
   private async poll(): Promise<void> {
+    if (this.authFailed) return;
+
     const token = this.authToken;
-    if (!token) return; // No token configured — skip silently
+    if (!token) return;
 
     try {
-      // 1. Fetch pending items
       const res = await fetch(`${this.serverUrl}/api/pending`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!res.ok) {
         if (res.status === 401) {
-          console.warn("[cloud-sync] auth failed — check cloud token");
+          console.warn("[cloud-sync] auth failed — pausing until token refreshes");
+          this.authFailed = true;
         }
         return;
       }

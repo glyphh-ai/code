@@ -25,20 +25,16 @@ export interface SubstrateToolDeps {
   noteStore?: { search: (q: string, n: number) => Promise<Array<{ file: string; title: string; content: string; rank: number }>>; write: (title: string, content: string, source?: string) => Promise<string> };
   memoryStore?: { save: (content: string, category: string) => Promise<string> };
   skillEngine?: {
-    runSkill: (name: string, input: unknown, opts?: { trigger?: string }) => Promise<unknown>;
-    listSkillsDetailed: () => Array<{ name: string; description?: string; hasRunner: boolean; scheduled: boolean; scheduleExpr?: string }>;
-    getSkill: (name: string) => { manifest: Record<string, unknown>; prompt: string; hasRunner: boolean; folderPath: string } | null;
-    writeSkill: (name: string, manifest: Record<string, unknown>, prompt: string, runnerCode?: string | null) => boolean;
+    process: (content: string, skillName?: string) => Promise<string>;
+    listSkillsDetailed: () => Array<{ name: string; description?: string; scheduled: boolean; scheduleExpr?: string }>;
+    getSkill: (name: string) => { manifest: Record<string, unknown>; prompt: string; folderPath: string } | null;
+    writeSkill: (name: string, manifest: Record<string, unknown>, prompt: string) => boolean;
     deleteSkill: (name: string) => boolean;
     readSkillFile: (name: string, rel: string) => string | null;
     writeSkillFile: (name: string, rel: string, content: string) => boolean;
     listSkillFiles: (name: string) => string[];
-    listVibes: () => Array<{ name: string; description?: string; folderPath: string }>;
   };
   council?: { start: (opts: { participants: string[]; prompt: string; rounds: number }, log: (msg: string) => void) => Promise<{ status: string; rounds: number; participants: string[]; totalCaptures: number; responses: Map<string, string[]> }> };
-  navigatorAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; listPanels: () => string; setBudget?: (budget: any) => void };
-  layoutAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; setBudget?: (budget: any) => void };
-  builderAgent?: { execute: (instruction: string, context: any) => Promise<{ summary: string }>; setBudget?: (budget: any) => void };
   mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (name: string, input: Record<string, unknown>) => Promise<string>; hasTool?: (name: string) => boolean; mcpCoveredApps?: () => Map<string, string[]> };
   dripManager?: {
     listCustoms: () => Array<{ name: string; recipe: string }>;
@@ -71,6 +67,26 @@ export interface SubstrateToolDeps {
     readAgent: (name: string, kind?: string) => string;
     broadcastAndWait: (body: string, tags: string[], kind: string | undefined, timeoutMs: number) => Promise<string>;
   };
+  panels?: {
+    list: () => string;
+    scan: (panelId: string) => Promise<string | null>;
+    grab: (panelId: string) => Promise<string | null>;
+    click: (panelId: string, text?: string, selector?: string) => Promise<string>;
+    navigate: (panelId: string, url: string) => Promise<string>;
+    type: (panelId: string, text: string, opts: { label?: string; placeholder?: string; selector?: string; clear?: boolean; submit?: boolean }) => Promise<string>;
+    open: (url: string, panelId?: string) => Promise<string>;
+    openBackground: (url: string, panelId?: string) => Promise<string>;
+    runCommand: (panelId: string, command: string, value?: string) => Promise<string>;
+    screenshot: (panelId: string) => Promise<string | null>;
+    refresh: (panelId?: string) => Promise<string>;
+  };
+  tabs?: {
+    list: () => Array<{ id: string; title: string; url?: string }>;
+    switch: (id: string) => void;
+    close: (id: string) => void;
+    create: () => string;
+  };
+  execCommand?: (cmd: string) => Promise<string>;
 }
 
 let deps: SubstrateToolDeps = {};
@@ -154,9 +170,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       }
       if (!content) return "No content provided.";
       try {
-        const out = await deps.skillEngine.runSkill(skill, content, { trigger: "skill" });
-        if (out === undefined || out === null) return "[skill produced no output]";
-        return typeof out === "string" ? out : JSON.stringify(out, null, 2);
+        return await deps.skillEngine.process(content, skill);
       } catch (err) {
         return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -214,8 +228,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (input.schedule) manifest.schedule = input.schedule;
       if (input.inputs) manifest.inputs = input.inputs;
       const prompt = input.prompt as string || "";
-      const runner = input.runner_code as string | undefined;
-      const ok = deps.skillEngine.writeSkill(name, manifest, prompt, runner);
+      const ok = deps.skillEngine.writeSkill(name, manifest, prompt);
       if (!ok) return `Failed to create skill "${name}".`;
       return `Skill "${name}" created. The user can run it with .yo format <content> ${name}, or you can call skill_${name.replace(/[^a-zA-Z0-9_]/g, "_")} to test it.`;
     },
@@ -250,8 +263,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (input.schedule !== undefined) manifest.schedule = (input.schedule as string) || null;
       if (input.inputs !== undefined) manifest.inputs = input.inputs;
       const prompt = (input.prompt as string) ?? existing.prompt;
-      const runner = input.runner_code !== undefined ? (input.runner_code as string | null) : undefined;
-      const ok = deps.skillEngine.writeSkill(name, manifest, prompt, runner);
+      const ok = deps.skillEngine.writeSkill(name, manifest, prompt);
       if (!ok) return `Failed to update skill "${name}".`;
       return `Skill "${name}" updated.`;
     },
@@ -275,7 +287,6 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const lines = [
         `Skill: ${name}`,
         `Description: ${(skill.manifest as any).description || "(none)"}`,
-        `Has runner: ${skill.hasRunner}`,
       ];
       const m = skill.manifest as Record<string, unknown>;
       if (m["allowed-tools"]) lines.push(`Allowed tools: ${(m["allowed-tools"] as string[]).join(", ")}`);
@@ -283,12 +294,8 @@ const BUILTIN_TOOLS: ToolDef[] = [
       if (m.schedule) lines.push(`Schedule: ${m.schedule}`);
       if (m.inputs) lines.push(`Inputs: ${JSON.stringify(m.inputs)}`);
       lines.push("", "--- PROMPT ---", skill.prompt);
-      if (skill.hasRunner) {
-        const jsContent = deps.skillEngine.readSkillFile(name, "SKILL.js");
-        if (jsContent) lines.push("", "--- SKILL.js ---", jsContent);
-      }
       const files = deps.skillEngine.listSkillFiles(name);
-      const extraFiles = files.filter(f => f !== "SKILL.md" && f !== "SKILL.js");
+      const extraFiles = files.filter(f => f !== "SKILL.md");
       if (extraFiles.length > 0) lines.push("", `Other files: ${extraFiles.join(", ")}`);
       return lines.join("\n");
     },
@@ -508,104 +515,6 @@ const BUILTIN_TOOLS: ToolDef[] = [
       }).join("\n");
     },
   },
-  {
-    name: "create_vibe",
-    namespace: "yo",
-    description: "Create a vibe app — an interactive HTML panel powered by skills. Creates a skill with type: vibe and writes APP.html.",
-    input_schema: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Vibe name (lowercase, hyphens ok)" },
-        description: { type: "string", description: "One-line description" },
-        html: { type: "string", description: "Full APP.html content — the vibe's UI (self-contained HTML with inline CSS/JS)" },
-        prompt: { type: "string", description: "System prompt for the vibe's backing skill (optional)" },
-        requires: { type: "array", items: { type: "string" }, description: "Skills this vibe can call via window.vibe.runSkill()" },
-        allowed_tools: { type: "array", items: { type: "string" }, description: "Tools the backing skill can use" },
-      },
-      required: ["name", "description", "html"],
-    },
-    async run(input) {
-      if (!deps.skillEngine) return "Skill engine not available.";
-      const name = input.name as string;
-      if (!name) return "Vibe name is required.";
-      const manifest: Record<string, unknown> = {
-        name,
-        description: input.description as string || "",
-        type: "vibe",
-      };
-      if (input.requires) manifest.requires = input.requires;
-      if (input.allowed_tools) manifest["allowed-tools"] = input.allowed_tools;
-      const prompt = (input.prompt as string) || "";
-      const ok = deps.skillEngine.writeSkill(name, manifest, prompt);
-      if (!ok) return `Failed to create vibe "${name}".`;
-      deps.skillEngine.writeSkillFile(name, "APP.html", input.html as string);
-      return `Vibe "${name}" created. Open it with .dip vibe-${name}`;
-    },
-  },
-  {
-    name: "update_vibe",
-    namespace: "yo",
-    description: "Update a vibe's HTML, prompt, or manifest. Only provided fields are changed.",
-    input_schema: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Vibe name to update" },
-        html: { type: "string", description: "Updated APP.html content" },
-        description: { type: "string", description: "Updated description" },
-        prompt: { type: "string", description: "Updated skill prompt" },
-        requires: { type: "array", items: { type: "string" }, description: "Updated skill dependencies" },
-        allowed_tools: { type: "array", items: { type: "string" }, description: "Updated allowed tools" },
-      },
-      required: ["name"],
-    },
-    async run(input) {
-      if (!deps.skillEngine) return "Skill engine not available.";
-      const name = input.name as string;
-      const existing = deps.skillEngine.getSkill(name);
-      if (!existing) return `Vibe "${name}" not found. Use create_vibe to create it.`;
-      const manifest = { ...existing.manifest };
-      if (input.description !== undefined) manifest.description = input.description;
-      if (input.requires !== undefined) manifest.requires = input.requires;
-      if (input.allowed_tools !== undefined) manifest["allowed-tools"] = input.allowed_tools;
-      manifest.type = "vibe";
-      const prompt = (input.prompt as string) ?? existing.prompt;
-      deps.skillEngine.writeSkill(name, manifest, prompt);
-      if (input.html !== undefined) {
-        deps.skillEngine.writeSkillFile(name, "APP.html", input.html as string);
-      }
-      return `Vibe "${name}" updated.`;
-    },
-  },
-  {
-    name: "read_vibe",
-    namespace: "yo",
-    description: "Read a vibe's HTML and manifest, or list all vibes.",
-    input_schema: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Vibe name (omit to list all)" },
-      },
-    },
-    async run(input) {
-      if (!deps.skillEngine) return "Skill engine not available.";
-      const name = input.name as string;
-      if (!name) {
-        const vibes = deps.skillEngine.listVibes();
-        if (vibes.length === 0) return "No vibes found. Use create_vibe to make one.";
-        return vibes.map(v => `${v.name} — ${v.description || "(no description)"}`).join("\n");
-      }
-      const skill = deps.skillEngine.getSkill(name);
-      if (!skill) return `Vibe "${name}" not found.`;
-      const lines = [`Vibe: ${name}`, `Description: ${(skill.manifest as any).description || "(none)"}`];
-      const m = skill.manifest as Record<string, unknown>;
-      if (m.requires) lines.push(`Requires: ${(m.requires as string[]).join(", ")}`);
-      if (m["allowed-tools"]) lines.push(`Allowed tools: ${(m["allowed-tools"] as string[]).join(", ")}`);
-      const html = deps.skillEngine.readSkillFile(name, "APP.html");
-      if (html) lines.push("", "--- APP.html ---", html);
-      if (skill.prompt) lines.push("", "--- PROMPT ---", skill.prompt);
-      return lines.join("\n");
-    },
-  },
   // ── Data store tools ──────────────────────────────────────
   {
     name: "store_set",
@@ -614,7 +523,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
     input_schema: {
       type: "object",
       properties: {
-        namespace: { type: "string", description: "Store namespace (e.g. skill/vibe name, or any logical group)" },
+        namespace: { type: "string", description: "Store namespace (e.g. skill name, or any logical group)" },
         key: { type: "string", description: "Key to store under" },
         value: { description: "JSON value to store (object, array, string, number, boolean)" },
       },
@@ -891,76 +800,281 @@ const BUILTIN_TOOLS: ToolDef[] = [
       return lines.join("\n");
     },
   },
+  // ── Panel interaction tools ──────────────────────────────
   {
-    name: "delegate_navigate",
+    name: "list_panels",
     namespace: "yo",
-    description: "Delegate panel/app navigation tasks to a sub-agent.",
-    input_schema: {
-      type: "object",
-      properties: { instruction: { type: "string", description: "Navigation task" } },
-      required: ["instruction"],
-    },
-    async run(input) {
-      const instruction = input.instruction as string;
-      if (!instruction) return "No instruction provided.";
-      if (!deps.navigatorAgent) return "Navigator not available.";
-      try {
-        deps.navigatorAgent.setBudget?.(null);
-        const panelList = deps.navigatorAgent.listPanels();
-        const enriched = panelList
-          ? `${instruction}\n\nAVAILABLE APP PANELS:\n${panelList}`
-          : instruction;
-        const result = await deps.navigatorAgent.execute(enriched, null);
-        return result.summary;
-      } catch (err) {
-        return `Delegation error: ${err instanceof Error ? err.message : err}`;
-      }
+    description: "List all available workspace panels with IDs and URLs.",
+    input_schema: { type: "object", properties: {} },
+    async run() {
+      if (!deps.panels) return "Panel system not available.";
+      return deps.panels.list();
     },
   },
   {
-    name: "delegate_layout",
+    name: "scan_panel",
     namespace: "yo",
-    description: "Delegate layout/grid arrangement tasks to a sub-agent.",
+    description: "Fast DOM scan of a panel — returns actionable elements (inputs, buttons, links, content areas). Use this FIRST for element discovery before click/type.",
     input_schema: {
       type: "object",
-      properties: { instruction: { type: "string", description: "Layout task" } },
-      required: ["instruction"],
+      properties: { panel_id: { type: "string", description: "Panel ID to scan" } },
+      required: ["panel_id"],
     },
     async run(input) {
-      const instruction = input.instruction as string;
-      if (!instruction) return "No instruction provided.";
-      if (!deps.layoutAgent) return "Layout agent not available.";
-      try {
-        deps.layoutAgent.setBudget?.(null);
-        const result = await deps.layoutAgent.execute(instruction, null);
-        return result.summary;
-      } catch (err) {
-        return `Delegation error: ${err instanceof Error ? err.message : err}`;
-      }
+      if (!deps.panels) return "Panel system not available.";
+      const scan = await deps.panels.scan(input.panel_id as string);
+      if (!scan) return `Could not scan panel: ${input.panel_id}`;
+      return scan.length > 4000 ? scan.slice(0, 4000) + "\n[scan truncated]" : scan;
     },
   },
   {
-    name: "delegate_build",
+    name: "grab_panel",
     namespace: "yo",
-    description: "Delegate skill/vibe building to a coding sub-agent. Use for creating or updating skills, vibes, data pipelines, and wiring stores. The builder writes production code, follows the data pipeline pattern (skill extracts → store normalizes → vibe renders), and knows Chart.js, the vibe API, and SKILL.js runner API.",
+    description: "Grab full visible text content from a panel. EXPENSIVE (~10K tokens). Use scan_panel first for element discovery.",
+    input_schema: {
+      type: "object",
+      properties: { panel_id: { type: "string", description: "Panel ID to grab content from" } },
+      required: ["panel_id"],
+    },
+    async run(input) {
+      if (!deps.panels) return "Panel system not available.";
+      const content = await deps.panels.grab(input.panel_id as string);
+      if (!content) return `Could not grab content from panel: ${input.panel_id}`;
+      return content.length > 4000 ? content.slice(0, 4000) + "\n[content truncated]" : content;
+    },
+  },
+  {
+    name: "click_element",
+    namespace: "yo",
+    description: "Click an element in a panel by visible text or CSS selector.",
     input_schema: {
       type: "object",
       properties: {
-        instruction: { type: "string", description: "What to build — describe the skill/vibe, what data it handles, how the user interacts with it, and any connected skills or stores." },
+        panel_id: { type: "string", description: "Panel ID" },
+        text: { type: "string", description: "Visible text to click" },
+        selector: { type: "string", description: "CSS selector to click" },
       },
-      required: ["instruction"],
+      required: ["panel_id"],
     },
     async run(input) {
-      const instruction = input.instruction as string;
-      if (!instruction) return "No instruction provided.";
-      if (!deps.builderAgent) return "Builder agent not available.";
-      try {
-        deps.builderAgent.setBudget?.(null);
-        const result = await deps.builderAgent.execute(instruction, null);
-        return result.summary;
-      } catch (err) {
-        return `Delegation error: ${err instanceof Error ? err.message : err}`;
+      if (!deps.panels) return "Panel system not available.";
+      const text = input.text as string | undefined;
+      const selector = input.selector as string | undefined;
+      if (!text && !selector) return "Provide either text or selector to click.";
+      return deps.panels.click(input.panel_id as string, text, selector);
+    },
+  },
+  {
+    name: "navigate_panel",
+    namespace: "yo",
+    description: "Navigate an existing panel to a specific URL.",
+    input_schema: {
+      type: "object",
+      properties: {
+        panel_id: { type: "string", description: "Panel ID" },
+        url: { type: "string", description: "URL to navigate to" },
+      },
+      required: ["panel_id", "url"],
+    },
+    async run(input) {
+      if (!deps.panels) return "Panel system not available.";
+      return deps.panels.navigate(input.panel_id as string, input.url as string);
+    },
+  },
+  {
+    name: "type_text",
+    namespace: "yo",
+    description: "Type text into an input field in a panel. Use submit=true for Enter.",
+    input_schema: {
+      type: "object",
+      properties: {
+        panel_id: { type: "string", description: "Panel ID" },
+        text: { type: "string", description: "Text to type" },
+        label: { type: "string", description: "Input label to target" },
+        placeholder: { type: "string", description: "Input placeholder to target" },
+        selector: { type: "string", description: "CSS selector of the input" },
+        clear: { type: "boolean", description: "Clear existing text first" },
+        submit: { type: "boolean", description: "Press Enter after typing" },
+      },
+      required: ["panel_id", "text"],
+    },
+    async run(input) {
+      if (!deps.panels) return "Panel system not available.";
+      return deps.panels.type(input.panel_id as string, input.text as string, {
+        label: input.label as string | undefined,
+        placeholder: input.placeholder as string | undefined,
+        selector: input.selector as string | undefined,
+        clear: input.clear as boolean | undefined,
+        submit: input.submit as boolean | undefined,
+      });
+    },
+  },
+  {
+    name: "open_panel",
+    namespace: "yo",
+    description: "Open a NEW app panel by URL. Only use for apps not already in list_panels.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to open" },
+        panel_id: { type: "string", description: "Optional panel ID to assign" },
+      },
+      required: ["url"],
+    },
+    async run(input) {
+      if (!deps.panels) return "Panel system not available.";
+      return deps.panels.open(input.url as string, input.panel_id as string | undefined);
+    },
+  },
+  {
+    name: "run_panel_command",
+    namespace: "yo",
+    description: "Execute a pre-mapped app command (grab, input, submit, new, search, read-latest). Faster than manual click/type.",
+    input_schema: {
+      type: "object",
+      properties: {
+        panel_id: { type: "string", description: "Panel ID" },
+        command: { type: "string", description: "Command name" },
+        value: { type: "string", description: "Optional value for the command" },
+      },
+      required: ["panel_id", "command"],
+    },
+    async run(input) {
+      if (!deps.panels) return "Panel system not available.";
+      return deps.panels.runCommand(input.panel_id as string, input.command as string, input.value as string | undefined);
+    },
+  },
+  {
+    name: "refresh_panel",
+    namespace: "yo",
+    description: "Reload a panel's page.",
+    input_schema: {
+      type: "object",
+      properties: { panel_id: { type: "string", description: "Panel ID (omit for active panel)" } },
+    },
+    async run(input) {
+      if (!deps.panels) return "Panel system not available.";
+      return deps.panels.refresh(input.panel_id as string | undefined);
+    },
+  },
+  {
+    name: "manage_tabs",
+    namespace: "yo",
+    description: "Manage workspace tabs: list, switch, close, create new.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "switch", "close", "new"], description: "Tab action" },
+        tab_id: { type: "string", description: "Tab ID (for switch/close)" },
+      },
+      required: ["action"],
+    },
+    async run(input) {
+      if (!deps.tabs) return "Tab management not available.";
+      const action = input.action as string;
+      switch (action) {
+        case "list": {
+          const tabs = deps.tabs.list();
+          if (tabs.length === 0) return "No tabs open.";
+          return tabs.map((t) => `${t.id} — ${t.title}${t.url ? ` (${t.url})` : ""}`).join("\n");
+        }
+        case "switch": {
+          const id = input.tab_id as string;
+          if (!id) return "Provide tab_id to switch to.";
+          deps.tabs.switch(id);
+          return `Switched to tab: ${id}`;
+        }
+        case "close": {
+          const id = input.tab_id as string;
+          if (!id) return "Provide tab_id to close.";
+          deps.tabs.close(id);
+          return `Closed tab: ${id}`;
+        }
+        case "new": {
+          const id = deps.tabs.create();
+          return `Created new tab: ${id}`;
+        }
+        default: return `Unknown tab action: ${action}`;
       }
+    },
+  },
+  // ── Layout tools ──────────────────────────────────────────
+  {
+    name: "switch_panel",
+    namespace: "yo",
+    description: "Switch to a single panel fullscreen.",
+    input_schema: {
+      type: "object",
+      properties: { panel_id: { type: "string", description: "Panel ID to switch to" } },
+      required: ["panel_id"],
+    },
+    async run(input) {
+      if (!deps.execCommand) return "Command runner not available.";
+      return deps.execCommand(`dip ${input.panel_id}`);
+    },
+  },
+  {
+    name: "split_view",
+    namespace: "yo",
+    description: "Create split view with 2+ panels side by side. Use / for rows.",
+    input_schema: {
+      type: "object",
+      properties: { panels: { type: "string", description: "Panel IDs space-separated, / for row break (e.g. 'gmail slack / claude')" } },
+      required: ["panels"],
+    },
+    async run(input) {
+      if (!deps.execCommand) return "Command runner not available.";
+      return deps.execCommand(`dip split ${input.panels}`);
+    },
+  },
+  {
+    name: "grid_layout",
+    namespace: "yo",
+    description: "Create grid layout with optional col/row sizes and spans.",
+    input_schema: {
+      type: "object",
+      properties: {
+        panels: { type: "string", description: "Panel cells (e.g. 'gmail:2x1 slack claude')" },
+        col_widths: { type: "string", description: "Column widths (e.g. '2,1,1')" },
+        row_heights: { type: "string", description: "Row heights (e.g. '1,2')" },
+      },
+      required: ["panels"],
+    },
+    async run(input) {
+      if (!deps.execCommand) return "Command runner not available.";
+      let cmd = "dip grid";
+      if (input.col_widths) cmd += ` [${input.col_widths}]`;
+      if (input.row_heights) cmd += ` [${input.row_heights}]`;
+      cmd += ` ${input.panels}`;
+      return deps.execCommand(cmd);
+    },
+  },
+  {
+    name: "apply_saved_layout",
+    namespace: "yo",
+    description: "Apply a previously saved layout by name.",
+    input_schema: {
+      type: "object",
+      properties: { name: { type: "string", description: "Layout name" } },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.execCommand) return "Command runner not available.";
+      return deps.execCommand(`dip ${input.name}`);
+    },
+  },
+  {
+    name: "save_current_layout",
+    namespace: "yo",
+    description: "Save current panel arrangement as a named layout.",
+    input_schema: {
+      type: "object",
+      properties: { name: { type: "string", description: "Layout name to save as" } },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.execCommand) return "Command runner not available.";
+      return deps.execCommand(`waz layout ${input.name}`);
     },
   },
   {
@@ -1210,10 +1324,8 @@ export async function executeTool(name: string, input: Record<string, unknown>):
     const skillName = name.slice(6).replace(/_/g, "-");
     if (!deps.skillEngine) return "Skill engine not available.";
     try {
-      const skillInput = "input" in input ? input.input : input;
-      const out = await deps.skillEngine.runSkill(skillName, skillInput, { trigger: "skill" });
-      if (out === undefined || out === null) return "[skill produced no output]";
-      return typeof out === "string" ? out : JSON.stringify(out, null, 2);
+      const content = "input" in input ? String(input.input) : JSON.stringify(input);
+      return await deps.skillEngine.process(content, skillName);
     } catch (err) {
       return `Skill error: ${err instanceof Error ? err.message : String(err)}`;
     }

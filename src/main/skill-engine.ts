@@ -3,11 +3,9 @@
  *
  * A skill is a folder under ~/yo/skills/<name>/ containing:
  *   - SKILL.md    (required): YAML frontmatter + prompt body
- *   - SKILL.js    (optional): deterministic lifecycle runner (init/start/end/exit)
  *   - Any other files (arbitrary artifacts, templates, examples)
  *
  * This file handles storage, CRUD, and run history.
- * The runner lives in skill-runner.ts.
  */
 
 import fs from "fs";
@@ -17,19 +15,17 @@ import crypto from "crypto";
 import yaml from "js-yaml";
 import AdmZip from "adm-zip";
 
-import { LLMConfig, createCompletion } from "./llm-config";
+import { LLMConfig } from "./llm-config";
+import { sdkComplete } from "./sdk-llm";
 import {
   Skill,
   SkillManifest,
   SkillSummary,
   SkillRun,
   ProgressEvent,
-  RunOpts,
-  RunTrigger,
 } from "./skill-types";
 
 const SKILL_MD = "SKILL.md";
-const SKILL_JS = "SKILL.js";
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 // Legacy fallback prompt when a skill has neither runner nor body.
@@ -121,23 +117,14 @@ export class SkillEngine {
   listSkillsDetailed(): SkillSummary[] {
     return this.listSkills().map((name) => {
       const s = this.getSkill(name);
-      if (!s) return { name, hasRunner: false, hasApp: false, scheduled: false };
+      if (!s) return { name, scheduled: false };
       return {
         name,
         description: s.manifest.description,
-        hasRunner: s.hasRunner,
-        hasApp: s.hasApp,
         scheduled: !!s.manifest.schedule,
         scheduleExpr: s.manifest.schedule ?? undefined,
       };
     });
-  }
-
-  listVibes(): Array<{ name: string; description?: string; folderPath: string }> {
-    return this.listSkills()
-      .map(name => this.getSkill(name))
-      .filter((s): s is Skill => s !== null && (s.manifest.type === "vibe" || s.hasApp))
-      .map(s => ({ name: s.name, description: s.manifest.description, folderPath: s.folderPath }));
   }
 
   getSkill(name: string): Skill | null {
@@ -146,14 +133,11 @@ export class SkillEngine {
     if (!fs.existsSync(mdPath)) return null;
     const raw = fs.readFileSync(mdPath, "utf-8");
     const { manifest, body } = this.parseFrontmatter(raw);
-    // Ensure manifest.name matches folder
     if (!manifest.name) manifest.name = name;
     return {
       name,
       manifest,
       prompt: body,
-      hasRunner: fs.existsSync(path.join(folder, SKILL_JS)),
-      hasApp: fs.existsSync(path.join(folder, "APP.html")),
       folderPath: folder,
     };
   }
@@ -164,12 +148,7 @@ export class SkillEngine {
     return s ? s.prompt : null;
   }
 
-  /**
-   * Create or update a skill folder. If runnerCode is provided, writes SKILL.js.
-   * If runnerCode is null and SKILL.js exists, deletes it.
-   * If runnerCode is undefined, leaves existing SKILL.js untouched.
-   */
-  writeSkill(name: string, manifest: SkillManifest, prompt: string, runnerCode?: string | null): boolean {
+  writeSkill(name: string, manifest: SkillManifest, prompt: string): boolean {
     name = this.sanitizeName(name);
     if (!name) return false;
     manifest.name = name;
@@ -178,13 +157,6 @@ export class SkillEngine {
     const mdPath = path.join(folder, SKILL_MD);
     const mdContent = this.serializeFrontmatter(manifest, prompt || "");
     fs.writeFileSync(mdPath, mdContent, "utf-8");
-
-    const jsPath = path.join(folder, SKILL_JS);
-    if (runnerCode === null) {
-      if (fs.existsSync(jsPath)) fs.unlinkSync(jsPath);
-    } else if (typeof runnerCode === "string") {
-      fs.writeFileSync(jsPath, runnerCode, "utf-8");
-    }
     this.emitChange();
     return true;
   }
@@ -352,53 +324,39 @@ export class SkillEngine {
     const skill = skillName ? this.getSkill(skillName) : null;
     const prompt = (skill?.prompt && skill.prompt.trim()) || DEFAULT_SKILL_PROMPT;
 
-    if (!this.llmConfig?.apiKey) {
-      return `---\ncaptured: ${new Date().toISOString()}\nskill: ${skillName || "default"}\n---\n\n${buffer}`;
-    }
     return this.callLLM(prompt, buffer);
   }
 
   async processWithPrompt(content: string, prompt: string): Promise<string> {
-    if (!this.llmConfig?.apiKey) return content;
     return this.callLLM(prompt, content);
   }
 
   async generatePrompt(name: string, description: string): Promise<string> {
-    if (!this.llmConfig?.apiKey) return "";
+    if (!this.llmConfig) return "";
     const system = "You are a skill prompt writer. Given a skill name and description, write a system prompt that an AI assistant should follow when processing content with this skill. Output ONLY the system prompt text, nothing else. Make it clear, specific, and actionable. Include an instruction to output plain text only (no markdown formatting) since output gets pasted into real apps.";
     try {
-      const response = await createCompletion(this.llmConfig, {
+      const result = await sdkComplete({
         system,
-        messages: [{ role: "user", content: `Skill name: ${name}\nDescription: ${description}` }],
-        maxTokens: 2048,
+        prompt: `Skill name: ${name}\nDescription: ${description}`,
+        model: this.llmConfig.model,
       });
-      const block = response.content[0];
-      if (block.type === "text") return block.text;
-      return "";
+      return result.text;
     } catch { return ""; }
   }
 
   private async callLLM(systemPrompt: string, content: string): Promise<string> {
     try {
-      const response = await createCompletion(this.llmConfig!, {
+      const result = await sdkComplete({
         system: systemPrompt,
-        messages: [{ role: "user", content: `Here is the raw session content to process:\n\n${content}` }],
-        maxTokens: 4096,
+        prompt: `Here is the raw session content to process:\n\n${content}`,
+        model: this.llmConfig?.model,
       });
-      const block = response.content[0];
-      if (block.type === "text") return block.text;
-      return content;
+      return result.text || content;
     } catch {
       return `---\nerror: LLM processing failed\ncaptured: ${new Date().toISOString()}\n---\n\n${content}`;
     }
   }
 
-  // ── Run a skill via its lifecycle runner (delegates to skill-runner) ──────
-
-  async runSkill(name: string, input: unknown, opts: RunOpts = {}): Promise<unknown> {
-    const { runSkillLifecycle } = await import("./skill-runner");
-    return runSkillLifecycle(this, name, input, opts);
-  }
 }
 
 // Re-export types for callers

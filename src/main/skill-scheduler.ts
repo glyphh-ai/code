@@ -78,7 +78,7 @@ export class SkillScheduler {
 
       const task = cron.schedule(expr, () => {
         if (this.paused.has(name)) return;
-        this.engine.runSkill(name, null, { trigger: "schedule" }).catch((err) => {
+        this.engine.process("", name).catch((err) => {
           console.error(`[scheduler] skill "${name}" failed:`, err);
         });
       });

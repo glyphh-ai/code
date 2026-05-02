@@ -9,7 +9,8 @@
  */
 
 import { PanelManager } from "./panel-manager";
-import { LLMConfig, createCompletion, createStream } from "./llm-config";
+import { LLMConfig } from "./llm-config";
+import { sdkComplete } from "./sdk-llm";
 
 export interface ChatCallbacks {
   onText: (delta: string) => void;
@@ -73,12 +74,6 @@ export class YoChat {
 
 
   async send(message: string, cb: ChatCallbacks): Promise<void> {
-    if (!this.llmConfig?.apiKey) {
-      cb.onText("No API key configured. Set your LLM provider in Settings.");
-      cb.onDone();
-      return;
-    }
-
     this.history.push({ role: "user", content: message });
 
     try {
@@ -105,8 +100,6 @@ export class YoChat {
     content: string,
     skillNames: string[],
   ): Promise<{ message: string; content: string; type: "skill" | "content" }> {
-    if (!this.llmConfig?.apiKey) return { message: "", content: "No API key configured.", type: "content" };
-
     const context = this.buildContext();
 
     const skillList = skillNames.length > 0
@@ -140,16 +133,13 @@ The complete output — either the refined content OR the skill prompt template
 
 Return the FULL document between <document> tags. Do NOT abbreviate or summarize it.`;
 
-    const response = await createCompletion(this.llmConfig!, {
+    const result = await sdkComplete({
       system: SYSTEM_RETRIEVAL + "\n\n" + context,
-      messages: [{ role: "user", content: userPrompt }],
-      maxTokens: 4096,
+      prompt: userPrompt,
+      model: this.llmConfig!.model,
     });
 
-    let text = "";
-    for (const block of response.content) {
-      if (block.type === "text") text += block.text;
-    }
+    let text = result.text;
 
     const typeMatch = text.match(/<type>(skill|content)<\/type>/i);
     const msgMatch = text.match(/<message>([\s\S]*?)<\/message>/);
@@ -180,7 +170,7 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
     appId: string,
     appContent?: string,
   ): Promise<string> {
-    if (!this.llmConfig?.apiKey) return "No API key configured.";
+    if (!this.llmConfig) return "Not configured.";
 
     const isConversation = appId === "yo-conversation" || appId === "yo-refine";
     const system = isConversation ? SYSTEM_CONVERSATION : SYSTEM_RETRIEVAL;
@@ -191,17 +181,13 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
       userParts.push(`\nContext chunks:\n\n${appContent.slice(0, 24000)}`);
     }
 
-    const response = await createCompletion(this.llmConfig, {
+    const result = await sdkComplete({
       system,
-      messages: [{ role: "user", content: userParts.join("\n") }],
-      maxTokens: isConversation ? 1024 : 4096,
+      prompt: userParts.join("\n"),
+      model: this.llmConfig!.model,
     });
 
-    let text = "";
-    for (const block of response.content) {
-      if (block.type === "text") text += block.text;
-    }
-    return text || "not found";
+    return result.text || "not found";
   }
 
   /**
@@ -210,56 +196,39 @@ Return the FULL document between <document> tags. Do NOT abbreviate or summarize
    * No tools, no streaming, no agent loop.
    */
   async executeProcess(prompt: string, capturedContent: string): Promise<string> {
-    if (!this.llmConfig?.apiKey) return "No API key configured.";
+    if (!this.llmConfig) return "Not configured.";
 
     const system = `You are yo, a lightweight processing assistant. The user captured content from their screen and wants you to process it with a specific instruction.
 
 Return ONLY the processed result. No preamble, no explanation, no meta-commentary. Just the output the user asked for, ready to paste directly.`;
 
-    const response = await createCompletion(this.llmConfig, {
+    const result = await sdkComplete({
       system,
-      messages: [{
-        role: "user",
-        content: `Instruction: ${prompt}\n\nCaptured content:\n\n${capturedContent.slice(0, 24000)}`,
-      }],
-      maxTokens: 4096,
+      prompt: `Instruction: ${prompt}\n\nCaptured content:\n\n${capturedContent.slice(0, 24000)}`,
+      model: this.llmConfig!.model,
     });
 
-    let text = "";
-    for (const block of response.content) {
-      if (block.type === "text") text += block.text;
-    }
-    return text || "";
+    return result.text || "";
   }
 
   // ── Stream + tool loop ────────────────────────────────
 
   private async streamLoop(cb: ChatCallbacks): Promise<void> {
     const context = this.buildContext();
+    const lastMsg = this.history[this.history.length - 1];
+    const prompt = typeof lastMsg?.content === "string" ? lastMsg.content : "";
 
-    const response = await createStream(
-      this.llmConfig!,
-      { system: SYSTEM_RETRIEVAL + "\n\n" + context, messages: this.history, tools: TOOLS, maxTokens: 4096 },
-      (text) => cb.onText(text),
-    );
+    const result = await sdkComplete({
+      system: SYSTEM_RETRIEVAL + "\n\n" + context,
+      prompt,
+      model: this.llmConfig!.model,
+    });
 
-    this.history.push({ role: "assistant", content: response.content });
-
-    // Handle tool calls
-    const toolBlocks = response.content.filter((b: any) => b.type === "tool_use");
-    if (toolBlocks.length > 0 && response.stopReason === "tool_use") {
-      const results: any[] = [];
-      for (const block of toolBlocks) {
-        if (block.type !== "tool_use") continue;
-        cb.onToolUse(block.name, block.input);
-        const result = await this.exec(block.name, block.input as Record<string, unknown>);
-        results.push({ type: "tool_result", tool_use_id: block.id, content: result });
-      }
-      this.history.push({ role: "user", content: results });
-      await this.streamLoop(cb);
-    } else {
-      cb.onDone();
+    if (result.text) {
+      cb.onText(result.text);
+      this.history.push({ role: "assistant", content: [{ type: "text", text: result.text }] });
     }
+    cb.onDone();
   }
 
   private buildContext(): string {

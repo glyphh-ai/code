@@ -4657,7 +4657,7 @@ select.settings-input {
 .yo-scroll-btn {
   position: absolute;
   left: 50%;
-  bottom: 80px;
+  bottom: 110px;
   transform: translateX(-50%);
   z-index: 10;
   width: 24px;

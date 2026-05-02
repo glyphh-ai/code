@@ -102,9 +102,9 @@ declare global {
       isAuthenticated: () => Promise<boolean>;
       getAccountInfo: () => Promise<{ email: string; firstName: string; lastName: string; role: string; orgName: string; tier: string; billingStatus: string } | null>;
       logout: () => Promise<void>;
-      validateApiKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
-      getApiKey: () => Promise<string | null>;
-      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => void;
+      validateApiKey: () => Promise<{ valid: boolean }>;
+      getApiKey: () => Promise<null>;
+      onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => void;
       onThemeChanged: (callback: (theme: string) => void) => void;
       onShowOnboarding: (callback: () => void) => void;
       onShowWelcome: (callback: () => void) => void;
@@ -163,9 +163,9 @@ declare global {
       capturesListForSource: (source: string, offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>;
       capturesDailyHistoryForSource: (source: string, days?: number) => Promise<Array<{ date: string; count: number; bytes: number }>>;
       // LLM config
-      getLLMConfig: () => Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>;
-      getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>;
-      saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) => Promise<{ ok: boolean; error?: string }>;
+      getLLMConfig: () => Promise<{ provider: string; model: string }>;
+      getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string }>>;
+      saveLLMConfig: (config: { provider: string; model: string }) => Promise<{ ok: boolean; error?: string }>;
       // Tabs
       tabList: () => Promise<{ tabs: TabInfo[]; activeId: string; visible: boolean }>;
       tabSwitch: (id: string) => void;
@@ -340,52 +340,6 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => {
   window.yo.tabNewApp("home");
 });
 
-// -- MCP indicator --
-
-const mcpIndicator = document.getElementById("mcp-indicator")!;
-
-let mcpEverStarted = false;
-
-async function updateMcpIndicator() {
-  try {
-    const status = await window.yo.mcpExposeStatus();
-    if (status.running) {
-      mcpEverStarted = true;
-      mcpIndicator.classList.remove("hidden", "stopped");
-      mcpIndicator.classList.add("running");
-      mcpIndicator.title = `MCP Server running on port ${status.port} — click to stop`;
-    } else if (mcpEverStarted) {
-      mcpIndicator.classList.remove("hidden", "running");
-      mcpIndicator.classList.add("stopped");
-      mcpIndicator.title = "MCP Server stopped — click to start";
-    } else {
-      const enabled = await window.yo.getPreference("mcpExposeRunning", false);
-      if (enabled) {
-        mcpIndicator.classList.remove("hidden", "running");
-        mcpIndicator.classList.add("stopped");
-        mcpIndicator.title = "MCP Server stopped — click to start";
-      } else {
-        mcpIndicator.classList.add("hidden");
-      }
-    }
-  } catch {
-    if (!mcpEverStarted) mcpIndicator.classList.add("hidden");
-  }
-}
-
-mcpIndicator.addEventListener("click", async () => {
-  const status = await window.yo.mcpExposeStatus();
-  if (status.running) {
-    await window.yo.mcpExposeStop();
-  } else {
-    await window.yo.mcpExposeStart();
-  }
-  await updateMcpIndicator();
-});
-
-// Poll MCP status periodically and on boot
-updateMcpIndicator();
-setInterval(updateMcpIndicator, 10000);
 
 // -- Yos balance badge --
 
@@ -2034,6 +1988,7 @@ function finalizeYoMessage(fullText: string) {
   }
 
   yoScroll();
+  yoPanelInput.focus();
 }
 
 function showPlanActions() {
@@ -2256,11 +2211,16 @@ function showYoError(err: string) {
   if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
   yoLastAssistantText = "";
   yoTurnFullText = "";
+  const cleaned = err
+    .replace(/Claude Code/gi, ".Yo")
+    .replace(/Claude/gi, ".Yo")
+    .replace(/Anthropic/gi, ".Yo");
   const el = document.createElement("div");
   el.className = "yo-msg yo-msg-error";
-  el.textContent = err;
+  el.textContent = cleaned;
   yoPanelMessages.appendChild(el);
   yoScroll();
+  yoPanelInput.focus();
 }
 
 function autoGrowYoInput() {

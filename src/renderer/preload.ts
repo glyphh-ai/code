@@ -180,9 +180,9 @@ contextBridge.exposeInMainWorld("yo", {
   isAuthenticated: () => ipcRenderer.invoke("is-authenticated") as Promise<boolean>,
   getAccountInfo: () => ipcRenderer.invoke("get-account-info") as Promise<{ email: string; firstName: string; lastName: string; role: string; orgName: string; tier: string; billingStatus: string } | null>,
   logout: () => ipcRenderer.invoke("logout") as Promise<void>,
-  validateApiKey: (key: string) => ipcRenderer.invoke("validate-api-key", key) as Promise<{ valid: boolean; error?: string }>,
-  getApiKey: () => ipcRenderer.invoke("get-api-key") as Promise<string | null>,
-  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; apiKey: boolean; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => {
+  validateApiKey: () => Promise.resolve({ valid: true }),
+  getApiKey: () => Promise.resolve(null),
+  onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => {
     ipcRenderer.on("boot", (_event, data) => callback(data));
   },
   onThemeChanged: (callback: (theme: string) => void) => {
@@ -226,9 +226,9 @@ contextBridge.exposeInMainWorld("yo", {
   },
 
   // LLM config
-  getLLMConfig: () => ipcRenderer.invoke("get-llm-config") as Promise<{ provider: string; model: string; apiKey: string; baseUrl: string | null }>,
-  getLLMPresets: () => ipcRenderer.invoke("get-llm-presets") as Promise<Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }>>,
-  saveLLMConfig: (config: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
+  getLLMConfig: () => ipcRenderer.invoke("get-llm-config") as Promise<{ provider: string; model: string }>,
+  getLLMPresets: () => ipcRenderer.invoke("get-llm-presets") as Promise<Record<string, { name: string; models: string[]; defaultModel: string }>>,
+  saveLLMConfig: (config: { provider: string; model: string }) =>
     ipcRenderer.invoke("save-llm-config", config) as Promise<{ ok: boolean; error?: string }>,
 
   // Tabs

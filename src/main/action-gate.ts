@@ -7,7 +7,7 @@
  */
 
 import { getPreference } from "./preferences";
-import { isDestructiveTool } from "./substrate";
+import { isDestructiveTool } from "./substrate/tools";
 
 export type AgentMode = "plan" | "ask" | "auto" | "code" | "bypass";
 export type ToolTier = "observe" | "mutate";

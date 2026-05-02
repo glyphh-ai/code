@@ -201,37 +201,12 @@ function initAnimation(canvas: HTMLCanvasElement) {
 const overlay = document.getElementById("onboarding-overlay");
 const canvas = document.getElementById("onboarding-canvas") as HTMLCanvasElement | null;
 const stepAuth = document.getElementById("onboarding-step-auth");
-const stepApiKey = document.getElementById("onboarding-step-apikey");
 const signinBtn = document.getElementById("onboarding-signin") as HTMLButtonElement | null;
 const registerBtn = document.getElementById("onboarding-register") as HTMLButtonElement | null;
-const providerSelect = document.getElementById("onboarding-provider") as HTMLSelectElement | null;
-const apiKeyInput = document.getElementById("onboarding-apikey") as HTMLInputElement | null;
-const baseUrlInput = document.getElementById("onboarding-base-url") as HTMLInputElement | null;
-const modelInput = document.getElementById("onboarding-model") as HTMLInputElement | null;
-const activateBtn = document.getElementById("onboarding-activate") as HTMLButtonElement | null;
 const statusEl = document.getElementById("onboarding-status");
 const trialInfo = document.getElementById("onboarding-trial");
-const welcomeMsg = document.getElementById("onboarding-welcome-msg");
 
 const ONBOARDING_AVAILABLE = !!overlay;
-
-// Provider change -> update placeholders
-let presets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> | null = null;
-
-if (ONBOARDING_AVAILABLE && providerSelect && apiKeyInput && baseUrlInput && modelInput) {
-  window.yo.getLLMPresets().then((p) => { presets = p; });
-
-  providerSelect.addEventListener("change", () => {
-    const p = providerSelect.value;
-    const preset = presets?.[p];
-    if (preset && apiKeyInput) {
-      apiKeyInput.placeholder = `${preset.name} API key (${preset.keyPlaceholder})`;
-    }
-    const isCustom = p === "custom";
-    baseUrlInput.classList.toggle("hidden", !isCustom);
-    modelInput.classList.toggle("hidden", !isCustom);
-  });
-}
 
 let stopAnimation: (() => void) | null = null;
 
@@ -242,18 +217,11 @@ if (closeBtn) {
   });
 }
 
-export function showOnboarding(needsAuth: boolean) {
-  if (!overlay || !trialInfo || !stepAuth || !stepApiKey) return;
+export function showOnboarding(_needsAuth?: boolean) {
+  if (!overlay || !trialInfo || !stepAuth) return;
   overlay.classList.remove("hidden");
-  if (needsAuth) {
-    trialInfo.textContent = "Sign in to your account or create one to get started.";
-    stepAuth.classList.remove("hidden");
-    stepApiKey.classList.add("hidden");
-  } else {
-    trialInfo.textContent = "One more step — set up your AI provider.";
-    stepAuth.classList.add("hidden");
-    stepApiKey.classList.remove("hidden");
-  }
+  trialInfo.textContent = "Sign in to your account or create one to get started.";
+  stepAuth.classList.remove("hidden");
   if (canvas) stopAnimation = initAnimation(canvas);
 }
 
@@ -269,8 +237,16 @@ function setStatus(msg: string, isError = false) {
   statusEl.className = isError ? "onboarding-error" : "onboarding-success";
 }
 
-if (ONBOARDING_AVAILABLE && signinBtn && registerBtn && activateBtn && apiKeyInput && providerSelect && baseUrlInput && modelInput && welcomeMsg && stepAuth && stepApiKey && trialInfo) {
-  // Step 1: Sign in / Register via BrowserWindow
+function completeOnboarding() {
+  setStatus("All set!");
+  setTimeout(() => {
+    hideOnboarding();
+    window.yo.onboardingComplete();
+    window.dispatchEvent(new Event("yo-onboarding-done"));
+  }, 600);
+}
+
+if (ONBOARDING_AVAILABLE && signinBtn && registerBtn && stepAuth && trialInfo) {
   signinBtn.addEventListener("click", async () => {
     signinBtn.disabled = true;
     signinBtn.textContent = "Opening...";
@@ -281,20 +257,7 @@ if (ONBOARDING_AVAILABLE && signinBtn && registerBtn && activateBtn && apiKeyInp
     signinBtn.textContent = "Sign in";
 
     if (ok) {
-      const existingConfig = await window.yo.getLLMConfig();
-      if (existingConfig?.apiKey) {
-        hideOnboarding();
-        window.yo.panelsShow();
-        return;
-      }
-      const account = await window.yo.getAccountInfo();
-      if (account) {
-        welcomeMsg.textContent = `Welcome back, ${account.firstName}! Enter your AI API key to get started.`;
-      }
-      stepAuth.classList.add("hidden");
-      stepApiKey.classList.remove("hidden");
-      trialInfo.textContent = "One more step — set up your AI provider.";
-      apiKeyInput.focus();
+      completeOnboarding();
     } else {
       setStatus("Sign in was cancelled or failed", true);
     }
@@ -310,71 +273,10 @@ if (ONBOARDING_AVAILABLE && signinBtn && registerBtn && activateBtn && apiKeyInp
     registerBtn.textContent = "Create Account";
 
     if (ok) {
-      const existingConfig = await window.yo.getLLMConfig();
-      if (existingConfig?.apiKey) {
-        hideOnboarding();
-        window.yo.panelsShow();
-        return;
-      }
-      const account = await window.yo.getAccountInfo();
-      if (account) {
-        welcomeMsg.textContent = `Welcome, ${account.firstName}! Enter your AI API key to get started.`;
-      }
-      stepAuth.classList.add("hidden");
-      stepApiKey.classList.remove("hidden");
-      trialInfo.textContent = "One more step — set up your AI provider.";
-      apiKeyInput.focus();
+      completeOnboarding();
     } else {
       setStatus("Registration was cancelled or failed", true);
     }
-  });
-
-  // Step 2: API key validation
-  activateBtn.addEventListener("click", async () => {
-    const apiKey = apiKeyInput.value.trim();
-    const provider = providerSelect.value;
-
-    if (!apiKey) {
-      setStatus("API key is required", true);
-      return;
-    }
-
-    activateBtn.disabled = true;
-    activateBtn.textContent = "Validating...";
-    setStatus("");
-
-    const preset = presets?.[provider];
-    const model = provider === "custom" ? modelInput.value.trim() : (preset?.defaultModel || "");
-    const config: { provider: string; model: string; apiKey: string; baseUrl?: string } = {
-      provider,
-      model,
-      apiKey,
-    };
-    if (provider === "custom" && baseUrlInput.value.trim()) {
-      config.baseUrl = baseUrlInput.value.trim();
-    }
-
-    const result = await window.yo.saveLLMConfig(config);
-    if (!result.ok) {
-      setStatus(result.error || "Invalid API key", true);
-      activateBtn.disabled = false;
-      activateBtn.textContent = "Continue";
-      return;
-    }
-
-    setStatus("All set!");
-    setTimeout(() => {
-      hideOnboarding();
-      window.yo.onboardingComplete();
-      window.dispatchEvent(new Event("yo-onboarding-done"));
-    }, 600);
-  });
-
-  // Enter key submits
-  [apiKeyInput, baseUrlInput, modelInput].forEach((input) => {
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") activateBtn.click();
-    });
   });
 
   // Policy links

@@ -6,12 +6,7 @@ import { closeHelp } from "./shared.js";
 
 // ── Settings ─────────────────────────────────────────────
 
-const settingsProvider = document.getElementById("settings-provider") as HTMLSelectElement;
 const settingsModelSelect = document.getElementById("settings-model-select") as HTMLSelectElement;
-const settingsModelCustom = document.getElementById("settings-model-custom") as HTMLInputElement;
-const settingsApiKey = document.getElementById("settings-api-key") as HTMLInputElement;
-const settingsBaseUrl = document.getElementById("settings-base-url") as HTMLInputElement;
-const settingsBaseUrlLabel = document.getElementById("settings-base-url-label")!;
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsStatus = document.getElementById("settings-status")!;
 
@@ -23,26 +18,21 @@ const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HT
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
-const toggleMcpExpose = document.getElementById("toggle-mcp-expose") as HTMLInputElement;
 const toggleCypherAutoTerminate = document.getElementById("toggle-cypher-auto-terminate") as HTMLInputElement;
 const toggleOfferUsage = document.getElementById("toggle-offer-usage") as HTMLInputElement;
 const offerUsageStatus = document.getElementById("offer-usage-status")!;
 const offerUsageClientId = document.getElementById("offer-usage-client-id")!;
 const offerUsageTier = document.getElementById("offer-usage-tier")!;
 const offerUsageProviders = document.getElementById("offer-usage-providers")!;
-const mcpExposeSettings = document.getElementById("mcp-expose-settings")!;
 const mcpExposeStatus = document.getElementById("mcp-expose-status")!;
 const mcpExposePort = document.getElementById("mcp-expose-port") as HTMLInputElement;
 const mcpExposeTokensEl = document.getElementById("mcp-expose-tokens")!;
-const settingsContextWindow = document.getElementById("settings-context-window") as HTMLInputElement;
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
-const settingsSubagentModel = document.getElementById("settings-subagent-model") as HTMLSelectElement;
 const toolOverridesBody = document.getElementById("tool-overrides-body")!;
 
-let settingsPresets: Record<string, { name: string; models: string[]; defaultModel: string; baseUrl?: string; keyPlaceholder: string }> = {};
 
 async function refreshOfferUsageStatus() {
   const s = await window.yo.capabilitiesGetStatus();
@@ -59,18 +49,12 @@ async function refreshOfferUsageStatus() {
 async function refreshMcpExposeStatus() {
   const status = await window.yo.mcpExposeStatus();
   const port = status.port || parseInt(mcpExposePort.value, 10) || 7860;
-  const startBtn = document.getElementById("mcp-expose-start-btn") as HTMLButtonElement;
-  const stopBtn = document.getElementById("mcp-expose-stop-btn") as HTMLButtonElement;
   if (status.running) {
     mcpExposeStatus.textContent = `Running on http://127.0.0.1:${port}`;
     mcpExposeStatus.style.color = "var(--accent)";
-    startBtn.classList.add("hidden");
-    stopBtn.classList.remove("hidden");
   } else {
-    mcpExposeStatus.textContent = "Stopped";
+    mcpExposeStatus.textContent = "Starting...";
     mcpExposeStatus.style.color = "var(--text-2)";
-    startBtn.classList.remove("hidden");
-    stopBtn.classList.add("hidden");
   }
   const configEl = document.getElementById("mcp-expose-config-example");
   if (configEl) {
@@ -143,7 +127,6 @@ async function renderMcpTokens() {
 }
 
 function initSettings() {
-  settingsProvider.addEventListener("change", () => updateSettingsUI());
   settingsSaveBtn.addEventListener("click", saveSettings);
 
   // Theme picker
@@ -225,49 +208,13 @@ function initSettings() {
     }
   });
 
-  // MCP Expose toggle
-  toggleMcpExpose.addEventListener("change", async () => {
-    const enabled = toggleMcpExpose.checked;
-    window.yo.setPreference("mcpExposeEnabled", enabled);
-    mcpExposeSettings.classList.toggle("hidden", !enabled);
-    if (enabled) {
-      const result = await window.yo.mcpExposeStart();
-      if (!result.ok) {
-        mcpExposeStatus.textContent = `Error: ${result.error}`;
-        mcpExposeStatus.style.color = "var(--danger)";
-      } else {
-        await refreshMcpExposeStatus();
-      }
-    } else {
-      await window.yo.mcpExposeStop();
-      mcpExposeStatus.textContent = "Stopped";
-      mcpExposeStatus.style.color = "var(--text-2)";
-    }
-  });
-  document.getElementById("mcp-expose-port-save")!.addEventListener("click", () => {
+  // MCP Expose — port save
+  document.getElementById("mcp-expose-port-save")!.addEventListener("click", async () => {
     const port = parseInt(mcpExposePort.value, 10);
     if (port >= 1024 && port <= 65535) {
       window.yo.setPreference("mcpExposePort", port);
-    }
-  });
-  document.getElementById("mcp-expose-start-btn")!.addEventListener("click", async () => {
-    const port = parseInt(mcpExposePort.value, 10);
-    if (port >= 1024 && port <= 65535) {
-      window.yo.setPreference("mcpExposePort", port);
-    }
-    const result = await window.yo.mcpExposeStart();
-    if (!result.ok) {
-      mcpExposeStatus.textContent = `Error: ${result.error}`;
-      mcpExposeStatus.style.color = "var(--danger)";
-    } else {
-      toggleMcpExpose.checked = true;
-      window.yo.setPreference("mcpExposeEnabled", true);
       await refreshMcpExposeStatus();
     }
-  });
-  document.getElementById("mcp-expose-stop-btn")!.addEventListener("click", async () => {
-    await window.yo.mcpExposeStop();
-    await refreshMcpExposeStatus();
   });
   document.getElementById("mcp-expose-gen-token")!.addEventListener("click", async () => {
     const labelInput = document.getElementById("mcp-expose-token-label") as HTMLInputElement;
@@ -302,41 +249,12 @@ function initSettings() {
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
 
-  settingsContextWindow.addEventListener("change", () => {
-    const val = parseInt(settingsContextWindow.value, 10);
-    if (val >= 10 && val <= 200) {
-      window.yo.setPreference("yoContextWindow", val);
-    }
-  });
-
   // Agent mode
   settingsAgentMode.addEventListener("change", () => {
     window.yo.setAgentMode(settingsAgentMode.value);
     // Sync the yo panel dropdown too
     const yoModeEl = document.getElementById("yo-mode-select") as HTMLSelectElement;
     if (yoModeEl) yoModeEl.value = settingsAgentMode.value;
-  });
-
-  // Sub-agent model
-  settingsSubagentModel.addEventListener("change", () => {
-    window.yo.setPreference("subAgentModel", settingsSubagentModel.value);
-  });
-
-  // Budget settings
-  const budgetTokensEl = document.getElementById("settings-budget-tokens") as HTMLInputElement;
-  const budgetToolsEl = document.getElementById("settings-budget-tools") as HTMLInputElement;
-  const budgetTimeoutEl = document.getElementById("settings-budget-timeout") as HTMLInputElement;
-  budgetTokensEl?.addEventListener("change", () => {
-    const val = parseInt(budgetTokensEl.value, 10);
-    if (val >= 50000) window.yo.setPreference("substrate.budget.maxTokens", val);
-  });
-  budgetToolsEl?.addEventListener("change", () => {
-    const val = parseInt(budgetToolsEl.value, 10);
-    if (val >= 5) window.yo.setPreference("substrate.budget.maxToolCalls", val);
-  });
-  budgetTimeoutEl?.addEventListener("change", () => {
-    const val = parseInt(budgetTimeoutEl.value, 10);
-    if (val >= 60) window.yo.setPreference("substrate.budget.maxDepthMs", val * 1000);
   });
 
   toggleShowTabs.addEventListener("change", () => {
@@ -392,52 +310,16 @@ function initSettings() {
   });
 }
 
-function updateSettingsUI(currentModel?: string) {
-  const provider = settingsProvider.value;
-  const preset = settingsPresets[provider];
-
-  // API key placeholder
-  if (preset) {
-    settingsApiKey.placeholder = `${preset.keyPlaceholder}`;
-  }
-
-  // Model dropdown vs custom input
-  if (preset && preset.models.length > 0) {
-    settingsModelSelect.innerHTML = preset.models.map((m) =>
-      `<option value="${m}" ${m === currentModel ? "selected" : ""}>${m}</option>`
-    ).join("");
-    settingsModelSelect.classList.remove("hidden");
-    settingsModelCustom.classList.add("hidden");
-  } else {
-    settingsModelSelect.classList.add("hidden");
-    settingsModelCustom.classList.remove("hidden");
-    if (currentModel) settingsModelCustom.value = currentModel;
-  }
-
-  // Base URL — show for custom and providers with base URLs
-  const showBaseUrl = provider === "custom" || provider === "openai" || provider === "google";
-  settingsBaseUrl.classList.toggle("hidden", !showBaseUrl);
-  settingsBaseUrlLabel.classList.toggle("hidden", !showBaseUrl);
-  if (preset?.baseUrl && !settingsBaseUrl.value) {
-    settingsBaseUrl.placeholder = preset.baseUrl;
-  }
-}
 
 async function loadSettings() {
   settingsStatus.textContent = "";
-  const [config, presets, accountInfo, authStatus] = await Promise.all([
+  const [config, accountInfo, authStatus] = await Promise.all([
     window.yo.getLLMConfig(),
-    window.yo.getLLMPresets(),
     window.yo.getAccountInfo(),
     window.yo.getAuthStatus(),
   ]);
-  settingsPresets = presets;
 
-  settingsProvider.value = config.provider;
-  settingsApiKey.value = config.apiKey;
-  settingsBaseUrl.value = config.baseUrl || "";
-
-  updateSettingsUI(config.model);
+  settingsModelSelect.value = config.model;
 
   // Account info
   const emailEl = document.getElementById("account-email")!;
@@ -483,22 +365,12 @@ async function loadSettings() {
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   toggleCypherAutoTerminate.checked = await window.yo.getPreference("cypherAutoTerminate", false) as boolean;
   await refreshOfferUsageStatus();
-  settingsContextWindow.value = String(await window.yo.getPreference("yoContextWindow", 40));
-
-  // Budget settings
-  const bTokens = document.getElementById("settings-budget-tokens") as HTMLInputElement;
-  const bTools = document.getElementById("settings-budget-tools") as HTMLInputElement;
-  const bTimeout = document.getElementById("settings-budget-timeout") as HTMLInputElement;
-  if (bTokens) bTokens.value = String(await window.yo.getPreference("substrate.budget.maxTokens", 200000));
-  if (bTools) bTools.value = String(await window.yo.getPreference("substrate.budget.maxToolCalls", 40));
-  if (bTimeout) bTimeout.value = String(Math.round((await window.yo.getPreference("substrate.budget.maxDepthMs", 300000) as number) / 1000));
 
   // MCP Expose — gate behind Advanced tier
   const mcpSectionWrap = document.getElementById("mcp-section-wrap")!;
   const mcpProGate = document.getElementById("mcp-pro-gate")!;
   if (authStatus.tier !== "advanced") {
     mcpSectionWrap.classList.add("hidden");
-    mcpExposeSettings.classList.add("hidden");
     mcpProGate.classList.remove("hidden");
     const mcpUpgradeBtn = document.getElementById("mcp-upgrade-btn");
     if (mcpUpgradeBtn) {
@@ -511,40 +383,14 @@ async function loadSettings() {
     mcpSectionWrap.classList.remove("hidden");
     mcpProGate.classList.add("hidden");
     document.getElementById("mcp-expose-new-token")?.classList.add("hidden");
-    const mcpEnabled = await window.yo.getPreference("mcpExposeEnabled", false) as boolean;
-    toggleMcpExpose.checked = mcpEnabled;
-    mcpExposeSettings.classList.toggle("hidden", !mcpEnabled);
     mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
-    if (mcpEnabled) {
-      await refreshMcpExposeStatus();
-      await renderMcpTokens();
-    }
+    await refreshMcpExposeStatus();
+    await renderMcpTokens();
   }
 
   // Agent mode
   const currentMode = await window.yo.getAgentMode();
   settingsAgentMode.value = currentMode;
-
-  // Sub-agent model — populate from current provider's preset
-  const currentProvider = config.provider;
-  const currentPreset = presets[currentProvider];
-  settingsSubagentModel.innerHTML = '<option value="auto">Auto (cheapest)</option>';
-  if (currentPreset) {
-    for (const m of currentPreset.models) {
-      const opt = document.createElement("option");
-      opt.value = m;
-      opt.textContent = m.replace(/^claude-|^gpt-|^gemini-/i, "").replace(/-\d{8}$/, "");
-      settingsSubagentModel.appendChild(opt);
-    }
-  }
-  // Also allow "same as orchestrator"
-  const sameOpt = document.createElement("option");
-  sameOpt.value = "orchestrator";
-  sameOpt.textContent = "Same as orchestrator";
-  settingsSubagentModel.appendChild(sameOpt);
-
-  const savedSubModel = await window.yo.getPreference("subAgentModel", "auto") as string;
-  settingsSubagentModel.value = savedSubModel;
 
   // Tool overrides table
   const tools = await window.yo.getToolRegistry();
@@ -599,32 +445,13 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const provider = settingsProvider.value;
-  const preset = settingsPresets[provider];
-  const model = (preset && preset.models.length > 0)
-    ? settingsModelSelect.value
-    : settingsModelCustom.value.trim();
-  // Use existing key if the field wasn't changed
-  const currentConfig = await window.yo.getLLMConfig();
-  const apiKey = settingsApiKey.value.trim() || currentConfig.apiKey;
-
-  if (!apiKey) {
-    settingsStatus.textContent = "API key is required";
-    settingsStatus.className = "settings-error";
-    return;
-  }
+  const model = settingsModelSelect.value;
 
   settingsSaveBtn.disabled = true;
   settingsSaveBtn.textContent = "Saving...";
   settingsStatus.textContent = "";
 
-  const config: { provider: string; model: string; apiKey: string; baseUrl?: string } = {
-    provider,
-    model,
-    apiKey,
-  };
-  const baseUrl = settingsBaseUrl.value.trim();
-  if (baseUrl) config.baseUrl = baseUrl;
+  const config = { provider: "anthropic", model };
 
   const result = await window.yo.saveLLMConfig(config);
   settingsSaveBtn.disabled = false;
@@ -634,7 +461,7 @@ async function saveSettings() {
     settingsStatus.textContent = "Saved!";
     settingsStatus.className = "settings-success";
   } else {
-    settingsStatus.textContent = result.error || "Validation failed";
+    settingsStatus.textContent = result.error || "Save failed";
     settingsStatus.className = "settings-error";
   }
 }

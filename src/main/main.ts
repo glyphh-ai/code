@@ -16,13 +16,13 @@ import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewrit
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed } from "./auth";
+import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
 import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher } from "./cypher-runtime";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
 import { pushAgentProfile, deleteAgentProfile, syncAllAgents } from "./agent-sync";
-import { loadLLMConfig, saveLLMConfig, validateLLMConfig, PROVIDER_PRESETS, LLMConfig, createCompletion } from "./llm-config";
+import { loadLLMConfig, saveLLMConfig, LLMConfig } from "./llm-config";
 import { LayoutManager } from "./layout-manager";
 import { AppConnector } from "./app-connector";
 import { canAddApp, canCreateSkill, canSaveLayout, canUseMcp, canUseSync, canUseVoice, getCurrentLimits } from "./entitlements";
@@ -47,6 +47,7 @@ import { autoUpdater } from "electron-updater";
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
+import { usageQueue } from "./usage-queue";
 import { promptLog } from "./prompt-log";
 import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
@@ -64,18 +65,7 @@ import { DataStore, closeDataStoreDb } from "./data-store";
 import { closeSubstrateDb } from "./substrate/store";
 import { initLocalDb, closeLocalDb } from "./local-db";
 import { migrateFromFiles } from "./stores/migrate-from-files";
-import { setRunnerDependencies, setSubstrateBudgetOpts } from "./skill-runner";
-import {
-  setContextDeps as setSubstrateContextDeps,
-  setRecallDeps as setSubstrateRecallDeps,
-  setIntentDeps as setSubstrateIntentDeps,
-  setAppDeps as setSubstrateAppDeps,
-  setComposeDeps as setSubstrateComposeDeps,
-  setCritiqueDeps as setSubstrateCritiqueDeps,
-  setRememberOpts as setSubstrateRememberOpts,
-  setSubstrateToolDeps,
-  listBuiltinYoTools,
-} from "./substrate";
+import { setSubstrateToolDeps, listBuiltinYoTools } from "./substrate/tools";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -266,22 +256,16 @@ async function boot() {
     console.log(`[local-db] migrated from files: ${migrationResult.agents} agents, ${migrationResult.layouts} layouts, ${migrationResult.prefs} prefs`);
   }
 
-  // Load LLM config (auto-migrates from legacy .apikey if needed)
+  // Load LLM config (provider + model selection only)
   let llmConfig = loadLLMConfig();
-  if (llmConfig.provider === "anthropic" && llmConfig.apiKey) {
-    process.env.ANTHROPIC_API_KEY = llmConfig.apiKey;
-  }
 
   function applyLLMConfig(config: LLMConfig) {
     llmConfig = config;
-    if (config.provider === "anthropic" && config.apiKey) {
-      process.env.ANTHROPIC_API_KEY = config.apiKey;
-    }
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
     yoAgent?.setLLMConfig(config);
     yoInterceptor?.setCurrentModel(config.model);
-    yoInterceptor?.setAvailableModels(PROVIDER_PRESETS[config.provider]?.models || []);
+    yoInterceptor?.setAvailableModels(["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]);
   }
 
   // ── yo-asset:// protocol — serves shared assets (Chart.js etc.) to vibe panels ──
@@ -346,26 +330,18 @@ async function boot() {
   actionGrabber.setCaptureStore(captureStore);
   actionGrabber.setAppConnector(appConnector);
 
-  // MCP expose — read-only server for external LLM tools (Advanced tier)
+  // MCP expose — always-on local server for agent tool access
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
   mcpExpose.setWorkspaceGetter(workspaceGetter);
   mcpExpose.setWorkspaceBackend(eventLog, workspaceManager);
-  // Auto-start MCP server if it was running when the app last closed.
-  // Skip tier check here — heartbeat hasn't been fetched yet at boot.
-  // The user had the right tier when they enabled it; if they've since
-  // downgraded, the heartbeat will catch it and the UI will gate.
-  const mcpWasRunning = getPreference<boolean>("mcpExposeRunning", false);
-  if (mcpWasRunning) {
-    mcpExpose.start().then((r) => {
-      if (r.ok) {
-        console.log("[mcp-expose] auto-started on launch");
-      } else {
-        console.error("[mcp-expose] failed to auto-start:", r.error);
-        setPreference("mcpExposeRunning", false);
-      }
-    });
-  }
+  mcpExpose.start().then((r) => {
+    if (r.ok) {
+      console.log("[mcp-expose] started on launch");
+    } else {
+      console.error("[mcp-expose] failed to start:", r.error);
+    }
+  });
 
   // MCP Manager — always init so tools are ready when the agent needs them.
   // Tier gates apply at the UI level (add/connect), not at boot.
@@ -380,95 +356,10 @@ async function boot() {
   skillToolRouter = new SkillToolRouter();
   skillToolRouter.setYoTools(listBuiltinYoTools());
   skillToolRouter.setMcpManager(mcpManager);
-  setRunnerDependencies({
-    toolRouter: skillToolRouter,
-    mcpManager,
-    libraryRead: (name) => {
-      try {
-        const notesDir = noteStore?.notesDir;
-        if (!notesDir) return null;
-        // Find first note file matching the name
-        const files = fs.readdirSync(notesDir).filter((f) => f.startsWith(name) && f.endsWith(".md"));
-        if (!files.length) return null;
-        return fs.readFileSync(path.join(notesDir, files[0]), "utf-8");
-      } catch { return null; }
-    },
-    libraryWrite: (name, content) => {
-      try {
-        noteStore?.write(name, content, "skill-runner").catch(() => {});
-        return true;
-      } catch { return false; }
-    },
-    dataStore,
-  });
   skillScheduler = new SkillScheduler(skillEngine);
   skillScheduler.start();
 
-  // ── Substrate (autonomic primitives) ──────────────────────
-  // sense.context: panel + app awareness
-  setSubstrateContextDeps({
-    getActivePanelId: () => panelManager.activePanelId,
-    getAppName: (id: string) => appConnector.get(id)?.name ?? null,
-    getRecentCaptures: (limit) => {
-      try {
-        return captureStore.recentCaptures(limit).map((c) => ({
-          id: c.meta.id, source: c.meta.source, preview: (c.content || "").slice(0, 200), at: c.meta.created,
-        }));
-      } catch { return []; }
-    },
-  });
-  // sense.recall: vector search via captureStore
-  setSubstrateRecallDeps({
-    vectorSearch: async (query, limit) => {
-      try {
-        const results = await captureStore.search(query, limit);
-        return results.map((r) => ({ id: r.meta.id, preview: (r.content || "").slice(0, 200), score: r.score }));
-      } catch { return []; }
-    },
-  });
-  // sense.intent + think.critique: small LLM helper
-  const substrateLlm = async (prompt: string): Promise<string> => {
-    if (!llmConfig?.apiKey) return "";
-    try {
-      const response = await createCompletion(llmConfig, {
-        system: "",
-        messages: [{ role: "user", content: prompt }],
-        maxTokens: 256,
-      });
-      const block = response.content[0];
-      return block.type === "text" ? block.text : "";
-    } catch { return ""; }
-  };
-  setSubstrateIntentDeps({ llm: substrateLlm });
-  setSubstrateCritiqueDeps({ llm: substrateLlm });
-  // sense.app: connected apps
-  setSubstrateAppDeps({
-    listConnectedApps: () => appConnector.list().map((a) => ({ id: a.id, name: a.name })),
-    getActivePanelId: () => panelManager.activePanelId,
-  });
-  // think.compose: skill registry
-  setSubstrateComposeDeps({
-    listSkills: () => skillEngine.listSkillsDetailed().map((s) => ({
-      name: s.name, description: s.description,
-    })),
-  });
-  // reflex.remember: pattern threshold + recognition callback
-  setSubstrateRememberOpts({
-    patternThreshold: 5,
-    onPatternRecognized: ({ intent, skill, count }) => {
-      console.log(`[substrate] pattern recognized: intent=${intent} skill=${skill} count=${count}`);
-      mainWindow?.webContents.send("substrate-pattern-recognized", { intent, skill, count });
-    },
-  });
-  // think.budget: tunable via preferences
-  setSubstrateBudgetOpts({
-    maxTokens: getPreference<number>("substrate.budget.maxTokens", 200_000),
-    maxToolCalls: getPreference<number>("substrate.budget.maxToolCalls", 40),
-    maxDepth: getPreference<number>("substrate.budget.maxDepth", 5),
-    maxDepthMs: getPreference<number>("substrate.budget.maxDepthMs", 300_000),
-  });
-
-  // Unified tool registry deps (substrate + user skills + MCP)
+  // Tool registry deps — provides dependencies to substrate/tools.ts
   setSubstrateToolDeps({
     captureStore: { search: (q, n) => captureStore.search(q, n) },
     sessionCache: { get: () => session.get() },
@@ -478,30 +369,16 @@ async function boot() {
     },
     memoryStore: { save: (content, category) => memoryStore.save(content, category as any) },
     skillEngine: {
-      runSkill: (name, input, opts) => skillEngine.runSkill(name, input, opts as any),
+      process: (content, skillName) => skillEngine.process(content, skillName),
       listSkillsDetailed: () => skillEngine.listSkillsDetailed(),
-      getSkill: (name) => { const s = skillEngine.getSkill(name); return s ? { manifest: s.manifest as any, prompt: s.prompt, hasRunner: s.hasRunner, folderPath: s.folderPath } : null; },
-      writeSkill: (name, manifest, prompt, runnerCode) => skillEngine.writeSkill(name, manifest as any, prompt, runnerCode),
+      getSkill: (name) => { const s = skillEngine.getSkill(name); return s ? { manifest: s.manifest as any, prompt: s.prompt, folderPath: s.folderPath } : null; },
+      writeSkill: (name, manifest, prompt) => skillEngine.writeSkill(name, manifest as any, prompt),
       deleteSkill: (name) => skillEngine.deleteSkill(name),
       readSkillFile: (name, rel) => skillEngine.readSkillFile(name, rel),
       writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
       listSkillFiles: (name) => skillEngine.listSkillFiles(name),
-      listVibes: () => skillEngine.listVibes(),
     },
     council: { start: (opts, log) => council.start(opts, log) as any },
-    navigatorAgent: {
-      execute: (instruction, ctx) => yoAgent.navigator.execute(instruction, ctx),
-      listPanels: () => yoAgent.navigator.listPanels() ?? "",
-      setBudget: (budget) => yoAgent.navigator.setBudget(budget),
-    },
-    layoutAgent: {
-      execute: (instruction, ctx) => yoAgent.layout.execute(instruction, ctx),
-      setBudget: (budget) => yoAgent.layout.setBudget(budget),
-    },
-    builderAgent: {
-      execute: (instruction, ctx) => yoAgent.builder.execute(instruction, ctx),
-      setBudget: (budget) => yoAgent.builder.setBudget(budget),
-    },
     dripManager: {
       listCustoms: () => dripManager!.listCustoms(),
       saveCustom: (name: string, recipe: string) => dripManager!.saveCustom(name, recipe),
@@ -666,26 +543,6 @@ async function boot() {
   yoAgent.setWorkspaceGetter(workspaceGetter);
   yoAgent.setSkillEngine(skillEngine);
   yoAgent.setCouncil(council);
-  yoAgent.builder.setSkillCallbacks({
-    getSkill: (name) => { const s = skillEngine.getSkill(name); return s ? { manifest: s.manifest as any, prompt: s.prompt, hasRunner: s.hasRunner, hasApp: s.hasApp, folderPath: s.folderPath } : null; },
-    writeSkill: (name, manifest, prompt, runnerCode) => skillEngine.writeSkill(name, manifest as any, prompt, runnerCode),
-    readSkillFile: (name, rel) => skillEngine.readSkillFile(name, rel),
-    writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
-    listSkillFiles: (name) => skillEngine.listSkillFiles(name),
-    listSkillsDetailed: () => skillEngine.listSkillsDetailed() as any,
-    listVibes: () => skillEngine.listVibes(),
-  });
-  yoAgent.builder.setStoreCallbacks({
-    get: (ns, key) => dataStore.get(ns, key),
-    set: (ns, key, val) => dataStore.set(ns, key, val),
-    delete: (ns, key) => dataStore.delete(ns, key),
-    list: (ns, prefix?, limit?) => dataStore.list(ns, prefix, limit).map(r => ({ key: r.key, value: r.value })),
-    query: (ns, filter, limit?) => dataStore.query(ns, filter, limit).map(r => ({ key: r.key, value: r.value })),
-    keys: (ns) => dataStore.keys(ns),
-    count: (ns) => dataStore.count(ns),
-    clear: (ns) => dataStore.clear(ns),
-    listNamespaces: () => dataStore.listNamespaces(),
-  });
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
@@ -704,7 +561,7 @@ async function boot() {
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   yoInterceptor.setAgentMode(getPreference<string>("agentMode", "ask"));
   yoInterceptor.setCurrentModel(llmConfig.model);
-  yoInterceptor.setAvailableModels(PROVIDER_PRESETS[llmConfig.provider]?.models || []);
+  yoInterceptor.setAvailableModels(["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]);
   const initialTheme = getPreference<string>("theme", "light");
   nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
   const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
@@ -727,32 +584,12 @@ async function boot() {
     }
   }
 
-  // Track vibe panel webContents for IPC scoping (populated by onCreated callback below)
-  const vibeWebContentsMap = new Map<number, string>();
-
   // Track code-terminal panels (Phase 2): panel id → spawn config used when
   // the panel's webContents finishes loading.
   const panelIdToAgentConfig = new Map<string, AgentSpawnConfig>();
   const cwWcWorkspace = new Map<number, string>(); // code-workspace webContents.id → workspace slug
 
   panelManager = new PanelManager((id, wc) => {
-    if (id.startsWith("vibe-")) {
-      const vibeName = id.slice(5);
-      vibeWebContentsMap.set(wc.id, vibeName);
-      wc.on("destroyed", () => vibeWebContentsMap.delete(wc.id));
-    }
-    if (id === "home") {
-      (wc as any).on("did-attach-webview", (_ev: unknown, childWc: Electron.WebContents) => {
-        childWc.on("did-navigate", (_e: unknown, url: string) => {
-          if (url.includes("yo-vibe-preview")) {
-            const match = url.match(/\/([^/.]+)\.html/);
-            const name = match?.[1] || "preview";
-            vibeWebContentsMap.set(childWc.id, name);
-            childWc.on("destroyed", () => vibeWebContentsMap.delete(childWc.id));
-          }
-        });
-      });
-    }
     const baseAppId = resolveAppId(id);
     console.log(`[onCreated] panel="${id}" baseApp="${baseAppId}" wcId=${wc.id}`);
     if (baseAppId === "term") {
@@ -997,36 +834,11 @@ async function boot() {
         </div></body></html>`)}`;
         panelManager.addPanel(app.id, infoPage);
       }
-    } else if (app.url?.startsWith("yo://vibe/")) {
-      const vibeName = app.url.replace("yo://vibe/", "");
-      const appHtmlPath = path.join(os.homedir(), "yo", "skills", vibeName, "APP.html");
-      if (fs.existsSync(appHtmlPath)) {
-        const vibePreload = path.join(__dirname, "vibe-preload.js");
-        panelManager.addPanel(app.id, `file://${appHtmlPath}`, vibePreload);
-      }
     } else {
       panelManager.addPanel(app.id, app.url!, undefined, app.forceWeb);
     }
   }
 
-  // ── Vibe registration (skill-based apps) ───────────────
-  // Vibes share the unified app/panel namespace. Their slug IS the panel id —
-  // no prefix. Vibes register after built-ins, so on slug collision the vibe
-  // wins (the customer's vibe takes precedence over a shipped built-in).
-  function registerVibes(): void {
-    const vibePreload = path.join(__dirname, "vibe-preload.js");
-    for (const vibe of skillEngine.listVibes()) {
-      const panelId = vibe.name;
-      const appHtmlPath = path.join(vibe.folderPath, "APP.html");
-      if (!fs.existsSync(appHtmlPath)) continue;
-      const fileUrl = `file://${appHtmlPath}`;
-      panelManager.addPanel(panelId, fileUrl, vibePreload);
-      // Always (re)register in appConnector — vibes overwrite built-ins on collision.
-      appConnector.add(panelId, vibe.name, `yo://vibe/${vibe.name}`);
-    }
-  }
-  registerVibes();
-  skillEngine.onChange(() => registerVibes());
 
   // Start VS Code server in the background if enabled and CLI is available
   if (enableVscode && vscodeServer.available) {
@@ -1166,322 +978,254 @@ async function boot() {
   yoAgent.setMemoryStore(memoryStore);
   yoAgent.setNoteStore(noteStore);
 
-  // Sub-agent wiring — panel interaction callbacks
-  yoAgent.setPanelLister(() => {
-    const ids = panelManager.getLoadedPanelIds();
-    if (ids.length === 0) return "No panels open.";
-    return ids.map((id: string) => {
-      const app = appConnector.get(id);
-      const url = app?.url || "";
-      const active = id === panelManager.activePanelId ? " [active]" : "";
-      return `${id}${active} — ${app?.name || id} (${url})`;
-    }).join("\n");
-  });
-
-  yoAgent.setPanelGrabber(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const app = appConnector.get(panelId);
-    let content = "";
-    if (app?.commands.grab) {
-      try { content = await executeCommand(wc, app.commands.grab); } catch {}
-    }
-    if (!content || content.startsWith("[Element not found")) {
-      try { content = await smartGrab(wc) || ""; } catch {}
-    }
-    return content || null;
-  });
-
-  yoAgent.setPanelScanner(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc) return null;
-    const scan = await scanPanel(wc);
-    if (!scan) return null;
-    let result = formatScan(scan);
-    const app = appConnector.get(panelId);
-    if (app && Object.keys(app.commands).length > 0) {
-      const lines: string[] = ["MAPPED COMMANDS:"];
-      for (const [name, cmd] of Object.entries(app.commands)) {
-        const parts = [`  ${name}: ${cmd.action} "${cmd.selector}"`];
-        if (cmd.description) parts.push(`— ${cmd.description}`);
-        lines.push(parts.join(" "));
-      }
-      result += "\n" + lines.join("\n");
-    }
-    return result;
-  });
-
-  yoAgent.setPanelClicker(async (panelId, text, selector) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    try {
-      const result = await wc.executeJavaScript(`(function(){
-        function realClick(el) {
-          var rect = el.getBoundingClientRect();
-          var x = rect.left + rect.width / 2;
-          var y = rect.top + rect.height / 2;
-          var opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
-          el.dispatchEvent(new PointerEvent('pointerdown', opts));
-          el.dispatchEvent(new MouseEvent('mousedown', opts));
-          el.dispatchEvent(new PointerEvent('pointerup', opts));
-          el.dispatchEvent(new MouseEvent('mouseup', opts));
-          el.dispatchEvent(new MouseEvent('click', opts));
-        }
-        function findClickable(el) {
-          var cur = el;
-          while (cur && cur !== document.body) {
-            var tag = cur.tagName.toLowerCase();
-            if (tag === 'button' || tag === 'a' || cur.getAttribute('role') === 'button' ||
-                cur.getAttribute('role') === 'tab' || cur.getAttribute('role') === 'menuitem' ||
-                cur.onclick || cur.getAttribute('tabindex') !== null) return cur;
-            cur = cur.parentElement;
+  // Panel interaction + layout tools — wired directly to substrate deps
+  setSubstrateToolDeps({
+    panels: {
+      list: () => {
+        const ids = panelManager.getLoadedPanelIds();
+        if (ids.length === 0) return "No panels open.";
+        return ids.map((id: string) => {
+          const app = appConnector.get(id);
+          const url = app?.url || "";
+          const active = id === panelManager.activePanelId ? " [active]" : "";
+          return `${id}${active} — ${app?.name || id} (${url})`;
+        }).join("\n");
+      },
+      scan: async (panelId) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc) return null;
+        const scan = await scanPanel(wc);
+        if (!scan) return null;
+        let result = formatScan(scan);
+        const app = appConnector.get(panelId);
+        if (app && Object.keys(app.commands).length > 0) {
+          const lines: string[] = ["MAPPED COMMANDS:"];
+          for (const [name, cmd] of Object.entries(app.commands)) {
+            const parts = [`  ${name}: ${cmd.action} "${cmd.selector}"`];
+            if (cmd.description) parts.push(`— ${cmd.description}`);
+            lines.push(parts.join(" "));
           }
-          return el;
+          result += "\n" + lines.join("\n");
         }
-        ${selector && !text ? `
-        var el = document.querySelector(${JSON.stringify(selector)});
-        if (el) { realClick(findClickable(el)); return 'Clicked successfully.'; }
-        return 'Element not found: ' + ${JSON.stringify(selector)};
-        ` : ''}
-        ${text ? `
-        var target = ${JSON.stringify(text)};
-        var targetLower = target.toLowerCase();
-        var candidates = [];
-        var all = document.querySelectorAll('[aria-label],[title],[data-tooltip],[placeholder],[data-testid]');
-        for (var i = 0; i < all.length; i++) {
-          var el = all[i];
-          var rect = el.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) continue;
-          var attrs = [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-tooltip'), el.getAttribute('placeholder'), el.getAttribute('data-testid')];
-          for (var j = 0; j < attrs.length; j++) {
-            if (!attrs[j]) continue;
-            var val = attrs[j].toLowerCase();
-            if (val === targetLower) { candidates.push({ el: el, score: 0 }); break; }
-            if (val.includes(targetLower)) { candidates.push({ el: el, score: val.length }); break; }
-          }
+        return result;
+      },
+      grab: async (panelId) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc) return null;
+        const app = appConnector.get(panelId);
+        let content = "";
+        if (app?.commands.grab) {
+          try { content = await executeCommand(wc, app.commands.grab); } catch {}
         }
-        if (candidates.length === 0) {
-          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-          while (walker.nextNode()) {
-            var el = walker.currentNode;
-            var rect = el.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) continue;
-            var t = (el.innerText || el.textContent || '').trim();
-            if (!t || t.length > 500) continue;
-            var tLower = t.toLowerCase();
-            if (tLower === targetLower) { candidates.push({ el: el, score: 0 }); break; }
-            if (tLower.includes(targetLower) && t.length < 200) { candidates.push({ el: el, score: t.length }); }
-          }
+        if (!content || content.startsWith("[Element not found")) {
+          try { content = await smartGrab(wc) || ""; } catch {}
         }
-        candidates.sort(function(a, b) { return a.score - b.score; });
-        if (candidates.length > 0) { realClick(findClickable(candidates[0].el)); return 'Clicked successfully.'; }
-        return 'Element not found: ' + target;
-        ` : ''}
-      })()`);
-      await new Promise((r) => setTimeout(r, 500));
-      return result;
-    } catch (err) {
-      return `Click failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-
-  yoAgent.setPanelNavigator(async (panelId, url) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    try {
-      wc.loadURL(url);
-      return `Navigating to ${url}`;
-    } catch (err) {
-      return `Navigation failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-
-  yoAgent.setPanelTyper(async (panelId, text, opts) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    const shouldClear = opts.clear !== false;
-    try {
-      const focused = await wc.executeJavaScript(`(function(){
-        var el = null;
-        ${opts.selector ? `el = document.querySelector(${JSON.stringify(opts.selector)});` : ''}
-        ${opts.label && !opts.selector ? `
-        if (!el) {
-          var labels = document.querySelectorAll('label, [aria-label]');
-          for (var i = 0; i < labels.length; i++) {
-            var lbl = labels[i];
-            var lt = (lbl.getAttribute('aria-label') || lbl.textContent || '').trim().toLowerCase();
-            if (lt.includes(${JSON.stringify(opts.label.toLowerCase())})) {
-              var forId = lbl.getAttribute('for');
-              if (forId) { el = document.getElementById(forId); break; }
-              el = lbl.querySelector('input,textarea,[contenteditable]');
-              if (el) break;
-              el = lbl.nextElementSibling;
-              if (el && (el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable)) break;
-              el = null;
+        return content || null;
+      },
+      click: async (panelId, text, selector) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+        try {
+          const result = await wc.executeJavaScript(`(function(){
+            function realClick(el) {
+              var rect = el.getBoundingClientRect();
+              var x = rect.left + rect.width / 2;
+              var y = rect.top + rect.height / 2;
+              var opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+              el.dispatchEvent(new PointerEvent('pointerdown', opts));
+              el.dispatchEvent(new MouseEvent('mousedown', opts));
+              el.dispatchEvent(new PointerEvent('pointerup', opts));
+              el.dispatchEvent(new MouseEvent('mouseup', opts));
+              el.dispatchEvent(new MouseEvent('click', opts));
             }
-          }
-        }` : ''}
-        ${opts.placeholder && !opts.selector ? `
-        if (!el) {
-          var inputs = document.querySelectorAll('input[placeholder],textarea[placeholder]');
-          for (var i = 0; i < inputs.length; i++) {
-            if (inputs[i].placeholder.toLowerCase().includes(${JSON.stringify(opts.placeholder.toLowerCase())})) { el = inputs[i]; break; }
-          }
-        }` : ''}
-        if (!el) {
-          if (document.activeElement && (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA'||document.activeElement.isContentEditable)) {
-            el = document.activeElement;
-          }
+            function findClickable(el) {
+              var cur = el;
+              while (cur && cur !== document.body) {
+                var tag = cur.tagName.toLowerCase();
+                if (tag === 'button' || tag === 'a' || cur.getAttribute('role') === 'button' ||
+                    cur.getAttribute('role') === 'tab' || cur.getAttribute('role') === 'menuitem' ||
+                    cur.onclick || cur.getAttribute('tabindex') !== null) return cur;
+                cur = cur.parentElement;
+              }
+              return el;
+            }
+            ${selector && !text ? `
+            var el = document.querySelector(${JSON.stringify(selector)});
+            if (el) { realClick(findClickable(el)); return 'Clicked successfully.'; }
+            return 'Element not found: ' + ${JSON.stringify(selector)};
+            ` : ''}
+            ${text ? `
+            var target = ${JSON.stringify(text)};
+            var targetLower = target.toLowerCase();
+            var candidates = [];
+            var all = document.querySelectorAll('[aria-label],[title],[data-tooltip],[placeholder],[data-testid]');
+            for (var i = 0; i < all.length; i++) {
+              var el = all[i];
+              var rect = el.getBoundingClientRect();
+              if (rect.width === 0 || rect.height === 0) continue;
+              var attrs = [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-tooltip'), el.getAttribute('placeholder'), el.getAttribute('data-testid')];
+              for (var j = 0; j < attrs.length; j++) {
+                if (!attrs[j]) continue;
+                var val = attrs[j].toLowerCase();
+                if (val === targetLower) { candidates.push({ el: el, score: 0 }); break; }
+                if (val.includes(targetLower)) { candidates.push({ el: el, score: val.length }); break; }
+              }
+            }
+            if (candidates.length === 0) {
+              var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+              while (walker.nextNode()) {
+                var el = walker.currentNode;
+                var rect = el.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) continue;
+                var t = (el.innerText || el.textContent || '').trim();
+                if (!t || t.length > 500) continue;
+                var tLower = t.toLowerCase();
+                if (tLower === targetLower) { candidates.push({ el: el, score: 0 }); break; }
+                if (tLower.includes(targetLower) && t.length < 200) { candidates.push({ el: el, score: t.length }); }
+              }
+            }
+            candidates.sort(function(a, b) { return a.score - b.score; });
+            if (candidates.length > 0) { realClick(findClickable(candidates[0].el)); return 'Clicked successfully.'; }
+            return 'Element not found: ' + target;
+            ` : ''}
+          })()`);
+          await new Promise((r) => setTimeout(r, 500));
+          return result;
+        } catch (err) {
+          return `Click failed: ${err instanceof Error ? err.message : err}`;
         }
-        if (!el) return 'not_found';
-        el.focus();
-        if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.select(); }
-        else if (el.isContentEditable) {
-          var range = document.createRange();
-          range.selectNodeContents(el);
-          var sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-        return 'focused';
-      })()`);
-      if (focused === 'not_found') return 'Input field not found.';
-      if (shouldClear) {
-        await wc.executeJavaScript(`(function(){
-          var el = document.activeElement;
-          if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); }
-          else if (el.isContentEditable) { el.textContent=''; }
-        })()`);
-      }
-      wc.insertText(text);
-      await new Promise((r) => setTimeout(r, 200));
-      if (opts.submit) {
-        wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-        await new Promise((r) => setTimeout(r, 50));
-        wc.sendInputEvent({ type: 'char', keyCode: 'Return' });
-        await new Promise((r) => setTimeout(r, 50));
-        wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
-        await new Promise((r) => setTimeout(r, 300));
-        const clicked = await wc.executeJavaScript(`(function(){
-          var selectors = [
-            'button[aria-label*="Send" i]', 'button[aria-label*="Submit" i]',
-            'button[data-testid*="send"]', 'button[data-testid*="submit"]',
-            'button[class*="send" i]', 'form button[type="submit"]',
-          ];
-          for (var i = 0; i < selectors.length; i++) {
-            var btn = document.querySelector(selectors[i]);
-            if (btn && !btn.disabled) { btn.click(); return 'clicked'; }
+      },
+      navigate: async (panelId, url) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+        try { wc.loadURL(url); return `Navigating to ${url}`; }
+        catch (err) { return `Navigation failed: ${err instanceof Error ? err.message : err}`; }
+      },
+      type: async (panelId, text, opts) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+        const shouldClear = opts.clear !== false;
+        try {
+          const focused = await wc.executeJavaScript(`(function(){
+            var el = null;
+            ${opts.selector ? `el = document.querySelector(${JSON.stringify(opts.selector)});` : ''}
+            ${opts.label && !opts.selector ? `
+            if (!el) { var labels = document.querySelectorAll('label, [aria-label]'); for (var i = 0; i < labels.length; i++) { var lbl = labels[i]; var lt = (lbl.getAttribute('aria-label') || lbl.textContent || '').trim().toLowerCase(); if (lt.includes(${JSON.stringify(opts.label.toLowerCase())})) { var forId = lbl.getAttribute('for'); if (forId) { el = document.getElementById(forId); break; } el = lbl.querySelector('input,textarea,[contenteditable]'); if (el) break; el = lbl.nextElementSibling; if (el && (el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable)) break; el = null; } } }` : ''}
+            ${opts.placeholder && !opts.selector ? `if (!el) { var inputs = document.querySelectorAll('input[placeholder],textarea[placeholder]'); for (var i = 0; i < inputs.length; i++) { if (inputs[i].placeholder.toLowerCase().includes(${JSON.stringify(opts.placeholder.toLowerCase())})) { el = inputs[i]; break; } } }` : ''}
+            if (!el) { if (document.activeElement && (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA'||document.activeElement.isContentEditable)) { el = document.activeElement; } }
+            if (!el) return 'not_found';
+            el.focus();
+            if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.select(); }
+            else if (el.isContentEditable) { var range = document.createRange(); range.selectNodeContents(el); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); }
+            return 'focused';
+          })()`);
+          if (focused === 'not_found') return 'Input field not found.';
+          if (shouldClear) {
+            await wc.executeJavaScript(`(function(){ var el = document.activeElement; if (el.tagName==='INPUT'||el.tagName==='TEXTAREA') { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); } else if (el.isContentEditable) { el.textContent=''; } })()`);
           }
-          return 'no-btn';
-        })()`);
-        if (clicked === 'clicked') await new Promise((r) => setTimeout(r, 200));
-        return 'Typed and submitted.';
-      }
-      return 'Typed successfully.';
-    } catch (err) {
-      return `Type failed: ${err instanceof Error ? err.message : err}`;
-    }
-  });
-
-  yoAgent.setPanelCommandRunner(async (panelId, command, value) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
-    const app = appConnector.get(panelId);
-    if (!app) return `No app config for panel "${panelId}".`;
-    const mapping = app.commands[command];
-    if (!mapping) return `No command "${command}" mapped for ${app.name}. Available: ${Object.keys(app.commands).join(", ") || "none"}`;
-    try {
-      return await executeCommand(wc, mapping, value);
-    } catch {
-      return `Command "${command}" failed.`;
-    }
-  });
-
-  yoAgent.setCommandRunner(async (cmd: string) => {
-    const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
-    const result = await execCommand(clean);
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
-    return result;
-  });
-
-  yoAgent.setPanelOpener(async (urlOrName, panelId) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
-    let url = urlOrName;
-    let id = panelId;
-    let isUrl = false;
-    try { new URL(urlOrName); isUrl = true; } catch {}
-    if (!isUrl) {
-      const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
-      const app = appConnector.get(appName);
-      if (app?.url) { url = app.url; id = id || app.id; }
-      else if (panelManager.hasPanel(appName)) {
-        const ok = panelManager.switchTo(appName, mainWindow);
-        return ok ? `Switched to panel "${appName}".` : `Failed to switch to "${appName}".`;
-      } else {
-        return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
-      }
-    }
-    id = id || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
-    if (!panelManager.hasPanel(id)) panelManager.addPanel(id, url);
-    const ok = panelManager.switchTo(id, mainWindow);
-    if (!ok) return `Failed to open panel "${id}".`;
-    await new Promise((r) => setTimeout(r, 2000));
-    return `Opened panel "${id}" at ${url}.`;
-  });
-
-  yoAgent.setBackgroundOpener(async (urlOrName, panelId) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
-    let url = urlOrName;
-    let id = panelId;
-    let isUrl = false;
-    try { new URL(urlOrName); isUrl = true; } catch {}
-    if (!isUrl) {
-      const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
-      const app = appConnector.get(appName);
-      if (app?.url) { url = app.url; id = id || "bg-" + app.id; }
-      else return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
-    }
-    id = id || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
-    if (!panelManager.hasPanel(id)) panelManager.addPanel(id, url);
-    const view = panelManager.getOrCreateView(id, mainWindow);
-    if (!view) return `Failed to create background panel "${id}".`;
-    await new Promise((r) => setTimeout(r, 2000));
-    return `Background panel "${id}" loaded at ${url}.`;
-  });
-
-  yoAgent.setPanelScreenshotter(async (panelId) => {
-    const wc = panelManager.getWebContents(panelId);
-    if (!wc || wc.isDestroyed()) return null;
-    try {
-      const image = await wc.capturePage();
-      return image.toDataURL();
-    } catch { return null; }
-  });
-
-  yoAgent.setPanelRefresher(async (panelId?: string) => {
-    panelManager.refresh(panelId);
-    return panelId ? `Refreshed panel: ${panelId}` : "Refreshed active panel.";
-  });
-
-  yoAgent.setLayoutCallbacks({
-    list: () => layoutManager.listLayouts().map((l) => ({ name: l.name, cols: l.cols, rows: l.rows, cells: l.cells })),
-    save: (name, panels) => {
-      const rows = panels.split("/").map((r) => r.trim().split(/\s+/).filter(Boolean));
-      const numRows = rows.length;
-      const numCols = Math.max(...rows.map((r) => r.length));
-      const cells = rows.flatMap((row, rowIdx) =>
-        row.map((pid, colIdx) => ({ panelId: pid, col: colIdx, row: rowIdx, colSpan: 1, rowSpan: 1 }))
-      );
-      layoutManager.saveLayout({ name, version: 2, cols: numCols, rows: numRows, colWidths: Array(numCols).fill(1 / numCols), rowHeights: Array(numRows).fill(1 / numRows), cells });
-      return true;
+          wc.insertText(text);
+          await new Promise((r) => setTimeout(r, 200));
+          if (opts.submit) {
+            wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+            await new Promise((r) => setTimeout(r, 50));
+            wc.sendInputEvent({ type: 'char', keyCode: 'Return' });
+            await new Promise((r) => setTimeout(r, 50));
+            wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+            await new Promise((r) => setTimeout(r, 300));
+            const clicked = await wc.executeJavaScript(`(function(){ var selectors = ['button[aria-label*="Send" i]','button[aria-label*="Submit" i]','button[data-testid*="send"]','button[data-testid*="submit"]','button[class*="send" i]','form button[type="submit"]']; for (var i = 0; i < selectors.length; i++) { var btn = document.querySelector(selectors[i]); if (btn && !btn.disabled) { btn.click(); return 'clicked'; } } return 'no-btn'; })()`);
+            if (clicked === 'clicked') await new Promise((r) => setTimeout(r, 200));
+            return 'Typed and submitted.';
+          }
+          return 'Typed successfully.';
+        } catch (err) { return `Type failed: ${err instanceof Error ? err.message : err}`; }
+      },
+      open: async (urlOrName, panelId) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
+        let url = urlOrName; let id = panelId; let isUrl = false;
+        try { new URL(urlOrName); isUrl = true; } catch {}
+        if (!isUrl) {
+          const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
+          const app = appConnector.get(appName);
+          if (app?.url) { url = app.url; id = id || app.id; }
+          else if (panelManager.hasPanel(appName)) {
+            const ok = panelManager.switchTo(appName, mainWindow);
+            return ok ? `Switched to panel "${appName}".` : `Failed to switch to "${appName}".`;
+          } else { return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`; }
+        }
+        id = id || new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+        if (!panelManager.hasPanel(id)) panelManager.addPanel(id, url);
+        const ok = panelManager.switchTo(id, mainWindow);
+        if (!ok) return `Failed to open panel "${id}".`;
+        await new Promise((r) => setTimeout(r, 2000));
+        return `Opened panel "${id}" at ${url}.`;
+      },
+      openBackground: async (urlOrName, panelId) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return "Main window not available.";
+        let url = urlOrName; let id = panelId; let isUrl = false;
+        try { new URL(urlOrName); isUrl = true; } catch {}
+        if (!isUrl) {
+          const appName = urlOrName.toLowerCase().replace(/\s+/g, "");
+          const app = appConnector.get(appName);
+          if (app?.url) { url = app.url; id = id || "bg-" + app.id; }
+          else return `Unknown app "${urlOrName}". Provide a full URL starting with https://.`;
+        }
+        id = id || "bg-" + new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+        if (!panelManager.hasPanel(id)) panelManager.addPanel(id, url);
+        const view = panelManager.getOrCreateView(id, mainWindow);
+        if (!view) return `Failed to create background panel "${id}".`;
+        await new Promise((r) => setTimeout(r, 2000));
+        return `Background panel "${id}" loaded at ${url}.`;
+      },
+      runCommand: async (panelId, command, value) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc || wc.isDestroyed()) return `Panel "${panelId}" not found or not loaded.`;
+        const app = appConnector.get(panelId);
+        if (!app) return `No app config for panel "${panelId}".`;
+        const mapping = app.commands[command];
+        if (!mapping) return `No command "${command}" mapped for ${app.name}. Available: ${Object.keys(app.commands).join(", ") || "none"}`;
+        try { return await executeCommand(wc, mapping, value); }
+        catch { return `Command "${command}" failed.`; }
+      },
+      screenshot: async (panelId) => {
+        const wc = panelManager.getWebContents(panelId);
+        if (!wc || wc.isDestroyed()) return null;
+        try { const image = await wc.capturePage(); return image.toDataURL(); }
+        catch { return null; }
+      },
+      refresh: async (panelId) => {
+        panelManager.refresh(panelId);
+        return panelId ? `Refreshed panel: ${panelId}` : "Refreshed active panel.";
+      },
     },
-    delete: (name) => layoutManager.deleteLayout(name),
-  });
-
-  yoAgent.setLayoutStateGetter(() => {
-    const grid = layoutManager.getGridInfo();
-    if (!grid) return null;
-    return { cols: grid.cols, rows: grid.rows, cells: grid.cells };
+    tabs: {
+      list: () => openTabs.map((id) => ({
+        id,
+        title: appConnector.get(id)?.name || id,
+        url: appConnector.get(id)?.url,
+      })),
+      switch: (id) => { if (mainWindow) panelManager.switchTo(id, mainWindow); },
+      close: (id) => {
+        if (!mainWindow) return;
+        const idx = openTabs.indexOf(id);
+        if (idx >= 0) openTabs.splice(idx, 1);
+        const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+        panelManager.closePanel(id, mainWindow, nextId);
+      },
+      create: () => {
+        tabBrowserCounter++;
+        const id = `browse-${tabBrowserCounter}`;
+        panelManager.addPanel(id, browserHtmlUrl(""), undefined, undefined, true);
+        if (mainWindow) panelManager.switchTo(id, mainWindow);
+        ensureTab(id);
+        return id;
+      },
+    },
+    execCommand: async (cmd: string) => {
+      const clean = cmd.replace(/^\.(dip|drip)\b/i, "$1");
+      const result = await execCommand(clean);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
+      return result;
+    },
   });
 
   // Give interceptor access to visible panel IDs (for multi-panel grab)
@@ -1878,13 +1622,6 @@ async function boot() {
         </div></body></html>`)}`;
         panelManager.addPanel(instanceId, infoPage);
       }
-    } else if (app.url?.startsWith("yo://vibe/")) {
-      const vibeName = app.url.replace("yo://vibe/", "");
-      const appHtmlPath = path.join(os.homedir(), "yo", "skills", vibeName, "APP.html");
-      if (fs.existsSync(appHtmlPath)) {
-        const vibePreload = path.join(__dirname, "vibe-preload.js");
-        panelManager.addPanel(instanceId, `file://${appHtmlPath}`, vibePreload);
-      }
     } else {
       panelManager.addPanel(instanceId, app.url!, undefined, app.forceWeb);
     }
@@ -2090,32 +1827,6 @@ async function boot() {
     return instanceId;
   });
 
-  // Wire yo agent tab manager + sub-agent model
-  yoAgent.setTabManager({
-    list: () => openTabs.map((id) => ({
-      id,
-      title: appConnector.get(id)?.name || id,
-      url: appConnector.get(id)?.url,
-    })),
-    switch: (id) => { if (mainWindow) panelManager.switchTo(id, mainWindow); },
-    close: (id) => {
-      if (!mainWindow) return;
-      const idx = openTabs.indexOf(id);
-      if (idx >= 0) openTabs.splice(idx, 1);
-      const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
-      panelManager.closePanel(id, mainWindow, nextId);
-    },
-    create: () => {
-      tabBrowserCounter++;
-      const id = `browse-${tabBrowserCounter}`;
-      panelManager.addPanel(id, browserHtmlUrl(""), undefined, undefined, true);
-      if (mainWindow) panelManager.switchTo(id, mainWindow);
-      ensureTab(id);
-      return id;
-    },
-  });
-  const subAgentModel = getPreference<string>("subAgentModel", "auto");
-  yoAgent.setSubAgentModel(subAgentModel);
 
   // Initialize auth — restore session, schedule refresh, start heartbeat
   await initAuth();
@@ -2134,7 +1845,7 @@ async function boot() {
   // Check if onboarding is needed BEFORE restoring panels
   // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
   const authenticated = isAuthenticated();
-  const needsOnboarding = !authenticated || !llmConfig.apiKey;
+  const needsOnboarding = !authenticated;
   let panelsReady = false;
 
   // Restore zoom level
@@ -2158,6 +1869,10 @@ async function boot() {
     cloudSyncInstance.setWorkspaceGetter(workspaceGetter);
     cloudSyncInstance.start();
   }
+
+  // Usage queue — durable write-ahead log for usage reporting
+  usageQueue.setTokenGetter(getAuthToken);
+  usageQueue.start();
 
   // Initialize Pipedream connectors — always attempt so MCP tools are available.
   connectorManager?.init().catch((err) => console.error("[connectors]", err));
@@ -2540,8 +2255,6 @@ async function boot() {
       name: s.name,
       manifest: s.manifest,
       prompt: s.prompt,
-      hasRunner: s.hasRunner,
-      runnerCode: s.hasRunner ? skillEngine.readSkillFile(name, "SKILL.js") : null,
     };
   });
   ipcMain.handle("skills-write", (_e, name: string, prompt: string) => {
@@ -2556,13 +2269,13 @@ async function boot() {
     skillEngine.writeSkill(name, { name, description: "" }, prompt);
     return true;
   });
-  ipcMain.handle("skills-write-full", (_e, name: string, manifest: any, prompt: string, runnerCode?: string | null) => {
+  ipcMain.handle("skills-write-full", (_e, name: string, manifest: any, prompt: string) => {
     const existing = skillEngine.getSkill(name);
     if (!existing) {
       const gate = canCreateSkill(skillEngine.listSkills().length);
       if (!gate.allowed) return { error: gate.reason };
     }
-    skillEngine.writeSkill(name, manifest, prompt, runnerCode ?? undefined);
+    skillEngine.writeSkill(name, manifest, prompt);
     skillScheduler?.refresh();
     return true;
   });
@@ -2598,42 +2311,16 @@ async function boot() {
     skillEngine.writeSkillFile(name, rel, content),
   );
   ipcMain.handle("skills-delete-file", (_e, name: string, rel: string) => skillEngine.deleteSkillFile(name, rel));
-  // Run lifecycle
-  const activeRuns = new Map<string, AbortController>();
-  const pendingAskUser = new Map<string, (ans: string) => void>();
+  // Run a skill (LLM call with skill's prompt)
   ipcMain.handle("skills-run", async (_e, name: string, input: unknown) => {
-    const ctrl = new AbortController();
-    const runId = Math.random().toString(36).slice(2);
-    activeRuns.set(runId, ctrl);
     try {
-      const output = await skillEngine.runSkill(name, input, {
-        trigger: "manual",
-        signal: ctrl.signal,
-        onProgress: (ev) => mainWindow?.webContents.send("skill-progress", { runId, event: ev }),
-        onAskUser: (q) => new Promise<string>((resolve) => {
-          const qid = Math.random().toString(36).slice(2);
-          pendingAskUser.set(qid, resolve);
-          mainWindow?.webContents.send("skill-ask-user", { runId, qid, question: q });
-        }),
-      });
+      const content = typeof input === "string" ? input : JSON.stringify(input);
+      const output = await skillEngine.process(content, name);
       return { ok: true, output };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    } finally {
-      activeRuns.delete(runId);
     }
   });
-  ipcMain.handle("skills-cancel", (_e, runId: string) => {
-    const c = activeRuns.get(runId);
-    if (c) { c.abort(); return true; }
-    return false;
-  });
-  ipcMain.handle("skills-user-response", (_e, qid: string, answer: string) => {
-    const resolver = pendingAskUser.get(qid);
-    if (resolver) { resolver(answer); pendingAskUser.delete(qid); return true; }
-    return false;
-  });
-  ipcMain.handle("skills-run-history", (_e, name: string) => skillEngine.getRunHistory(name));
   // Export/import .yo bundles
   ipcMain.handle("skills-export", (_e, name: string) => {
     const buf = skillEngine.exportSkill(name);
@@ -2720,116 +2407,6 @@ async function boot() {
     return dripManager.execute(recipe.split(/\s+/));
   });
 
-  // IPC: Vibe panels
-  ipcMain.handle("vibe:run-skill", async (e, name: string, input: unknown) => {
-    const vibeName = vibeWebContentsMap.get(e.sender.id);
-    if (!vibeName) return { ok: false, error: "Not a vibe panel" };
-    const vibe = skillEngine.getSkill(vibeName);
-    if (!vibe) return { ok: false, error: "Vibe not found" };
-    const requires = vibe.manifest.requires || [];
-    if (!requires.includes(name)) return { ok: false, error: `Skill "${name}" not in vibe's requires list` };
-    try {
-      const output = await skillEngine.runSkill(name, input, { trigger: "skill" });
-      return { ok: true, output };
-    } catch (err: any) {
-      return { ok: false, error: err.message || String(err) };
-    }
-  });
-  ipcMain.handle("vibe:ask", async (_e, prompt: string) => {
-    if (!llmConfig?.apiKey) return "No API key configured.";
-    try {
-      const resp = await createCompletion(llmConfig, {
-        system: "You are a helpful assistant inside a vibe app. Be concise.",
-        messages: [{ role: "user", content: prompt }],
-        maxTokens: 2048,
-      });
-      const block = resp.content[0];
-      return block?.type === "text" ? block.text : "";
-    } catch (err: any) {
-      return `Error: ${err.message || err}`;
-    }
-  });
-  ipcMain.handle("vibe:search-captures", async (_e, query: string, limit?: number) => {
-    const results = await captureStore.search(query, limit || 10);
-    return results.map(r => ({ source: r.meta.source, content: r.content, score: r.score }));
-  });
-  ipcMain.handle("vibe:read-file", async (e, relPath: string) => {
-    const vibeName = vibeWebContentsMap.get(e.sender.id);
-    if (!vibeName) return null;
-    return skillEngine.readSkillFile(vibeName, relPath);
-  });
-  ipcMain.handle("vibe:get-name", (e) => {
-    return vibeWebContentsMap.get(e.sender.id) ?? null;
-  });
-  ipcMain.handle("vibe:copy", (_e, text: string) => {
-    const { clipboard } = require("electron");
-    clipboard.writeText(text);
-  });
-  ipcMain.handle("vibe:get-theme", () => {
-    const pref = getPreference<string>("theme", "light");
-    return pref === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : pref;
-  });
-  ipcMain.handle("vibe:get-base-css", () => {
-    const { VIBE_BASE_CSS } = require("./vibe-base-css");
-    return VIBE_BASE_CSS;
-  });
-  ipcMain.handle("vibe:preview-write", (_e, html: string, vibeName: string) => {
-    const tmpDir = path.join(os.tmpdir(), "yo-vibe-preview");
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const assetDir = path.join(__dirname, "..", "renderer");
-    const resolved = html.replace(/yo-asset:\/\/\/?/g, `file://${assetDir}/`);
-    const filePath = path.join(tmpDir, `${vibeName || "preview"}.html`);
-    fs.writeFileSync(filePath, resolved, "utf-8");
-    return {
-      fileUrl: `file://${filePath}`,
-      preloadPath: path.join(__dirname, "vibe-preload.js"),
-    };
-  });
-  ipcMain.handle("vibe:preview-register", (e, vibeName: string) => {
-    vibeWebContentsMap.set(e.sender.id, vibeName);
-  });
-
-  // IPC: Vibe data store (namespaced to the vibe's skill name)
-  ipcMain.handle("vibe:store-get", (e, key: string) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return null;
-    return dataStore.get(ns, key);
-  });
-  ipcMain.handle("vibe:store-set", (e, key: string, value: unknown) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return;
-    dataStore.set(ns, key, value);
-  });
-  ipcMain.handle("vibe:store-delete", (e, key: string) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return false;
-    return dataStore.delete(ns, key);
-  });
-  ipcMain.handle("vibe:store-list", (e, prefix?: string, limit?: number) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return [];
-    return dataStore.list(ns, prefix, limit).map(r => ({ key: r.key, value: r.value }));
-  });
-  ipcMain.handle("vibe:store-query", (e, filter: Record<string, unknown>, limit?: number) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return [];
-    return dataStore.query(ns, filter, limit).map(r => ({ key: r.key, value: r.value }));
-  });
-  ipcMain.handle("vibe:store-keys", (e) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return [];
-    return dataStore.keys(ns);
-  });
-  ipcMain.handle("vibe:store-count", (e) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return 0;
-    return dataStore.count(ns);
-  });
-  ipcMain.handle("vibe:store-clear", (e) => {
-    const ns = vibeWebContentsMap.get(e.sender.id);
-    if (!ns) return 0;
-    return dataStore.clear(ns);
-  });
 
   // IPC: Capture store
   ipcMain.handle("captures-stats", () => captureStore.stats());
@@ -3041,6 +2618,7 @@ async function boot() {
   ipcMain.handle("get-auth-status", () => getAuthStatus());
   ipcMain.handle("refresh-auth", async () => {
     const hb = await refreshHeartbeat();
+    if (hb) cloudSyncInstance?.resetAuth();
     return { tier: hb?.tier || "free", status: hb?.status || "unknown" };
   });
   ipcMain.handle("copy-to-clipboard", (_e, text: string) => {
@@ -3051,37 +2629,22 @@ async function boot() {
     if (mainWindow) panelManager.hideActive(mainWindow);
     mainWindow?.webContents.send("show-onboarding");
   });
-  ipcMain.handle("validate-api-key", async (_e, key: string) => {
-    // Legacy handler — validates as Anthropic by default
-    const config: LLMConfig = { ...llmConfig, apiKey: key };
-    const result = await validateLLMConfig(config);
-    if (result.valid) {
-      saveLLMConfig(config);
-      applyLLMConfig(config);
-    }
-    return result;
-  });
-  ipcMain.handle("get-api-key", () => llmConfig.apiKey || null);
+  ipcMain.handle("validate-api-key", async () => ({ valid: true }));
+  ipcMain.handle("get-api-key", () => null);
 
-  // LLM config — multi-provider settings
+  // LLM config — model selection (no keys)
   ipcMain.handle("get-llm-config", () => ({
     provider: llmConfig.provider,
     model: llmConfig.model,
-    apiKey: llmConfig.apiKey ? "..." + llmConfig.apiKey.slice(-4) : "",
-    baseUrl: llmConfig.baseUrl || null,
   }));
-  ipcMain.handle("get-llm-presets", () => PROVIDER_PRESETS);
+  ipcMain.handle("get-llm-presets", () => ({
+    anthropic: {
+      name: "Anthropic",
+      models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+      defaultModel: "claude-sonnet-4-6",
+    },
+  }));
   ipcMain.handle("save-llm-config", async (_e, config: LLMConfig) => {
-    const existing = loadLLMConfig();
-    // Preserve the real key when the renderer sends back a masked one
-    if (config.apiKey && config.apiKey.startsWith("...") && existing.apiKey) {
-      config.apiKey = existing.apiKey;
-    }
-    const keyChanged = config.apiKey !== existing.apiKey;
-    if (keyChanged) {
-      const result = await validateLLMConfig(config);
-      if (!result.valid) return { ok: false, error: result.error };
-    }
     saveLLMConfig(config);
     applyLLMConfig(config);
     return { ok: true };
@@ -3141,8 +2704,11 @@ async function boot() {
 
   // ── Marketplace + Reservations IPC handlers ────────────
   ipcMain.handle("yos-balance", async () => {
-    try { return await serverGetAuthed<{ user_id: string; balance: number }>("/api/yos/balance"); }
-    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
+    try {
+      const r = await serverGetAuthed<{ user_id: string; balance: number }>("/api/yos/balance");
+      usageQueue.updateBalance(r.balance);
+      return r;
+    } catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
   });
   ipcMain.handle("yos-rate-cards", async () => {
     try { return await serverGetAuthed<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> }>("/api/yos/rate-cards"); }
@@ -3401,9 +2967,34 @@ async function boot() {
 
   // ── Dashboard IPC handlers ─────────────────────────────
 
-  ipcMain.handle("dashboard:today", () => usageTracker.getToday());
-  ipcMain.handle("dashboard:history", (_e, days?: number) => usageTracker.getHistory(days || 30));
-  ipcMain.handle("dashboard:all-time", () => usageTracker.getAllTime());
+  let usageSummaryCache: { ts: number; data: any } | null = null;
+  const USAGE_CACHE_TTL = 30_000;
+
+  async function fetchUsageSummary(days: number) {
+    if (usageSummaryCache && Date.now() - usageSummaryCache.ts < USAGE_CACHE_TTL && days <= 30) {
+      return usageSummaryCache.data;
+    }
+    try {
+      const data = await serverGetAuthed<any>(`/api/usage/summary?days=${days}`);
+      if (days <= 30) usageSummaryCache = { ts: Date.now(), data };
+      return data;
+    } catch {
+      return usageTracker.getAllTime() ? { today: usageTracker.getToday(), history: usageTracker.getHistory(days), allTime: usageTracker.getAllTime() } : null;
+    }
+  }
+
+  ipcMain.handle("dashboard:today", async () => {
+    const summary = await fetchUsageSummary(30);
+    return summary?.today || null;
+  });
+  ipcMain.handle("dashboard:history", async (_e, days?: number) => {
+    const summary = await fetchUsageSummary(days || 30);
+    return summary?.history || [];
+  });
+  ipcMain.handle("dashboard:all-time", async () => {
+    const summary = await fetchUsageSummary(90);
+    return summary?.allTime || { agents: {}, total: { yos: 0, calls: 0 } };
+  });
 
   ipcMain.handle("dashboard:apps", () => {
     const appsDir = path.join(os.homedir(), "yo", "apps");
@@ -3938,9 +3529,6 @@ async function boot() {
       if (value) voiceRelay?.start();
       else voiceRelay?.stop();
     }
-    if (key === "subAgentModel") {
-      yoAgent.setSubAgentModel(value as string);
-    }
   });
   ipcMain.handle("get-preference", (_e, key: string, defaultVal: unknown) => {
     return getPreference(key, defaultVal);
@@ -3981,13 +3569,11 @@ async function boot() {
   mainWindow?.webContents.on("did-finish-load", () => {
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
     const authStatus = getAuthStatus();
-    // Recompute needsOnboarding dynamically (may have changed after logout/re-login)
-    const currentNeedsOnboarding = !isAuthenticated() || !llmConfig.apiKey;
+    const currentNeedsOnboarding = !isAuthenticated();
     mainWindow?.webContents.send("boot", {
       authenticated: authStatus.authenticated,
       status: authStatus.status,
       tier: authStatus.tier,
-      apiKey: llmConfig.apiKey ? true : false,
       needsOnboarding: currentNeedsOnboarding,
       hideWelcome,
       theme: (() => { const t = getPreference<string>("theme", "light"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
@@ -4097,6 +3683,7 @@ function cleanupAll() {
   voiceRelay?.stop();
   cloudSyncInstance?.stop();
   cloudSyncInstance = null;
+  usageQueue.stop();
   configSync?.stop();
   configSync = null;
   terminalManager?.killAll();

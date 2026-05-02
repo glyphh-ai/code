@@ -3,8 +3,7 @@
  */
 
 import {
-  paginate, renderPaginationBar, confirmAction, clearInvalid,
-  escapeHtml, promptAction, closeHelp,
+  paginate, renderPaginationBar, confirmAction, closeHelp,
 } from "./shared.js";
 
 // ── Skills ────────────────────────────────────────────────
@@ -26,112 +25,7 @@ let editingSelectedFile: string = "SKILL.md";
 let editingFileContents: Map<string, string> = new Map();
 let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
-let cachedToolGroups: Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }> = [];
 let collapsedFolders = new Set<string>();
-const skillTypeSelect = document.getElementById("skill-type") as HTMLSelectElement;
-const skillRightTabs = document.getElementById("skill-right-tabs")!;
-const skillTabCode = document.getElementById("skill-tab-code")!;
-const skillTabPreview = document.getElementById("skill-tab-preview")!;
-let skillPreviewWebview = document.getElementById("skill-preview-webview") as any;
-let activeRightTab: "code" | "preview" = "code";
-let _vibePreloadPath: string | null = null;
-
-function switchSkillRightTab(tab: "code" | "preview") {
-  activeRightTab = tab;
-  skillTabCode.style.display = tab === "code" ? "" : "none";
-  skillTabPreview.style.display = tab === "preview" ? "" : "none";
-  Array.from(skillRightTabs.querySelectorAll(".skill-right-tab")).forEach(btn => {
-    btn.classList.toggle("active", (btn as HTMLElement).dataset.tab === tab);
-  });
-  if (tab === "preview") refreshVibePreview();
-}
-
-async function refreshVibePreview() {
-  const html = editingFileContents.get("APP.html") || "";
-  if (!html.trim()) {
-    skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(
-      `<body style="background:#0a0a0a;color:#999;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>No APP.html content</p></body>`
-    );
-    return;
-  }
-  try {
-    const vibeName = editingSkillName || "preview";
-    const result = await (window as any).yo.vibePreviewWrite(html, vibeName);
-    // Setting preload via setAttribute on an attached <webview> is unreliable —
-    // its webContents is created on DOM attach, before any later attribute change.
-    // Replace the element with a fresh one that has preload set before insertion.
-    if (!_vibePreloadPath) {
-      _vibePreloadPath = result.preloadPath;
-      const old = skillPreviewWebview;
-      const fresh = document.createElement("webview") as any;
-      fresh.id = old.id;
-      fresh.className = old.className;
-      const partition = old.getAttribute("partition");
-      if (partition) fresh.setAttribute("partition", partition);
-      fresh.setAttribute("preload", `file://${_vibePreloadPath}`);
-      old.parentElement!.replaceChild(fresh, old);
-      skillPreviewWebview = fresh;
-    }
-    skillPreviewWebview.src = result.fileUrl;
-  } catch {
-    skillPreviewWebview.src = "data:text/html;charset=utf-8," + encodeURIComponent(
-      `<body style="background:#0a0a0a;color:#999;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Preview failed to load</p></body>`
-    );
-  }
-}
-
-function updatePreviewTabVisibility() {
-  const isVibe = skillTypeSelect.value === "vibe" || editingSkillFiles.includes("APP.html");
-  const previewBtn = skillRightTabs.querySelector('[data-tab="preview"]') as HTMLElement;
-  if (previewBtn) previewBtn.style.display = isVibe ? "" : "none";
-  if (!isVibe && activeRightTab === "preview") switchSkillRightTab("code");
-}
-
-skillRightTabs.addEventListener("click", (e) => {
-  const btn = (e.target as HTMLElement).closest(".skill-right-tab") as HTMLElement | null;
-  if (!btn) return;
-  switchSkillRightTab(btn.dataset.tab as "code" | "preview");
-});
-
-document.getElementById("skill-preview-refresh")?.addEventListener("click", () => {
-  captureCurrentEditorContent();
-  refreshVibePreview();
-});
-
-document.getElementById("skill-preview-open")?.addEventListener("click", async () => {
-  if (!editingSkillName) return;
-  await saveSkillInline();
-  window.yo.execCommand(`.dip vibe-${editingSkillName}`);
-});
-
-skillTypeSelect.addEventListener("change", () => {
-  if (skillTypeSelect.value === "vibe" && !editingSkillFiles.includes("APP.html")) {
-    const starter = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<style>
-  body { padding: 24px; }
-  h1 { margin-bottom: 16px; }
-</style>
-</head>
-<body>
-  <h1>My Vibe</h1>
-  <p class="text-muted">Edit this file to build your app. Base theme CSS is auto-injected.</p>
-  <script>
-    // window.vibe.runSkill(name, input) — call a skill
-    // window.vibe.ask(prompt) — one-shot LLM call
-    // window.vibe.store.get/set/list/query — data store
-    // window.vibe.copyToClipboard(text)
-  </script>
-</body>
-</html>`;
-    editingSkillFiles.push("APP.html");
-    editingFileContents.set("APP.html", starter);
-    renderSkillFileTree();
-  }
-  updatePreviewTabVisibility();
-});
 
 function ensureMonaco(): Promise<void> {
   if (monacoReady) return monacoReady;
@@ -212,123 +106,6 @@ function languageForFile(relPath: string): string {
   return map[ext] || "plaintext";
 }
 
-// ── Tool row list (allowed-tools) ────────────────────────
-
-async function ensureToolGroups() {
-  if (cachedToolGroups.length) return;
-  try { cachedToolGroups = await window.yo.skillsAvailableTools(); } catch { /* empty */ }
-}
-
-function addToolRow(ns?: string, tool?: string) {
-  const list = document.getElementById("skill-tools-list")!;
-  const row = document.createElement("div");
-  row.className = "skill-row";
-
-  // Resolve namespace: exact match first, then case-insensitive suffix match
-  let resolvedNs = ns;
-  if (ns && !cachedToolGroups.find(g => g.namespace === ns)) {
-    const lower = ns.toLowerCase();
-    const fuzzy = cachedToolGroups.find(g =>
-      g.namespace.toLowerCase().endsWith(lower) ||
-      g.namespace.toLowerCase().includes(lower)
-    );
-    if (fuzzy) resolvedNs = fuzzy.namespace;
-  }
-
-  const appSel = document.createElement("select");
-  let appOptions = cachedToolGroups.map(g =>
-    `<option value="${g.namespace}"${g.namespace === resolvedNs ? " selected" : ""}>${g.label}</option>`
-  ).join("");
-  if (resolvedNs && !cachedToolGroups.find(g => g.namespace === resolvedNs)) {
-    appOptions += `<option value="${resolvedNs}" selected>${resolvedNs} (unresolved)</option>`;
-  }
-  appSel.innerHTML = `<option value="">App...</option>` + appOptions;
-
-  const toolSel = document.createElement("select");
-  const populateTools = (selectedNs: string, preselect?: string) => {
-    const group = cachedToolGroups.find(g => g.namespace === selectedNs);
-    const toolOptions = group ? group.tools.map(t =>
-      `<option value="${t.name}"${t.name === preselect ? " selected" : ""}>${t.name}</option>`
-    ).join("") : "";
-    const hasMatch = group?.tools.some(t => t.name === preselect);
-    const unresolvedOpt = preselect && !hasMatch
-      ? `<option value="${preselect}" selected>${preselect} (unresolved)</option>`
-      : "";
-    toolSel.innerHTML = `<option value="">Tool...</option>` + toolOptions + unresolvedOpt;
-  };
-  if (resolvedNs) populateTools(resolvedNs, tool);
-  else toolSel.innerHTML = `<option value="">Tool...</option>`;
-
-  appSel.addEventListener("change", () => { tool = undefined; populateTools(appSel.value); });
-
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "skill-row-remove";
-  removeBtn.type = "button";
-  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
-  removeBtn.addEventListener("click", () => row.remove());
-
-  row.appendChild(appSel);
-  row.appendChild(toolSel);
-  row.appendChild(removeBtn);
-  list.appendChild(row);
-}
-
-function getToolEntries(): string[] {
-  const rows = document.querySelectorAll("#skill-tools-list .skill-row");
-  const entries: string[] = [];
-  rows.forEach(row => {
-    const selects = row.querySelectorAll("select");
-    const ns = (selects[0] as HTMLSelectElement)?.value;
-    const tool = (selects[1] as HTMLSelectElement)?.value;
-    if (ns && tool) entries.push(`${ns}.${tool}`);
-  });
-  return entries;
-}
-
-function clearToolRows() {
-  document.getElementById("skill-tools-list")!.innerHTML = "";
-}
-
-// Slot row functions live in layouts.ts (they reference layoutSlotsList)
-
-// ── Requires row list (dependent skills) ─────────────────
-
-function addRequiresRow(skillName?: string) {
-  const list = document.getElementById("skill-requires-list")!;
-  const row = document.createElement("div");
-  row.className = "skill-row";
-
-  const sel = document.createElement("select");
-  sel.innerHTML = `<option value="">Select skill...</option>` +
-    allSkillsDetailed
-      .filter(s => s.name !== editingSkillName)
-      .map(s => `<option value="${s.name}"${s.name === skillName ? " selected" : ""}>${s.name}${s.description ? " — " + s.description : ""}</option>`)
-      .join("");
-
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "skill-row-remove";
-  removeBtn.type = "button";
-  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
-  removeBtn.addEventListener("click", () => row.remove());
-
-  row.appendChild(sel);
-  row.appendChild(removeBtn);
-  list.appendChild(row);
-}
-
-function getRequiresEntries(): string[] {
-  const rows = document.querySelectorAll("#skill-requires-list .skill-row");
-  const entries: string[] = [];
-  rows.forEach(row => {
-    const val = (row.querySelector("select") as HTMLSelectElement)?.value;
-    if (val) entries.push(val);
-  });
-  return entries;
-}
-
-function clearRequiresRows() {
-  document.getElementById("skill-requires-list")!.innerHTML = "";
-}
 
 // ── Schedule builder ─────────────────────────────────────
 
@@ -610,9 +387,7 @@ function renderSkillsList() {
 
   for (const skill of items) {
     const pills: string[] = [];
-    if (skill.hasApp) {
-      pills.push('<span class="skill-pill skill-pill-vibe">Vibe</span>');
-    } else if (skill.hasRunner) {
+    if (skill.hasRunner) {
       pills.push('<span class="skill-pill skill-pill-js">JS</span>');
     } else {
       pills.push('<span class="skill-pill skill-pill-prompt">Prompt</span>');
@@ -626,9 +401,6 @@ function renderSkillsList() {
         ${skill.description ? `<span class="crud-card-meta">${skill.description}</span>` : ""}
       </div>
       <div class="crud-card-actions">
-        ${skill.hasApp ? `<button class="crud-card-btn crud-open-btn" title="Open vibe">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </button>` : ""}
         <button class="crud-card-btn crud-edit-btn" title="Edit">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
         </button>
@@ -637,13 +409,6 @@ function renderSkillsList() {
         </button>
       </div>`;
 
-    const openBtn = card.querySelector(".crud-open-btn");
-    if (openBtn) {
-      openBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        window.yo.execCommand(`.dip vibe-${skill.name}`);
-      });
-    }
     card.querySelector(".crud-edit-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();
       openSkillEditor(skill.name);
@@ -666,11 +431,7 @@ async function openSkillEditor(name: string | null) {
   editingFileContents = new Map();
   collapsedFolders.clear();
 
-  await ensureToolGroups();
-
   const newSkill = !name;
-  clearToolRows();
-  clearRequiresRows();
 
   if (newSkill) {
     skillNameInput.value = "";
@@ -678,7 +439,6 @@ async function openSkillEditor(name: string | null) {
     editingSelectedFile = "SKILL.md";
     editingFileContents.set("SKILL.md", "");
     skillDescInput.value = "";
-    skillTypeSelect.value = "skill";
     setScheduleFromCron("");
     skillDeleteBtn.style.display = "none";
   } else {
@@ -686,14 +446,6 @@ async function openSkillEditor(name: string | null) {
     const full = await window.yo.skillsGet(name!);
     if (full) {
       skillDescInput.value = full.manifest?.description || "";
-      skillTypeSelect.value = full.manifest?.type === "vibe" || full.hasApp ? "vibe" : "skill";
-      const tools: string[] = full.manifest?.["allowed-tools"] || [];
-      for (const entry of tools) {
-        const dot = entry.indexOf(".");
-        if (dot > 0) addToolRow(entry.slice(0, dot), entry.slice(dot + 1));
-      }
-      const requires: string[] = full.manifest?.requires || [];
-      for (const r of requires) addRequiresRow(r);
       setScheduleFromCron(full.manifest?.schedule || "");
       editingFileContents.set("SKILL.md", full.prompt || "");
       if (full.runnerCode != null) {
@@ -709,14 +461,9 @@ async function openSkillEditor(name: string | null) {
   skillsListEl.classList.add("hidden");
   skillsToolbar.classList.add("hidden");
   skillEditor.classList.remove("hidden");
-  switchSkillRightTab("code");
-  updatePreviewTabVisibility();
 
   renderSkillFileTree();
   await openSkillFile(editingSelectedFile);
-
-  if (name) loadSkillRunHistory(name);
-  else renderRunList([]);
 
   skillNameInput.focus();
 }
@@ -866,14 +613,9 @@ async function saveSkill() {
   }
 
   const description = skillDescInput.value.trim();
-  const allowedTools = getToolEntries();
-  const requires = getRequiresEntries();
   const schedule = getScheduleCron();
 
   const manifest: any = { name, description };
-  if (skillTypeSelect.value === "vibe") manifest.type = "vibe";
-  if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
-  if (requires.length) manifest.requires = requires;
   if (schedule) manifest.schedule = schedule;
 
   const prompt = editingFileContents.get("SKILL.md") ?? "";
@@ -1001,31 +743,6 @@ async function uploadSkillFiles(e: Event) {
   renderSkillFileTree();
 }
 
-async function runSkillFromEditor() {
-  if (!editingSkillName) return;
-  captureCurrentEditorContent();
-
-  // Save first
-  await saveSkillInline();
-
-  const runBtn = document.getElementById("skill-run") as HTMLButtonElement;
-  runBtn.disabled = true;
-  runBtn.textContent = "Running...";
-  try {
-    const input = (await promptAction("Input for this run (leave blank for none):", "", "e.g. summarize this conversation")) ?? "";
-    const result = await window.yo.skillsRun(editingSkillName, input);
-    if (!result.ok) {
-      skillFormError.textContent = `Run error: ${result.error}`;
-      skillFormError.classList.remove("hidden");
-    } else {
-      skillFormError.classList.add("hidden");
-    }
-    if (editingSkillName) await loadSkillRunHistory(editingSkillName);
-  } finally {
-    runBtn.disabled = false;
-    runBtn.textContent = "▶ Run";
-  }
-}
 
 // Save without closing the editor
 async function saveSkillInline() {
@@ -1033,13 +750,8 @@ async function saveSkillInline() {
   const name = skillNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
   if (!name) return;
   const description = skillDescInput.value.trim();
-  const allowedTools = getToolEntries();
-  const requires = getRequiresEntries();
   const schedule = getScheduleCron();
   const manifest: any = { name, description };
-  if (skillTypeSelect.value === "vibe") manifest.type = "vibe";
-  if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
-  if (requires.length) manifest.requires = requires;
   if (schedule) manifest.schedule = schedule;
   const promptBody = editingFileContents.get("SKILL.md") ?? "";
   const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
@@ -1078,143 +790,8 @@ async function importSkill(file: File) {
   }
 }
 
-// ── Run history ──────────────────────────────────────────
 
-async function loadSkillRunHistory(name: string) {
-  const runs = await window.yo.skillsRunHistory(name);
-  renderRunList(runs || []);
-}
 
-function renderRunList(runs: any[]) {
-  const list = document.getElementById("skill-runs-list")!;
-  const count = document.getElementById("skill-runs-count")!;
-  count.textContent = runs.length ? `${runs.length} run${runs.length === 1 ? "" : "s"}` : "";
-  list.innerHTML = "";
-  if (runs.length === 0) {
-    list.innerHTML = `<div style="color:var(--text-2);font-size:11px;padding:4px 0;">No runs yet.</div>`;
-    return;
-  }
-  for (const run of runs) {
-    const item = document.createElement("div");
-    item.className = "skill-run-item";
-    const statusCls = run.error ? "skill-run-status-error" : "skill-run-status-success";
-    const when = new Date(run.startedAt).toLocaleString();
-    const dur = run.durationMs ? `${(run.durationMs / 1000).toFixed(2)}s` : "—";
-    item.innerHTML = `
-      <div class="skill-run-item-header">
-        <span>${when} · ${run.trigger} · ${dur}</span>
-        <span class="skill-run-item-status ${statusCls}">${run.error ? "error" : "ok"}</span>
-      </div>
-      <div class="skill-run-item-details hidden"></div>
-    `;
-    item.addEventListener("click", () => {
-      const det = item.querySelector(".skill-run-item-details") as HTMLElement;
-      if (det.classList.contains("hidden")) {
-        det.innerHTML = renderRunDetails(run);
-        det.classList.remove("hidden");
-      } else {
-        det.classList.add("hidden");
-      }
-    });
-    list.appendChild(item);
-  }
-}
-
-function renderRunDetails(run: any): string {
-  const parts: string[] = [];
-  if (run.input) {
-    const inputStr = typeof run.input === "string" ? run.input : JSON.stringify(run.input, null, 2);
-    parts.push(renderRunSection("Input", escapeHtml(inputStr), inputStr.length > 200));
-  }
-  if (run.error) {
-    parts.push(renderRunSection("Error", `<span style="color:var(--danger);">${escapeHtml(run.error)}</span>`, false));
-  }
-  if (run.output !== undefined && run.output !== null) {
-    const out = typeof run.output === "string" ? run.output : JSON.stringify(run.output, null, 2);
-    parts.push(renderRunSection("Output", escapeHtml(out), out.length > 200));
-  }
-  if (run.events && run.events.length) {
-    const tree = renderEventTree(run.events);
-    parts.push(renderRunSection("Events", tree, run.events.length > 5));
-  }
-  if (run.logs && run.logs.length) {
-    parts.push(renderRunSection("Logs", run.logs.map((l: string) => escapeHtml(l)).join("\n"), run.logs.length > 5));
-  }
-  if (parts.length === 0) {
-    parts.push(`<div style="color:var(--text-2);font-size:11px;">No output recorded for this run.</div>`);
-  }
-  return parts.join("");
-}
-
-function renderRunSection(label: string, content: string, collapsed: boolean): string {
-  const bodyStyle = collapsed ? ' style="max-height:120px;overflow:hidden;position:relative;"' : '';
-  const toggle = collapsed
-    ? `<span style="cursor:pointer;color:var(--accent);font-size:10px;margin-left:6px;" onclick="const b=this.parentElement.nextElementSibling;if(b.style.maxHeight){b.style.maxHeight='';b.style.overflow='';this.textContent='▾ collapse'}else{b.style.maxHeight='120px';b.style.overflow='hidden';this.textContent='▸ expand'}">▸ expand</span>`
-    : '';
-  return `<div class="skill-run-section">
-    <div class="skill-run-section-header"><b>${label}</b>${toggle}</div>
-    <div class="skill-run-section-body"${bodyStyle}>${content}</div>
-  </div>`;
-}
-
-function renderEventTree(events: any[]): string {
-  // Build parent->children
-  const byParent = new Map<string | undefined, any[]>();
-  for (const ev of events) {
-    const key = ev.parentId;
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key)!.push(ev);
-  }
-  const lines: string[] = [];
-  const roots = byParent.get(undefined) || [];
-  const walk = (ev: any, depth: number) => {
-    const indent = "  ".repeat(depth);
-    const dur = ev.endedAt ? `${((ev.endedAt - ev.startedAt) / 1000).toFixed(2)}s` : "…";
-    const icon = ev.status === "success" ? "✓" : ev.status === "error" ? "✗" : "⟳";
-    lines.push(`<span class="skill-run-event status-${ev.status}">${indent}${icon} ${escapeHtml(ev.label)} — ${dur}</span>`);
-    const children = byParent.get(ev.id) || [];
-    for (const c of children) walk(c, depth + 1);
-  };
-  for (const root of roots) walk(root, 0);
-  return lines.join("\n");
-}
-
-// escapeHtml imported from shared
-
-// ── Live progress via onSkillProgress ──────────────────────
-
-window.yo.onSkillProgress?.((data: { runId: string; event: any }) => {
-  // During a live run, append events to the top of the run list so the user sees progress
-  // We take a simple approach: refresh run history after each event
-  if (editingSkillName) {
-    loadSkillRunHistory(editingSkillName);
-  }
-});
-
-window.yo.onSkillAskUser?.((data: { runId: string; qid: string; question: string }) => {
-  const modal = document.getElementById("skill-ask-user-modal")!;
-  const qEl = document.getElementById("skill-ask-user-question")!;
-  const ansEl = document.getElementById("skill-ask-user-answer") as HTMLTextAreaElement;
-  qEl.textContent = data.question;
-  ansEl.value = "";
-  modal.classList.remove("hidden");
-  const submit = document.getElementById("skill-ask-user-submit")!;
-  const cancel = document.getElementById("skill-ask-user-cancel")!;
-  const onSubmit = () => {
-    window.yo.skillsUserResponse(data.qid, ansEl.value);
-    modal.classList.add("hidden");
-    submit.removeEventListener("click", onSubmit);
-    cancel.removeEventListener("click", onCancel);
-  };
-  const onCancel = () => {
-    window.yo.skillsUserResponse(data.qid, "");
-    modal.classList.add("hidden");
-    submit.removeEventListener("click", onSubmit);
-    cancel.removeEventListener("click", onCancel);
-  };
-  submit.addEventListener("click", onSubmit);
-  cancel.addEventListener("click", onCancel);
-});
 
 
 export { loadSkills };
@@ -1225,9 +802,6 @@ export function initSkillsEvents() {
   document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-back-link")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
-  document.getElementById("skill-run")!.addEventListener("click", runSkillFromEditor);
-  document.getElementById("skill-tools-add")!.addEventListener("click", () => addToolRow());
-  document.getElementById("skill-requires-add")!.addEventListener("click", () => addRequiresRow());
   document.getElementById("skill-schedule-freq")!.addEventListener("change", updateScheduleOpts);
   document.querySelectorAll("#sched-days-row .sched-day-chip").forEach(chip => {
     chip.addEventListener("click", () => { chip.classList.toggle("active"); updateSchedulePreview(); });

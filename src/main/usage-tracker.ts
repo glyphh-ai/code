@@ -1,8 +1,8 @@
 /**
- * UsageTracker — token usage aggregation by agent and day.
+ * UsageTracker — yos consumption aggregation by agent and day.
  *
  * Persists daily usage stats to ~/yo/.usage (JSON).
- * Tracks input/output tokens per agent per day.
+ * Tracks yos consumed per agent per day.
  */
 
 import fs from "fs";
@@ -14,15 +14,12 @@ const USAGE_FILE = path.join(os.homedir(), "yo", ".usage");
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
-  cacheCreation?: number;
-  cacheRead?: number;
+  yosConsumed: number;
+  yosRemaining: number;
 }
 
 interface AgentUsage {
-  input: number;
-  output: number;
-  cacheCreation: number;
-  cacheRead: number;
+  yos: number;
   calls: number;
 }
 
@@ -51,28 +48,22 @@ class UsageTrackerImpl {
     const today = this.todayKey();
     let day = this.data.days.find((d) => d.date === today);
     if (!day) {
-      day = { date: today, agents: {}, total: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, calls: 0 } };
+      day = { date: today, agents: {}, total: { yos: 0, calls: 0 } };
       this.data.days.push(day);
-      // Keep max 90 days
       if (this.data.days.length > 90) {
         this.data.days = this.data.days.slice(-90);
       }
     }
 
     if (!day.agents[agent]) {
-      day.agents[agent] = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, calls: 0 };
+      day.agents[agent] = { yos: 0, calls: 0 };
     }
 
-    day.agents[agent].input += usage.inputTokens;
-    day.agents[agent].output += usage.outputTokens;
-    day.agents[agent].cacheCreation += usage.cacheCreation || 0;
-    day.agents[agent].cacheRead += usage.cacheRead || 0;
+    const consumed = usage.yosConsumed || 0;
+    day.agents[agent].yos += consumed;
     day.agents[agent].calls += 1;
 
-    day.total.input += usage.inputTokens;
-    day.total.output += usage.outputTokens;
-    day.total.cacheCreation += usage.cacheCreation || 0;
-    day.total.cacheRead += usage.cacheRead || 0;
+    day.total.yos += consumed;
     day.total.calls += 1;
 
     this.scheduleSave();
@@ -91,21 +82,15 @@ class UsageTrackerImpl {
   /** Get all-time totals. */
   getAllTime(): { agents: Record<string, AgentUsage>; total: AgentUsage } {
     const agents: Record<string, AgentUsage> = {};
-    const total: AgentUsage = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, calls: 0 };
+    const total: AgentUsage = { yos: 0, calls: 0 };
 
     for (const day of this.data.days) {
       for (const [agent, usage] of Object.entries(day.agents)) {
-        if (!agents[agent]) agents[agent] = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, calls: 0 };
-        agents[agent].input += usage.input;
-        agents[agent].output += usage.output;
-        agents[agent].cacheCreation += usage.cacheCreation || 0;
-        agents[agent].cacheRead += usage.cacheRead || 0;
+        if (!agents[agent]) agents[agent] = { yos: 0, calls: 0 };
+        agents[agent].yos += usage.yos;
         agents[agent].calls += usage.calls;
       }
-      total.input += day.total.input;
-      total.output += day.total.output;
-      total.cacheCreation += day.total.cacheCreation || 0;
-      total.cacheRead += day.total.cacheRead || 0;
+      total.yos += day.total.yos;
       total.calls += day.total.calls;
     }
 

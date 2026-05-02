@@ -355,8 +355,7 @@ export class CommandParser {
 
     if (matchedSkill) {
       try {
-        const out = await this.skillEngine.runSkill(matchedSkill, content, { trigger: "manual" });
-        finalContent = typeof out === "string" ? out : JSON.stringify(out, null, 2);
+        finalContent = await this.skillEngine.process(content, matchedSkill);
       } catch (err) {
         finalContent = `Skill error: ${err instanceof Error ? err.message : String(err)}`;
       }

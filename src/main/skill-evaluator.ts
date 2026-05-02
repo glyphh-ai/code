@@ -10,7 +10,8 @@
  * Default: uses LLM judgement. With opts.deterministic, uses regex/schema.
  */
 
-import { LLMConfig, createCompletion } from "./llm-config";
+import { LLMConfig } from "./llm-config";
+import { sdkComplete } from "./sdk-llm";
 
 export interface EvaluateResult {
   ok: boolean;
@@ -51,24 +52,20 @@ export async function evaluateLLM(
 ): Promise<EvaluateResult> {
   const valueStr = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   try {
-    const response = await createCompletion(llm, {
+    const result = await sdkComplete({
       system: EVAL_SYSTEM,
-      messages: [
-        { role: "user", content: `QUESTION: ${question}\n\nVALUE:\n${valueStr.slice(0, 8000)}` },
-      ],
-      maxTokens: 512,
+      prompt: `QUESTION: ${question}\n\nVALUE:\n${valueStr.slice(0, 8000)}`,
+      model: llm.model,
     });
-    const block = response.content[0];
-    if (block.type !== "text") return { ok: true };
-    // Extract JSON (tolerant to markdown fences)
-    let text = block.text.trim();
+    let text = result.text.trim();
+    if (!text) return { ok: true };
     const fenceMatch = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/);
     if (fenceMatch) text = fenceMatch[1];
     try {
       const parsed = JSON.parse(text) as EvaluateResult;
       return normaliseResult(parsed);
     } catch {
-      return { ok: true }; // evaluator failed → assume pass (don't block)
+      return { ok: true };
     }
   } catch {
     return { ok: true };

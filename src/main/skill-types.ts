@@ -6,7 +6,7 @@ export interface SkillManifest {
   name: string;
   description?: string;
   when_to_use?: string;
-  type?: "skill" | "vibe";
+  type?: "skill";
   inputs?: Array<{ name: string; type: string; description?: string }>;
   outputs?: Array<{ name: string; type: string; description?: string }>;
   "allowed-tools"?: string[];
@@ -16,19 +16,15 @@ export interface SkillManifest {
 }
 
 export interface Skill {
-  name: string;                      // skill id (folder name)
+  name: string;
   manifest: SkillManifest;
-  prompt: string;                    // body of SKILL.md (after frontmatter)
-  hasRunner: boolean;                // SKILL.js exists
-  hasApp: boolean;                   // APP.html exists (vibe)
-  folderPath: string;                // absolute path to ~/yo/skills/<name>
+  prompt: string;
+  folderPath: string;
 }
 
 export interface SkillSummary {
   name: string;
   description?: string;
-  hasRunner: boolean;
-  hasApp: boolean;
   scheduled: boolean;
   scheduleExpr?: string;
 }
