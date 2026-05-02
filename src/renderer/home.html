@@ -1057,7 +1057,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
           <h2>Cyphers</h2>
           <p class="section-desc">Collaborative gatherings of agents. Host one to pool tokens with others, or join one to put your agent to work for yos.</p>
 
-          <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:12px;">
+          <div id="cypher-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:12px;">
             <button id="cypher-tab-mine" class="settings-nav-item active" data-cypher-tab="mine" style="border-radius:0;border-bottom:2px solid var(--accent);">Mine</button>
             <button id="cypher-tab-discover" class="settings-nav-item" data-cypher-tab="discover" style="border-radius:0;border-bottom:2px solid transparent;">Discover</button>
           </div>
@@ -1092,25 +1092,27 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div id="cypher-discover-list" class="crud-cards"></div>
           </div>
 
-          <!-- Create / publish form (shared with workspace publish flow) -->
-          <div id="cypher-publish-form" class="crud-inline-form hidden">
+          <!-- Create / Edit form -->
+          <div id="cypher-form" class="crud-inline-form hidden">
             <div class="crud-inline-header">
-              <a class="crud-breadcrumb-back" id="cypher-publish-cancel">← Cyphers</a>
+              <a class="crud-breadcrumb-back" id="cypher-form-back">← Cyphers</a>
+              <span id="cypher-form-heading" style="font-size:14px;font-weight:600;color:var(--text);margin-left:8px;"></span>
               <div class="crud-spacer"></div>
+              <a id="cypher-form-detail-link" class="action-btn hidden" style="font-size:11px;">View live →</a>
             </div>
-            <div id="cypher-publish-error" class="crud-form-error hidden"></div>
+            <div id="cypher-form-error" class="crud-form-error hidden"></div>
 
             <label class="settings-label">Title</label>
-            <input id="cypher-publish-title" type="text" class="settings-input" placeholder="e.g. Acme SDK Documentation" spellcheck="false" autocomplete="off" />
+            <input id="cypher-form-title" type="text" class="settings-input" placeholder="e.g. Acme SDK Documentation" spellcheck="false" autocomplete="off" />
 
             <label class="settings-label">Goal <span class="settings-hint">— what's this cypher trying to make</span></label>
-            <input id="cypher-publish-goal" type="text" class="settings-input" placeholder="e.g. write the SDK docs and ship them" spellcheck="false" autocomplete="off" />
+            <input id="cypher-form-goal" type="text" class="settings-input" placeholder="e.g. write the SDK docs and ship them" spellcheck="false" autocomplete="off" />
 
             <label class="settings-label">Description</label>
-            <textarea id="cypher-publish-description" class="settings-input" rows="3" spellcheck="false" placeholder="What jammers should know before joining"></textarea>
+            <textarea id="cypher-form-description" class="settings-input" rows="3" spellcheck="false" placeholder="What jammers should know before joining"></textarea>
 
             <label class="settings-label">Type</label>
-            <select id="cypher-publish-type" class="settings-input">
+            <select id="cypher-form-type" class="settings-input">
               <option value="open">Open — anyone joins, kitty pays for compute, leftover refunded pro-rata</option>
               <option value="bounty">Bounty — you pre-fund, free join, distribution at wrap</option>
               <option value="coop">Co-op — every joiner contributes equally, output shared</option>
@@ -1118,14 +1120,14 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             </select>
 
             <label class="settings-label">Visibility</label>
-            <select id="cypher-publish-visibility" class="settings-input">
+            <select id="cypher-form-visibility" class="settings-input">
               <option value="public">Public — listed in discovery</option>
               <option value="unlisted">Unlisted — only people with the link</option>
               <option value="invite">Invite-only — only members can see</option>
             </select>
 
             <label class="settings-label">Sensitivity</label>
-            <select id="cypher-publish-sensitivity" class="settings-input">
+            <select id="cypher-form-sensitivity" class="settings-input">
               <option value="public">Public — anyone may see the work</option>
               <option value="internal" selected>Internal — visible to jammers only</option>
               <option value="confidential">Confidential — verified providers only (currently local-only)</option>
@@ -1134,76 +1136,77 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <h3 class="settings-subheading" style="margin-top:16px;">Joiner requirements</h3>
             <p class="section-desc">Filter which agents may join. Comma-separated lists; leave blank for no filter.</p>
             <label class="settings-label">Required skills</label>
-            <input id="cypher-publish-req-skills" type="text" class="settings-input" placeholder="e.g. rust, testing" spellcheck="false" autocomplete="off" />
+            <input id="cypher-form-req-skills" type="text" class="settings-input" placeholder="e.g. rust, testing" spellcheck="false" autocomplete="off" />
             <label class="settings-label">Required apps</label>
-            <input id="cypher-publish-req-apps" type="text" class="settings-input" placeholder="e.g. github, linear" spellcheck="false" autocomplete="off" />
+            <input id="cypher-form-req-apps" type="text" class="settings-input" placeholder="e.g. github, linear" spellcheck="false" autocomplete="off" />
             <label class="settings-label">Minimum hardware tier</label>
-            <select id="cypher-publish-req-tier" class="settings-input settings-input-md">
+            <select id="cypher-form-req-tier" class="settings-input settings-input-md">
               <option value="">Any</option>
               <option value="low">Low</option>
               <option value="standard">Standard</option>
               <option value="premiere">Premiere</option>
             </select>
             <label class="settings-label">Max jammers <span class="settings-hint">— blank for unlimited</span></label>
-            <input id="cypher-publish-max-jammers" type="number" min="1" class="settings-input settings-input-md" placeholder="50" />
+            <input id="cypher-form-max-jammers" type="number" min="1" class="settings-input settings-input-md" placeholder="50" />
 
-            <h3 class="settings-subheading" style="margin-top:16px;">Kitty deposit</h3>
-            <p class="section-desc">Initial yos to escrow into the kitty. <span id="cypher-publish-kitty-hint" style="color:var(--text-2);"></span></p>
-            <label class="settings-label">Initial deposit</label>
-            <input id="cypher-publish-kitty-amount" type="number" min="0" class="settings-input settings-input-md" placeholder="1000" />
+            <div id="cypher-form-kitty-section">
+              <h3 class="settings-subheading" style="margin-top:16px;">Kitty deposit</h3>
+              <p class="section-desc">Initial yos to escrow into the kitty. <span id="cypher-form-kitty-hint" style="color:var(--text-2);"></span></p>
+              <label class="settings-label">Initial deposit</label>
+              <input id="cypher-form-kitty-amount" type="number" min="0" class="settings-input settings-input-md" placeholder="1000" />
+            </div>
 
             <div class="settings-actions" style="margin-top:16px;">
-              <button id="cypher-publish-cancel-btn" class="action-btn">Cancel</button>
+              <button id="cypher-form-delete" class="action-btn danger hidden">Cancel cypher</button>
               <div style="flex:1;"></div>
-              <button id="cypher-publish-save" class="action-btn primary">Publish cypher</button>
+              <button id="cypher-form-cancel" class="action-btn">Cancel</button>
+              <button id="cypher-form-save" class="action-btn primary">Publish cypher</button>
             </div>
           </div>
 
-          <!-- Detail (manage a single cypher) -->
-          <div id="cypher-detail" class="hidden">
-            <div class="crud-inline-header" style="padding:0 16px;">
+          <!-- Detail (live cypher monitoring) -->
+          <div id="cypher-detail" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
               <a class="crud-breadcrumb-back" id="cypher-detail-close">← Cyphers</a>
               <span id="cypher-detail-heading" style="font-size:14px;font-weight:600;color:var(--text);margin-left:8px;"></span>
               <span id="cypher-detail-status-badge" style="margin-left:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;background:var(--bg-2);color:var(--text-2);"></span>
               <span id="cypher-detail-type-badge" style="margin-left:6px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;background:var(--bg-2);color:var(--accent);"></span>
             </div>
 
-            <div style="padding:12px 16px;">
-              <div id="cypher-detail-meta" style="font-size:12px;color:var(--text-2);margin-bottom:16px;font-family:var(--font-mono);"></div>
+            <div id="cypher-detail-meta" style="font-size:12px;color:var(--text-2);margin-bottom:16px;font-family:var(--font-mono);"></div>
 
-              <div id="cypher-detail-stats" style="display:flex;gap:24px;margin-bottom:16px;">
-                <div>
-                  <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Kitty</div>
-                  <div id="cypher-detail-kitty" style="font-size:18px;font-weight:600;color:var(--accent);font-family:var(--font-mono);">— yos</div>
-                </div>
-                <div>
-                  <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Jammers</div>
-                  <div id="cypher-detail-jammers-count" style="font-size:18px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</div>
-                </div>
-                <div>
-                  <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Events</div>
-                  <div id="cypher-detail-events-count" style="font-size:18px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</div>
-                </div>
+            <div style="display:flex;gap:24px;margin-bottom:16px;">
+              <div>
+                <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Kitty</div>
+                <div id="cypher-detail-kitty" style="font-size:18px;font-weight:600;color:var(--accent);font-family:var(--font-mono);">— yos</div>
               </div>
-
-              <h3 class="settings-subheading">Jammers</h3>
-              <div id="cypher-detail-jammers" style="margin-bottom:16px;font-size:12px;font-family:var(--font-mono);color:var(--text-2);"></div>
-
-              <h3 class="settings-subheading">Recent events</h3>
-              <div id="cypher-detail-events" style="margin-bottom:16px;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--font-mono);font-size:11px;"></div>
-
-              <h3 class="settings-subheading">Add to kitty</h3>
-              <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
-                <input id="cypher-detail-deposit-amount" type="number" min="1" class="settings-input settings-input-md" placeholder="amount" />
-                <button id="cypher-detail-deposit-btn" class="action-btn primary">Deposit</button>
-                <span id="cypher-detail-deposit-status" style="font-size:11px;color:var(--text-2);"></span>
+              <div>
+                <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Jammers</div>
+                <div id="cypher-detail-jammers-count" style="font-size:18px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</div>
               </div>
-
-              <div class="settings-actions" style="margin-top:16px;">
-                <button id="cypher-detail-cancel-cypher" class="action-btn danger">Cancel cypher</button>
-                <div style="flex:1;"></div>
-                <button id="cypher-detail-wrap" class="action-btn primary">Wrap (end + refund)</button>
+              <div>
+                <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Events</div>
+                <div id="cypher-detail-events-count" style="font-size:18px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</div>
               </div>
+            </div>
+
+            <h3 class="settings-subheading">Jammers</h3>
+            <div id="cypher-detail-jammers" style="margin-bottom:16px;font-size:12px;font-family:var(--font-mono);color:var(--text-2);"></div>
+
+            <h3 class="settings-subheading">Recent events</h3>
+            <div id="cypher-detail-events" style="margin-bottom:16px;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--font-mono);font-size:11px;"></div>
+
+            <h3 class="settings-subheading">Add to kitty</h3>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
+              <input id="cypher-detail-deposit-amount" type="number" min="1" class="settings-input settings-input-md" placeholder="amount" />
+              <button id="cypher-detail-deposit-btn" class="action-btn primary">Deposit</button>
+              <span id="cypher-detail-deposit-status" style="font-size:11px;color:var(--text-2);"></span>
+            </div>
+
+            <div class="settings-actions" style="margin-top:16px;">
+              <button id="cypher-detail-cancel-cypher" class="action-btn danger">Cancel cypher</button>
+              <div style="flex:1;"></div>
+              <button id="cypher-detail-wrap" class="action-btn primary">Wrap (end + refund)</button>
             </div>
           </div>
 
@@ -1216,7 +1219,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               </div>
               <div id="cypher-join-meta" style="font-size:11px;color:var(--text-2);font-family:var(--font-mono);margin-bottom:12px;"></div>
 
-              <div id="cypher-join-stats" style="display:flex;gap:16px;margin-bottom:16px;">
+              <div style="display:flex;gap:16px;margin-bottom:16px;">
                 <div>
                   <div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Type</div>
                   <div id="cypher-join-type" style="font-size:13px;color:var(--accent);text-transform:uppercase;"></div>

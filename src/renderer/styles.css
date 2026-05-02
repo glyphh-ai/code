@@ -1595,7 +1595,7 @@ body {
 
 /* ── Confirm modal ───────────────────────────────────────── */
 .confirm-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 200;
   background: var(--overlay-bg);

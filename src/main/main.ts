@@ -2204,7 +2204,9 @@ async function boot() {
   yoAgent.setApprovalCallback(async (toolName, input) => {
     const id = `approval-${++approvalCounter}`;
     const { TOOL_LABELS } = require("./action-gate");
-    const toolLabel = TOOL_LABELS[toolName] || toolName;
+    let toolLabel = TOOL_LABELS[toolName] || toolName;
+    const mcpMatch = toolName.match(/^mcp__[^_]+__(.+)$/);
+    if (mcpMatch) toolLabel = TOOL_LABELS[mcpMatch[1]] || mcpMatch[1].replace(/_/g, " ");
     mainWindow?.webContents.send("approval-request", id, toolName, toolLabel, input);
     return new Promise<boolean>((resolve) => {
       pendingApprovals.set(id, resolve);

@@ -1,16 +1,9 @@
 /**
- * Cyphers section — list, discover, join modal, publish, detail.
+ * Cyphers section — list, discover, join modal, create/edit form, detail.
  */
 
-import { $a, escapeHtml, formatYos, closeHelp } from "./shared.js";
+import { $a, escapeHtml, formatYos, confirmAction } from "./shared.js";
 import type { AgentDef } from "./agents.js";
-
-// ─────────────────────────────────────────────────────────────────────
-// Cyphers — collaborative gatherings of agents
-// Mirrors Agents/Apps section structure: list+search, inline form, detail
-// view with kitty/jammers/events. The publish form doubles as create form
-// (a draft is created on save and published in the same call).
-// ─────────────────────────────────────────────────────────────────────
 
 interface CypherListItem {
   id: string;
@@ -47,21 +40,23 @@ let currentCypher: CypherDetail | null = null;
 let currentCypherKitty = 0;
 let cypherDetailPollTimer: ReturnType<typeof setInterval> | null = null;
 
+// ── Load + render ─────────────────────────────────────────────
+
 async function loadCyphers(): Promise<void> {
   const r = await window.yo.cypherListMine();
   cyphersCache = "error" in r ? [] : (r.cyphers as CypherListItem[]);
   await refreshCypherYosBalance();
   renderCyphersList();
   $a("cyphers-list").classList.remove("hidden");
-  $a("cypher-publish-form").classList.add("hidden");
+  $a("cypher-form").classList.add("hidden");
   $a("cypher-detail").classList.add("hidden");
-  $a("cypher-search").parentElement?.parentElement?.classList.remove("hidden");
-  // Show whichever tab the user last had open (default: Mine).
+  $a("cypher-tabs").classList.remove("hidden");
+  $a("cypher-mine-view").classList.remove("hidden");
   switchCypherTab(currentCypherTab);
   stopCypherDetailPoll();
 }
 
-// ── Mine / Discover tab switching ───────────────────────────
+// ── Mine / Discover tab switching ─────────────────────────────
 
 let currentCypherTab: "mine" | "discover" = "mine";
 let discoverPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -73,8 +68,7 @@ function switchCypherTab(tab: "mine" | "discover"): void {
     btn.classList.toggle("active", active);
     btn.style.borderBottom = active ? "2px solid var(--accent)" : "2px solid transparent";
   });
-  // The publish form / detail can be open in either context — only swap the *list* views.
-  const showingForm = !$a("cypher-publish-form").classList.contains("hidden");
+  const showingForm = !$a("cypher-form").classList.contains("hidden");
   const showingDetail = !$a("cypher-detail").classList.contains("hidden");
   if (showingForm || showingDetail) return;
   $a("cypher-mine-view").classList.toggle("hidden", tab !== "mine");
@@ -86,6 +80,8 @@ function switchCypherTab(tab: "mine" | "discover"): void {
     stopDiscoverPoll();
   }
 }
+
+// ── Discover ──────────────────────────────────────────────────
 
 let discoverCache: Array<{
   id: string; slug: string; title: string; description: string | null;
@@ -112,35 +108,30 @@ function renderDiscoverList(): void {
     c.type.toLowerCase().includes(search),
   );
   if (filtered.length === 0) {
-    const empty = document.createElement("div");
-    empty.style.cssText = "padding:48px 16px;text-align:center;color:var(--text-2);font-size:13px;";
-    empty.textContent = discoverCache.length === 0
-      ? "No live cyphers right now. Check back soon."
-      : "No cyphers match your filters.";
-    list.appendChild(empty);
+    list.innerHTML = `<div class="crud-empty">${discoverCache.length === 0 ? "No live cyphers right now. Check back soon." : "No cyphers match your filters."}</div>`;
     return;
   }
   for (const c of filtered) {
     const card = document.createElement("div");
-    card.className = "app-card";
-    card.style.position = "relative";
-    const initial = (c.title || c.slug).slice(0, 1).toUpperCase();
-    const typeBadgeColor =
-      c.type === "bounty" ? "#a78bfa" :
-      c.type === "coop" ? "#60a5fa" :
-      c.type === "sponsored" ? "#fb923c" :
-      "var(--accent)";
+    card.className = "crud-card";
+    const typeBadge =
+      c.type === "bounty" ? "bounty" :
+      c.type === "coop" ? "co-op" :
+      c.type === "sponsored" ? "sponsored" : "open";
     card.innerHTML = `
-      <div style="position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:4px;font-size:9px;color:var(--accent);">
-        <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);animation:cw-dot-pulse 1.2s ease-in-out infinite;"></span>
-        LIVE
+      <div class="crud-card-info">
+        <span class="crud-card-name">${escapeHtml(c.title)} <span class="skill-pill" style="background:var(--accent);color:var(--bg);">LIVE</span> <span class="skill-pill">${typeBadge}</span></span>
+        <span class="crud-card-meta">${escapeHtml(c.slug)}${c.max_jammers != null ? ` · max ${c.max_jammers} jammers` : ""}${c.description ? ` — ${escapeHtml(c.description.slice(0, 80))}` : ""}</span>
       </div>
-      <div class="app-card-icon"><div class="app-card-initial">${escapeHtml(initial)}</div></div>
-      <div class="app-card-name">${escapeHtml(c.title)}</div>
-      <div class="app-card-id">${escapeHtml(c.slug)}</div>
-      <div style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;margin-top:6px;color:${typeBadgeColor};">${c.type}${c.max_jammers != null ? ` · max ${c.max_jammers}` : ""}</div>
-      ${c.description ? `<div style="font-size:11px;color:var(--text-2);margin-top:6px;line-height:1.4;max-height:36px;overflow:hidden;">${escapeHtml(c.description)}</div>` : ""}
-    `;
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Join">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        </button>
+      </div>`;
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void openJoinModal(c.id);
+    });
     card.addEventListener("click", () => { void openJoinModal(c.id); });
     list.appendChild(card);
   }
@@ -154,7 +145,7 @@ function stopDiscoverPoll(): void {
   if (discoverPollTimer) { clearInterval(discoverPollTimer); discoverPollTimer = null; }
 }
 
-// ── Join modal ──────────────────────────────────────────────
+// ── Join modal ────────────────────────────────────────────────
 
 let joinTargetCypherId: string | null = null;
 let joinSelectedAgentId: string | null = null;
@@ -166,7 +157,6 @@ async function openJoinModal(cypherId: string): Promise<void> {
   ($a<HTMLSelectElement>("cypher-join-role")).value = "jammer";
   $a("cypher-join-modal").style.display = "flex";
 
-  // Fetch cypher details + my agents in parallel
   const [cy, mineRes] = await Promise.all([
     window.yo.cypherGet(cypherId),
     window.yo.agentsList(),
@@ -183,7 +173,6 @@ async function openJoinModal(cypherId: string): Promise<void> {
   $a("cypher-join-kitty").textContent = formatYos(cy.kitty_balance);
   $a("cypher-join-sensitivity").textContent = c.sensitivity;
 
-  // Render requirements
   const reqEl = $a("cypher-join-requirements");
   const reqs = c.requirements || {};
   const reqLines: string[] = [];
@@ -194,15 +183,11 @@ async function openJoinModal(cypherId: string): Promise<void> {
   if (reqs.min_tier) reqLines.push(`<b>Min tier:</b> ${reqs.min_tier}`);
   reqEl.innerHTML = reqLines.length ? `<div style="padding:8px;background:var(--bg-2);border-radius:4px;">${reqLines.join(" · ")}</div>` : "";
 
-  // Render agent picker — show all agents but mark joinable status
   const myAgents = (mineRes as AgentDef[]) || [];
   const list = $a("cypher-join-agent-list");
   list.innerHTML = "";
   if (myAgents.length === 0) {
-    const empty = document.createElement("div");
-    empty.style.cssText = "padding:16px 8px;color:var(--text-2);font-size:12px;text-align:center;";
-    empty.textContent = "No agents in your registry. Create one in Home → Agents first.";
-    list.appendChild(empty);
+    list.innerHTML = `<div class="crud-empty">No agents in your registry. Create one in Home → Agents first.</div>`;
     return;
   }
 
@@ -278,12 +263,16 @@ async function confirmJoinCypher(): Promise<void> {
   await openCypherDetail(id);
 }
 
+// ── Yos balance display ───────────────────────────────────────
+
 async function refreshCypherYosBalance(): Promise<void> {
   const el = $a("cypher-yos-balance");
   if (!el) return;
   const r = await window.yo.yosBalance();
   el.textContent = "error" in r ? "— yos" : formatYos(r.balance);
 }
+
+// ── Mine list (crud-card pattern) ─────────────────────────────
 
 function renderCyphersList(): void {
   const list = $a("cyphers-list");
@@ -295,110 +284,211 @@ function renderCyphersList(): void {
   );
 
   if (filtered.length === 0) {
-    const empty = document.createElement("div");
-    empty.style.cssText = "padding:32px 16px;text-align:center;color:var(--text-2);font-size:13px;";
-    empty.textContent = cyphersCache.length === 0 ? `No cyphers yet. Click "+ New" to host one.` : "No cyphers match your search.";
-    list.appendChild(empty);
+    list.innerHTML = `<div class="crud-empty">${cyphersCache.length === 0 ? 'No cyphers yet. Click "+ New" to host one.' : "No cyphers match your search."}</div>`;
     return;
   }
 
   for (const c of filtered) {
+    const statusColor =
+      c.status === "live" ? "var(--accent)" :
+      c.status === "wrapped" ? "var(--text-2)" :
+      c.status === "cancelled" ? "var(--danger)" : "var(--text-3)";
+    const statusPill = `<span class="skill-pill" style="background:${statusColor};color:var(--bg);">${c.status}</span>`;
+    const typePill = `<span class="skill-pill">${c.type}</span>`;
+
     const card = document.createElement("div");
-    card.className = "app-card";
-    const initial = (c.title || c.slug).slice(0, 1).toUpperCase();
-    const statusColor = c.status === "live" ? "var(--accent)" : c.status === "wrapped" ? "var(--text-2)" : c.status === "cancelled" ? "var(--danger)" : "var(--text-3)";
+    card.className = "crud-card";
     card.innerHTML = `
-      <div class="app-card-icon"><div class="app-card-initial">${escapeHtml(initial)}</div></div>
-      <div class="app-card-name">${escapeHtml(c.title)}</div>
-      <div class="app-card-id">${escapeHtml(c.slug)}</div>
-      <div style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;margin-top:4px;display:flex;gap:6px;">
-        <span style="color:${statusColor};">${c.status}</span>
-        <span style="color:var(--text-3);">·</span>
-        <span style="color:var(--text-2);">${c.type}</span>
+      <div class="crud-card-info">
+        <span class="crud-card-name">${escapeHtml(c.title)} ${statusPill} ${typePill}</span>
+        <span class="crud-card-meta">${escapeHtml(c.slug)} · ${c.visibility}</span>
       </div>
-    `;
-    card.addEventListener("click", () => { void openCypherDetail(c.id); });
+      <div class="crud-card-actions">
+        <button class="crud-card-btn crud-edit-btn" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Cancel cypher">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>`;
+
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void openCypherEdit(c.id);
+    });
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await confirmAction(`Cancel cypher "${c.title}"? All contributors get full refunds.`);
+      if (!confirmed) return;
+      const r = await window.yo.cypherCancel(c.id);
+      if (!r.ok) { alert((r as any).error || "Cancel failed"); return; }
+      await refreshCypherYosBalance();
+      await loadCyphers();
+    });
+    card.addEventListener("click", () => { void openCypherEdit(c.id); });
     list.appendChild(card);
   }
 }
 
-function showPublishForm(): void {
+// ── Create form ───────────────────────────────────────────────
+
+let editingCypherId: string | null = null;
+
+function showCreateForm(): void {
+  editingCypherId = null;
   $a("cyphers-list").classList.add("hidden");
   $a("cypher-detail").classList.add("hidden");
-  $a("cypher-publish-form").classList.remove("hidden");
-  ($a<HTMLInputElement>("cypher-publish-title")).value = "";
-  ($a<HTMLInputElement>("cypher-publish-goal")).value = "";
-  ($a<HTMLTextAreaElement>("cypher-publish-description")).value = "";
-  ($a<HTMLSelectElement>("cypher-publish-type")).value = "open";
-  ($a<HTMLSelectElement>("cypher-publish-visibility")).value = "public";
-  ($a<HTMLSelectElement>("cypher-publish-sensitivity")).value = "internal";
-  ($a<HTMLInputElement>("cypher-publish-req-skills")).value = "";
-  ($a<HTMLInputElement>("cypher-publish-req-apps")).value = "";
-  ($a<HTMLSelectElement>("cypher-publish-req-tier")).value = "";
-  ($a<HTMLInputElement>("cypher-publish-max-jammers")).value = "";
-  ($a<HTMLInputElement>("cypher-publish-kitty-amount")).value = "1000";
-  $a("cypher-publish-error").classList.add("hidden");
+  $a("cypher-tabs").classList.add("hidden");
+  $a("cypher-mine-view").classList.add("hidden");
+  $a("cypher-discover-view").classList.add("hidden");
+  $a("cypher-form").classList.remove("hidden");
+  $a("cypher-form-heading").textContent = "New cypher";
+
+  ($a<HTMLInputElement>("cypher-form-title")).value = "";
+  ($a<HTMLInputElement>("cypher-form-goal")).value = "";
+  ($a<HTMLTextAreaElement>("cypher-form-description")).value = "";
+  ($a<HTMLSelectElement>("cypher-form-type")).value = "open";
+  ($a<HTMLSelectElement>("cypher-form-visibility")).value = "public";
+  ($a<HTMLSelectElement>("cypher-form-sensitivity")).value = "internal";
+  ($a<HTMLInputElement>("cypher-form-req-skills")).value = "";
+  ($a<HTMLInputElement>("cypher-form-req-apps")).value = "";
+  ($a<HTMLSelectElement>("cypher-form-req-tier")).value = "";
+  ($a<HTMLInputElement>("cypher-form-max-jammers")).value = "";
+  ($a<HTMLInputElement>("cypher-form-kitty-amount")).value = "1000";
+  $a("cypher-form-error").classList.add("hidden");
+  $a("cypher-form-delete").classList.add("hidden");
+  $a("cypher-form-kitty-section").classList.remove("hidden");
+  $a("cypher-form-save").textContent = "Publish cypher";
   updateCypherKittyHint();
 }
 
-function updateCypherKittyHint(): void {
-  const type = ($a<HTMLSelectElement>("cypher-publish-type")).value;
-  const hint = $a("cypher-publish-kitty-hint");
-  if (type === "bounty") hint.textContent = "Bounty cyphers must pre-fund > 0.";
-  else if (type === "coop") hint.textContent = "Co-op: each joiner contributes equally; this is your share.";
-  else if (type === "sponsored") hint.textContent = "You're the sponsor — fund what jammers will draw down.";
-  else hint.textContent = "Anyone can add to the kitty after publish.";
+// ── Edit form (loads existing cypher into same form) ──────────
+
+async function openCypherEdit(cypherId: string): Promise<void> {
+  const r = await window.yo.cypherGet(cypherId);
+  if ("error" in r) { alert(r.error); return; }
+  const c = r.cypher as CypherDetail;
+  editingCypherId = c.id;
+  currentCypher = c;
+  currentCypherKitty = r.kitty_balance;
+
+  $a("cyphers-list").classList.add("hidden");
+  $a("cypher-detail").classList.add("hidden");
+  $a("cypher-tabs").classList.add("hidden");
+  $a("cypher-mine-view").classList.add("hidden");
+  $a("cypher-discover-view").classList.add("hidden");
+  $a("cypher-form").classList.remove("hidden");
+  $a("cypher-form-heading").textContent = c.title;
+
+  ($a<HTMLInputElement>("cypher-form-title")).value = c.title;
+  ($a<HTMLInputElement>("cypher-form-goal")).value = c.goal || "";
+  ($a<HTMLTextAreaElement>("cypher-form-description")).value = c.description || "";
+  ($a<HTMLSelectElement>("cypher-form-type")).value = c.type;
+  ($a<HTMLSelectElement>("cypher-form-visibility")).value = c.visibility;
+  ($a<HTMLSelectElement>("cypher-form-sensitivity")).value = c.sensitivity;
+  ($a<HTMLInputElement>("cypher-form-req-skills")).value = (c.requirements?.skills || []).join(", ");
+  ($a<HTMLInputElement>("cypher-form-req-apps")).value = (c.requirements?.apps || []).join(", ");
+  ($a<HTMLSelectElement>("cypher-form-req-tier")).value = c.requirements?.min_tier || "";
+  ($a<HTMLInputElement>("cypher-form-max-jammers")).value = c.max_jammers != null ? String(c.max_jammers) : "";
+  ($a<HTMLInputElement>("cypher-form-kitty-amount")).value = "";
+  $a("cypher-form-error").classList.add("hidden");
+  $a("cypher-form-delete").classList.remove("hidden");
+  $a("cypher-form-kitty-section").classList.add("hidden");
+  $a("cypher-form-save").textContent = "Save";
+
+  // Show detail link for live cyphers
+  const detailLink = $a("cypher-form-detail-link");
+  if (c.status === "live") {
+    detailLink.classList.remove("hidden");
+  } else {
+    detailLink.classList.add("hidden");
+  }
 }
+
+// ── Save (create or update) ───────────────────────────────────
 
 function parseCsvList(s: string): string[] | undefined {
   const arr = s.split(",").map((x) => x.trim()).filter(Boolean);
   return arr.length ? arr : undefined;
 }
 
-async function publishNewCypher(): Promise<void> {
-  const errEl = $a("cypher-publish-error");
+function updateCypherKittyHint(): void {
+  const type = ($a<HTMLSelectElement>("cypher-form-type")).value;
+  const hint = $a("cypher-form-kitty-hint");
+  if (type === "bounty") hint.textContent = "Bounty cyphers must pre-fund > 0.";
+  else if (type === "coop") hint.textContent = "Co-op: each joiner contributes equally; this is your share.";
+  else if (type === "sponsored") hint.textContent = "You're the sponsor — fund what jammers will draw down.";
+  else hint.textContent = "Anyone can add to the kitty after publish.";
+}
+
+async function saveCypher(): Promise<void> {
+  const errEl = $a("cypher-form-error");
   errEl.classList.add("hidden");
-  const title = ($a<HTMLInputElement>("cypher-publish-title")).value.trim();
+  const title = ($a<HTMLInputElement>("cypher-form-title")).value.trim();
   if (!title) { errEl.textContent = "Title required"; errEl.classList.remove("hidden"); return; }
-  const type = ($a<HTMLSelectElement>("cypher-publish-type")).value;
-  const visibility = ($a<HTMLSelectElement>("cypher-publish-visibility")).value;
-  const sensitivity = ($a<HTMLSelectElement>("cypher-publish-sensitivity")).value;
-  const goal = ($a<HTMLInputElement>("cypher-publish-goal")).value.trim() || undefined;
-  const description = ($a<HTMLTextAreaElement>("cypher-publish-description")).value.trim() || undefined;
-  const maxJammers = Number(($a<HTMLInputElement>("cypher-publish-max-jammers")).value);
-  const tierReq = ($a<HTMLSelectElement>("cypher-publish-req-tier")).value || undefined;
+
+  const type = ($a<HTMLSelectElement>("cypher-form-type")).value;
+  const visibility = ($a<HTMLSelectElement>("cypher-form-visibility")).value;
+  const sensitivity = ($a<HTMLSelectElement>("cypher-form-sensitivity")).value;
+  const goal = ($a<HTMLInputElement>("cypher-form-goal")).value.trim() || undefined;
+  const description = ($a<HTMLTextAreaElement>("cypher-form-description")).value.trim() || undefined;
+  const maxJammers = Number(($a<HTMLInputElement>("cypher-form-max-jammers")).value);
+  const tierReq = ($a<HTMLSelectElement>("cypher-form-req-tier")).value || undefined;
   const requirements: Record<string, unknown> = {};
-  const skills = parseCsvList(($a<HTMLInputElement>("cypher-publish-req-skills")).value);
-  const apps = parseCsvList(($a<HTMLInputElement>("cypher-publish-req-apps")).value);
+  const skills = parseCsvList(($a<HTMLInputElement>("cypher-form-req-skills")).value);
+  const apps = parseCsvList(($a<HTMLInputElement>("cypher-form-req-apps")).value);
   if (skills) requirements.skills = skills;
   if (apps) requirements.apps = apps;
   if (tierReq) requirements.min_tier = tierReq;
 
-  const kittyAmount = Math.max(0, Number(($a<HTMLInputElement>("cypher-publish-kitty-amount")).value) || 0);
-
-  const create = await window.yo.cypherCreate({
-    title, goal, description, type, visibility, sensitivity,
-    max_jammers: Number.isFinite(maxJammers) && maxJammers > 0 ? maxJammers : undefined,
-    requirements,
-    work_package: { kind: "blank" },
-  });
-  if (!create.ok || !create.cypher) {
-    errEl.textContent = create.error || "Create failed";
-    errEl.classList.remove("hidden");
-    return;
-  }
-
-  const cypherId = create.cypher.id;
-  const pub = await window.yo.cypherPublish(cypherId, kittyAmount);
-  if (!pub.ok) {
-    errEl.textContent = pub.error || "Publish failed";
-    errEl.classList.remove("hidden");
-    return;
+  if (editingCypherId) {
+    // Update existing
+    const r = await window.yo.cypherUpdate(editingCypherId, {
+      title, goal, description, type, visibility, sensitivity,
+      max_jammers: Number.isFinite(maxJammers) && maxJammers > 0 ? maxJammers : null,
+      requirements,
+    });
+    if (!r.ok) {
+      errEl.textContent = r.error || "Update failed";
+      errEl.classList.remove("hidden");
+      return;
+    }
+  } else {
+    // Create + publish
+    const kittyAmount = Math.max(0, Number(($a<HTMLInputElement>("cypher-form-kitty-amount")).value) || 0);
+    const create = await window.yo.cypherCreate({
+      title, goal, description, type, visibility, sensitivity,
+      max_jammers: Number.isFinite(maxJammers) && maxJammers > 0 ? maxJammers : undefined,
+      requirements,
+      work_package: { kind: "blank" },
+    });
+    if (!create.ok || !create.cypher) {
+      errEl.textContent = create.error || "Create failed";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    const pub = await window.yo.cypherPublish(create.cypher.id, kittyAmount);
+    if (!pub.ok) {
+      errEl.textContent = pub.error || "Publish failed";
+      errEl.classList.remove("hidden");
+      return;
+    }
   }
 
   await loadCyphers();
-  await openCypherDetail(cypherId);
 }
+
+async function deleteCypher(): Promise<void> {
+  if (!editingCypherId || !currentCypher) return;
+  const confirmed = await confirmAction(`Cancel cypher "${currentCypher.title}"? All contributors get full refunds.`);
+  if (!confirmed) return;
+  const r = await window.yo.cypherCancel(editingCypherId);
+  if (!r.ok) { alert((r as any).error || "Cancel failed"); return; }
+  await refreshCypherYosBalance();
+  await loadCyphers();
+}
+
+// ── Detail view (live cypher monitoring) ──────────────────────
 
 async function openCypherDetail(cypherId: string): Promise<void> {
   const r = await window.yo.cypherGet(cypherId);
@@ -407,7 +497,10 @@ async function openCypherDetail(cypherId: string): Promise<void> {
   currentCypherKitty = r.kitty_balance;
 
   $a("cyphers-list").classList.add("hidden");
-  $a("cypher-publish-form").classList.add("hidden");
+  $a("cypher-form").classList.add("hidden");
+  $a("cypher-tabs").classList.add("hidden");
+  $a("cypher-mine-view").classList.add("hidden");
+  $a("cypher-discover-view").classList.add("hidden");
   $a("cypher-detail").classList.remove("hidden");
 
   $a("cypher-detail-heading").textContent = currentCypher.title;
@@ -424,14 +517,11 @@ async function openCypherDetail(cypherId: string): Promise<void> {
   if (currentCypher.goal) meta.push(`goal: ${currentCypher.goal}`);
   if (currentCypher.max_jammers != null) meta.push(`max jammers: ${currentCypher.max_jammers}`);
   $a("cypher-detail-meta").textContent = meta.join(" · ");
-
   $a("cypher-detail-kitty").textContent = formatYos(currentCypherKitty);
 
   await refreshCypherDetail();
   startCypherDetailPoll();
 
-  // Disable wrap/cancel for non-live or non-owner; we don't have user_id locally,
-  // so we rely on server to reject — but visually grey out for non-live.
   const wrapBtn = $a<HTMLButtonElement>("cypher-detail-wrap");
   const cancelBtn = $a<HTMLButtonElement>("cypher-detail-cancel-cypher");
   if (currentCypher.status !== "live") {
@@ -462,7 +552,7 @@ async function refreshCypherDetail(): Promise<void> {
   const jammersEl = $a("cypher-detail-jammers");
   jammersEl.innerHTML = "";
   if (jammers.length === 0) {
-    jammersEl.textContent = "No jammers yet.";
+    jammersEl.innerHTML = `<span style="color:var(--text-2);">No jammers yet.</span>`;
   } else {
     for (const j of jammers) {
       const row = document.createElement("div");
@@ -488,7 +578,7 @@ async function refreshCypherDetail(): Promise<void> {
   const eventsEl = $a("cypher-detail-events");
   eventsEl.innerHTML = "";
   if (events.length === 0) {
-    eventsEl.textContent = "No events yet.";
+    eventsEl.innerHTML = `<span style="color:var(--text-2);">No events yet.</span>`;
   } else {
     for (const e of events.slice().reverse()) {
       const row = document.createElement("div");
@@ -538,33 +628,45 @@ async function depositToCypherKitty(): Promise<void> {
 
 async function wrapCurrentCypher(): Promise<void> {
   if (!currentCypher) return;
-  if (!confirm(`Wrap "${currentCypher.title}"? Remaining kitty refunds pro-rata to contributors.`)) return;
+  const confirmed = await confirmAction(`Wrap "${currentCypher.title}"? Remaining kitty refunds pro-rata to contributors.`);
+  if (!confirmed) return;
   const r = await window.yo.cypherWrap(currentCypher.id);
   if (!r.ok) { alert(r.error || "Wrap failed"); return; }
-  alert(`Wrapped. ${r.refunds?.length ?? 0} refund(s) issued.`);
   await refreshCypherYosBalance();
   await openCypherDetail(currentCypher.id);
 }
 
 async function cancelCurrentCypher(): Promise<void> {
   if (!currentCypher) return;
-  if (!confirm(`Cancel "${currentCypher.title}"? All contributors get full refunds.`)) return;
+  const confirmed = await confirmAction(`Cancel "${currentCypher.title}"? All contributors get full refunds.`);
+  if (!confirmed) return;
   const r = await window.yo.cypherCancel(currentCypher.id);
   if (!r.ok) { alert(r.error || "Cancel failed"); return; }
   await refreshCypherYosBalance();
   await loadCyphers();
 }
 
+// ── Init ──────────────────────────────────────────────────────
+
 function initCyphers(): void {
   const search = $a<HTMLInputElement>("cypher-search");
   if (!search) return;
   search.addEventListener("input", () => renderCyphersList());
-  $a("cypher-new-btn").addEventListener("click", showPublishForm);
-  $a("cypher-publish-cancel").addEventListener("click", () => { void loadCyphers(); });
-  $a("cypher-publish-cancel-btn").addEventListener("click", () => { void loadCyphers(); });
-  $a("cypher-publish-save").addEventListener("click", () => { void publishNewCypher(); });
-  $a("cypher-publish-type").addEventListener("change", updateCypherKittyHint);
 
+  // New button
+  $a("cypher-new-btn").addEventListener("click", showCreateForm);
+
+  // Form actions
+  $a("cypher-form-back").addEventListener("click", () => { void loadCyphers(); });
+  $a("cypher-form-cancel").addEventListener("click", () => { void loadCyphers(); });
+  $a("cypher-form-save").addEventListener("click", () => { void saveCypher(); });
+  $a("cypher-form-delete").addEventListener("click", () => { void deleteCypher(); });
+  $a("cypher-form-type").addEventListener("change", updateCypherKittyHint);
+  $a("cypher-form-detail-link").addEventListener("click", () => {
+    if (editingCypherId) void openCypherDetail(editingCypherId);
+  });
+
+  // Detail actions
   $a("cypher-detail-close").addEventListener("click", () => { void loadCyphers(); });
   $a("cypher-detail-deposit-btn").addEventListener("click", () => { void depositToCypherKitty(); });
   $a("cypher-detail-wrap").addEventListener("click", () => { void wrapCurrentCypher(); });
@@ -587,6 +689,5 @@ function initCyphers(): void {
     if (e.target === $a("cypher-join-modal")) closeJoinModal();
   });
 }
-
 
 export { loadCyphers, initCyphers };

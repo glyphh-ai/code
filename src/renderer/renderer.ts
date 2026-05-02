@@ -1584,6 +1584,9 @@ function formatToolDisplayName(name: string): string {
   if (DELEGATION_DESC[name]) return DELEGATION_DESC[name];
   if (DIRECT_TOOL_DESC[name]) return DIRECT_TOOL_DESC[name];
   if (name.startsWith("skill_")) return name.slice(6).replace(/_/g, " ");
+  // Strip MCP server prefix (e.g. "mcp__yo__list_panels" → "list_panels")
+  const mcpMatch = name.match(/^mcp__[^_]+__(.+)$/);
+  if (mcpMatch) return mcpMatch[1].replace(/_/g, " ");
   const parts = name.split("_");
   if (parts.length >= 2) {
     const app = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
