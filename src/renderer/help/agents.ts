@@ -2,7 +2,16 @@
  * Agents section — agent CRUD, apps/skills picker, remote grid, reservations.
  */
 
-import { $a, escapeHtml, slugify, formatYos, closeHelp } from "./shared.js";
+import {
+  $a,
+  escapeHtml,
+  slugify,
+  formatYos,
+  closeHelp,
+  paginate,
+  renderPaginationBar,
+  confirmAction,
+} from "./shared.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Agents Registry — local templates + remote reservations
@@ -51,11 +60,15 @@ interface MarketEntry {
 }
 
 let agentsCache: AgentDef[] = [];
+let agentsPage = 1;
 let currentAgent: AgentDef | null = null;
 let currentAgentSnapshot: AgentDef | null = null;
 let agentMarketTimer: ReturnType<typeof setInterval> | null = null;
 let agentBalanceTimer: ReturnType<typeof setInterval> | null = null;
 let rateCardCache: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> = [];
+
+const EDIT_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
+const DELETE_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 
 // $a, slugify, formatYos imported from shared
 
@@ -86,39 +99,69 @@ async function loadAgents(): Promise<void> {
 
 function renderAgentsList(): void {
   const list = $a("agents-list");
-  const search = ($a<HTMLInputElement>("agent-search").value || "").toLowerCase();
+  const search = ($a<HTMLInputElement>("agent-search").value || "").toLowerCase().trim();
   list.innerHTML = "";
 
   const filtered = agentsCache.filter((a) =>
     !search || a.name.toLowerCase().includes(search) || a.id.toLowerCase().includes(search) || (a.role || "").toLowerCase().includes(search),
   );
 
+  if (agentsCache.length === 0) {
+    list.innerHTML = `<div class="crud-empty">No agents yet. Click "+ New" to add one.</div>`;
+    return;
+  }
   if (filtered.length === 0) {
-    const empty = document.createElement("div");
-    empty.style.cssText = "padding:32px 16px;text-align:center;color:var(--text-2);font-size:13px;";
-    empty.textContent = agentsCache.length === 0 ? `No agents yet. Click "+ New" to add one.` : "No agents match your search.";
-    list.appendChild(empty);
+    list.innerHTML = `<div class="crud-empty">No agents matching "${escapeHtml(search)}"</div>`;
     return;
   }
 
-  for (const a of filtered) {
+  const { items, state } = paginate(filtered, agentsPage);
+  agentsPage = state.page;
+
+  for (const a of items) {
+    const pills: string[] = [];
+    pills.push(
+      a.type === "remote"
+        ? `<span class="skill-pill skill-pill-js">Remote</span>`
+        : `<span class="skill-pill skill-pill-prompt">Local</span>`,
+    );
+    if (a.joinable) pills.push(`<span class="skill-pill skill-pill-vibe" title="Joinable to cyphers">Joinable</span>`);
+
+    const metaParts: string[] = [];
+    if (a.role) metaParts.push(escapeHtml(a.role));
+    metaParts.push(`<span style="font-family:var(--font-mono);">${escapeHtml(a.id)}</span>`);
+
     const card = document.createElement("div");
     card.className = "crud-card";
-    const typeBadge = a.type === "remote" ? `<span class="crud-card-badge">remote</span>` : "";
-    const role = a.role ? `<span class="crud-card-meta">${escapeHtml(a.role)}</span>` : "";
     card.innerHTML = `
       <div class="crud-card-info">
-        <span class="crud-card-name">${typeBadge}${escapeHtml(a.name || a.id)}</span>
-        <span class="crud-card-meta" style="font-family:var(--font-mono);font-size:11px;">${escapeHtml(a.id)}</span>
-        ${role}
+        <span class="crud-card-name">${escapeHtml(a.name || a.id)} ${pills.join(" ")}</span>
+        <span class="crud-card-meta">${metaParts.join(" · ")}</span>
       </div>
       <div class="crud-card-actions">
-        <button class="crud-card-btn crud-open-btn" title="Edit">✎</button>
-      </div>
-    `;
+        <button class="crud-card-btn crud-edit-btn" title="Edit">${EDIT_ICON_SVG}</button>
+        <button class="crud-card-btn danger crud-delete-btn" title="Delete">${DELETE_ICON_SVG}</button>
+      </div>`;
+
+    card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openAgentDetail(a);
+    });
+    card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await confirmAction(`Delete agent "${a.name || a.id}"?`);
+      if (!confirmed) return;
+      if (a.remote?.active_reservation_id) {
+        await window.yo.reservationRelease(a.remote.active_reservation_id, "agent deleted");
+      }
+      await window.yo.agentsRemove(a.id);
+      await loadAgents();
+    });
     card.addEventListener("click", () => openAgentDetail(a));
     list.appendChild(card);
   }
+
+  list.appendChild(renderPaginationBar(state, (p) => { agentsPage = p; renderAgentsList(); }));
 }
 
 // escapeHtml is defined earlier in the file; reuse it.
@@ -405,9 +448,11 @@ async function saveCurrentAgent(includeGuardrails = true, includeRemote = false)
 
 async function deleteCurrentAgent(): Promise<void> {
   if (!currentAgent) return;
-  if (!confirm(`Delete agent "${currentAgent.name}"? This is permanent.`)) return;
+  const confirmed = await confirmAction(`Delete agent "${currentAgent.name}"? This is permanent.`);
+  if (!confirmed) return;
   if (currentAgent.remote?.active_reservation_id) {
-    if (!confirm("This agent has an active reservation. Release it first?")) return;
+    const releaseConfirmed = await confirmAction("This agent has an active reservation. Release it first?");
+    if (!releaseConfirmed) return;
     await window.yo.reservationRelease(currentAgent.remote.active_reservation_id, "agent deleted");
   }
   await window.yo.agentsRemove(currentAgent.id);
@@ -578,7 +623,7 @@ function stopAgentBalanceTimer(): void {
 function initAgents(): void {
   const search = $a<HTMLInputElement>("agent-search");
   if (!search) return;
-  search.addEventListener("input", () => renderAgentsList());
+  search.addEventListener("input", () => { agentsPage = 1; renderAgentsList(); });
   $a("agent-add-btn").addEventListener("click", showAddAgentForm);
   $a("agent-add-cancel").addEventListener("click", () => { void loadAgents(); });
   $a("agent-add-cancel-btn").addEventListener("click", () => { void loadAgents(); });
