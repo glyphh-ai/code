@@ -645,6 +645,15 @@ async function wrapCurrentCypher(): Promise<void> {
   await openCypherDetail(currentCypher.id);
 }
 
+async function mintInviteForCurrent(): Promise<void> {
+  if (!currentCypher) return;
+  const r = await window.yo.cypherInviteMint(currentCypher.id, { multi_use: true });
+  if (!r.ok || !r.token) { alert(r.error || "Failed to mint invite"); return; }
+  const url = `yosup://cypher-invite?token=${encodeURIComponent(r.token)}`;
+  await navigator.clipboard.writeText(url);
+  alert("Invite link copied to clipboard");
+}
+
 async function cancelCurrentCypher(): Promise<void> {
   if (!currentCypher) return;
   const confirmed = await confirmAction(`Cancel "${currentCypher.title}"? All contributors get full refunds.`);

@@ -402,7 +402,13 @@ contextBridge.exposeInMainWorld("yo", {
   cypherListMine: () => ipcRenderer.invoke("cypher-list-mine") as Promise<{ cyphers: unknown[]; count: number } | { error: string }>,
   cypherGet: (id: string) => ipcRenderer.invoke("cypher-get", id) as Promise<{ cypher: unknown; kitty_balance: number } | { error: string }>,
   cypherGetBySlug: (slug: string) => ipcRenderer.invoke("cypher-get-by-slug", slug) as Promise<{ cypher: unknown } | { error: string }>,
-  cypherJoin: (id: string, agent_local_id: string, role?: string) => ipcRenderer.invoke("cypher-join", id, agent_local_id, role) as Promise<{ ok: boolean; cypher?: unknown; cohort_size?: number; error?: string }>,
+  cypherJoin: (id: string, agent_local_id: string, role?: string, invite_token?: string) => ipcRenderer.invoke("cypher-join", id, agent_local_id, role, invite_token) as Promise<{ ok: boolean; cypher?: unknown; cohort_size?: number; error?: string }>,
+  cypherInviteMint: (id: string, opts?: { role?: string; ttl_seconds?: number; multi_use?: boolean; invitee_user_id?: string }) =>
+    ipcRenderer.invoke("cypher-invite-mint", id, opts) as Promise<{ ok: boolean; invite?: { jti: string; cypher_id: string; role: string; multi_use: boolean; expires_at: string; invitee_user_id: string | null; revoked_at: string | null; used_at: string | null }; token?: string; error?: string }>,
+  cypherInviteList: (id: string) =>
+    ipcRenderer.invoke("cypher-invite-list", id) as Promise<{ invites: Array<{ jti: string; role: string; multi_use: boolean; expires_at: string; invitee_user_id: string | null; revoked_at: string | null; used_at: string | null; used_by_user_id: string | null; created_at: string }>; count: number } | { error: string }>,
+  cypherInviteRevoke: (id: string, jti: string) =>
+    ipcRenderer.invoke("cypher-invite-revoke", id, jti) as Promise<{ ok: boolean; invite?: unknown; error?: string }>,
   cypherLeave: (id: string, agent_local_id: string) => ipcRenderer.invoke("cypher-leave", id, agent_local_id) as Promise<{ ok: boolean }>,
   cypherJammers: (id: string) => ipcRenderer.invoke("cypher-jammers", id) as Promise<{ jammers: Array<{ user_id: string; agent_local_id: string; role: string; joined_at: string; left_at: string | null }>; count: number } | { error: string }>,
   cypherJamsList: (id: string) => ipcRenderer.invoke("cypher-jams-list", id) as Promise<{ jams: Array<{ id: string; slug: string; title: string; description: string | null; state_doc: unknown; state_version: string }>; count: number } | { error: string }>,
