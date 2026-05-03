@@ -24,6 +24,7 @@ import type { SkillEngine } from "./skill-engine";
 import type { NoteStore } from "./note-store";
 import { getAgentMode, gate } from "./action-gate";
 import type { AgentMode } from "./action-gate";
+import { AUTH_SERVER, getAuthToken } from "./auth";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -253,6 +254,8 @@ export class YoAgent {
         ...process.env,
         PATH: shellPath,
         CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
+        ANTHROPIC_BASE_URL: `${AUTH_SERVER}/api/llm/anthropic`,
+        ANTHROPIC_API_KEY: getAuthToken() || "",
       },
     };
 

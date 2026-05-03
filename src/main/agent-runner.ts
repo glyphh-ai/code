@@ -17,6 +17,7 @@ import { getShellPath } from "./shell-path";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import { AUTH_SERVER, getAuthToken } from "./auth";
 import type { CypherBus } from "./cypher-bus";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
@@ -153,6 +154,8 @@ export class AgentRunner {
         YO_AGENT_ROLE: config.role,
         YO_WORKSPACE: config.workspace,
         CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/2.5.0",
+        ANTHROPIC_BASE_URL: `${AUTH_SERVER}/api/llm/anthropic`,
+        ANTHROPIC_API_KEY: getAuthToken() || "",
       },
     };
 
