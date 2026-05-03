@@ -40,8 +40,8 @@ export class YoInterceptor {
   private yoClearer: (() => void) | null = null;
   private panelOpener: ((query: string, sourcePanelId?: string) => void) | null = null;
   private yoActiveWc: WebContents | null = null; // wc the current .yo conversation is in
-  private modeColor = "#25C75E"; // current agent mode color (ask=green, plan=blue, auto=orange)
-  private agentMode = "ask";
+  private modeColor = "#25C75E"; // current agent mode color (default=green, plan=blue, acceptEdits=orange)
+  private agentMode = "default";
   private currentModel = "";
   private availableModels: string[] = [];
   private theme = "dark";
@@ -80,8 +80,8 @@ export class YoInterceptor {
   setModeColor(color: string): void { this.modeColor = color; }
   setAgentMode(mode: string): void {
     this.agentMode = mode;
-    const colors: Record<string, string> = { ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00" };
-    this.modeColor = colors[mode] || colors.ask;
+    const colors: Record<string, string> = { default: "#25C75E", plan: "#4A9EFF", acceptEdits: "#FF8C00", bypassPermissions: "#FF2D55" };
+    this.modeColor = colors[mode] || colors.default;
     this.pushToAll(`if(window.__yoSetMode)window.__yoSetMode(${JSON.stringify(mode)},${JSON.stringify(this.modeColor)})`);
   }
   private pushToAll(js: string): void {

@@ -22,7 +22,7 @@ import type { CaptureStore } from "./capture-store";
 import type { SessionCache } from "./session-cache";
 import type { SkillEngine } from "./skill-engine";
 import type { NoteStore } from "./note-store";
-import { getAgentMode } from "./action-gate";
+import { getAgentMode, gate } from "./action-gate";
 import type { AgentMode } from "./action-gate";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
@@ -218,8 +218,19 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: 25,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      permissionMode: this._mode,
+      canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+        const decision = gate(toolName, this._mode);
+        if (decision === "execute") return { behavior: "allow", updatedInput: input };
+        if (decision === "skip") return { behavior: "deny", message: `Tool "${toolName}" denied by mode "${this._mode}".` };
+        // needs_approval — ask the user via the renderer prompt
+        const approved = this._approvalCallback
+          ? await this._approvalCallback(toolName, input)
+          : false;
+        return approved
+          ? { behavior: "allow", updatedInput: input }
+          : { behavior: "deny", message: "User denied tool call." };
+      },
       tools: [],
       mcpServers: { "yo": mcpServer },
       systemPrompt: this.buildSystemPrompt(),

@@ -4,12 +4,15 @@
  * Each tool is classified as "observe" (read-only, safe) or "mutate" (side effects).
  * The gate checks the current mode + per-tool overrides to decide whether a tool
  * call should execute, wait for user approval, or be skipped.
+ *
+ * Mode names match the Claude Agent SDK's `permissionMode` values 1:1 so the
+ * mode can be passed straight through to `sdk.query({ options: { permissionMode } })`.
  */
 
 import { getPreference } from "./preferences";
 import { isDestructiveTool } from "./substrate/tools";
 
-export type AgentMode = "plan" | "ask" | "auto" | "bypass";
+export type AgentMode = "plan" | "default" | "acceptEdits" | "bypassPermissions";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask" | "off";
 
@@ -153,28 +156,28 @@ function getEffectiveOverride(toolName: string): ToolOverride {
 }
 
 export function getAgentMode(): AgentMode {
-  return getPreference<AgentMode>("agentMode", "ask");
+  return getPreference<AgentMode>("agentMode", "default");
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (mode === "plan") return "skip";
 
-  // Bypass mode: the user explicitly opted into "run everything, no questions".
-  // Per-tool overrides are deliberately ignored — bypass means bypass.
-  if (mode === "bypass") return "execute";
+  // bypassPermissions: the user explicitly opted into "run everything, no
+  // questions". Per-tool overrides are deliberately ignored.
+  if (mode === "bypassPermissions") return "execute";
 
   const override = getEffectiveOverride(toolName);
   if (override === "off") return "skip";
   if (override === "auto") return "execute";
   if (override === "ask") return "needs_approval";
 
-  if (mode === "auto") {
+  if (mode === "acceptEdits") {
     const tier = getToolTier(toolName);
     if (tier === "observe") return "execute";
     return "needs_approval";
   }
 
-  // ask mode: all tools need approval
+  // default mode: all tools need approval
   return "needs_approval";
 }
 

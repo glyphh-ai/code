@@ -551,7 +551,7 @@ async function boot() {
 
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
-  yoInterceptor.setAgentMode(getPreference<string>("agentMode", "ask"));
+  yoInterceptor.setAgentMode(getPreference<string>("agentMode", "default"));
   yoInterceptor.setCurrentModel(llmConfig.model);
   yoInterceptor.setAvailableModels(["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]);
   const initialTheme = getPreference<string>("theme", "light");

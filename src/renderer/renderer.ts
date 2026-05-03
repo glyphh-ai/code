@@ -1361,21 +1361,28 @@ const MODE_COLORS: Record<string, string> = {
 };
 
 const PERM_ICONS: Record<string, string> = {
-  ask: "\uD83D\uDD12",
+  default: "\uD83D\uDD12",
   plan: "\uD83D\uDCCB",
-  auto: "\u26A1",
-  bypass: "\uD83D\uDD25",
+  acceptEdits: "\u26A1",
+  bypassPermissions: "\uD83D\uDD25",
 };
 
 const PERM_COLORS: Record<string, string> = {
-  ask: "#25C75E",
+  default: "#25C75E",
   plan: "#4A9EFF",
-  auto: "#FF8C00",
-  bypass: "#FF2D55",
+  acceptEdits: "#FF8C00",
+  bypassPermissions: "#FF2D55",
+};
+
+const PERM_LABELS: Record<string, string> = {
+  default: "ask",
+  plan: "plan",
+  acceptEdits: "auto",
+  bypassPermissions: "bypass",
 };
 
 let currentMode = "standard";
-let currentPerm = "ask";
+let currentPerm = "default";
 
 function setModeValue(mode: string) {
   currentMode = mode;
@@ -1393,8 +1400,8 @@ function setPermValue(perm: string) {
   currentPerm = perm;
   const icon = yoPermTrigger.querySelector(".yo-perm-icon")!;
   const label = yoPermTrigger.querySelector(".yo-perm-label")!;
-  icon.textContent = PERM_ICONS[perm] || PERM_ICONS.ask;
-  label.textContent = perm;
+  icon.textContent = PERM_ICONS[perm] || PERM_ICONS.default;
+  label.textContent = PERM_LABELS[perm] || perm;
   yoPermOptions.forEach((opt) => {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === perm);
   });
@@ -1983,8 +1990,8 @@ function showPlanActions() {
 
   card.querySelector(".yo-plan-proceed")!.addEventListener("click", () => {
     card.remove();
-    window.yo.setAgentMode("ask");
-    setModeValue("ask");
+    window.yo.setAgentMode("default");
+    setPermValue("default");
     showYoStatus("");
     setYoThinking(true);
     window.yo.yoPanelSend("Execute the plan above.");
@@ -1992,8 +1999,8 @@ function showPlanActions() {
 
   card.querySelector(".yo-plan-auto")!.addEventListener("click", () => {
     card.remove();
-    window.yo.setAgentMode("auto");
-    setModeValue("auto");
+    window.yo.setAgentMode("acceptEdits");
+    setPermValue("acceptEdits");
     showYoStatus("");
     setYoThinking(true);
     window.yo.yoPanelSend("Execute the plan above.");
