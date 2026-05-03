@@ -2562,6 +2562,10 @@ async function boot() {
     try { return await serverGetAuthed<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> }>("/api/yos/rate-cards"); }
     catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
   });
+  ipcMain.handle("models-list", async () => {
+    try { return await serverGetAuthed<{ models: Array<{ provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }> }>("/api/models"); }
+    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
+  });
   // All payment lives on the platform — desktop just deep-links so the user
   // gets the same checkout/invoice/portal experience whether they came from
   // the web or the app. Returns the URL the renderer should send to.

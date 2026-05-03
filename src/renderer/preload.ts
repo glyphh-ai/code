@@ -379,6 +379,7 @@ contextBridge.exposeInMainWorld("yo", {
   // yos wallet + rate cards
   yosBalance: () => ipcRenderer.invoke("yos-balance") as Promise<{ user_id: string; balance: number } | { error: string }>,
   yosRateCards: () => ipcRenderer.invoke("yos-rate-cards") as Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>,
+  modelsList: () => ipcRenderer.invoke("models-list") as Promise<{ models: Array<{ provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }> } | { error: string }>,
   yosBuyUrl: () => ipcRenderer.invoke("yos-buy-url") as Promise<{ url: string }>,
 
   // Marketplace + reservations

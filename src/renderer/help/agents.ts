@@ -66,6 +66,7 @@ let currentAgentSnapshot: AgentDef | null = null;
 let agentMarketTimer: ReturnType<typeof setInterval> | null = null;
 let agentBalanceTimer: ReturnType<typeof setInterval> | null = null;
 let rateCardCache: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> = [];
+let modelsCache: Array<{ provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }> = [];
 
 const EDIT_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
 const DELETE_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
@@ -86,6 +87,10 @@ async function loadAgents(): Promise<void> {
   if (rateCardCache.length === 0) {
     const rc = await window.yo.yosRateCards();
     if (!("error" in rc)) rateCardCache = rc.cards;
+  }
+  if (modelsCache.length === 0) {
+    const mr = await window.yo.modelsList();
+    if (!("error" in mr)) modelsCache = mr.models;
   }
   renderAgentsList();
   // Show list view, hide detail/add
@@ -237,6 +242,8 @@ function openAgentDetail(agent: AgentDef): void {
   ($a<HTMLSelectElement>("agent-remote-pref-tier")).value = r.preferred_tier || "any";
   ($a<HTMLInputElement>("agent-remote-default-idle")).value = String(r.default_idle_minutes ?? 30);
 
+  populateModelSelector(agent.model_provider, agent.model_name);
+
   switchAgentTab("general");
   void refreshActiveReservation();
   void loadAgentAppsList();
@@ -381,6 +388,53 @@ function collectAgentSkillsSelection(): string[] {
   return currentAgent?.skills || [];
 }
 
+function populateModelSelector(provider?: string, model?: string): void {
+  const sel = $a<HTMLSelectElement>("agent-detail-model");
+  const costEl = $a("agent-detail-model-cost");
+  sel.innerHTML = `<option value="">Default (Sonnet)</option>`;
+
+  const grouped = new Map<string, typeof modelsCache>();
+  for (const m of modelsCache) {
+    if (!grouped.has(m.provider)) grouped.set(m.provider, []);
+    grouped.get(m.provider)!.push(m);
+  }
+
+  for (const [prov, models] of grouped) {
+    const group = document.createElement("optgroup");
+    group.label = prov.charAt(0).toUpperCase() + prov.slice(1);
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = `${m.provider}::${m.model}`;
+      opt.textContent = `${m.display_name} (${m.yos_per_1k_input}/${m.yos_per_1k_output} yos/1k)`;
+      group.appendChild(opt);
+    }
+    sel.appendChild(group);
+  }
+
+  if (provider && model) {
+    sel.value = `${provider}::${model}`;
+  } else {
+    sel.value = "";
+  }
+  updateModelCostHint();
+
+  sel.onchange = () => updateModelCostHint();
+}
+
+function updateModelCostHint(): void {
+  const sel = $a<HTMLSelectElement>("agent-detail-model");
+  const costEl = $a("agent-detail-model-cost");
+  const val = sel.value;
+  if (!val) { costEl.textContent = ""; return; }
+  const [prov, mod] = val.split("::");
+  const m = modelsCache.find((x) => x.provider === prov && x.model === mod);
+  if (m) {
+    costEl.textContent = `${m.yos_per_1k_input} yos/1k input · ${m.yos_per_1k_output} yos/1k output`;
+  } else {
+    costEl.textContent = "";
+  }
+}
+
 function switchAgentTab(tab: string): void {
   document.querySelectorAll<HTMLButtonElement>(".help-section[data-section='agents'] .app-detail-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tab);
@@ -402,6 +456,14 @@ function switchAgentTab(tab: string): void {
 async function saveCurrentAgent(includeGuardrails = true, includeRemote = false): Promise<void> {
   if (!currentAgent) return;
   const newId = ($a<HTMLInputElement>("agent-detail-id")).value.trim() || currentAgent.id;
+  const modelVal = ($a<HTMLSelectElement>("agent-detail-model")).value;
+  let modelProvider: string | undefined;
+  let modelName: string | undefined;
+  if (modelVal) {
+    const [p, m] = modelVal.split("::");
+    modelProvider = p;
+    modelName = m;
+  }
   const cfg: AgentDef = {
     ...currentAgent,
     id: newId,
@@ -409,6 +471,8 @@ async function saveCurrentAgent(includeGuardrails = true, includeRemote = false)
     role: ($a<HTMLInputElement>("agent-detail-role")).value.trim() || undefined,
     systemPrompt: ($a<HTMLTextAreaElement>("agent-detail-prompt")).value || undefined,
     joinable: ($a<HTMLInputElement>("agent-detail-joinable")).checked,
+    model_provider: modelProvider,
+    model_name: modelName,
   };
   cfg.apps = collectAgentAppsSelection();
   cfg.skills = collectAgentSkillsSelection();

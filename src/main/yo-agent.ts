@@ -467,19 +467,12 @@ export class YoAgent {
   // ── Usage reporting ────────────────────────────────────
 
   private reportUsage(inputTokens: number, outputTokens: number, model: string): void {
-    const multipliers: Record<string, number> = {
-      "claude-haiku-4-5-20251001": 1,
-      "claude-sonnet-4-6": 3,
-      "claude-opus-4-7": 5,
-    };
-    const mult = multipliers[model] || 3;
-    const yos = Math.ceil((inputTokens / 500 + outputTokens / 100) * mult);
-
+    // Client sends raw tokens — server is the authority on yos calculation
     usageQueue.enqueue({
       inputTokens,
       outputTokens,
       model,
-      yosConsumed: yos,
+      yosConsumed: 0,
       agent: "orchestrator",
     });
   }

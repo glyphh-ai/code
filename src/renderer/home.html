@@ -1233,7 +1233,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             </div>
 
             <div class="app-detail-tabs">
-              <button class="app-detail-tab" data-tab="general">General</button>
+              <button class="app-detail-tab active" data-tab="general">General</button>
               <button class="app-detail-tab" data-tab="apps">Apps</button>
               <button class="app-detail-tab" data-tab="skills">Skills</button>
               <button class="app-detail-tab" data-tab="guardrails">Guardrails</button>
@@ -1254,6 +1254,12 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     <input id="agent-detail-role" class="settings-input" spellcheck="false" placeholder="e.g. frontend engineer" />
                     <label class="settings-label">System Prompt</label>
                     <textarea id="agent-detail-prompt" class="settings-input" rows="10" spellcheck="false" placeholder="Optional system prompt that sets behavior, tone, constraints..." style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+
+                    <label class="settings-label" style="margin-top:16px;">Model</label>
+                    <select id="agent-detail-model" class="settings-input">
+                      <option value="">Default (Sonnet)</option>
+                    </select>
+                    <span id="agent-detail-model-cost" class="settings-hint" style="display:block;margin-top:4px;"></span>
 
                     <label class="settings-toggle" style="margin-top:16px;padding:8px 12px;">
                       <input type="checkbox" id="agent-detail-joinable" />
