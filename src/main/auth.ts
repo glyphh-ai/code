@@ -20,7 +20,7 @@ const SESSION_FILE = path.join(CONFIG_DIR, ".session");
 const REFRESH_MARGIN = 3 * 60 * 1000; // refresh 3 min before expiry
 const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
 
-const AUTH_SERVER =
+export const AUTH_SERVER =
   process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
 const PLATFORM_URL =
   process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";

@@ -360,14 +360,23 @@ exact same primitives — only topology differs.
   Server doesn't care.
 - **Local cyphers go through the server.** No local-only fast path. One
   runtime, one event log, no two paths to keep in sync.
-- **Multi-provider local agents.** `AgentRunner` becomes provider-agnostic.
-  Adapters: `ClaudeAdapter` (existing SDK path), `OpenAIAdapter` (Codex /
-  Responses API), `GeminiAdapter`, `XAIAdapter`, `PerplexityAdapter`. All
-  proxied via yo-server (no user API keys; yos billing applies uniformly).
-  This is the "council on steroids" surface — host's .yo can swarm with
-  Claude + GPT + Gemini in parallel.
-- **Single-provider remote.** Public marketplace cyphers stay Claude-only
-  on the worker side for quality control. Provider mix is a local feature.
+- **Heterogeneous jammers, capability-driven matching.** A cypher is
+  provider-agnostic: each slot declares a capability ("code orchestration",
+  "image generation", "audio synthesis", "research", etc.) and the matcher
+  picks workers whose .yo advertises that capability. A typical cypher
+  might mix a Claude SDK orchestrator + a Gemini image agent + a Suno
+  audio agent + a Perplexity research agent. "Council mode" is just a
+  cypher configuration (multi-provider, ephemeral, discussion-focused)
+  — same bus, same data model.
+- **Claude Agent SDK is the worker default for general code/text work.**
+  Other providers fill specialized capability slots through provider
+  adapters. All providers route through the yo-server proxy.
+- **All LLM tokens convert to yos usage.** Every Claude / OpenAI / Gemini /
+  Grok / Perplexity / etc. call routes through the yo-server proxy, which
+  meters tokens and debits the user's yos balance. Cypher work additionally
+  settles against the kitty (existing `usage` event flow); non-cypher work
+  (yo agent panel chat, etc.) burns the user's wallet directly. No user
+  API keys anywhere — the proxy is the only path.
 - **Cypher-workspace UI.**
   - Working-log tab — full event stream, formatted like a build log
   - Per-agent tabs — filtered to one jammer's events (input/output/tools)
@@ -442,8 +451,9 @@ exact same primitives — only topology differs.
 | **Event size cap**                        | **~32KB events; larger via R2 `artifact_url`**     | Keeps the bus fast; R2 handles bulk (instruction packs, agent traces, code drops) |
 | **Local cypher transport**                | **Same SSE/REST as remote; no local-only fast path** | One runtime; avoids two divergent code paths |
 | **Jammer-per-slot model**                 | **Every agent slot = one jammer; topology-agnostic** | Local and remote are the same data model — only where jammers live differs |
-| **Provider model (local)**                | **Multi-provider: Claude / OpenAI / Gemini / Grok / Perplexity, all proxied via yo-server** | "Council on steroids"; no user API keys; uniform yos billing |
-| **Provider model (remote/marketplace)**   | **Claude-only on workers**                          | Quality control via single-provider monoculture |
+| **Worker agent default**                  | **Claude Agent SDK for general code/text work; specialized capability slots use other providers (Gemini image, Suno audio, Perplexity research, etc.)** | Best model for the job; Claude is the orchestrator default |
+| **Cypher composition**                    | **Heterogeneous jammers, capability-driven matching**; "council mode" = a cypher configuration, not a separate runtime | One bus, one data model; provider-agnostic by design |
+| **Token-to-yos conversion**               | **Universal — every LLM call (any provider, any surface) routes via yo-server proxy and burns yos. No user API keys anywhere.** | One billing model regardless of surface; cypher work additionally settles against kitty |
 | **Task granularity**                      | **Whole step from instruction pack**                | Matches GH-Actions framing; simpler accounting than per-tool-call |
 | **Failure compensation**                  | **Zero — worker eats the loss**                     | Quality control v1; revisit when there's data |
 | **Worker availability model (v1)**        | **Opt-in per cypher (browse → agree → join)**      | Safer for v1; no surprise compute spend; always-on mode is later |
@@ -468,7 +478,7 @@ exact same primitives — only topology differs.
 ## 7. The big things deliberately NOT solved (and won't be soon)
 
 - **Hiding code from the provider's operator.** Physics. Reputation + audit + termination triggers are the proxy.
-- **Multi-provider on the marketplace side.** Workers run Claude only. Any other model on the host side is a local-only feature. Quality control via single-provider monoculture across the network.
+- **User-supplied API keys.** All LLM calls route through the yo-server proxy regardless of provider. We never accept BYO-key from clients — uniform billing, uniform abuse controls, no leaked-key surface.
 - **Local-only fast path for cyphers.** Even strictly-local cyphers go through the server SSE bus. We accept the small latency hit to keep one runtime path.
 - **Always-on worker mode.** v1 is opt-in per cypher only. The "leave my .yo running, earn yos passively on matching jobs" surface lands later — needs reputation + comp safety + matching heuristics first.
 - **Anthropic-hosted Managed Agents fallback.** yosup IS the network. If you don't run a .yo, you're not participating. Local + remote are the only deployment modes.
@@ -571,4 +581,4 @@ Current totals when complete:
 
 ---
 
-*Last updated: 2026-05-03. **Phase 3 complete**. Next: **Phase 3.5** — local cypher mechanics rebuild on top of the existing backbone. SSE replaces the 3s poll, `cypher-runtime` becomes the canonical agent message bus (file-based inboxes retire), `AgentRunner` goes provider-agnostic (multi-provider local, Claude-only remote), the cypher-workspace UI gets working-log + per-agent feeds and a draggable grid, step-level task accounting + escrow + pause-on-exhaust ship, and `code-workspace` finishes its rename to `cypher-workspace`. Linux bwrap + Windows AppContainer sandbox impls + presigned R2 URLs + fsevents kill-trigger move to 3.6.*
+*Last updated: 2026-05-03. **Phase 3 complete**. **Phase 3.5 in progress.** Slice 1 (SSE transport — `GET /api/cyphers/:id/events/stream` + `cypher-runtime.ts` swap from polling to streaming) shipped. Next slices: cypher-runtime as canonical agent message bus (retire file-based inboxes), provider adapter layer (Claude SDK default + capability-keyed slots: Gemini image, Suno audio, Perplexity research, etc., all routed through the yo-server proxy with universal token→yos metering), cypher-workspace UI rebuild (working-log + per-agent feeds + draggable grid), step-level task accounting + escrow + pause-on-exhaust, worker marketplace surface in the .yo client, and the `code-workspace` → `cypher-workspace` rename pass. Linux bwrap + Windows AppContainer sandbox impls + presigned R2 URLs + fsevents kill-trigger move to 3.6.*

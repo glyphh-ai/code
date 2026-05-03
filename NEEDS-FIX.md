@@ -26,12 +26,39 @@ What needs to land before this can ship:
 - Auth: the platform must only be able to post to the user's own remote
   session, not arbitrary cyphers. Re-use existing yo-server bearer auth.
 
-## Cypher event stream — replace polling with SSE/WebSocket
+## Cypher event stream — ~~replace polling with SSE~~ ✅ Phase 3.5 slice 1
 
-`cypher-runtime.ts` polls `/api/cyphers/{id}/events` every 3s. Acceptable
-for async multi-party coordination, painful for any real-time use case
-(remote control above, in-flight tool confirmations, live agent traces).
-Server side already has the schema for it — just needs the transport.
+`cypher-runtime.ts` polled `/api/cyphers/{id}/events` every 3s. Replaced
+with SSE consumer against `GET /api/cyphers/:id/events/stream`. Sub-second
+push, server-driven keepalives, auto-reconnect with `?since=<lastSeq>` +
+`Last-Event-ID` for replay. The polled endpoint stays for compatibility.
+
+## Cypher invite security — JWT-signed invite tokens
+
+Today: invite-only cyphers are gated by visibility checks at the service
+layer. `getCypher(id, viewer)` returns the cypher only if the viewer is
+the owner OR is already in `cypher_jammers`. That's correct for
+post-join protection but doesn't define **how someone gets into the
+jammer list in the first place** for an invite-only cypher. The
+`joinCypher` flow currently doesn't enforce an explicit invite check —
+any authed user could potentially POST a join for an invite cypher
+(needs verification — may already be locked down via visibility on the
+read path).
+
+Intended model: owner generates a signed invite JWT via
+`POST /api/cyphers/:id/invites` with `{ invitee_user_id?, expires_at,
+jti, role }` claims, signed with the cypher's secret (or a server-wide
+HMAC key). Owner shares the link. Invitee redeems via
+`POST /api/cyphers/:id/join { invite_token }` — server verifies signature,
+checks `jti` not already used, checks `expires_at`, then adds them as a
+jammer. Single-use by default; "multi-use" (e.g. team-wide invite link)
+is a flag the owner can set.
+
+This wants its own slice: schema (`cypher_invites` table for jti + revoke
+list), routes (mint / list / revoke / redeem), client UI (owner copies
+invite link from the cypher detail view; joiner pastes or follows link
+and confirms join). Slot in after the SSE bus + cypher-workspace UI
+rebuild.
 
 ## Cypher-workspace rename pass
 
