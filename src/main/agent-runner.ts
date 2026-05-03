@@ -6,8 +6,10 @@
  * inbox updates) trigger new query() calls with resume: sessionId, continuing
  * the same conversation.
  *
- * Inbox files (.yo/inbox/<name>.md) are watched — when updated by the inbox
- * router (broadcast/post), a follow-up query is started with the session.
+ * Phase 3.5: agents communicate via the cypher bus (CypherBus). When a
+ * workspace has a bound cypher, all inter-agent events flow through the SSE
+ * stream. File-based inbox (.yo/inbox/<name>.md) is retained as fallback for
+ * workspaces without a cypher binding.
  */
 
 import type { WebContents } from "electron";
@@ -15,6 +17,7 @@ import { getShellPath } from "./shell-path";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import type { CypherBus } from "./cypher-bus";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -41,6 +44,7 @@ export interface AgentConfig {
   model?: string;
   mcpServers?: Record<string, any>;
   permissionMode?: string;
+  cypherId?: string;
 }
 
 interface AgentInstance {
@@ -55,6 +59,7 @@ interface AgentInstance {
   costUsd: number;
   turns: number;
   inboxWatcher: fs.FSWatcher | null;
+  busUnsubscribe: (() => void) | null;
   wcRef: WeakRef<WebContents>;
   config: AgentConfig;
 }
@@ -62,6 +67,11 @@ interface AgentInstance {
 export class AgentRunner {
   private agents = new Map<string, AgentInstance>();
   private sdk: any = null;
+  private bus: CypherBus | null = null;
+
+  setBus(bus: CypherBus): void {
+    this.bus = bus;
+  }
 
   private async ensureSDK(): Promise<any> {
     if (!this.sdk) {
@@ -165,6 +175,7 @@ export class AgentRunner {
       costUsd: 0,
       turns: 0,
       inboxWatcher: null,
+      busUnsubscribe: null,
       wcRef: new WeakRef(wc),
       config,
     };
@@ -174,9 +185,19 @@ export class AgentRunner {
       wc.send("cw:agent:status", config.name, "starting");
     }
 
-    this.watchInbox(wc.id, config);
+    // Register on cypher bus if available; fall back to file-based inbox
+    if (this.bus && config.cypherId) {
+      instance.busUnsubscribe = this.bus.register(config.workspace, config.name, (event) => {
+        const msg = event.to
+          ? `Message from ${event.from}: ${event.body}`
+          : `[broadcast] ${event.from}: ${event.body}`;
+        this.queueMessage(instance, msg);
+      });
+    } else {
+      this.watchInbox(wc.id, config);
+    }
 
-    console.log(`[agent-runner] starting "${config.name}" cwd=${config.cwd}`);
+    console.log(`[agent-runner] starting "${config.name}" cwd=${config.cwd}${config.cypherId ? ` cypher=${config.cypherId}` : ""}`);
     await this.runQuery(instance, config.startPrompt, false);
   }
 
@@ -231,6 +252,11 @@ export class AgentRunner {
         const serialized = this.serializeMessage(msg);
         if (serialized) {
           wcNow.send("cw:agent:message", instance.name, serialized);
+        }
+
+        // Post visibility events to the cypher bus
+        if (this.bus && instance.config.cypherId) {
+          this.postToBus(instance, msg);
         }
       }
 
@@ -313,6 +339,7 @@ export class AgentRunner {
     if (instance) {
       instance.activeQuery?.close?.();
       instance.inboxWatcher?.close();
+      instance.busUnsubscribe?.();
       instance.activeQuery = null;
       this.agents.delete(key);
     }
@@ -323,6 +350,7 @@ export class AgentRunner {
       if (key.startsWith(`${wcId}:`)) {
         instance.activeQuery?.close?.();
         instance.inboxWatcher?.close();
+        instance.busUnsubscribe?.();
         this.agents.delete(key);
       }
     }
@@ -436,6 +464,34 @@ export class AgentRunner {
         if (input.query) return input.query.slice(0, 80);
         if (input.path || input.file_path) return input.path || input.file_path;
         return "";
+    }
+  }
+
+  /** Post agent events to the cypher bus for visibility + coordination. */
+  private postToBus(instance: AgentInstance, msg: any): void {
+    if (!this.bus) return;
+    const ws = instance.config.workspace;
+    const from = instance.name;
+
+    if (msg.type === "assistant") {
+      const content = msg.message?.content || [];
+      for (const block of content) {
+        if (block.type === "text" && block.text) {
+          this.bus.post(ws, {
+            from,
+            kind: "agent_thinking",
+            body: block.text.slice(0, 200),
+            meta: { agent_id: from },
+          }).catch(() => {});
+        } else if (block.type === "tool_use") {
+          this.bus.post(ws, {
+            from,
+            kind: "agent_tool_use",
+            body: this.summarizeToolInput(block.name, block.input),
+            meta: { agent_id: from, tool_name: block.name, tool_id: block.id },
+          }).catch(() => {});
+        }
+      }
     }
   }
 }

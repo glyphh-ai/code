@@ -19,8 +19,9 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler } from "./cypher-runtime";
+import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler } from "./cypher-runtime";
 import { adapterDispatcher } from "./provider-adapters/registry";
+import { CypherBus } from "./cypher-bus";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
 import { pushAgentProfile, deleteAgentProfile, syncAllAgents } from "./agent-sync";
 import { loadLLMConfig, saveLLMConfig, LLMConfig } from "./llm-config";
@@ -540,7 +541,21 @@ async function boot() {
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
   terminalManager.init();
+
+  // Cypher bus — canonical message bus for inter-agent communication
+  const cypherBus = new CypherBus(
+    (_wsSlug) => {
+      const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
+      const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
+      const layoutName = lastView?.type === "layout" ? lastView.name ?? "" : "";
+      return map[layoutName] ?? null;
+    },
+    eventLog,
+  );
+
   agentRunner = new AgentRunner();
+  agentRunner.setBus(cypherBus);
+  mcpExpose.setBus(cypherBus);
 
   // Session cache — in-memory yo/sup content store
   const session = new SessionCache();
@@ -1702,6 +1717,17 @@ async function boot() {
   // jammer's provider/model from the local agent registry and routes the turn
   // through the yo-server LLM proxy (which meters tokens and settles yos).
   setPromptHandler(adapterDispatcher);
+
+  // Route inbound cypher messages to the bus for agent delivery
+  setAgentMessageHandler((_cypherId, toAgentId, fromAgentId, body, kind, _meta) => {
+    const wsSlug = workspaceManager.getActiveSlug();
+    cypherBus.dispatchInbound(toAgentId, wsSlug, {
+      from: fromAgentId ?? "unknown",
+      kind,
+      body,
+    });
+  });
+
   if (isAuthenticated()) startCypherRuntime();
 
   // Sync all joinable agents to server on boot (fire-and-forget)
@@ -2931,13 +2957,21 @@ async function boot() {
   function buildAgentConfig(wsSlug: string, agentName: string): AgentConfig | null {
     const agent = workspaceManager.getAgent(wsSlug, agentName);
     if (!agent) return null;
+    const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
+    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
+    const layoutName = lastView?.type === "layout" ? lastView.name ?? "" : "";
+    const cypherId = map[layoutName] || undefined;
+    const startPrompt = cypherId
+      ? `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Messages from teammates arrive automatically. Say "Ready" and wait for instructions.`
+      : `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Then check .yo/inbox/${agent.name}.md for pending tasks. If the inbox is empty or doesn't exist, say "Ready" and wait for instructions.`;
     return {
       name: agent.name,
       role: agent.role,
       cwd: agent.cwd,
       prompt: agent.prompt,
-      startPrompt: `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Then check .yo/inbox/${agent.name}.md for pending tasks. If the inbox is empty or doesn't exist, say "Ready" and wait for instructions.`,
+      startPrompt,
       workspace: wsSlug,
+      cypherId,
     };
   }
 

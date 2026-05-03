@@ -14,6 +14,7 @@ import crypto from "crypto";
 import type { CaptureStore } from "./capture-store";
 import type { EventLog, YoEvent } from "./event-log";
 import type { WorkspaceManager } from "./workspace-manager";
+import type { CypherBus } from "./cypher-bus";
 import { getPreference, setPreference } from "./preferences";
 
 const DEFAULT_PORT = 7860;
@@ -50,9 +51,14 @@ export class McpExpose {
   private port = DEFAULT_PORT;
   private eventLog: EventLog | null = null;
   private workspaceManager: WorkspaceManager | null = null;
+  private bus: CypherBus | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
+  }
+
+  setBus(bus: CypherBus): void {
+    this.bus = bus;
   }
 
   setWorkspaceBackend(eventLog: EventLog, wm: WorkspaceManager): void {
@@ -483,14 +489,24 @@ export class McpExpose {
         const body = String(args.body || "").trim();
         if (!body) return reply("body is required", true);
         const tags = mergeTags(asStringArray(args.tags) ?? [], ctx || { agent: ".yo", workspace: wsSlug });
-        const evt = this.eventLog.append(wsSlug, {
-          from: ctx?.agent || ".yo",
-          tags,
-          kind: (args.kind as YoEvent["kind"]) || "post",
-          body,
-          refs: asStringArray(args.refs),
-        });
-        return replyJson({ ts: evt.ts });
+        if (this.bus) {
+          await this.bus.post(wsSlug, {
+            from: ctx?.agent || ".yo",
+            kind: (args.kind as string) || "post",
+            body,
+            tags,
+            refs: asStringArray(args.refs),
+          });
+        } else {
+          this.eventLog.append(wsSlug, {
+            from: ctx?.agent || ".yo",
+            tags,
+            kind: (args.kind as YoEvent["kind"]) || "post",
+            body,
+            refs: asStringArray(args.refs),
+          });
+        }
+        return replyJson({ ts: Date.now() });
       }
 
       case "post_to": {
@@ -501,15 +517,26 @@ export class McpExpose {
         if (!to) return reply("agent is required", true);
         if (!body) return reply("body is required", true);
         const tags = mergeTags(asStringArray(args.tags) ?? [], ctx || { agent: ".yo", workspace: wsSlug });
-        const evt = this.eventLog.append(wsSlug, {
-          from: ctx?.agent || ".yo",
-          to,
-          tags,
-          kind: (args.kind as YoEvent["kind"]) || "post",
-          body,
-          refs: asStringArray(args.refs),
-        });
-        return replyJson({ ts: evt.ts });
+        if (this.bus) {
+          await this.bus.post(wsSlug, {
+            from: ctx?.agent || ".yo",
+            to,
+            kind: (args.kind as string) || "post",
+            body,
+            tags,
+            refs: asStringArray(args.refs),
+          });
+        } else {
+          this.eventLog.append(wsSlug, {
+            from: ctx?.agent || ".yo",
+            to,
+            tags,
+            kind: (args.kind as YoEvent["kind"]) || "post",
+            body,
+            refs: asStringArray(args.refs),
+          });
+        }
+        return replyJson({ ts: Date.now() });
       }
 
       case "subscribe": {

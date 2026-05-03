@@ -20,6 +20,7 @@
 import http from "http";
 import type { EventLog, YoEvent } from "./event-log";
 import type { WorkspaceManager, CodeAgent } from "./workspace-manager";
+import type { CypherBus } from "./cypher-bus";
 
 interface RpcRequest {
   jsonrpc: "2.0";
@@ -39,11 +40,16 @@ const SERVER_VERSION = "1.0.0";
 export class WorkspaceMcpServer {
   private server: http.Server | null = null;
   private port = 0;
+  private bus: CypherBus | null = null;
 
   constructor(
     private eventLog: EventLog,
     private workspaceManager: WorkspaceManager,
   ) {}
+
+  setBus(bus: CypherBus): void {
+    this.bus = bus;
+  }
 
   get isRunning(): boolean {
     return this.server?.listening ?? false;
@@ -248,14 +254,24 @@ export class WorkspaceMcpServer {
           const body = String(args.body || "").trim();
           if (!body) return reply("body is required", true);
           const tags = mergeTags(asStringArray(args.tags) ?? [], ctx);
-          const evt = this.eventLog.append(ctx.workspace, {
-            from: ctx.agent,
-            tags,
-            kind: (args.kind as YoEvent["kind"]) || "post",
-            body,
-            refs: asStringArray(args.refs),
-          });
-          return replyJson({ ts: evt.ts });
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, {
+              from: ctx.agent,
+              kind: (args.kind as string) || "post",
+              body,
+              tags,
+              refs: asStringArray(args.refs),
+            });
+          } else {
+            this.eventLog.append(ctx.workspace, {
+              from: ctx.agent,
+              tags,
+              kind: (args.kind as YoEvent["kind"]) || "post",
+              body,
+              refs: asStringArray(args.refs),
+            });
+          }
+          return replyJson({ ts: Date.now() });
         }
 
         case "post_to": {
@@ -264,15 +280,26 @@ export class WorkspaceMcpServer {
           if (!to) return reply("agent is required", true);
           if (!body) return reply("body is required", true);
           const tags = mergeTags(asStringArray(args.tags) ?? [], ctx);
-          const evt = this.eventLog.append(ctx.workspace, {
-            from: ctx.agent,
-            to,
-            tags,
-            kind: (args.kind as YoEvent["kind"]) || "post",
-            body,
-            refs: asStringArray(args.refs),
-          });
-          return replyJson({ ts: evt.ts });
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, {
+              from: ctx.agent,
+              to,
+              kind: (args.kind as string) || "post",
+              body,
+              tags,
+              refs: asStringArray(args.refs),
+            });
+          } else {
+            this.eventLog.append(ctx.workspace, {
+              from: ctx.agent,
+              to,
+              tags,
+              kind: (args.kind as YoEvent["kind"]) || "post",
+              body,
+              refs: asStringArray(args.refs),
+            });
+          }
+          return replyJson({ ts: Date.now() });
         }
 
         case "subscribe": {

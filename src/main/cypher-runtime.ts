@@ -23,7 +23,7 @@
 import { net } from "electron";
 import { isAuthenticated, serverGetAuthed, serverPostAuthed, getAuthToken, AUTH_SERVER } from "./auth";
 
-// ── Types ───────────────────────────────────────────────────
+// ── Types ──────────────────────���────────────────────────────
 
 export interface CypherPromptEvent {
   cypherId: string;
@@ -46,10 +46,27 @@ export type PromptHandler = (
   byAgentId: string,
 ) => Promise<AgentTurnResult | null>;
 
+/** Handler for non-prompt events targeting a specific agent (agent_message, post_to). */
+export type AgentMessageHandler = (
+  cypherId: string,
+  toAgentId: string,
+  fromAgentId: string | null,
+  body: string,
+  kind: string,
+  meta?: Record<string, unknown>,
+) => void;
+
+/** Observer for visibility events (agent_thinking, agent_tool_use, agent_tool_result). */
+export type EventObserver = (
+  cypherId: string,
+  kind: string,
+  payload: Record<string, unknown>,
+) => void;
+
 interface CypherSubscription {
   cypherId: string;
-  /** The local agent_local_id this client is using to participate. */
-  agentLocalId: string;
+  /** All local agent IDs participating in this cypher from this client. */
+  agentLocalIds: Set<string>;
   lastSeenSeq: number;
   /** Active SSE request, null when disconnected and waiting to reconnect. */
   request: Electron.ClientRequest | null;
@@ -65,6 +82,8 @@ interface CypherSubscription {
 
 const subscriptions = new Map<string, CypherSubscription>();   // cypher_id → sub
 let promptHandler: PromptHandler | null = null;
+let agentMessageHandler: AgentMessageHandler | null = null;
+let eventObserver: EventObserver | null = null;
 let stopped = false;
 
 const RECONNECT_BACKOFF_MS = [500, 2_000, 5_000, 5_000, 5_000] as const;
@@ -76,6 +95,16 @@ export function setPromptHandler(handler: PromptHandler | null): void {
   promptHandler = handler;
 }
 
+/** Set handler for directed messages (agent_message, post_to events). */
+export function setAgentMessageHandler(handler: AgentMessageHandler | null): void {
+  agentMessageHandler = handler;
+}
+
+/** Set observer for visibility events (thinking, tool_use, tool_result). */
+export function setEventObserver(observer: EventObserver | null): void {
+  eventObserver = observer;
+}
+
 /**
  * Track a cypher subscription. Idempotent. Opens an SSE connection to the
  * server and dispatches new `prompt` events to the registered handler under
@@ -84,12 +113,12 @@ export function setPromptHandler(handler: PromptHandler | null): void {
 export function subscribeCypher(cypherId: string, agentLocalId: string): void {
   const existing = subscriptions.get(cypherId);
   if (existing) {
-    existing.agentLocalId = agentLocalId;
+    existing.agentLocalIds.add(agentLocalId);
     return;
   }
   const sub: CypherSubscription = {
     cypherId,
-    agentLocalId,
+    agentLocalIds: new Set([agentLocalId]),
     lastSeenSeq: 0,
     request: null,
     reconnectTimer: null,
@@ -100,6 +129,22 @@ export function subscribeCypher(cypherId: string, agentLocalId: string): void {
   if (!stopped && isAuthenticated()) connectSubscription(sub);
 }
 
+/** Add an agent to an existing cypher subscription (multi-agent per SSE stream). */
+export function subscribeCypherAgent(cypherId: string, agentLocalId: string): void {
+  subscribeCypher(cypherId, agentLocalId);
+}
+
+/** Remove a single agent from a cypher subscription. Closes the stream if no agents remain. */
+export function unsubscribeCypherAgent(cypherId: string, agentLocalId: string): void {
+  const sub = subscriptions.get(cypherId);
+  if (!sub) return;
+  sub.agentLocalIds.delete(agentLocalId);
+  if (sub.agentLocalIds.size === 0) {
+    closeSubscription(sub);
+    subscriptions.delete(cypherId);
+  }
+}
+
 export function unsubscribeCypher(cypherId: string): void {
   const sub = subscriptions.get(cypherId);
   if (!sub) return;
@@ -107,10 +152,35 @@ export function unsubscribeCypher(cypherId: string): void {
   subscriptions.delete(cypherId);
 }
 
-export function listSubscriptions(): Array<{ cypherId: string; agentLocalId: string; lastSeenSeq: number }> {
+export function listSubscriptions(): Array<{ cypherId: string; agentLocalIds: string[]; lastSeenSeq: number }> {
   return Array.from(subscriptions.values()).map((s) => ({
-    cypherId: s.cypherId, agentLocalId: s.agentLocalId, lastSeenSeq: s.lastSeenSeq,
+    cypherId: s.cypherId, agentLocalIds: Array.from(s.agentLocalIds), lastSeenSeq: s.lastSeenSeq,
   }));
+}
+
+/**
+ * Post an event to a cypher's event stream via REST.
+ * Used by CypherBus to push agent events (thinking, tool_use, messages) to the server.
+ */
+export async function postCypherEvent(
+  cypherId: string,
+  kind: string,
+  payload: Record<string, unknown>,
+  byAgentId: string,
+  jamId?: string,
+): Promise<boolean> {
+  try {
+    await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
+      kind,
+      by_agent_id: byAgentId,
+      ...(jamId ? { jam_id: jamId } : {}),
+      payload,
+    });
+    return true;
+  } catch (err) {
+    console.warn(`[cypher-runtime] postCypherEvent(${kind}) failed:`, err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 /** Start the runtime. Idempotent. */
@@ -265,7 +335,6 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
   sub.failures = 0;
 
   if (frame.event === "reconnect") {
-    // Server is asking us to reconnect (lifetime cap, etc.). Close + schedule.
     if (sub.request) { try { sub.request.abort(); } catch { /* ignore */ } sub.request = null; }
     scheduleReconnect(sub);
     return;
@@ -276,7 +345,6 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
     return;
   }
 
-  // Cypher event payload — JSON-parse the row the server sent us.
   let payload: { id: string; seq: string | number; kind: string; jam_id: string | null; by_user_id: string | null; by_agent_id: string | null; payload: Record<string, unknown> };
   try {
     payload = JSON.parse(frame.data);
@@ -287,58 +355,92 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
   const seqNum = Number(payload.seq);
   if (Number.isFinite(seqNum) && seqNum > sub.lastSeenSeq) sub.lastSeenSeq = seqNum;
 
-  if (payload.kind !== "prompt") return;
-  if (payload.by_agent_id === sub.agentLocalId) return;   // skip my own prompts
-  if (!promptHandler) return;   // no brain wired yet
+  // Skip events from any of our own agents
+  if (payload.by_agent_id && sub.agentLocalIds.has(payload.by_agent_id)) return;
 
-  const promptText = typeof payload.payload?.text === "string" ? payload.payload.text : "";
-  let result: AgentTurnResult | null = null;
-  try {
-    result = await promptHandler({
-      cypherId: sub.cypherId,
-      jamId: payload.jam_id,
-      seq: seqNum,
-      fromUserId: payload.by_user_id,
-      fromAgentId: payload.by_agent_id,
-      prompt: promptText,
-    }, sub.agentLocalId);
-  } catch (err) {
-    console.warn("[cypher-runtime] prompt handler threw:", err instanceof Error ? err.message : err);
+  const kind = payload.kind;
+
+  // ── Prompt dispatch (existing behavior) ──
+  if (kind === "prompt") {
+    if (!promptHandler) return;
+    const promptText = typeof payload.payload?.text === "string" ? payload.payload.text : "";
+    // Pick the first registered agent to respond (deterministic; for multi-agent
+    // cyphers with external prompts, the dispatcher picks by capability)
+    const respondAs = Array.from(sub.agentLocalIds)[0];
+    if (!respondAs) return;
+
+    let result: AgentTurnResult | null = null;
+    try {
+      result = await promptHandler({
+        cypherId: sub.cypherId,
+        jamId: payload.jam_id,
+        seq: seqNum,
+        fromUserId: payload.by_user_id,
+        fromAgentId: payload.by_agent_id,
+        prompt: promptText,
+      }, respondAs);
+    } catch (err) {
+      console.warn("[cypher-runtime] prompt handler threw:", err instanceof Error ? err.message : err);
+      return;
+    }
+
+    if (!result) return;
+
+    try {
+      await serverPostAuthed(`/api/cyphers/${encodeURIComponent(sub.cypherId)}/events`, {
+        kind: "text",
+        jam_id: payload.jam_id,
+        by_agent_id: respondAs,
+        payload: { text: result.text, in_response_to: payload.id, ...(result.meta ?? {}) },
+      });
+    } catch (err) {
+      console.warn("[cypher-runtime] failed to post text:", err instanceof Error ? err.message : err);
+    }
+
+    if (result.yos_used && result.yos_used > 0) {
+      try {
+        await serverPostAuthed(`/api/cyphers/${encodeURIComponent(sub.cypherId)}/events`, {
+          kind: "usage",
+          jam_id: payload.jam_id,
+          by_agent_id: respondAs,
+          payload: {
+            yos_amount: result.yos_used,
+            turn_id: payload.id,
+            description: `turn response by ${respondAs}`,
+            ...(result.meta ?? {}),
+          },
+        });
+      } catch (err) {
+        console.warn("[cypher-runtime] usage post rejected (likely kitty empty):", err instanceof Error ? err.message : err);
+      }
+    }
     return;
   }
 
-  if (!result) return;
-
-  // Post the agent's text response.
-  try {
-    await serverPostAuthed(`/api/cyphers/${encodeURIComponent(sub.cypherId)}/events`, {
-      kind: "text",
-      jam_id: payload.jam_id,
-      by_agent_id: sub.agentLocalId,
-      payload: { text: result.text, in_response_to: payload.id, ...(result.meta ?? {}) },
-    });
-  } catch (err) {
-    console.warn("[cypher-runtime] failed to post text:", err instanceof Error ? err.message : err);
+  // ── Directed message dispatch (agent_message / post_to) ──
+  if (kind === "agent_message" || kind === "post_to" || kind === "post") {
+    const toAgent = typeof payload.payload?.to === "string" ? payload.payload.to : null;
+    const body = typeof payload.payload?.text === "string" ? payload.payload.text : "";
+    if (toAgent && sub.agentLocalIds.has(toAgent) && agentMessageHandler) {
+      agentMessageHandler(sub.cypherId, toAgent, payload.by_agent_id, body, kind, payload.payload);
+    }
+    // Broadcast posts (no `to` field) with "broadcast" tag
+    if (!toAgent && kind === "post" && agentMessageHandler) {
+      const tags = Array.isArray(payload.payload?.tags) ? payload.payload.tags as string[] : [];
+      if (tags.includes("broadcast")) {
+        for (const agentId of sub.agentLocalIds) {
+          agentMessageHandler(sub.cypherId, agentId, payload.by_agent_id, body, kind, payload.payload);
+        }
+      }
+    }
+    return;
   }
 
-  // Post the usage event — server atomically debits the kitty + credits this user.
-  if (result.yos_used && result.yos_used > 0) {
-    try {
-      await serverPostAuthed(`/api/cyphers/${encodeURIComponent(sub.cypherId)}/events`, {
-        kind: "usage",
-        jam_id: payload.jam_id,
-        by_agent_id: sub.agentLocalId,
-        payload: {
-          yos_amount: result.yos_used,
-          turn_id: payload.id,
-          description: `turn response by ${sub.agentLocalId}`,
-          ...(result.meta ?? {}),
-        },
-      });
-    } catch (err) {
-      // 409 = kitty under-funded; runtime should pause this cypher until the kitty
-      // is topped up. Phase 3.5 follow-up: surface to the host UI as a pause.
-      console.warn("[cypher-runtime] usage post rejected (likely kitty empty):", err instanceof Error ? err.message : err);
+  // ── Visibility events → observer ──
+  if (kind === "agent_thinking" || kind === "agent_tool_use" || kind === "agent_tool_result") {
+    if (eventObserver) {
+      eventObserver(sub.cypherId, kind, payload.payload);
     }
+    return;
   }
 }
