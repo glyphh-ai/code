@@ -4929,7 +4929,7 @@ select.settings-input {
 
 .yo-msg {
   max-width: 100%;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
@@ -5185,6 +5185,48 @@ select.settings-input {
 }
 .yo-result-block.yo-expanded .yo-result-show-less {
   display: inline-block;
+}
+
+/* ── Todo checklist ────────────────────────────── */
+.yo-todo-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+.yo-todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.yo-todo-icon {
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.yo-todo-icon.yo-todo-done {
+  color: var(--accent);
+  font-weight: 700;
+}
+.yo-todo-icon.yo-todo-active {
+  color: var(--accent);
+  animation: yo-todo-pulse 1.2s ease-in-out infinite;
+}
+@keyframes yo-todo-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.yo-todo-label {
+  color: var(--text);
+}
+.yo-todo-label-done {
+  color: var(--text-2);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
 }
 
 /* Active spinner row (always at bottom of group) */

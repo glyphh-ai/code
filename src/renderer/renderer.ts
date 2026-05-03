@@ -279,7 +279,10 @@ declare global {
       cypherListMine: () => Promise<{ cyphers: Array<{ id: string; slug: string; title: string; type: string; status: string; visibility: string; created_at: string; updated_at: string }>; count: number } | { error: string }>;
       cypherGet: (id: string) => Promise<{ cypher: { id: string; slug: string; title: string; description: string | null; goal: string | null; type: string; status: string; visibility: string; max_jammers: number | null; min_tier: string | null; requirements: { skills?: string[]; apps?: string[]; mcp_servers?: string[]; model_provider?: string; min_tier?: string }; sensitivity: string; owner_user_id: string; created_at: string; started_at: string | null; ended_at: string | null }; kitty_balance: number } | { error: string }>;
       cypherGetBySlug: (slug: string) => Promise<{ cypher: unknown } | { error: string }>;
-      cypherJoin: (id: string, agent_local_id: string, role?: string) => Promise<{ ok: boolean; cypher?: unknown; cohort_size?: number; error?: string }>;
+      cypherJoin: (id: string, agent_local_id: string, role?: string, invite_token?: string) => Promise<{ ok: boolean; cypher?: unknown; cohort_size?: number; error?: string }>;
+      cypherInviteMint: (id: string, opts?: { role?: string; ttl_seconds?: number; multi_use?: boolean; invitee_user_id?: string }) => Promise<{ ok: boolean; invite?: { jti: string; cypher_id: string; role: string; multi_use: boolean; expires_at: string; invitee_user_id: string | null; revoked_at: string | null; used_at: string | null }; token?: string; error?: string }>;
+      cypherInviteList: (id: string) => Promise<{ invites: Array<{ jti: string; role: string; multi_use: boolean; expires_at: string; invitee_user_id: string | null; revoked_at: string | null; used_at: string | null; used_by_user_id: string | null; created_at: string }>; count: number } | { error: string }>;
+      cypherInviteRevoke: (id: string, jti: string) => Promise<{ ok: boolean; invite?: unknown; error?: string }>;
       cypherLeave: (id: string, agent_local_id: string) => Promise<{ ok: boolean }>;
       cypherJammers: (id: string) => Promise<{ jammers: Array<{ user_id: string; agent_local_id: string; role: string; joined_at: string; left_at: string | null }>; count: number } | { error: string }>;
       cypherJamsList: (id: string) => Promise<{ jams: Array<{ id: string; slug: string; title: string; description: string | null; state_doc: unknown; state_version: string }>; count: number } | { error: string }>;
@@ -1648,6 +1651,44 @@ function ensureTimeline() {
 // Per-tool rows: map tool_use id → row element so onToolResult can finalize it
 const yoToolRows = new Map<string, HTMLElement>();
 
+// ── TodoWrite checklist ─────────────────────────────────────────
+let yoTodoEl: HTMLElement | null = null;
+
+function renderTodoChecklist(input: unknown): void {
+  const todos = (input as any)?.todos;
+  if (!Array.isArray(todos)) return;
+  ensureTimeline();
+  if (!yoTodoEl) {
+    yoTodoEl = document.createElement("div");
+    yoTodoEl.className = "yo-todo-checklist";
+    yoTimelineEl!.appendChild(yoTodoEl);
+  }
+  yoTodoEl.innerHTML = "";
+  for (const item of todos) {
+    const row = document.createElement("div");
+    row.className = "yo-todo-item";
+    const icon = document.createElement("span");
+    icon.className = "yo-todo-icon";
+    if (item.status === "completed") {
+      icon.textContent = "✓";
+      icon.classList.add("yo-todo-done");
+    } else if (item.status === "in_progress") {
+      icon.textContent = "○";
+      icon.classList.add("yo-todo-active");
+    } else {
+      icon.textContent = "○";
+    }
+    const label = document.createElement("span");
+    label.className = "yo-todo-label";
+    if (item.status === "completed") label.classList.add("yo-todo-label-done");
+    label.textContent = item.content || "";
+    row.appendChild(icon);
+    row.appendChild(label);
+    yoTodoEl.appendChild(row);
+  }
+  yoScroll();
+}
+
 /** Human-readable summary of what a tool is doing, derived from its input. */
 function toolInputSummary(name: string, input: unknown): string {
   if (!input || typeof input !== "object") return "";
@@ -1851,6 +1892,12 @@ function showYoToolUse(id: string, name: string, input: unknown) {
   // Close the in-progress text block so this tool appears AFTER it in source
   // order, and any text that streams next opens a fresh block below the tool.
   closeOpenTextBlock();
+
+  // TodoWrite: render as a checklist instead of a tool row
+  if (name === "TodoWrite") {
+    renderTodoChecklist(input);
+    return;
+  }
 
   startToolRow(id, name, input);
 
@@ -2235,6 +2282,7 @@ function sendYoPanelMessage() {
   autoGrowYoInput();
   yoToolsUsed = false;
   yoTimelineEl = null;
+  yoTodoEl = null;
   yoSpinnerEl = null;
   yoLastAssistantText = "";
   yoTurnFullText = "";

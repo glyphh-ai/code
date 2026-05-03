@@ -1166,9 +1166,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
             <div class="settings-actions" style="margin-top:16px;">
               <button id="cypher-detail-cancel-cypher" class="action-btn danger">Cancel cypher</button>
+              <button id="cypher-detail-invite" class="action-btn">Mint invite link</button>
               <div style="flex:1;"></div>
               <button id="cypher-detail-wrap" class="action-btn primary">Wrap (end + refund)</button>
             </div>
+            <div id="cypher-detail-invite-status" style="margin-top:8px;font-size:11px;color:var(--text-2);"></div>
           </div>
 
           <!-- Join modal -->
@@ -1207,6 +1209,9 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <option value="observer">Observer</option>
               </select>
 
+              <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin:0 0 6px;">Invite token <span style="color:var(--text-3);text-transform:none;font-weight:400;">— required for invite-only cyphers, paste the link or token</span></h4>
+              <input id="cypher-join-invite-token" type="text" class="settings-input" placeholder="paste invite link or token (optional)" autocomplete="off" spellcheck="false" style="margin-bottom:12px;font-family:var(--font-mono);font-size:11px;" />
+
               <div id="cypher-join-error" class="crud-form-error hidden"></div>
 
               <div class="settings-actions">
@@ -1225,10 +1230,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
           <div id="agents-toolbar" class="crud-toolbar">
             <input id="agent-search" type="text" class="crud-search" placeholder="Search agents..." spellcheck="false" autocomplete="off" />
-            <div style="display:flex; gap:8px; align-items:center;">
-              <span id="agent-yos-balance" style="font-size:12px;color:var(--text-2);font-family:var(--font-mono);">— yos</span>
-              <button id="agent-add-btn" class="action-btn primary">+ New</button>
-            </div>
+            <button id="agent-add-btn" class="action-btn primary">+ New</button>
           </div>
 
           <div id="agents-list" class="crud-cards"></div>

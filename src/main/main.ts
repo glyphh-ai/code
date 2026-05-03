@@ -19,7 +19,8 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher } from "./cypher-runtime";
+import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler } from "./cypher-runtime";
+import { adapterDispatcher } from "./provider-adapters/registry";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
 import { pushAgentProfile, deleteAgentProfile, syncAllAgents } from "./agent-sync";
 import { loadLLMConfig, saveLLMConfig, LLMConfig } from "./llm-config";
@@ -1250,6 +1251,11 @@ async function boot() {
     mainWindow?.webContents.send("agent-mode-changed", mode);
     yoInterceptor.setAgentMode(mode);
   });
+  yoAgent.onModeChange((mode) => {
+    setPreference("agentMode", mode);
+    mainWindow?.webContents.send("agent-mode-changed", mode);
+    yoInterceptor.setAgentMode(mode);
+  });
   yoInterceptor.setModelChanger((model) => {
     const cfg = loadLLMConfig();
     cfg.model = model;
@@ -1691,9 +1697,11 @@ async function boot() {
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
 
-  // Start the cypher runtime — polls joined cyphers for prompt events.
-  // Brain is unwired (Phase 3.5 hooks the Agent SDK); for v1 the loop just
-  // tracks subscriptions so the protocol scaffolding is exercised.
+  // Wire the provider-adapter dispatcher as the cypher-runtime prompt handler.
+  // When a `prompt` event arrives on the SSE bus, the dispatcher resolves the
+  // jammer's provider/model from the local agent registry and routes the turn
+  // through the yo-server LLM proxy (which meters tokens and settles yos).
+  setPromptHandler(adapterDispatcher);
   if (isAuthenticated()) startCypherRuntime();
 
   // Sync all joinable agents to server on boot (fire-and-forget)
@@ -2633,16 +2641,36 @@ async function boot() {
     try { return await serverGetAuthed(`/api/cyphers/by-slug/${encodeURIComponent(slug)}`); }
     catch (err) { return { error: err instanceof Error ? err.message : "get failed" }; }
   });
-  ipcMain.handle("cypher-join", async (_e, id: string, agent_local_id: string, role?: string) => {
+  ipcMain.handle("cypher-join", async (_e, id: string, agent_local_id: string, role?: string, invite_token?: string) => {
     try {
       const r = await serverPostAuthed<{ ok: boolean; cypher?: { id: string }; error?: string }>(
         `/api/cyphers/${encodeURIComponent(id)}/join`,
-        { agent_local_id, role },
+        { agent_local_id, role, invite_token },
       );
-      // If join succeeded and we're not just observing, start polling this cypher.
+      // If join succeeded and we're not just observing, subscribe to the SSE event stream.
       if (r.ok && role !== "observer") subscribeCypher(id, agent_local_id);
       return r;
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "join failed" }; }
+  });
+  ipcMain.handle("cypher-invite-mint", async (_e, id: string, opts?: { role?: string; ttl_seconds?: number; multi_use?: boolean; invitee_user_id?: string }) => {
+    try {
+      return await serverPostAuthed(
+        `/api/cyphers/${encodeURIComponent(id)}/invites`,
+        { role: opts?.role, ttl_seconds: opts?.ttl_seconds, multi_use: opts?.multi_use, invitee_user_id: opts?.invitee_user_id },
+      );
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "invite mint failed" }; }
+  });
+  ipcMain.handle("cypher-invite-list", async (_e, id: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/invites`); }
+    catch (err) { return { error: err instanceof Error ? err.message : "invite list failed" }; }
+  });
+  ipcMain.handle("cypher-invite-revoke", async (_e, id: string, jti: string) => {
+    try {
+      return await serverPostAuthed(
+        `/api/cyphers/${encodeURIComponent(id)}/invites/${encodeURIComponent(jti)}/revoke`,
+        {},
+      );
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "invite revoke failed" }; }
   });
   ipcMain.handle("cypher-leave", async (_e, id: string, agent_local_id: string) => {
     try {

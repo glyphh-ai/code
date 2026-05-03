@@ -77,7 +77,9 @@ export class YoAgent {
   private noteStore: NoteStore | null = null;
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
+  private _planDelivered = false;
   private _approvalCallback: ApprovalCallback | null = null;
+  private _onModeChange: ((mode: AgentMode) => void) | null = null;
   private sessionId: string | null = null;
   private sdk: any = null;
   private mcpServer: any = null;
@@ -95,6 +97,7 @@ export class YoAgent {
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void { this._mode = mode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
+  onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
   abort(): void {
     this.abortController?.abort();
@@ -188,6 +191,14 @@ export class YoAgent {
       return;
     }
 
+    // Plan mode auto-exit: if agent already delivered a plan (previous turn
+    // set planDelivered), the user's next message is implicit approval.
+    if (this._mode === "plan" && this._planDelivered) {
+      this._mode = "default";
+      this._planDelivered = false;
+      this._onModeChange?.("default");
+    }
+
     if (!this.chatTitle) {
       this.chatTitle = message.slice(0, 80).replace(/\n/g, " ").trim();
     }
@@ -237,6 +248,7 @@ export class YoAgent {
       abortController: this.abortController,
       includePartialMessages: true,
       persistSession: true,
+      todoFeatureEnabled: true,
       env: {
         ...process.env,
         PATH: shellPath,
@@ -269,6 +281,9 @@ export class YoAgent {
             if (!Array.isArray(content)) break;
             for (const block of content) {
               if (block.type === "tool_use") {
+                if (block.name === "TodoWrite" && Array.isArray((block.input as any)?.todos)) {
+                  this._lastTodos = (block.input as any).todos;
+                }
                 cb.onToolUse(block.id, block.name, block.input);
               }
             }
@@ -321,6 +336,7 @@ export class YoAgent {
               this.reportUsage(usage.input_tokens || 0, usage.output_tokens || 0, model);
             }
             if (msg.is_error && msg.result) {
+              if (this.abortController?.signal.aborted || /abort/i.test(msg.result)) break;
               cb.onError(msg.result);
               return;
             }
@@ -329,13 +345,18 @@ export class YoAgent {
         }
       }
 
+      // Mark that the plan was delivered — next user message triggers transition.
+      if (this._mode === "plan") {
+        this._planDelivered = true;
+      }
+
       // Save chat record
       this.saveChatRecord(message, fullText, startTs);
 
-      // Ingest turn into capture store
+      // Ingest structured turn into capture store
       if (this.captureStore && fullText.trim()) {
-        const turnContent = `[user]\n${message}\n\n[assistant]\n${fullText}`;
-        this.captureStore.ingest("yo-agent", turnContent, this.workspaceGetter?.()).catch(() => {});
+        const structured = this.buildStructuredCapture(message, fullText);
+        this.captureStore.ingest("yo-agent", structured, this.workspaceGetter?.()).catch(() => {});
       }
 
       cb.onDone(fullText);
@@ -355,7 +376,31 @@ export class YoAgent {
   getChatId(): string | null { return this.chatId; }
   getChatTitle(): string { return this.chatTitle; }
 
-  // ── System prompt builder ──────────────────────────────
+  // ── Structured capture ─────────────────────────────────
+
+  private _lastTodos: Array<{ content: string; status: string }> = [];
+
+  updateTodos(todos: Array<{ content: string; status: string }>): void {
+    this._lastTodos = todos;
+  }
+
+  private buildStructuredCapture(userMessage: string, assistantText: string): string {
+    const meta: string[] = [];
+    if (this.chatId) meta.push(`chatId: ${this.chatId}`);
+    if (this.sessionId) meta.push(`sessionId: ${this.sessionId}`);
+    if (this.chatTitle) meta.push(`intent: ${this.chatTitle}`);
+    if (this._lastTodos.length > 0) {
+      const progress = this._lastTodos.map((t) => {
+        const icon = t.status === "completed" ? "✓" : t.status === "in_progress" ? "→" : "○";
+        return `${icon} ${t.content}`;
+      }).join("\n");
+      meta.push(`progress:\n${progress}`);
+    }
+    const header = meta.length > 0 ? `[meta]\n${meta.join("\n")}\n\n` : "";
+    return `${header}[user]\n${userMessage}\n\n[assistant]\n${assistantText}`;
+  }
+
+  // ── System prompt builder ────────────────────���─────────
 
   private buildSystemPrompt(): string {
     let prompt = SYSTEM_PROMPT;
@@ -380,7 +425,37 @@ export class YoAgent {
       prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
     }
 
+    // Context recovery: when resuming a chat without a live SDK session,
+    // inject the last few turns so the model has continuity.
+    if (this.chatId && !this.sessionId) {
+      const context = this.buildContextRecovery();
+      if (context) prompt += `\n\n${context}`;
+    }
+
     return prompt;
+  }
+
+  private buildContextRecovery(): string | null {
+    if (!this.chatId) return null;
+    const filepath = path.join(CHATS_DIR, `${this.chatId}.md`);
+    if (!fs.existsSync(filepath)) return null;
+    try {
+      const raw = fs.readFileSync(filepath, "utf-8");
+      const jsonMatch = raw.match(/```json\n([\s\S]*?)\n```/);
+      if (!jsonMatch) return null;
+      const messages: Array<{ role: string; content: string }> = JSON.parse(jsonMatch[1]);
+      if (messages.length === 0) return null;
+      // Take last 6 messages (3 exchanges) for context window efficiency
+      const recent = messages.slice(-6);
+      const summary = recent.map((m) => {
+        const tag = m.role === "user" ? "User" : "You";
+        const text = m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content;
+        return `${tag}: ${text}`;
+      }).join("\n\n");
+      return `CONTINUED CONVERSATION — this thread was resumed. Recent context:\n${summary}`;
+    } catch {
+      return null;
+    }
   }
 
   // ── Usage reporting ────────────────────────────────────
@@ -420,7 +495,8 @@ export class YoAgent {
       const parsed = this.parseChatFile(raw);
       this.chatId = id;
       this.chatTitle = parsed.title;
-      this.sessionId = null;
+      this.sessionId = parsed.sessionId || null;
+      this._planDelivered = false;
       return parsed.display;
     } catch {
       return null;
@@ -494,6 +570,7 @@ export class YoAgent {
       `title: ${this.chatTitle}`,
       `created: ${new Date(parseInt(this.chatId, 10)).toISOString()}`,
       `messages: ${userMsgs}`,
+      ...(this.sessionId ? [`sessionId: ${this.sessionId}`] : []),
       "---",
       "",
       "```json",
@@ -504,12 +581,15 @@ export class YoAgent {
     fs.writeFileSync(filepath, lines.join("\n"), "utf-8");
   }
 
-  private parseChatFile(raw: string): { title: string; display: Array<{ role: string; text: string }> } {
+  private parseChatFile(raw: string): { title: string; sessionId: string | null; display: Array<{ role: string; text: string }> } {
     let title = "";
+    let sessionId: string | null = null;
     const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
     if (fmMatch) {
       const t = fmMatch[1].match(/^title:\s*(.+)$/m);
       if (t) title = t[1].trim();
+      const s = fmMatch[1].match(/^sessionId:\s*(.+)$/m);
+      if (s) sessionId = s[1].trim();
     }
 
     const jsonMatch = raw.match(/```json\n([\s\S]*?)\n```/);
@@ -523,6 +603,6 @@ export class YoAgent {
       text: m.content || "",
     }));
 
-    return { title, display };
+    return { title, sessionId, display };
   }
 }

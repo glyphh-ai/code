@@ -251,7 +251,16 @@ async function confirmJoinCypher(): Promise<void> {
     return;
   }
   const role = ($a<HTMLSelectElement>("cypher-join-role")).value;
-  const r = await window.yo.cypherJoin(joinTargetCypherId, joinSelectedAgentId, role);
+  // Optional invite token — accept either the raw JWT or a full invite URL.
+  // URL format we mint: yosup://cypher-invite?token=<JWT>  (the joiner can
+  // paste either; we strip the URL wrapper if present).
+  const rawInvite = ($a<HTMLInputElement>("cypher-join-invite-token")).value.trim();
+  let inviteToken: string | undefined;
+  if (rawInvite) {
+    const m = rawInvite.match(/[?&]token=([^&\s]+)/);
+    inviteToken = m ? decodeURIComponent(m[1]) : rawInvite;
+  }
+  const r = await window.yo.cypherJoin(joinTargetCypherId, joinSelectedAgentId, role, inviteToken);
   if (!r.ok) {
     $a("cypher-join-error").textContent = r.error || "Join failed";
     $a("cypher-join-error").classList.remove("hidden");
@@ -671,6 +680,7 @@ function initCyphers(): void {
   $a("cypher-detail-deposit-btn").addEventListener("click", () => { void depositToCypherKitty(); });
   $a("cypher-detail-wrap").addEventListener("click", () => { void wrapCurrentCypher(); });
   $a("cypher-detail-cancel-cypher").addEventListener("click", () => { void cancelCurrentCypher(); });
+  $a("cypher-detail-invite").addEventListener("click", () => { void mintInviteForCurrent(); });
 
   // Mine / Discover tab toggle
   $a("cypher-tab-mine").addEventListener("click", () => switchCypherTab("mine"));
