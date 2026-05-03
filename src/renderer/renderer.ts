@@ -1354,14 +1354,10 @@ let yoControlsInited = false;
 
 const MODE_ICONS: Record<string, string> = {
   standard: "\u2753",
-  council: "\uD83C\uDFDB",
-  code: "\uD83D\uDCBB",
 };
 
 const MODE_COLORS: Record<string, string> = {
   standard: "#25C75E",
-  council: "#A855F7",
-  code: "#00D4FF",
 };
 
 const PERM_ICONS: Record<string, string> = {
@@ -1414,8 +1410,6 @@ function applyModeColor() {
 
 // Compute the effective agentMode sent to main: combines mode + perm
 function getEffectiveAgentMode(): string {
-  if (currentMode === "council") return "council";
-  if (currentMode === "code") return "code";
   return currentPerm; // standard mode uses the perm value directly
 }
 
@@ -1458,11 +1452,9 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Listen for mode changes pushed from main process (e.g. .council)
+// Listen for mode changes pushed from main process
 window.yo.onAgentModeChanged?.((mode: string) => {
-  if (mode === "council" || mode === "code") {
-    setModeValue(mode);
-  } else if (mode === "standard") {
+  if (mode === "standard") {
     setModeValue("standard");
   } else {
     // It's a permission value (ask/plan/auto/bypass)
@@ -1474,13 +1466,8 @@ window.yo.onAgentModeChanged?.((mode: string) => {
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
-  if (mode === "council" || mode === "code") {
-    setModeValue(mode);
-    setPermValue("ask");
-  } else {
-    setModeValue("standard");
-    setPermValue(mode);
-  }
+  setModeValue("standard");
+  setPermValue(mode);
 }
 
 async function openYoPanel(query: string) {
@@ -1505,15 +1492,7 @@ async function openYoPanel(query: string) {
   yoToolsUsed = false;
   yoTimelineEl = null;
   yoSpinnerEl = null;
-  if (query.startsWith("__council__:")) {
-    // Council mode — show prompt message, don't auto-send
-    const parts = query.replace("__council__:", "").split(",");
-    hideYoWelcome();
-    const msg = document.createElement("div");
-    msg.className = "yo-msg yo-msg-assistant";
-    msg.innerHTML = formatYoText(`Council ready: ${parts.join(", ")}\nEnter your topic below.`);
-    yoPanelMessages.appendChild(msg);
-  } else if (query) {
+  if (query) {
     hideYoWelcome();
     addYoUserMessage(query);
     showYoStatus("");
@@ -1577,7 +1556,6 @@ const DIRECT_TOOL_DESC: Record<string, string> = {
   read_file:       "Reading file",
   list_files:      "Listing files",
   run_command:     "Running command",
-  start_council:   "Starting council",
 };
 
 function formatToolDisplayName(name: string): string {

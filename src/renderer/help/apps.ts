@@ -1129,7 +1129,7 @@ function initApps() {
       appFormError.classList.remove("hidden");
       return;
     }
-    const RESERVED = new Set(["yo", "sup", "dip", "drip", "peace", "waz", "council"]);
+    const RESERVED = new Set(["yo", "sup", "dip", "drip", "peace", "waz"]);
     if (RESERVED.has(id)) {
       addSlugInput.classList.add("invalid"); clearInvalid(addSlugInput);
       appFormError.textContent = `"${id}" is a reserved command. Pick a different slug.`;

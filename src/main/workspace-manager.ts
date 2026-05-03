@@ -3,8 +3,8 @@
  *
  * A workspace is { slug, name, rootDir, createdAt }. Captures, agent state,
  * and (in later phases) per-workspace event logs are scoped to the active
- * workspace's slug. The slug also identifies the workspace in MCP tool calls,
- * cross-workspace addressing, and command-line UX (`.yo .ws switch <slug>`).
+ * workspace's slug. The slug also identifies the workspace in MCP tool calls
+ * and cross-workspace addressing.
  *
  * Storage:
  *   ~/yo/workspaces.json         — index of all workspaces + active slug
@@ -65,11 +65,9 @@ const INDEX_FILE = path.join(YO_DIR, "workspaces.json");
 const WORKSPACES_DIR = path.join(YO_DIR, "workspaces");
 
 /** Reserved slugs that cannot be used for workspaces. Mirrors the command
- *  keyword set plus sub-mode names (`ws`, `code`) and verbs that would make
- *  `.yo .ws <verb>` ambiguous. */
+ *  keyword set plus verbs that would make subcommand parsing ambiguous. */
 const RESERVED_SLUGS = new Set([
-  "yo", "sup", "dip", "drip", "peace", "waz", "council",
-  "ws", "code",
+  "yo", "sup", "dip", "drip", "peace", "waz",
   "new", "switch", "list", "delete", "rename", "help",
 ]);
 
@@ -330,7 +328,7 @@ export class WorkspaceManager {
 
   switch(slug: string): SwitchResult {
     const ws = this.get(slug);
-    if (!ws) return { ok: false, error: `No workspace "${slug}". Try .yo .ws list.` };
+    if (!ws) return { ok: false, error: `No workspace "${slug}".` };
     this.index.active = slug;
     this.persist();
     setPreference("activeWorkspace", slug);

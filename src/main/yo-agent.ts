@@ -24,7 +24,6 @@ import type { SkillEngine } from "./skill-engine";
 import type { NoteStore } from "./note-store";
 import { getAgentMode } from "./action-gate";
 import type { AgentMode } from "./action-gate";
-import type { Council } from "./council";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -76,7 +75,6 @@ export class YoAgent {
   private sessionCache: SessionCache | null = null;
   private skillEngine: SkillEngine | null = null;
   private noteStore: NoteStore | null = null;
-  private council: Council | null = null;
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
   private _approvalCallback: ApprovalCallback | null = null;
@@ -97,7 +95,6 @@ export class YoAgent {
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void { this._mode = mode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
-  setCouncil(council: Council): void { this.council = council; }
 
   abort(): void {
     this.abortController?.abort();
@@ -370,10 +367,6 @@ export class YoAgent {
 
     if (this._mode === "plan") {
       prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
-    }
-
-    if (this._mode === "code") {
-      prompt += `\n\nMODE: CODE\nYou are in code mode — you are the orchestrator of a team of coding agents. Use ws_team_status, ws_read_log, ws_post_to, ws_broadcast, and ws_read_agent to coordinate.`;
     }
 
     return prompt;

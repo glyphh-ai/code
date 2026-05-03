@@ -54,7 +54,6 @@ import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
 import { ActionGrabber } from "./action-grabber";
 import { AgentRunner, AgentConfig } from "./agent-runner";
-import { Council } from "./council";
 import { McpExpose } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
@@ -378,7 +377,6 @@ async function boot() {
       writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
       listSkillFiles: (name) => skillEngine.listSkillFiles(name),
     },
-    council: { start: (opts, log) => council.start(opts, log) as any },
     dripManager: {
       listCustoms: () => dripManager!.listCustoms(),
       saveCustom: (name: string, recipe: string) => dripManager!.saveCustom(name, recipe),
@@ -532,17 +530,11 @@ async function boot() {
     mainWindow?.webContents.send("connectors-changed");
   });
 
-  // Council — deterministic multi-model debate orchestrator
-  const council = new Council();
-  council.setCaptureStore(captureStore);
-  council.setWorkspaceGetter(workspaceGetter);
-
   // Yo agent — capture search + format assistant
   const yoAgent = new YoAgent();
   yoAgent.setCaptureStore(captureStore);
   yoAgent.setWorkspaceGetter(workspaceGetter);
   yoAgent.setSkillEngine(skillEngine);
-  yoAgent.setCouncil(council);
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
@@ -712,10 +704,6 @@ async function boot() {
   actionGrabber.setWorkspaceGetter(() => getPreference<string>("activeWorkspace", "default"));
   actionGrabber.startPolling();
 
-  // Wire council to panel manager
-  council.setPanelSwitcher((id) => panelManager.switchTo(id, mainWindow!));
-  council.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
-
   // Persist zoom when changed via keyboard shortcut in panels
   panelManager.setOnZoomChange((factor) => {
     setPreference("zoom", factor);
@@ -860,17 +848,6 @@ async function boot() {
   commandParser.setWelcomeHandler(() => {
     mainWindow?.webContents.send("show-welcome");
   });
-  commandParser.setDirectoryPicker(async () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ["openDirectory", "createDirectory"],
-      title: "Choose project directory",
-      buttonLabel: "Select",
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
-  });
-
   let restoring = false;
 
   /** Activate the code workspace panel (switch to it). */
@@ -879,92 +856,6 @@ async function boot() {
     panelManager.switchTo("code-workspace", mainWindow);
     return true;
   }
-
-  // Code-terminal launcher (Phase 2 + 3): called by `.dip code <name> [role]`.
-  // Resolves/creates the agent, ensures briefings + project CLAUDE.md +
-  // .mcp.json are up to date, starts the workspace MCP server if not yet
-  // running, registers the spawn config, and adds the panel.
-  function launchCodeTerminal(name: string, role?: string, prompt?: string): { ok: true; panelId: string } | { ok: false; error: string } {
-    const ws = workspaceManager.getActive();
-    let agent = workspaceManager.getAgent(ws.slug, name);
-    const isNew = !agent;
-    if (!agent) {
-      if (!role) {
-        return { ok: false, error: `Agent "${name}" not found in workspace "${ws.slug}". Try: .dip code ${name} <role>` };
-      }
-      const result = workspaceManager.createAgent(ws.slug, { name, role, prompt });
-      if (!result.ok) return { ok: false, error: result.error };
-      agent = result.agent;
-    }
-
-    // Keep all briefings in sync (peer lists update when roster grows) and
-    // ensure the project's CLAUDE.md has the dispatcher section.
-    const allAgents = workspaceManager.listAgents(ws.slug);
-    rewriteAllBriefings(ws, allAgents);
-    try { ensureProjectClaudeMd(ws); } catch (err) {
-      console.warn("[code-terminal] failed to update project CLAUDE.md:", (err as Error).message);
-    }
-    writeAgentBriefing(ws, agent, allAgents);
-
-    // Phase 4: start watching this workspace's events.jsonl so subscription-
-    // matched events get drained into per-agent inbox files. Idempotent.
-    inboxRouter?.watch(ws.slug);
-
-    // Write .mcp.json pointing at the unified MCP server (McpExpose)
-    if (mcpExpose?.isRunning) {
-      const url = `http://127.0.0.1:${mcpExpose.getPort()}/mcp`;
-      const tokens = mcpExpose.getTokens();
-      const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
-      try { ensureProjectMcpJson(ws, url, token); } catch (err) {
-        console.warn("[mcp] failed to write .mcp.json:", (err as Error).message);
-      }
-    } else if (!restoring) {
-      return { ok: false, error: "MCP server is not running. Start it in Home → MCP before launching code agents." };
-    } else {
-      console.log("[code-terminal] MCP not yet started — skipping .mcp.json update (will use existing)");
-    }
-
-    // Post a startup event so other agents see the new teammate appear in
-    // their next read_log / team_status.
-    if (isNew) {
-      try {
-        eventLog.append(ws.slug, {
-          from: ".yo",
-          tags: ["broadcast", `role:${agent.role}`, `workspace:${ws.slug}`],
-          kind: "status",
-          body: `Agent "${agent.name}" joined the team (role: ${agent.role}).`,
-        });
-      } catch (err) {
-        console.warn("[workspace-mcp] failed to append startup event:", (err as Error).message);
-      }
-    }
-
-    const panelId = `code-${ws.slug}-${agent.name}`;
-    const spawnArgs = [...agent.agentArgs];
-    const effectivePrompt = prompt || agent.prompt;
-    if (effectivePrompt) {
-      spawnArgs.push("--append-system-prompt", effectivePrompt);
-    }
-    spawnArgs.push(`Read your agent briefing at .yo/agents/${agent.name}.md and check your inbox at .yo/inbox/${agent.name}.md. Report for duty.`);
-    panelIdToAgentConfig.set(panelId, {
-      name: agent.name,
-      role: agent.role,
-      cwd: agent.cwd,
-      command: agent.agentCommand,
-      args: spawnArgs,
-      workspace: ws.slug,
-    });
-
-    // Add the panel if it's not already present (re-uses terminal HTML/preload).
-    panelManager.addPanel(panelId, terminalHtml, terminalPreload);
-    return { ok: true, panelId };
-  }
-  commandParser.setCodeTerminalLauncher(launchCodeTerminal);
-  commandParser.setCodeWorkspaceActivator((layoutName) => {
-    if (layoutName) setPreference("codeWorkspaceLayout", layoutName);
-    const ok = activateCodeWorkspace();
-    return ok ? { ok: true } : { ok: false, error: "Failed to switch to code workspace." };
-  });
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
@@ -1280,9 +1171,6 @@ async function boot() {
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const callbacks = { openYoPanel: null as ((query: string) => void) | null };
 
-  // Council state — participants set by .council command, consumed on next agent message
-  let councilParticipants: string[] | null = null;
-
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
     const result = await commandParser.execute(cmd, sourcePanelId);
 
@@ -1290,37 +1178,6 @@ async function boot() {
     if (result.startsWith("__YO_PANEL__")) {
       const query = result.replace(/^__YO_PANEL__:?/, "");
       callbacks.openYoPanel?.(query);
-      return "";
-    }
-
-    // .council — arrange panels side-by-side, set council mode, open agent panel
-    if (result.startsWith("__COUNCIL__")) {
-      const participantsStr = result.replace(/^__COUNCIL__:?/, "");
-      councilParticipants = participantsStr.split(",").filter(Boolean);
-
-      // Arrange participant panels side by side
-      if (mainWindow && !mainWindow.isDestroyed() && councilParticipants.length >= 2) {
-        if (councilParticipants.length === 2) {
-          layoutManager.splitTwo(councilParticipants[0], councilParticipants[1], mainWindow);
-        } else {
-          layoutManager.splitN(councilParticipants, mainWindow);
-        }
-        const gridInfo = layoutManager.getGridInfo();
-        mainWindow.webContents.send("split-state", gridInfo);
-        if (gridInfo) {
-          for (const id of gridInfo.panelIds) ensureTab(id);
-        }
-        sendTabState();
-      }
-
-      mainWindow?.webContents.send("agent-mode-changed", "council");
-      yoInterceptor.setAgentMode("council");
-      // Delay yo panel open to let the layout settle
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        panelManager.setRightInset(yoPanelWidth());
-        mainWindow.webContents.send("yo-panel-open", `__council__:${councilParticipants!.join(",")}`);
-      }, 400);
       return "";
     }
 
@@ -2079,12 +1936,10 @@ async function boot() {
     // Route dot-commands (.dip, .drip, .sup, .waz) through command parser
     if (trimmed.startsWith(".")) {
       const firstWord = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase();
-      if (firstWord && ["dip", "drip", "sup", "waz", "council"].includes(firstWord)) {
+      if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
-          if (firstWord !== "council") {
-            mainWindow?.webContents.send("yo-panel-done", result || "done.");
-          }
+          mainWindow?.webContents.send("yo-panel-done", result || "done.");
         } catch (err: any) {
           mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
         }
@@ -2094,43 +1949,6 @@ async function boot() {
 
     const wc = mainWindow?.webContents;
     if (!wc || mainWindow!.isDestroyed()) return;
-
-    // Council mode — if participants are queued, start the council orchestrator
-    if (councilParticipants && councilParticipants.length >= 2) {
-      const participants = councilParticipants;
-      councilParticipants = null;
-      wc.send("yo-panel-token", `Starting council with ${participants.join(", ")}...\n`);
-
-      council.start(
-        { participants, prompt: trimmed, rounds: 2 },
-        (progress) => wc.send("yo-panel-token", `\n${progress}`),
-      ).then((result) => {
-        if (result.status === "complete" && result.totalCaptures > 0) {
-          // Feed actual responses directly to the agent for synthesis
-          const responseParts: string[] = [`Council complete: ${result.totalCaptures} responses from ${participants.join(", ")}.\n\nOriginal question: ${trimmed}\n`];
-          for (const [participant, resps] of result.responses) {
-            for (let i = 0; i < resps.length; i++) {
-              responseParts.push(`--- ${participant} (round ${i + 1}) ---\n${resps[i]}\n`);
-            }
-          }
-          responseParts.push("\nSynthesize the key findings, areas of agreement, and notable differences between the participants. Be concise.");
-          const summary = responseParts.join("\n");
-          yoAgent.send(summary, {
-            onText: (delta) => wc.send("yo-panel-token", delta),
-            onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
-            onToolResult: (id, detail) => wc.send("yo-panel-tool-result", id, detail),
-            onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
-            onDone: (fullText) => wc.send("yo-panel-done", fullText),
-            onError: (err) => wc.send("yo-panel-error", err),
-          });
-        } else {
-          wc.send("yo-panel-done", `Council ${result.status}.`);
-        }
-      }).catch((err) => {
-        wc.send("yo-panel-error", err?.message || String(err));
-      });
-      return;
-    }
 
     // Everything else goes to the yo agent
     yoAgent.send(trimmed, {
@@ -2145,7 +1963,6 @@ async function boot() {
 
   ipcMain.on("yo-panel-stop", () => {
     yoAgent.abort();
-    council.stop();
   });
 
   // Renderer-initiated panel open (Cmd+> or .yo command)
@@ -2429,8 +2246,8 @@ async function boot() {
   ipcMain.handle("workspace-set", (_e, name: string) => {
     // Backward-compat with the legacy context-panel UX: any name becomes a
     // workspace. If it doesn't exist yet, auto-create it bound to ~ before
-    // switching. Explicit creation via `.yo .ws new <slug> <path>` lets the
-    // user pick a real rootDir.
+    // switching. Explicit creation from the Workspaces page lets the user
+    // pick a real rootDir.
     const slug = String(name || "").trim().toLowerCase();
     if (!slug) return;
     if (!workspaceManager.get(slug)) {

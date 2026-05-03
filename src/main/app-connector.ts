@@ -272,7 +272,6 @@ function inferCapturePolicy(source: string, url?: string): CapturePolicy {
 
   // MCP / external pushes
   if (source === "cloud-sync") return { type: "append" };
-  if (source.startsWith("council:")) return { type: "append" };
 
   // Default: deduplicate is safe for unknown sources
   return { type: "deduplicate" };

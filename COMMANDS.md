@@ -3,9 +3,8 @@
 Three verbs: `.yo` (search/retrieve), `.sup` (capture), `.dip` (navigate).
 One effect: `.drip` (animations). One gesture: `.peace` (sign off).
 
-Sub-modes of `.yo`:
-- `.yo .ws` — workspace management
-- `.yo .code` — multi-agent dev-space scaffolding
+Workspaces, agents, and dev-space layouts are managed from the in-app
+**Home** panel — there are no top-level commands for them anymore.
 
 ## Keyboard Shortcuts
 
@@ -55,7 +54,6 @@ The `.` separates query from processor. No query + `.` = use the last `.sup` cap
 | `.dip split <a> <b> ...` | Side-by-side split |
 | `.dip grid <cells> / <cells>` | Full grid with spans and custom widths |
 | `.dip add <url>` | Add new app panel |
-| `.dip code <name> [role]` | Open (or create) a code-terminal agent in the active workspace |
 | `.dip list` | List all apps and layouts |
 | `.dip refresh [panel]` | Refresh panel |
 | `.dip zoom <val>` | Set zoom level |
@@ -73,45 +71,22 @@ The `.` separates query from processor. No query + `.` = use the last `.sup` cap
 |---|---|
 | `.peace [count]` | Particle peace-sign gesture |
 
-## `.yo .ws` — Workspaces
+## Workspaces & Multi-Agent Dev Spaces
 
 A **workspace** = `{ slug, name, rootDir }`. It binds a yo session to a project
 directory. Captures, agents, and layouts are scoped to it. The active workspace
 persists across app restarts.
 
-| Command | Action |
-|---|---|
-| `.yo .ws` / `.yo .ws list` | List all workspaces (active marked with `*`) |
-| `.yo .ws new <slug> <path> [name]` | Create workspace bound to a directory |
-| `.yo .ws switch <slug>` | Set the active workspace |
-
-Storage: `~/yo/workspaces.json` (index) + `~/yo/workspaces/<slug>/` (per-workspace
-state — events log, agent metadata, inbox state).
-
-## `.yo .code` — Multi-Agent Dev Spaces
-
 A **code-terminal** is a named pty panel running an LLM CLI (default: `claude`)
 in the workspace's `rootDir`. Each agent has a name, a role, and a workspace
 binding. They coordinate through a shared event log + per-agent inboxes.
 
-| Command | Action |
-|---|---|
-| `.yo .code <prompt>` | Scaffold a dev space — parses agent names from the prompt |
-| `.yo .code list` | List saved dev-space layouts |
-| `.dip code <name> [role]` | Open (or create) a single code-terminal |
-| `.dip code-<workspace>` | Recall a saved dev-space layout |
+Workspaces, agents, and dev-space layouts are managed from the in-app **Home**
+panel (Workspaces, Agents, Layouts pages). The cypher abstraction will subsume
+this surface in a follow-up cleanup pass.
 
-Examples:
-
-```
-.yo .ws new yousup ~/dev/yousup
-.yo .ws switch yousup
-.yo .code create a dev space with 3 agents — ui, server, web
-```
-
-The parser accepts em-dash, hyphen, colon, "named", and bare comma lists.
-Agent role can be specified inline: `ui (frontend), server (backend)` or
-`ui frontend, server backend`. Role defaults to the agent name.
+Storage: `~/yo/workspaces.json` (index) + `~/yo/workspaces/<slug>/` (per-workspace
+state — events log, agent metadata, inbox state).
 
 ### How agents coordinate
 

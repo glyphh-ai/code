@@ -2,7 +2,17 @@
 
 **Status:** Scoped — open questions locked, ready to build
 **Owner:** Tim
-**Date:** 2026-04-30 (updated 2026-05-01)
+**Date:** 2026-04-30 (updated 2026-05-03)
+
+> **Command-surface note (2026-05-03):** `.yo .ws`, `.yo .code`, and `.council`
+> have been retired. Workspaces, agents, and dev-space layouts are now managed
+> from the in-app **Home** panel (Workspaces, Agents, Layouts pages). The
+> underlying multi-agent infrastructure described in this document — the
+> workspace MCP server, event log, inbox router, briefings, code-terminal
+> panels — is unchanged and is being rebadged from "code-workspace" to
+> "cypher-workspace" in a follow-up pass. Treat all `.yo .ws` / `.yo .code`
+> example commands below as historical; the functionality lives, the
+> command-bar entry points do not.
 
 ---
 

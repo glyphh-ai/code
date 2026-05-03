@@ -9,7 +9,7 @@
 import { getPreference } from "./preferences";
 import { isDestructiveTool } from "./substrate/tools";
 
-export type AgentMode = "plan" | "ask" | "auto" | "code" | "bypass";
+export type AgentMode = "plan" | "ask" | "auto" | "bypass";
 export type ToolTier = "observe" | "mutate";
 export type ToolOverride = "default" | "auto" | "ask" | "off";
 
@@ -25,7 +25,6 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   read_file:         "observe",
   list_files:        "observe",
   run_command:       "observe",
-  start_council:     "mutate",
   delegate_navigate: "observe",
   delegate_layout:   "observe",
   // Navigator sub-agent tools
@@ -66,7 +65,6 @@ export const TOOL_LABELS: Record<string, string> = {
   read_file:         "Read file",
   list_files:        "List files",
   run_command:       "Run command",
-  start_council:     "Start council",
   delegate_navigate: "Navigate panels",
   delegate_layout:   "Arrange layout",
   // Navigator sub-agent tools
@@ -107,7 +105,6 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   read_file:         "Read a file from the local filesystem",
   list_files:        "List files in a directory",
   run_command:       "Run a read-only shell command (git log, ls, etc.)",
-  start_council:     "Convene a multi-model council debate across AI panels",
   delegate_navigate: "Sub-agent: scan, click, type, navigate app panels",
   delegate_layout:   "Sub-agent: split views, grids, tabs, workspace layout",
   // Navigator sub-agent tools
@@ -171,7 +168,7 @@ export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (override === "auto") return "execute";
   if (override === "ask") return "needs_approval";
 
-  if (mode === "auto" || mode === "code") {
+  if (mode === "auto") {
     const tier = getToolTier(toolName);
     if (tier === "observe") return "execute";
     return "needs_approval";

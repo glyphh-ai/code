@@ -406,19 +406,6 @@
           </div>
 
           <div class="help-group">
-            <h3>.council <span class="cmd-desc">— multi-model debate</span></h3>
-            <p class="cmd-intro">Convene multiple AI models to debate a topic. Each model runs on your own API key. Responses are captured, cross-pollinated between rounds, and synthesized by the agent.</p>
-            <div class="cmd-row">
-              <code>.council claude gemini grok</code>
-              <span>Start a council — enter your topic when prompted</span>
-            </div>
-            <div class="cmd-row">
-              <code>.council claude chatgpt</code>
-              <span>Two-model council</span>
-            </div>
-          </div>
-
-          <div class="help-group">
             <h3>Shortcuts</h3>
             <div class="cmd-row">
               <code>&#8984;.</code>
@@ -488,7 +475,7 @@
               <p>Commands are the core of .Yo. Type them in the command bar (Cmd+.), inside any panel, or chain them together. Every command starts with a dot.</p>
 
               <h4>.yo — Agent</h4>
-              <p>Opens the AI agent panel. The agent can search your captures, run shell commands, navigate panels, start councils, and more. Works from any panel.</p>
+              <p>Opens the AI agent panel. The agent can search your captures, run shell commands, navigate panels, and more. Works from any panel.</p>
               <div class="cmd-row"><code>.yo</code><span>Open the agent panel</span></div>
               <div class="cmd-row"><code>.yo find my notes about pricing</code><span>Agent searches your captures</span></div>
               <div class="cmd-row"><code>.yo what was my last git commit</code><span>Agent runs read-only shell commands</span></div>
@@ -519,10 +506,6 @@
               <div class="cmd-row"><code>.waz claude new</code><span>Run "new" on Claude</span></div>
               <div class="cmd-row"><code>.waz layout workspace</code><span>Save current layout</span></div>
 
-              <h4>.council — Multi-model debate</h4>
-              <p>Convene a council of AI models. Fans out your prompt, captures responses, cross-pollinates between rounds, and synthesizes the results. All model calls are on your own API keys.</p>
-              <div class="cmd-row"><code>.council claude gemini grok</code><span>Start a 3-model council</span></div>
-
               <h4>.drip — Effects</h4>
               <p>Visual celebration effects. Reward yourself.</p>
               <div class="cmd-row"><code>.drip</code><span>Default fireworks effect</span></div>
@@ -532,16 +515,6 @@
               <p>A particle peace-sign — for closing a session, finishing a deploy, marking the win. Same engine as <code>.drip</code>, but it lands as a gesture, not a recipe.</p>
               <div class="cmd-row"><code>.peace</code><span>Throw a peace-sign</span></div>
               <div class="cmd-row"><code>.peace 3</code><span>Stack three of them</span></div>
-
-              <h4>.code — Workspaces &amp; Dev Spaces</h4>
-              <p>A workspace binds a yo session to a project directory. <code>.code</code> handles everything — workspace creation (with directory picker), agent scaffolding, and switching. See <strong>Dev Spaces</strong> for the full multi-agent flow.</p>
-              <div class="cmd-row"><code>.code</code><span>Show current workspace and agents</span></div>
-              <div class="cmd-row"><code>.code new</code><span>Pick a directory → workspace created instantly</span></div>
-              <div class="cmd-row"><code>.code switch yousup</code><span>Set the active workspace</span></div>
-              <div class="cmd-row"><code>.code ui, server, web</code><span>Scaffold three named agents in current workspace</span></div>
-              <div class="cmd-row"><code>.code list</code><span>List workspaces and saved dev-space layouts</span></div>
-              <div class="cmd-row"><code>.dip code ui frontend</code><span>Open (or create) a single agent terminal</span></div>
-              <div class="cmd-row"><code>.dip code-yousup</code><span>Recall the saved layout for this dev space</span></div>
 
               <h4>Chaining</h4>
               <p>Commands can be chained together. Each command runs in sequence.</p>
@@ -624,19 +597,11 @@
               <p>A <strong>dev space</strong> is a workspace bound to a project directory plus a team of named code-terminal agents that coordinate through a shared event log. Each agent runs its own Claude Code session with a role, an inbox, and a shared MCP toolkit for talking to the team.</p>
 
               <h4>Workspaces</h4>
-              <p>A workspace binds a yo session to a project directory. Captures, agents, and layouts are scoped to it. The active workspace persists across app restarts.</p>
-              <div class="cmd-row"><code>.code</code><span>Show current workspace and agents</span></div>
-              <div class="cmd-row"><code>.code new</code><span>Pick a directory → workspace created instantly</span></div>
-              <div class="cmd-row"><code>.code switch yousup</code><span>Set active workspace</span></div>
-              <div class="cmd-row"><code>.code list</code><span>List all workspaces and saved layouts</span></div>
+              <p>A workspace binds a yo session to a project directory. Captures, agents, and layouts are scoped to it. The active workspace persists across app restarts. Manage workspaces from the <strong>Workspaces</strong> page in this help panel.</p>
               <p>Storage: <code>~/yo/workspaces.json</code> (index) + <code>~/yo/workspaces/&lt;slug&gt;/</code> (per-workspace event log, agent metadata, inbox state).</p>
 
               <h4>Scaffolding agents</h4>
-              <p>A <strong>code-terminal</strong> is a named pty panel running an LLM CLI (default <code>claude</code>) in the workspace's <code>rootDir</code>. Each agent has a name and a role.</p>
-              <div class="cmd-row"><code>.code ui, server, web</code><span>Scaffold three agents (opens directory picker if no workspace)</span></div>
-              <div class="cmd-row"><code>.dip code ui frontend</code><span>Open or create a single agent</span></div>
-              <div class="cmd-row"><code>.dip code-yousup</code><span>Recall the saved dev-space layout</span></div>
-              <p>The parser accepts em-dash, hyphen, colon, "named", and bare comma lists. Roles can be specified inline: <code>ui (frontend), server (backend)</code> or <code>ui frontend, server backend</code>. Role defaults to the agent name.</p>
+              <p>A <strong>code-terminal</strong> is a named pty panel running an LLM CLI (default <code>claude</code>) in the workspace's <code>rootDir</code>. Each agent has a name and a role. Configure agents from the <strong>Agents</strong> page in this help panel.</p>
 
               <h4>How agents coordinate</h4>
               <p>Each code-terminal boots with <code>YO_AGENT_NAME</code> and <code>YO_WORKSPACE</code> in its env, plus a project-local <code>CLAUDE.md</code> dispatcher and a <code>.mcp.json</code> pointing at the MCP server. Agents see a personalized briefing at <code>${rootDir}/.yo/agents/&lt;name&gt;.md</code>.</p>
@@ -680,13 +645,12 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
             <div class="docs-panel" data-doc="agent">
               <h3>The .Yo Agent</h3>
-              <p>The agent is your AI assistant that lives in the side panel. It searches your captures, runs shell commands, starts councils, and executes workspace operations — all through natural language.</p>
+              <p>The agent is your AI assistant that lives in the side panel. It searches your captures, runs shell commands, and executes workspace operations — all through natural language.</p>
 
               <h4>What it can do</h4>
               <ul class="docs-list">
                 <li><strong>Search captures</strong> — vector search across all ambient and manual captures</li>
                 <li><strong>Run commands</strong> — read-only shell commands (git log, ls, cat, etc.)</li>
-                <li><strong>Start council</strong> — convene multi-model debates across your AI panels</li>
                 <li><strong>Read files</strong> — read any file under your home directory</li>
                 <li><strong>Search notes</strong> — keyword search across saved notes in ~/yo/notes/</li>
                 <li><strong>Format</strong> — apply skills to transform content</li>
@@ -703,10 +667,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <p>The agent thinks through what it would do and shows you a numbered plan, but never executes anything. Use this to preview the agent's approach before switching to ask or auto.</p>
 
               <div class="cmd-row"><code>auto</code><span>Observe tools run immediately, mutate tools still ask</span></div>
-              <p>Read-only tools (search captures, get context, read files, run commands, list files, search notes) execute without confirmation. Tools that change state (start council, save memory) still require your approval. The balance between speed and safety.</p>
-
-              <div class="cmd-row"><code>council</code><span>Multi-model debate mode</span></div>
-              <p>Set automatically by the <code>.council</code> command. The agent orchestrates a debate across your AI panels, then synthesizes the results.</p>
+              <p>Read-only tools (search captures, get context, read files, run commands, list files, search notes) execute without confirmation. Tools that change state (save memory, etc.) still require your approval. The balance between speed and safety.</p>
 
               <h4>Tool permissions</h4>
               <p>You can override the mode for individual tools in <strong>Settings &gt; Agent &gt; Tool Permissions</strong>. Each tool can be set to:</p>
@@ -715,7 +676,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <li><strong>Auto</strong> — always runs without asking, regardless of mode</li>
                 <li><strong>Ask</strong> — always asks for approval, even in auto mode</li>
               </ul>
-              <p>For example, you might set search_captures to "auto" so the agent can always search freely, while keeping start_council on "ask" so it always confirms before fanning out to multiple models.</p>
+              <p>For example, you might set search_captures to "auto" so the agent can always search freely, while keeping save_memory on "ask" so it always confirms before persisting state.</p>
 
               <h4>Ambient capture</h4>
               <p>Content is automatically captured when you switch away from a panel (blur) or navigate to a new page. SmartGrab extracts the meaningful content and indexes it for vector search. Apps marked "Do Not Record" are excluded. This means the agent can search everything you've looked at without you ever typing <code>.sup</code>.</p>

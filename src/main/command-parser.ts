@@ -19,19 +19,11 @@ import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz", "council"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
   private dripManager: import("./drip-manager").DripManager | null = null;
-  private onCouncil: ((participants: string[]) => void) | null = null;
-  private codeTerminalLauncher:
-    | ((name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string })
-    | null = null;
-  private codeWorkspaceActivator:
-    | ((layoutName?: string) => { ok: boolean; error?: string })
-    | null = null;
-  private directoryPicker: (() => Promise<string | null>) | null = null;
 
   // Sup conversation state
   private yoHistory: Array<{ role: string; content: string }> = [];
@@ -69,31 +61,6 @@ export class CommandParser {
 
   setDripManager(mgr: import("./drip-manager").DripManager) {
     this.dripManager = mgr;
-  }
-
-  /** Register callback for council chat */
-  setCouncilHandler(fn: (participants: string[]) => void) {
-    this.onCouncil = fn;
-  }
-
-
-  setCodeWorkspaceActivator(
-    fn: (layoutName?: string) => { ok: boolean; error?: string },
-  ): void {
-    this.codeWorkspaceActivator = fn;
-  }
-
-  setDirectoryPicker(fn: () => Promise<string | null>): void {
-    this.directoryPicker = fn;
-  }
-
-  /** Register a callback that creates/ensures a code-terminal panel for a
-   *  named agent and returns its panel id. Implementation lives in main.ts
-   *  where it has access to TerminalManager + PanelManager. */
-  setCodeTerminalLauncher(
-    fn: (name: string, role?: string, prompt?: string) => { ok: true; panelId: string } | { ok: false; error: string },
-  ): void {
-    this.codeTerminalLauncher = fn;
   }
 
   /** Set the LLM engine for inline processing. */
@@ -164,12 +131,8 @@ export class CommandParser {
         return this.handlePeace(args);
       case "waz":
         return this.handleWaz(args);
-      case "council":
-        return this.handleCouncil(args);
-      case "code":
-        return this.handleCode(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, code, drip, peace, or council.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or peace.`;
     }
   }
 
@@ -211,111 +174,10 @@ export class CommandParser {
   // ── yo: opens the agent side panel, or dispatches a sub-mode ─────
 
   private async handleYo(args: string[]): Promise<string> {
-    // Legacy sub-modes redirect to unified .code command
-    if (args[0] === ".ws" || args[0] === "ws" || args[0] === ".code" || args[0] === "code") {
-      return this.handleCode(args.slice(1));
-    }
     const query = args.join(" ").trim();
     return `__YO_PANEL__${query ? `:${query}` : ""}`;
   }
 
-
-  // ── .code: code layout command ────────────────────────────
-
-  /** `.code` — create/manage code-type layouts.
-   *  - `.code` (bare) → show active code layout or list them
-   *  - `.code new` → directory picker + create code layout
-   *  - `.code list` → list code layouts
-   *  - `.code <name>` → recall a code layout
-   *  - `.code <agents...>` → scaffold agents in active code layout */
-  private async handleCode(args: string[]): Promise<string> {
-    const sub = (args[0] || "").toLowerCase();
-
-    // .code (bare) — show active code layout or prompt
-    if (args.length === 0) {
-      const codeLayouts = this.layouts.listCodeLayouts();
-      if (codeLayouts.length === 0) {
-        return "No code layouts yet. Run .code new to create one.";
-      }
-      const lines = ["Code layouts:"];
-      for (const l of codeLayouts) {
-        const slotCount = l.slots?.length ?? 0;
-        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${slotCount} slot${slotCount === 1 ? "" : "s"})`);
-      }
-      return lines.join("\n");
-    }
-
-    // .code new — pick a directory, create a code layout
-    if (sub === "new") {
-      if (!this.directoryPicker) return "Directory picker not available.";
-      const dir = await this.directoryPicker();
-      if (!dir) return "Cancelled.";
-      let name = dir.split("/").pop()!.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+/, "");
-      if (!name) name = "project";
-      const existing = this.layouts.getLayout(name);
-      if (existing) {
-        return `Layout "${name}" already exists. Use .dip ${name} to recall it.`;
-      }
-      this.layouts.createCodeLayout(name, dir);
-      return `Created code layout "${name}" → ${dir}\nAdd agents: .code ui, server, web`;
-    }
-
-    // .code list
-    if (sub === "list") {
-      const codeLayouts = this.layouts.listCodeLayouts();
-      if (codeLayouts.length === 0) return "No code layouts. Run .code new to create one.";
-      const lines = ["Code layouts:"];
-      for (const l of codeLayouts) {
-        const slotCount = l.slots?.length ?? 0;
-        lines.push(`  ${l.name} → ${l.rootDir || "?"} (${slotCount} slot${slotCount === 1 ? "" : "s"})`);
-      }
-      return lines.join("\n");
-    }
-
-    // .code <name> — recall an existing code layout
-    const exactLayout = this.layouts.getLayout(sub);
-    if (exactLayout && exactLayout.type === "code" && args.length === 1) {
-      if (this.codeWorkspaceActivator) {
-        const r = this.codeWorkspaceActivator(exactLayout.name);
-        if (!r.ok) return r.error || "Failed to activate code workspace.";
-        const slotCount = exactLayout.slots?.length ?? 0;
-        return `Launched "${exactLayout.name}" — ${slotCount} slot${slotCount === 1 ? "" : "s"} (bind agents from each panel's + menu)`;
-      }
-      return `Code workspace activator not available.`;
-    }
-
-    // .code <agents...> — scaffold agents into active/last code layout
-    if (!this.codeTerminalLauncher) return "Code-terminal launcher not available.";
-
-    // Find which code layout to use
-    let targetLayout = this.layouts.getActiveCodeLayout();
-    if (!targetLayout) {
-      const codeLayouts = this.layouts.listCodeLayouts();
-      if (codeLayouts.length === 1) {
-        targetLayout = codeLayouts[0];
-      } else if (codeLayouts.length === 0) {
-        // No code layout exists — auto-create via picker
-        if (!this.directoryPicker) return "No code layout. Run .code new first.";
-        const dir = await this.directoryPicker();
-        if (!dir) return "Cancelled.";
-        let name = dir.split("/").pop()!.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+/, "");
-        if (!name) name = "project";
-        targetLayout = this.layouts.createCodeLayout(name, dir);
-      } else {
-        return `Multiple code layouts exist. Specify one: .code <layout-name> or use .dip <name> first.\n` +
-          codeLayouts.map((l) => `  ${l.name}`).join("\n");
-      }
-    }
-
-    // Slots are static after layout save — no shorthand scaffolding here.
-    // Activate the layout; user binds agents from each panel's + menu.
-    if (this.codeWorkspaceActivator) {
-      const r = this.codeWorkspaceActivator(targetLayout.name);
-      if (!r.ok) return r.error || "Failed to activate code workspace.";
-    }
-    const slotCount = targetLayout.slots?.length ?? 0;
-    return `Launched "${targetLayout.name}" — ${slotCount} slot${slotCount === 1 ? "" : "s"}. Configure agents in Home → Agents, then bind via the + on each panel.`;
-  }
 
   // ── sup: capture screen ─────────────────────────────────
 
@@ -411,21 +273,6 @@ export class CommandParser {
       const switched = this.panels.switchTo(targetId, win);
       if (switched) setPreference("lastView", { type: "panel", id: targetId });
       return switched ? `Switched to ${targetId}` : `Unknown panel: ${targetId}. Try: dip list`;
-    }
-
-    // dip code <name> [role] — open (or create) a code-terminal for a named
-    // agent in the active workspace. Role is required only on first creation.
-    if (sub === "code") {
-      const name = args[1]?.toLowerCase().trim();
-      if (!name) return "Usage: .dip code <name> [role]";
-      if (!this.codeTerminalLauncher) return "Code-terminal launcher not available.";
-      const role = args.slice(2).join(" ").trim() || undefined;
-      const result = this.codeTerminalLauncher(name, role);
-      if (!result.ok) return result.error;
-      this.layouts.suspendSplit();
-      const switched = this.panels.switchTo(result.panelId, win);
-      if (switched) setPreference("lastView", { type: "panel", id: result.panelId });
-      return switched ? `→ ${result.panelId}` : `Created agent "${name}" but failed to switch panels.`;
     }
 
     if (sub === "close") {
@@ -529,15 +376,6 @@ export class CommandParser {
 
     // Check for saved layout
     if (this.layouts.isLayout(sub)) {
-      const layout = this.layouts.getLayout(sub);
-      // Code layouts: activate code workspace panel
-      if (layout?.type === "code" && this.codeWorkspaceActivator) {
-        const r = this.codeWorkspaceActivator(layout.name);
-        if (!r.ok) return r.error || "Failed to activate code workspace.";
-        setPreference("lastView", { type: "layout", name: sub });
-        const slotCount = layout.slots?.length ?? 0;
-        return `Launched "${layout.name}" — ${slotCount} slot${slotCount === 1 ? "" : "s"}`;
-      }
       const ok = this.layouts.apply(sub, win);
       if (!ok) return `Failed to apply layout: ${sub}`;
       setPreference("lastView", { type: "layout", name: sub });
@@ -797,15 +635,6 @@ export class CommandParser {
     return "waz is not available.";
   }
 
-  // ── council: multi-model council ─────────────────────────────
-
-  private handleCouncil(args: string[]): string {
-    if (args.length === 0) return "Usage: council <model1> <model2> [<model3> ...] — start a council";
-    const participants = args.map((a) => a.toLowerCase());
-    this.onCouncil?.(participants);
-    return `__COUNCIL__:${participants.join(",")}`;
-  }
-
   // ── drip: CSS visual effects ────────────────────────────────
 
   private handleDrip(args: string[]): string {
@@ -824,45 +653,3 @@ export class CommandParser {
 
 }
 
-// ── helpers ──────────────────────────────────────────────────
-
-interface ParsedDevSpace {
-  agents: { name: string; role: string }[];
-}
-
-/** Extract agent names from a `.yo .code <prompt>` invocation. Recognizes:
- *    "create a dev space with 3 agents — ui, server, web"
- *    "ui, server, web"
- *    "agents named ui, server, and web"
- *    "ui (frontend), server (backend), web (marketing)"
- *  Strategy: split on the most natural delimiter (em-dash, hyphen, colon,
- *  "named"), take the tail, comma-split. Each token is `name [role-words]`
- *  or `name (role)`. Falls back to using the name as the role.
- */
-function parseDevSpacePrompt(
-  prompt: string,
-): { ok: true } & ParsedDevSpace | { ok: false; error: string } {
-  // Find the segment after the most "agent-list-introducing" delimiter.
-  const sepRegex = /[\u2014:]|\s-\s|\bnamed\b/i;
-  const parts = prompt.split(sepRegex);
-  let tail = parts[parts.length - 1].trim();
-  // If no delimiter matched and the whole prompt looks like a comma list, use it.
-  if (parts.length === 1 && !tail.includes(",")) {
-    return { ok: false, error: "No agent names found." };
-  }
-  tail = tail.replace(/\band\b/gi, ",").replace(/,+/g, ",");
-  const tokens = tail.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
-  if (tokens.length === 0) return { ok: false, error: "No agent names found." };
-
-  const agents = tokens.map((tok) => {
-    const parenMatch = tok.match(/^(\S+)\s*\((.+)\)$/);
-    if (parenMatch) return { name: parenMatch[1].toLowerCase(), role: parenMatch[2].trim() };
-    const spaceParts = tok.split(/\s+/);
-    if (spaceParts.length >= 2) {
-      return { name: spaceParts[0].toLowerCase(), role: spaceParts.slice(1).join(" ") };
-    }
-    return { name: tok.toLowerCase(), role: tok.toLowerCase() };
-  });
-
-  return { ok: true, agents };
-}

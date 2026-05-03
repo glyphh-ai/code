@@ -1,5 +1,5 @@
 /**
- * YoInterceptor — intercepts yo/sup/dip/drip/waz/council typed inside app panels.
+ * YoInterceptor — intercepts yo/sup/dip/drip/waz typed inside app panels.
  *
  *   yo <query>     → open agent panel
  *   yo . <skill>   → process last .sup capture with skill → inject result (requires capture)
@@ -80,7 +80,7 @@ export class YoInterceptor {
   setModeColor(color: string): void { this.modeColor = color; }
   setAgentMode(mode: string): void {
     this.agentMode = mode;
-    const colors: Record<string, string> = { ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00", council: "#A855F7", code: "#00D4FF" };
+    const colors: Record<string, string> = { ask: "#25C75E", plan: "#4A9EFF", auto: "#FF8C00" };
     this.modeColor = colors[mode] || colors.ask;
     this.pushToAll(`if(window.__yoSetMode)window.__yoSetMode(${JSON.stringify(mode)},${JSON.stringify(this.modeColor)})`);
   }
@@ -155,7 +155,7 @@ function toggleBar(){createTab();if(barOpen){closeBar();}else{openBar();}}
 function openBar(){createTab();if(!bar)createBar();barOpen=true;barWaiting=false;bar.style.borderColor='var(--yo-border2,rgba(255,255,255,0.12))';bar.style.transform='translateY(-50%) translateX(0)';bar.style.opacity='1';bar.style.pointerEvents='auto';barInput.value='';barInput.style.display='';barInput.disabled=false;barInput.style.opacity='1';if(barMsg)barMsg.style.display='none';if(barErrorTimer){clearTimeout(barErrorTimer);barErrorTimer=null;}setTimeout(function(){barInput.focus();},60);}
 function closeBar(){barOpen=false;barWaiting=false;if(barErrorTimer){clearTimeout(barErrorTimer);barErrorTimer=null;}if(bar){bar.style.transform='translateY(-50%) translateX(100%)';bar.style.opacity='0';bar.style.pointerEvents='none';bar.style.borderColor='var(--yo-border2,rgba(255,255,255,0.12))';}if(barInput){barInput.value='';barInput.disabled=false;barInput.style.display='';barInput.style.opacity='1';}if(barMsg)barMsg.style.display='none';}
 window.__yoBarResult=function(msg,isError){if(!barOpen)return;if(!isError){closeBar();return;}barWaiting=false;barInput.style.display='none';if(!barMsg){barMsg=document.createElement('span');barMsg.id='__yo-bar-msg';barMsg.style.cssText='flex:1;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';bar.appendChild(barMsg);}barMsg.textContent=msg;barMsg.style.display='';barMsg.style.color='#ff6b6b';bar.style.borderColor='#ff6b6b';barErrorTimer=setTimeout(function(){closeBar();},4000);};
-function createBar(){if(bar)return;bar=document.createElement('div');bar.id='__yo-bar';bar.style.cssText='position:fixed;z-index:2147483647;right:0;top:50%;transform:translateY(-50%) translateX(100%);height:36px;width:280px;background:var(--yo-surface2,rgba(30,30,30,0.95));border:1px solid var(--yo-border2,rgba(255,255,255,0.12));border-right:none;border-radius:18px 0 0 18px;display:flex;align-items:center;padding:0 14px;box-shadow:-4px 0 20px var(--yo-shadow,rgba(0,0,0,0.4));backdrop-filter:blur(12px);opacity:0;pointer-events:none;transition:transform 0.2s ease,opacity 0.2s ease;';barInput=document.createElement('input');barInput.id='__yo-bar-input';barInput.type='text';barInput.placeholder='.code .dip .yo .peace';barInput.spellcheck=false;barInput.autocomplete='off';barInput.style.cssText='flex:1;background:transparent;border:none;outline:none;color:var(--yo-text,#e0e0e0);font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';barInput.addEventListener('keydown',function(e){if(e.key==='Escape'){e.stopPropagation();closeBar();return;}if(e.key==='Enter'){e.preventDefault();if(barWaiting)return;var cmd=barInput.value.trim();if(cmd){barWaiting=true;barInput.disabled=true;barInput.style.opacity='0.5';var instruction=cmd.replace(/^\\./, '');console.log('${PREFIX}'+JSON.stringify({type:'bar-command',instruction:instruction,_nonce:_n}));}return;}});barInput.addEventListener('blur',function(){setTimeout(function(){if(barOpen&&!barWaiting)closeBar();},150);});bar.appendChild(barInput);document.body.appendChild(bar);}
+function createBar(){if(bar)return;bar=document.createElement('div');bar.id='__yo-bar';bar.style.cssText='position:fixed;z-index:2147483647;right:0;top:50%;transform:translateY(-50%) translateX(100%);height:36px;width:280px;background:var(--yo-surface2,rgba(30,30,30,0.95));border:1px solid var(--yo-border2,rgba(255,255,255,0.12));border-right:none;border-radius:18px 0 0 18px;display:flex;align-items:center;padding:0 14px;box-shadow:-4px 0 20px var(--yo-shadow,rgba(0,0,0,0.4));backdrop-filter:blur(12px);opacity:0;pointer-events:none;transition:transform 0.2s ease,opacity 0.2s ease;';barInput=document.createElement('input');barInput.id='__yo-bar-input';barInput.type='text';barInput.placeholder='.dip .yo .peace';barInput.spellcheck=false;barInput.autocomplete='off';barInput.style.cssText='flex:1;background:transparent;border:none;outline:none;color:var(--yo-text,#e0e0e0);font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';barInput.addEventListener('keydown',function(e){if(e.key==='Escape'){e.stopPropagation();closeBar();return;}if(e.key==='Enter'){e.preventDefault();if(barWaiting)return;var cmd=barInput.value.trim();if(cmd){barWaiting=true;barInput.disabled=true;barInput.style.opacity='0.5';var instruction=cmd.replace(/^\\./, '');console.log('${PREFIX}'+JSON.stringify({type:'bar-command',instruction:instruction,_nonce:_n}));}return;}});barInput.addEventListener('blur',function(){setTimeout(function(){if(barOpen&&!barWaiting)closeBar();},150);});bar.appendChild(barInput);document.body.appendChild(bar);}
 function createTab(){if(tab)return;tab=document.createElement('div');tab.id='__yo-tab';tab.style.cssText='position:fixed;z-index:2147483646;right:0;top:50%;transform:translateY(-50%);width:28px;height:56px;border-radius:28px 0 0 28px;background:var(--yo-surface2,rgba(30,30,30,0.9));border:1px solid var(--yo-border2,rgba(255,255,255,0.1));border-right:none;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:-2px 0 12px var(--yo-shadow-sm,rgba(0,0,0,0.3));flex-direction:column;gap:1px;user-select:none;';safeInner(tab,'<span style="font-size:10px;font-weight:700;color:var(--yo-accent,#25C75E);font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1;">.Yo</span>');tab.addEventListener('mouseenter',function(){tab.style.background='var(--yo-hover,rgba(50,50,50,0.9))';tab.style.width='32px';});tab.addEventListener('mouseleave',function(){tab.style.background='var(--yo-surface2,rgba(30,30,30,0.9))';tab.style.width='28px';});tab.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();toggleBar();});document.body.appendChild(tab);}
 document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key==='.'){e.preventDefault();e.stopPropagation();toggleBar();}},true);
 })();`;
@@ -229,7 +229,7 @@ var __yoT=__yoThemes[${JSON.stringify(this.theme)}]||__yoThemes.dark;
 (function(){var s=document.getElementById('__yo-theme-vars');if(!s){s=document.createElement('style');s.id='__yo-theme-vars';(document.head||document.documentElement).appendChild(s);}var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;})();
 window.__yoSetTheme=function(t){__yoT=__yoThemes[t]||__yoThemes.dark;var s=document.getElementById('__yo-theme-vars');if(s){var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;}};
 var _n=${JSON.stringify(nonce)};
-var CMD_RE=/^\\.(yo|sup|dip|drip|code|peace|waz|council)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|peace|waz)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -398,7 +398,7 @@ function createBar(){
   barInput=document.createElement('input');
   barInput.id='__yo-bar-input';
   barInput.type='text';
-  barInput.placeholder='.code .dip .yo .peace';
+  barInput.placeholder='.dip .yo .peace';
   barInput.spellcheck=false;
   barInput.autocomplete='off';
   barInput.style.cssText='flex:1;background:transparent;border:none;outline:none;color:var(--yo-text,#e0e0e0);font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
@@ -521,20 +521,6 @@ document.addEventListener('keydown',function(e){
           if (result) this.notify(wc, result, "success");
         }
         break;
-      case "council":
-        // Delegate to command parser for council
-        if (this.commandHandler) {
-          const cmd = data.instruction ? `council ${data.instruction}` : "council";
-          await this.commandHandler(cmd);
-        }
-        break;
-      case "code":
-        if (this.commandHandler) {
-          const cmd = data.instruction ? `code ${data.instruction}` : "code";
-          const result = await this.commandHandler(cmd);
-          if (result) this.notify(wc, result, "success");
-        }
-        break;
       case "peace":
         if (this.commandHandler) {
           const cmd = data.instruction ? `peace ${data.instruction}` : "peace";
@@ -551,7 +537,7 @@ document.addEventListener('keydown',function(e){
           let barIsError = false;
           try {
             barResult = await this.commandHandler(data.instruction);
-            barIsError = /not running|not found|not available|failed|error|unknown command|no code layout/i.test(barResult);
+            barIsError = /not running|not found|not available|failed|error|unknown command/i.test(barResult);
           } catch (err) {
             barResult = err instanceof Error ? err.message : String(err);
             barIsError = true;

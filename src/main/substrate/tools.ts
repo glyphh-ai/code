@@ -34,7 +34,6 @@ export interface SubstrateToolDeps {
     writeSkillFile: (name: string, rel: string, content: string) => boolean;
     listSkillFiles: (name: string) => string[];
   };
-  council?: { start: (opts: { participants: string[]; prompt: string; rounds: number }, log: (msg: string) => void) => Promise<{ status: string; rounds: number; participants: string[]; totalCaptures: number; responses: Map<string, string[]> }> };
   mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (name: string, input: Record<string, unknown>) => Promise<string>; hasTool?: (name: string) => boolean; mcpCoveredApps?: () => Map<string, string[]> };
   dripManager?: {
     listCustoms: () => Array<{ name: string; recipe: string }>;
@@ -762,42 +761,6 @@ const BUILTIN_TOOLS: ToolDef[] = [
       } catch (err: any) {
         return `Command failed: ${err.stderr || err.message || err}`.slice(0, 2000);
       }
-    },
-  },
-  {
-    name: "start_council",
-    namespace: "yo",
-    description: "Start a multi-model council debate.",
-    input_schema: {
-      type: "object",
-      properties: {
-        participants: { type: "array", items: { type: "string" }, description: "Model identifiers" },
-        prompt: { type: "string", description: "Discussion prompt" },
-        rounds: { type: "number", description: "Number of rounds (default 2)" },
-      },
-      required: ["participants", "prompt"],
-    },
-    async run(input) {
-      const participants = input.participants as string[];
-      const prompt = input.prompt as string;
-      const rounds = (input.rounds as number) || 2;
-      if (!participants || participants.length < 2) return "Council requires at least 2 participants.";
-      if (!prompt) return "No prompt provided.";
-      if (!deps.council) return "Council not available.";
-      const result = await deps.council.start({ participants, prompt, rounds }, (msg) => console.log("[council]", msg));
-      if (result.status === "error") return "Council failed to start.";
-      if (result.status === "cancelled") return "Council was cancelled.";
-      const lines = [
-        `Council complete: ${result.rounds} round(s), ${result.participants.length} participants, ${result.totalCaptures} responses captured.`,
-        "", "Participants: " + result.participants.join(", "),
-      ];
-      for (const [participant, resps] of result.responses) {
-        if (resps.length > 0) {
-          lines.push(`\n--- ${participant} (final response) ---`);
-          lines.push(resps[resps.length - 1].slice(0, 3000));
-        }
-      }
-      return lines.join("\n");
     },
   },
   // ── Panel interaction tools ──────────────────────────────
