@@ -227,22 +227,25 @@ export class YoAgent {
     const shellPath = getShellPath();
 
     const model = this.llmConfig?.model || "claude-sonnet-4-6";
+    const isBypass = this._mode === "bypassPermissions";
     const options: Record<string, any> = {
       model,
       maxTurns: 25,
-      permissionMode: this._mode,
-      canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-        const decision = gate(toolName, this._mode);
-        if (decision === "execute") return { behavior: "allow", updatedInput: input };
-        if (decision === "skip") return { behavior: "deny", message: `Tool "${toolName}" denied by mode "${this._mode}".` };
-        // needs_approval — ask the user via the renderer prompt
-        const approved = this._approvalCallback
-          ? await this._approvalCallback(toolName, input)
-          : false;
-        return approved
-          ? { behavior: "allow", updatedInput: input }
-          : { behavior: "deny", message: "User denied tool call." };
-      },
+      permissionMode: isBypass ? "bypassPermissions" : this._mode,
+      allowDangerouslySkipPermissions: isBypass,
+      ...(isBypass ? {} : {
+        canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+          const decision = gate(toolName, this._mode);
+          if (decision === "execute") return { behavior: "allow", updatedInput: input };
+          if (decision === "skip") return { behavior: "deny", message: `Tool "${toolName}" denied by mode "${this._mode}".` };
+          const approved = this._approvalCallback
+            ? await this._approvalCallback(toolName, input)
+            : false;
+          return approved
+            ? { behavior: "allow", updatedInput: input }
+            : { behavior: "deny", message: "User denied tool call." };
+        },
+      }),
       tools: [],
       mcpServers: { "yo": mcpServer },
       systemPrompt: this.buildSystemPrompt(),
@@ -255,7 +258,7 @@ export class YoAgent {
         PATH: shellPath,
         CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
         ANTHROPIC_BASE_URL: `${AUTH_SERVER}/api/llm/anthropic`,
-        ANTHROPIC_API_KEY: getAuthToken() || "",
+        ANTHROPIC_API_KEY: getAuthToken() || "not-authenticated",
       },
     };
 

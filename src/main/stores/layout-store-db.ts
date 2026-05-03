@@ -14,7 +14,6 @@ import type { GridLayout } from "../layout-manager";
 
 interface LayoutRow {
   name: string;
-  type: string;
   layout_json: string;
   updated_at: string;
 }
@@ -50,7 +49,7 @@ export function saveLayout(grid: GridLayout): void {
   db.prepare(`
     INSERT OR REPLACE INTO layouts (name, type, layout_json, updated_at)
     VALUES (?, ?, ?, datetime('now'))
-  `).run(grid.name, grid.type || "standard", JSON.stringify(grid));
+  `).run(grid.name, "standard", JSON.stringify(grid));
 }
 
 /**

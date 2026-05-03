@@ -6,7 +6,7 @@ import { paginate, renderPaginationBar, confirmAction, clearInvalid, closeHelp }
 
 
 let layoutsPage = 0;
-let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }> = [];
+let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }> }> = [];
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
 const layoutsToolbar = document.getElementById("layouts-toolbar")!;
@@ -14,14 +14,7 @@ const layoutSearchInput = document.getElementById("layout-search") as HTMLInputE
 const layoutNameInput = document.getElementById("layout-new-name") as HTMLInputElement;
 const layoutFormError = document.getElementById("layout-form-error")!;
 const layoutDeleteBtn = document.getElementById("layout-delete-btn") as HTMLButtonElement;
-const layoutEditorTitle: HTMLElement | null = document.getElementById("layout-editor-title");
 let editingLayoutName: string | null = null;
-const layoutTypeSelect = document.getElementById("layout-type-select") as HTMLSelectElement;
-const layoutCodeFields = document.getElementById("layout-code-fields")!;
-const layoutRootDirInput = document.getElementById("layout-rootdir") as HTMLInputElement;
-const layoutSlotsList = document.getElementById("layout-slots-list")!;
-const layoutSlotsAddBtn = document.getElementById("layout-slots-add") as HTMLButtonElement;
-const layoutPickDirBtn = document.getElementById("layout-pick-dir") as HTMLButtonElement;
 const layoutGridBuilder = document.getElementById("layout-grid-builder")!;
 const gridPreview = document.getElementById("grid-preview")!;
 const gridColsSelect = document.getElementById("grid-cols") as HTMLSelectElement;
@@ -164,21 +157,9 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   builderSelected = cellIndex;
   renderGridPreview();
 
-  const isCode = layoutTypeSelect.value === "code";
-
   type PickerOption = { id: string; label: string };
-  let options: PickerOption[];
-
-  if (isCode) {
-    const slots = getSlotEntries();
-    options = [
-      { id: "vscode", label: "VS Code" },
-      ...slots.map((s) => ({ id: `agent-slot:${s.slotId}`, label: `Agent slot — ${s.slotId}` })),
-    ];
-  } else {
-    const apps = await window.yo.appsList();
-    options = apps.map((a) => ({ id: a.id, label: a.name }));
-  }
+  const apps = await window.yo.appsList();
+  const options: PickerOption[] = apps.map((a) => ({ id: a.id, label: a.name }));
 
   const picker = document.createElement("div");
   picker.className = "cell-panel-picker";
@@ -284,16 +265,11 @@ function renderLayoutsList() {
   for (const layout of layouts) {
     const card = document.createElement("div");
     card.className = "crud-card";
-    const isCode = layout.type === "code";
     const panels = layout.splits.map((s) => s.panelId).filter(Boolean).join(" | ");
-    const typeBadge = isCode ? `<span class="crud-card-badge">code</span>` : "";
-    const dirLine = isCode && layout.rootDir ? `<span class="crud-card-dir">${layout.rootDir}</span>` : "";
-    const slotLine = isCode && layout.slots?.length ? `<span class="crud-card-agents">${layout.slots.length} slot${layout.slots.length === 1 ? "" : "s"}</span>` : "";
     card.innerHTML = `
       <div class="crud-card-info">
-        <span class="crud-card-name">${typeBadge}${layout.name}</span>
-        ${dirLine}
-        ${slotLine || (!isCode ? `<span class="crud-card-meta">${panels || "empty"}</span>` : "")}
+        <span class="crud-card-name">${layout.name}</span>
+        <span class="crud-card-meta">${panels || "empty"}</span>
       </div>
       <div class="crud-card-actions">
         <button class="crud-card-btn crud-edit-btn" title="Edit">
@@ -349,18 +325,9 @@ async function editLayout(name: string) {
   gridRowsSelect.value = String(builderRows);
   layoutNameInput.value = name;
   layoutDeleteBtn.style.display = "";
-  if (layoutEditorTitle) layoutEditorTitle.textContent = name;
   layoutFormError.classList.add("hidden");
 
-  const isCode = layout?.type === "code";
-  layoutTypeSelect.value = isCode ? "code" : "standard";
-  layoutCodeFields.classList.toggle("hidden", !isCode);
   layoutGridBuilder.classList.remove("hidden");
-  layoutRootDirInput.value = (isCode && layout?.rootDir) || "";
-  clearSlotRows();
-  if (isCode && layout?.slots) {
-    layout.slots.forEach((s: { slotId: string; enableInput?: boolean }) => addSlotRow(s.slotId, s.enableInput));
-  }
 
   layoutsList.classList.add("hidden");
   layoutsToolbar.classList.add("hidden");
@@ -377,14 +344,9 @@ async function newLayout() {
   gridRowsSelect.value = "1";
   layoutNameInput.value = "";
   layoutDeleteBtn.style.display = "none";
-  if (layoutEditorTitle) layoutEditorTitle.textContent = "New Layout";
   layoutFormError.classList.add("hidden");
-  layoutTypeSelect.value = "standard";
-  layoutCodeFields.classList.add("hidden");
   layoutGridBuilder.classList.remove("hidden");
   renderGridPreview();
-  layoutRootDirInput.value = "";
-  clearSlotRows();
   layoutsList.classList.add("hidden");
   layoutsToolbar.classList.add("hidden");
   layoutEditor.classList.remove("hidden");
@@ -409,7 +371,6 @@ async function saveLayout() {
     layoutFormError.classList.remove("hidden");
     return;
   }
-  const isCode = layoutTypeSelect.value === "code";
   const assignedCells = builderCells.filter((c) => c.panelId);
   if (assignedCells.length < 1) {
     layoutFormError.textContent = "Assign at least one panel to the grid.";
@@ -421,9 +382,6 @@ async function saveLayout() {
     await window.yo.layoutsDelete(editingLayoutName);
   }
 
-  const slotRows = getSlotEntries();
-  const slots = isCode && slotRows.length ? slotRows : undefined;
-
   await window.yo.layoutsSaveGrid({
     name,
     cols: builderCols,
@@ -431,9 +389,6 @@ async function saveLayout() {
     colWidths: Array(builderCols).fill(1 / builderCols),
     rowHeights: Array(builderRows).fill(1 / builderRows),
     cells: assignedCells,
-    type: isCode ? "code" : undefined,
-    rootDir: isCode ? layoutRootDirInput.value.trim() || undefined : undefined,
-    slots,
   });
   cancelLayout();
 }
@@ -447,74 +402,6 @@ async function deleteLayout() {
 }
 
 
-// ── Slot rows (layout agent slots) ──────────────────────
-
-// ── Slot row list (layout agent slots — placeholders, not agent defs) ──
-
-function addSlotRow(slotId?: string, enableInput?: boolean) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "slot-row-wrapper";
-
-  const row = document.createElement("div");
-  row.className = "skill-row";
-
-  const nextIndex = layoutSlotsList.querySelectorAll(".slot-row-wrapper").length + 1;
-  const finalSlotId = slotId || `slot-${nextIndex}`;
-
-  const idInput = document.createElement("input");
-  idInput.type = "text";
-  idInput.placeholder = "slot id";
-  idInput.value = finalSlotId;
-  idInput.style.fontFamily = "var(--font-mono)";
-  idInput.style.fontSize = "12px";
-
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "skill-row-remove";
-  removeBtn.type = "button";
-  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
-  removeBtn.addEventListener("click", () => wrapper.remove());
-
-  row.appendChild(idInput);
-  row.appendChild(removeBtn);
-
-  const inputToggle = document.createElement("label");
-  inputToggle.className = "agent-input-toggle";
-  const cb = document.createElement("input");
-  cb.type = "checkbox";
-  cb.className = "slot-input-cb";
-  cb.checked = !!enableInput;
-  inputToggle.appendChild(cb);
-  inputToggle.appendChild(document.createTextNode(" Enable user input"));
-
-  wrapper.appendChild(row);
-  wrapper.appendChild(inputToggle);
-  layoutSlotsList.appendChild(wrapper);
-}
-
-function getSlotEntries(): Array<{ slotId: string; enableInput?: boolean }> {
-  const wrappers = layoutSlotsList.querySelectorAll(".slot-row-wrapper");
-  const entries: Array<{ slotId: string; enableInput?: boolean }> = [];
-  wrappers.forEach((wrapper, i) => {
-    const idInput = wrapper.querySelector("input[type=\"text\"]") as HTMLInputElement | null;
-    let id = (idInput?.value || "").trim() || `slot-${i + 1}`;
-    id = id.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "") || `slot-${i + 1}`;
-    const ei = (wrapper.querySelector(".slot-input-cb") as HTMLInputElement)?.checked;
-    entries.push({ slotId: id, enableInput: ei || undefined });
-  });
-  // Dedupe: if two slots end up with the same id, suffix the duplicates.
-  const seen = new Set<string>();
-  return entries.map((e) => {
-    let id = e.slotId;
-    let n = 2;
-    while (seen.has(id)) id = `${e.slotId}-${n++}`;
-    seen.add(id);
-    return { ...e, slotId: id };
-  });
-}
-
-function clearSlotRows() {
-  layoutSlotsList.innerHTML = "";
-}
 
 export { loadLayouts };
 
@@ -525,17 +412,6 @@ export function initLayoutsEvents() {
   document.getElementById("layout-back-link")!.addEventListener("click", cancelLayout);
   document.getElementById("layout-delete-btn")!.addEventListener("click", deleteLayout);
   layoutSearchInput.addEventListener("input", () => { layoutsPage = 0; renderLayoutsList(); });
-  layoutTypeSelect.addEventListener("change", () => {
-    const isCode = layoutTypeSelect.value === "code";
-    layoutCodeFields.classList.toggle("hidden", !isCode);
-    layoutGridBuilder.classList.remove("hidden");
-    renderGridPreview();
-  });
-  layoutPickDirBtn.addEventListener("click", async () => {
-    const dir = await window.yo.pickDirectory();
-    if (dir) layoutRootDirInput.value = dir;
-  });
-  layoutSlotsAddBtn.addEventListener("click", () => addSlotRow());
 
   // Grid builder dimension controls
   gridColsSelect.addEventListener("change", () => {

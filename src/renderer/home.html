@@ -748,10 +748,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
         <div class="help-section" data-section="skills">
           <h2>Skills</h2>
           <p class="section-desc">Reusable prompts and automations. Skills can process content, call tools, run on schedules, and chain together.</p>
-          <div class="yo-build-hint">
-            <span class="yo-build-hint-icon"><span class="yo-build-hint-dot">.</span>Yo</span>
-            <span>Ask the <strong>yo agent</strong> to build skills for you — just describe what you want and it will create, test, and iterate until it's right.</span>
-          </div>
           <div id="skills-limit-msg" class="hidden" style="padding:4px 0 8px;font-size:13px;color:var(--text-2);">You've reached the free plan limit of 5 skills. <a id="skills-upgrade-link" href="#" style="color:var(--accent);">Upgrade</a> to add more.</div>
           <div id="skills-toolbar" class="crud-toolbar">
             <input id="skill-search" type="text" class="crud-search" placeholder="Search skills..." spellcheck="false" autocomplete="off" />
@@ -883,75 +879,49 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
         <div class="help-section" data-section="layouts">
           <h2>Layouts</h2>
           <p class="section-desc">Custom panel arrangements. Use <code>.dip &lt;name&gt;</code> to activate.</p>
-          <div class="yo-build-hint">
-            <span class="yo-build-hint-icon"><span class="yo-build-hint-dot">.</span>Yo</span>
-            <span>Ask the <strong>yo agent</strong> to arrange your workspace — describe the layout you want and it will build it.</span>
-          </div>
           <div id="layouts-limit-msg" class="hidden" style="padding:4px 0 8px;font-size:13px;color:var(--text-2);">You've reached the free plan limit of 5 layouts. <a id="layouts-upgrade-link" href="#" style="color:var(--accent);">Upgrade</a> to add more.</div>
           <div id="layouts-toolbar" class="crud-toolbar">
             <input id="layout-search" type="text" class="crud-search" placeholder="Search layouts..." spellcheck="false" autocomplete="off" />
             <button id="layout-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="layouts-list" class="crud-cards"></div>
-          <div id="layout-editor" class="crud-inline-form hidden layout-editor-split">
+          <div id="layout-editor" class="crud-inline-form hidden">
             <div class="crud-inline-header">
-              <a class="crud-breadcrumb-back" id="layout-back-link">← Layouts</a>
+              <a class="crud-breadcrumb-back" id="layout-back-link">&larr; Layouts</a>
               <div class="crud-spacer"></div>
             </div>
-            <div class="layout-split-body">
-              <div class="layout-split-left">
-                <div class="layout-left-form">
-                  <div id="layout-form-error" class="crud-form-error hidden"></div>
-                  <label class="settings-label">Name</label>
-                  <input id="layout-new-name" type="text" class="settings-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
-                  <div id="layout-type-row" class="layout-type-row">
-                    <label class="settings-label">Type</label>
-                    <select id="layout-type-select" class="settings-input" style="width:auto;">
-                      <option value="standard">Standard</option>
-                      <option value="code">Code</option>
-                    </select>
-                  </div>
-                  <div id="layout-code-fields" class="hidden">
-                    <label class="settings-label">Project directory</label>
-                    <div style="display:flex;gap:8px;align-items:center;">
-                      <input id="layout-rootdir" type="text" class="settings-input" placeholder="/path/to/project" spellcheck="false" autocomplete="off" style="flex:1;" readonly />
-                      <button id="layout-pick-dir" class="action-btn">Browse</button>
-                    </div>
-                    <label class="settings-label">Agent slots <span class="settings-hint">— each slot is a placeholder; bind an agent at runtime via the panel's + button</span></label>
-                    <div id="layout-slots-list" class="skill-row-list"></div>
-                    <button id="layout-slots-add" type="button" class="skill-row-add-btn">+ Add slot</button>
-                  </div>
-                </div>
-                <div class="layout-left-footer">
-                  <button id="layout-delete-btn" class="action-btn danger">Delete</button>
-                  <div style="flex:1;"></div>
-                  <button id="layout-cancel-btn" class="action-btn">Cancel</button>
-                  <button id="layout-save-btn" class="action-btn primary">Save</button>
-                </div>
+            <div id="layout-form-error" class="crud-form-error hidden"></div>
+            <label class="settings-label">Name</label>
+            <input id="layout-new-name" type="text" class="settings-input" placeholder="layout name" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label" style="margin-top:8px;">Grid</label>
+            <div id="layout-grid-builder" class="grid-builder">
+              <div class="grid-dims">
+                <label>Cols <select id="grid-cols">
+                  <option value="1">1</option>
+                  <option value="2" selected>2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select></label>
+                <span class="dim-sep">&times;</span>
+                <label>Rows <select id="grid-rows">
+                  <option value="1" selected>1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select></label>
+                <button id="grid-merge-right" class="action-btn" disabled>&rarr; Merge</button>
+                <button id="grid-merge-down" class="action-btn" disabled>&darr; Merge</button>
+                <button id="grid-split-btn" class="action-btn" disabled>Split</button>
               </div>
-              <div class="layout-split-right">
-                <div id="layout-grid-builder" class="grid-builder">
-                  <div class="grid-dims">
-                    <label>Cols <select id="grid-cols">
-                      <option value="1">1</option>
-                      <option value="2" selected>2</option>
-                      <option value="3">3</option>
-                      <option value="4">4</option>
-                    </select></label>
-                    <span class="dim-sep">&times;</span>
-                    <label>Rows <select id="grid-rows">
-                      <option value="1" selected>1</option>
-                      <option value="2">2</option>
-                      <option value="3">3</option>
-                      <option value="4">4</option>
-                    </select></label>
-                    <button id="grid-merge-right" class="action-btn" disabled>&rarr; Merge</button>
-                    <button id="grid-merge-down" class="action-btn" disabled>&darr; Merge</button>
-                    <button id="grid-split-btn" class="action-btn" disabled>Split</button>
-                  </div>
-                  <div id="grid-preview"></div>
-                </div>
-              </div>
+              <div id="grid-preview"></div>
+            </div>
+
+            <div class="settings-actions" style="margin-top:8px;">
+              <button id="layout-delete-btn" class="action-btn danger">Delete</button>
+              <div style="flex:1;"></div>
+              <button id="layout-cancel-btn" class="action-btn">Cancel</button>
+              <button id="layout-save-btn" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>
@@ -960,10 +930,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
         <div class="help-section" data-section="drips">
           <h2>Drips</h2>
           <p class="section-desc">Custom effect presets. Use <code>.drip &lt;name&gt;</code> to play.</p>
-          <div class="yo-build-hint">
-            <span class="yo-build-hint-icon"><span class="yo-build-hint-dot">.</span>Yo</span>
-            <span>Ask the <strong>yo agent</strong> to create drip effects for you — describe the vibe and it will design one.</span>
-          </div>
           <div id="drips-upgrade-gate" class="hidden" style="padding:24px 0;">
             <p style="color:var(--text-2);font-size:14px;margin:0 0 12px;">Custom drips require a Basic or Advanced subscription.</p>
             <button id="drips-upgrade-btn" class="action-btn primary">Upgrade to Basic</button>

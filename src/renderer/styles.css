@@ -1064,57 +1064,6 @@ body {
 }
 
 /* ── Layout editor split (mirrors skill-split) ────────────── */
-.layout-editor-split.crud-inline-form {
-  max-width: none !important;
-}
-.layout-split-body {
-  display: grid;
-  grid-template-columns: 420px 1fr;
-  gap: 16px;
-  margin-top: 10px;
-  min-height: 420px;
-}
-.layout-split-left {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.layout-left-topbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
-}
-.layout-left-form {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.layout-left-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 10px;
-  margin-top: 10px;
-  border-top: 1px solid var(--border);
-}
-.layout-split-right {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-.layout-split-right .grid-builder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.layout-split-right #grid-preview {
-  flex: 1;
-  min-height: 300px;
-}
 
 .skill-code-widget {
   display: flex;
@@ -2415,15 +2364,6 @@ ol.docs-list li::before {
   white-space: nowrap;
 }
 
-.layout-type-row {
-  margin-bottom: 8px;
-}
-
-#layout-code-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 
 .crud-card-badge {
   display: inline-block;

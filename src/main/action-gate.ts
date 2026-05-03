@@ -156,7 +156,9 @@ function getEffectiveOverride(toolName: string): ToolOverride {
 }
 
 export function getAgentMode(): AgentMode {
-  return getPreference<AgentMode>("agentMode", "default");
+  const raw = getPreference<string>("agentMode", "default");
+  if (raw === "bypass") return "bypassPermissions";
+  return raw as AgentMode;
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {

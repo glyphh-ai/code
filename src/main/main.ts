@@ -544,11 +544,9 @@ async function boot() {
 
   // Cypher bus — canonical message bus for inter-agent communication
   const cypherBus = new CypherBus(
-    (_wsSlug) => {
-      const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
-      const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
-      const layoutName = lastView?.type === "layout" ? lastView.name ?? "" : "";
-      return map[layoutName] ?? null;
+    (wsSlug) => {
+      const map = getPreference<Record<string, string>>("workspaceCypher", {});
+      return map[wsSlug] ?? null;
     },
     eventLog,
   );
@@ -595,7 +593,7 @@ async function boot() {
   // Track code-terminal panels (Phase 2): panel id → spawn config used when
   // the panel's webContents finishes loading.
   const panelIdToAgentConfig = new Map<string, AgentSpawnConfig>();
-  const cwWcWorkspace = new Map<number, string>(); // code-workspace webContents.id → workspace slug
+  const cwWcWorkspace = new Map<number, string>(); // cypher webContents.id → workspace slug
 
   panelManager = new PanelManager((id, wc) => {
     const baseAppId = resolveAppId(id);
@@ -616,8 +614,8 @@ async function boot() {
         wc.on("did-finish-load", () => terminalManager.spawn(wc));
       }
       yoInterceptor.activateBarOnly(wc, id);
-    } else if (baseAppId === "code-workspace") {
-      // Code workspace: SDK-driven agent runner (not terminal PTYs)
+    } else if (baseAppId === "cypher") {
+      // Cypher workspace: SDK-driven agent runner (not terminal PTYs)
       const wsSlug = workspaceManager.getActive().slug;
       cwWcWorkspace.set(wc.id, wsSlug);
       wc.on("destroyed", () => {
@@ -778,8 +776,8 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const codeWorkspaceHtml = `file://${path.join(__dirname, "..", "renderer", "code-workspace.html")}`;
-  const codeWorkspacePreload = path.join(__dirname, "code-workspace-preload.js");
+  const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "code-workspace.html")}`;
+  const cypherPreload = path.join(__dirname, "code-workspace-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
@@ -791,8 +789,8 @@ async function boot() {
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://code-workspace") {
-      panelManager.addPanel(app.id, codeWorkspaceHtml, codeWorkspacePreload, undefined, true);
+    } else if (app.url === "yo://cypher") {
+      panelManager.addPanel(app.id, cypherHtml, cypherPreload, undefined, true);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -866,10 +864,10 @@ async function boot() {
   });
   let restoring = false;
 
-  /** Activate the code workspace panel (switch to it). */
-  function activateCodeWorkspace(): boolean {
+  /** Activate the cypher workspace panel (switch to it). */
+  function activateCypher(): boolean {
     if (!mainWindow) return false;
-    panelManager.switchTo("code-workspace", mainWindow);
+    panelManager.switchTo("cypher", mainWindow);
     return true;
   }
 
@@ -1379,18 +1377,10 @@ async function boot() {
         }
         panelManager.setInitialActive(deduped[0]);
       } else if (lastView.type === "layout" && lastView.name) {
-        const savedLayout = layoutManager.getLayout(lastView.name);
-        if (savedLayout?.type === "code") {
-          // Code layout: just switch to code-workspace; slots render empty until bound
-          setPreference("codeWorkspaceLayout", lastView.name);
-          panelManager.switchTo("code-workspace", mainWindow);
-          panelManager.setInitialActive("code-workspace");
-        } else {
-          layoutManager.apply(lastView.name, mainWindow);
-          const grid = layoutManager.getGridInfo();
-          if (grid && grid.panelIds.length > 0) {
-            panelManager.setInitialActive(grid.panelIds[0]);
-          }
+        layoutManager.apply(lastView.name, mainWindow);
+        const grid = layoutManager.getGridInfo();
+        if (grid && grid.panelIds.length > 0) {
+          panelManager.setInitialActive(grid.panelIds[0]);
         }
       } else if (lastView.type === "panel" && lastView.id) {
         panelManager.switchTo(lastView.id, mainWindow);
@@ -1705,6 +1695,20 @@ async function boot() {
     return instanceId;
   });
 
+  commandParser.setCypherOpener(async (slug: string) => {
+    if (!mainWindow) return false;
+    try {
+      const r = await serverGetAuthed<{ cypher: { id: string; slug: string } }>(`/api/cyphers/by-slug/${encodeURIComponent(slug)}`);
+      if (!r?.cypher?.id) return false;
+      const wsSlug = workspaceManager.getActive().slug;
+      const map = getPreference<Record<string, string>>("workspaceCypher", {});
+      setPreference("workspaceCypher", { ...map, [wsSlug]: r.cypher.id });
+      panelManager.switchTo("cypher", mainWindow);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
   // Initialize auth — restore session, schedule refresh, start heartbeat
   await initAuth();
@@ -2201,9 +2205,6 @@ async function boot() {
       colWidths: l.colWidths,
       rowHeights: l.rowHeights,
       splits: l.cells.map((c) => ({ panelId: c.panelId, col: c.col, row: c.row, colSpan: c.colSpan, rowSpan: c.rowSpan })),
-      type: l.type || "standard",
-      rootDir: l.rootDir,
-      slots: l.slots,
     }))
   );
   ipcMain.handle("layouts-save", (_e, name: string, panelIds: string[]) => {
@@ -2230,19 +2231,13 @@ async function boot() {
     });
     return true;
   });
-  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; type?: string; rootDir?: string; slots?: Array<{ slotId: string; enableInput?: boolean }> }) => {
+  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => {
     const existing = layoutManager.listLayouts().find(l => l.name === grid.name);
     if (!existing) {
       const gate = canSaveLayout(layoutManager.listLayouts().length);
       if (!gate.allowed) return { error: gate.reason };
     }
-    layoutManager.saveLayout({
-      ...grid,
-      version: 2,
-      type: (grid.type as "standard" | "code") || undefined,
-      rootDir: grid.rootDir || undefined,
-      slots: grid.slots || undefined,
-    });
+    layoutManager.saveLayout({ ...grid, version: 2 });
     return true;
   });
   ipcMain.handle("layouts-delete", (_e, name: string) => layoutManager.deleteLayout(name));
@@ -2957,10 +2952,8 @@ async function boot() {
   function buildAgentConfig(wsSlug: string, agentName: string): AgentConfig | null {
     const agent = workspaceManager.getAgent(wsSlug, agentName);
     if (!agent) return null;
-    const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
-    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
-    const layoutName = lastView?.type === "layout" ? lastView.name ?? "" : "";
-    const cypherId = map[layoutName] || undefined;
+    const map = getPreference<Record<string, string>>("workspaceCypher", {});
+    const cypherId = map[wsSlug] || undefined;
     const startPrompt = cypherId
       ? `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Messages from teammates arrive automatically. Say "Ready" and wait for instructions.`
       : `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Then check .yo/inbox/${agent.name}.md for pending tasks. If the inbox is empty or doesn't exist, say "Ready" and wait for instructions.`;
@@ -2997,42 +2990,18 @@ async function boot() {
     return null;
   });
 
-  function getActiveCodeLayout(): import("./layout-manager").GridLayout | undefined {
-    const lastView = getPreference<{ type: string; name?: string }>("lastView", null!);
-    if (lastView?.type === "layout" && lastView.name) {
-      const layout = layoutManager.getLayout(lastView.name);
-      if (layout?.type === "code") return layout;
-    }
-    const cwName = getPreference<string>("codeWorkspaceLayout", "");
-    if (cwName) {
-      const layout = layoutManager.getLayout(cwName);
-      if (layout?.type === "code") return layout;
-    }
-    return undefined;
+  // ── Cypher binding (workspace slug → cypher id) ──────────
+
+  function getActiveCypherId(): string | undefined {
+    const wsSlug = workspaceManager.getActive().slug;
+    const map = getPreference<Record<string, string>>("workspaceCypher", {});
+    return map[wsSlug] || undefined;
   }
 
-  ipcMain.handle("cw:get-layout", () => {
-    const layout = getActiveCodeLayout();
-    if (!layout) return null;
-    return {
-      name: layout.name,
-      cells: layout.cells,
-      cols: layout.cols,
-      rows: layout.rows,
-      colWidths: layout.colWidths,
-      rowHeights: layout.rowHeights,
-      slots: layout.slots || [],
-    };
-  });
-
-  // ── Cypher overlay (workspace ↔ cypher binding) ──────────
   ipcMain.handle("cw:cypher-status", async () => {
-    const layout = getActiveCodeLayout();
-    const layoutName = layout?.name ?? null;
-    if (!layoutName) return { associated: false, layout_name: null };
-    const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
-    const cypherId = map[layoutName];
-    if (!cypherId) return { associated: false, layout_name: layoutName };
+    const wsSlug = workspaceManager.getActive().slug;
+    const cypherId = getActiveCypherId();
+    if (!cypherId) return { associated: false, layout_name: wsSlug };
     try {
       const r = await serverGetAuthed<{
         cypher: { id: string; slug: string; title: string; status: string; type: string };
@@ -3046,24 +3015,22 @@ async function boot() {
         jammers = j.jammers.filter((x) => !x.left_at).length;
       } catch { /* ignore */ }
       return {
-        associated: true, layout_name: layoutName,
+        associated: true, layout_name: wsSlug,
         cypher_id: r.cypher.id, slug: r.cypher.slug, title: r.cypher.title,
         status: r.cypher.status, type: r.cypher.type,
         kitty: r.kitty_balance, jammers,
       };
     } catch (err) {
-      // Server says the cypher's gone or we can't see it — clear local binding
+      const map = getPreference<Record<string, string>>("workspaceCypher", {});
       const next = { ...map };
-      delete next[layoutName];
-      setPreference("codeWorkspaceCypher", next);
-      return { associated: false, layout_name: layoutName, error: err instanceof Error ? err.message : "fetch failed" };
+      delete next[wsSlug];
+      setPreference("workspaceCypher", next);
+      return { associated: false, layout_name: wsSlug, error: err instanceof Error ? err.message : "fetch failed" };
     }
   });
 
   ipcMain.handle("cw:cypher-create-and-publish", async (_e, input: Record<string, unknown>) => {
-    const layout = getActiveCodeLayout();
-    const layoutName = layout?.name;
-    if (!layoutName) return { ok: false, error: "No active code layout" };
+    const wsSlug = workspaceManager.getActive().slug;
     try {
       const create = await serverPostAuthed<{ ok: boolean; cypher?: { id: string }; error?: string }>(
         "/api/cyphers", input,
@@ -3076,9 +3043,8 @@ async function boot() {
         { initial_kitty_deposit: deposit },
       );
       if (!pub.ok) return { ok: false, error: pub.error || "publish failed" };
-      // Persist the workspace ↔ cypher association so reloads show the cypher.
-      const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
-      setPreference("codeWorkspaceCypher", { ...map, [layoutName]: cypherId });
+      const map = getPreference<Record<string, string>>("workspaceCypher", {});
+      setPreference("workspaceCypher", { ...map, [wsSlug]: cypherId });
       return { ok: true, cypher: pub.cypher, kitty_balance: pub.kitty_balance };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "publish failed" };
@@ -3086,28 +3052,13 @@ async function boot() {
   });
 
   ipcMain.handle("cw:cypher-disassociate", async () => {
-    const layout = getActiveCodeLayout();
-    const layoutName = layout?.name;
-    if (!layoutName) return { ok: false };
-    const map = getPreference<Record<string, string>>("codeWorkspaceCypher", {});
+    const wsSlug = workspaceManager.getActive().slug;
+    const map = getPreference<Record<string, string>>("workspaceCypher", {});
     const next = { ...map };
-    delete next[layoutName];
-    setPreference("codeWorkspaceCypher", next);
+    delete next[wsSlug];
+    setPreference("workspaceCypher", next);
     return { ok: true };
   });
-
-  ipcMain.handle("cw:save-layout-sizes", (_e, colWidths: number[], rowHeights: number[]) => {
-    const layout = getActiveCodeLayout();
-    if (layout) {
-      layout.colWidths = colWidths;
-      layout.rowHeights = rowHeights;
-      layoutManager.saveLayout(layout);
-      return true;
-    }
-    return false;
-  });
-
-  // (cw:add-agent-to-layout removed — slots are static after layout save)
 
   // IPC: tabs
   ipcMain.handle("tab-list", () => {

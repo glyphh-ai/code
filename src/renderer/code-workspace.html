@@ -21,7 +21,6 @@
       font-weight: 100 800;
     }
 
-    /* ── Theme variables ── */
     :root, [data-theme="light"] {
       color-scheme: light;
       --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -30,13 +29,12 @@
       --surface: #ffffff; --surface-2: #fafafa; --surface-3: #f0f0f0;
       --border: #e5e5e5; --border-2: #d4d4d4; --border-3: #c4c4c4;
       --text: #1f2937; --text-bright: #111111; --text-2: #4b5563; --text-3: #6b7280;
-      --text-muted: #6b7280; --text-faint: #9ca3af; --white: #111111;
+      --text-muted: #6b7280; --text-faint: #9ca3af;
       --hover: #f0f0f0; --active-bg: rgba(37,199,94,0.06);
       --accent: #25C75E; --accent-hover: #22b855; --accent-dark: #1a9e48; --accent-bg: #ecfdf5;
       --danger: #ef4444; --danger-soft: #f87171; --danger-bg: #fef2f2;
       --warning: #f59e0b; --success: #16a34a; --blue: #3b82f6; --purple: #a855f7;
       --overlay-bg: rgba(0,0,0,0.3); --shadow: rgba(0,0,0,0.12);
-      --selection: rgba(37,199,94,0.2);
       --scrollbar: #d4d4d4; --scrollbar-hover: #25C75E;
       --code-inline: #9333ea; --input-bg: var(--surface-2); --card-bg: var(--surface);
     }
@@ -46,13 +44,12 @@
       --surface: #111111; --surface-2: #1a1a1a; --surface-3: #141414;
       --border: #1e1e1e; --border-2: #2a2a2a; --border-3: #333333;
       --text: #e8e8e8; --text-bright: #ffffff; --text-2: #a0a0a0; --text-3: #707070;
-      --text-muted: #606060; --text-faint: #484848; --white: #ffffff;
+      --text-muted: #606060; --text-faint: #484848;
       --hover: #1e1e1e; --active-bg: rgba(37,199,94,0.08);
       --accent: #25C75E; --accent-hover: #2dd868; --accent-dark: #1da34d; --accent-bg: #1a2a1e;
       --danger: #ff5f57; --danger-soft: #ff6b6b; --danger-bg: #2a1515;
       --warning: #f0a030; --success: #28c840; --blue: #4A9EFF; --purple: #a855f7;
       --overlay-bg: rgba(0,0,0,0.6); --shadow: rgba(0,0,0,0.4);
-      --selection: rgba(37,199,94,0.3);
       --scrollbar: #333; --scrollbar-hover: #555;
       --code-inline: #e0a0ff; --input-bg: var(--surface); --card-bg: var(--surface-3);
     }
@@ -62,123 +59,61 @@
       width: 100%; height: 100%; overflow: hidden;
       background: var(--bg); color: var(--text);
       font-family: var(--font-sans); font-size: 13px;
+      display: flex; flex-direction: column;
     }
-
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 
-    /* ── Grid layout ── */
-    #workspace {
-      width: 100%; height: 100%;
-      display: grid; gap: 0;
+    /* ── Meet-style layout ── */
+    #cypher-layout {
+      display: flex; width: 100%; flex: 1; min-height: 0;
     }
-    .cw-cell {
-      min-width: 0; min-height: 0; overflow: hidden;
+
+    /* Main stage — left side */
+    #main-stage {
+      flex: 1; min-width: 0; display: flex; flex-direction: column;
       border-right: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      display: flex; flex-direction: column;
     }
-    .cw-cell:last-child { border-right: none; }
-
-    /* ── VS Code cell ── */
-    .cw-cell-vscode { background: var(--bg); }
-    .cw-cell-vscode webview { width: 100%; height: 100%; border: none; }
-    .cw-vscode-placeholder {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      color: var(--text-3); font-size: 14px;
+    #stage-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px; height: 40px; flex-shrink: 0;
+      background: var(--surface); border-bottom: 1px solid var(--border);
     }
-
-    /* ── Cell header ── */
-    .cw-cell-header {
-      display: flex; align-items: center; background: var(--surface);
-      border-bottom: 1px solid var(--border); padding: 0 8px; height: 32px;
-      flex-shrink: 0; gap: 6px;
-    }
-    .cw-cell-title {
-      font-size: 11px; font-weight: 600; color: var(--text-2);
-      text-transform: uppercase; letter-spacing: 0.5px;
-    }
-
-    /* ── Agent tabs (tabbed cell) ── */
-    .cw-tabs-bar {
-      display: flex; align-items: center; background: var(--surface);
-      border-bottom: 1px solid var(--border); padding: 0 4px; height: 32px;
-      flex-shrink: 0; overflow-x: auto;
-    }
-    .cw-tabs-bar::-webkit-scrollbar { height: 0; }
-    .agent-tab {
-      background: none; border: none; color: var(--text-3);
-      font-size: 11px; font-family: var(--font-sans); font-weight: 500;
-      padding: 4px 10px; cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: color 0.15s, border-color 0.15s;
-      white-space: nowrap; display: flex; align-items: center; gap: 5px;
-    }
-    .agent-tab:hover { color: var(--text-2); }
-    .agent-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .agent-tab-dot {
-      width: 6px; height: 6px; border-radius: 50%;
+    #stage-agent-dot {
+      width: 8px; height: 8px; border-radius: 50%;
       background: var(--text-faint); flex-shrink: 0;
     }
-    .agent-tab-dot.running { background: var(--accent); animation: cw-dot-pulse 1.2s ease-in-out infinite; }
-    .agent-tab-dot.waiting { background: var(--success, #4a9); }
-    .agent-tab-dot.error { background: var(--danger); }
-    .agent-tab-dot.idle { background: var(--text-faint); }
-    @keyframes cw-dot-pulse {
-      0%   { box-shadow: 0 0 0 0 rgba(37,199,94,0.55); }
-      70%  { box-shadow: 0 0 0 5px rgba(37,199,94,0); }
-      100% { box-shadow: 0 0 0 0 rgba(37,199,94,0); }
+    #stage-agent-dot.running { background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
+    #stage-agent-name {
+      font-size: 13px; font-weight: 600; color: var(--text-bright);
     }
-    .cw-add-btn {
-      background: none; border: 1px dashed var(--border); border-radius: 4px;
-      color: var(--text-3); font-size: 14px; padding: 1px 8px; margin-left: 4px;
-      cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+    #stage-agent-role {
+      font-size: 11px; color: var(--text-3); margin-left: 4px;
     }
-    .cw-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+    #stage-sharing-badge {
+      margin-left: auto; font-size: 10px; color: var(--accent);
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+      display: none;
+    }
+    #stage-content {
+      flex: 1; overflow-y: auto; padding: 14px 18px; min-height: 0;
+    }
+    #stage-empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: var(--text-3); font-size: 14px;
+      flex-direction: column; gap: 8px;
+    }
+    #stage-empty-icon { font-size: 32px; opacity: 0.4; }
 
-    /* ── Agent message area ── */
-    .cw-messages { flex: 1; min-height: 0; position: relative; overflow: hidden; }
-    .agent-pane {
-      position: absolute; inset: 0; overflow-y: auto;
-      padding: 10px 14px; display: none;
-    }
-    .agent-pane.active { display: block; }
-    .cw-single-pane {
-      flex: 1; overflow-y: auto; padding: 10px 14px;
-    }
-
-    /* ── Status bar ── */
-    .cw-status-bar {
-      display: flex; align-items: center; gap: 6px;
-      padding: 4px 12px; border-top: 1px solid var(--border);
-      background: var(--surface); flex-shrink: 0; height: 26px;
-    }
-    .cw-status-dot {
-      width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint);
-    }
-    .cw-status-dot.running { background: var(--accent); animation: cw-dot-pulse 1.2s ease-in-out infinite; }
-    .cw-status-dot.waiting { background: var(--success, #4a9); }
-    .cw-status-text {
-      font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
-    }
-    .cw-stop-btn {
-      margin-left: auto; background: none; border: 1px solid var(--danger);
-      color: var(--danger); font-size: 10px; font-family: var(--font-mono);
-      padding: 1px 8px; border-radius: 4px; cursor: pointer;
-      opacity: 0; pointer-events: none; transition: opacity 0.15s;
-    }
-    .cw-stop-btn.visible { opacity: 1; pointer-events: auto; }
-    .cw-stop-btn:hover { background: var(--danger-bg); }
-
-    /* ── Agent input area ── */
-    .cw-input-wrap {
+    /* Input area */
+    #stage-input-wrap {
       display: flex; align-items: flex-end; gap: 8px;
-      padding: 8px 12px; border-top: 1px solid var(--border-2);
-      flex-shrink: 0;
+      padding: 10px 14px; border-top: 1px solid var(--border-2);
+      flex-shrink: 0; background: var(--surface);
     }
-    .cw-agent-input {
+    #stage-input {
       flex: 1; background: var(--surface-3);
       border: 1px solid var(--border-3); border-radius: 10px;
       padding: 8px 12px; color: var(--text);
@@ -187,100 +122,167 @@
       min-height: 36px; height: 36px; line-height: 1.5;
       overflow-y: auto;
     }
-    .cw-agent-input:focus { border-color: var(--accent); }
-    .cw-agent-input::placeholder { color: var(--text-muted); }
-    .cw-send-btn {
+    #stage-input:focus { border-color: var(--accent); }
+    #stage-input::placeholder { color: var(--text-muted); }
+    #stage-send {
       background: var(--accent); color: #000; border: none;
-      width: 28px; height: 28px; border-radius: 7px;
+      width: 30px; height: 30px; border-radius: 8px;
       font-size: 16px; font-weight: 700; cursor: pointer;
-      flex-shrink: 0; margin-bottom: 4px;
+      flex-shrink: 0; margin-bottom: 3px;
       display: flex; align-items: center; justify-content: center;
-      transition: opacity 0.15s;
     }
-    .cw-send-btn:hover { opacity: 0.8; }
-    .cw-user-msg {
-      background: var(--accent-bg); border: 1px solid var(--accent);
-      border-radius: 10px; padding: 8px 12px; margin: 8px 0;
-      font-size: 13px; color: var(--text); white-space: pre-wrap;
-      align-self: flex-end; max-width: 85%;
+    #stage-send:hover { opacity: 0.8; }
+    #stage-stop {
+      background: none; border: 1px solid var(--danger); color: var(--danger);
+      font-size: 11px; padding: 4px 10px; border-radius: 6px;
+      cursor: pointer; flex-shrink: 0; margin-bottom: 3px;
+      display: none;
+    }
+    #stage-stop:hover { background: var(--danger-bg); }
+    #stage-stop.visible { display: block; }
+
+    /* ── Participants sidebar — right side ── */
+    #participants {
+      width: 240px; flex-shrink: 0; display: flex; flex-direction: column;
+      background: var(--surface);
+    }
+    #participants-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-bottom: 1px solid var(--border);
+      height: 40px; flex-shrink: 0;
+    }
+    #participants-title {
+      font-size: 11px; font-weight: 600; color: var(--text-2);
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    #participants-count {
+      font-size: 11px; color: var(--text-3); font-family: var(--font-mono);
+    }
+    #participants-list {
+      flex: 1; overflow-y: auto; padding: 6px;
     }
 
-    /* ── Timeline / tool blocks ── */
-    .cw-timeline {
-      position: relative; padding-left: 14px; margin: 8px 0;
-      border-left: 1px solid var(--border);
+    /* Participant tile */
+    .participant {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 8px; cursor: pointer;
+      transition: background 0.12s;
+      margin-bottom: 2px;
     }
-    .cw-tool-block { margin: 4px 0; }
-    .cw-tool-header {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 11px; color: var(--text-3); padding: 2px 0;
+    .participant:hover { background: var(--hover); }
+    .participant.active { background: var(--active-bg); border: 1px solid rgba(37,199,94,0.2); }
+    .participant.active { margin-bottom: 1px; }
+    .p-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-faint); flex-shrink: 0;
     }
-    .cw-tool-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--text-faint); margin-left: -18px; flex-shrink: 0;
+    .p-dot.running { background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
+    .p-dot.done { background: var(--success); }
+    .p-dot.error { background: var(--danger); }
+    .p-info { flex: 1; min-width: 0; }
+    .p-name {
+      font-size: 12px; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .cw-tool-block.active .cw-tool-dot {
-      animation: cw-dot-pulse 1.2s ease-in-out infinite;
-      background: var(--accent);
+    .p-role {
+      font-size: 10px; color: var(--text-3);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .cw-tool-name {
-      font-weight: 600; color: var(--text-2); font-family: var(--font-mono);
+    .p-badge {
+      font-size: 9px; padding: 1px 5px; border-radius: 3px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+      flex-shrink: 0;
     }
-    .cw-tool-subtitle {
-      color: var(--text-faint); font-size: 10px; font-family: var(--font-mono);
-      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .cw-tool-elapsed {
-      margin-left: auto; font-size: 10px; font-family: var(--font-mono);
-      color: var(--text-faint);
-    }
+    .p-badge.local { background: var(--surface-3); color: var(--text-3); }
+    .p-badge.remote { background: var(--accent-bg); color: var(--accent); }
 
-    /* ── Spinner — matches yo agent style ── */
-    .cw-spinner {
+    /* Add agent button at bottom of sidebar */
+    #add-agent-btn {
+      margin: 8px 10px; padding: 8px; border: 1px dashed var(--border-2);
+      border-radius: 8px; background: none; color: var(--text-3);
+      font-size: 12px; cursor: pointer; transition: all 0.15s;
+      text-align: center;
+    }
+    #add-agent-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Cypher info bar (top) ── */
+    #cypher-bar {
       display: flex; align-items: center; gap: 10px;
-      padding: 8px 0;
+      padding: 0 14px; height: 32px; flex-shrink: 0;
+      background: var(--surface-2); border-bottom: 1px solid var(--border);
+      font-size: 11px;
     }
-    .cw-spinner-char {
-      font-size: 18px; color: var(--accent); width: 20px;
-      text-align: center; flex-shrink: 0;
-      font-family: var(--font-mono);
+    #cypher-bar-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint);
     }
-    .cw-spinner-phrase {
-      font-size: 13px; color: var(--text-2);
-    }
-
-    /* ── Init info ── */
-    .cw-init-info {
-      font-size: 10px; color: var(--text-faint); font-family: var(--font-mono);
-      padding: 4px 0; margin-bottom: 6px;
+    #cypher-bar-dot.live { background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
+    #cypher-bar-title { color: var(--text-2); font-weight: 500; }
+    #cypher-bar-stats {
+      margin-left: auto; color: var(--text-3); font-family: var(--font-mono);
+      display: flex; gap: 12px;
     }
 
-    /* ── Messages ── */
-    .cw-msg-text { margin: 8px 0; line-height: 1.6; }
-    .cw-msg-error {
+    @keyframes dot-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(37,199,94,0.55); }
+      70%  { box-shadow: 0 0 0 5px rgba(37,199,94,0); }
+      100% { box-shadow: 0 0 0 0 rgba(37,199,94,0); }
+    }
+
+    /* ── Messages / content rendering ── */
+    .msg-user {
+      background: var(--accent-bg); border: 1px solid rgba(37,199,94,0.2);
+      border-radius: 10px; padding: 8px 12px; margin: 8px 0;
+      font-size: 13px; white-space: pre-wrap; max-width: 85%;
+      align-self: flex-end;
+    }
+    .msg-text { margin: 8px 0; line-height: 1.6; }
+    .msg-error {
       color: var(--danger); background: var(--danger-bg); border-radius: 6px;
       padding: 8px 12px; margin: 6px 0; font-size: 12px;
     }
-    .cw-msg-stopped {
-      color: var(--text-3); font-style: italic; margin: 6px 0; font-size: 12px;
+
+    /* Tool timeline */
+    .tool-timeline {
+      position: relative; padding-left: 14px; margin: 8px 0;
+      border-left: 1px solid var(--border);
     }
-    .cw-result-block {
-      margin: 6px 0; padding: 8px 12px;
-      background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: 6px; font-size: 11px; color: var(--text-2);
+    .tool-block { margin: 4px 0; }
+    .tool-header {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-3); padding: 2px 0;
     }
-    .cw-streaming-cursor {
+    .tool-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-faint); margin-left: -18px; flex-shrink: 0;
+    }
+    .tool-block.active .tool-dot { background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
+    .tool-name { font-weight: 600; color: var(--text-2); font-family: var(--font-mono); }
+    .tool-subtitle {
+      color: var(--text-faint); font-size: 10px; font-family: var(--font-mono);
+      max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* Streaming cursor */
+    .streaming-cursor {
       display: inline-block; width: 2px; height: 1em;
-      background: var(--accent); animation: cw-cursor-blink 1s step-end infinite;
+      background: var(--accent); animation: cursor-blink 1s step-end infinite;
       vertical-align: text-bottom; margin-left: 1px;
     }
-    @keyframes cw-cursor-blink { 50% { opacity: 0; } }
+    @keyframes cursor-blink { 50% { opacity: 0; } }
 
-    /* ── Markdown ── */
-    .yo-md-p { margin: 6px 0; }
-    .yo-md-h1, .yo-md-h2, .yo-md-h3, .yo-md-h4 {
-      font-weight: 700; color: var(--text-bright); margin: 10px 0 4px;
+    /* Spinner */
+    .stage-spinner {
+      display: flex; align-items: center; gap: 10px; padding: 8px 0;
     }
+    .stage-spinner-char {
+      font-size: 18px; color: var(--accent); width: 20px; text-align: center;
+      font-family: var(--font-mono);
+    }
+    .stage-spinner-phrase { font-size: 13px; color: var(--text-2); }
+
+    /* Markdown */
+    .yo-md-p { margin: 6px 0; }
+    .yo-md-h1, .yo-md-h2, .yo-md-h3, .yo-md-h4 { font-weight: 700; color: var(--text-bright); margin: 10px 0 4px; }
     .yo-md-h1 { font-size: 16px; } .yo-md-h2 { font-size: 14px; }
     .yo-md-h3 { font-size: 13px; } .yo-md-h4 { font-size: 12px; }
     .yo-md-inline {
@@ -296,86 +298,19 @@
       white-space: pre-wrap; word-break: break-word; color: var(--text);
     }
     .yo-md-codeblock-header {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 6px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
     }
-    .yo-md-codeblock-lang {
-      font-size: 10px; color: var(--text-faint); text-transform: uppercase;
-    }
+    .yo-md-codeblock-lang { font-size: 10px; color: var(--text-faint); text-transform: uppercase; }
     .yo-md-copy {
       background: none; border: 1px solid var(--border); border-radius: 4px;
       color: var(--text-3); font-size: 10px; padding: 2px 8px; cursor: pointer;
     }
     .yo-md-copy:hover { border-color: var(--accent); color: var(--accent); }
-    .yo-md-link {
-      color: var(--accent); text-decoration: none;
-    }
+    .yo-md-link { color: var(--accent); text-decoration: none; }
     .yo-md-link:hover { text-decoration: underline; }
-    .yo-md-quote {
-      border-left: 3px solid var(--border-2); padding-left: 10px;
-      color: var(--text-2); margin: 6px 0;
-    }
+    .yo-md-quote { border-left: 3px solid var(--border-2); padding-left: 10px; color: var(--text-2); margin: 6px 0; }
     .yo-md-list { margin: 4px 0 4px 20px; }
     .yo-md-li { margin: 2px 0; }
-
-    /* ── Cypher widget (floating top-right) ── */
-    #cw-cypher-widget {
-      position: fixed; top: 4px; right: 8px; z-index: 60;
-      display: flex; align-items: center; gap: 8px;
-      padding: 4px 10px; height: 28px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 6px; box-shadow: 0 2px 8px var(--shadow);
-      font-size: 11px; color: var(--text-2);
-    }
-    #cw-cypher-widget.live { border-color: var(--accent); }
-    .cw-cy-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--text-faint); flex-shrink: 0;
-    }
-    #cw-cypher-widget.live .cw-cy-dot {
-      background: var(--accent); animation: cw-dot-pulse 1.2s ease-in-out infinite;
-    }
-    .cw-cy-stat {
-      font-family: var(--font-mono); font-size: 11px; color: var(--text);
-    }
-    .cw-cy-label {
-      color: var(--text-3); font-size: 10px; text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .cw-cy-btn {
-      background: var(--accent); color: #000; border: none;
-      font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
-      cursor: pointer;
-    }
-    .cw-cy-btn:hover { opacity: 0.85; }
-    .cw-cy-btn.ghost {
-      background: none; color: var(--text-2); border: 1px solid var(--border);
-    }
-    .cw-cy-btn.ghost:hover { color: var(--accent); border-color: var(--accent); }
-
-    /* ── Cypher publish modal ── */
-    #cw-cy-publish-modal {
-      display: none; position: fixed; inset: 0;
-      background: var(--overlay-bg); z-index: 999;
-      align-items: center; justify-content: center;
-    }
-    #cw-cy-publish-modal.visible { display: flex; }
-    #cw-cy-publish-modal .modal-card {
-      width: 460px; max-height: 86vh; overflow-y: auto;
-    }
-    #cw-cy-publish-modal h3 { margin-bottom: 14px; }
-    #cw-cy-publish-modal label {
-      display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
-      color: var(--text-3); margin: 10px 0 4px;
-    }
-    #cw-cy-publish-modal .field-hint {
-      font-size: 10px; color: var(--text-faint); margin-top: 4px;
-    }
-    #cw-cy-publish-modal .err {
-      color: var(--danger); background: var(--danger-bg); border-radius: 4px;
-      padding: 6px 10px; font-size: 12px; margin-bottom: 8px; display: none;
-    }
-    #cw-cy-publish-modal .err.visible { display: block; }
 
     /* ── Add agent modal ── */
     #add-agent-modal {
@@ -389,9 +324,7 @@
       border-radius: 10px; padding: 20px; width: 340px;
       box-shadow: 0 8px 30px var(--shadow);
     }
-    .modal-card h3 {
-      font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text-bright);
-    }
+    .modal-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text-bright); }
     .modal-card input, .modal-card textarea {
       width: 100%; background: var(--input-bg); border: 1px solid var(--border);
       border-radius: 6px; padding: 8px 10px; color: var(--text);
@@ -407,137 +340,54 @@
     .modal-btn-cancel { background: var(--surface-2); color: var(--text-2); }
     .modal-btn-add { background: var(--accent); color: #fff; }
     .modal-btn-add:hover { background: var(--accent-hover); }
-
-    /* ── Resize handles ── */
-    #cw-handles {
-      position: fixed; inset: 0;
-      pointer-events: none; z-index: 50;
-    }
-    .cw-col-handle {
-      position: absolute; top: 0; bottom: 0; width: 8px;
-      cursor: col-resize; transform: translateX(-50%);
-      pointer-events: auto;
-    }
-    .cw-col-handle::before {
-      content: ""; position: absolute; top: 0; bottom: 0;
-      left: 50%; width: 1px; background: var(--border-2);
-      transform: translateX(-50%); transition: background 0.15s;
-    }
-    .cw-col-handle::after {
-      content: ""; position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      width: 3px; height: 32px; background: var(--border-3);
-      border-radius: 2px; transition: all 0.2s ease;
-    }
-    .cw-col-handle:hover::before { background: rgba(37,199,94,0.19); width: 2px; }
-    .cw-col-handle:hover::after { background: var(--accent); height: 48px; width: 4px; }
-    .cw-col-handle.dragging::before { background: var(--accent); width: 2px; }
-    .cw-col-handle.dragging::after { background: var(--accent); height: 100%; width: 2px; border-radius: 0; }
-
-    .cw-row-handle {
-      position: absolute; left: 0; right: 0; height: 8px;
-      cursor: row-resize; transform: translateY(-50%);
-      pointer-events: auto;
-    }
-    .cw-row-handle::before {
-      content: ""; position: absolute; left: 0; right: 0;
-      top: 50%; height: 1px; background: var(--border-2);
-      transform: translateY(-50%); transition: background 0.15s;
-    }
-    .cw-row-handle::after {
-      content: ""; position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      width: 32px; height: 3px; background: var(--border-3);
-      border-radius: 2px; transition: all 0.2s ease;
-    }
-    .cw-row-handle:hover::before { background: rgba(37,199,94,0.19); height: 2px; }
-    .cw-row-handle:hover::after { background: var(--accent); width: 48px; height: 4px; }
-    .cw-row-handle.dragging::before { background: var(--accent); height: 2px; }
-    .cw-row-handle.dragging::after { background: var(--accent); width: 100%; height: 2px; border-radius: 0; }
-
-    #cw-drag-overlay {
-      position: fixed; inset: 0; z-index: 45;
-      background: transparent; display: none;
-    }
-    #cw-drag-overlay.drag-col { display: block; cursor: col-resize; }
-    #cw-drag-overlay.drag-row { display: block; cursor: row-resize; }
   </style>
 </head>
 <body>
-  <div id="workspace"></div>
-  <div id="cw-handles"></div>
-  <div id="cw-drag-overlay"></div>
-
-  <!-- Cypher status widget — floating top-right -->
-  <div id="cw-cypher-widget" style="display:none;">
-    <span class="cw-cy-dot"></span>
-    <span id="cw-cy-status-text">Local cypher</span>
-    <span id="cw-cy-stats" style="display:none;">
-      <span class="cw-cy-label">kitty</span> <span class="cw-cy-stat" id="cw-cy-kitty">—</span>
-      <span style="color:var(--border);">·</span>
-      <span class="cw-cy-label">jammers</span> <span class="cw-cy-stat" id="cw-cy-jammers">—</span>
+  <!-- Cypher info bar -->
+  <div id="cypher-bar">
+    <span id="cypher-bar-dot"></span>
+    <span id="cypher-bar-title">Cypher</span>
+    <span id="cypher-bar-stats">
+      <span id="cypher-bar-kitty"></span>
+      <span id="cypher-bar-jammers"></span>
     </span>
-    <button id="cw-cy-action" class="cw-cy-btn">Publish</button>
   </div>
 
-  <!-- Cypher publish modal -->
-  <div id="cw-cy-publish-modal">
-    <div class="modal-card">
-      <h3>Publish this workspace as a cypher</h3>
-      <div id="cw-cy-publish-err" class="err"></div>
-
-      <label>Title</label>
-      <input id="cw-cy-title" type="text" placeholder="e.g. Acme SDK Documentation Hackathon" />
-
-      <label>Goal</label>
-      <input id="cw-cy-goal" type="text" placeholder="What's this cypher trying to make" />
-
-      <label>Description</label>
-      <textarea id="cw-cy-description" rows="2" placeholder="What jammers should know before joining"></textarea>
-
-      <label>Type</label>
-      <select id="cw-cy-type">
-        <option value="open">Open — anyone joins, leftover refunds pro-rata</option>
-        <option value="bounty">Bounty — pre-fund, distribution at wrap</option>
-        <option value="coop">Co-op — equal contributions, shared output</option>
-        <option value="sponsored">Sponsored — fund jammer participation</option>
-      </select>
-
-      <label>Visibility</label>
-      <select id="cw-cy-visibility">
-        <option value="public">Public</option>
-        <option value="unlisted">Unlisted</option>
-        <option value="invite">Invite only</option>
-      </select>
-
-      <label>Required skills <span class="field-hint">(comma-separated; blank = no filter)</span></label>
-      <input id="cw-cy-req-skills" type="text" placeholder="e.g. rust, testing" />
-
-      <label>Required apps <span class="field-hint">(comma-separated)</span></label>
-      <input id="cw-cy-req-apps" type="text" placeholder="e.g. github, linear" />
-
-      <label>Min hardware tier</label>
-      <select id="cw-cy-req-tier">
-        <option value="">Any</option>
-        <option value="low">Low</option>
-        <option value="standard">Standard</option>
-        <option value="premiere">Premiere</option>
-      </select>
-
-      <label>Max jammers <span class="field-hint">(blank = unlimited)</span></label>
-      <input id="cw-cy-max-jammers" type="number" min="1" placeholder="50" />
-
-      <label>Initial kitty deposit (yos)</label>
-      <input id="cw-cy-kitty-amount" type="number" min="0" placeholder="1000" />
-      <div class="field-hint" id="cw-cy-kitty-hint"></div>
-
-      <div class="modal-actions">
-        <button class="modal-btn-cancel" id="cw-cy-cancel">Cancel</button>
-        <button class="modal-btn-add" id="cw-cy-publish-go">Publish</button>
+  <!-- Main layout -->
+  <div id="cypher-layout">
+    <!-- Main stage -->
+    <div id="main-stage">
+      <div id="stage-header">
+        <span id="stage-agent-dot"></span>
+        <span id="stage-agent-name">No agent selected</span>
+        <span id="stage-agent-role"></span>
+        <span id="stage-sharing-badge">presenting</span>
       </div>
+      <div id="stage-content">
+        <div id="stage-empty">
+          <div id="stage-empty-icon">&#9671;</div>
+          <div>Select an agent to view their work</div>
+        </div>
+      </div>
+      <div id="stage-input-wrap">
+        <textarea id="stage-input" rows="1" placeholder="Message agent..."></textarea>
+        <button id="stage-stop">Stop</button>
+        <button id="stage-send">&#8593;</button>
+      </div>
+    </div>
+
+    <!-- Participants sidebar -->
+    <div id="participants">
+      <div id="participants-header">
+        <span id="participants-title">Participants</span>
+        <span id="participants-count">0</span>
+      </div>
+      <div id="participants-list"></div>
+      <button id="add-agent-btn">+ Add Agent</button>
     </div>
   </div>
 
+  <!-- Add agent modal -->
   <div id="add-agent-modal">
     <div class="modal-card">
       <h3>Add Agent</h3>

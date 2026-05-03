@@ -21,16 +21,6 @@ export interface GridCell {
   rowSpan: number;
 }
 
-/**
- * A code layout is a visual template. It declares N agent slots; the
- * concrete agent that fills each slot is bound at workspace-runtime
- * from the user's Agents registry (~/yo/agents/) or hand-created.
- */
-export interface LayoutAgentSlot {
-  slotId: string;          // 'slot-1', 'slot-2'
-  enableInput?: boolean;   // surface the user input area in this slot's panel
-}
-
 export interface GridLayout {
   name: string;
   version: 2;
@@ -39,9 +29,6 @@ export interface GridLayout {
   colWidths: number[];    // fractions summing to ~1
   rowHeights: number[];   // fractions summing to ~1
   cells: GridCell[];
-  type?: "standard" | "code";
-  rootDir?: string;            // code layouts: project directory
-  slots?: LayoutAgentSlot[];   // code layouts: agent slots (no metadata baked in)
 }
 
 /** Per-cell bounds for renderer overlays (URL bars in grid) */
@@ -292,43 +279,6 @@ export class LayoutManager {
     return this.layouts.get(name);
   }
 
-  /** List only code-type layouts */
-  listCodeLayouts(): GridLayout[] {
-    return Array.from(this.layouts.values()).filter((l) => l.type === "code");
-  }
-
-  /** Get the active code layout (if current grid matches a saved code layout) */
-  getActiveCodeLayout(): GridLayout | undefined {
-    const active = this.getGridInfo();
-    if (!active) return undefined;
-    return this.layouts.get(active.name);
-  }
-
-  /** Create a code layout with N empty agent slots (one slot per cell). */
-  createCodeLayout(name: string, rootDir: string, slots?: LayoutAgentSlot[]): GridLayout {
-    const slotList = slots && slots.length > 0 ? slots : [{ slotId: "slot-1" }];
-    const layout: GridLayout = {
-      name,
-      version: 2,
-      cols: slotList.length,
-      rows: 1,
-      colWidths: Array(slotList.length).fill(1 / slotList.length),
-      rowHeights: [1],
-      cells: slotList.map((s, i) => ({
-        panelId: `agent-slot:${s.slotId}`,
-        col: i,
-        row: 0,
-        colSpan: 1,
-        rowSpan: 1,
-      })),
-      type: "code",
-      rootDir,
-      slots: slotList,
-    };
-    this.layouts.set(name, layout);
-    this.persist();
-    return layout;
-  }
 
   /** Rename a panelId across all saved layouts and the active grid. */
   renamePanelId(oldId: string, newId: string): void {

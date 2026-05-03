@@ -155,7 +155,7 @@ export class AgentRunner {
         YO_WORKSPACE: config.workspace,
         CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/2.5.0",
         ANTHROPIC_BASE_URL: `${AUTH_SERVER}/api/llm/anthropic`,
-        ANTHROPIC_API_KEY: getAuthToken() || "",
+        ANTHROPIC_API_KEY: getAuthToken() || "not-authenticated",
       },
     };
 

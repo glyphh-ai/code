@@ -36,6 +36,7 @@ export class CommandParser {
   private tabLister: (() => string[]) | null = null;
   private tabCreator: ((url: string) => string) | null = null;
   private instanceCreator: ((appId: string) => string | null) | null = null;
+  private cypherOpener: ((slug: string) => Promise<boolean>) | null = null;
   constructor(
     private panels: PanelManager,
     private skillEngine: SkillEngine,
@@ -88,6 +89,11 @@ export class CommandParser {
   /** Set callback that creates a new instance of an app and returns the instance panel ID. */
   setInstanceCreator(fn: (appId: string) => string | null): void {
     this.instanceCreator = fn;
+  }
+
+  /** Set callback that opens the cypher workspace bound to a specific cypher slug. */
+  setCypherOpener(fn: (slug: string) => Promise<boolean>): void {
+    this.cypherOpener = fn;
   }
 
   /** Split input at dot-prefixed command keyword boundaries for chaining.
@@ -423,6 +429,15 @@ export class CommandParser {
         return `Opened ${target} in new tab (${tabId})`;
       }
       return "Tab manager not available";
+    }
+
+    // dip <cypher-slug> — open cypher workspace bound to that cypher
+    if (this.cypherOpener && !this.panels.hasPanel(sub) && !this.appConnector.get(sub)) {
+      const opened = await this.cypherOpener(sub);
+      if (opened) {
+        setPreference("lastView", { type: "panel", id: "cypher" });
+        return `Cypher: ${sub}`;
+      }
     }
 
     // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands
