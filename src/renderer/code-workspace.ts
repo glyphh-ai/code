@@ -1,3 +1,5 @@
+import { identiconSvg } from "./identicon";
+
 interface CodeWorkspaceAPI {
   onAgentMessage: (cb: (agent: string, msg: any) => void) => void;
   onAgentStatus: (cb: (agent: string, status: string) => void) => void;
@@ -146,7 +148,10 @@ function createParticipant(name: string, role: string, isRemote = false): Partic
   const el = document.createElement("div");
   el.className = "participant";
   el.innerHTML = `
-    <span class="p-dot idle"></span>
+    <span class="p-avatar">
+      ${identiconSvg(name, 32)}
+      <span class="p-dot idle"></span>
+    </span>
     <div class="p-info">
       <div class="p-name">${name}</div>
       <div class="p-role">${role}</div>

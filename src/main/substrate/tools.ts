@@ -86,6 +86,18 @@ export interface SubstrateToolDeps {
     create: () => string;
   };
   execCommand?: (cmd: string) => Promise<string>;
+  cypher?: {
+    /** The cypher id the .yo is currently piloting (Drop's active Workspace). */
+    getCurrent: () => string | null;
+    /** Post a broadcast event to the bus. Returns text status. */
+    post: (cypherId: string, text: string) => Promise<string>;
+    /** Direct a message to a specific jammer by agent_local_id. */
+    postTo: (cypherId: string, agentLocalId: string, text: string) => Promise<string>;
+    /** Read the cypher's status: goal, roster, assignments, recent activity. */
+    status: (cypherId: string) => Promise<string>;
+    /** Wrap (close) the cypher. Host-only at the server. */
+    wrap: (cypherId: string) => Promise<string>;
+  };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -1202,6 +1214,72 @@ const BUILTIN_TOOLS: ToolDef[] = [
     run: async (input) => {
       if (!deps.workspace) return "Workspace not available. Is MCP running?";
       return deps.workspace.readAgent(String(input.name), input.kind as string | undefined);
+    },
+  },
+
+  // ── Cypher driver tools — only meaningful when a cypher is "current"
+  // (the user is in The Drop's Workspace view). When no cypher is active
+  // these return a friendly error rather than failing.
+  {
+    name: "cypher_post",
+    namespace: "yo",
+    description: "Broadcast a message to all jammers in the current cypher's bus. Use for status updates, decisions, or open prompts the team should react to.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Message body" },
+      },
+      required: ["text"],
+    },
+    run: async (input) => {
+      if (!deps.cypher) return "Cypher driver not wired.";
+      const id = deps.cypher.getCurrent();
+      if (!id) return "No cypher is active. Open a cypher in The Drop's Workspace first.";
+      return deps.cypher.post(id, String(input.text));
+    },
+  },
+  {
+    name: "cypher_post_to",
+    namespace: "yo",
+    description: "Direct-message a specific jammer in the current cypher by their agent id. Use to assign work or ask a focused question.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_id: { type: "string", description: "The jammer's agent_local_id" },
+        text: { type: "string", description: "Message body" },
+      },
+      required: ["agent_id", "text"],
+    },
+    run: async (input) => {
+      if (!deps.cypher) return "Cypher driver not wired.";
+      const id = deps.cypher.getCurrent();
+      if (!id) return "No cypher is active.";
+      return deps.cypher.postTo(id, String(input.agent_id), String(input.text));
+    },
+  },
+  {
+    name: "cypher_status",
+    namespace: "yo",
+    description: "Read the current cypher's goal, roster, draft assignments, and recent activity. Always call this first to orient before posting work.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.cypher) return "Cypher driver not wired.";
+      const id = deps.cypher.getCurrent();
+      if (!id) return "No cypher is active.";
+      return deps.cypher.status(id);
+    },
+  },
+  {
+    name: "cypher_wrap",
+    namespace: "yo",
+    description: "Close the current cypher. Match ends, performance is recorded, jammers terminate. Host-only at the server.",
+    input_schema: { type: "object", properties: {} },
+    destructive: true,
+    run: async () => {
+      if (!deps.cypher) return "Cypher driver not wired.";
+      const id = deps.cypher.getCurrent();
+      if (!id) return "No cypher is active.";
+      return deps.cypher.wrap(id);
     },
   },
 ];

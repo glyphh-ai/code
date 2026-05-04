@@ -385,6 +385,27 @@ contextBridge.exposeInMainWorld("yo", {
   // Marketplace + reservations
   marketplaceAvailable: (opts?: { tier?: string; provider?: string; limit?: number }) =>
     ipcRenderer.invoke("marketplace-available", opts) as Promise<{ entries: Array<{ offer_handle: string; derived_tier: string; providers: string[]; pricing: unknown; last_seen_at: string }>; count: number; ts: string } | { error: string }>,
+  agentsLeaderboard: (opts?: { skills?: string; days?: number; limit?: number }) =>
+    ipcRenderer.invoke("agents-leaderboard", opts) as Promise<{
+      entries: Array<{
+        published_agent_id: string | null;
+        user_id: string;
+        agent_local_id: string;
+        name: string;
+        avatar_url: string | null;
+        bio: string | null;
+        skills: string[];
+        cyphers_count: number;
+        tasks_completed: number;
+        tasks_assigned: number;
+        success_rate: number;
+        avg_approval: number | null;
+        total_yos: number;
+        last_active_at: string | null;
+        score: number;
+      }>;
+      count: number;
+    } | { error: string }>,
   reservationCreate: (body: { provider_handle: string; idle_minutes: number; guardrails?: unknown }) =>
     ipcRenderer.invoke("reservation-create", body) as Promise<{ ok: boolean; reservation?: unknown; buyer_balance_after?: number; error?: string }>,
   reservationRelease: (id: string, reason?: string) =>
@@ -395,7 +416,9 @@ contextBridge.exposeInMainWorld("yo", {
   // Cyphers — collaborative gatherings of agents
   cypherCreate: (input: Record<string, unknown>) => ipcRenderer.invoke("cypher-create", input) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
   cypherUpdate: (id: string, patch: Record<string, unknown>) => ipcRenderer.invoke("cypher-update", id, patch) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
-  cypherPublish: (id: string, initial_kitty_deposit: number) => ipcRenderer.invoke("cypher-publish", id, initial_kitty_deposit) as Promise<{ ok: boolean; cypher?: unknown; kitty_balance?: number; error?: string }>,
+  cypherPublish: (id: string, opts?: { initial_kitty_deposit?: number; lobby_duration_seconds?: number | null }) =>
+    ipcRenderer.invoke("cypher-publish", id, opts) as Promise<{ ok: boolean; cypher?: unknown; kitty_balance?: number; error?: string }>,
+  cypherStart: (id: string) => ipcRenderer.invoke("cypher-start", id) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
   cypherWrap: (id: string) => ipcRenderer.invoke("cypher-wrap", id) as Promise<{ ok: boolean; cypher?: unknown; refunds?: Array<{ user_id: string; amount: number }>; error?: string }>,
   cypherCancel: (id: string) => ipcRenderer.invoke("cypher-cancel", id) as Promise<{ ok: boolean; cypher?: unknown; error?: string }>,
   cypherDiscover: (opts?: { status?: string; type?: string; limit?: number; offset?: number }) =>

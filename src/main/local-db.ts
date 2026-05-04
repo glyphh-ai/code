@@ -96,6 +96,13 @@ const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE agents ADD COLUMN avatar_url TEXT;
+      ALTER TABLE agents ADD COLUMN bio TEXT;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database): void {

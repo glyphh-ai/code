@@ -38,6 +38,8 @@ export async function publishAgent(agent: AgentConfig, opts: { defaultModelProvi
     skills: agent.skills ?? [],
     builtin_tools: agent.builtin_tools ?? [],
     mcp_servers: agent.mcp_servers ?? [],
+    avatar_url: agent.avatar_url,
+    bio: agent.bio,
     raw_blob: agent as unknown as Record<string, unknown>,
   };
   try {

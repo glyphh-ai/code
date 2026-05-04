@@ -11,8 +11,6 @@ import { loadApps, initApps } from "./apps.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
 import { loadDocs, loadSupport, loadAbout } from "./docs.js";
-import { loadAgents, initAgents } from "./agents.js";
-import { loadCyphers, initCyphers } from "./cyphers.js";
 
 const overlay = getHelpOverlay();
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
@@ -123,8 +121,6 @@ export function loadActiveSection() {
   else if (sec === "skills") loadSkills();
   else if (sec === "drips") loadDrips();
   else if (sec === "layouts") loadLayouts();
-  else if (sec === "cyphers") loadCyphers();
-  else if (sec === "agents") loadAgents();
   else if (sec === "apps") loadApps();
   else if (sec === "settings") loadSettings();
   else if (sec === "docs") loadDocs();
@@ -214,8 +210,6 @@ export function initHelp() {
   // Initialize all section event handlers
   initSettings();
   initApps();
-  initAgents();
-  initCyphers();
   initDashboardEvents();
   initLayoutsEvents();
   initDripsEvents();

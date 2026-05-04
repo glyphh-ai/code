@@ -184,12 +184,15 @@ const VSCODE_GRAB_SCRIPT = `
 `;
 
 // Internal apps — these use yo:// protocol
+// Note: yo://cypher (the legacy Meet-style panel) was retired in favor of
+// The Drop's Workspace view. Source files (code-workspace.html/.ts/.preload)
+// are kept on disk for now as a reference to mine richer streaming UI from.
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "home", name: "Home", url: "yo://home" },
+  { id: "drop", name: "The Drop", url: "yo://drop" },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
-  { id: "cypher", name: "Cypher", url: "yo://cypher" },
   { id: "browser", name: "Browser", url: "yo://browser" },
   { id: "context", name: "Context", url: "yo://context" },
 ];

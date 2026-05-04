@@ -172,9 +172,16 @@
     .participant:hover { background: var(--hover); }
     .participant.active { background: var(--active-bg); border: 1px solid rgba(37,199,94,0.2); }
     .participant.active { margin-bottom: 1px; }
+    .p-avatar {
+      position: relative; flex-shrink: 0;
+      width: 32px; height: 32px; display: inline-block;
+    }
+    .p-avatar svg { display: block; border-radius: 6px; }
     .p-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--text-faint); flex-shrink: 0;
+      position: absolute; right: -2px; bottom: -2px;
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--text-faint);
+      border: 2px solid var(--surface, #fff);
     }
     .p-dot.running { background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
     .p-dot.done { background: var(--success); }

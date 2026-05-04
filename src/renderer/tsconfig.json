@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "sourceMap": true
   },
-  "include": ["renderer.ts", "help/**/*.ts", "home.ts", "onboarding.ts"]
+  "include": ["renderer.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "drop.ts"]
 }

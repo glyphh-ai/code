@@ -476,7 +476,7 @@ async function saveCypher(): Promise<void> {
       errEl.classList.remove("hidden");
       return;
     }
-    const pub = await window.yo.cypherPublish(create.cypher.id, kittyAmount);
+    const pub = await window.yo.cypherPublish(create.cypher.id, { initial_kitty_deposit: kittyAmount });
     if (!pub.ok) {
       errEl.textContent = pub.error || "Publish failed";
       errEl.classList.remove("hidden");

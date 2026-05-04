@@ -19,7 +19,7 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler } from "./cypher-runtime";
+import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler, setEventObserver } from "./cypher-runtime";
 import { adapterDispatcher } from "./provider-adapters/registry";
 import { CypherBus } from "./cypher-bus";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
@@ -776,8 +776,8 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "code-workspace.html")}`;
-  const cypherPreload = path.join(__dirname, "code-workspace-preload.js");
+  const dropHtml = `file://${path.join(__dirname, "..", "renderer", "drop.html")}`;
+  const dropPreload = path.join(__dirname, "drop-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
@@ -789,8 +789,8 @@ async function boot() {
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://cypher") {
-      panelManager.addPanel(app.id, cypherHtml, cypherPreload, undefined, true);
+    } else if (app.url === "yo://drop") {
+      panelManager.addPanel(app.id, dropHtml, dropPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1131,6 +1131,81 @@ async function boot() {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
       return result;
     },
+    cypher: {
+      getCurrent: () => {
+        // Lazy import to avoid loading order issues
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { getCurrentCypher } = require("./current-cypher");
+        return getCurrentCypher();
+      },
+      post: async (cypherId: string, text: string) => {
+        try {
+          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
+            kind: "post", payload: { text },
+          });
+          return `Posted to cypher.`;
+        } catch (err) {
+          return `Post failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      postTo: async (cypherId: string, agentLocalId: string, text: string) => {
+        try {
+          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
+            kind: "post_to", payload: { to: agentLocalId, text },
+          });
+          return `Routed to ${agentLocalId}.`;
+        } catch (err) {
+          return `Post failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      status: async (cypherId: string) => {
+        try {
+          const [c, jR, dR, eR] = await Promise.all([
+            serverGetAuthed<{ cypher?: { title?: string; goal?: string; status?: string; type?: string } }>(`/api/cyphers/${encodeURIComponent(cypherId)}`),
+            serverGetAuthed<{ jammers?: Array<{ agent_local_id: string; user_id: string; role?: string; left_at?: string | null }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/jammers`),
+            serverGetAuthed<{ assignments?: Array<{ agent_local_id: string; position: string; area?: string | null }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/draft`),
+            serverGetAuthed<{ events?: Array<{ kind: string; by_agent_id?: string | null; payload?: Record<string, unknown>; created_at: string }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/events?limit=10`),
+          ]);
+          const lines: string[] = [];
+          const cy = c?.cypher;
+          if (cy) {
+            lines.push(`Cypher: ${cy.title ?? "(untitled)"} [${cy.status}]`);
+            if (cy.goal) lines.push(`Goal: ${cy.goal}`);
+          }
+          const jammers = jR?.jammers ?? [];
+          const active = jammers.filter((j) => !j.left_at);
+          lines.push(`Jammers (${active.length} active):`);
+          for (const j of active) lines.push(`  - ${j.agent_local_id}${j.role ? ` (${j.role})` : ""}`);
+          const ass = dR?.assignments ?? [];
+          if (ass.length > 0) {
+            lines.push(`Draft:`);
+            for (const a of ass) lines.push(`  - ${a.agent_local_id} → ${a.position}${a.area ? `: ${a.area}` : ""}`);
+          }
+          const events = eR?.events ?? [];
+          if (events.length > 0) {
+            lines.push(`Recent activity:`);
+            for (const e of events.slice(-10)) {
+              const who = e.by_agent_id ?? "system";
+              const body = (e.payload as { text?: string; body?: string } | undefined)?.text
+                ?? (e.payload as { text?: string; body?: string } | undefined)?.body
+                ?? JSON.stringify(e.payload).slice(0, 80);
+              lines.push(`  [${e.kind}] ${who}: ${body}`);
+            }
+          }
+          return lines.join("\n");
+        } catch (err) {
+          return `Status fetch failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      wrap: async (cypherId: string) => {
+        try {
+          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/wrap`, {});
+          return `Cypher wrapped.`;
+        } catch (err) {
+          return `Wrap failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+    },
   });
 
   // Give interceptor access to visible panel IDs (for multi-panel grab)
@@ -1386,7 +1461,8 @@ async function boot() {
         panelManager.switchTo(lastView.id, mainWindow);
       }
     } else if (mainWindow) {
-      panelManager.switchTo("home", mainWindow);
+      // No saved layout → land on The Drop (the discovery hub).
+      panelManager.switchTo("drop", mainWindow);
     }
 
     // Restore all saved tabs (not just those in the current view).
@@ -1447,6 +1523,8 @@ async function boot() {
       panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://drop") {
+      panelManager.addPanel(instanceId, dropHtml, dropPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1730,6 +1808,16 @@ async function boot() {
       kind,
       body,
     });
+  });
+
+  // Forward all cypher SSE events to the renderer so The Drop's lobby/workspace
+  // can refresh in near-real-time without polling. Renderer filters by current
+  // cypher and reacts on relevant kinds (cypher_started, cypher_wrapped,
+  // jammer_join, jammer_leave, seat_open, post, post_to, etc.).
+  setEventObserver((cypherId, kind, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("cypher-event", cypherId, kind, payload);
+    }
   });
 
   if (isAuthenticated()) startCypherRuntime();
@@ -2533,6 +2621,20 @@ async function boot() {
   });
 
   // ── Agents Registry IPC handlers ───────────────────────
+  // Capability registration is auto-managed: any joinable jammer keeps
+  // the machine registered with yo-server (Offer Usage). When no joinable
+  // jammers remain, registration auto-withdraws.
+  async function reconcileOfferEnabled(): Promise<void> {
+    const anyJoinable = listAgents().some((a) => a.joinable === true);
+    const status = await getCapabilitiesStatus().catch(() => null);
+    const currentlyEnabled = !!status?.enabled;
+    if (anyJoinable && !currentlyEnabled) {
+      await setOfferEnabled(true).catch(() => { /* best-effort */ });
+    } else if (!anyJoinable && currentlyEnabled) {
+      await setOfferEnabled(false).catch(() => { /* best-effort */ });
+    }
+  }
+
   ipcMain.handle("agents-list", async () => listAgents());
   ipcMain.handle("agents-get", async (_e, id: string) => getAgent(id));
   ipcMain.handle("agents-save", async (_e, cfg: AgentRegistryConfig) => {
@@ -2541,11 +2643,13 @@ async function boot() {
     void (saved.joinable
       ? pushAgentProfile(saved)
       : deleteAgentProfile(saved.id));
+    void reconcileOfferEnabled();
     return saved;
   });
   ipcMain.handle("agents-remove", async (_e, id: string) => {
     const ok = removeAgent(id);
     if (ok) void deleteAgentProfile(id);
+    void reconcileOfferEnabled();
     return ok;
   });
   ipcMain.handle("agents-id-available", async (_e, id: string) => idAvailable(id));
@@ -2572,6 +2676,20 @@ async function boot() {
   ipcMain.handle("yos-buy-url", () => {
     const base = process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";
     return { url: `${base}/dashboard/billing#yos` };
+  });
+  ipcMain.handle("agents-leaderboard", async (_e, opts?: { skills?: string; days?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.skills) params.set("skills", opts.skills);
+    if (opts?.days) params.set("days", String(opts.days));
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    try {
+      return await serverGetAuthed<{ entries: unknown[]; count: number }>(
+        `/api/agents/leaderboard${qs ? "?" + qs : ""}`,
+      );
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "fetch failed" };
+    }
   });
   ipcMain.handle("marketplace-available", async (_e, opts?: { tier?: string; provider?: string; limit?: number }) => {
     const params = new URLSearchParams();
@@ -2632,9 +2750,31 @@ async function boot() {
       });
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "update failed" }; }
   });
-  ipcMain.handle("cypher-publish", async (_e, id: string, initial_kitty_deposit: number) => {
-    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/publish`, { initial_kitty_deposit }); }
+  ipcMain.handle("cypher-publish", async (_e, id: string, opts?: { initial_kitty_deposit?: number; lobby_duration_seconds?: number | null }) => {
+    try {
+      const body: Record<string, unknown> = {
+        initial_kitty_deposit: opts?.initial_kitty_deposit ?? 0,
+      };
+      if (opts && "lobby_duration_seconds" in opts) body.lobby_duration_seconds = opts.lobby_duration_seconds;
+      return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/publish`, body);
+    }
     catch (err) { return { ok: false, error: err instanceof Error ? err.message : "publish failed" }; }
+  });
+  ipcMain.handle("cypher-start", async (_e, id: string) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/start`, {}); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "start failed" }; }
+  });
+  ipcMain.handle("cypher-draft-get", async (_e, id: string) => {
+    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/draft`); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "draft fetch failed" }; }
+  });
+  ipcMain.handle("cypher-redraft", async (_e, id: string, opts?: { ratio?: number }) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/redraft`, opts || {}); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "redraft failed" }; }
+  });
+  ipcMain.handle("cypher-decline", async (_e, id: string, agent_local_id: string) => {
+    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/decline`, { agent_local_id }); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "decline failed" }; }
   });
   ipcMain.handle("cypher-wrap", async (_e, id: string) => {
     try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/wrap`, {}); }
@@ -2763,6 +2903,90 @@ async function boot() {
     const qs = p.toString();
     try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/ledger${qs ? "?" + qs : ""}`); }
     catch (err) { return { error: err instanceof Error ? err.message : "ledger failed" }; }
+  });
+
+  ipcMain.handle("auth-me", async () => {
+    try {
+      return await serverGetAuthed<{ id: string; email: string; role: string }>("/api/auth/me");
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "auth lookup failed" };
+    }
+  });
+
+  // ── "Current cypher" — what the .yo is piloting from The Drop's Workspace.
+  // Renderer calls cypher-set-current on enter/leave; substrate cypher tools
+  // read getCurrentCypher() to know which cypher to operate on.
+  {
+    const { setCurrentCypher } = await import("./current-cypher");
+    ipcMain.handle("cypher-set-current", (_e, id: string | null) => {
+      setCurrentCypher(id);
+      return { ok: true };
+    });
+  }
+
+  // ── Spawn jammers on cypher start.
+  // Reads the cypher's draft, picks assignments whose agent_local_id is in
+  // *this* user's local registry (i.e. the jammers I fielded), creates a
+  // sandboxed cwd per jammer, builds an AgentConfig, and starts each one
+  // through the existing agent-runner. Idempotent (skips already-running).
+  ipcMain.handle("cypher-spawn-jammers", async (e, cypherId: string) => {
+    if (!cypherId) return { ok: false, error: "cypherId required" };
+    try {
+      const draftR = await serverGetAuthed<{
+        ok?: boolean;
+        assignments?: Array<{ agent_local_id: string; user_id: string; position: string; area: string | null; contract: string | null }>;
+      }>(`/api/cyphers/${encodeURIComponent(cypherId)}/draft`);
+      const assignments = draftR?.assignments ?? [];
+      if (assignments.length === 0) return { ok: true, spawned: 0, reason: "no assignments yet" };
+
+      const localAgents = listAgents();
+      const localIds = new Set(localAgents.map((a) => a.id));
+      const mine = assignments.filter((a) => localIds.has(a.agent_local_id));
+      if (mine.length === 0) return { ok: true, spawned: 0, reason: "no local jammers in this draft" };
+
+      const wsSlug = workspaceManager.getActive().slug;
+      const cypherSandboxRoot = path.join(os.homedir(), ".yo", "cyphers", cypherId, "jammers");
+      let spawned = 0;
+      const skipped: string[] = [];
+
+      for (const a of mine) {
+        // Skip if this jammer is already running for this webContents
+        // (the runner is keyed by agent name on the spawning sender).
+        // For simplicity here we fire-and-forget; agent-runner internally
+        // dedupes by name so a second start for the same name is a no-op.
+        const reg = getAgent(a.agent_local_id);
+        if (!reg) { skipped.push(`${a.agent_local_id} (not in registry)`); continue; }
+        const sandbox = path.join(cypherSandboxRoot, a.agent_local_id);
+        try { fs.mkdirSync(sandbox, { recursive: true }); } catch { /* ignore */ }
+
+        const role = reg.role || a.position;
+        const briefing = [
+          `You are jammer "${reg.id}" in cypher ${cypherId}.`,
+          `Position: ${a.position}.${a.area ? ` Area: ${a.area}` : ""}`,
+          a.contract ? `Contract: ${a.contract}` : "",
+          `Your sandboxed working directory is ${sandbox}.`,
+          `Bus messages from teammates arrive automatically. Say "Ready" and wait for instructions.`,
+        ].filter(Boolean).join(" ");
+
+        const config: import("./agent-runner").AgentConfig = {
+          name: reg.id,
+          role,
+          cwd: sandbox,
+          prompt: reg.systemPrompt,
+          startPrompt: briefing,
+          workspace: wsSlug,
+          cypherId,
+          model: reg.model_name,
+        };
+        agentRunner.startAgent(e.sender, config).catch((err) => {
+          console.error(`[cypher-spawn-jammers] start failed for ${reg.id}:`, err instanceof Error ? err.message : err);
+        });
+        spawned++;
+      }
+      return { ok: true, spawned, skipped };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "spawn failed" };
+    }
   });
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose!.getTokens());
@@ -2934,10 +3158,13 @@ async function boot() {
 
   // Billing/account managed via web dashboard — no client-side checkout needed
 
-  // IPC: code workspace
-  ipcMain.handle("cw:get-agents", (e) => {
-    const wsSlug = cwWcWorkspace.get(e.sender.id) || workspaceManager.getActive().slug;
-    return workspaceManager.listAgents(wsSlug).map((a) => ({ name: a.name, role: a.role, prompt: a.prompt }));
+  // IPC: cypher workspace — agents come from the user's Agents registry
+  ipcMain.handle("cw:get-agents", () => {
+    return listAgents().map((a) => ({
+      name: a.id,
+      role: a.role || a.name || "agent",
+      prompt: a.systemPrompt,
+    }));
   });
 
   ipcMain.handle("cw:add-agent", (e, name: string, role: string, prompt?: string) => {
@@ -2953,22 +3180,26 @@ async function boot() {
   });
 
   // Agent runner IPC: start/stop SDK-driven agents
-  function buildAgentConfig(wsSlug: string, agentName: string): AgentConfig | null {
-    const agent = workspaceManager.getAgent(wsSlug, agentName);
+  function buildAgentConfig(wsSlug: string, agentId: string): AgentConfig | null {
+    const agent = getAgent(agentId);
     if (!agent) return null;
+    const ws = workspaceManager.get(wsSlug);
+    if (!ws) return null;
     const map = getPreference<Record<string, string>>("workspaceCypher", {});
     const cypherId = map[wsSlug] || undefined;
+    const role = agent.role || "agent";
     const startPrompt = cypherId
-      ? `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Messages from teammates arrive automatically. Say "Ready" and wait for instructions.`
-      : `You are agent "${agent.name}" (${agent.role}). Read .yo/agents/${agent.name}.md for your role briefing. Then check .yo/inbox/${agent.name}.md for pending tasks. If the inbox is empty or doesn't exist, say "Ready" and wait for instructions.`;
+      ? `You are agent "${agent.id}" (${role}). Read .yo/agents/${agent.id}.md for your role briefing. Messages from teammates arrive automatically. Say "Ready" and wait for instructions.`
+      : `You are agent "${agent.id}" (${role}). Read .yo/agents/${agent.id}.md for your role briefing. Then check .yo/inbox/${agent.id}.md for pending tasks. If the inbox is empty or doesn't exist, say "Ready" and wait for instructions.`;
     return {
-      name: agent.name,
-      role: agent.role,
-      cwd: agent.cwd,
-      prompt: agent.prompt,
+      name: agent.id,
+      role,
+      cwd: ws.rootDir,
+      prompt: agent.systemPrompt,
       startPrompt,
       workspace: wsSlug,
       cypherId,
+      model: agent.model_name,
     };
   }
 

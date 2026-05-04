@@ -54,6 +54,11 @@ export interface AgentConfig {
   role?: string;
   systemPrompt?: string;
 
+  /** Public-facing identity. Falls back to identicon when avatar_url is unset. */
+  avatar_url?: string;
+  /** Short tagline shown in profile/leaderboard cards. */
+  bio?: string;
+
   /** Apps this agent has access to (for tools and context). Slugs from ~/yo/apps/. */
   apps?: string[];
   /** Skills this agent can run. Names from the skill registry. */

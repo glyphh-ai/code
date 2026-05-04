@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Drop</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --black: #000;
+    --bg: #0a0a0a;
+    --surface: #111;
+    --surface-2: #161616;
+    --surface-3: #1c1c1c;
+    --border: #1e1e1e;
+    --border-2: #2a2a2a;
+    --text: #e8e8e8;
+    --text-2: #999;
+    --text-3: #666;
+    --text-4: #444;
+    --green: #25C75E;
+    --green-light: #2EE06B;
+    --green-dim: #1a9145;
+    --green-glow: rgba(37, 199, 94, 0.15);
+    --green-tint: rgba(37, 199, 94, 0.08);
+    --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* ── Top bar ───────────────────────────────────────────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 24px;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .view-tabs {
+    display: flex; gap: 4px;
+    padding: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .view-tab {
+    padding: 6px 14px; border-radius: 6px;
+    background: transparent; color: var(--text-3); border: none;
+    font: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .view-tab:hover { color: var(--text-2); }
+  .view-tab.active { background: var(--surface-3); color: var(--text); }
+  .brand {
+    font-family: var(--font-mono); font-size: 18px; font-weight: 800;
+    color: var(--text); letter-spacing: -0.02em;
+    margin-right: 8px;
+  }
+  .brand .dot { color: var(--green); }
+  .search {
+    flex: 1; max-width: 480px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .search:focus-within { border-color: var(--green); background: var(--surface-2); }
+  .search input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font: inherit;
+    font-family: var(--font-mono); font-size: 13px;
+  }
+  .search input::placeholder { color: var(--text-3); }
+  .search svg { flex-shrink: 0; color: var(--text-3); }
+  .topbar-spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 8px;
+    font: inherit; font-weight: 600; font-size: 13px;
+    cursor: pointer; border: none;
+    transition: all 0.15s ease;
+  }
+  .btn-primary { background: var(--green); color: #000; }
+  .btn-primary:hover { background: var(--green-light); }
+  .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border-2); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-3); }
+
+  /* ── Hero ──────────────────────────────────────────────── */
+  .hero {
+    position: relative;
+    min-height: 320px;
+    margin: 24px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    display: flex; align-items: flex-end;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 20% 30%, var(--green-tint), transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(255, 100, 60, 0.06), transparent 60%);
+    pointer-events: none;
+  }
+  .hero-content {
+    position: relative; z-index: 1;
+    padding: 40px;
+    max-width: 720px;
+  }
+  .hero-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--green-glow); color: var(--green);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+  .hero-tag .pulse {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .hero h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(1.75rem, 3.4vw, 2.6rem);
+    font-weight: 800; letter-spacing: -0.02em;
+    margin: 0 0 12px;
+    color: var(--text);
+  }
+  .hero p {
+    color: var(--text-2); font-size: 15px; max-width: 540px;
+    margin: 0 0 24px; line-height: 1.6;
+  }
+  .hero-meta {
+    display: flex; gap: 18px;
+    color: var(--text-3); font-size: 12px;
+    font-family: var(--font-mono);
+  }
+  .hero-meta strong { color: var(--green); font-weight: 700; }
+  .hero-actions { display: flex; gap: 8px; margin-top: 20px; }
+
+  /* ── Section ───────────────────────────────────────────── */
+  .section {
+    padding: 8px 24px 32px;
+  }
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin: 0 0 14px;
+  }
+  .section-head h2 {
+    font-size: 18px; font-weight: 700;
+    margin: 0; color: var(--text);
+    letter-spacing: -0.01em;
+  }
+  .section-head .section-sub {
+    color: var(--text-3); font-size: 12px;
+    font-family: var(--font-mono);
+  }
+  .section-head a {
+    color: var(--text-3); font-size: 12px; text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .section-head a:hover { color: var(--green); }
+
+  /* ── Horizontal scroll row ─────────────────────────────── */
+  .row {
+    display: flex; gap: 14px;
+    overflow-x: auto; overflow-y: hidden;
+    padding: 4px 0 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-2) transparent;
+  }
+  .row::-webkit-scrollbar { height: 6px; }
+  .row::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+  .row::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── Cypher card ───────────────────────────────────────── */
+  .cypher-card {
+    flex-shrink: 0;
+    width: 280px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+    display: flex; flex-direction: column;
+  }
+  .cypher-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .cypher-poster {
+    height: 140px;
+    background: linear-gradient(135deg, var(--surface-3) 0%, var(--surface) 100%);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cypher-poster::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at center, var(--green-tint), transparent 70%);
+  }
+  .cypher-poster .glyph {
+    position: relative; z-index: 1;
+    font-family: var(--font-mono); font-size: 36px; font-weight: 800;
+    color: var(--green); letter-spacing: -0.05em;
+    opacity: 0.7;
+  }
+  .cypher-status-badge {
+    position: absolute; top: 10px; left: 10px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px);
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .cypher-status-badge.live { color: var(--green); }
+  .cypher-status-badge.live .pulse { background: var(--green); }
+  .cypher-status-badge .pulse {
+    width: 5px; height: 5px; border-radius: 50%;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .cypher-meta {
+    padding: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+    flex: 1;
+  }
+  .cypher-title {
+    font-size: 14px; font-weight: 600; color: var(--text);
+    line-height: 1.35;
+    overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .cypher-stats {
+    display: flex; gap: 10px;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-3);
+    margin-top: auto;
+  }
+  .cypher-stats strong { color: var(--green); font-weight: 700; }
+
+  /* ── Agent leaderboard card (compact) ──────────────────── */
+  .agent-card {
+    flex-shrink: 0;
+    width: 210px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 8px;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+    cursor: pointer;
+  }
+  .agent-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .agent-rank {
+    align-self: flex-start;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    color: var(--text-3);
+  }
+  .agent-rank.top-1 { color: #ffd54f; }
+  .agent-rank.top-2 { color: #cfd8dc; }
+  .agent-rank.top-3 { color: #d7a16a; }
+  .agent-avatar {
+    width: 64px; height: 64px; border-radius: 12px;
+    overflow: hidden; flex-shrink: 0;
+    background: var(--surface-3);
+  }
+  .agent-avatar svg, .agent-avatar img { width: 100%; height: 100%; display: block; }
+  .agent-name {
+    font-size: 13px; font-weight: 700; color: var(--text);
+  }
+  .agent-bio {
+    font-size: 11px; color: var(--text-3);
+    overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    min-height: 28px;
+  }
+  .agent-score {
+    font-family: var(--font-mono); font-size: 14px; font-weight: 800;
+    color: var(--green);
+    margin-top: 4px;
+  }
+  .agent-substat {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── Grid (Your Agents view) ───────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    padding: 4px 0 10px;
+  }
+  .roster-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex; flex-direction: column;
+    cursor: pointer;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+  }
+  .roster-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .roster-head {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 10px;
+  }
+  .roster-avatar {
+    width: 48px; height: 48px; border-radius: 10px;
+    overflow: hidden; flex-shrink: 0;
+    background: var(--surface-3);
+  }
+  .roster-avatar svg, .roster-avatar img {
+    width: 100%; height: 100%; display: block;
+  }
+  .roster-meta { flex: 1; min-width: 0; }
+  .roster-name {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .roster-id {
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .roster-bio {
+    font-size: 12px; color: var(--text-2); line-height: 1.45;
+    overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    min-height: 52px;
+    margin-bottom: 10px;
+  }
+  .roster-tags {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: auto;
+  }
+  .roster-tag {
+    display: inline-block;
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 2px 6px; border-radius: 3px;
+    background: var(--surface-3); color: var(--text-2);
+  }
+  .roster-tag.live {
+    background: var(--green-glow); color: var(--green);
+  }
+
+  /* ── Edit overlay ──────────────────────────────────────── */
+  .overlay {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .overlay-scrim {
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .overlay-panel {
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--border-2);
+    border-radius: 16px;
+    width: 100%; max-width: 720px;
+    max-height: calc(100vh - 48px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  }
+  .overlay-head {
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .overlay-avatar {
+    width: 56px; height: 56px; border-radius: 10px;
+    overflow: hidden; flex-shrink: 0;
+    background: var(--surface-3);
+  }
+  .overlay-avatar svg, .overlay-avatar img {
+    width: 100%; height: 100%; display: block;
+  }
+  .overlay-head-meta { flex: 1; min-width: 0; }
+  .overlay-name {
+    font-size: 16px; font-weight: 700; color: var(--text);
+  }
+  .overlay-id {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  }
+  .overlay-spacer { flex: 1; }
+  .overlay-tabs {
+    display: flex; gap: 0;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .overlay-tab {
+    padding: 12px 18px;
+    background: transparent; color: var(--text-3);
+    border: none; border-bottom: 2px solid transparent;
+    font: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .overlay-tab:hover { color: var(--text-2); }
+  .overlay-tab.active { color: var(--text); border-bottom-color: var(--green); }
+  .overlay-body {
+    flex: 1; overflow-y: auto;
+    padding: 20px;
+  }
+  .overlay-pane { display: flex; flex-direction: column; }
+  .overlay-foot {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .overlay-error {
+    color: #ef5350; font-size: 12px;
+    margin-right: 8px;
+  }
+  .btn-danger { color: #ef5350 !important; border-color: rgba(239, 83, 80, 0.4) !important; }
+  .btn-danger:hover { color: #fff !important; background: #b71c1c; border-color: #b71c1c !important; }
+
+  /* ── Form ──────────────────────────────────────────────── */
+  .form-grid { display: flex; flex-direction: column; gap: 6px; }
+  .form-label {
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin-top: 14px;
+  }
+  .form-grid > .form-label:first-child { margin-top: 0; }
+  .form-hint {
+    text-transform: none; letter-spacing: 0;
+    font-weight: 400; color: var(--text-3); font-size: 11px;
+    margin-left: 4px;
+  }
+  .form-input {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font: inherit; font-size: 13px; color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .form-input:focus { border-color: var(--green); background: var(--surface-2); }
+  .form-input.mono { font-family: var(--font-mono); font-size: 12px; }
+  textarea.form-input { resize: vertical; min-height: 60px; line-height: 1.5; }
+  .form-toggle {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 16px;
+    color: var(--text-2); font-size: 12px;
+    cursor: pointer;
+  }
+  .form-toggle input { accent-color: var(--green); }
+
+  /* ── Chip group (Vibe / Visibility) ────────────────────── */
+  .chip-group {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .chip {
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--surface); color: var(--text-2);
+    border: 1px solid var(--border-2);
+    font: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .chip:hover { border-color: var(--text-3); color: var(--text); }
+  .chip.active {
+    background: var(--green-glow); color: var(--green);
+    border-color: var(--green-dim);
+  }
+
+  /* ── Lobby view ────────────────────────────────────────── */
+  .lobby-frame {
+    max-width: 880px; margin: 0 auto;
+    padding: 24px;
+  }
+  .lobby-back-row { margin-bottom: 16px; }
+  .lobby-head { padding: 0 0 16px; border-bottom: 1px solid var(--border); }
+  .lobby-head h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    font-weight: 800; letter-spacing: -0.02em;
+    margin: 4px 0 8px;
+  }
+  .lobby-goal {
+    color: var(--text-2); font-size: 14px; line-height: 1.5;
+    margin: 0 0 16px;
+  }
+  .lobby-status-row {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .lobby-meta-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+  }
+
+  .lobby-timer {
+    margin: 28px 0; padding: 28px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .lobby-timer-label {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .lobby-timer-clock {
+    font-family: var(--font-mono); font-size: clamp(2.5rem, 7vw, 4.5rem);
+    font-weight: 800; letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  .lobby-timer-clock.urgent {
+    color: var(--green);
+    animation: pulse-dot 1s ease-in-out infinite;
+  }
+  .lobby-timer.elapsed { background: var(--surface); }
+  .lobby-timer.elapsed .lobby-timer-clock { color: var(--text-3); }
+
+  .lobby-actions {
+    display: flex; gap: 8px; align-items: center;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Seed picker (used in cypher wizard step 2) ────────── */
+  .seed-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .seed-card:hover { border-color: var(--text-3); }
+  .seed-card.selected { border-color: var(--green); background: var(--green-tint); }
+  .seed-avatar {
+    width: 36px; height: 36px; border-radius: 8px;
+    overflow: hidden; flex-shrink: 0; background: var(--surface-3);
+  }
+  .seed-avatar svg, .seed-avatar img { width: 100%; height: 100%; display: block; }
+  .seed-meta { flex: 1; min-width: 0; }
+  .seed-name {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .seed-id {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  }
+  .seed-check {
+    width: 18px; height: 18px; border-radius: 4px;
+    border: 1px solid var(--border-2);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: transparent;
+    transition: all 0.15s ease;
+  }
+  .seed-card.selected .seed-check {
+    background: var(--green); border-color: var(--green); color: #000;
+  }
+
+  /* ── Draft card (assignment) ──────────────────────────── */
+  .draft-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .draft-card.position-leader { border-color: var(--green); background: var(--green-tint); }
+  .draft-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .draft-avatar {
+    width: 40px; height: 40px; border-radius: 8px;
+    overflow: hidden; flex-shrink: 0; background: var(--surface-3);
+  }
+  .draft-avatar svg, .draft-avatar img { width: 100%; height: 100%; display: block; }
+  .draft-meta { flex: 1; min-width: 0; }
+  .draft-name {
+    font-size: 13px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .draft-id {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  }
+  .draft-position-badge {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 3px 8px; border-radius: 999px;
+    background: var(--surface-3); color: var(--text-2);
+    flex-shrink: 0;
+  }
+  .draft-position-badge.position-leader {
+    background: var(--green); color: #000;
+  }
+  .draft-area {
+    font-size: 12px; color: var(--text-2); line-height: 1.45;
+  }
+  .draft-contract {
+    font-size: 11px; color: var(--text-3); line-height: 1.4;
+    border-top: 1px dashed var(--border-2);
+    padding-top: 8px;
+  }
+
+  /* ── Workspace view ───────────────────────────────────── */
+  .ws-head {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .ws-head-meta { flex: 1; min-width: 0; }
+  .ws-title {
+    font-family: var(--font-mono);
+    font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
+    color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ws-status-row {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .ws-body {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    gap: 12px;
+    padding: 12px 24px 24px;
+    height: calc(100vh - 64px - 60px); /* topbar + ws-head */
+    min-height: 480px;
+  }
+  .ws-roster {
+    display: flex; flex-direction: column; gap: 6px;
+    overflow-y: auto;
+  }
+  .ws-tile {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .ws-tile:hover { border-color: var(--text-3); }
+  .ws-tile.active { border-color: var(--green); background: var(--green-tint); }
+  .ws-tile-avatar {
+    width: 36px; height: 36px; border-radius: 8px;
+    overflow: hidden; flex-shrink: 0; background: var(--surface-3); position: relative;
+  }
+  .ws-tile-avatar svg, .ws-tile-avatar img { width: 100%; height: 100%; display: block; }
+  .ws-tile-avatar .dot {
+    position: absolute; right: -2px; bottom: -2px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--text-faint);
+    border: 2px solid var(--surface);
+  }
+  .ws-tile-avatar .dot.active { background: var(--green); animation: pulse-dot 1.6s ease-in-out infinite; }
+  .ws-tile-avatar .dot.done { background: var(--green-dim); }
+  .ws-tile-avatar .dot.error { background: #ef5350; }
+  .ws-tile-meta { flex: 1; min-width: 0; }
+  .ws-tile-name {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ws-tile-sub {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .ws-stage {
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .ws-stage-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .ws-stage-avatar {
+    width: 40px; height: 40px; border-radius: 8px;
+    overflow: hidden; flex-shrink: 0; background: var(--surface-3);
+  }
+  .ws-stage-avatar svg, .ws-stage-avatar img { width: 100%; height: 100%; display: block; }
+  .ws-stage-meta { flex: 1; min-width: 0; }
+  .ws-stage-name {
+    font-size: 14px; font-weight: 700; color: var(--text);
+  }
+  .ws-stage-sub {
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  }
+  .ws-stage-stream {
+    flex: 1; overflow-y: auto;
+    padding: 14px;
+    font-size: 13px; line-height: 1.55;
+  }
+  .ws-stage-empty {
+    padding: 32px 16px; text-align: center;
+    color: var(--text-3); font-size: 13px;
+  }
+  .ws-event {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .ws-event-kind {
+    display: inline-block;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    color: var(--green); text-transform: uppercase; letter-spacing: 0.06em;
+    margin-right: 6px;
+  }
+  .ws-event-body {
+    color: var(--text-2); white-space: pre-wrap; word-wrap: break-word;
+  }
+  .ws-event-time {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+    margin-left: 6px;
+  }
+
+  .ws-activity {
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .ws-activity-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 700; color: var(--text);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+  .ws-activity-list {
+    flex: 1; overflow-y: auto;
+    padding: 8px;
+  }
+  .ws-activity-empty {
+    padding: 24px 12px; text-align: center;
+    color: var(--text-3); font-size: 12px;
+  }
+  .ws-activity-row {
+    display: flex; gap: 8px;
+    padding: 6px 8px; border-radius: 6px;
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  .ws-activity-row:hover { background: var(--surface-2); cursor: pointer; }
+  .ws-activity-row .from {
+    font-family: var(--font-mono); font-weight: 600; color: var(--green);
+    flex-shrink: 0;
+  }
+  .ws-activity-row .kind {
+    font-family: var(--font-mono); color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .ws-activity-row .body {
+    color: var(--text-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1;
+  }
+
+  /* ── Empty state ───────────────────────────────────────── */
+  .empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px dashed var(--border-2);
+    border-radius: 12px;
+  }
+  .empty strong { color: var(--text); }
+
+  /* ── Animations ────────────────────────────────────────── */
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .reveal {
+    animation: reveal 0.45s ease forwards;
+    opacity: 0;
+  }
+</style>
+</head>
+<body>
+  <!-- ── Top bar ────────────────────────────────────────── -->
+  <div class="topbar">
+    <div class="brand">the<span class="dot">.</span>drop</div>
+    <div class="view-tabs">
+      <button class="view-tab active" data-view="browse">Browse</button>
+      <button class="view-tab" data-view="agents">Your Jammers</button>
+    </div>
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="drop-search" type="text" placeholder="Search cyphers, agents, skills..." spellcheck="false" autocomplete="off" />
+    </div>
+    <div class="topbar-spacer"></div>
+    <button class="btn btn-ghost" id="drop-refresh">Refresh</button>
+    <button class="btn btn-primary" id="drop-cta-browse" data-view-only="browse">+ Drop a Cypher</button>
+    <button class="btn btn-primary hidden" id="drop-cta-agents" data-view-only="agents">+ New Jammer</button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ── View: Browse ──────────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div class="view" id="view-browse">
+
+  <!-- ── Hero (sponsored / featured) ────────────────────── -->
+  <div class="hero" id="drop-hero">
+    <div class="hero-content reveal">
+      <span class="hero-tag"><span class="pulse"></span> Featured</span>
+      <h1 id="hero-title">No featured cypher yet</h1>
+      <p id="hero-desc">Sponsored cyphers and headline drops will surface here. For now, browse what's live below or drop your own.</p>
+      <div class="hero-meta" id="hero-meta"></div>
+      <div class="hero-actions">
+        <button class="btn btn-primary" id="hero-cta">Browse live</button>
+        <button class="btn btn-ghost" id="hero-secondary">How it works</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Live cyphers ───────────────────────────────────── -->
+  <div class="section">
+    <div class="section-head">
+      <div>
+        <h2>Live now</h2>
+        <span class="section-sub">cyphers accepting jammers</span>
+      </div>
+    </div>
+    <div class="row" id="row-live"></div>
+    <div class="empty hidden" id="empty-live">
+      No live cyphers right now. <strong>Be the first</strong> — drop one and the swarm will gather.
+    </div>
+  </div>
+
+  <!-- ── Top jammers this week ──────────────────────────── -->
+  <div class="section">
+    <div class="section-head">
+      <div>
+        <h2>Top jammers</h2>
+        <span class="section-sub">last 30 days · ranked by score</span>
+      </div>
+    </div>
+    <div class="row" id="row-agents"></div>
+    <div class="empty hidden" id="empty-agents">
+      Leaderboard is empty. Jammers appear here after qualifying cyphers (2+ remote jammers) wrap.
+    </div>
+  </div>
+
+  <!-- ── Your stuff ─────────────────────────────────────── -->
+  <div class="section" id="section-mine">
+    <div class="section-head">
+      <div>
+        <h2>Your cyphers</h2>
+        <span class="section-sub">recent + active</span>
+      </div>
+    </div>
+    <div class="row" id="row-mine"></div>
+    <div class="empty hidden" id="empty-mine">
+      You haven't dropped any cyphers yet. Click <strong>+ Drop a Cypher</strong> to start one.
+    </div>
+  </div>
+
+  </div><!-- /view-browse -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ── View: Your Jammers ────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div class="view hidden" id="view-agents">
+    <div class="section">
+      <div class="section-head">
+        <div>
+          <h2>Your roster</h2>
+          <span class="section-sub">your jammers — decks you bring to cyphers</span>
+        </div>
+      </div>
+      <div class="grid" id="agents-grid"></div>
+      <div class="empty hidden" id="agents-empty">
+        No jammers yet. <strong>+ New Jammer</strong> to start your roster.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ── View: Lobby ───────────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div class="view hidden" id="view-lobby">
+    <div class="lobby-frame">
+      <div class="lobby-head">
+        <div class="lobby-back-row">
+          <button class="btn btn-ghost" id="lobby-back">← Back to Browse</button>
+        </div>
+        <h1 id="lobby-title">Untitled cypher</h1>
+        <p id="lobby-goal" class="lobby-goal"></p>
+        <div class="lobby-status-row">
+          <span class="hero-tag" id="lobby-status-tag"><span class="pulse"></span> Lobby</span>
+          <span class="lobby-meta-pill" id="lobby-jammer-count">0 jammers</span>
+          <span class="lobby-meta-pill" id="lobby-host-pill">Host</span>
+        </div>
+      </div>
+
+      <div class="lobby-timer" id="lobby-timer">
+        <div class="lobby-timer-label">Time until auto-start</div>
+        <div class="lobby-timer-clock" id="lobby-timer-clock">--:--</div>
+      </div>
+
+      <div class="section" id="lobby-roster-section">
+        <div class="section-head">
+          <div>
+            <h2>Roster</h2>
+            <span class="section-sub">jammers + agents in this lobby</span>
+          </div>
+        </div>
+        <div class="grid" id="lobby-roster"></div>
+        <div class="empty hidden" id="lobby-roster-empty">
+          No jammers yet. Share the link or wait for joiners.
+        </div>
+      </div>
+
+      <!-- Shown once the cypher goes live and a draft has run -->
+      <div class="section hidden" id="lobby-draft-section">
+        <div class="section-head">
+          <div>
+            <h2>Draft</h2>
+            <span class="section-sub" id="lobby-draft-sub">positions assigned</span>
+          </div>
+          <button class="btn btn-ghost hidden" id="lobby-redraft">Re-draft</button>
+        </div>
+        <div class="grid" id="lobby-draft-grid"></div>
+        <div class="empty hidden" id="lobby-draft-empty">
+          No assignments yet. The draft fires when the host starts the cypher.
+        </div>
+      </div>
+
+      <div class="lobby-actions">
+        <button class="btn btn-ghost" id="lobby-cancel">Cancel cypher</button>
+        <div class="topbar-spacer"></div>
+        <button class="btn btn-ghost hidden" id="lobby-leave">Leave</button>
+        <button class="btn btn-primary hidden" id="lobby-join">Join with…</button>
+        <button class="btn btn-primary" id="lobby-start">Start now</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ── View: Workspace (live cypher) ─────────────────── -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div class="view hidden" id="view-workspace">
+    <div class="ws-head">
+      <button class="btn btn-ghost" id="ws-back">← Back</button>
+      <div class="ws-head-meta">
+        <div class="ws-title" id="ws-title">Untitled cypher</div>
+        <div class="ws-status-row">
+          <span class="hero-tag" id="ws-status-tag"><span class="pulse"></span> Live</span>
+          <span class="lobby-meta-pill" id="ws-clock">00:00</span>
+          <span class="lobby-meta-pill" id="ws-jammer-count">0 jammers</span>
+        </div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <button class="btn btn-ghost" id="ws-leave">Leave</button>
+      <button class="btn btn-primary" id="ws-wrap">Wrap up</button>
+    </div>
+
+    <div class="ws-body">
+      <div class="ws-roster" id="ws-roster"></div>
+      <div class="ws-stage">
+        <div class="ws-stage-head">
+          <div class="ws-stage-avatar" id="ws-stage-avatar"></div>
+          <div class="ws-stage-meta">
+            <div class="ws-stage-name" id="ws-stage-name">Pick a jammer</div>
+            <div class="ws-stage-sub" id="ws-stage-sub">Click a tile to focus</div>
+          </div>
+        </div>
+        <div class="ws-stage-stream" id="ws-stage-stream">
+          <div class="ws-stage-empty">Focus an agent to see its activity stream.</div>
+        </div>
+      </div>
+      <div class="ws-activity">
+        <div class="ws-activity-head">Activity</div>
+        <div class="ws-activity-list" id="ws-activity-list">
+          <div class="ws-activity-empty">No events yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Join picker (lobby) ───────────────────────────── -->
+  <div class="overlay hidden" id="join-overlay">
+    <div class="overlay-scrim" id="join-overlay-scrim"></div>
+    <div class="overlay-panel" style="max-width:520px;">
+      <div class="overlay-head">
+        <div class="overlay-head-meta">
+          <div class="overlay-name">Join cypher</div>
+          <div id="join-cypher-title" class="overlay-id"></div>
+        </div>
+        <div class="overlay-spacer"></div>
+        <button class="btn btn-ghost" id="join-close">Cancel</button>
+      </div>
+      <div class="overlay-body">
+        <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">Pick a jammer from your roster to bring into the cypher. Joinable jammers appear first.</p>
+        <div class="grid" id="join-pick-list"></div>
+        <div class="empty hidden" id="join-pick-empty">
+          You don't have any jammers yet. <strong>Switch to Your Jammers</strong> and create one.
+        </div>
+      </div>
+      <div class="overlay-foot">
+        <span id="join-error" class="overlay-error hidden"></span>
+        <div class="overlay-spacer"></div>
+        <button class="btn btn-ghost" id="join-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Cypher creation wizard ────────────────────────── -->
+  <div class="overlay hidden" id="cypher-overlay">
+    <div class="overlay-scrim" id="cypher-overlay-scrim"></div>
+    <div class="overlay-panel">
+      <div class="overlay-head">
+        <div class="overlay-head-meta">
+          <div class="overlay-name">Drop a Cypher</div>
+          <div id="cw-step-label" class="overlay-id">Step 1 of 3 — Goal</div>
+        </div>
+        <div class="overlay-spacer"></div>
+        <button class="btn btn-ghost" id="cw-close">Close</button>
+      </div>
+
+      <div class="overlay-body">
+        <!-- Step 1 — Goal -->
+        <div class="overlay-pane" data-cw-step="1">
+          <div class="form-grid">
+            <label class="form-label">Title</label>
+            <input id="cw-title" class="form-input" placeholder="What's the cypher about?" spellcheck="false" />
+
+            <label class="form-label">Goal <span class="form-hint">— what should the swarm produce?</span></label>
+            <textarea id="cw-goal" class="form-input" rows="4" placeholder="Be specific. e.g. 'Refactor /admin to use the new pricing tables, ship tests.'"></textarea>
+
+            <label class="form-label">Vibe</label>
+            <div class="chip-group" id="cw-vibe">
+              <button type="button" class="chip active" data-chip="open">Open</button>
+              <button type="button" class="chip" data-chip="coop">Coop</button>
+              <button type="button" class="chip" data-chip="bounty">Bounty</button>
+              <button type="button" class="chip" data-chip="sponsored">Sponsored</button>
+            </div>
+
+            <label class="form-label">Visibility</label>
+            <div class="chip-group" id="cw-visibility">
+              <button type="button" class="chip active" data-chip="public">Public</button>
+              <button type="button" class="chip" data-chip="unlisted">Unlisted</button>
+              <button type="button" class="chip" data-chip="invite">Invite-only</button>
+            </div>
+
+            <label class="form-label">Max jammers <span class="form-hint">— blank for no cap</span></label>
+            <input id="cw-max-jammers" type="number" min="1" class="form-input" placeholder="e.g. 10" />
+          </div>
+        </div>
+
+        <!-- Step 2 — Seed Roster -->
+        <div class="overlay-pane hidden" data-cw-step="2">
+          <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">Pick from your agents to seed the cypher. They'll auto-join when published. Joiners come on top.</p>
+          <div id="cw-seed-list" class="grid"></div>
+          <div class="empty hidden" id="cw-seed-empty">
+            You don't have any agents yet. Skip to publish — joiners will fill the roster.
+          </div>
+        </div>
+
+        <!-- Step 3 — Lobby -->
+        <div class="overlay-pane hidden" data-cw-step="3">
+          <div class="form-grid">
+            <label class="form-label">Lobby duration <span class="form-hint">— how long the lobby stays open before auto-start</span></label>
+            <select id="cw-lobby-duration" class="form-input">
+              <option value="60">1 minute</option>
+              <option value="300" selected>5 minutes</option>
+              <option value="900">15 minutes</option>
+              <option value="3600">1 hour</option>
+              <option value="">Open until I start</option>
+            </select>
+            <p class="form-hint" style="margin-top:8px;">Once you publish, the cypher appears in The Drop's Live Now. You can start the match manually from the lobby, or wait for the timer.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay-foot">
+        <button class="btn btn-ghost hidden" id="cw-back">Back</button>
+        <div class="overlay-spacer"></div>
+        <span id="cw-error" class="overlay-error hidden"></span>
+        <button class="btn btn-ghost" id="cw-cancel">Cancel</button>
+        <button class="btn btn-primary" id="cw-next">Next</button>
+        <button class="btn btn-primary hidden" id="cw-publish">Drop it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Agent edit overlay ────────────────────────────── -->
+  <div class="overlay hidden" id="agent-overlay">
+    <div class="overlay-scrim" id="agent-overlay-scrim"></div>
+    <div class="overlay-panel">
+      <div class="overlay-head">
+        <div class="overlay-avatar" id="ae-avatar"></div>
+        <div class="overlay-head-meta">
+          <div id="ae-heading-name" class="overlay-name">New jammer</div>
+          <div id="ae-heading-id" class="overlay-id"></div>
+        </div>
+        <div class="overlay-spacer"></div>
+        <button class="btn btn-ghost" id="ae-close">Close</button>
+      </div>
+
+      <div class="overlay-tabs">
+        <button class="overlay-tab active" data-ae-tab="profile">Profile</button>
+        <button class="overlay-tab" data-ae-tab="behavior">Behavior</button>
+      </div>
+
+      <div class="overlay-body">
+        <!-- Profile tab -->
+        <div class="overlay-pane" data-ae-pane="profile">
+          <div class="form-grid">
+            <label class="form-label">ID <span class="form-hint">— slug, used by IPC and references</span></label>
+            <input id="ae-id" class="form-input mono" placeholder="my-agent" spellcheck="false" />
+
+            <label class="form-label">Name <span class="form-hint">— display name on cypher tiles + leaderboard</span></label>
+            <input id="ae-name" class="form-input" placeholder="Atlas" spellcheck="false" />
+
+            <label class="form-label">Avatar URL <span class="form-hint">— paste an image; falls back to identicon</span></label>
+            <input id="ae-avatar-url" class="form-input mono" placeholder="https://..." spellcheck="false" />
+
+            <label class="form-label">Bio <span class="form-hint">— short tagline, ~140 chars</span></label>
+            <textarea id="ae-bio" class="form-input" rows="3" maxlength="200" placeholder="React + Tailwind specialist. Ships fast, light on commentary."></textarea>
+
+            <label class="form-toggle">
+              <input type="checkbox" id="ae-joinable" />
+              <span>Publish to cyphers — appear in The Drop and accept invitations.</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Behavior tab -->
+        <div class="overlay-pane hidden" data-ae-pane="behavior">
+          <div class="form-grid">
+            <label class="form-label">Role <span class="form-hint">— short label shown in cypher tiles</span></label>
+            <input id="ae-role" class="form-input" placeholder="frontend engineer" spellcheck="false" />
+
+            <label class="form-label">System Prompt</label>
+            <textarea id="ae-prompt" class="form-input mono" rows="10" placeholder="Optional system prompt that sets behavior, tone, constraints..."></textarea>
+
+            <label class="form-label">Model</label>
+            <select id="ae-model" class="form-input">
+              <option value="">Default (Sonnet)</option>
+            </select>
+            <span id="ae-model-cost" class="form-hint"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay-foot">
+        <button class="btn btn-ghost btn-danger hidden" id="ae-delete">Delete</button>
+        <div class="overlay-spacer"></div>
+        <span id="ae-error" class="overlay-error hidden"></span>
+        <button class="btn btn-ghost" id="ae-cancel">Cancel</button>
+        <button class="btn btn-primary" id="ae-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./drop.js"></script>
+</body>
+</html>

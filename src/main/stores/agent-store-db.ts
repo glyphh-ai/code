@@ -28,6 +28,8 @@ interface AgentRow {
   guardrails_json: string | null;
   remote_json: string | null;
   config_json: string | null;
+  avatar_url: string | null;
+  bio: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +52,8 @@ function rowToAgent(row: AgentRow): AgentConfig {
   if (row.mcp_servers_json) agent.mcp_servers = JSON.parse(row.mcp_servers_json);
   if (row.guardrails_json) agent.guardrails = JSON.parse(row.guardrails_json);
   if (row.remote_json) agent.remote = JSON.parse(row.remote_json);
+  if (row.avatar_url) agent.avatar_url = row.avatar_url;
+  if (row.bio) agent.bio = row.bio;
 
   // Restore extra config fields (model_provider, model_name, etc.)
   if (row.config_json) {
@@ -89,6 +93,8 @@ function agentToParams(cfg: AgentConfig, existingCreatedAt?: string) {
     guardrails_json: cfg.guardrails ? JSON.stringify(cfg.guardrails) : null,
     remote_json: cfg.remote ? JSON.stringify(cfg.remote) : null,
     config_json: Object.keys(extra).length > 0 ? JSON.stringify(extra) : null,
+    avatar_url: cfg.avatar_url || null,
+    bio: cfg.bio || null,
     created_at: existingCreatedAt || cfg.meta?.createdAt || now,
     updated_at: now,
   };
@@ -122,11 +128,11 @@ export function saveAgent(cfg: AgentConfig): AgentConfig {
     INSERT OR REPLACE INTO agents
       (id, name, type, role, system_prompt_enc, joinable, apps_json, skills_json,
        builtin_tools_json, mcp_servers_json, guardrails_json, remote_json, config_json,
-       created_at, updated_at)
+       avatar_url, bio, created_at, updated_at)
     VALUES
       (@id, @name, @type, @role, @system_prompt_enc, @joinable, @apps_json, @skills_json,
        @builtin_tools_json, @mcp_servers_json, @guardrails_json, @remote_json, @config_json,
-       @created_at, @updated_at)
+       @avatar_url, @bio, @created_at, @updated_at)
   `).run(params);
 
   // Return the saved state (re-read to ensure consistency)

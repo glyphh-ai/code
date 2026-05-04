@@ -12,6 +12,7 @@ import {
   renderPaginationBar,
   confirmAction,
 } from "./shared.js";
+import { identiconSvg } from "../identicon.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Agents Registry — local templates + remote reservations
@@ -47,6 +48,8 @@ export interface AgentDef {
   model_provider?: string;
   model_name?: string;
   joinable?: boolean;
+  avatar_url?: string;
+  bio?: string;
   guardrails?: AgentGuardrails;
   remote?: AgentRemote;
   meta?: { createdAt: string; updatedAt: string; description?: string };
@@ -244,6 +247,15 @@ function openAgentDetail(agent: AgentDef): void {
 
   populateModelSelector(agent.model_provider, agent.model_name);
 
+  // Profile fields
+  ($a<HTMLInputElement>("agent-profile-avatar-url")).value = agent.avatar_url || "";
+  ($a<HTMLTextAreaElement>("agent-profile-bio")).value = agent.bio || "";
+  renderProfileAvatarPreview(agent.id, agent.avatar_url);
+  ($a<HTMLInputElement>("agent-profile-avatar-url")).oninput = (e) => {
+    const url = (e.target as HTMLInputElement).value.trim();
+    renderProfileAvatarPreview(agent.id, url || undefined);
+  };
+
   switchAgentTab("general");
   void refreshActiveReservation();
   void loadAgentAppsList();
@@ -388,6 +400,15 @@ function collectAgentSkillsSelection(): string[] {
   return currentAgent?.skills || [];
 }
 
+function renderProfileAvatarPreview(id: string, avatarUrl?: string): void {
+  const el = $a("agent-profile-avatar-preview");
+  if (avatarUrl) {
+    el.innerHTML = `<img src="${escapeHtml(avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.replaceWith(Object.assign(document.createElement('div'),{innerHTML:this.dataset.fallback}).firstChild)" data-fallback='${identiconSvg(id, 96).replace(/'/g, "&#39;")}' />`;
+  } else {
+    el.innerHTML = identiconSvg(id, 96);
+  }
+}
+
 function populateModelSelector(provider?: string, model?: string): void {
   const sel = $a<HTMLSelectElement>("agent-detail-model");
   const costEl = $a("agent-detail-model-cost");
@@ -473,6 +494,8 @@ async function saveCurrentAgent(includeGuardrails = true, includeRemote = false)
     joinable: ($a<HTMLInputElement>("agent-detail-joinable")).checked,
     model_provider: modelProvider,
     model_name: modelName,
+    avatar_url: ($a<HTMLInputElement>("agent-profile-avatar-url")).value.trim() || undefined,
+    bio: ($a<HTMLTextAreaElement>("agent-profile-bio")).value.trim() || undefined,
   };
   cfg.apps = collectAgentAppsSelection();
   cfg.skills = collectAgentSkillsSelection();

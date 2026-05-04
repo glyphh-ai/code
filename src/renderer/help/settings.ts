@@ -19,7 +19,6 @@ const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputE
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
 const toggleCypherAutoTerminate = document.getElementById("toggle-cypher-auto-terminate") as HTMLInputElement;
-const toggleOfferUsage = document.getElementById("toggle-offer-usage") as HTMLInputElement;
 const offerUsageStatus = document.getElementById("offer-usage-status")!;
 const offerUsageClientId = document.getElementById("offer-usage-client-id")!;
 const offerUsageTier = document.getElementById("offer-usage-tier")!;
@@ -36,7 +35,6 @@ const toolOverridesBody = document.getElementById("tool-overrides-body")!;
 
 async function refreshOfferUsageStatus() {
   const s = await window.yo.capabilitiesGetStatus();
-  toggleOfferUsage.checked = s.enabled;
   offerUsageStatus.classList.toggle("hidden", !s.enabled);
   if (!s.enabled) return;
   offerUsageClientId.textContent = s.client_id || "—";
@@ -190,23 +188,9 @@ function initSettings() {
     window.yo.setPreference("cypherAutoTerminate", toggleCypherAutoTerminate.checked);
   });
 
-  // Offer Usage — register/withdraw this client as available worker
-  toggleOfferUsage.addEventListener("change", async () => {
-    const enabled = toggleOfferUsage.checked;
-    toggleOfferUsage.disabled = true;
-    try {
-      const result = await window.yo.capabilitiesSetEnabled(enabled);
-      if (!result.ok) {
-        toggleOfferUsage.checked = false;
-        offerUsageStatus.classList.add("hidden");
-        offerUsageTier.textContent = `Error: ${result.error || "unknown"}`;
-        return;
-      }
-      await refreshOfferUsageStatus();
-    } finally {
-      toggleOfferUsage.disabled = false;
-    }
-  });
+  // Marketplace registration is auto-managed: any joinable jammer keeps
+  // it on; zero joinable jammers means it auto-withdraws. The Settings
+  // panel only renders the resulting status (read-only).
 
   // MCP Expose — port save
   document.getElementById("mcp-expose-port-save")!.addEventListener("click", async () => {
