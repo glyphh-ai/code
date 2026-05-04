@@ -98,14 +98,17 @@ export class YoAgent {
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void {
-    const permChanged =
-      (this._mode === "bypassPermissions") !== (mode === "bypassPermissions") ||
-      (this._mode === "acceptEdits") !== (mode === "acceptEdits") ||
-      (this._mode === "plan") !== (mode === "plan");
+    const changed = this._mode !== mode;
     this._mode = mode;
-    if (permChanged) this.sessionId = null;
+    if (changed) this.sessionId = null;
   }
-  setCouncilMode(on: boolean): void { this._councilMode = on; }
+  setCouncilMode(on: boolean): void {
+    this._councilMode = on;
+    if (on && this._mode === "bypassPermissions") {
+      this._mode = "default";
+      this.sessionId = null;
+    }
+  }
   isCouncilMode(): boolean { return this._councilMode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }

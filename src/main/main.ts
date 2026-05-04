@@ -2252,6 +2252,7 @@ async function boot() {
     // SDK mode without clearing the council flag.
     if (mode === "council") {
       yoAgent.setCouncilMode(true);
+      yoAgent.setMode("default" as any);
       setPreference("agentMode", "council");
       mainWindow?.webContents.send("agent-mode-changed", "council");
       yoInterceptor.setAgentMode("council");
