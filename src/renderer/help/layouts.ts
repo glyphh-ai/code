@@ -158,7 +158,12 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   renderGridPreview();
 
   type PickerOption = { id: string; label: string };
-  const apps = await window.yo.appsList();
+  let apps: Array<{ id: string; name: string }>;
+  try {
+    apps = await window.yo.appsList();
+  } catch {
+    apps = [];
+  }
   const options: PickerOption[] = apps.map((a) => ({ id: a.id, label: a.name }));
 
   const picker = document.createElement("div");

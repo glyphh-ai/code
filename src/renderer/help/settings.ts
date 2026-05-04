@@ -11,14 +11,11 @@ const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonEl
 const settingsStatus = document.getElementById("settings-status")!;
 
 const toggleVoiceInput = document.getElementById("toggle-voice-input") as HTMLInputElement;
-const voiceKeyWrap = document.getElementById("voice-key-wrap")!;
-const settingsVoiceKey = document.getElementById("settings-voice-key") as HTMLInputElement;
 const toggleRemote = document.getElementById("toggle-remote") as HTMLInputElement;
 const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowTabs = document.getElementById("toggle-show-tabs") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
-const toggleCypherAutoTerminate = document.getElementById("toggle-cypher-auto-terminate") as HTMLInputElement;
 const offerUsageStatus = document.getElementById("offer-usage-status")!;
 const offerUsageClientId = document.getElementById("offer-usage-client-id")!;
 const offerUsageTier = document.getElementById("offer-usage-tier")!;
@@ -30,7 +27,6 @@ const settingsBrowserHome = document.getElementById("settings-browser-home") as 
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
-const toolOverridesBody = document.getElementById("tool-overrides-body")!;
 
 
 async function refreshOfferUsageStatus() {
@@ -154,21 +150,10 @@ function initSettings() {
     const bar = document.getElementById("settings-relaunch")!;
     if (bar) bar.classList.remove("hidden");
   };
-  // Voice input toggle + key
   toggleVoiceInput.addEventListener("change", () => {
     window.yo.setPreference("voiceEnabled", toggleVoiceInput.checked);
-    voiceKeyWrap.classList.toggle("hidden", !toggleVoiceInput.checked);
-    // Show/hide mic button immediately
     const micBtn = document.getElementById("yo-panel-mic");
     if (micBtn) micBtn.style.display = toggleVoiceInput.checked ? "" : "none";
-  });
-  const voiceKeySaveBtn = document.getElementById("voice-key-save")!;
-  const voiceKeyStatus = document.getElementById("voice-key-status")!;
-  voiceKeySaveBtn.addEventListener("click", () => {
-    window.yo.setPreference("voiceApiKey", settingsVoiceKey.value.trim());
-    voiceKeyStatus.textContent = "Saved";
-    voiceKeyStatus.className = "settings-success";
-    setTimeout(() => { voiceKeyStatus.textContent = ""; }, 2000);
   });
 
   toggleRemote.addEventListener("change", () => {
@@ -184,9 +169,6 @@ function initSettings() {
     showRelaunch();
   });
 
-  toggleCypherAutoTerminate.addEventListener("change", () => {
-    window.yo.setPreference("cypherAutoTerminate", toggleCypherAutoTerminate.checked);
-  });
 
   // Marketplace registration is auto-managed: any joinable jammer keeps
   // it on; zero joinable jammers means it auto-withdraws. The Settings
@@ -303,7 +285,38 @@ async function loadSettings() {
     window.yo.getAuthStatus(),
   ]);
 
-  settingsModelSelect.value = config.model;
+  // Populate model dropdown — SDK agent only supports Anthropic models
+  const modelsResult = await window.yo.modelsList().catch(() => null);
+  settingsModelSelect.innerHTML = "";
+  const sdkModels = modelsResult && "models" in modelsResult
+    ? modelsResult.models.filter((m: any) => m.provider === "anthropic")
+    : [];
+  if (sdkModels.length > 0) {
+    const minCost = Math.min(...sdkModels.map((m: any) => m.yos_per_1k_output || 1));
+    for (const m of sdkModels) {
+      const mult = Math.round(m.yos_per_1k_output / minCost);
+      const opt = document.createElement("option");
+      opt.value = `${m.provider}::${m.model}`;
+      opt.textContent = mult <= 1 ? m.display_name : `${m.display_name} (${mult}x yos)`;
+      settingsModelSelect.appendChild(opt);
+    }
+  } else {
+    for (const fallback of [
+      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (3x yos)" },
+      { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6 (5x yos)" },
+      { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+    ]) {
+      const opt = document.createElement("option");
+      opt.value = `${fallback.provider}::${fallback.model}`;
+      opt.textContent = fallback.label;
+      settingsModelSelect.appendChild(opt);
+    }
+  }
+  settingsModelSelect.value = `${config.provider || "anthropic"}::${config.model}`;
+  const hintEl = document.getElementById("settings-model-hint");
+  if (hintEl && modelsResult && "default_model" in modelsResult && modelsResult.default_model) {
+    hintEl.textContent = `Org default: ${modelsResult.default_model}`;
+  }
 
   // Account info
   const emailEl = document.getElementById("account-email")!;
@@ -342,12 +355,9 @@ async function loadSettings() {
   toggleShowTabs.checked = await window.yo.getPreference("showTabs", true) as boolean;
   toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;
-  voiceKeyWrap.classList.toggle("hidden", !toggleVoiceInput.checked);
-  settingsVoiceKey.value = await window.yo.getPreference("voiceApiKey", "") as string;
   toggleRemote.checked = await window.yo.getPreference("remoteEnabled", false) as boolean;
   toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
-  toggleCypherAutoTerminate.checked = await window.yo.getPreference("cypherAutoTerminate", false) as boolean;
   await refreshOfferUsageStatus();
 
   // MCP Expose — gate behind Advanced tier
@@ -376,48 +386,6 @@ async function loadSettings() {
   const currentMode = await window.yo.getAgentMode();
   settingsAgentMode.value = currentMode;
 
-  // Tool overrides table
-  const tools = await window.yo.getToolRegistry();
-  toolOverridesBody.innerHTML = "";
-  for (const tool of tools) {
-    const tr = document.createElement("tr");
-    tr.className = "tool-row";
-
-    const tdName = document.createElement("td");
-    tdName.className = "tool-td-name";
-    tdName.textContent = tool.label;
-
-    const tdDesc = document.createElement("td");
-    tdDesc.className = "tool-td-desc";
-    tdDesc.textContent = tool.description;
-
-    const tdTier = document.createElement("td");
-    tdTier.className = "tool-td-tier";
-    const tierBadge = document.createElement("span");
-    tierBadge.className = `tool-tier-badge tier-${tool.tier}`;
-    tierBadge.textContent = tool.tier;
-    tdTier.appendChild(tierBadge);
-
-    const tdPerm = document.createElement("td");
-    tdPerm.className = "tool-td-perm";
-    const select = document.createElement("select");
-    select.className = "tool-perm-select";
-    select.innerHTML =
-      `<option value="default"${tool.override === "default" ? " selected" : ""}>Default</option>` +
-      `<option value="auto"${tool.override === "auto" ? " selected" : ""}>Auto</option>` +
-      `<option value="ask"${tool.override === "ask" ? " selected" : ""}>Ask</option>` +
-      `<option value="off"${tool.override === "off" ? " selected" : ""}>Off</option>`;
-    select.addEventListener("change", () => {
-      window.yo.setToolOverride(tool.name, select.value);
-    });
-    tdPerm.appendChild(select);
-
-    tr.appendChild(tdName);
-    tr.appendChild(tdDesc);
-    tr.appendChild(tdTier);
-    tr.appendChild(tdPerm);
-    toolOverridesBody.appendChild(tr);
-  }
 
   // Browser homepage
   const homePref = await window.yo.getPreference("browserHomepage", "claude") as string;
@@ -429,13 +397,14 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const model = settingsModelSelect.value;
+  const val = settingsModelSelect.value;
+  const [provider, model] = val.includes("::") ? val.split("::") : ["anthropic", val];
 
   settingsSaveBtn.disabled = true;
   settingsSaveBtn.textContent = "Saving...";
   settingsStatus.textContent = "";
 
-  const config = { provider: "anthropic", model };
+  const config = { provider, model };
 
   const result = await window.yo.saveLLMConfig(config);
   settingsSaveBtn.disabled = false;

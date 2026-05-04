@@ -1,40 +1,31 @@
 /**
- * Transcriber — speech-to-text via OpenAI Whisper API.
+ * Transcriber — speech-to-text via server-proxied Whisper.
  *
  * Accepts raw 16kHz mono Float32Array audio from the renderer,
- * encodes to WAV, and sends to OpenAI's transcription endpoint.
- * Requires the user to provide their own OpenAI API key.
+ * encodes to WAV, and sends to the yo-server transcription proxy.
  */
 
-import { getPreference } from "./preferences";
-
-const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
+import { AUTH_SERVER, getAuthToken } from "./auth";
 
 export class Transcriber {
-  /** Transcribe raw 16kHz mono Float32Array audio via OpenAI Whisper. */
   async transcribe(audio: Float32Array): Promise<string> {
-    const apiKey = getPreference<string>("voiceApiKey", "");
-    if (!apiKey) throw new Error("No OpenAI key configured for voice input");
+    const token = getAuthToken();
+    if (!token) throw new Error("Not authenticated — sign in to use voice input");
 
-    // Encode Float32 PCM → 16-bit WAV
     const wav = encodeWav(audio, 16000);
 
-    // Build multipart form data
-    const blob = new Blob([wav], { type: "audio/wav" });
-    const form = new FormData();
-    form.append("file", blob, "voice.wav");
-    form.append("model", "whisper-1");
-    form.append("language", "en");
-
-    const res = await fetch(WHISPER_URL, {
+    const res = await fetch(`${AUTH_SERVER}/api/llm/transcribe`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "audio/wav",
+      },
+      body: wav,
     });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`Whisper API ${res.status}: ${body}`);
+      throw new Error(`Transcription ${res.status}: ${body}`);
     }
 
     const data: any = await res.json();

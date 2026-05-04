@@ -217,7 +217,7 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
-      onYoPanelCouncilReady: (cb: (info: { name: string; members: string[]; style: string; round_cap: number }) => void) => void;
+      onYoPanelCouncilReady: (cb: (info: { name: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => void) => void;
       // Yo panel resize
       yoPanelResize: (width: number) => void;
       yoPanelWidthSave: (width: number) => void;
@@ -1305,6 +1305,87 @@ function playDrip(effect: string) {
 
 window.yo.onDripEffect(playDrip);
 
+// -- Drip picker tray --
+
+const EFFECT_EMOJI: Record<string, string> = {
+  fireworks: "🎆", hearts: "❤️", confetti: "🎊", stars: "⭐",
+  rain: "🌧️", bubbles: "🫧", sparkle: "✨", spiral: "🌀",
+  emoji: "😀", wave: "🌊", thumbsup: "👍", peace: "✌️",
+  cat: "🐱", matrix: "🟩", aurora: "🌌", nebula: "💜",
+  plasma: "🔮", fireflies: "🪲", starfield: "🌠",
+};
+
+const dripPicker = document.getElementById("drip-picker")!;
+const dripPickerBuiltin = document.getElementById("drip-picker-builtin")!;
+const dripPickerCustom = document.getElementById("drip-picker-custom")!;
+const dripPickerDivider = document.getElementById("drip-picker-custom-divider")!;
+const dripBtn = document.getElementById("yo-panel-drip")!;
+let dripPickerOpen = false;
+
+function makeDripTile(name: string, recipe: string, emoji: string): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.className = "drip-picker-tile";
+  btn.innerHTML = `<span class="drip-tile-icon">${emoji}</span><span class="drip-tile-label">${name}</span>`;
+  btn.addEventListener("click", () => {
+    window.yo.dripsPreview(recipe);
+    closeDripPicker();
+  });
+  return btn;
+}
+
+async function populateDripPicker() {
+  dripPickerBuiltin.innerHTML = "";
+  dripPickerCustom.innerHTML = "";
+  const [builtins, customs] = await Promise.all([
+    window.yo.dripsBuiltinEffects().catch(() => [] as string[]),
+    window.yo.dripsList().catch(() => [] as Array<{ name: string; recipe: string }>),
+  ]);
+  for (const name of builtins) {
+    dripPickerBuiltin.appendChild(makeDripTile(name, name, EFFECT_EMOJI[name] || "🎨"));
+  }
+  if (customs.length > 0) {
+    dripPickerDivider.style.display = "";
+    for (const c of customs) {
+      dripPickerCustom.appendChild(makeDripTile(c.name, c.recipe, "🎨"));
+    }
+  } else {
+    dripPickerDivider.style.display = "none";
+  }
+}
+
+function openDripPicker() {
+  populateDripPicker();
+  const inputWrap = document.querySelector(".yo-panel-input-wrap") as HTMLElement;
+  const controls = document.querySelector(".yo-panel-controls") as HTMLElement;
+  const offset = (inputWrap?.offsetHeight || 70) + (controls?.offsetHeight || 30) + 6;
+  dripPicker.style.bottom = offset + "px";
+  dripPicker.classList.remove("hidden");
+  requestAnimationFrame(() => dripPicker.classList.add("visible"));
+  dripPickerOpen = true;
+}
+
+function closeDripPicker() {
+  dripPicker.classList.remove("visible");
+  dripPickerOpen = false;
+  setTimeout(() => { if (!dripPickerOpen) dripPicker.classList.add("hidden"); }, 150);
+}
+
+dripBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (dripPickerOpen) closeDripPicker();
+  else openDripPicker();
+});
+
+document.addEventListener("click", (e) => {
+  if (dripPickerOpen && !dripPicker.contains(e.target as Node) && e.target !== dripBtn) {
+    closeDripPicker();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && dripPickerOpen) closeDripPicker();
+});
+
 // -- Yo agent slide-out panel --
 
 const yoPanel = document.getElementById("yo-panel")!;
@@ -1592,6 +1673,8 @@ function closeYoPanel() {
 function isYoPanelOpen(): boolean {
   return yoPanel.classList.contains("open");
 }
+
+
 
 function addYoUserMessage(text: string) {
   const el = document.createElement("div");
@@ -2177,7 +2260,7 @@ function showYoError(err: string) {
 }
 
 function autoGrowYoInput() {
-  yoPanelInput.style.height = "44px";
+  yoPanelInput.style.height = "40px";
   yoPanelInput.style.height = Math.min(yoPanelInput.scrollHeight, 160) + "px";
 }
 
@@ -2239,7 +2322,7 @@ window.yo.onYoPanelCouncilReady((info) => {
   hideYoWelcome();
   const el = document.createElement("div");
   el.className = "yo-msg yo-msg-assistant";
-  const members = info.members.map((m: string) => `<strong>${m}</strong>`).join(", ");
+  const members = info.members.map((m: any) => `<strong>${typeof m === "string" ? m : m.model || m.provider}</strong>`).join(", ");
   el.innerHTML = `<div style="margin-bottom:8px"><strong>Council "${info.name}"</strong> is ready.</div>` +
     `<div style="font-size:12px;color:var(--text-2);margin-bottom:8px">${members}<br>Style: ${info.style} &middot; ${info.round_cap} rounds max</div>` +
     `<div style="font-size:12px;color:var(--text-3)">` +

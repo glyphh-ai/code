@@ -99,7 +99,6 @@
                 <span id="dash-yos-amount" style="font-size:32px;font-weight:700;color:var(--accent);font-family:'SF Mono','Fira Code',monospace;">—</span>
                 <span style="font-size:14px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.5px;">yos</span>
               </div>
-              <div id="dash-yos-hint" style="font-size:11px;color:var(--text-2);margin-top:4px;">Spend on cyphers · earn by serving them</div>
             </div>
             <button id="dash-yos-buy-btn" class="action-btn primary" style="font-size:13px;padding:8px 16px;">Buy yos</button>
           </div>
@@ -1370,12 +1369,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <h2>General</h2>
                 <p class="section-desc">AI model selection. All calls are proxied through yo — no API key needed.</p>
                 <div class="settings-form">
-                  <label class="settings-label">Model</label>
+                  <label class="settings-label">Yo Agent Model</label>
                   <select id="settings-model-select" class="settings-input">
-                    <option value="claude-opus-4-6">Opus — 5x</option>
-                    <option value="claude-sonnet-4-6" selected>Sonnet — 3x</option>
-                    <option value="claude-haiku-4-5-20251001">Haiku — 1x</option>
+                    <option value="">Loading models...</option>
                   </select>
+                  <span id="settings-model-hint" class="settings-hint" style="margin-top:4px;display:block;font-size:11px;color:var(--text-3);"></span>
 
                   <div class="settings-actions">
                     <button id="settings-save" class="action-btn primary">Save</button>
@@ -1401,19 +1399,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                 </div>
 
-                <h3 class="settings-subheading">Tool Permissions</h3>
-                <p class="section-desc">Override the mode for individual tools. "Default" uses the global mode above.</p>
-                <table class="tool-table" id="tool-overrides-table">
-                  <thead>
-                    <tr>
-                      <th class="tool-th-name">Tool</th>
-                      <th class="tool-th-desc">Description</th>
-                      <th class="tool-th-tier">Tier</th>
-                      <th class="tool-th-perm">Permission</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tool-overrides-body"></tbody>
-                </table>
               </div>
 
               <!-- Appearance: Tabs, URL bar, Browser home -->
@@ -1570,14 +1555,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <h2>Advanced</h2>
                 <p class="section-desc">Optional services and system settings.</p>
                 <div class="settings-toggles">
-                  <label class="settings-toggle">
-                    <input type="checkbox" id="toggle-cypher-auto-terminate" />
-                    <span class="toggle-switch"></span>
-                    <div class="toggle-info">
-                      <span class="toggle-title">Auto-terminate cyphers on suspicious sandbox access</span>
-                      <span class="toggle-desc">When on, the cypher runtime kills the session and posts an audit event if the sandbox dir is touched by anything other than the agent process. Best-effort; trips on legit OS background tasks too — leave off unless you're handling sensitive code.</span>
-                    </div>
-                  </label>
                   <div id="offer-usage-status" class="settings-form hidden" style="margin: 4px 0 16px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-2);">
                     <div style="font-weight: 600; color: var(--text); margin-bottom: 6px;">Marketplace registration</div>
                     <div style="font-size: 11px; color: var(--text-3); margin-bottom: 8px;">Auto-managed by your jammers — listed when at least one is joinable.</div>
@@ -1590,17 +1567,9 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     <span class="toggle-switch"></span>
                     <div class="toggle-info">
                       <span class="toggle-title">Voice Input</span>
-                      <span class="toggle-desc">Enable mic button in .yo panel — uses OpenAI Whisper for transcription</span>
+                      <span class="toggle-desc">Enable mic button in .yo panel — uses Whisper for transcription via proxy</span>
                     </div>
                   </label>
-                  <div id="voice-key-wrap" class="settings-form hidden" style="margin: 8px 0 16px 44px;">
-                    <label class="settings-label" style="color:var(--text-2);">OpenAI Key <span style="color:var(--text-muted); font-weight:400;">(for Whisper only)</span></label>
-                    <input id="settings-voice-key" type="password" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off" />
-                    <div class="settings-actions" style="margin-top: 8px;">
-                      <button id="voice-key-save" class="action-btn primary">Save</button>
-                      <span id="voice-key-status"></span>
-                    </div>
-                  </div>
                   <!-- Voice Remote (hidden until stable) -->
                   <label class="settings-toggle" id="voice-remote-toggle" style="display:none;">
                     <input type="checkbox" id="toggle-remote" />

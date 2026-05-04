@@ -13,7 +13,7 @@ const CONFIG_DIR = path.join(os.homedir(), "yo");
 const LLM_CONFIG_FILE = path.join(CONFIG_DIR, ".llm");
 
 export interface LLMConfig {
-  provider: "anthropic";
+  provider: string;
   model: string;
 }
 
@@ -36,7 +36,7 @@ export function loadLLMConfig(): LLMConfig {
       const raw = fs.readFileSync(LLM_CONFIG_FILE, "utf-8");
       const config = JSON.parse(raw) as LLMConfig & { apiKey?: string; provider?: string };
       delete config.apiKey;
-      config.provider = "anthropic";
+      if (!config.provider) config.provider = "anthropic";
       const newModel = MODEL_MIGRATIONS[config.model];
       if (newModel) {
         config.model = newModel;

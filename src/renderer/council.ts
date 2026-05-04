@@ -82,27 +82,73 @@ const layoutState = {
 };
 const memberRawText = new Map<string, string>();
 
-const RUN_FRAMES = ["⠁", "⠈", "⠐", "⠠", "⠄", "⠂"];
-const memberSpinners = new Map<HTMLElement, ReturnType<typeof setInterval>>();
+const TRAIL_CHARS = ["⠁", "⠃", "⠇", "⠧", "⠷", "⠿", "⠾", "⠼", "⠸", "⠰", "⠠", " "];
+const memberSpinners = new Map<HTMLElement, ReturnType<typeof requestAnimationFrame>>();
 
 function startMemberSpinner(el: HTMLElement): void {
-  let fi = 0;
-  let pos = 0;
-  const width = 100;
-  const step = 2;
-  const iv = setInterval(() => {
-    fi = (fi + 1) % RUN_FRAMES.length;
-    pos = (pos + step) % width;
-    el.textContent = RUN_FRAMES[fi];
-    el.style.transform = `translateX(${pos}px)`;
-  }, 60);
-  memberSpinners.set(el, iv);
+  el.style.cssText = "display:inline-flex;align-items:flex-end;gap:0;height:18px;overflow:hidden;font-size:14px;min-width:120px;";
+  el.innerHTML = "";
+  const dot = document.createElement("span");
+  dot.style.cssText = "display:inline-block;width:8px;height:8px;border-radius:50%;background:#25C75E;box-shadow:0 0 6px #25C75Eaa;flex-shrink:0;position:relative;bottom:0;";
+  el.appendChild(dot);
+
+  const trail = document.createElement("span");
+  trail.style.cssText = "color:#25C75E88;font-size:11px;letter-spacing:1px;line-height:18px;white-space:pre;";
+  el.appendChild(trail);
+
+  let t = 0;
+  const bounceDur = 600;
+  const slideDur = 1400;
+  const cycle = bounceDur * 3 + slideDur;
+  let start = performance.now();
+  let trailBuf = "";
+
+  function frame(now: number) {
+    t = (now - start) % cycle;
+    if (t < bounceDur * 3) {
+      const bt = (t % bounceDur) / bounceDur;
+      const y = -Math.abs(Math.sin(bt * Math.PI)) * 10;
+      dot.style.transform = `translateY(${y}px)`;
+      trail.textContent = "";
+      trailBuf = "";
+    } else {
+      const st = (t - bounceDur * 3) / slideDur;
+      dot.style.transform = `translateX(${st * 80}px)`;
+      const trailLen = Math.floor(st * 8);
+      let s = "";
+      for (let i = 0; i < trailLen; i++) {
+        const age = trailLen - i;
+        s += TRAIL_CHARS[Math.min(age, TRAIL_CHARS.length - 1)];
+      }
+      if (s !== trailBuf) { trailBuf = s; trail.textContent = s; }
+    }
+    const id = requestAnimationFrame(frame);
+    memberSpinners.set(el, id);
+  }
+  const id = requestAnimationFrame(frame);
+  memberSpinners.set(el, id);
 }
 
 function stopMemberSpinner(el: HTMLElement): void {
-  const iv = memberSpinners.get(el);
-  if (iv) { clearInterval(iv); memberSpinners.delete(el); }
+  const id = memberSpinners.get(el);
+  if (id) { cancelAnimationFrame(id); memberSpinners.delete(el); }
   el.remove();
+}
+
+function wireCodeCopy(container: HTMLElement): void {
+  container.querySelectorAll<HTMLButtonElement>(".yo-md-copy-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const codeId = btn.dataset.codeId;
+      if (!codeId) return;
+      const block = container.querySelector(`.yo-md-codeblock[data-code-id="${codeId}"] code`);
+      if (!block) return;
+      navigator.clipboard.writeText(block.textContent || "").catch(() => {});
+      btn.textContent = "Copied";
+      btn.classList.add("yo-copied");
+      setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("yo-copied"); }, 2000);
+    });
+  });
 }
 
 // Per-message DOM refs so token streams append to the right element
@@ -120,14 +166,20 @@ function brandFor(provider: string): string {
   return "generic";
 }
 
-function badgeLetterFor(provider: string, model: string): string {
+const BRAND_LOGOS: Record<string, string> = {
+  anthropic: "https://assets.pipedream.net/s.v0/app_1dBhqA/logo/orig",
+  openai:    "https://assets.pipedream.net/s.v0/app_mWnhBo/logo/orig",
+  google:    "https://assets.pipedream.net/s.v0/app_ArhjGP/logo/orig",
+  xai:       "https://assets.pipedream.net/s.v0/app_9zh0ye/logo/orig",
+  perplexity:"https://assets.pipedream.net/s.v0/app_7Lho0v/logo/orig",
+};
+
+function badgeImgFor(provider: string, model: string): string {
   const b = brandFor(provider);
-  if (b === "anthropic") return "C";
-  if (b === "openai") return "G";
-  if (b === "google") return "✦";
-  if (b === "xai") return "X";
-  if (b === "perplexity") return "P";
-  return (model || provider || "?").charAt(0).toUpperCase();
+  const url = BRAND_LOGOS[b];
+  if (url) return `<img src="${url}" alt="${b}" />`;
+  const letter = (model || provider || "?").charAt(0).toUpperCase();
+  return `<span class="member-badge-initial">${letter}</span>`;
 }
 
 function renderMembers(): void {
@@ -283,9 +335,24 @@ function enterLayout(councilId: string, name: string): void {
   void council.councilSetCurrent(councilId);
 }
 
+async function confirmAction(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("confirm-modal")!;
+    document.getElementById("confirm-message")!.textContent = message;
+    overlay.classList.remove("hidden");
+    const yesBtn = document.getElementById("confirm-yes")!;
+    const noBtn = document.getElementById("confirm-no")!;
+    function cleanup() { overlay.classList.add("hidden"); yesBtn.removeEventListener("click", onYes); noBtn.removeEventListener("click", onNo); }
+    function onYes() { cleanup(); resolve(true); }
+    function onNo() { cleanup(); resolve(false); }
+    yesBtn.addEventListener("click", onYes);
+    noBtn.addEventListener("click", onNo);
+  });
+}
+
 async function endCouncil(): Promise<void> {
   if (!layoutState.councilId) return;
-  if (!confirm("End this council? In-flight responses are stopped and the session terminates.")) return;
+  if (!await confirmAction("End this council? In-flight responses are stopped and the session terminates.")) return;
   await council.councilEnd(layoutState.councilId).catch(() => {});
   void council.councilSetCurrent(null);
   if (layoutState.unsubscribeEvents) layoutState.unsubscribeEvents();
@@ -312,8 +379,8 @@ function renderRoster(): void {
     const tile = document.createElement("div");
     tile.className = "member-tile" + (m.id === layoutState.focused ? " active" : "");
     tile.innerHTML = `
-      <div class="member-badge brand-${brandFor(m.provider)}">
-        ${escapeHtml(badgeLetterFor(m.provider, m.model))}
+      <div class="member-badge">
+        ${badgeImgFor(m.provider, m.model)}
         <span class="member-status-dot ${status}"></span>
       </div>
       <div class="member-meta">
@@ -385,7 +452,7 @@ function handleCouncilEvent(ev: CouncilEvent): void {
       if (!bodyEl) break;
       const spinner = bodyEl.querySelector(".yo-ag-spinner");
       if (spinner) stopMemberSpinner(spinner as HTMLElement);
-      bodyEl.appendChild(document.createTextNode(ev.text));
+      bodyEl.innerHTML = formatMarkdown(memberRawText.get(ev.member_id) ?? "");
       const stream = $("stream-body");
       if (stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 50) {
         stream.scrollTop = stream.scrollHeight;
@@ -407,6 +474,15 @@ function handleCouncilEvent(ev: CouncilEvent): void {
             el.classList.add("msg-error");
           } else if (raw) {
             bodyEl.innerHTML = formatMarkdown(raw);
+            wireCodeCopy(bodyEl as HTMLElement);
+            el.classList.add("msg-collapsible", "msg-collapsed");
+            const headEl = el.querySelector(".msg-head") as HTMLElement | null;
+            if (headEl) {
+              headEl.style.cursor = "pointer";
+              headEl.addEventListener("click", () => {
+                el.classList.toggle("msg-collapsed");
+              });
+            }
           }
         }
       }

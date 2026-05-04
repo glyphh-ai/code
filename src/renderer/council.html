@@ -169,7 +169,7 @@
   .msg-head .who { font-weight: 700; color: var(--text); }
   .msg-head .role { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
   .msg-head .round { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: var(--accent-glow); padding: 1px 6px; border-radius: 3px; }
-  .msg-body { color: var(--text-2); font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; padding-left: 2px; }
+  .msg-body { color: var(--text-2); font-size: 13px; line-height: 1.55; word-wrap: break-word; padding-left: 2px; }
   .msg.moderator .msg-body { color: var(--accent); font-style: italic; }
   .msg.system .msg-body { color: var(--text-3); font-style: italic; }
   .msg.council-topic { border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 16px; }
@@ -178,11 +178,59 @@
   .msg.msg-error .msg-body { color: var(--danger); }
   .inline-error { color: var(--danger); font-size: 11px; display: block; margin-top: 4px; }
 
+  /* Collapsible member responses */
+  .msg.msg-collapsible {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0;
+    overflow: hidden;
+  }
+  .msg.msg-collapsible .msg-head {
+    padding: 10px 12px;
+    margin-bottom: 0;
+    cursor: pointer;
+    position: relative;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease;
+  }
+  .msg.msg-collapsible:not(.msg-collapsed) .msg-head {
+    border-bottom-color: var(--border);
+  }
+  .msg.msg-collapsible .msg-head::after {
+    content: "▾";
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: var(--text-3);
+    transition: transform 0.2s ease;
+  }
+  .msg.msg-collapsed .msg-head::after {
+    content: "▸";
+  }
+  .msg.msg-collapsible .msg-body {
+    position: relative;
+    padding: 10px 12px;
+    transition: max-height 0.25s ease;
+  }
+  .msg.msg-collapsed .msg-body {
+    max-height: 4.8em;
+    overflow: hidden;
+  }
+  .msg.msg-collapsed .msg-body::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 24px;
+    background: linear-gradient(to bottom, transparent, var(--surface));
+    pointer-events: none;
+  }
+
   .yo-ag-spinner {
-    display: inline-block;
-    width: 12px;
-    text-align: left;
-    font-size: 16px;
+    display: inline-flex;
+    min-width: 120px;
+    height: 18px;
   }
 
   /* Roster column */
@@ -204,12 +252,18 @@
     display: flex; align-items: center; justify-content: center;
     font-family: var(--font-mono); font-weight: 800; font-size: 13px;
     background: var(--surface-3); position: relative;
+    overflow: hidden;
   }
-  .member-badge.brand-anthropic { background: #d97757; color: #fff; }
-  .member-badge.brand-openai    { background: #10a37f; color: #fff; }
-  .member-badge.brand-google    { background: #4285f4; color: #fff; }
-  .member-badge.brand-xai       { background: #1a1a1a; color: #fff; border: 1px solid var(--border-2); }
-  .member-badge.brand-perplexity { background: #1f6feb; color: #fff; }
+  .member-badge img {
+    width: 32px; height: 32px; border-radius: 6px;
+    object-fit: contain;
+  }
+  .member-badge-initial {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+    font-family: var(--font-mono); font-weight: 800; font-size: 13px;
+    color: var(--text-2);
+  }
   .member-status-dot {
     position: absolute; right: -2px; bottom: -2px;
     width: 10px; height: 10px; border-radius: 50%;
@@ -224,6 +278,32 @@
   .member-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* ── Markdown rendering ───────────────────────── */
+  .yo-md-p { margin: 0 0 8px; line-height: 1.55; }
+  .yo-md-p:last-child { margin-bottom: 0; }
+  .yo-md-h1, .yo-md-h2, .yo-md-h3, .yo-md-h4 { color: var(--text); font-weight: 600; margin: 14px 0 6px; line-height: 1.3; }
+  .yo-md-h1 { font-size: 15px; }
+  .yo-md-h2 { font-size: 14px; }
+  .yo-md-h3 { font-size: 13px; }
+  .yo-md-h4 { font-size: 13px; }
+  .yo-md-inline { background: var(--border); color: var(--code-inline, #e0e0e0); padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono); font-size: 12px; }
+  .yo-md-link { color: var(--accent); text-decoration: none; }
+  .yo-md-link:hover { text-decoration: underline; }
+  .yo-md-ul, .yo-md-ol { margin: 4px 0 8px; padding-left: 20px; }
+  .yo-md-ul li, .yo-md-ol li { margin: 2px 0; line-height: 1.55; }
+  .yo-md-ul { list-style: disc; }
+  .yo-md-ol { list-style: decimal; }
+  .yo-md-quote { border-left: 3px solid var(--accent); padding: 4px 12px; margin: 6px 0; color: var(--text-2); font-style: italic; white-space: pre-wrap; }
+  .yo-md-hr { border: none; border-top: 1px solid var(--border-2, rgba(255,255,255,0.08)); margin: 10px 0; }
+  .yo-md-codeblock { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+  .yo-md-codeblock-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .yo-md-codeblock-lang { font-size: 11px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .yo-md-copy-btn { background: none; border: 1px solid var(--border-3, rgba(255,255,255,0.06)); border-radius: 4px; color: var(--text-3); font-size: 11px; padding: 2px 8px; cursor: pointer; font-family: inherit; transition: color 0.15s, border-color 0.15s; }
+  .yo-md-copy-btn:hover { color: var(--text); border-color: var(--text-muted, #666); }
+  .yo-md-copy-btn.yo-copied { color: var(--accent); border-color: rgba(37,199,94,0.33); }
+  .yo-md-pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text); white-space: pre; max-height: 300px; overflow-y: auto; }
+  .yo-md-pre code { font-family: inherit; font-size: inherit; }
 </style>
 </head>
 <body>
@@ -300,6 +380,17 @@
       <button class="roster-back-btn hidden" id="roster-back">← All</button>
     </div>
     <div class="roster-body" id="roster-body"></div>
+  </div>
+</div>
+
+<!-- ── Confirm modal ──────────────────────────────────── -->
+<div id="confirm-modal" class="confirm-overlay hidden">
+  <div class="confirm-box">
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button id="confirm-yes" class="action-btn danger">End</button>
+      <button id="confirm-no" class="action-btn">Cancel</button>
+    </div>
   </div>
 </div>
 

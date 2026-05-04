@@ -1,12 +1,12 @@
 /**
- * Action Gate — tool tier registry and permission gating.
- *
- * Each tool is classified as "observe" (read-only, safe) or "mutate" (side effects).
- * The gate checks the current mode + per-tool overrides to decide whether a tool
- * call should execute, wait for user approval, or be skipped.
+ * Action Gate — permission mode helpers and tool label registry.
  *
  * Mode names match the Claude Agent SDK's `permissionMode` values 1:1 so the
  * mode can be passed straight through to `sdk.query({ options: { permissionMode } })`.
+ *
+ * The SDK's native permission handling governs tool execution. This module
+ * provides mode persistence, label lookups for the approval UI, and the
+ * gate() function that maps mode → decision without per-tool overrides.
  */
 
 import { getPreference } from "./preferences";
@@ -14,58 +14,8 @@ import { isDestructiveTool } from "./substrate/tools";
 
 export type AgentMode = "plan" | "default" | "acceptEdits" | "bypassPermissions";
 export type ToolTier = "observe" | "mutate";
-export type ToolOverride = "default" | "auto" | "ask" | "off";
 
 export type GateDecision = "execute" | "needs_approval" | "skip";
-
-const TOOL_TIERS: Record<string, ToolTier> = {
-  // Orchestrator tools
-  search_captures:   "observe",
-  get_context:       "observe",
-  format:            "observe",
-  save_memory:       "observe",
-  search_notes:      "observe",
-  read_file:         "observe",
-  list_files:        "observe",
-  run_command:       "observe",
-  delegate_navigate: "observe",
-  delegate_layout:   "observe",
-  // Navigator sub-agent tools
-  list_panels:       "observe",
-  scan_panel:        "observe",
-  grab_panel:        "observe",
-  click_element:     "mutate",
-  navigate_panel:    "mutate",
-  type_text:         "mutate",
-  open_panel:        "mutate",
-  open_background:   "mutate",
-  screenshot_panel:  "observe",
-  wait_for_response: "observe",
-  refresh_panel:     "mutate",
-  // Layout sub-agent tools
-  switch_panel:      "mutate",
-  split_view:        "mutate",
-  grid_layout:       "mutate",
-  swap_cell:         "mutate",
-  apply_layout:      "mutate",
-  save_layout:       "mutate",
-  delete_layout:     "mutate",
-  list_layouts:      "observe",
-  go_back:           "mutate",
-  close_panel:       "mutate",
-  add_app:           "mutate",
-  zoom:              "observe",
-  manage_tabs:       "mutate",
-  // Council tools
-  council_create:      "mutate",
-  council_broadcast:   "mutate",
-  council_interject:   "observe",
-  council_ask_member:  "observe",
-  council_stop:        "mutate",
-  council_status:      "observe",
-  council_summarize:   "observe",
-  council_list_models: "observe",
-};
 
 export const TOOL_LABELS: Record<string, string> = {
   // Orchestrator tools
@@ -166,60 +116,21 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function getToolTier(toolName: string): ToolTier {
-  if (TOOL_TIERS[toolName]) return TOOL_TIERS[toolName];
-  // Unknown tool (MCP, user skill, etc.) → ask substrate.
-  // Substrate flags destructive ops via explicit `destructive: true` plus
-  // a name-keyword fallback (send|delete|remove|publish|push|deploy|destroy).
   return isDestructiveTool(toolName) ? "mutate" : "observe";
-}
-
-export function getToolOverrides(): Record<string, ToolOverride> {
-  return getPreference<Record<string, ToolOverride>>("toolOverrides", {});
-}
-
-function getEffectiveOverride(toolName: string): ToolOverride {
-  const overrides = getToolOverrides();
-  return overrides[toolName] || "default";
 }
 
 export function getAgentMode(): AgentMode {
   const raw = getPreference<string>("agentMode", "default");
   if (raw === "bypass") return "bypassPermissions";
-  // "council" is a behavioral mode handled separately (yoAgent.councilMode);
-  // for SDK gating purposes, treat it as default.
   if (raw === "council") return "default";
   return raw as AgentMode;
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {
   if (mode === "plan") return "skip";
-
-  // bypassPermissions: the user explicitly opted into "run everything, no
-  // questions". Per-tool overrides are deliberately ignored.
   if (mode === "bypassPermissions") return "execute";
-
-  const override = getEffectiveOverride(toolName);
-  if (override === "off") return "skip";
-  if (override === "auto") return "execute";
-  if (override === "ask") return "needs_approval";
-
   if (mode === "acceptEdits") {
-    const tier = getToolTier(toolName);
-    if (tier === "observe") return "execute";
-    return "needs_approval";
+    return getToolTier(toolName) === "observe" ? "execute" : "needs_approval";
   }
-
-  // default mode: all tools need approval
   return "needs_approval";
-}
-
-export function getToolRegistry(): Array<{ name: string; label: string; description: string; tier: ToolTier; override: ToolOverride }> {
-  const overrides = getToolOverrides();
-  return Object.entries(TOOL_LABELS).map(([name, label]) => ({
-    name,
-    label,
-    description: TOOL_DESCRIPTIONS[name] || "",
-    tier: getToolTier(name),
-    override: (overrides[name] || "default") as ToolOverride,
-  }));
 }

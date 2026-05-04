@@ -4426,7 +4426,7 @@ select.settings-input {
 
 .yo-panel {
   position: fixed;
-  top: var(--content-top);
+  top: 38px;
   right: 0;
   bottom: 0;
   width: 380px;
@@ -4474,6 +4474,8 @@ select.settings-input {
   transform: translateX(0);
 }
 .yo-panel.hidden { display: none !important; }
+
+
 
 .yo-panel-header {
   display: flex;
@@ -5367,8 +5369,8 @@ select.settings-input {
 .yo-panel-input-wrap {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
-  padding: 12px 14px 14px;
+  gap: 6px;
+  padding: 12px 14px 8px;
   border-top: 1px solid var(--border-2);
   flex-shrink: 0;
 }
@@ -5378,15 +5380,15 @@ select.settings-input {
   background: var(--surface-3);
   border: 1px solid var(--border-3);
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   font-family: var(--font-sans);
   resize: none;
   outline: none;
   max-height: 160px;
-  min-height: 44px;
-  height: 44px;
+  min-height: 40px;
+  height: 40px;
   line-height: 1.5;
   overflow-y: auto;
 }
@@ -5402,11 +5404,12 @@ select.settings-input {
   background: none;
   border: none;
   color: var(--text-3);
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
   flex-shrink: 0;
   padding: 4px;
   border-radius: 4px;
+  margin-bottom: 8px;
   transition: color 0.15s, background 0.15s;
 }
 .yo-mic-btn:hover { color: var(--text-2); }
@@ -5428,14 +5431,13 @@ select.settings-input {
   color: #000;
   border: 2px solid transparent;
   box-sizing: border-box;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  font-size: 18px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
-  margin-bottom: 7px;
   transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
   display: flex;
   align-items: center;
@@ -5452,20 +5454,24 @@ select.settings-input {
 #yo-panel-send.yo-stop::before {
   content: "";
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   background: var(--yo-mode-color, var(--accent));
   border-radius: 2px;
 }
 
-/* ── Yo panel controls (mode + model dropdowns) ──────────── */
+/* ── Yo panel controls (mode + perm + drip + send) ─────────── */
 
 .yo-panel-controls {
   display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 0 14px 10px;
+  padding: 6px 14px 10px;
+  border-top: 1px solid var(--border-2);
   flex-shrink: 0;
 }
+
+.yo-controls-spacer { flex: 1; }
 
 .yo-control-select {
   flex: 1;
@@ -5492,6 +5498,8 @@ select.settings-input {
 
 .yo-mode-dropdown {
   position: relative;
+}
+#yo-perm-dropdown {
   flex: 1;
 }
 
@@ -5719,78 +5727,6 @@ select.settings-input {
 
 /* ── Tool permissions table (settings page) ──────────────── */
 
-.tool-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-  font-size: 12px;
-}
-
-.tool-table thead th {
-  text-align: left;
-  color: var(--text-3);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-2);
-}
-
-.tool-th-name { width: 26%; }
-.tool-th-desc { width: 42%; }
-.tool-th-tier { width: 12%; }
-.tool-th-perm { width: 20%; }
-
-.tool-row td {
-  padding: 5px 10px;
-  vertical-align: middle;
-  border-bottom: 1px solid var(--border);
-}
-.tool-row:hover td { background: var(--hover); }
-
-.tool-td-name {
-  color: var(--text);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.tool-td-desc {
-  color: var(--text-3);
-  font-size: 11px;
-}
-
-.tool-td-tier { white-space: nowrap; }
-
-.tool-tier-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-}
-.tool-tier-badge.tier-observe {
-  background: rgba(37, 199, 94, 0.15);
-  color: var(--accent);
-}
-.tool-tier-badge.tier-mutate {
-  background: rgba(240, 160, 48, 0.15);
-  color: var(--warning);
-}
-
-.tool-perm-select {
-  background: var(--surface-3);
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
-  padding: 3px 8px;
-  color: var(--text-2);
-  font-size: 11px;
-  cursor: pointer;
-  outline: none;
-  width: 100%;
-}
-.tool-perm-select:hover { border-color: var(--text-faint); }
-.tool-perm-select:focus { border-color: var(--accent); }
-
 /* ── MCP Servers ────────────────────────────────────────── */
 
 .mcp-preset-grid {
@@ -5986,6 +5922,88 @@ select.settings-input {
   caret-color: var(--yo-mode-color, var(--accent));
 }
 .cmd-palette-input::placeholder { color: var(--text-muted); }
+
+/* ── Drip picker tray ──────────────────────────────────── */
+
+.drip-picker {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 -4px 16px var(--shadow);
+  z-index: 20;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+.drip-picker.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.drip-picker-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 4px;
+}
+
+.drip-picker-divider {
+  height: 1px;
+  background: var(--border-2);
+  margin: 8px 0;
+}
+
+.drip-picker-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  transition: background 0.12s;
+}
+.drip-picker-tile:hover {
+  background: var(--active-bg);
+}
+.drip-picker-tile .drip-tile-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.drip-picker-tile .drip-tile-label {
+  font-size: 9px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 54px;
+  text-align: center;
+}
+
+.yo-drip-btn {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.yo-drip-btn:hover { color: var(--text-2); }
 
 /* ── Wassup admin modal ─────────────────────────────────── */
 

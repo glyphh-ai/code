@@ -294,7 +294,7 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
-  onYoPanelCouncilReady: (cb: (info: { name: string; members: string[]; style: string; round_cap: number }) => void) => {
+  onYoPanelCouncilReady: (cb: (info: { name: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => void) => {
     ipcRenderer.on("yo-panel-council-ready", (_e, info) => cb(info));
   },
 
@@ -310,8 +310,6 @@ contextBridge.exposeInMainWorld("yo", {
   onAgentModeChanged: (cb: (mode: string) => void) => {
     ipcRenderer.on("agent-mode-changed", (_e, mode) => cb(mode));
   },
-  getToolRegistry: () => ipcRenderer.invoke("get-tool-registry") as Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>,
-  setToolOverride: (toolName: string, override: string) => ipcRenderer.send("set-tool-override", toolName, override),
   onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => {
     ipcRenderer.on("approval-request", (_e, id, toolName, toolLabel, input) => cb(id, toolName, toolLabel, input));
   },

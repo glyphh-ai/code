@@ -104,10 +104,6 @@ export class YoAgent {
   }
   setCouncilMode(on: boolean): void {
     this._councilMode = on;
-    if (on && this._mode === "bypassPermissions") {
-      this._mode = "default";
-      this.sessionId = null;
-    }
   }
   isCouncilMode(): boolean { return this._councilMode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }

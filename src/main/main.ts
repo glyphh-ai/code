@@ -67,6 +67,7 @@ import { closeSubstrateDb } from "./substrate/store";
 import { initLocalDb, closeLocalDb } from "./local-db";
 import { migrateFromFiles } from "./stores/migrate-from-files";
 import { setSubstrateToolDeps, listBuiltinYoTools } from "./substrate/tools";
+import { getAgentMode } from "./action-gate";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -261,7 +262,7 @@ async function boot() {
   let llmConfig = loadLLMConfig();
 
   // Cached model list from server (model_rates table)
-  interface ServerModel { provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }
+  interface ServerModel { provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number; max_context_tokens?: number; max_output_tokens?: number }
   let serverModelsCache: ServerModel[] = [];
   let serverModelsFetchedAt = 0;
   async function fetchServerModels(): Promise<ServerModel[]> {
@@ -585,9 +586,14 @@ async function boot() {
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   {
-    const savedMode = getPreference<string>("agentMode", "default");
+    const savedModeRaw = getPreference<string>("agentMode", "default");
+    const savedMode = savedModeRaw === "council" ? "council" : getAgentMode();
     yoInterceptor.setAgentMode(savedMode);
-    if (savedMode === "council") yoAgent.setCouncilMode(true);
+    if (savedMode === "council") {
+      yoAgent.setCouncilMode(true);
+    } else {
+      yoAgent.setMode(savedMode as any);
+    }
   }
   yoInterceptor.setCurrentModel(llmConfig.model);
   // Fetch active models from server and populate the interceptor + presets cache
@@ -1250,11 +1256,15 @@ async function boot() {
       },
       create: async (config) => {
         const { createCouncil } = await import("./council-session");
-        // forwardWc null — when created via the .yo (no Council panel open),
-        // events accumulate but aren't streamed live; the user can dip into
-        // the Council panel to take over. v2: forward to the most recent
-        // Council panel webContents if open.
-        const r = createCouncil(config as import("./council-session").CouncilCreateConfig, null);
+        const models = await fetchServerModels();
+        const enriched = { ...config } as import("./council-session").CouncilCreateConfig;
+        if (enriched.members) {
+          enriched.members = enriched.members.map((m) => {
+            const sm = models.find((s) => s.provider === m.provider && s.model === m.model);
+            return { ...m, max_context_tokens: sm?.max_context_tokens ?? undefined };
+          });
+        }
+        const r = createCouncil(enriched, null);
         return r.ok ? { ok: true, council_id: r.council_id } : { ok: false, error: r.error };
       },
       runRound: async (councilId: string) => {
@@ -1293,15 +1303,21 @@ async function boot() {
       openPanel: async () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         const app = appConnector.get("council");
-        if (app && !panelManager.hasPanel("council")) {
+        const needsLoad = !panelManager.hasPanel("council");
+        if (app && needsLoad) {
           panelManager.addPanel("council", councilHtml, councilPreload);
         }
         panelManager.switchTo("council", mainWindow!);
         panelManager.setRightInset(yoPanelWidth());
         mainWindow.webContents.send("yo-panel-open", "");
-        // Connect the council panel's WebContents to the active session
-        // so events stream to the panel even when created via the tool path.
         const wc = panelManager.getWebContents("council");
+        if (wc && needsLoad) {
+          await new Promise<void>((resolve) => {
+            const onLoad = () => { wc.removeListener("did-finish-load", onLoad); resolve(); };
+            wc.on("did-finish-load", onLoad);
+            setTimeout(resolve, 3000);
+          });
+        }
         if (wc) {
           const { getCurrentCouncil } = require("./current-council");
           const cid = getCurrentCouncil();
@@ -2259,6 +2275,7 @@ async function boot() {
     if (mode === "council") {
       yoAgent.setCouncilMode(true);
       yoAgent.setMode("default" as any);
+      yoAgent.clear();
       setPreference("agentMode", "council");
       mainWindow?.webContents.send("agent-mode-changed", "council");
       yoInterceptor.setAgentMode("council");
@@ -2266,6 +2283,7 @@ async function boot() {
     }
     if (mode === "exit-council") {
       yoAgent.setCouncilMode(false);
+      yoAgent.clear();
       return;
     }
     yoAgent.setMode(mode as any);
@@ -2274,19 +2292,6 @@ async function boot() {
     }
     mainWindow?.webContents.send("agent-mode-changed", yoAgent.isCouncilMode() ? "council" : mode);
     yoInterceptor.setAgentMode(yoAgent.isCouncilMode() ? "council" : mode);
-  });
-  ipcMain.handle("get-tool-registry", () => {
-    const { getToolRegistry } = require("./action-gate");
-    return getToolRegistry();
-  });
-  ipcMain.on("set-tool-override", (_e, toolName: string, override: string) => {
-    const overrides = getPreference<Record<string, string>>("toolOverrides", {});
-    if (override === "default") {
-      delete overrides[toolName];
-    } else {
-      overrides[toolName] = override;
-    }
-    setPreference("toolOverrides", overrides);
   });
 
   // Approval system — pending approvals map + IPC
@@ -3099,7 +3104,14 @@ async function boot() {
       setCurrentCouncil(id);
       return { ok: true };
     });
-    ipcMain.handle("council-create", (e, config: import("./council-session").CouncilCreateConfig) => {
+    ipcMain.handle("council-create", async (e, config: import("./council-session").CouncilCreateConfig) => {
+      const models = await fetchServerModels();
+      if (config.members) {
+        config.members = config.members.map((m) => {
+          const sm = models.find((s) => s.provider === m.provider && s.model === m.model);
+          return { ...m, max_context_tokens: sm?.max_context_tokens ?? undefined };
+        });
+      }
       const r = councilModule.createCouncil(config, e.sender);
       if (r.ok && r.council_id) {
         setCurrentCouncil(r.council_id);

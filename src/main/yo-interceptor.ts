@@ -457,7 +457,7 @@ function isInputEl(el){
 
 var focusTimer=null;
 document.addEventListener('focusin',function(e){
-  if(isInputEl(e.target)){currentEl=e.target;showTab();}
+  if(isInputEl(e.target)){clearTimeout(focusTimer);currentEl=e.target;showTab();}
 },true);
 document.addEventListener('focusout',function(){
   clearTimeout(focusTimer);
@@ -476,6 +476,26 @@ setTimeout(function(){
   var a=document.activeElement;
   if(isInputEl(a)){currentEl=a;showTab();}
 },500);
+
+// Right-edge hover → show tab after 200ms
+var hoverTimer=null;
+document.addEventListener('mousemove',function(e){
+  if(e.clientX>=window.innerWidth-8){
+    if(!hoverTimer&&!barOpen){hoverTimer=setTimeout(function(){showTab();hoverTimer=null;},200);}
+  }else{
+    if(hoverTimer){clearTimeout(hoverTimer);hoverTimer=null;}
+  }
+});
+
+// Click anywhere non-input → hide tab
+document.addEventListener('mousedown',function(e){
+  if(!tab||tab.style.display!=='flex')return;
+  if(barOpen)return;
+  if(isInputEl(e.target))return;
+  if(tab.contains(e.target))return;
+  if(bar&&bar.contains(e.target))return;
+  hideTab();currentEl=null;
+});
 
 // Cmd+Shift+. — toggle command bar
 document.addEventListener('keydown',function(e){
