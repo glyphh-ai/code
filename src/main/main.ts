@@ -6,10 +6,22 @@
  */
 
 import "dotenv/config";
+
+// Fix process.cwd() in packaged Electron apps — .asar is a file, not a directory,
+// which causes ENOTDIR when child_process.spawn inherits cwd.
+import os from "os";
+try {
+  const cwd = process.cwd();
+  if (cwd.includes(".asar") || !require("fs").statSync(cwd).isDirectory()) {
+    process.chdir(os.homedir());
+  }
+} catch {
+  process.chdir(os.homedir());
+}
+
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
 import path from "path";
 import fs from "fs";
-import os from "os";
 import { PanelManager } from "./panel-manager";
 import { TerminalManager, AgentSpawnConfig } from "./terminal";
 import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewriteAllBriefings } from "./agent-briefing";
@@ -2039,7 +2051,10 @@ async function boot() {
   });
 
   if (autoUpdateEnabled) {
-    autoUpdater.checkForUpdates().catch(() => {});
+    // Delay first check so it doesn't compete with boot
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }, 10_000);
     setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
   }
 

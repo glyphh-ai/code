@@ -34,9 +34,9 @@ export class ConfigSync {
   /** Fetch all configs with a timeout so boot is never blocked. */
   async fetchAll(onProgress?: (msg: string) => void): Promise<boolean> {
     try {
-      onProgress?.("checking for updates...");
+      onProgress?.("syncing...");
       const res = await fetch(`${SERVER_BASE}/api/config/manifest`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) return false;
       const remote: ConfigManifest = await res.json() as ConfigManifest;
