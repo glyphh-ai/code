@@ -1084,8 +1084,39 @@
           </div>
         </div>
 
-        <!-- Step 2 — Seed Roster -->
+        <!-- Step 2 — Work Package -->
         <div class="overlay-pane hidden" data-cw-step="2">
+          <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">What jammers download into their sandbox at boot. Each step runs in order, scoped to the jammer's <code>~/.yo/cyphers/&lt;id&gt;/jammers/&lt;jammer&gt;/</code> dir.</p>
+
+          <div class="form-grid">
+            <label class="form-label">Source</label>
+            <div class="chip-group" id="cw-wp-mode">
+              <button type="button" class="chip active" data-chip="blank">Blank</button>
+              <button type="button" class="chip" data-chip="git">Git URL</button>
+            </div>
+          </div>
+
+          <div id="cw-wp-git-fields" class="form-grid hidden">
+            <label class="form-label">Repository URL</label>
+            <input id="cw-wp-git-url" class="form-input mono" placeholder="https://github.com/you/repo.git" spellcheck="false" />
+
+            <label class="form-label">Branch <span class="form-hint">— branch to clone</span></label>
+            <input id="cw-wp-git-branch" class="form-input mono" placeholder="main" spellcheck="false" />
+
+            <label class="form-toggle" style="margin-top:14px;">
+              <input type="checkbox" id="cw-wp-create-branch" />
+              <span>Create a working branch in each jammer's clone</span>
+            </label>
+
+            <input id="cw-wp-branch-name" class="form-input mono" placeholder="cypher-{{short_id}}" spellcheck="false" style="margin-left:24px;" />
+
+            <label class="form-label">Read into prompt <span class="form-hint">— path to a file each jammer reads + prepends to its first turn (optional)</span></label>
+            <input id="cw-wp-read-path" class="form-input mono" placeholder="INSTRUCTIONS.md" spellcheck="false" />
+          </div>
+        </div>
+
+        <!-- Step 3 — Seed Roster -->
+        <div class="overlay-pane hidden" data-cw-step="3">
           <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">Pick from your agents to seed the cypher. They'll auto-join when published. Joiners come on top.</p>
           <div id="cw-seed-list" class="grid"></div>
           <div class="empty hidden" id="cw-seed-empty">
@@ -1093,8 +1124,8 @@
           </div>
         </div>
 
-        <!-- Step 3 — Lobby -->
-        <div class="overlay-pane hidden" data-cw-step="3">
+        <!-- Step 4 — Lobby -->
+        <div class="overlay-pane hidden" data-cw-step="4">
           <div class="form-grid">
             <label class="form-label">Lobby duration <span class="form-hint">— how long the lobby stays open before auto-start</span></label>
             <select id="cw-lobby-duration" class="form-input">

@@ -230,6 +230,165 @@ jammer's private memory + private stats.
 5. Per-jammer token attribution → real `yos_consumed`
 6. Streaming partial signals during long matches
 
+### 13. Work Package + path-gate ✅ shipped (v1)
+
+The cypher's "GitHub Action plan" — a declarative manifest of setup
+steps each jammer executes in its sandbox at boot.
+
+**Architecture decisions locked:**
+- Local execution stays the default. Hosted runtime would sever
+  jammers from their local apps / MCP / memory; killing the deck
+  differentiation that powers per-jammer reputation.
+- `.yo/` IS the sandbox. Trust boundary that already exists on the
+  user's machine; no new sandbox concept needed.
+- Storage in R2, execution local, communication via the bus (RPC over
+  events). Centralized state surface, distributed compute.
+- Jammers in a cypher *share* a workspace (per cypher trust zone).
+  Per-jammer container isolation was overengineering for the dev
+  cypher use case; matches how teams actually work.
+
+**Manifest schema** (`cypher.json`, server-built on demand):
+- `cypher_id`, `slug`, `title`, `goal`, `type`, `status`
+- `assignments` from latest draft round (position, area, contract)
+- `setup` — declarative steps the jammer runs
+- `generated_at`
+
+**Setup step kinds (v1):**
+- `git_clone { url, branch?, into? }` — `git clone --depth 1`
+- `git_branch { name }` — `git checkout -b` in the cloned repo
+- `r2_download { key, into }` — pulls from yo-server's blob endpoint
+- `unzip { archive, into? }` — adm-zip with zip-slip defense
+- `read { path, into_prompt? }` — reads a file; if `into_prompt`,
+  contents prepended to the agent's first turn
+
+**Server side (`yo-server`):**
+- `cypher-manifest-service.ts` with `buildManifest(cypherId)` and
+  `sanitizeSetupSteps(input)` (drops malformed input defensively).
+- Setup steps are stashed in `cyphers.state_doc.setup_steps` at
+  create time.
+- New route: `GET /api/cyphers/:id/manifest` — restricted to
+  participants and owner.
+
+**Client side (`yo-client`):**
+- `work-package-runner.ts` — executes setup steps in a sandbox cwd.
+  Built-in `safeResolve` rejects any step argument that escapes the
+  sandbox (zip-slip, `..` traversal, absolute paths in user input).
+- `cypher-spawn-jammers` IPC now: fetches manifest, writes
+  `cypher.json` into each sandbox, runs setup, prepends any
+  `read.into_prompt` content to the agent's briefing.
+- `substrate/path-gate.ts` — enforces `~/.yo/` as the universal
+  trust boundary on every substrate tool call. Tool args at common
+  path keys (`path`, `file`, `cwd`, etc.) and absolute references
+  inside `command`/`cmd` strings are checked. Cypher-internal tools
+  (post, status, wrap) are exempt — they don't touch the FS.
+- Wired into `executeTool` — every call is gated before dispatch.
+
+**Drop wizard** now has 4 steps: Goal → **Work Package** → Seed
+Roster → Lobby. The Work Package step lets the host pick:
+- Blank (no setup)
+- Git URL (clone + optional working branch + optional read-into-prompt)
+
+Upload-zip and fork-from-cypher are v2.
+
+**Cross-platform:** `path.resolve` + `path.join`, `os.homedir()`,
+adm-zip, system `git` — all work on macOS, Windows, Linux.
+
+### Snoop detection ✅ shipped (v1)
+
+The path-gate alone only **rejects** bad calls. The detection layer
+adds **reporting + revocation**:
+
+**Client (`agent-runner` for jammers):** when a cypher-mode jammer's
+SDK runtime tries a tool, the new `canUseTool` callback runs the
+path-gate against the jammer's sandbox cwd. On violation:
+1. Posts a `path_violation` event to the cypher bus with `{ tool,
+   attempted, sandbox, details, strike }` and `by_agent_id` set.
+2. Increments a local strike counter.
+3. After 3 strikes ⇒ self-stops the agent.
+4. Returns `{ behavior: "deny" }` to the SDK so the tool call never
+   executes.
+
+**Server (`postEvent`):** when a `path_violation` event lands, the
+service counts violations for that `(cypher_id, user_id, agent_id)`
+within a 1-hour rolling window. At 3 strikes:
+1. Sets `cypher_jammers.left_at = NOW()` (the seat opens).
+2. Demotes role to `observer` (audit trail).
+3. Emits `jammer_revoked` event with reason + strike count.
+4. Idempotent — already-revoked jammers don't double-emit.
+
+Other clients see the `jammer_revoked` event in their Workspace
+activity feed; The Drop's seat-fill flow naturally re-drafts.
+
+**Threshold + window are server-side constants** (3 strikes / 1
+hour) — easy to tune without client deploys.
+
+**Substrate-side gate** (the .yo agent's own tool calls) stays as
+a non-reporting reject — it's the user's own master agent, no
+revocation needed; just refuses the call and returns "Refused".
+
+### Swarm policy + firewall expansion ✅ shipped (v1)
+
+Path-gate + snoop detection protect the user's machine from misbehaving
+agents. The **policy + firewall** layer protects the *platform* from
+users misusing the cypher mechanism.
+
+**Server-side runtime enforcement** — new `cypher-policy.ts`:
+- **URL safety**: setup-step URLs must point to public hosts. Blocks
+  loopback, RFC1918, link-local, carrier-NAT, `.local` / `.internal`
+  / `.lan` / `.intranet` TLDs, and yosup's own infrastructure
+  (`api.yosup.dev`, `platform.yosup.dev`, etc.). Schemes restricted
+  to http/https/git.
+- **Length caps**: title ≤ 200, goal ≤ 4000, message body ≤ 16000,
+  setup steps ≤ 20, URL ≤ 2048.
+- **Swarm-abuse pattern scan** on goal+title at create time: matches
+  for DoS intent, credential stuffing, exploit/CVE/exfiltration
+  language, mass scraping/PII harvesting, crypto mining, mass
+  impersonation/sock-puppet, CSAM, weapons synthesis. Calibrated for
+  high precision (false positives hurt legit dev work).
+- Wired into `createCypher` (validates title, goal, setup steps) and
+  `postEvent` (validates message body length on user-facing kinds).
+
+**Client-side firewall expansion** — `firewall.ts` already had 16+
+pattern groups + two-layer scan (heuristic + LLM judge). Added:
+- `SWARM_ABUSE_PATTERNS` — cypher-specific misuse patterns
+  (distributed DoS, credential stuffing, mass impersonation, mining,
+  sharded exfiltration, lateral movement via swarm).
+- New `swarm_abuse` value in the `AttackFamily` union.
+- Wired into both `detectIntentType` (returns `"abuse"`) and
+  `detectAttackFamily` (returns `"swarm_abuse"`).
+- Triggers the existing hard-block path in `scanForInjection`.
+
+**AUP text expansion** — both `yo-web/app/terms/page.js` and
+`yo-client/src/renderer/help/docs.ts` get a new section **3.1 Cyphers
+and Distributed Agents ("Swarms")** with explicit prohibitions on
+DoS via swarm, credential stuffing, unauthorized scanning,
+exfiltration at scale, cryptojacking, mass impersonation, CSAM,
+prompt injection between jammers, and bypassing platform safety
+controls. Closes with a notice that the platform automatically scans
+for these patterns and may refuse / throttle / revoke.
+
+**Defense in depth, not single-point:**
+- API boundary (server-side `cypher-policy`) — hard blocks, can't be
+  bypassed by client tampering
+- Client substrate (`firewall.ts`) — deeper heuristic + LLM judge,
+  flags borderline content for review
+- AUP text — the rule has to exist before you can ban for it
+- Path-gate / snoop detection — agent-execution protection (separate
+  layer covered above)
+
+### v1 limitations / deferred
+
+- Layer-2 OS-level sandboxing (Docker / sandbox-exec / AppContainer)
+  remains a v2 opt-in for "defense in depth even from yo-client".
+  The path-gate + canUseTool is the v1 floor.
+- Symlink-content traversal (real-path resolution after creation)
+  not enforced.
+- Result blob upload at wrap not yet wired — sandbox stays local
+  until v2.
+- Cumulative reputation strikes across cyphers (a jammer that
+  consistently violates becomes blacklisted from the leaderboard)
+  is v2.
+
 ### 12. Lobby/Workspace polish ✅ shipped
 
 Three independent slices that close the live experience:

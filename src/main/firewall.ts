@@ -232,6 +232,39 @@ const RESOURCE_ABUSE_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Swarm-abuse patterns — cypher-specific misuse (DoS via many jammers,
+// distributed credential stuffing, mass impersonation, crypto mining,
+// distributed exfiltration). Calibrated for high precision — matching here
+// short-circuits to a hard block, so phrasing has to be unambiguous.
+// ---------------------------------------------------------------------------
+
+const SWARM_ABUSE_PATTERNS: RegExp[] = [
+  // Coordinated DoS / load amplification across the jammer pool
+  /(distribute|coordinate|orchestrate|fan\s+out)\s+.{0,30}(across|over|via)\s+.{0,20}(jammers?|agents?|swarm|cypher)\s+.{0,30}(to|and)\s+(flood|overwhelm|overload|knock\s+offline|ddos|dos)/i,
+  /(swarm|coordinate)\s+.{0,20}(to|and)\s+(flood|overwhelm|overload|hammer|spam)\s+.{0,20}(target|server|host|service|api|site|endpoint|domain)/i,
+  /(every|each|all)\s+(jammer|agent|worker)\s+.{0,30}(send|fire|hit|request)\s+.{0,30}(target|the\s+server|same\s+endpoint|victim)/i,
+
+  // Distributed credential stuffing / spraying
+  /(distributed?|coordinate|swarm)\s+.{0,20}(credential\s+stuffing|password\s+spraying|brute[\s-]?force|account\s+(takeover|cracking))/i,
+  /(split|distribute|divide)\s+.{0,20}(password\s+list|credential\s+list|wordlist|combo\s+list)\s+.{0,20}(across|among|between)\s+.{0,20}(jammers?|agents?|workers?)/i,
+
+  // Mass impersonation / coordinated inauthentic behavior
+  /(have\s+(each|every)\s+(jammer|agent)|swarm)\s+.{0,30}(impersonate|pose\s+as|pretend\s+to\s+be)\s+.{0,30}(real|specific|named)\s+(person|user|account|brand)/i,
+  /(create|spin\s+up|farm)\s+.{0,20}(sock[\s-]?puppet|fake|burner)\s+(accounts?|profiles?)\s+.{0,30}(at\s+scale|in\s+bulk|via\s+(the\s+)?(swarm|cypher|jammers?))/i,
+
+  // Crypto mining via the jammer pool
+  /(mine|farm)\s+.{0,20}(bitcoin|btc|ethereum|eth|monero|xmr|crypto(currency)?)\s+.{0,20}(across|via|using|with)\s+.{0,20}(jammers?|agents?|swarm|the\s+cypher|workers?)/i,
+  /(cryptojack|hidden\s+miner|silent\s+miner)\s+.{0,30}(jammers?|agents?|workers?|sandbox)/i,
+
+  // Distributed scraping / exfiltration at scale
+  /(every|each|all)\s+(jammer|agent|worker)\s+.{0,30}(scrape|harvest|exfiltrate|download)\s+.{0,30}(unique|different|a\s+share\s+of|a\s+slice\s+of)/i,
+  /(divide|partition|shard)\s+.{0,20}(the\s+target|the\s+site|the\s+target\s+list)\s+.{0,20}(across|among|between)\s+.{0,20}(jammers?|agents?|workers?)/i,
+
+  // Lateral movement / coordinated intrusion via the swarm
+  /(use\s+(the\s+)?cypher|use\s+(the\s+)?swarm|use\s+(the\s+)?jammers?)\s+.{0,30}(to\s+)?(pivot|lateral\s+movement|exfiltrate|exploit|gain\s+(root|admin|access))/i,
+];
+
+// ---------------------------------------------------------------------------
 // Multi-turn patterns
 // ---------------------------------------------------------------------------
 
@@ -563,7 +596,7 @@ export type AttackFamily =
   | "delimiter_injection" | "extraction" | "indirect_injection" | "encoding_obfuscation"
   | "logic_exploitation" | "harmful_content" | "social_engineering" | "tool_abuse"
   | "resource_abuse" | "multi_turn" | "compliance_violation" | "agentic_exploit"
-  | "output_manipulation";
+  | "output_manipulation" | "swarm_abuse";
 
 export function detectIntentType(text: string): IntentType {
   const t = text.toLowerCase();
@@ -575,6 +608,7 @@ export function detectIntentType(text: string): IntentType {
   if (matchesAny(t, SOCIAL_ENGINEERING_PATTERNS)) return "manipulate";
   if (matchesAny(t, TOOL_ABUSE_PATTERNS)) return "abuse";
   if (matchesAny(t, RESOURCE_ABUSE_PATTERNS)) return "abuse";
+  if (matchesAny(t, SWARM_ABUSE_PATTERNS)) return "abuse";
   if (matchesAny(t, AGENTIC_EXPLOIT_PATTERNS)) return "manipulate";
   if (matchesAny(t, OUTPUT_MANIPULATION_PATTERNS)) return "manipulate";
   if (matchesAny(t, LOGIC_EXPLOITATION_PATTERNS)) return "manipulate";
@@ -626,6 +660,7 @@ export function detectAttackFamily(text: string): AttackFamily {
   if (matchesAny(t, CONTEXT_MANIPULATION_PATTERNS)) return "context_manipulation";
   if (matchesAny(t, TOOL_ABUSE_PATTERNS)) return "tool_abuse";
   if (matchesAny(t, RESOURCE_ABUSE_PATTERNS)) return "resource_abuse";
+  if (matchesAny(t, SWARM_ABUSE_PATTERNS)) return "swarm_abuse";
   if (matchesAny(t, AGENTIC_EXPLOIT_PATTERNS)) return "agentic_exploit";
   if (matchesAny(t, OUTPUT_MANIPULATION_PATTERNS)) return "output_manipulation";
   if (matchesAny(t, LOGIC_EXPLOITATION_PATTERNS)) return "logic_exploitation";

@@ -2932,11 +2932,24 @@ async function boot() {
   ipcMain.handle("cypher-spawn-jammers", async (e, cypherId: string) => {
     if (!cypherId) return { ok: false, error: "cypherId required" };
     try {
-      const draftR = await serverGetAuthed<{
+      // Fetch the manifest (assignments + setup steps) — single source of truth.
+      const manifestR = await serverGetAuthed<{
         ok?: boolean;
-        assignments?: Array<{ agent_local_id: string; user_id: string; position: string; area: string | null; contract: string | null }>;
-      }>(`/api/cyphers/${encodeURIComponent(cypherId)}/draft`);
-      const assignments = draftR?.assignments ?? [];
+        manifest?: {
+          cypher_id: string;
+          slug: string;
+          title: string;
+          goal: string | null;
+          type: string;
+          status: string;
+          assignments: Array<{ agent_local_id: string; user_id: string; position: string; area: string | null; contract: string | null }>;
+          setup: Array<Record<string, unknown>>;
+          generated_at: string;
+        };
+      }>(`/api/cyphers/${encodeURIComponent(cypherId)}/manifest`);
+      const manifest = manifestR?.manifest;
+      if (!manifest) return { ok: false, error: "manifest unavailable" };
+      const assignments = manifest.assignments ?? [];
       if (assignments.length === 0) return { ok: true, spawned: 0, reason: "no assignments yet" };
 
       const localAgents = listAgents();
@@ -2945,19 +2958,43 @@ async function boot() {
       if (mine.length === 0) return { ok: true, spawned: 0, reason: "no local jammers in this draft" };
 
       const wsSlug = workspaceManager.getActive().slug;
-      const cypherSandboxRoot = path.join(os.homedir(), ".yo", "cyphers", cypherId, "jammers");
+      const wpModule = await import("./work-package-runner");
+      const { runWorkPackage, jammerSandboxPath } = wpModule;
+      type SetupStep = import("./work-package-runner").SetupStep;
+      const setupSteps = manifest.setup as unknown as SetupStep[]; // already sanitized server-side
+
       let spawned = 0;
       const skipped: string[] = [];
+      const setupReports: Array<{ jammer: string; ok: boolean; logs: number; error?: string }> = [];
 
       for (const a of mine) {
-        // Skip if this jammer is already running for this webContents
-        // (the runner is keyed by agent name on the spawning sender).
-        // For simplicity here we fire-and-forget; agent-runner internally
-        // dedupes by name so a second start for the same name is a no-op.
         const reg = getAgent(a.agent_local_id);
         if (!reg) { skipped.push(`${a.agent_local_id} (not in registry)`); continue; }
-        const sandbox = path.join(cypherSandboxRoot, a.agent_local_id);
+        const sandbox = jammerSandboxPath(cypherId, a.agent_local_id);
         try { fs.mkdirSync(sandbox, { recursive: true }); } catch { /* ignore */ }
+
+        // Drop the manifest itself into the sandbox so the agent can read
+        // ./cypher.json as its plan.
+        try {
+          fs.writeFileSync(path.join(sandbox, "cypher.json"), JSON.stringify(manifest, null, 2));
+        } catch (err) {
+          console.warn(`[cypher-spawn-jammers] failed writing cypher.json for ${reg.id}:`, err instanceof Error ? err.message : err);
+        }
+
+        // Run setup steps (best-effort). If setup fails, the jammer still
+        // boots — agent will discover the gap and report it. Future: gate
+        // start on setup success.
+        let promptAddition = "";
+        if (setupSteps.length > 0) {
+          const result = await runWorkPackage(setupSteps, sandbox);
+          setupReports.push({
+            jammer: reg.id,
+            ok: result.ok,
+            logs: result.logs.length,
+            error: result.ok ? undefined : result.logs[result.logs.length - 1]?.message,
+          });
+          promptAddition = result.prompt_addition;
+        }
 
         const role = reg.role || a.position;
         const briefing = [
@@ -2965,7 +3002,9 @@ async function boot() {
           `Position: ${a.position}.${a.area ? ` Area: ${a.area}` : ""}`,
           a.contract ? `Contract: ${a.contract}` : "",
           `Your sandboxed working directory is ${sandbox}.`,
+          `Read ./cypher.json for the cypher's goal, roster, and setup plan.`,
           `Bus messages from teammates arrive automatically. Say "Ready" and wait for instructions.`,
+          promptAddition,
         ].filter(Boolean).join(" ");
 
         const config: import("./agent-runner").AgentConfig = {
@@ -2983,7 +3022,7 @@ async function boot() {
         });
         spawned++;
       }
-      return { ok: true, spawned, skipped };
+      return { ok: true, spawned, skipped, setup_reports: setupReports };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "spawn failed" };
     }

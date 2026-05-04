@@ -457,22 +457,53 @@ async function deleteEdit(): Promise<void> {
 // ─────────────────────────────────────────────────────
 
 const wizard = {
-  step: 1 as 1 | 2 | 3,
+  step: 1 as 1 | 2 | 3 | 4,
   vibe: "open" as "open" | "coop" | "bounty" | "sponsored",
   visibility: "public" as "public" | "unlisted" | "invite",
+  wpMode: "blank" as "blank" | "git",
   seedAgentIds: new Set<string>(),
 };
 
-function setWizardStep(n: 1 | 2 | 3): void {
+function setWizardStep(n: 1 | 2 | 3 | 4): void {
   wizard.step = n;
   document.querySelectorAll<HTMLElement>("[data-cw-step]").forEach((el) => {
     el.classList.toggle("hidden", el.dataset.cwStep !== String(n));
   });
-  $("cw-step-label").textContent = `Step ${n} of 3 — ${["Goal", "Seed Roster", "Lobby"][n - 1]}`;
+  const labels = ["Goal", "Work Package", "Seed Roster", "Lobby"];
+  $("cw-step-label").textContent = `Step ${n} of 4 — ${labels[n - 1]}`;
   $("cw-back").classList.toggle("hidden", n === 1);
-  $("cw-next").classList.toggle("hidden", n === 3);
-  $("cw-publish").classList.toggle("hidden", n !== 3);
-  if (n === 2) renderSeedList();
+  $("cw-next").classList.toggle("hidden", n === 4);
+  $("cw-publish").classList.toggle("hidden", n !== 4);
+  if (n === 3) renderSeedList();
+}
+
+function setWpMode(mode: "blank" | "git"): void {
+  wizard.wpMode = mode;
+  setChip("cw-wp-mode", mode);
+  $("cw-wp-git-fields").classList.toggle("hidden", mode !== "git");
+}
+
+interface SetupStepWire {
+  kind: "git_clone" | "git_branch" | "r2_download" | "unzip" | "read";
+  [k: string]: unknown;
+}
+
+function buildSetupSteps(): SetupStepWire[] {
+  if (wizard.wpMode === "blank") return [];
+  const steps: SetupStepWire[] = [];
+  const url = $i("cw-wp-git-url").value.trim();
+  if (!url) return [];
+  const branch = $i("cw-wp-git-branch").value.trim() || undefined;
+  steps.push({ kind: "git_clone", url, branch, into: "." });
+  if ($i("cw-wp-create-branch").checked) {
+    const rawName = $i("cw-wp-branch-name").value.trim() || "cypher-{{short_id}}";
+    steps.push({ kind: "git_branch", name: rawName });
+  }
+  const readPath = $i("cw-wp-read-path").value.trim();
+  if (readPath) {
+    steps.push({ kind: "read", path: readPath, into_prompt: true });
+  }
+  return steps;
 }
 
 function setChip(groupId: string, value: string): void {
@@ -537,13 +568,20 @@ async function openWizard(): Promise<void> {
   wizard.step = 1;
   wizard.vibe = "open";
   wizard.visibility = "public";
+  wizard.wpMode = "blank";
   wizard.seedAgentIds.clear();
   $i("cw-title").value = "";
   $t("cw-goal").value = "";
   $i("cw-max-jammers").value = "";
   $s("cw-lobby-duration").value = "300";
+  $i("cw-wp-git-url").value = "";
+  $i("cw-wp-git-branch").value = "main";
+  $i("cw-wp-create-branch").checked = false;
+  $i("cw-wp-branch-name").value = "";
+  $i("cw-wp-read-path").value = "";
   setChip("cw-vibe", "open");
   setChip("cw-visibility", "public");
+  setWpMode("blank");
   clearWizardError();
   setWizardStep(1);
   $("cypher-overlay").classList.remove("hidden");
@@ -563,6 +601,8 @@ async function publishCypherFromWizard(): Promise<void> {
   const lobbyDurRaw = $s("cw-lobby-duration").value;
   const lobby_duration_seconds = lobbyDurRaw === "" ? null : Number(lobbyDurRaw);
 
+  const setup_steps = buildSetupSteps();
+
   // 1. Create draft
   const cr = await drop.cypherCreate({
     title,
@@ -570,6 +610,7 @@ async function publishCypherFromWizard(): Promise<void> {
     type: wizard.vibe,
     visibility: wizard.visibility,
     max_jammers,
+    setup_steps,
   }) as { ok?: boolean; cypher?: Cypher; error?: string };
   if (!cr.ok || !cr.cypher) {
     showWizardError(cr.error || "Create failed");
@@ -1463,10 +1504,10 @@ function init(): void {
   $("cw-close").addEventListener("click", closeWizard);
   $("cw-cancel").addEventListener("click", closeWizard);
   $("cw-back").addEventListener("click", () => {
-    if (wizard.step > 1) setWizardStep((wizard.step - 1) as 1 | 2 | 3);
+    if (wizard.step > 1) setWizardStep((wizard.step - 1) as 1 | 2 | 3 | 4);
   });
   $("cw-next").addEventListener("click", () => {
-    if (wizard.step < 3) setWizardStep((wizard.step + 1) as 1 | 2 | 3);
+    if (wizard.step < 4) setWizardStep((wizard.step + 1) as 1 | 2 | 3 | 4);
   });
   $("cw-publish").addEventListener("click", () => { void publishCypherFromWizard(); });
   document.querySelectorAll<HTMLElement>("#cw-vibe .chip").forEach((el) => {
@@ -1479,6 +1520,11 @@ function init(): void {
     el.addEventListener("click", () => {
       wizard.visibility = el.dataset.chip as typeof wizard.visibility;
       setChip("cw-visibility", el.dataset.chip!);
+    });
+  });
+  document.querySelectorAll<HTMLElement>("#cw-wp-mode .chip").forEach((el) => {
+    el.addEventListener("click", () => {
+      setWpMode(el.dataset.chip as typeof wizard.wpMode);
     });
   });
 

@@ -1350,8 +1350,31 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
 /**
  * Execute a tool by name. Routes to substrate, user skill, or MCP.
  * Returns the tool's text output.
+ *
+ * Path-gate: every tool call is checked against the .yo trust boundary
+ * (~/.yo/). Calls that resolve to paths outside this boundary are rejected
+ * before execution. Cypher-scoped jammers run with a tighter boundary;
+ * that's wired separately at the agent-runner layer (v2).
+ *
+ * Cypher-internal tools (cypher_post, cypher_post_to, etc.) are exempt —
+ * they don't touch the filesystem, only the cypher bus.
  */
+const PATH_GATE_EXEMPT = new Set([
+  "cypher_post", "cypher_post_to", "cypher_status", "cypher_wrap",
+  "search_captures", "search_notes", "store_get", "store_set", "store_list", "store_query",
+]);
+
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+  // Path-gate: reject anything resolving outside ~/.yo/ unless the tool is
+  // explicitly exempt (bus tools, semantic search, etc.).
+  if (!PATH_GATE_EXEMPT.has(name)) {
+    const { checkToolCall } = await import("./path-gate.js");
+    const violation = checkToolCall(input);
+    if (violation) {
+      return `Refused: ${violation}. Tools may only operate on paths inside ~/.yo/.`;
+    }
+  }
+
   // 1. Substrate built-in?
   if (BUILTIN_BY_NAME.has(name)) {
     try {
