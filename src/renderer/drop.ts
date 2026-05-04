@@ -27,6 +27,7 @@ interface DropAPI {
   cypherSetCurrent: (id: string | null) => Promise<unknown>;
   cypherSpawnJammers: (id: string) => Promise<unknown>;
   authMe: () => Promise<unknown>;
+  devFlags: () => Promise<{ cyphersEnabled: boolean }>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   cypherGet: (id: string) => Promise<unknown>;
   cypherJammers: (id: string) => Promise<unknown>;
@@ -113,6 +114,37 @@ let modelsCache: Model[] = [];
 let editingAgent: Agent | null = null;
 let editingIsNew = false;
 let currentUserId: string | null = null;
+let cyphersEnabled: boolean = false;
+
+async function ensureDevFlags(): Promise<void> {
+  try {
+    const flags = await drop.devFlags();
+    cyphersEnabled = !!flags.cyphersEnabled;
+  } catch {
+    cyphersEnabled = false;
+  }
+  applyCyphersFlag();
+}
+
+/**
+ * Hide cypher remote-work UI when the dev flag is off. Production users see:
+ *   - Top jammers (read-only leaderboard)
+ *   - Your jammers (registry CRUD)
+ * Production users do NOT see cypher creation, lobby, workspace, or live rows.
+ */
+function applyCyphersFlag(): void {
+  const hide = !cyphersEnabled;
+  // Top-bar CTA — "+ Drop a Cypher" hidden in prod, "+ New Jammer" still toggles per view
+  const cta = document.getElementById("drop-cta-browse");
+  if (cta) cta.style.display = hide ? "none" : "";
+  // Browse view: hero + live cyphers row + your cyphers row are cypher-specific
+  for (const id of ["drop-hero", "section-mine"]) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = hide ? "none" : "";
+  }
+  const liveSection = document.querySelector<HTMLElement>(".section .row#row-live")?.closest<HTMLElement>(".section");
+  if (liveSection) liveSection.style.display = hide ? "none" : "";
+}
 
 async function ensureCurrentUser(): Promise<void> {
   if (currentUserId) return;
@@ -1434,8 +1466,9 @@ async function workspaceWrap(): Promise<void> {
 function init(): void {
   // Cache the authenticated user up front so isHostOf() works on first render
   void ensureCurrentUser();
+  void ensureDevFlags();
 
-  // Browse loaders fire on launch
+  // Browse loaders fire on launch (cypher loaders are no-ops if hidden)
   void loadLive();
   void loadLeaderboard();
   void loadMine();

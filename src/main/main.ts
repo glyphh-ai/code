@@ -260,13 +260,32 @@ async function boot() {
   // Load LLM config (provider + model selection only)
   let llmConfig = loadLLMConfig();
 
+  // Cached model list from server (model_rates table)
+  interface ServerModel { provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }
+  let serverModelsCache: ServerModel[] = [];
+  let serverModelsFetchedAt = 0;
+  async function fetchServerModels(): Promise<ServerModel[]> {
+    if (serverModelsCache.length > 0 && Date.now() - serverModelsFetchedAt < 60_000) return serverModelsCache;
+    try {
+      const r = await serverGetAuthed<{ models: ServerModel[] }>("/api/models");
+      if (r.models?.length) {
+        serverModelsCache = r.models;
+        serverModelsFetchedAt = Date.now();
+      }
+    } catch { /* offline / not yet authed — keep cache or fallback */ }
+    return serverModelsCache;
+  }
+
   function applyLLMConfig(config: LLMConfig) {
     llmConfig = config;
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
     yoAgent?.setLLMConfig(config);
     yoInterceptor?.setCurrentModel(config.model);
-    yoInterceptor?.setAvailableModels(["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]);
+    const modelNames = serverModelsCache.length > 0
+      ? serverModelsCache.map((m) => m.model)
+      : ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
+    yoInterceptor?.setAvailableModels(modelNames);
   }
 
   // ── yo-asset:// protocol — serves shared assets (Chart.js etc.) to vibe panels ──
@@ -565,9 +584,17 @@ async function boot() {
 
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
-  yoInterceptor.setAgentMode(getPreference<string>("agentMode", "default"));
+  {
+    const savedMode = getPreference<string>("agentMode", "default");
+    yoInterceptor.setAgentMode(savedMode);
+    if (savedMode === "council") yoAgent.setCouncilMode(true);
+  }
   yoInterceptor.setCurrentModel(llmConfig.model);
-  yoInterceptor.setAvailableModels(["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]);
+  // Fetch active models from server and populate the interceptor + presets cache
+  void fetchServerModels().then((models) => {
+    const names = models.length > 0 ? models.map((m) => m.model) : ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
+    yoInterceptor.setAvailableModels(names);
+  });
   const initialTheme = getPreference<string>("theme", "light");
   nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
   const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
@@ -778,6 +805,8 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const dropHtml = `file://${path.join(__dirname, "..", "renderer", "drop.html")}`;
   const dropPreload = path.join(__dirname, "drop-preload.js");
+  const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
+  const councilPreload = path.join(__dirname, "council-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
@@ -791,6 +820,8 @@ async function boot() {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://drop") {
       panelManager.addPanel(app.id, dropHtml, dropPreload);
+    } else if (app.url === "yo://council") {
+      panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1206,6 +1237,92 @@ async function boot() {
         }
       },
     },
+    council: {
+      getCurrent: () => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { getCurrentCouncil } = require("./current-council");
+        return getCurrentCouncil();
+      },
+      setCurrent: (id: string | null) => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { setCurrentCouncil } = require("./current-council");
+        setCurrentCouncil(id);
+      },
+      create: async (config) => {
+        const { createCouncil } = await import("./council-session");
+        // forwardWc null — when created via the .yo (no Council panel open),
+        // events accumulate but aren't streamed live; the user can dip into
+        // the Council panel to take over. v2: forward to the most recent
+        // Council panel webContents if open.
+        const r = createCouncil(config as import("./council-session").CouncilCreateConfig, null);
+        return r.ok ? { ok: true, council_id: r.council_id } : { ok: false, error: r.error };
+      },
+      runRound: async (councilId: string) => {
+        const { runCouncilRound } = await import("./council-session");
+        return runCouncilRound(councilId);
+      },
+      interject: (councilId: string, text: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { interjectCouncil } = require("./council-session");
+        return interjectCouncil(councilId, text);
+      },
+      askMember: async (councilId: string, memberId: string, question: string) => {
+        const { askCouncilMember } = await import("./council-session");
+        return askCouncilMember(councilId, memberId, question);
+      },
+      stop: (councilId: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { stopCouncil } = require("./council-session");
+        return stopCouncil(councilId);
+      },
+      summarize: async (councilId: string) => {
+        const { summarizeCouncil } = await import("./council-session");
+        return summarizeCouncil(councilId);
+      },
+      status: (councilId: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { renderCouncilStatus } = require("./council-session");
+        return renderCouncilStatus(councilId);
+      },
+      listProviderModels: async () => {
+        try {
+          const r = await serverGetAuthed<{ models: Array<{ provider: string; model: string; display_name: string }> }>("/api/models");
+          return r?.models ?? [];
+        } catch { return []; }
+      },
+      openPanel: async () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        const app = appConnector.get("council");
+        if (app && !panelManager.hasPanel("council")) {
+          panelManager.addPanel("council", councilHtml, councilPreload);
+        }
+        panelManager.switchTo("council", mainWindow!);
+        panelManager.setRightInset(yoPanelWidth());
+        mainWindow.webContents.send("yo-panel-open", "");
+        // Connect the council panel's WebContents to the active session
+        // so events stream to the panel even when created via the tool path.
+        const wc = panelManager.getWebContents("council");
+        if (wc) {
+          const { getCurrentCouncil } = require("./current-council");
+          const cid = getCurrentCouncil();
+          if (cid) {
+            const { setCouncilForwardWc } = require("./council-session");
+            setCouncilForwardWc(cid, wc);
+          }
+        }
+      },
+      setMode: (mode: string) => {
+        if (mode === "council") {
+          yoAgent.setCouncilMode(true);
+          setPreference("agentMode", "council");
+          mainWindow?.webContents.send("agent-mode-changed", "council");
+          yoInterceptor.setAgentMode("council");
+        }
+      },
+      notifyReady: (info: { name: string; members: string[]; style: string; round_cap: number }) => {
+        mainWindow?.webContents.send("yo-panel-council-ready", info);
+      },
+    },
   });
 
   // Give interceptor access to visible panel IDs (for multi-panel grab)
@@ -1525,6 +1642,8 @@ async function boot() {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
     } else if (app.url === "yo://drop") {
       panelManager.addPanel(instanceId, dropHtml, dropPreload);
+    } else if (app.url === "yo://council") {
+      panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -2119,12 +2238,38 @@ async function boot() {
   });
 
   // IPC: Agent mode + guardrails
-  ipcMain.handle("get-agent-mode", () => yoAgent.getMode());
+  ipcMain.handle("get-agent-mode", () => {
+    // Returns the user-facing mode preference: "council" | "default" | "plan"
+    // | "acceptEdits" | "bypassPermissions". Council is surfaced separately
+    // because it's a behavioral overlay, not an SDK permissionMode.
+    if (yoAgent.isCouncilMode()) return "council";
+    return yoAgent.getMode();
+  });
   ipcMain.on("set-agent-mode", (_e, mode: string) => {
+    // "council" is a behavioral overlay, independent of the SDK permissionMode.
+    // The renderer sends "council" to flip the flag, then immediately sends
+    // the perm value (default/acceptEdits/bypassPermissions) which sets the
+    // SDK mode without clearing the council flag.
+    if (mode === "council") {
+      yoAgent.setCouncilMode(true);
+      setPreference("agentMode", "council");
+      mainWindow?.webContents.send("agent-mode-changed", "council");
+      yoInterceptor.setAgentMode("council");
+      return;
+    }
+    // Only clear council flag when it's an actual mode change away from council
+    // (e.g. user switches back to "standard"). Perm changes while in council
+    // mode are SDK-level only and don't touch the council flag.
+    const isPermChange = ["default", "plan", "acceptEdits", "bypassPermissions"].includes(mode);
+    if (!isPermChange) {
+      yoAgent.setCouncilMode(false);
+    }
     yoAgent.setMode(mode as any);
-    setPreference("agentMode", mode);
-    mainWindow?.webContents.send("agent-mode-changed", mode);
-    yoInterceptor.setAgentMode(mode);
+    if (!yoAgent.isCouncilMode()) {
+      setPreference("agentMode", mode);
+    }
+    mainWindow?.webContents.send("agent-mode-changed", yoAgent.isCouncilMode() ? "council" : mode);
+    yoInterceptor.setAgentMode(yoAgent.isCouncilMode() ? "council" : mode);
   });
   ipcMain.handle("get-tool-registry", () => {
     const { getToolRegistry } = require("./action-gate");
@@ -2550,6 +2695,13 @@ async function boot() {
   // IPC: auth
   ipcMain.handle("start-auth", async (_e, mode: "register" | "login") => startAuthFlow(mode));
   ipcMain.handle("is-authenticated", () => isAuthenticated());
+
+  // Dev feature flags from process.env. Off by default; flipped on in dev
+  // shells via .env or `YO_CYPHERS_ENABLED=1 npm run dev`. Production builds
+  // never set these so the UI behaves as if the features don't exist.
+  ipcMain.handle("dev-flags", () => ({
+    cyphersEnabled: process.env.YO_CYPHERS_ENABLED === "1" || process.env.YO_CYPHERS_ENABLED === "true",
+  }));
   ipcMain.handle("get-account-info", () => getAccountInfo());
   ipcMain.handle("get-auth-status", () => getAuthStatus());
   ipcMain.handle("refresh-auth", async () => {
@@ -2573,13 +2725,22 @@ async function boot() {
     provider: llmConfig.provider,
     model: llmConfig.model,
   }));
-  ipcMain.handle("get-llm-presets", () => ({
-    anthropic: {
-      name: "Anthropic",
-      models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
-      defaultModel: "claude-sonnet-4-6",
-    },
-  }));
+  ipcMain.handle("get-llm-presets", async () => {
+    const models = await fetchServerModels();
+    if (models.length === 0) {
+      return { anthropic: { name: "Anthropic", models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"], defaultModel: "claude-sonnet-4-6" } };
+    }
+    const grouped: Record<string, { name: string; models: string[]; defaultModel: string }> = {};
+    for (const m of models) {
+      if (!grouped[m.provider]) grouped[m.provider] = { name: m.provider.charAt(0).toUpperCase() + m.provider.slice(1), models: [], defaultModel: "" };
+      grouped[m.provider].models.push(m.model);
+    }
+    if (grouped.anthropic) grouped.anthropic.defaultModel = "claude-sonnet-4-6";
+    for (const key of Object.keys(grouped)) {
+      if (!grouped[key].defaultModel) grouped[key].defaultModel = grouped[key].models[0];
+    }
+    return grouped;
+  });
   ipcMain.handle("save-llm-config", async (_e, config: LLMConfig) => {
     saveLLMConfig(config);
     applyLLMConfig(config);
@@ -2922,6 +3083,39 @@ async function boot() {
       setCurrentCypher(id);
       return { ok: true };
     });
+  }
+
+  // ── Council session IPC ──────────────────────────────────
+  // Same pattern as cypher: renderer creates / sets-current; substrate council
+  // tools read the current council and call into the session module.
+  {
+    const { setCurrentCouncil } = await import("./current-council");
+    const councilModule = await import("./council-session");
+    ipcMain.handle("council-set-current", (_e, id: string | null) => {
+      setCurrentCouncil(id);
+      return { ok: true };
+    });
+    ipcMain.handle("council-create", (e, config: import("./council-session").CouncilCreateConfig) => {
+      const r = councilModule.createCouncil(config, e.sender);
+      if (r.ok && r.council_id) {
+        setCurrentCouncil(r.council_id);
+        yoAgent.setCouncilMode(true);
+        setPreference("agentMode", "council");
+        mainWindow?.webContents.send("agent-mode-changed", "council");
+        yoInterceptor.setAgentMode("council");
+        panelManager.setRightInset(yoPanelWidth());
+        mainWindow?.webContents.send("yo-panel-open", "");
+        mainWindow?.webContents.send("yo-panel-council-ready", {
+          name: config.name,
+          members: config.members.map((m) => `${m.provider}/${m.model}`),
+          style: config.style || "chained",
+          round_cap: config.round_cap || 3,
+        });
+      }
+      return r;
+    });
+    ipcMain.handle("council-stop", (_e, id: string) => councilModule.stopCouncil(id));
+    ipcMain.handle("council-end", (_e, id: string) => councilModule.endCouncil(id));
   }
 
   // ── Spawn jammers on cypher start.

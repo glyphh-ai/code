@@ -190,6 +190,7 @@ const VSCODE_GRAB_SCRIPT = `
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
   { id: "home", name: "Home", url: "yo://home" },
   { id: "drop", name: "The Drop", url: "yo://drop" },
+  { id: "council", name: "Council", url: "yo://council" },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },

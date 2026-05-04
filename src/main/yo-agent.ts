@@ -78,6 +78,7 @@ export class YoAgent {
   private noteStore: NoteStore | null = null;
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
+  private _councilMode: boolean = false;
   private _planDelivered = false;
   private _approvalCallback: ApprovalCallback | null = null;
   private _onModeChange: ((mode: AgentMode) => void) | null = null;
@@ -96,7 +97,16 @@ export class YoAgent {
   setSkillEngine(engine: SkillEngine): void { this.skillEngine = engine; }
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
   getMode(): AgentMode { return this._mode; }
-  setMode(mode: AgentMode): void { this._mode = mode; }
+  setMode(mode: AgentMode): void {
+    const permChanged =
+      (this._mode === "bypassPermissions") !== (mode === "bypassPermissions") ||
+      (this._mode === "acceptEdits") !== (mode === "acceptEdits") ||
+      (this._mode === "plan") !== (mode === "plan");
+    this._mode = mode;
+    if (permChanged) this.sessionId = null;
+  }
+  setCouncilMode(on: boolean): void { this._councilMode = on; }
+  isCouncilMode(): boolean { return this._councilMode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
@@ -429,6 +439,10 @@ export class YoAgent {
 
     if (this._mode === "plan") {
       prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
+    }
+
+    if (this._councilMode) {
+      prompt += `\n\nMODE: COUNCIL\nThe user has a Council session active. For every message, your default behavior is to broadcast it to the council and run a round, not to answer it yourself. Use council_status first to confirm an active council; if none, ask the user to start one. Otherwise: call council_broadcast with the user's verbatim message, then call council_status to summarize the round. Only handle the message yourself if the user explicitly says "don't broadcast" or starts with .yo-style meta directives about the council itself (start, stop, summarize).`;
     }
 
     // Context recovery: when resuming a chat without a live SDK session,

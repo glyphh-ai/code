@@ -98,6 +98,27 @@ export interface SubstrateToolDeps {
     /** Wrap (close) the cypher. Host-only at the server. */
     wrap: (cypherId: string) => Promise<string>;
   };
+  council?: {
+    getCurrent: () => string | null;
+    setCurrent: (id: string | null) => void;
+    create: (config: {
+      name: string;
+      council_prompt: string;
+      style: "chained" | "free_for_all" | "debate";
+      round_cap: number;
+      members: Array<{ provider: string; model: string; startup_prompt: string }>;
+    }) => Promise<{ ok: boolean; council_id?: string; error?: string }>;
+    runRound: (councilId: string) => Promise<{ ok: boolean; round?: number; error?: string }>;
+    interject: (councilId: string, text: string) => { ok: boolean; error?: string };
+    askMember: (councilId: string, memberId: string, question: string) => Promise<{ ok: boolean; text?: string; error?: string }>;
+    stop: (councilId: string) => { ok: boolean; error?: string };
+    summarize: (councilId: string) => Promise<{ ok: boolean; path?: string; text?: string; error?: string }>;
+    status: (councilId: string) => string;
+    listProviderModels: () => Promise<Array<{ provider: string; model: string; display_name: string }>>;
+    openPanel: () => Promise<void>;
+    setMode: (mode: string) => void;
+    notifyReady: (info: { name: string; members: string[]; style: string; round_cap: number }) => void;
+  };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -1282,6 +1303,179 @@ const BUILTIN_TOOLS: ToolDef[] = [
       return deps.cypher.wrap(id);
     },
   },
+
+  // ── Council tools ─────────────────────────────────────────
+  // The .yo moderates a multi-LLM debate. council_create spins up a session
+  // (called when the user says "create a council with X, Y, Z to debate Q").
+  // council_broadcast runs the next round; council_interject inserts a moderator
+  // note; council_stop halts in-flight; council_summarize finalizes + writes
+  // the summary to the user's note store; council_status returns text.
+  {
+    name: "council_create",
+    namespace: "yo",
+    description: "Create a council — a multi-LLM debate session. Use when the user asks to convene a council, debate, or have models argue a topic. Members are { provider, model, startup_prompt }. Style: chained (sequential, see prior) | free_for_all (parallel) | debate (structured back-and-forth). Round cap defaults to 3. After creation, the council is set as current; ask the user whether to broadcast round 1 unless they explicitly said to start.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short title for the council, e.g. \"Postgres vs Mongo\"" },
+        council_prompt: { type: "string", description: "The question or topic the council debates" },
+        style: { type: "string", enum: ["chained", "free_for_all", "debate"], description: "Debate style. Default: chained." },
+        round_cap: { type: "number", description: "Maximum rounds before manual extension required. Default 3." },
+        members: {
+          type: "array",
+          description: "List of council members. Each: { provider, model, startup_prompt }. Need 2-10.",
+          items: {
+            type: "object",
+            properties: {
+              provider: { type: "string", description: "anthropic | openai | google | xai | perplexity" },
+              model: { type: "string", description: "Provider-specific model id, e.g. claude-sonnet-4-6, gpt-5, gemini-2.5-pro" },
+              startup_prompt: { type: "string", description: "System prompt for this member (their persona / stance)" },
+            },
+            required: ["provider", "model", "startup_prompt"],
+          },
+        },
+      },
+      required: ["name", "council_prompt", "members"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const config = {
+        name: String(input.name),
+        council_prompt: String(input.council_prompt),
+        style: ((input.style as string) || "chained") as "chained" | "free_for_all" | "debate",
+        round_cap: typeof input.round_cap === "number" ? input.round_cap : 3,
+        members: (input.members as Array<{ provider: string; model: string; startup_prompt: string }>),
+      };
+      const r = await deps.council.create(config);
+      if (!r.ok || !r.council_id) return `Council create failed: ${r.error ?? "unknown"}`;
+      deps.council.setCurrent(r.council_id);
+      await deps.council.openPanel();
+      deps.council.setMode("council");
+      deps.council.notifyReady({
+        name: config.name,
+        members: config.members.map((m) => `${m.provider}/${m.model}`),
+        style: config.style,
+        round_cap: config.round_cap,
+      });
+      return `Council "${config.name}" created. Panel opened, council mode active, user has been shown the welcome prompt. Wait for the user to say "go" or give other instructions.`;
+    },
+  },
+  {
+    name: "council_broadcast",
+    namespace: "yo",
+    description: "Run the next council round. Each member responds per the council's style. Use when the user says \"go\", \"start\", \"next round\", \"continue\", or similar. Refuses if the round cap is reached.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      const id = deps.council.getCurrent();
+      if (!id) return "No council is active. Create one first with council_create.";
+      const r = await deps.council.runRound(id);
+      if (!r.ok) return `Round failed: ${r.error}`;
+      return `Round ${r.round} ran.`;
+    },
+  },
+  {
+    name: "council_interject",
+    namespace: "yo",
+    description: "Insert a moderator note into the current council. Members will see it as guidance on the next round. Use when the user wants to redirect the debate, add a constraint, or correct a misunderstanding.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Moderator message body" },
+      },
+      required: ["text"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const id = deps.council.getCurrent();
+      if (!id) return "No council is active.";
+      const r = deps.council.interject(id, String(input.text));
+      return r.ok ? "Moderator note queued for next round." : `Failed: ${r.error}`;
+    },
+  },
+  {
+    name: "council_ask_member",
+    namespace: "yo",
+    description: "Send a targeted question to a specific council member and get an immediate response. Use when the user wants to drill into one member's position, clarify a point, or ask a follow-up to a specific model — without running a full round. The member sees recent transcript context plus your question.",
+    input_schema: {
+      type: "object",
+      properties: {
+        member_id: { type: "string", description: "The member's id (e.g. \"anthropic/claude-sonnet-4-6\" or custom id). Use council_status to see member ids." },
+        question: { type: "string", description: "The question or prompt to send to this specific member" },
+      },
+      required: ["member_id", "question"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const id = deps.council.getCurrent();
+      if (!id) return "No council is active.";
+      const r = await deps.council.askMember(id, String(input.member_id), String(input.question));
+      if (!r.ok) return `Ask failed: ${r.error}`;
+      return `[${input.member_id}]: ${r.text}`;
+    },
+  },
+  {
+    name: "council_stop",
+    namespace: "yo",
+    description: "Halt all in-flight council members immediately. Use when the user says \"stop\", \"pause\", \"halt\", or wants to interrupt a runaway round. After stopping, you can summarize, interject, or call broadcast again to resume.",
+    input_schema: { type: "object", properties: {} },
+    destructive: true,
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      const id = deps.council.getCurrent();
+      if (!id) return "No council is active.";
+      const r = deps.council.stop(id);
+      return r.ok ? "Council stopped." : `Failed: ${r.error}`;
+    },
+  },
+  {
+    name: "council_status",
+    namespace: "yo",
+    description: "Read the current council's state: question, members, style, current round, recent turn snippets. Always call this first to orient before broadcasting or interjecting.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      const id = deps.council.getCurrent();
+      if (!id) return "No council is active.";
+      return deps.council.status(id);
+    },
+  },
+  {
+    name: "council_summarize",
+    namespace: "yo",
+    description: "Produce a structured summary of the council debate and save it to ~/yo/notes/council/<name>.md so you can reference the conclusions in future turns. Use when the user says \"summarize\", \"wrap up\", or has heard enough rounds. Returns the path of the saved note.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      const id = deps.council.getCurrent();
+      if (!id) return "No council is active.";
+      const r = await deps.council.summarize(id);
+      if (!r.ok) return `Summarize failed: ${r.error}`;
+      return `Saved summary to ${r.path}.\n\n${r.text}`;
+    },
+  },
+  {
+    name: "council_list_models",
+    namespace: "yo",
+    description: "List available providers and models for council members. Use when the user asks to create a council and you need to map their loose names (\"Gemini\", \"Grok\", \"Claude\") to canonical (provider, model) tuples.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      const models = await deps.council.listProviderModels();
+      if (models.length === 0) return "No models available.";
+      const grouped = new Map<string, Array<{ model: string; display_name: string }>>();
+      for (const m of models) {
+        if (!grouped.has(m.provider)) grouped.set(m.provider, []);
+        grouped.get(m.provider)!.push({ model: m.model, display_name: m.display_name });
+      }
+      const lines: string[] = ["Available models:"];
+      for (const [provider, list] of grouped) {
+        lines.push(`  ${provider}:`);
+        for (const m of list) lines.push(`    - ${m.model} (${m.display_name})`);
+      }
+      return lines.join("\n");
+    },
+  },
 ];
 
 // Map for fast lookup
@@ -1361,6 +1555,8 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
  */
 const PATH_GATE_EXEMPT = new Set([
   "cypher_post", "cypher_post_to", "cypher_status", "cypher_wrap",
+  "council_create", "council_broadcast", "council_interject", "council_stop",
+  "council_status", "council_summarize", "council_list_models",
   "search_captures", "search_notes", "store_get", "store_set", "store_list", "store_query",
 ]);
 

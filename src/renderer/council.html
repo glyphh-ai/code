@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Council</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Council-specific layout — base reset, fonts, colors, buttons all from styles.css */
+
+  body { font-size: 14px; line-height: 1.5; }
+
+  /* ── Top bar ───────────────────────────────────────────── */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .brand {
+    font-family: var(--font-mono); font-size: 18px; font-weight: 800;
+    color: var(--text); letter-spacing: -0.02em;
+  }
+  .brand .dot { color: var(--accent); }
+  .topbar-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--accent-glow); color: var(--accent);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .topbar-status .pulse {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .topbar-spacer { flex: 1; }
+
+  /* ── Form view ─────────────────────────────────────────── */
+  .form-wrap {
+    height: calc(100vh - 64px);
+    overflow-y: auto;
+    padding: 32px 24px;
+  }
+  .form-card {
+    max-width: 720px; margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+  }
+  .form-card h1 {
+    font-family: var(--font-mono);
+    font-size: 24px; font-weight: 800; letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  .form-card .lede {
+    color: var(--text-2); font-size: 13px; margin: 0 0 24px;
+  }
+
+  .form-grid { display: flex; flex-direction: column; gap: 6px; }
+  .form-label {
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin-top: 18px;
+  }
+  .form-grid > .form-label:first-child { margin-top: 0; }
+  .form-hint {
+    text-transform: none; letter-spacing: 0;
+    font-weight: 400; color: var(--text-3); font-size: 11px;
+    margin-left: 4px;
+  }
+  .form-input {
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px; color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .form-input:focus { border-color: var(--accent); background: var(--surface-3); }
+  .form-input.mono { font-family: var(--font-mono); font-size: 12px; }
+  textarea.form-input { resize: vertical; min-height: 80px; line-height: 1.5; }
+
+  .style-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-2);
+    border: 1px solid var(--border-2);
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .chip:hover { border-color: var(--text-3); color: var(--text); }
+  .chip.active {
+    background: var(--accent-glow); color: var(--accent);
+    border-color: var(--accent-dim);
+  }
+
+  .members-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .member-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 2fr auto;
+    gap: 8px; align-items: start;
+    padding: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .member-row select, .member-row input, .member-row textarea {
+    background: var(--surface-3);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px; color: var(--text);
+    outline: none;
+  }
+  .member-row textarea {
+    resize: vertical; min-height: 36px; max-height: 120px;
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.4;
+  }
+  .member-remove {
+    background: transparent; color: var(--text-3);
+    border: 1px solid var(--border-2); border-radius: 4px;
+    width: 28px; height: 28px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; padding: 0;
+  }
+  .member-remove:hover { color: var(--danger); border-color: var(--danger-border); }
+
+  .add-member-btn {
+    margin-top: 8px; padding: 8px 12px;
+    background: transparent; color: var(--text-2);
+    border: 1px dashed var(--border-2); border-radius: 8px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .add-member-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .form-foot {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 24px; padding-top: 18px;
+    border-top: 1px solid var(--border);
+  }
+  .form-error { color: var(--danger); font-size: 12px; margin-right: 8px; }
+
+  /* ── Layout view (running) ─────────────────────────────── */
+  .layout-wrap {
+    height: calc(100vh - 64px);
+    display: grid; grid-template-columns: 1fr 320px;
+    gap: 12px; padding: 12px 24px 24px;
+  }
+  .stream-col {
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .stream-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .stream-title { font-size: 14px; font-weight: 700; color: var(--text); }
+  .stream-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: 6px; }
+  .stream-body { flex: 1; overflow-y: auto; padding: 14px; }
+  .stream-empty { padding: 32px 16px; text-align: center; color: var(--text-3); font-size: 13px; }
+
+  .msg { margin-bottom: 14px; }
+  .msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+  .msg-head .who { font-weight: 700; color: var(--text); }
+  .msg-head .role { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .msg-head .round { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: var(--accent-glow); padding: 1px 6px; border-radius: 3px; }
+  .msg-body { color: var(--text-2); font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; padding-left: 2px; }
+  .msg.moderator .msg-body { color: var(--accent); font-style: italic; }
+  .msg.system .msg-body { color: var(--text-3); font-style: italic; }
+  .msg.council-topic { border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 16px; }
+  .msg.council-topic .msg-body { color: var(--text); font-style: normal; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+  .msg.msg-error { border-left: 2px solid var(--danger); }
+  .msg.msg-error .msg-body { color: var(--danger); }
+  .inline-error { color: var(--danger); font-size: 11px; display: block; margin-top: 4px; }
+
+  /* Roster column */
+  .roster-col {
+    display: flex; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .roster-head { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .roster-head h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; }
+  .roster-back-btn { margin-left: auto; background: transparent; color: var(--text-3); border: none; font-size: 11px; cursor: pointer; }
+  .roster-back-btn:hover { color: var(--text); }
+  .roster-body { flex: 1; overflow-y: auto; padding: 8px; }
+  .member-tile { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s ease; margin-bottom: 4px; }
+  .member-tile:hover { background: var(--surface-2); }
+  .member-tile.active { background: var(--accent-tint); }
+  .member-badge {
+    width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-weight: 800; font-size: 13px;
+    background: var(--surface-3); position: relative;
+  }
+  .member-badge.brand-anthropic { background: #d97757; color: #fff; }
+  .member-badge.brand-openai    { background: #10a37f; color: #fff; }
+  .member-badge.brand-google    { background: #4285f4; color: #fff; }
+  .member-badge.brand-xai       { background: #1a1a1a; color: #fff; border: 1px solid var(--border-2); }
+  .member-badge.brand-perplexity { background: #1f6feb; color: #fff; }
+  .member-status-dot {
+    position: absolute; right: -2px; bottom: -2px;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--surface); background: var(--text-faint);
+  }
+  .member-status-dot.idle { background: var(--text-3); }
+  .member-status-dot.engaging { background: var(--accent); animation: pulse-dot 1.2s ease-in-out infinite; }
+  .member-status-dot.done { background: var(--accent-dim); }
+  .member-status-dot.error { background: var(--danger); }
+  .member-meta { flex: 1; min-width: 0; }
+  .member-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .member-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ────────────────────────────────────────── -->
+<div class="topbar">
+  <div class="brand"><span class="dot">.</span>council</div>
+  <span id="council-status" class="topbar-status hidden"><span class="pulse"></span><span id="council-status-text">Configuring</span></span>
+  <span id="council-name-pill" class="topbar-status hidden" style="background:var(--surface-2);color:var(--text-2);"></span>
+  <div class="topbar-spacer"></div>
+  <button class="action-btn danger hidden" id="btn-end-council">End council</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- ── Form view ─────────────────────────────────────── -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="form-wrap" id="view-form">
+  <div class="form-card">
+    <h1>Convene a council</h1>
+    <p class="lede">Pick the topic and the members. Each member is a model + system prompt. The .yo agent moderates — open the .yo panel to drive rounds and summarize when ready.</p>
+
+    <div class="form-grid">
+      <label class="form-label">Council name</label>
+      <input id="cf-name" class="form-input" placeholder="Postgres vs Mongo" spellcheck="false" />
+
+      <label class="form-label">Council prompt <span class="form-hint">— the topic the council debates</span></label>
+      <textarea id="cf-prompt" class="form-input" rows="4" placeholder="What's the right database for an event-sourced cypher store?"></textarea>
+
+      <div class="style-row" style="margin-top: 18px;">
+        <div>
+          <label class="form-label" style="margin-top:0;">Style</label>
+          <div class="chip-group" id="cf-style">
+            <button type="button" class="chip active" data-chip="chained">Chained</button>
+            <button type="button" class="chip" data-chip="free_for_all">Free-for-all</button>
+            <button type="button" class="chip" data-chip="debate">Debate</button>
+          </div>
+        </div>
+        <div>
+          <label class="form-label" style="margin-top:0;">Round cap</label>
+          <input id="cf-round-cap" type="number" min="1" max="20" class="form-input" value="3" style="width: 80px;" />
+        </div>
+      </div>
+
+      <label class="form-label">Members <span class="form-hint">— up to 10. No Claude Code agents; chat completions only.</span></label>
+      <div class="members-list" id="cf-members"></div>
+      <button type="button" class="add-member-btn" id="cf-add-member">+ Add member</button>
+    </div>
+
+    <div class="form-foot">
+      <span id="cf-error" class="form-error hidden"></span>
+      <div class="topbar-spacer"></div>
+      <button class="action-btn primary" id="cf-save">Convene</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- ── Layout view (running) ─────────────────────────── -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="layout-wrap hidden" id="view-layout">
+  <div class="stream-col">
+    <div class="stream-head">
+      <div class="stream-title" id="stream-title">Group discussion</div>
+      <span class="stream-sub" id="stream-sub"></span>
+    </div>
+    <div class="stream-body" id="stream-body">
+      <div class="stream-empty">Configure your council and press Convene to begin.</div>
+    </div>
+  </div>
+
+  <div class="roster-col">
+    <div class="roster-head">
+      <h3 id="roster-head-title">Members</h3>
+      <button class="roster-back-btn hidden" id="roster-back">← All</button>
+    </div>
+    <div class="roster-body" id="roster-body"></div>
+  </div>
+</div>
+
+<script>
+  (async () => {
+    const api = window.council;
+    if (api && api.getTheme) {
+      const t = await api.getTheme();
+      const resolved = t === "system"
+        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+        : t;
+      document.documentElement.setAttribute("data-theme", resolved);
+    }
+    if (api && api.onThemeChanged) {
+      api.onThemeChanged((theme) => {
+        document.documentElement.setAttribute("data-theme", theme);
+      });
+    }
+  })();
+</script>
+<script src="./council.js"></script>
+</body>
+</html>

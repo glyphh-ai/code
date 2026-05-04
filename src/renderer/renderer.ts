@@ -8,6 +8,7 @@
 
 // Help overlay moved to yo://home app
 import { showOnboarding } from "./onboarding.js";
+import { formatMarkdown } from "./format-markdown.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
@@ -216,6 +217,7 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
+      onYoPanelCouncilReady: (cb: (info: { name: string; members: string[]; style: string; round_cap: number }) => void) => void;
       // Yo panel resize
       yoPanelResize: (width: number) => void;
       yoPanelWidthSave: (width: number) => void;
@@ -734,8 +736,26 @@ window.yo.onTabState((state: { tabs: TabInfo[]; activeId: string; visible: boole
   tabBar.style.display = state.visible ? "flex" : "none";
   tabNewBtn.style.display = state.visible ? "" : "none";
   updateEmptyState(state.tabs);
+  if (state.activeId !== lastActiveTabId) {
+    autoSwitchModeForActiveTab(state.tabs, state.activeId);
+  }
   lastActiveTabId = state.activeId;
 });
+
+// When the active tab toggles between a council panel and anything else,
+// flip the .yo mode dropdown so messages route correctly: council mode
+// broadcasts to the active session; standard mode runs the normal agent.
+// Only fires on tab *change*, so a manual override (user picks standard
+// while a council tab is active) is preserved within that tab.
+function autoSwitchModeForActiveTab(tabs: TabInfo[], activeId: string) {
+  if (!yoControlsInited) return;
+  const tab = tabs.find((t) => t.id === activeId);
+  const isCouncil = tab?.url === "yo://council";
+  const target = isCouncil ? "council" : "standard";
+  if (currentMode === target) return;
+  setModeValue(target);
+  syncAgentMode();
+}
 
 // Load initial tab state
 window.yo.tabList().then((state) => {
@@ -1379,10 +1399,12 @@ let yoControlsInited = false;
 
 const MODE_ICONS: Record<string, string> = {
   standard: "\u2753",
+  council:  "\ud83c\udfdb",
 };
 
 const MODE_COLORS: Record<string, string> = {
   standard: "#25C75E",
+  council:  "#A855F7",
 };
 
 const PERM_ICONS: Record<string, string> = {
@@ -1440,9 +1462,15 @@ function applyModeColor() {
   document.documentElement.style.setProperty("--yo-mode-color", color);
 }
 
-// Compute the effective agentMode sent to main: combines mode + perm
-function getEffectiveAgentMode(): string {
-  return currentPerm; // standard mode uses the perm value directly
+// Send mode + perm to main. Council is a behavioral overlay; the
+// permission (ask/auto/bypass) applies independently.
+function syncAgentMode(): void {
+  if (currentMode === "council") {
+    window.yo.setAgentMode("council");
+    window.yo.setAgentMode(currentPerm);
+  } else {
+    window.yo.setAgentMode(currentPerm);
+  }
 }
 
 yoModeTrigger.addEventListener("click", (e) => {
@@ -1455,7 +1483,7 @@ yoModeOptions.forEach((opt) => {
   opt.addEventListener("click", () => {
     const value = (opt as HTMLElement).dataset.value!;
     setModeValue(value);
-    window.yo.setAgentMode(getEffectiveAgentMode());
+    syncAgentMode();
     yoModeMenu.classList.add("hidden");
   });
 });
@@ -1470,7 +1498,7 @@ yoPermOptions.forEach((opt) => {
   opt.addEventListener("click", () => {
     const value = (opt as HTMLElement).dataset.value!;
     setPermValue(value);
-    window.yo.setAgentMode(getEffectiveAgentMode());
+    syncAgentMode();
     yoPermMenu.classList.add("hidden");
   });
 });
@@ -1486,8 +1514,8 @@ document.addEventListener("click", (e) => {
 
 // Listen for mode changes pushed from main process
 window.yo.onAgentModeChanged?.((mode: string) => {
-  if (mode === "standard") {
-    setModeValue("standard");
+  if (mode === "standard" || mode === "council") {
+    setModeValue(mode);
   } else {
     // It's a permission value (ask/plan/auto/bypass)
     setModeValue("standard");
@@ -1498,8 +1526,13 @@ window.yo.onAgentModeChanged?.((mode: string) => {
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
-  setModeValue("standard");
-  setPermValue(mode);
+  if (mode === "council") {
+    setModeValue("council");
+    setPermValue("default");
+  } else {
+    setModeValue("standard");
+    setPermValue(mode);
+  }
 }
 
 async function openYoPanel(query: string) {
@@ -1940,7 +1973,7 @@ function closeOpenTextBlock() {
   if (_mdRenderTimer) { clearTimeout(_mdRenderTimer); _mdRenderTimer = null; }
   if (yoResponseEl && yoLastAssistantText.trim()) {
     yoResponseEl.classList.remove("yo-msg-streaming");
-    yoResponseEl.innerHTML = formatYoText(yoLastAssistantText);
+    yoResponseEl.innerHTML = formatMarkdown(yoLastAssistantText);
     attachCopyHandlers(yoResponseEl);
   } else if (yoResponseEl && !yoLastAssistantText.trim()) {
     yoResponseEl.remove();
@@ -1967,7 +2000,7 @@ function appendYoToken(delta: string) {
     _mdRenderTimer = setTimeout(() => {
       _mdRenderTimer = null;
       if (yoResponseEl && yoLastAssistantText) {
-        yoResponseEl.innerHTML = formatYoText(yoLastAssistantText);
+        yoResponseEl.innerHTML = formatMarkdown(yoLastAssistantText);
         yoScroll();
       }
     }, 80);
@@ -1997,7 +2030,7 @@ function finalizeYoMessage(fullText: string) {
 
   if (yoResponseEl) {
     yoResponseEl.classList.remove("yo-msg-streaming");
-    yoResponseEl.innerHTML = formatYoText(yoLastAssistantText || fullText);
+    yoResponseEl.innerHTML = formatMarkdown(yoLastAssistantText || fullText);
     attachCopyHandlers(yoResponseEl);
   }
 
@@ -2083,147 +2116,9 @@ function showPlanActions() {
   });
 }
 
-/** Lightweight markdown → HTML renderer for LLM output.
- *  Handles: code fences, headers, bold, italic, inline code, links,
- *  unordered/ordered lists, blockquotes, horizontal rules, paragraphs. */
-function formatYoText(text: string): string {
-  if (!text) return "";
-
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  // Inline formatting (applied within already-escaped text)
-  const inline = (s: string) =>
-    s
-      .replace(/`([^`]+)`/g, (_m: string, code: string) => {
-        if (/^\.(dip|yo|sup|drip)\s/.test(code)) {
-          return `<code class="yo-md-inline yo-md-cmd" data-cmd="${code}" title="Click to copy">${code}</code>`;
-        }
-        return `<code class="yo-md-inline">${code}</code>`;
-      })
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, text: string, url: string) => {
-        const trimmed = url.trim().toLowerCase();
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("mailto:")) {
-          return `<a class="yo-md-link" href="${url}" title="${url}">${text}</a>`;
-        }
-        return `<span class="yo-md-link" title="[blocked: unsafe URL]">${text}</span>`;
-      })
-      .replace(/(^|[^"=])(https?:\/\/[^\s<>&]+)/g, (_match: string, prefix: string, url: string) =>
-        `${prefix}<a class="yo-md-link" href="${url}" title="${url}">${url}</a>`
-      );
-
-  const lines = text.split("\n");
-  const out: string[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Fenced code block
-    const fenceMatch = line.match(/^```(\w*)/);
-    if (fenceMatch) {
-      const lang = fenceMatch[1] || "";
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith("```")) {
-        codeLines.push(esc(lines[i]));
-        i++;
-      }
-      if (i < lines.length) i++; // skip closing ```
-      const label = lang || "code";
-      const codeId = `yo-code-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      out.push(
-        `<div class="yo-md-codeblock" data-code-id="${codeId}">` +
-          `<div class="yo-md-codeblock-header">` +
-            `<span class="yo-md-codeblock-lang">${esc(label)}</span>` +
-            `<button class="yo-md-copy-btn" data-code-id="${codeId}">Copy</button>` +
-          `</div>` +
-          `<pre class="yo-md-pre"><code>${codeLines.join("\n")}</code></pre>` +
-        `</div>`
-      );
-      continue;
-    }
-
-    // Heading
-    const hMatch = line.match(/^(#{1,4})\s+(.+)/);
-    if (hMatch) {
-      const level = hMatch[1].length;
-      out.push(`<h${level} class="yo-md-h${level}">${inline(esc(hMatch[2]))}</h${level}>`);
-      i++;
-      continue;
-    }
-
-    // Horizontal rule
-    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      out.push('<hr class="yo-md-hr">');
-      i++;
-      continue;
-    }
-
-    // Blockquote
-    if (line.startsWith("> ") || line === ">") {
-      const quoteLines: string[] = [];
-      while (i < lines.length && (lines[i].startsWith("> ") || lines[i] === ">")) {
-        quoteLines.push(lines[i].replace(/^>\s?/, ""));
-        i++;
-      }
-      out.push(`<blockquote class="yo-md-quote">${inline(esc(quoteLines.join("\n")))}</blockquote>`);
-      continue;
-    }
-
-    // Unordered list
-    if (/^[-*+]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*+]\s+/.test(lines[i])) {
-        items.push(inline(esc(lines[i].replace(/^[-*+]\s+/, ""))));
-        i++;
-      }
-      out.push(`<ul class="yo-md-ul">${items.map((li) => `<li>${li}</li>`).join("")}</ul>`);
-      continue;
-    }
-
-    // Ordered list
-    if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        items.push(inline(esc(lines[i].replace(/^\d+\.\s+/, ""))));
-        i++;
-      }
-      out.push(`<ol class="yo-md-ol">${items.map((li) => `<li>${li}</li>`).join("")}</ol>`);
-      continue;
-    }
-
-    // Blank line
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-
-    // Paragraph — collect consecutive non-blank, non-special lines
-    const paraLines: string[] = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() !== "" &&
-      !lines[i].match(/^```/) &&
-      !lines[i].match(/^#{1,4}\s/) &&
-      !lines[i].match(/^[-*+]\s+/) &&
-      !lines[i].match(/^\d+\.\s+/) &&
-      !lines[i].startsWith("> ") &&
-      !/^(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])
-    ) {
-      paraLines.push(lines[i]);
-      i++;
-    }
-    out.push(`<p class="yo-md-p">${inline(esc(paraLines.join("\n")))}</p>`);
-  }
-
-  return out.join("");
-}
 
 /** Attach interactive handlers (copy buttons, links) inside a container.
- *  Called after innerHTML is set with formatYoText output. */
+ *  Called after innerHTML is set with formatMarkdown output. */
 function attachCopyHandlers(container: HTMLElement) {
   // Copy buttons on code blocks
   container.querySelectorAll<HTMLButtonElement>(".yo-md-copy-btn").forEach((btn) => {
@@ -2339,6 +2234,21 @@ window.yo.onYoPanelToolProgress((id, status) => updateToolProgress(id, status));
 window.yo.onYoPanelDone((fullText) => finalizeYoMessage(fullText));
 window.yo.onYoPanelError((err) => showYoError(err));
 window.yo.onYoPanelClose(() => closeYoPanel());
+window.yo.onYoPanelCouncilReady((info) => {
+  hideYoWelcome();
+  const el = document.createElement("div");
+  el.className = "yo-msg yo-msg-assistant";
+  const members = info.members.map((m: string) => `<strong>${m}</strong>`).join(", ");
+  el.innerHTML = `<div style="margin-bottom:8px"><strong>Council "${info.name}"</strong> is ready.</div>` +
+    `<div style="font-size:12px;color:var(--text-2);margin-bottom:8px">${members}<br>Style: ${info.style} &middot; ${info.round_cap} rounds max</div>` +
+    `<div style="font-size:12px;color:var(--text-3)">` +
+    `Say <strong>"go"</strong> to start round 1<br>` +
+    `Ask a specific member a question<br>` +
+    `Add guidance before starting with <strong>"interject"</strong><br>` +
+    `<strong>"stop"</strong> or <strong>"summarize"</strong> at any time</div>`;
+  yoPanelMessages.appendChild(el);
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+});
 
 // Input handlers
 yoPanelSendBtn.addEventListener("click", () => {
@@ -2640,7 +2550,7 @@ async function loadYoHistory() {
           } else {
             if (!msg.text) continue; // tool-only turn with no text
             el.className = "yo-msg yo-msg-assistant";
-            el.innerHTML = formatYoText(msg.text);
+            el.innerHTML = formatMarkdown(msg.text);
             attachCopyHandlers(el);
           }
           yoPanelMessages.appendChild(el);

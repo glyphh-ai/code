@@ -16,6 +16,7 @@ interface DropAPI {
   cypherSetCurrent: (id: string | null) => Promise<unknown>;
   cypherSpawnJammers: (id: string) => Promise<unknown>;
   authMe: () => Promise<unknown>;
+  devFlags: () => Promise<{ cyphersEnabled: boolean }>;
   cypherGet: (id: string) => Promise<unknown>;
   cypherJammers: (id: string) => Promise<unknown>;
   cypherJoin: (id: string, agent_local_id: string, role?: string, invite_token?: string) => Promise<unknown>;
@@ -55,6 +56,7 @@ const api: DropAPI = {
   cypherSetCurrent: (id) => ipcRenderer.invoke("cypher-set-current", id),
   cypherSpawnJammers: (id) => ipcRenderer.invoke("cypher-spawn-jammers", id),
   authMe: () => ipcRenderer.invoke("auth-me"),
+  devFlags: () => ipcRenderer.invoke("dev-flags"),
   cypherGet: (id) => ipcRenderer.invoke("cypher-get", id),
   cypherJammers: (id) => ipcRenderer.invoke("cypher-jammers", id),
   cypherJoin: (id, agent_local_id, role, invite_token) =>

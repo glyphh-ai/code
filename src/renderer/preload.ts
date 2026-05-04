@@ -294,6 +294,9 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
+  onYoPanelCouncilReady: (cb: (info: { name: string; members: string[]; style: string; round_cap: number }) => void) => {
+    ipcRenderer.on("yo-panel-council-ready", (_e, info) => cb(info));
+  },
 
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
