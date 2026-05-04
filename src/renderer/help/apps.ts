@@ -64,9 +64,8 @@ async function loadApps() {
 
   try {
     const apps = await window.yo.appsList();
-    const INTERNAL_IDS = new Set(["home", "drop", "council", "vscode", "monaco", "term", "browser", "context"]);
     panelApps = apps
-      .filter((a) => !a.url?.startsWith("yo://") && !INTERNAL_IDS.has(a.id))
+      .filter((a) => a.url)
       .map((a) => ({
         id: a.id, name: a.name, url: a.url,
         connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
@@ -937,11 +936,13 @@ function closeAppDetail() {
 }
 
 function reloadPanelApps(apps: Array<PanelApp>) {
-  panelApps = apps.map((a) => ({
-    id: a.id, name: a.name, url: a.url,
-    connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
-    commands: a.commands, connection: a.connection, mcp: a.mcp,
-  }));
+  panelApps = apps
+    .filter((a) => a.url)
+    .map((a) => ({
+      id: a.id, name: a.name, url: a.url,
+      connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
+      commands: a.commands, connection: a.connection, mcp: a.mcp,
+    }));
 }
 
 function initApps() {

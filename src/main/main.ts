@@ -1946,8 +1946,9 @@ async function boot() {
     }
   });
 
-  // Initialize auth — restore session, schedule refresh, start heartbeat
-  await initAuth();
+  // Initialize auth — restore session, schedule refresh, start heartbeat.
+  // Hard 3s timeout so splash never hangs if server is unreachable.
+  await Promise.race([initAuth(), new Promise((r) => setTimeout(r, 3000))]);
 
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
@@ -2624,7 +2625,10 @@ async function boot() {
   });
 
   // IPC: apps CRUD (panel apps)
-  ipcMain.handle("apps-list", () => appConnector.list());
+  const INTERNAL_APP_IDS = new Set(["home", "drop", "council", "vscode", "monaco", "term", "browser", "context"]);
+  ipcMain.handle("apps-list", () =>
+    appConnector.list().filter(a => !a.url?.startsWith("yo://") && !INTERNAL_APP_IDS.has(a.id))
+  );
   ipcMain.handle("apps-add", (_e, id: string, name: string, url?: string) => {
     const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;
     const gate = canAddApp(userApps);

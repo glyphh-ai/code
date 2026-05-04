@@ -611,7 +611,7 @@ tabNewBtn.addEventListener("click", async (e) => {
   if (tabNewMenu) { closeTabNewMenu(); return; }
 
   const apps = await window.yo.appsList();
-  const appsWithUrl = apps.filter((a) => a.url && a.id !== "home");
+  const appsWithUrl = apps.filter((a) => a.url);
 
   if (appsWithUrl.length === 0) {
     window.yo.tabNew();

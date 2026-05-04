@@ -21,21 +21,32 @@ function resolveAgentSdkBinary(): string | undefined {
   const pkgName = `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
   const binaryName = platform === "win32" ? "claude.exe" : "claude";
 
-  // In packaged Electron apps, node_modules are inside .asar which child_process.spawn can't read.
-  // electron-builder unpacks them to app.asar.unpacked via asarUnpack config.
+  let realFs: typeof fs;
+  try { realFs = require("original-fs"); } catch { realFs = fs; }
+
   const asarIdx = __dirname.indexOf("app.asar");
   if (asarIdx !== -1) {
     const resourcesDir = __dirname.slice(0, asarIdx);
-    const unpacked = path.join(resourcesDir, "app.asar.unpacked", "node_modules", pkgName, binaryName);
-    if (fs.existsSync(unpacked)) return unpacked;
+    const unpackedBase = path.join(resourcesDir, "app.asar.unpacked", "node_modules");
+    const candidates = [
+      path.join(unpackedBase, pkgName, binaryName),
+      path.join(unpackedBase, "@anthropic-ai", "claude-agent-sdk", "node_modules", pkgName, binaryName),
+    ];
+    for (const candidate of candidates) {
+      if (realFs.existsSync(candidate)) {
+        console.log(`[yo-agent] resolveAgentSdkBinary: found at ${candidate}`);
+        return candidate;
+      }
+    }
+    console.log(`[yo-agent] resolveAgentSdkBinary: not found in unpacked, tried: ${candidates.join(", ")}`);
   }
 
-  // Dev mode: resolve from node_modules normally
   try {
     const dir = path.dirname(require.resolve(`${pkgName}/package.json`));
     const bin = path.join(dir, binaryName);
-    if (fs.existsSync(bin)) return bin;
+    if (!bin.includes(".asar") && realFs.existsSync(bin)) return bin;
   } catch {}
+  console.log(`[yo-agent] resolveAgentSdkBinary: returning undefined`);
   return undefined;
 }
 import { getAgentToolSpec, executeTool } from "./substrate/tools";
@@ -267,6 +278,23 @@ export class YoAgent {
       maxTurns: 25,
       cwd: os.homedir(),
       ...(sdkBinary ? { pathToClaudeCodeExecutable: sdkBinary } : {}),
+      spawnClaudeCodeProcess: (opts: { command: string; args: string[]; cwd: string; env: Record<string, string>; signal: AbortSignal }) => {
+        const { spawn } = require("child_process");
+        let cmd = sdkBinary || opts.command;
+        if (cmd.includes("app.asar" + path.sep) && !cmd.includes("app.asar.unpacked")) {
+          cmd = cmd.replace("app.asar" + path.sep, "app.asar.unpacked" + path.sep);
+        }
+        const spawnCwd = opts.cwd?.includes?.(".asar") ? os.homedir() : opts.cwd;
+        console.log(`[yo-agent] spawnClaudeCodeProcess: cmd=${cmd} cwd=${spawnCwd}`);
+        const child = spawn(cmd, opts.args, {
+          cwd: spawnCwd,
+          stdio: ["pipe", "pipe", "pipe"],
+          signal: opts.signal,
+          env: opts.env,
+          windowsHide: true,
+        });
+        return { stdin: child.stdin, stdout: child.stdout, get killed() { return child.killed; }, get exitCode() { return child.exitCode; }, kill: child.kill.bind(child), on: child.on.bind(child), once: child.once.bind(child), off: child.off.bind(child) };
+      },
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {
