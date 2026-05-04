@@ -80,15 +80,6 @@ export class ConnectorManager extends EventEmitter {
     this.appConnector = ac;
   }
 
-  // ── Tier gate ─────────────────────────────────────────
-
-  isPro(): boolean {
-    const hb = getHeartbeatInfo();
-    if (hb) return hb.tier === "advanced";
-    const account = getAccountInfo();
-    return account?.tier === "advanced";
-  }
-
   // ── Available apps (browse catalog) ───────────────────
 
   async getApps(search?: string, offset?: number): Promise<{ apps: ConnectorApp[]; hasMore: boolean }> {
@@ -180,10 +171,6 @@ export class ConnectorManager extends EventEmitter {
    * 4. Refresh accounts + MCP
    */
   async connectApp(appSlug: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.isPro()) {
-      return { ok: false, error: "Advanced subscription required for Connectors" };
-    }
-
     // Get connect token from yo-server
     let connectUrl: string;
     try {

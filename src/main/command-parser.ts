@@ -19,7 +19,7 @@ import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "council"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -135,10 +135,8 @@ export class CommandParser {
         return this.handleDrip(args);
       case "peace":
         return this.handlePeace(args);
-      case "waz":
-        return this.handleWaz(args);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or peace.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, or drip.`;
     }
   }
 
@@ -147,7 +145,7 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|waz)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|council)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
@@ -642,12 +640,6 @@ export class CommandParser {
       }).join(","),
     ).join(" / ");
     return `Grid: ${label}`;
-  }
-
-  // ── waz: placeholder ─────────────────────────────────────────
-
-  private async handleWaz(_args: string[]): Promise<string> {
-    return "waz is not available.";
   }
 
   // ── drip: CSS visual effects ────────────────────────────────

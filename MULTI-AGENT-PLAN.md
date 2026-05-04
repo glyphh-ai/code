@@ -75,7 +75,7 @@ Today: `activeWorkspace` is a string preference. Captures get tagged with it.
 Change: Workspace = `{ slug, name, rootDir, createdAt }`. **Global slug registry**
 — one `~/yo/workspaces.json` index plus per-workspace dirs at
 `~/yo/workspaces/<slug>/`. Slugs share the reserved-keyword set with commands
-(`yo`, `sup`, `dip`, `drip`, `peace`, `waz`, `council`).
+(`yo`, `sup`, `dip`, `drip`, `peace`, `council`).
 
 Two slugs may point at the same `rootDir` (different "lenses" on one project) —
 allowed with a creation-time warning.

@@ -1388,7 +1388,7 @@ async function boot() {
     return sections.length > 0 ? sections.join("\n\n---\n\n") : null;
   });
 
-  // Give command parser access to panel WebContents for .waz
+  // Give command parser access to panel WebContents for app commands
   commandParser.setWebContentsGetter((id) => panelManager.getGuestOrWebContents(id));
 
   // Push session state to renderer
@@ -2205,10 +2205,10 @@ async function boot() {
   ipcMain.on("yo-panel-send", async (_e, message: string) => {
     const trimmed = message.trim();
 
-    // Route dot-commands (.dip, .drip, .sup, .waz) through command parser
+    // Route dot-commands (.dip, .drip, .sup) through command parser
     if (trimmed.startsWith(".")) {
       const firstWord = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase();
-      if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
+      if (firstWord && ["dip", "drip", "sup"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
           mainWindow?.webContents.send("yo-panel-done", result || "done.");
@@ -3887,7 +3887,7 @@ async function boot() {
   });
 
   // Tell renderer to check auth gate
-  mainWindow?.webContents.on("did-finish-load", () => {
+  function sendBoot() {
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
     const authStatus = getAuthStatus();
     const currentNeedsOnboarding = !isAuthenticated();
@@ -3908,7 +3908,10 @@ async function boot() {
     } else if (!currentNeedsOnboarding) {
       sendSplitState();
     }
-  });
+  }
+
+  mainWindow?.webContents.on("did-finish-load", sendBoot);
+  if (!mainWindow?.webContents.isLoading()) sendBoot();
 }
 
 protocol.registerSchemesAsPrivileged([

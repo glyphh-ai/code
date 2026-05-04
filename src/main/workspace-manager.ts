@@ -67,7 +67,7 @@ const WORKSPACES_DIR = path.join(YO_DIR, "workspaces");
 /** Reserved slugs that cannot be used for workspaces. Mirrors the command
  *  keyword set plus verbs that would make subcommand parsing ambiguous. */
 const RESERVED_SLUGS = new Set([
-  "yo", "sup", "dip", "drip", "peace", "waz",
+  "yo", "sup", "dip", "drip", "peace", "council",
   "new", "switch", "list", "delete", "rename", "help",
 ]);
 

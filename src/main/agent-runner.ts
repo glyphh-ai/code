@@ -17,7 +17,29 @@ import { getShellPath } from "./shell-path";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { AUTH_SERVER, getAuthToken } from "./auth";
+
+function resolveAgentSdkBinary(): string | undefined {
+  const platform = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "win32" : "linux";
+  const arch = process.arch;
+  const pkgName = `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
+  const binaryName = platform === "win32" ? "claude.exe" : "claude";
+
+  const asarIdx = __dirname.indexOf("app.asar");
+  if (asarIdx !== -1) {
+    const resourcesDir = __dirname.slice(0, asarIdx);
+    const unpacked = path.join(resourcesDir, "app.asar.unpacked", "node_modules", pkgName, binaryName);
+    if (fs.existsSync(unpacked)) return unpacked;
+  }
+
+  try {
+    const dir = path.dirname(require.resolve(`${pkgName}/package.json`));
+    const bin = path.join(dir, binaryName);
+    if (fs.existsSync(bin)) return bin;
+  } catch {}
+  return undefined;
+}
 import type { CypherBus } from "./cypher-bus";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
@@ -134,9 +156,11 @@ export class AgentRunner {
     }
 
     const shellPath = getShellPath();
+    const sdkBinary = resolveAgentSdkBinary();
 
     const baseOptions: Record<string, any> = {
-      cwd: config.cwd,
+      cwd: config.cwd || os.homedir(),
+      ...(sdkBinary ? { pathToClaudeCodeExecutable: sdkBinary } : {}),
       executable: "node" as const,
       executableArgs: [],
       model: config.model || "claude-sonnet-4-6",

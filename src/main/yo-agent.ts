@@ -14,6 +14,30 @@ import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { execSync } from "child_process";
 import { LLMConfig } from "./llm-config";
+
+function resolveAgentSdkBinary(): string | undefined {
+  const platform = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "win32" : "linux";
+  const arch = process.arch;
+  const pkgName = `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
+  const binaryName = platform === "win32" ? "claude.exe" : "claude";
+
+  // In packaged Electron apps, node_modules are inside .asar which child_process.spawn can't read.
+  // electron-builder unpacks them to app.asar.unpacked via asarUnpack config.
+  const asarIdx = __dirname.indexOf("app.asar");
+  if (asarIdx !== -1) {
+    const resourcesDir = __dirname.slice(0, asarIdx);
+    const unpacked = path.join(resourcesDir, "app.asar.unpacked", "node_modules", pkgName, binaryName);
+    if (fs.existsSync(unpacked)) return unpacked;
+  }
+
+  // Dev mode: resolve from node_modules normally
+  try {
+    const dir = path.dirname(require.resolve(`${pkgName}/package.json`));
+    const bin = path.join(dir, binaryName);
+    if (fs.existsSync(bin)) return bin;
+  } catch {}
+  return undefined;
+}
 import { getAgentToolSpec, executeTool } from "./substrate/tools";
 import { usageTracker } from "./usage-tracker";
 import { usageQueue } from "./usage-queue";
@@ -237,10 +261,12 @@ export class YoAgent {
 
     const model = this.llmConfig?.model || "claude-sonnet-4-6";
     const isBypass = this._mode === "bypassPermissions";
+    const sdkBinary = resolveAgentSdkBinary();
     const options: Record<string, any> = {
       model,
       maxTurns: 25,
       cwd: os.homedir(),
+      ...(sdkBinary ? { pathToClaudeCodeExecutable: sdkBinary } : {}),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {

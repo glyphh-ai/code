@@ -124,9 +124,7 @@ export class VSCodeServer {
 
       this.proc = spawn(codePath, args, {
         stdio: ["ignore", "pipe", "pipe"],
-        // Use resolved shell PATH so VS Code's git extension (and any other
-        // child it spawns — npm, language servers) can find user-installed
-        // binaries from Homebrew/asdf/nvm, etc.
+        cwd: require("os").homedir(),
         env: envWithShellPath(),
       });
 

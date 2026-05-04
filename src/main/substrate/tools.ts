@@ -1070,7 +1070,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
     },
     async run(input) {
       if (!deps.execCommand) return "Command runner not available.";
-      return deps.execCommand(`waz layout ${input.name}`);
+      return deps.execCommand(`dip save ${input.name}`);
     },
   },
   {

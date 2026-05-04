@@ -29,6 +29,13 @@ files:
   - dist/**/*
   - package.json
 
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**/*
+  - node_modules/@anthropic-ai/claude-agent-sdk/**/*
+  - node_modules/better-sqlite3/**/*
+  - node_modules/node-pty/**/*
+  - node_modules/onnxruntime-node/**/*
+
 publish:
   provider: github
   owner: glyphh-ai

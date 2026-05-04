@@ -369,27 +369,6 @@
           </div>
 
           <div class="help-group">
-            <h3>.waz <span class="cmd-desc">— execute</span></h3>
-            <p class="cmd-intro">Run mapped commands on apps or save layouts. Chain with <code>.dip</code> to switch + execute.</p>
-            <div class="cmd-row">
-              <code>.waz grab</code>
-              <span>Run "grab" command on the active panel</span>
-            </div>
-            <div class="cmd-row">
-              <code>.waz claude new</code>
-              <span>Run "new" on the claude app</span>
-            </div>
-            <div class="cmd-row">
-              <code>.dip claude .waz new</code>
-              <span>Switch to claude, then execute "new"</span>
-            </div>
-            <div class="cmd-row">
-              <code>.waz layout workspace</code>
-              <span>Save current layout as "workspace"</span>
-            </div>
-          </div>
-
-          <div class="help-group">
             <h3>.drip <span class="cmd-desc">— effects</span></h3>
             <p class="cmd-intro">Trigger visual effects. Celebrate a deploy, reward a milestone.</p>
             <div class="cmd-row">
@@ -406,11 +385,11 @@
             <h3>Shortcuts</h3>
             <div class="cmd-row">
               <code>&#8984;.</code>
-              <span>Open command bar</span>
+              <span>Show / hide Yo agent panel</span>
             </div>
             <div class="cmd-row">
               <code>&#8984;&gt;</code>
-              <span>Show / hide Yo agent panel</span>
+              <span>Open command bar</span>
             </div>
             <div class="cmd-row">
               <code>&#8984;R</code>
@@ -443,7 +422,7 @@
               <p>.Yo is a multi-panel workspace. You can view one app at a time, or split the screen into a grid of panels. Every panel is a live web app running inside .Yo.</p>
 
               <h4>Switching panels</h4>
-              <p>Use the <strong>.dip</strong> command to switch between panels. Type it in the command bar (Cmd+.) or the agent panel.</p>
+              <p>Use the <strong>.dip</strong> command to switch between panels. Type it in the command bar (Cmd+&gt;) or the agent panel.</p>
               <div class="cmd-row"><code>.dip claude</code><span>Switch to Claude</span></div>
               <div class="cmd-row"><code>.dip gmail</code><span>Switch to Gmail</span></div>
               <div class="cmd-row"><code>.dip back</code><span>Go to the previous panel</span></div>
@@ -458,8 +437,8 @@
               <p>The URL bar at the top shows the current panel's address. You can type any URL to navigate, or use it as a search bar (searches Google by default). Use <strong>Cmd+L</strong> to focus it.</p>
 
               <h4>Keyboard shortcuts</h4>
-              <div class="cmd-row"><code>&#8984;.</code><span>Open the command bar</span></div>
-              <div class="cmd-row"><code>&#8984;&gt;</code><span>Toggle the .Yo agent panel</span></div>
+              <div class="cmd-row"><code>&#8984;.</code><span>Toggle the .Yo agent panel</span></div>
+              <div class="cmd-row"><code>&#8984;&gt;</code><span>Open the command bar</span></div>
               <div class="cmd-row"><code>&#8984;L</code><span>Focus the URL bar</span></div>
               <div class="cmd-row"><code>&#8984;R</code><span>Refresh the active panel</span></div>
               <div class="cmd-row"><code>&#8984;+</code><span>Zoom in</span></div>
@@ -469,7 +448,7 @@
 
             <div class="docs-panel" data-doc="commands">
               <h3>Commands</h3>
-              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+.), inside any panel, or chain them together. Every command starts with a dot.</p>
+              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+&gt;), inside any panel, or chain them together. Every command starts with a dot.</p>
 
               <h4>.yo — Agent</h4>
               <p>Opens the AI agent panel. The agent can search your captures, run shell commands, navigate panels, and more. Works from any panel.</p>
@@ -497,12 +476,6 @@
               <div class="cmd-row"><code>.dip claude new</code><span>Switch + run app commands</span></div>
               <div class="cmd-row"><code>.dip gmail compose</code><span>Switch to Gmail + open compose</span></div>
 
-              <h4>.waz — Execute</h4>
-              <p>Runs mapped commands on apps. Each app has commands like grab, compose, search, new, etc.</p>
-              <div class="cmd-row"><code>.waz grab</code><span>Run "grab" on the active panel</span></div>
-              <div class="cmd-row"><code>.waz claude new</code><span>Run "new" on Claude</span></div>
-              <div class="cmd-row"><code>.waz layout workspace</code><span>Save current layout</span></div>
-
               <h4>.drip — Effects</h4>
               <p>Visual celebration effects. Reward yourself.</p>
               <div class="cmd-row"><code>.drip</code><span>Default fireworks effect</span></div>
@@ -515,13 +488,13 @@
 
               <h4>Chaining</h4>
               <p>Commands can be chained together. Each command runs in sequence.</p>
-              <div class="cmd-row"><code>.dip claude .waz new</code><span>Switch to Claude, then start new chat</span></div>
+              <div class="cmd-row"><code>.dip claude new</code><span>Switch to Claude, then start new chat</span></div>
               <div class="cmd-row"><code>.sup .dip gpt .yo . explain this</code><span>Capture, switch to GPT, process inline</span></div>
             </div>
 
             <div class="docs-panel" data-doc="apps">
               <h3>Apps</h3>
-              <p>Apps are web applications that run inside .Yo panels. Each app has an ID, a URL, and a set of mapped commands that the agent and <code>.waz</code> can execute.</p>
+              <p>Apps are web applications that run inside .Yo panels. Each app has an ID, a URL, and a set of mapped commands that the agent can execute.</p>
 
               <h4>Pre-configured apps</h4>
               <p>.Yo ships with pre-configured apps including ChatGPT, Claude, Gemini, Gmail, Slack, GitHub, Linear, Notion, Grok, Perplexity, YouTube, Reddit, Google Docs, and X. Each has commands mapped to their specific UI elements.</p>
@@ -537,7 +510,7 @@
               <div class="cmd-row"><code>new</code><span>Start a new conversation/document</span></div>
               <div class="cmd-row"><code>search</code><span>Focus the search bar</span></div>
               <div class="cmd-row"><code>compose</code><span>Open compose window (email)</span></div>
-              <p>Run commands with <code>.waz grab</code> (active panel) or <code>.waz claude grab</code> (specific app). The .yo agent also uses these commands when navigating for you.</p>
+              <p>The .yo agent uses these commands when navigating for you. You can also run app commands via <code>.dip claude new</code> (switch + execute).</p>
 
               <h4>Force web mode</h4>
               <p>Some apps (like ChatGPT, Claude, Gmail) need to run in a web view instead of Electron's BrowserView. This is the "Force Web" toggle — enable it if the app doesn't render correctly.</p>
@@ -573,8 +546,7 @@
 
               <h4>Saving layouts</h4>
               <p>Arrange your panels the way you want (using <code>.dip split</code> or <code>.dip grid</code>), then save:</p>
-              <div class="cmd-row"><code>.waz layout workspace</code><span>Save current arrangement as "workspace"</span></div>
-              <p>You can also save layouts from the <strong>Layouts</strong> page in this panel.</p>
+              <p>Save layouts from the <strong>Layouts</strong> page in this panel, or ask the .yo agent to save one for you.</p>
 
               <h4>Restoring layouts</h4>
               <div class="cmd-row"><code>.dip layout workspace</code><span>Restore the "workspace" layout</span></div>
