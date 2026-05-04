@@ -74,12 +74,20 @@ const layoutState = {
 };
 const memberRawText = new Map<string, string>();
 
-const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+const RUN_FRAMES = ["⠁", "⠈", "⠐", "⠠", "⠄", "⠂"];
 const memberSpinners = new Map<HTMLElement, ReturnType<typeof setInterval>>();
 
 function startMemberSpinner(el: HTMLElement): void {
   let fi = 0;
-  const iv = setInterval(() => { fi = (fi + 1) % BRAILLE.length; el.textContent = BRAILLE[fi]; }, 80);
+  let pos = 0;
+  const width = 100;
+  const step = 2;
+  const iv = setInterval(() => {
+    fi = (fi + 1) % RUN_FRAMES.length;
+    pos = (pos + step) % width;
+    el.textContent = RUN_FRAMES[fi];
+    el.style.transform = `translateX(${pos}px)`;
+  }, 60);
   memberSpinners.set(el, iv);
 }
 
