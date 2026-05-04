@@ -64,9 +64,9 @@ async function loadApps() {
 
   try {
     const apps = await window.yo.appsList();
-    // Hide internal yo:// apps (browser, terminal, vscode, monaco, home) from the management list
+    const INTERNAL_IDS = new Set(["home", "drop", "council", "vscode", "monaco", "term", "browser", "context"]);
     panelApps = apps
-      .filter((a) => !a.url?.startsWith("yo://"))
+      .filter((a) => !a.url?.startsWith("yo://") && !INTERNAL_IDS.has(a.id))
       .map((a) => ({
         id: a.id, name: a.name, url: a.url,
         connectedSlug: a.connectedSlug, forceWeb: a.forceWeb, doNotRecord: a.doNotRecord,
@@ -74,23 +74,7 @@ async function loadApps() {
       }));
   } catch { panelApps = []; }
 
-  // Check app limit for free tier
-  const appsLimitMsg = document.getElementById("apps-limit-msg")!;
-  const appsAddBtn = document.getElementById("apps-add-btn") as HTMLButtonElement;
-  try {
-    const auth = await window.yo.getAuthStatus();
-    const userApps = panelApps.filter(a => a.url && !a.url.startsWith("yo://"));
-    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && userApps.length >= 10;
-    appsLimitMsg.classList.toggle("hidden", !atLimit);
-    appsAddBtn.disabled = atLimit;
-    if (atLimit) {
-      document.getElementById("apps-upgrade-link")!.onclick = (e) => {
-        e.preventDefault();
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-    }
-  } catch { /* fall through */ }
+  document.getElementById("apps-limit-msg")!.classList.add("hidden");
 
   renderAppsList();
 }
@@ -393,23 +377,6 @@ async function loadConnectionTab() {
   const noToolsEl = document.getElementById("app-connection-no-tools")!;
   const browseEl = document.querySelector<HTMLElement>(".connection-browse")!;
 
-  // Gate behind Advanced tier
-  try {
-    const auth = await window.yo.getAuthStatus();
-    if (auth.tier !== "advanced") {
-      gate.classList.remove("hidden");
-      statusEl.innerHTML = "";
-      listEl.innerHTML = "";
-      browseEl.classList.add("hidden");
-      toolsEl.innerHTML = "";
-      noToolsEl.classList.add("hidden");
-      gate.querySelector<HTMLButtonElement>(".tab-upgrade-btn")!.onclick = () => {
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-      return;
-    }
-  } catch { /* fall through */ }
   gate.classList.add("hidden");
 
   // Left: this app's connection
@@ -585,27 +552,7 @@ async function loadMcpTab() {
   const mcpGate = document.getElementById("mcp-tab-upgrade-gate")!;
   const statusRow = document.getElementById("app-mcp-status-row")!;
 
-  // Gate behind Advanced tier
-  try {
-    const auth = await window.yo.getAuthStatus();
-    if (auth.tier !== "advanced") {
-      mcpGate.classList.remove("hidden");
-      statusRow.classList.add("hidden");
-      // Hide all MCP form fields
-      document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
-        if (el.id !== "mcp-tab-upgrade-gate") el.classList.add("hidden");
-      });
-      document.getElementById("app-mcp-tools-table")?.classList.add("hidden");
-      document.getElementById("app-mcp-no-tools")?.classList.add("hidden");
-      mcpGate.querySelector<HTMLButtonElement>(".tab-upgrade-btn")!.onclick = () => {
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-      return;
-    }
-  } catch { /* fall through */ }
   mcpGate.classList.add("hidden");
-  // Restore visibility of MCP form fields
   document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
     el.classList.remove("hidden");
   });
@@ -1154,6 +1101,9 @@ function initApps() {
     if (created) openPanelAppDetail(created);
     else loadApps();
   });
+
+  // App detail back button
+  document.getElementById("app-detail-close")!.addEventListener("click", () => closeAppDetail());
 
   // App add form cancel
   document.getElementById("app-add-cancel")!.addEventListener("click", () => loadApps());

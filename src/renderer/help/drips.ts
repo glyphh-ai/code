@@ -98,24 +98,7 @@ async function loadDrips() {
   dripEditor.classList.add("hidden");
   dripFormError.classList.add("hidden");
 
-  const dripsGate = document.getElementById("drips-upgrade-gate")!;
-
-  // Custom drips require Basic or Advanced
-  try {
-    const auth = await window.yo.getAuthStatus();
-    if (auth.tier !== "basic" && auth.tier !== "advanced") {
-      dripsGate.classList.remove("hidden");
-      dripsToolbar.classList.add("hidden");
-      dripsListEl.classList.add("hidden");
-      document.getElementById("drips-upgrade-btn")!.onclick = () => {
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-      return;
-    }
-  } catch { /* fall through */ }
-
-  dripsGate.classList.add("hidden");
+  document.getElementById("drips-upgrade-gate")!.classList.add("hidden");
   dripsToolbar.classList.remove("hidden");
   dripsListEl.classList.remove("hidden");
 

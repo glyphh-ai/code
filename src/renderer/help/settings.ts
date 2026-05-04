@@ -360,27 +360,14 @@ async function loadSettings() {
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   await refreshOfferUsageStatus();
 
-  // MCP Expose — gate behind Advanced tier
   const mcpSectionWrap = document.getElementById("mcp-section-wrap")!;
   const mcpProGate = document.getElementById("mcp-pro-gate")!;
-  if (authStatus.tier !== "advanced") {
-    mcpSectionWrap.classList.add("hidden");
-    mcpProGate.classList.remove("hidden");
-    const mcpUpgradeBtn = document.getElementById("mcp-upgrade-btn");
-    if (mcpUpgradeBtn) {
-      mcpUpgradeBtn.onclick = () => {
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-    }
-  } else {
-    mcpSectionWrap.classList.remove("hidden");
-    mcpProGate.classList.add("hidden");
-    document.getElementById("mcp-expose-new-token")?.classList.add("hidden");
-    mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
-    await refreshMcpExposeStatus();
-    await renderMcpTokens();
-  }
+  mcpSectionWrap.classList.remove("hidden");
+  mcpProGate.classList.add("hidden");
+  document.getElementById("mcp-expose-new-token")?.classList.add("hidden");
+  mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
+  await refreshMcpExposeStatus();
+  await renderMcpTokens();
 
   // Agent mode
   const currentMode = await window.yo.getAgentMode();

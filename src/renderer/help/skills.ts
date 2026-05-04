@@ -347,21 +347,7 @@ async function loadSkills() {
   skillFormError.classList.add("hidden");
   allSkillsDetailed = await window.yo.skillsListDetailed();
 
-  const limitMsg = document.getElementById("skills-limit-msg")!;
-  const newBtn = document.getElementById("skill-new-btn") as HTMLButtonElement;
-  try {
-    const auth = await window.yo.getAuthStatus();
-    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && allSkillsDetailed.length >= 5;
-    limitMsg.classList.toggle("hidden", !atLimit);
-    newBtn.disabled = atLimit;
-    if (atLimit) {
-      document.getElementById("skills-upgrade-link")!.onclick = (e) => {
-        e.preventDefault();
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-    }
-  } catch { /* fall through */ }
+  document.getElementById("skills-limit-msg")!.classList.add("hidden");
 
   renderSkillsList();
 }

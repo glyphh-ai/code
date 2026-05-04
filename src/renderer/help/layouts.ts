@@ -230,22 +230,7 @@ async function loadLayouts() {
   layoutFormError.classList.add("hidden");
   allLayouts = await window.yo.layoutsList();
 
-  // Check layout limit for free tier
-  const limitMsg = document.getElementById("layouts-limit-msg")!;
-  const newBtn = document.getElementById("layout-new-btn") as HTMLButtonElement;
-  try {
-    const auth = await window.yo.getAuthStatus();
-    const atLimit = auth.tier !== "basic" && auth.tier !== "advanced" && allLayouts.length >= 5;
-    limitMsg.classList.toggle("hidden", !atLimit);
-    newBtn.disabled = atLimit;
-    if (atLimit) {
-      document.getElementById("layouts-upgrade-link")!.onclick = (e) => {
-        e.preventDefault();
-        closeHelp();
-        window.yo.execCommand(`dip ${window.yo.platformUrl}/dashboard/billing`);
-      };
-    }
-  } catch { /* fall through */ }
+  document.getElementById("layouts-limit-msg")!.classList.add("hidden");
 
   renderLayoutsList();
 }

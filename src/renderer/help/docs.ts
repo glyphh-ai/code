@@ -66,13 +66,19 @@ async function loadAbout() {
   }
 
   const updateBtn = document.getElementById("about-check-update") as HTMLButtonElement | null;
+  const progressWrap = document.getElementById("about-progress");
+  const progressFill = document.getElementById("about-progress-fill");
+  const progressText = document.getElementById("about-progress-text");
+  const restartWrap = document.getElementById("about-restart");
+  const restartBtn = document.getElementById("about-restart-btn");
+
   if (updateBtn) {
     updateBtn.addEventListener("click", async () => {
       updateBtn.disabled = true;
       updateBtn.textContent = "Checking...";
       const ver = await window.yo.checkForUpdates();
       if (ver) {
-        updateBtn.textContent = `v${ver} available — downloading`;
+        updateBtn.textContent = `v${ver} available`;
       } else {
         updateBtn.textContent = "You're up to date";
         setTimeout(() => {
@@ -82,6 +88,33 @@ async function loadAbout() {
       }
     });
   }
+
+  if (restartBtn) {
+    restartBtn.addEventListener("click", () => {
+      window.yo.updateInstall();
+    });
+  }
+
+  window.yo.onUpdateStatus((info) => {
+    if (info.status === "available" && updateBtn) {
+      updateBtn.disabled = true;
+      updateBtn.textContent = `v${info.version} available`;
+    }
+    if (info.status === "downloading" && progressWrap && progressFill && progressText) {
+      progressWrap.classList.remove("hidden");
+      restartWrap?.classList.add("hidden");
+      progressFill.style.width = `${info.percent ?? 0}%`;
+      progressText.textContent = `Downloading... ${info.percent ?? 0}%`;
+    }
+    if (info.status === "ready") {
+      progressWrap?.classList.add("hidden");
+      if (restartWrap) restartWrap.classList.remove("hidden");
+      if (updateBtn) {
+        updateBtn.disabled = true;
+        updateBtn.textContent = `v${info.version} ready`;
+      }
+    }
+  });
 
   // Terms of Use
   const termsEl = document.querySelector("#policy-terms .policy-content");

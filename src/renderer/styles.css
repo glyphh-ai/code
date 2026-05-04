@@ -4217,6 +4217,58 @@ select.settings-input {
   margin-bottom: 4px;
 }
 
+.about-progress {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.about-progress-bar {
+  width: 200px;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.about-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.about-progress-text {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.about-restart {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.about-restart-text {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.about-restart-btn {
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #000;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.about-restart-btn:hover {
+  opacity: 0.85;
+}
+
 .about-copyright {
   font-size: 12px;
   color: var(--text-muted);

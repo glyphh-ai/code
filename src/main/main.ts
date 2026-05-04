@@ -1600,8 +1600,13 @@ async function boot() {
         panelManager.switchTo(lastView.id, mainWindow);
       }
     } else if (mainWindow) {
-      // No saved layout → land on The Drop (the discovery hub).
-      panelManager.switchTo("drop", mainWindow);
+      const cyphersOn = process.env.YO_CYPHERS_ENABLED === "1" || process.env.YO_CYPHERS_ENABLED === "true";
+      if (cyphersOn) {
+        panelManager.switchTo("drop", mainWindow);
+      } else {
+        const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
+        panelManager.switchTo(firstApp?.id || "home", mainWindow);
+      }
     }
 
     // Restore all saved tabs (not just those in the current view).
