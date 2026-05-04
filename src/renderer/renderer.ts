@@ -360,6 +360,7 @@ function clearPanelScreenshots(): void {
 document.getElementById("btn-close")!.addEventListener("click", () => window.yo.windowClose());
 document.getElementById("btn-minimize")!.addEventListener("click", () => window.yo.windowMinimize());
 document.getElementById("btn-maximize")!.addEventListener("click", () => window.yo.windowMaximize());
+document.getElementById("splash-close")?.addEventListener("click", () => window.yo.windowClose());
 
 // -- Titlebar label -> open home tab --
 

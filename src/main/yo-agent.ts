@@ -240,6 +240,7 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: 25,
+      cwd: os.homedir(),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {
