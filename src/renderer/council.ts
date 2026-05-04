@@ -43,6 +43,14 @@ interface CouncilAPI {
   councilEnd: (id: string) => Promise<{ ok: boolean; error?: string }>;
   councilSetCurrent: (id: string | null) => Promise<{ ok: boolean }>;
   onCouncilEvent: (cb: (event: CouncilEvent) => void) => () => void;
+  onCouncilConvened: (cb: (info: {
+    council_id: string;
+    name: string;
+    council_prompt: string;
+    members: Array<{ provider: string; model: string }>;
+    style: string;
+    round_cap: number;
+  }) => void) => () => void;
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
 }
@@ -550,6 +558,44 @@ async function init(): Promise<void> {
     el.addEventListener("click", () => setStyleChip(el.dataset.chip as typeof formState.style));
   });
   $("cf-save").addEventListener("click", () => { void convene(); });
+
+  // External convene (agent tool path)
+  council.onCouncilConvened((info) => {
+    layoutState.councilId = info.council_id;
+    layoutState.name = info.name;
+    layoutState.status = "ready";
+    layoutState.focused = null;
+    layoutState.members = info.members.map((m) => ({
+      id: `${m.provider}/${m.model}`,
+      provider: m.provider,
+      model: m.model,
+    }));
+    layoutState.members_status.clear();
+    for (const m of layoutState.members) layoutState.members_status.set(m.id, "idle");
+    messageEls.clear();
+
+    $("view-form").classList.add("hidden");
+    $("view-layout").classList.remove("hidden");
+    $("council-status").classList.remove("hidden");
+    $("council-name-pill").classList.remove("hidden");
+    $("council-name-pill").textContent = info.name;
+    $("btn-end-council").classList.remove("hidden");
+
+    setTopbarStatus("Ready");
+    renderRoster();
+
+    $("stream-body").innerHTML = "";
+    if (info.council_prompt) {
+      const topicEl = document.createElement("div");
+      topicEl.className = "msg system council-topic";
+      topicEl.innerHTML = `<div class="msg-head"><span class="who">Topic</span></div><div class="msg-body">${escapeHtml(info.council_prompt)}</div>`;
+      $("stream-body").appendChild(topicEl);
+    }
+
+    if (layoutState.unsubscribeEvents) layoutState.unsubscribeEvents();
+    layoutState.unsubscribeEvents = council.onCouncilEvent(handleCouncilEvent);
+    void council.councilSetCurrent(info.council_id);
+  });
 
   // Layout events
   $("btn-end-council").addEventListener("click", () => { void endCouncil(); });

@@ -187,15 +187,16 @@ const VSCODE_GRAB_SCRIPT = `
 // Note: yo://cypher (the legacy Meet-style panel) was retired in favor of
 // The Drop's Workspace view. Source files (code-workspace.html/.ts/.preload)
 // are kept on disk for now as a reference to mine richer streaming UI from.
-const INTERNAL_APPS: Array<{ id: string; name: string; url: string }> = [
-  { id: "home", name: "Home", url: "yo://home" },
+const NO_CAPTURE: CapturePolicy = { type: "manual" };
+const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
+  { id: "home", name: "Home", url: "yo://home", capturePolicy: NO_CAPTURE },
   { id: "drop", name: "The Drop", url: "yo://drop" },
-  { id: "council", name: "Council", url: "yo://council" },
+  { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "browser", name: "Browser", url: "yo://browser" },
-  { id: "context", name: "Context", url: "yo://context" },
+  { id: "context", name: "Context", url: "yo://context", capturePolicy: NO_CAPTURE },
 ];
 
 // Default panel apps — seeded on first launch so the workspace isn't empty
@@ -298,13 +299,14 @@ export class AppConnector {
   private ensureDefaults(): void {
     for (const def of INTERNAL_APPS) {
       if (!this.apps.has(def.id)) {
-        this.add(def.id, def.name, def.url);
+        const app = this.add(def.id, def.name, def.url);
+        if (def.capturePolicy) { app.capturePolicy = def.capturePolicy; this.save(app); }
       } else {
         const app = this.apps.get(def.id)!;
-        if (app.url !== def.url) {
-          app.url = def.url;
-          this.save(app);
-        }
+        let dirty = false;
+        if (app.url !== def.url) { app.url = def.url; dirty = true; }
+        if (def.capturePolicy && app.capturePolicy?.type !== def.capturePolicy.type) { app.capturePolicy = def.capturePolicy; dirty = true; }
+        if (dirty) this.save(app);
       }
     }
 

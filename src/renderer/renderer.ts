@@ -1469,6 +1469,7 @@ function syncAgentMode(): void {
     window.yo.setAgentMode("council");
     window.yo.setAgentMode(currentPerm);
   } else {
+    window.yo.setAgentMode("exit-council");
     window.yo.setAgentMode(currentPerm);
   }
 }

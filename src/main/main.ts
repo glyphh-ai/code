@@ -1319,8 +1319,14 @@ async function boot() {
           yoInterceptor.setAgentMode("council");
         }
       },
-      notifyReady: (info: { name: string; members: string[]; style: string; round_cap: number }) => {
+      notifyReady: (info: { name: string; council_prompt: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => {
         mainWindow?.webContents.send("yo-panel-council-ready", info);
+        const wc = panelManager.getWebContents("council");
+        if (wc) {
+          const { getCurrentCouncil } = require("./current-council");
+          const cid = getCurrentCouncil();
+          wc.send("council-convened", { council_id: cid, ...info });
+        }
       },
     },
   });
@@ -2258,12 +2264,9 @@ async function boot() {
       yoInterceptor.setAgentMode("council");
       return;
     }
-    // Only clear council flag when it's an actual mode change away from council
-    // (e.g. user switches back to "standard"). Perm changes while in council
-    // mode are SDK-level only and don't touch the council flag.
-    const isPermChange = ["default", "plan", "acceptEdits", "bypassPermissions"].includes(mode);
-    if (!isPermChange) {
+    if (mode === "exit-council") {
       yoAgent.setCouncilMode(false);
+      return;
     }
     yoAgent.setMode(mode as any);
     if (!yoAgent.isCouncilMode()) {

@@ -117,7 +117,7 @@ export interface SubstrateToolDeps {
     listProviderModels: () => Promise<Array<{ provider: string; model: string; display_name: string }>>;
     openPanel: () => Promise<void>;
     setMode: (mode: string) => void;
-    notifyReady: (info: { name: string; members: string[]; style: string; round_cap: number }) => void;
+    notifyReady: (info: { name: string; council_prompt: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => void;
   };
 }
 
@@ -1353,7 +1353,8 @@ const BUILTIN_TOOLS: ToolDef[] = [
       deps.council.setMode("council");
       deps.council.notifyReady({
         name: config.name,
-        members: config.members.map((m) => `${m.provider}/${m.model}`),
+        council_prompt: config.council_prompt,
+        members: config.members.map((m) => ({ provider: m.provider, model: m.model })),
         style: config.style,
         round_cap: config.round_cap,
       });

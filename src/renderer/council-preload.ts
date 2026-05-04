@@ -28,6 +28,16 @@ interface CouncilAPI {
     error?: string;
   }) => void) => () => void;
 
+  // Convened externally (via agent tool path)
+  onCouncilConvened: (cb: (info: {
+    council_id: string;
+    name: string;
+    council_prompt: string;
+    members: Array<{ provider: string; model: string }>;
+    style: string;
+    round_cap: number;
+  }) => void) => () => void;
+
   // Theme
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
@@ -44,6 +54,11 @@ const api: CouncilAPI = {
     const handler = (_e: Electron.IpcRendererEvent, event: Parameters<typeof cb>[0]) => cb(event);
     ipcRenderer.on("council-event", handler);
     return () => { ipcRenderer.removeListener("council-event", handler); };
+  },
+  onCouncilConvened: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, info: Parameters<typeof cb>[0]) => cb(info);
+    ipcRenderer.on("council-convened", handler);
+    return () => { ipcRenderer.removeListener("council-convened", handler); };
   },
   getTheme: () => ipcRenderer.invoke("get-theme") as Promise<string>,
   onThemeChanged: (cb) => {
