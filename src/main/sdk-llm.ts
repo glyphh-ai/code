@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { getShellPath } from "./shell-path";
+import { promptLog } from "./prompt-log";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -105,6 +106,7 @@ export async function sdkComplete(opts: {
 }): Promise<CompletionResult> {
   const sdk = await ensureSDK();
   const shellPath = getShellPath();
+  const startTs = Date.now();
 
   const gen = sdk.query({
     prompt: opts.prompt,
@@ -151,6 +153,20 @@ export async function sdkComplete(opts: {
       }
     }
   }
+
+  promptLog.record({
+    id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
+    startTs,
+    endTs: Date.now(),
+    prompt: opts.prompt.slice(0, 2000),
+    response: text.slice(0, 2000),
+    inputTokens: usage?.input_tokens || 0,
+    outputTokens: usage?.output_tokens || 0,
+    model: opts.model || "claude-sonnet-4-6",
+    provider: "anthropic",
+    mode: "process",
+    toolsUsed: [],
+  });
 
   return { text, usage };
 }

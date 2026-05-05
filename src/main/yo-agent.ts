@@ -13,6 +13,7 @@ import os from "os";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
+import { promptLog } from "./prompt-log";
 import { execSync } from "child_process";
 import { LLMConfig } from "./llm-config";
 
@@ -278,6 +279,9 @@ export class YoAgent {
 
     let fullText = "";
     const startTs = Date.now();
+    let totalInput = 0;
+    let totalOutput = 0;
+    const toolsUsed = new Set<string>();
 
     try {
       const gen = sdk.query({ prompt: message, options });
@@ -300,6 +304,7 @@ export class YoAgent {
                 if (block.name === "TodoWrite" && Array.isArray((block.input as any)?.todos)) {
                   this._lastTodos = (block.input as any).todos;
                 }
+                toolsUsed.add(block.name);
                 cb.onToolUse(block.id, block.name, block.input);
               }
             }
@@ -343,6 +348,8 @@ export class YoAgent {
           case "result": {
             const usage = msg.usage;
             if (usage) {
+              totalInput += usage.input_tokens || 0;
+              totalOutput += usage.output_tokens || 0;
               usageTracker.record("orchestrator", {
                 inputTokens: usage.input_tokens || 0,
                 outputTokens: usage.output_tokens || 0,
@@ -368,6 +375,20 @@ export class YoAgent {
 
       // Save chat record
       this.saveChatRecord(message, fullText, startTs);
+
+      promptLog.record({
+        id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
+        startTs,
+        endTs: Date.now(),
+        prompt: message.slice(0, 2000),
+        response: fullText.slice(0, 2000),
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        model,
+        provider: "anthropic",
+        mode: this._mode,
+        toolsUsed: [...toolsUsed],
+      });
 
       // Ingest structured turn into capture store
       if (this.captureStore && fullText.trim()) {
