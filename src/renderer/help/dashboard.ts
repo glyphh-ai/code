@@ -10,15 +10,23 @@ import { loadData, closeDataDetail, deleteDataEntry, clearData, dataSearchDeboun
 
 declare const Chart: any;
 
-const MODEL_MULTIPLIERS: Record<string, number> = {
-  "claude-haiku-4-5-20251001": 1,
-  "claude-sonnet-4-6": 3,
-  "claude-opus-4-7": 5,
+const MODEL_RATES: Record<string, { input: number; output: number }> = {
+  "claude-haiku-4-5-20251001": { input: 10, output: 50 },
+  "claude-sonnet-4-6":         { input: 30, output: 150 },
+  "claude-opus-4-6":           { input: 50, output: 250 },
+  "claude-opus-4-7":           { input: 50, output: 250 },
+  "gemini-2.5-pro":            { input: 25, output: 125 },
+  "gemini-2.5-flash":          { input: 8,  output: 40 },
+  "gpt-5":                     { input: 30, output: 150 },
+  "grok-4":                    { input: 30, output: 150 },
+  "sonar-pro":                 { input: 30, output: 150 },
 };
 
 function computeYos(inputTokens: number, outputTokens: number, model: string): number {
-  const mult = MODEL_MULTIPLIERS[model] || 3;
-  return Math.max(1, Math.ceil((inputTokens / 500 + outputTokens / 100) * mult));
+  const rate = MODEL_RATES[model] || { input: 30, output: 150 };
+  return Math.max(1, Math.ceil(
+    (inputTokens / 1000) * rate.input + (outputTokens / 1000) * rate.output,
+  ));
 }
 
 const AGENT_COLORS: Record<string, string> = {
