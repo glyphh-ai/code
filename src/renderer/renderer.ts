@@ -136,9 +136,9 @@ declare global {
       dripsPreview: (recipe: string) => Promise<string>;
       dripsBuiltinEffects: () => Promise<string[]>;
       // Dashboard
-      dashboardToday: () => Promise<any>;
-      dashboardHistory: (days?: number) => Promise<any[]>;
-      dashboardAllTime: () => Promise<{ agents: Record<string, any>; total: any }>;
+      dashboardToday: (tz?: string) => Promise<any>;
+      dashboardHistory: (days?: number, tz?: string) => Promise<any[]>;
+      dashboardAllTime: (tz?: string) => Promise<{ agents: Record<string, any>; total: any }>;
       dashboardApps: () => Promise<Array<{ name: string; path: string; modified: string }>>;
       dashboardOpenApp: (name: string) => void;
       dashboardDeleteApp: (name: string) => Promise<boolean>;
@@ -1146,66 +1146,194 @@ document.addEventListener("mouseup", () => {
   }
 });
 
-// -- Download toast --
+// -- Downloads dropdown --
 
-const dlToast = document.getElementById("download-toast")!;
-const dlFilename = document.getElementById("download-filename")!;
-const dlStatus = document.getElementById("download-status")!;
-const dlProgressBar = document.getElementById("download-progress-bar")!;
-const dlFill = document.getElementById("download-progress-fill")!;
-const dlShowBtn = document.getElementById("download-show")!;
-const dlDismiss = document.getElementById("download-dismiss")!;
+interface DlEntry {
+  id: string;
+  filename: string;
+  savePath: string;
+  totalBytes: number;
+  receivedBytes: number;
+  state: "downloading" | "completed" | "cancelled" | "interrupted";
+  startedAt: number;
+}
 
-let dlSavePath = "";
-let dlDismissTimer: ReturnType<typeof setTimeout> | null = null;
+const dlHistory: DlEntry[] = [];
+const dlBtn = document.getElementById("dl-btn")!;
+const dlBadgeCount = document.getElementById("dl-badge-count")!;
+const dlDropdown = document.getElementById("dl-dropdown")!;
+const dlList = document.getElementById("dl-list")!;
+const dlClearAll = document.getElementById("dl-clear-all")!;
 
-function formatBytes(bytes: number): string {
+function dlFormatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-window.yo.onDownloadStart(({ filename, totalBytes }) => {
-  dlFilename.textContent = filename;
-  dlStatus.textContent = totalBytes > 0 ? formatBytes(totalBytes) : "downloading...";
-  dlFill.style.width = "0%";
-  dlProgressBar.classList.remove("hidden");
-  dlShowBtn.classList.add("hidden");
-  dlToast.classList.remove("hidden");
-  dlSavePath = "";
-  if (dlDismissTimer) { clearTimeout(dlDismissTimer); dlDismissTimer = null; }
+function dlFileIcon(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  const icons: Record<string, string> = {
+    pdf: "📄", zip: "📦", gz: "📦", tar: "📦", rar: "📦", "7z": "📦",
+    png: "🖼", jpg: "🖼", jpeg: "🖼", gif: "🖼", svg: "🖼", webp: "🖼",
+    mp4: "🎬", mov: "🎬", avi: "🎬", mkv: "🎬", webm: "🎬",
+    mp3: "🎵", wav: "🎵", flac: "🎵", ogg: "🎵",
+    dmg: "💿", exe: "💿", msi: "💿", pkg: "💿",
+    doc: "📝", docx: "📝", xls: "📊", xlsx: "📊", csv: "📊",
+  };
+  return icons[ext] || "📎";
+}
+
+function dlUpdateBadge(): void {
+  const active = dlHistory.filter((d) => d.state === "downloading").length;
+  if (active > 0) {
+    dlBadgeCount.textContent = String(active);
+    dlBadgeCount.classList.remove("hidden");
+    dlBtn.classList.add("dl-active");
+  } else {
+    dlBadgeCount.classList.add("hidden");
+    dlBtn.classList.remove("dl-active");
+  }
+}
+
+function dlRenderList(): void {
+  if (dlHistory.length === 0) {
+    dlList.innerHTML = `<div class="dl-empty">No downloads yet</div>`;
+    return;
+  }
+
+  dlList.innerHTML = "";
+  for (const entry of dlHistory) {
+    const item = document.createElement("div");
+    item.className = "dl-item";
+    item.dataset.id = entry.id;
+
+    const icon = document.createElement("div");
+    icon.className = "dl-item-icon" + (entry.state === "interrupted" || entry.state === "cancelled" ? " dl-error" : "");
+    icon.textContent = entry.state === "interrupted" || entry.state === "cancelled" ? "✕" : dlFileIcon(entry.filename);
+
+    const info = document.createElement("div");
+    info.className = "dl-item-info";
+
+    const name = document.createElement("div");
+    name.className = "dl-item-name";
+    name.textContent = entry.filename;
+    name.title = entry.filename;
+    info.appendChild(name);
+
+    const meta = document.createElement("div");
+    meta.className = "dl-item-meta";
+    if (entry.state === "downloading") {
+      const pct = entry.totalBytes > 0 ? Math.round((entry.receivedBytes / entry.totalBytes) * 100) : 0;
+      meta.textContent = entry.totalBytes > 0
+        ? `${dlFormatBytes(entry.receivedBytes)} / ${dlFormatBytes(entry.totalBytes)} — ${pct}%`
+        : `${dlFormatBytes(entry.receivedBytes)}`;
+    } else if (entry.state === "completed") {
+      meta.textContent = entry.totalBytes > 0 ? dlFormatBytes(entry.totalBytes) : "Done";
+    } else {
+      meta.textContent = entry.state === "cancelled" ? "Cancelled" : "Failed";
+    }
+    info.appendChild(meta);
+
+    if (entry.state === "downloading") {
+      const prog = document.createElement("div");
+      prog.className = "dl-item-progress";
+      const fill = document.createElement("div");
+      fill.className = "dl-item-progress-fill";
+      fill.style.width = entry.totalBytes > 0 ? `${Math.min(100, (entry.receivedBytes / entry.totalBytes) * 100)}%` : "0%";
+      prog.appendChild(fill);
+      info.appendChild(prog);
+    }
+
+    item.appendChild(icon);
+    item.appendChild(info);
+
+    if (entry.state === "completed" && entry.savePath) {
+      const showBtn = document.createElement("button");
+      showBtn.className = "dl-item-action";
+      showBtn.title = "Show in folder";
+      showBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+      showBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.yo.downloadShow(entry.savePath);
+      });
+      const actions = document.createElement("div");
+      actions.className = "dl-item-actions";
+      actions.appendChild(showBtn);
+      item.appendChild(actions);
+    }
+
+    item.addEventListener("click", () => {
+      if (entry.state === "completed" && entry.savePath) {
+        window.yo.downloadShow(entry.savePath);
+      }
+    });
+
+    dlList.appendChild(item);
+  }
+}
+
+function dlToggleDropdown(): void {
+  const open = !dlDropdown.classList.contains("hidden");
+  if (open) {
+    dlDropdown.classList.add("hidden");
+  } else {
+    dlDropdown.classList.remove("hidden");
+    dlRenderList();
+  }
+}
+
+dlBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  dlToggleDropdown();
 });
 
-window.yo.onDownloadProgress(({ receivedBytes, totalBytes }) => {
-  if (totalBytes > 0) {
-    const pct = Math.min(100, (receivedBytes / totalBytes) * 100);
-    dlFill.style.width = `${pct}%`;
-    dlStatus.textContent = `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}`;
-  } else {
-    dlStatus.textContent = formatBytes(receivedBytes);
+dlClearAll.addEventListener("click", () => {
+  const active = dlHistory.filter((d) => d.state === "downloading");
+  dlHistory.length = 0;
+  dlHistory.push(...active);
+  dlUpdateBadge();
+  dlRenderList();
+});
+
+document.addEventListener("click", (e) => {
+  if (!dlDropdown.classList.contains("hidden") && !(e.target as Element)?.closest?.("#dl-btn-wrap")) {
+    dlDropdown.classList.add("hidden");
   }
 });
 
-window.yo.onDownloadDone(({ savePath, state }) => {
-  if (state === "completed") {
-    dlFill.style.width = "100%";
-    dlStatus.textContent = "Done";
-    dlSavePath = savePath;
-    dlShowBtn.classList.remove("hidden");
-    dlDismissTimer = setTimeout(() => dlToast.classList.add("hidden"), 8000);
-  } else {
-    dlStatus.textContent = state === "cancelled" ? "Cancelled" : "Failed";
-    dlDismissTimer = setTimeout(() => dlToast.classList.add("hidden"), 4000);
-  }
+window.yo.onDownloadStart(({ filename, totalBytes, savePath }) => {
+  const entry: DlEntry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    filename,
+    savePath: savePath || "",
+    totalBytes,
+    receivedBytes: 0,
+    state: "downloading",
+    startedAt: Date.now(),
+  };
+  dlHistory.unshift(entry);
+  if (dlHistory.length > 50) dlHistory.pop();
+  dlUpdateBadge();
+  if (!dlDropdown.classList.contains("hidden")) dlRenderList();
 });
 
-dlShowBtn.addEventListener("click", () => {
-  if (dlSavePath) window.yo.downloadShow(dlSavePath);
+window.yo.onDownloadProgress(({ filename, receivedBytes, totalBytes }) => {
+  const entry = dlHistory.find((d) => d.filename === filename && d.state === "downloading");
+  if (!entry) return;
+  entry.receivedBytes = receivedBytes;
+  if (totalBytes > 0) entry.totalBytes = totalBytes;
+  if (!dlDropdown.classList.contains("hidden")) dlRenderList();
 });
 
-dlDismiss.addEventListener("click", () => {
-  dlToast.classList.add("hidden");
-  if (dlDismissTimer) { clearTimeout(dlDismissTimer); dlDismissTimer = null; }
+window.yo.onDownloadDone(({ filename, savePath, state }) => {
+  const entry = dlHistory.find((d) => d.filename === filename && d.state === "downloading");
+  if (!entry) return;
+  entry.state = state as DlEntry["state"];
+  entry.savePath = savePath || entry.savePath;
+  if (state === "completed" && entry.totalBytes > 0) entry.receivedBytes = entry.totalBytes;
+  dlUpdateBadge();
+  if (!dlDropdown.classList.contains("hidden")) dlRenderList();
 });
 
 // -- Update bar --

@@ -23,6 +23,7 @@ const offerUsageProviders = document.getElementById("offer-usage-providers")!;
 const mcpExposeStatus = document.getElementById("mcp-expose-status")!;
 const mcpExposePort = document.getElementById("mcp-expose-port") as HTMLInputElement;
 const mcpExposeTokensEl = document.getElementById("mcp-expose-tokens")!;
+const settingsTimezone = document.getElementById("settings-timezone") as HTMLSelectElement;
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
@@ -242,6 +243,11 @@ function initSettings() {
     document.body.style.setProperty("--content-top", show ? "72px" : "38px");
   });
 
+  // Timezone
+  settingsTimezone.addEventListener("change", () => {
+    window.yo.setPreference("timezone", settingsTimezone.value);
+  });
+
   // Browser homepage
   settingsBrowserHome.addEventListener("change", () => {
     const val = settingsBrowserHome.value;
@@ -373,6 +379,23 @@ async function loadSettings() {
   const currentMode = await window.yo.getAgentMode();
   settingsAgentMode.value = currentMode;
 
+
+  // Timezone dropdown
+  const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    const allTz = (Intl as any).supportedValuesOf("timeZone") as string[];
+    settingsTimezone.innerHTML = `<option value="auto">Auto — ${detectedTz}</option>`;
+    for (const tz of allTz) {
+      const opt = document.createElement("option");
+      opt.value = tz;
+      opt.textContent = tz.replace(/_/g, " ");
+      settingsTimezone.appendChild(opt);
+    }
+  } catch {
+    settingsTimezone.innerHTML = `<option value="auto">Auto — ${detectedTz}</option>`;
+  }
+  const savedTz = await window.yo.getPreference("timezone", "auto") as string;
+  settingsTimezone.value = savedTz;
 
   // Browser homepage
   const homePref = await window.yo.getPreference("browserHomepage", "claude") as string;

@@ -19,9 +19,9 @@ contextBridge.exposeInMainWorld("codeWorkspace", {
   addAgent: (name: string, role: string, prompt?: string) => ipcRenderer.invoke("cw:add-agent", name, role, prompt) as Promise<{ ok: boolean; error?: string }>,
 
   // Dashboard
-  dashboardToday: () => ipcRenderer.invoke("dashboard:today") as Promise<any>,
-  dashboardAllTime: () => ipcRenderer.invoke("dashboard:all-time") as Promise<{ agents: Record<string, any>; total: any }>,
-  dashboardHistory: (days?: number) => ipcRenderer.invoke("dashboard:history", days) as Promise<any[]>,
+  dashboardToday: (tz?: string) => ipcRenderer.invoke("dashboard:today", tz) as Promise<any>,
+  dashboardAllTime: (tz?: string) => ipcRenderer.invoke("dashboard:all-time", tz) as Promise<{ agents: Record<string, any>; total: any }>,
+  dashboardHistory: (days?: number, tz?: string) => ipcRenderer.invoke("dashboard:history", days, tz) as Promise<any[]>,
 
   // VS Code URL
   getVscodeUrl: () => ipcRenderer.invoke("cw:vscode-url") as Promise<string | null>,

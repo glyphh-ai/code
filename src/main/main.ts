@@ -3340,32 +3340,33 @@ async function boot() {
 
   // ── Dashboard IPC handlers ─────────────────────────────
 
-  let usageSummaryCache: { ts: number; data: any } | null = null;
+  let usageSummaryCache: { ts: number; tz: string; data: any } | null = null;
   const USAGE_CACHE_TTL = 30_000;
 
-  async function fetchUsageSummary(days: number) {
-    if (usageSummaryCache && Date.now() - usageSummaryCache.ts < USAGE_CACHE_TTL && days <= 30) {
+  async function fetchUsageSummary(days: number, tz?: string) {
+    const tzParam = tz || "UTC";
+    if (usageSummaryCache && Date.now() - usageSummaryCache.ts < USAGE_CACHE_TTL && usageSummaryCache.tz === tzParam && days <= 30) {
       return usageSummaryCache.data;
     }
     try {
-      const data = await serverGetAuthed<any>(`/api/usage/summary?days=${days}`);
-      if (days <= 30) usageSummaryCache = { ts: Date.now(), data };
+      const data = await serverGetAuthed<any>(`/api/usage/summary?days=${days}&tz=${encodeURIComponent(tzParam)}`);
+      if (days <= 30) usageSummaryCache = { ts: Date.now(), tz: tzParam, data };
       return data;
     } catch {
       return usageTracker.getAllTime() ? { today: usageTracker.getToday(), history: usageTracker.getHistory(days), allTime: usageTracker.getAllTime() } : null;
     }
   }
 
-  ipcMain.handle("dashboard:today", async () => {
-    const summary = await fetchUsageSummary(30);
+  ipcMain.handle("dashboard:today", async (_e, tz?: string) => {
+    const summary = await fetchUsageSummary(30, tz);
     return summary?.today || null;
   });
-  ipcMain.handle("dashboard:history", async (_e, days?: number) => {
-    const summary = await fetchUsageSummary(days || 30);
+  ipcMain.handle("dashboard:history", async (_e, days?: number, tz?: string) => {
+    const summary = await fetchUsageSummary(days || 30, tz);
     return summary?.history || [];
   });
-  ipcMain.handle("dashboard:all-time", async () => {
-    const summary = await fetchUsageSummary(90);
+  ipcMain.handle("dashboard:all-time", async (_e, tz?: string) => {
+    const summary = await fetchUsageSummary(90, tz);
     return summary?.allTime || { agents: {}, total: { yos: 0, calls: 0 } };
   });
 

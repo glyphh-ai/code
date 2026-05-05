@@ -75,9 +75,9 @@ contextBridge.exposeInMainWorld("yo", {
   dripsBuiltinEffects: () => ipcRenderer.invoke("drips-builtin-effects") as Promise<string[]>,
 
   // Dashboard
-  dashboardToday: () => ipcRenderer.invoke("dashboard:today") as Promise<any>,
-  dashboardHistory: (days?: number) => ipcRenderer.invoke("dashboard:history", days) as Promise<any[]>,
-  dashboardAllTime: () => ipcRenderer.invoke("dashboard:all-time") as Promise<{ agents: Record<string, any>; total: any }>,
+  dashboardToday: (tz?: string) => ipcRenderer.invoke("dashboard:today", tz) as Promise<any>,
+  dashboardHistory: (days?: number, tz?: string) => ipcRenderer.invoke("dashboard:history", days, tz) as Promise<any[]>,
+  dashboardAllTime: (tz?: string) => ipcRenderer.invoke("dashboard:all-time", tz) as Promise<{ agents: Record<string, any>; total: any }>,
   dashboardApps: () => ipcRenderer.invoke("dashboard:apps") as Promise<Array<{ name: string; path: string; modified: string }>>,
   dashboardOpenApp: (name: string) => ipcRenderer.send("dashboard:open-app", name),
   dashboardDeleteApp: (name: string) => ipcRenderer.invoke("dashboard:delete-app", name) as Promise<boolean>,

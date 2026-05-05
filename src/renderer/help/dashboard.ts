@@ -10,6 +10,19 @@ import { loadData, closeDataDetail, deleteDataEntry, clearData, dataSearchDeboun
 
 declare const Chart: any;
 
+async function getTimezone(): Promise<string> {
+  const pref = await window.yo.getPreference("timezone", "auto") as string;
+  return pref === "auto" ? Intl.DateTimeFormat().resolvedOptions().timeZone : pref;
+}
+
+function dateKeyInTz(date: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year")!.value;
+  const m = parts.find((p) => p.type === "month")!.value;
+  const d = parts.find((p) => p.type === "day")!.value;
+  return `${y}-${m}-${d}`;
+}
+
 const MODEL_RATES: Record<string, { input: number; output: number }> = {
   "claude-haiku-4-5-20251001": { input: 10, output: 50 },
   "claude-sonnet-4-6":         { input: 30, output: 150 },
@@ -56,9 +69,10 @@ async function refreshDashboardYosCard(): Promise<void> {
 
 export async function loadDashboard() {
   void refreshDashboardYosCard();
+  const tz = await getTimezone();
   const [today, allTime, llmInfo, captureStats] = await Promise.all([
-    window.yo.dashboardToday(),
-    window.yo.dashboardAllTime(),
+    window.yo.dashboardToday(tz),
+    window.yo.dashboardAllTime(tz),
     window.yo.dashboardLLMInfo(),
     window.yo.capturesStats(),
   ]);
@@ -119,7 +133,8 @@ function renderDashAgentChart(allTime: { agents: Record<string, any>; total: any
 
 async function renderDashHistoryChart() {
   const days = parseInt(dashRangeMode);
-  const history = await window.yo.dashboardHistory(days);
+  const tz = await getTimezone();
+  const history = await window.yo.dashboardHistory(days, tz);
   const canvas = document.getElementById("dash-chart-history") as HTMLCanvasElement | null;
   if (!canvas) return;
   if (history.length === 0) {
@@ -135,8 +150,8 @@ async function renderDashHistoryChart() {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    labels.push(d.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    const key = dateKeyInTz(d, tz);
+    labels.push(d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" }));
     const entry = dateMap.get(key);
     yosData.push(entry?.total?.yos || 0);
   }
