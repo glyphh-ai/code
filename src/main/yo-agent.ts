@@ -12,43 +12,10 @@ import path from "path";
 import os from "os";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
+import { asarSafeQueryOptions } from "./sdk-llm";
 import { execSync } from "child_process";
 import { LLMConfig } from "./llm-config";
 
-function resolveAgentSdkBinary(): string | undefined {
-  const platform = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "win32" : "linux";
-  const arch = process.arch;
-  const pkgName = `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
-  const binaryName = platform === "win32" ? "claude.exe" : "claude";
-
-  let realFs: typeof fs;
-  try { realFs = require("original-fs"); } catch { realFs = fs; }
-
-  const asarIdx = __dirname.indexOf("app.asar");
-  if (asarIdx !== -1) {
-    const resourcesDir = __dirname.slice(0, asarIdx);
-    const unpackedBase = path.join(resourcesDir, "app.asar.unpacked", "node_modules");
-    const candidates = [
-      path.join(unpackedBase, pkgName, binaryName),
-      path.join(unpackedBase, "@anthropic-ai", "claude-agent-sdk", "node_modules", pkgName, binaryName),
-    ];
-    for (const candidate of candidates) {
-      if (realFs.existsSync(candidate)) {
-        console.log(`[yo-agent] resolveAgentSdkBinary: found at ${candidate}`);
-        return candidate;
-      }
-    }
-    console.log(`[yo-agent] resolveAgentSdkBinary: not found in unpacked, tried: ${candidates.join(", ")}`);
-  }
-
-  try {
-    const dir = path.dirname(require.resolve(`${pkgName}/package.json`));
-    const bin = path.join(dir, binaryName);
-    if (!bin.includes(".asar") && realFs.existsSync(bin)) return bin;
-  } catch {}
-  console.log(`[yo-agent] resolveAgentSdkBinary: returning undefined`);
-  return undefined;
-}
 import { getAgentToolSpec, executeTool } from "./substrate/tools";
 import { usageTracker } from "./usage-tracker";
 import { usageQueue } from "./usage-queue";
@@ -270,29 +237,10 @@ export class YoAgent {
 
     const model = this.llmConfig?.model || "claude-sonnet-4-6";
     const isBypass = this._mode === "bypassPermissions";
-    const sdkBinary = resolveAgentSdkBinary();
     const options: Record<string, any> = {
       model,
       maxTurns: 25,
-      cwd: os.homedir(),
-      ...(sdkBinary ? { pathToClaudeCodeExecutable: sdkBinary } : {}),
-      spawnClaudeCodeProcess: (opts: { command: string; args: string[]; cwd: string; env: Record<string, string>; signal: AbortSignal }) => {
-        const { spawn } = require("child_process");
-        let cmd = sdkBinary || opts.command;
-        if (cmd.includes("app.asar" + path.sep) && !cmd.includes("app.asar.unpacked")) {
-          cmd = cmd.replace("app.asar" + path.sep, "app.asar.unpacked" + path.sep);
-        }
-        const spawnCwd = opts.cwd?.includes?.(".asar") ? os.homedir() : opts.cwd;
-        console.log(`[yo-agent] spawnClaudeCodeProcess: cmd=${cmd} cwd=${spawnCwd}`);
-        const child = spawn(cmd, opts.args, {
-          cwd: spawnCwd,
-          stdio: ["pipe", "pipe", "pipe"],
-          signal: opts.signal,
-          env: opts.env,
-          windowsHide: true,
-        });
-        return { stdin: child.stdin, stdout: child.stdout, get killed() { return child.killed; }, get exitCode() { return child.exitCode; }, kill: child.kill.bind(child), on: child.on.bind(child), once: child.once.bind(child), off: child.off.bind(child) };
-      },
+      ...asarSafeQueryOptions(),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {

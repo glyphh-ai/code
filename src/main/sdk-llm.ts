@@ -2,9 +2,13 @@
  * SDK LLM — all LLM calls funneled through the Claude Agent SDK.
  *
  * Provides sdkComplete() for one-shot completions (no tools, no streaming).
- * All callers use this instead of direct Anthropic API or proxy calls.
+ * Exports resolveAgentSdkBinary() and makeSpawnOverride() so every sdk.query()
+ * call site uses the same asar-safe spawn path.
  */
 
+import fs from "fs";
+import path from "path";
+import os from "os";
 import { getShellPath } from "./shell-path";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
@@ -20,6 +24,71 @@ async function ensureSDK(): Promise<any> {
 }
 
 export { ensureSDK };
+
+let _cachedBinary: string | undefined | null = null;
+
+export function resolveAgentSdkBinary(): string | undefined {
+  if (_cachedBinary !== null) return _cachedBinary;
+
+  const platform = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "win32" : "linux";
+  const arch = process.arch;
+  const pkgName = `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
+  const binaryName = platform === "win32" ? "claude.exe" : "claude";
+
+  let realFs: typeof fs;
+  try { realFs = require("original-fs"); } catch { realFs = fs; }
+
+  const asarIdx = __dirname.indexOf("app.asar");
+  if (asarIdx !== -1) {
+    const unpackedBase = path.join(__dirname.slice(0, asarIdx), "app.asar.unpacked", "node_modules");
+    const candidates = [
+      path.join(unpackedBase, pkgName, binaryName),
+      path.join(unpackedBase, "@anthropic-ai", "claude-agent-sdk", "node_modules", pkgName, binaryName),
+    ];
+    for (const c of candidates) {
+      if (realFs.existsSync(c)) {
+        _cachedBinary = c;
+        return c;
+      }
+    }
+  }
+
+  try {
+    const dir = path.dirname(require.resolve(`${pkgName}/package.json`));
+    const bin = path.join(dir, binaryName);
+    if (!bin.includes(".asar") && realFs.existsSync(bin)) {
+      _cachedBinary = bin;
+      return bin;
+    }
+  } catch {}
+  _cachedBinary = undefined;
+  return undefined;
+}
+
+export function asarSafeQueryOptions(cwd?: string): Record<string, any> {
+  const sdkBinary = resolveAgentSdkBinary();
+  const safeCwd = cwd || os.homedir();
+  return {
+    cwd: safeCwd,
+    ...(sdkBinary ? { pathToClaudeCodeExecutable: sdkBinary } : {}),
+    spawnClaudeCodeProcess: (opts: { command: string; args: string[]; cwd: string; env: Record<string, string>; signal: AbortSignal }) => {
+      const { spawn } = require("child_process");
+      let cmd = sdkBinary || opts.command;
+      if (cmd.includes("app.asar" + path.sep) && !cmd.includes("app.asar.unpacked")) {
+        cmd = cmd.replace("app.asar" + path.sep, "app.asar.unpacked" + path.sep);
+      }
+      const spawnCwd = opts.cwd?.includes?.(".asar") ? safeCwd : opts.cwd;
+      const child = spawn(cmd, opts.args, {
+        cwd: spawnCwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        signal: opts.signal,
+        env: opts.env,
+        windowsHide: true,
+      });
+      return { stdin: child.stdin, stdout: child.stdout, get killed() { return child.killed; }, get exitCode() { return child.exitCode; }, kill: child.kill.bind(child), on: child.on.bind(child), once: child.once.bind(child), off: child.off.bind(child) };
+    },
+  };
+}
 
 export interface CompletionResult {
   text: string;
@@ -42,6 +111,7 @@ export async function sdkComplete(opts: {
     options: {
       model: opts.model || "claude-sonnet-4-6",
       maxTurns: 1,
+      ...asarSafeQueryOptions(),
       systemPrompt: opts.system,
       tools: [],
       permissionMode: "bypassPermissions",
