@@ -243,7 +243,7 @@ declare global {
       connectorsRefreshMcp: () => Promise<{ ok: boolean; error?: string; toolCount: number }>;
       onConnectorsChanged: (cb: () => void) => void;
       // Auto-update
-      onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => void;
+      onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number; error?: string }) => void) => void;
       updateInstall: () => void;
       checkForUpdates: () => Promise<string | null>;
       // MCP Expose
@@ -1217,7 +1217,7 @@ const updateFill = document.getElementById("update-progress-fill")!;
 const updateAction = document.getElementById("update-action")!;
 const updateDismiss = document.getElementById("update-dismiss")!;
 
-window.yo.onUpdateStatus(({ status, version, percent }) => {
+window.yo.onUpdateStatus(({ status, version, percent, error }) => {
   if (status === "available") {
     updateMsg.textContent = `Downloading v${version}...`;
     updateProgress.classList.remove("hidden");
@@ -1230,6 +1230,8 @@ window.yo.onUpdateStatus(({ status, version, percent }) => {
     updateProgress.classList.add("hidden");
     updateAction.classList.remove("hidden");
     updateBar.classList.remove("hidden");
+  } else if (status === "error") {
+    updateMsg.textContent = `Update failed: ${error || "unknown error"}`;
   }
 });
 

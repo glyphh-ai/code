@@ -158,9 +158,7 @@ export class YoAgent {
   }
 
   private async ensureMcpServer(): Promise<any> {
-    if (this.mcpServer) return this.mcpServer;
     const sdk = await this.ensureSDK();
-
     const tools = this.buildSdkMcpTools(sdk);
     this.mcpServer = sdk.createSdkMcpServer({
       name: "yo",

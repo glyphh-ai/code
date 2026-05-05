@@ -2049,6 +2049,10 @@ async function boot() {
 
   autoUpdater.on("error", (err: Error) => {
     console.error("[auto-update] error:", err.message);
+    mainWindow?.webContents.send("update-status", {
+      status: "error",
+      error: err.message,
+    });
   });
 
   if (autoUpdateEnabled) {

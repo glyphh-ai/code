@@ -352,7 +352,7 @@ contextBridge.exposeInMainWorld("yo", {
   onConnectorsChanged: (cb: () => void) => { ipcRenderer.on("connectors-changed", cb); },
 
   // Auto-update
-  onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number }) => void) => {
+  onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number; error?: string }) => void) => {
     ipcRenderer.on("update-status", (_e, info) => cb(info));
   },
   updateInstall: () => ipcRenderer.send("update-install"),
