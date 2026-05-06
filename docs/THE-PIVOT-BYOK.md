@@ -21,7 +21,7 @@
 | 1 | BYOK Settings → Providers tab | ✅ done |
 | 2 | Claude Code bootstrap (terminal launch on first run) | ✅ done |
 | 3 | Provider adapters call providers directly (no proxy) | ✅ done |
-| 4 | Cypher / agent runtime → Claude Code subprocess | ⬜ not started |
+| 4 | Cypher / agent runtime → Claude Code subprocess | ✅ done |
 | 5 | Council BYOK | 🟡 transport done; UI greying for unconfigured providers pending |
 | 6 | Delete the proxy (server + client) | ⬜ not started |
 | 7 | Delete yos (balance, kitty, top-up, overage, ledger, settlement) | ⬜ not started |

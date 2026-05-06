@@ -18,7 +18,6 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { AUTH_SERVER, getAuthToken } from "./auth";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import type { CypherBus } from "./cypher-bus";
 
@@ -150,6 +149,10 @@ export class AgentRunner {
         "Bash", "Read", "Edit", "Write", "Grep", "Glob",
         "WebFetch", "WebSearch", "Agent", "TodoWrite",
       ],
+      // Phase 4 of THE-PIVOT-BYOK: SDK uses CC OAuth creds directly,
+      // not the proxy. ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY removed so
+      // the SDK auto-discovers ~/.claude/.credentials.json (the user's
+      // Claude Code subscription).
       env: {
         ...process.env,
         PATH: shellPath,
@@ -157,8 +160,6 @@ export class AgentRunner {
         YO_AGENT_ROLE: config.role,
         YO_WORKSPACE: config.workspace,
         CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/2.5.0",
-        ANTHROPIC_BASE_URL: `${AUTH_SERVER}/api/llm/anthropic`,
-        ANTHROPIC_API_KEY: getAuthToken() || "not-authenticated",
       },
     };
 
