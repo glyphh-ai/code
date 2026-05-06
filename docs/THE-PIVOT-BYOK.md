@@ -24,8 +24,8 @@
 | 4 | Cypher / agent runtime → Claude Code subprocess | ✅ done |
 | 5 | Council BYOK | ✅ done |
 | 6 | Delete the proxy (server + client) | ✅ done |
-| 7 | Delete yos (balance, kitty, top-up, overage, ledger, settlement) | ⬜ not started |
-| 8 | Subscription-only billing (already half-done; finish) | ⬜ not started |
+| 7 | Delete yos (balance, kitty, top-up, overage, ledger, settlement) | ✅ done |
+| 8 | Subscription-only billing (already half-done; finish) | ✅ done |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done
 
