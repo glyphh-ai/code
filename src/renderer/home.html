@@ -1329,6 +1329,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <nav class="settings-nav">
               <button class="settings-nav-item active" data-sub="general">General</button>
               <button class="settings-nav-item" data-sub="agent">Agent</button>
+              <button class="settings-nav-item" data-sub="providers">Providers</button>
               <button class="settings-nav-item" data-sub="appearance">Appearance</button>
               <button class="settings-nav-item" data-sub="account">Account</button>
               <button class="settings-nav-item" data-sub="mcp">MCP Server</button>
@@ -1377,6 +1378,19 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                 </div>
 
+              </div>
+
+              <!-- Providers: BYOK keys for direct provider access -->
+              <div class="settings-panel" data-sub="providers">
+                <h2>Providers</h2>
+                <p class="section-desc">
+                  Bring your own API keys. yo never sees these values — they live encrypted on this machine
+                  via the OS keychain and call providers directly. Removing a key disables that provider in
+                  Council and any feature that uses it.
+                </p>
+                <div id="provider-keys-list" class="settings-form" style="gap:12px;display:flex;flex-direction:column;">
+                  <!-- rows rendered by settings.ts -->
+                </div>
               </div>
 
               <!-- Appearance: Tabs, URL bar, Browser home -->

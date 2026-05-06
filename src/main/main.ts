@@ -44,6 +44,7 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./stores/preferences-db";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
+import * as providerKeysModule from "./provider-keys";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
@@ -2360,6 +2361,26 @@ async function boot() {
       return { ok: false, error: err.message || "Transcription failed" };
     }
   });
+
+  // IPC: BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
+  // The renderer never receives plaintext keys — list/status only. Set/remove
+  // round-trip through here, and `test` fires a cheap health check against the
+  // provider so the user can verify the key works without committing to it.
+  ipcMain.handle("provider-keys-list", () => providerKeysModule.listStatus());
+  ipcMain.handle("provider-keys-set", (_e, provider: string, key: string) => {
+    try {
+      providerKeysModule.setKey(provider as providerKeysModule.ProviderId, key);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "save failed" };
+    }
+  });
+  ipcMain.handle("provider-keys-remove", (_e, provider: string) => {
+    providerKeysModule.removeKey(provider as providerKeysModule.ProviderId);
+    return { ok: true };
+  });
+  ipcMain.handle("provider-keys-test", (_e, provider: string) =>
+    providerKeysModule.testKey(provider as providerKeysModule.ProviderId));
 
   // IPC: Yo chat history
   ipcMain.handle("yo-chats-list", () => yoAgent.listChats());

@@ -253,6 +253,19 @@ declare global {
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
       mcpExposeGenToken: (label: string, ttlDays?: number) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
+
+      // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
+      providerKeysList: () => Promise<Array<{
+        provider: string;
+        configured: boolean;
+        savedAt: string | null;
+        lastTested: string | null;
+        lastTestOk: boolean | null;
+        lastTestError: string | null;
+      }>>;
+      providerKeysSet: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
+      providerKeysRemove: (provider: string) => Promise<{ ok: boolean }>;
+      providerKeysTest: (provider: string) => Promise<{ ok: boolean; error?: string }>;
       // Capability Offer
       capabilitiesSetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>;
       capabilitiesGetStatus: () => Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>;
