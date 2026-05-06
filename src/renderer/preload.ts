@@ -383,6 +383,12 @@ contextBridge.exposeInMainWorld("yo", {
   providerKeysTest: (provider: string) =>
     ipcRenderer.invoke("provider-keys-test", provider) as Promise<{ ok: boolean; error?: string }>,
 
+  // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
+  ccStatus: () => ipcRenderer.invoke("cc-status") as Promise<{
+    found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
+  }>,
+  ccLoginOpenTerminal: () => ipcRenderer.invoke("cc-login-open-terminal") as Promise<{ ok: boolean; error?: string }>,
+
   // Capability Offer — share this client's compute/LLM capacity with the .yo network
   capabilitiesSetEnabled: (enabled: boolean) => ipcRenderer.invoke("capabilities-set-enabled", enabled) as Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>,
   capabilitiesGetStatus: () => ipcRenderer.invoke("capabilities-get-status") as Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>,

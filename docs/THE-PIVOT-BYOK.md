@@ -19,7 +19,7 @@
 | Phase | Title | Status |
 |---|---|---|
 | 1 | BYOK Settings → Providers tab | ✅ done |
-| 2 | Claude Code bootstrap (terminal launch on first run) | ⬜ not started |
+| 2 | Claude Code bootstrap (terminal launch on first run) | ✅ done |
 | 3 | Provider adapters call providers directly (no proxy) | ⬜ not started |
 | 4 | Cypher / agent runtime → Claude Code subprocess | ⬜ not started |
 | 5 | Council BYOK | ⬜ not started |

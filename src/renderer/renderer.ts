@@ -266,6 +266,12 @@ declare global {
       providerKeysSet: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
       providerKeysRemove: (provider: string) => Promise<{ ok: boolean }>;
       providerKeysTest: (provider: string) => Promise<{ ok: boolean; error?: string }>;
+
+      // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
+      ccStatus: () => Promise<{
+        found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
+      }>;
+      ccLoginOpenTerminal: () => Promise<{ ok: boolean; error?: string }>;
       // Capability Offer
       capabilitiesSetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>;
       capabilitiesGetStatus: () => Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>;
@@ -2913,6 +2919,71 @@ function dismissSplash(): void {
   }
 });
 
+// ── Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK) ─────────────────────
+// Show a modal nudging the user to `claude /login` when CC credentials are
+// missing. Skipping is allowed for this session; subsequent app-feature CTAs
+// can re-prompt. Auto-detects login completion via a 2s poll after the user
+// clicks "Open Terminal".
+async function maybeShowCcBootstrapModal(): Promise<void> {
+  const modal = document.getElementById("cc-bootstrap-modal");
+  if (!modal) return;
+  // Session-scoped skip flag — survives until reload, not across sessions.
+  if (sessionStorage.getItem("yoCcBootstrapSkipped") === "1") return;
+  const status = await window.yo.ccStatus();
+  if (status.found) return;
+
+  const errEl = document.getElementById("cc-bootstrap-error")!;
+  const bodyEl = document.getElementById("cc-bootstrap-body")!;
+  if (!status.claudePath) {
+    bodyEl.innerHTML = `Yo's agent loop runs on Claude Code. You don't have <code>claude</code> on your PATH yet — install it first via the <a href="https://docs.claude.com/en/docs/claude-code/quickstart" target="_blank">Claude Code installer</a>, then come back.`;
+    (document.getElementById("cc-bootstrap-open") as HTMLButtonElement).disabled = true;
+  }
+
+  modal.style.display = "flex";
+
+  let pollHandle: number | null = null;
+  const cleanupPoll = () => { if (pollHandle) { clearInterval(pollHandle); pollHandle = null; } };
+
+  const recheckAndClose = async (showErrIfMissing: boolean) => {
+    const s = await window.yo.ccStatus();
+    if (s.found) {
+      cleanupPoll();
+      modal.style.display = "none";
+      return true;
+    }
+    if (showErrIfMissing) errEl.textContent = "still not signed in — finish in the terminal first";
+    return false;
+  };
+
+  document.getElementById("cc-bootstrap-open")!.onclick = async () => {
+    errEl.textContent = "";
+    const r = await window.yo.ccLoginOpenTerminal();
+    if (!r.ok) {
+      errEl.textContent = r.error || "couldn't open a terminal — run `claude /login` manually in any shell";
+      return;
+    }
+    // Start polling once the terminal is open. Stop after 5 minutes.
+    cleanupPoll();
+    let ticks = 0;
+    pollHandle = window.setInterval(async () => {
+      ticks++;
+      const ok = await recheckAndClose(false);
+      if (ok || ticks > 150) cleanupPoll(); // 150 * 2s = 5 min
+    }, 2000);
+  };
+
+  document.getElementById("cc-bootstrap-recheck")!.onclick = async () => {
+    errEl.textContent = "";
+    await recheckAndClose(true);
+  };
+
+  document.getElementById("cc-bootstrap-skip")!.onclick = () => {
+    cleanupPoll();
+    sessionStorage.setItem("yoCcBootstrapSkipped", "1");
+    modal.style.display = "none";
+  };
+}
+
 window.yo.onBoot((data) => {
   booted = true;
   bootData = data;
@@ -2927,6 +2998,13 @@ window.yo.onBoot((data) => {
     window.yo.getPreference("hasSeenTutorial", false).then((seen) => {
       if (!seen) showTutorial();
     });
+  }
+
+  // CC bootstrap (Phase 2 of THE-PIVOT-BYOK): nudge the user to log in to
+  // Claude Code if they haven't yet. Skip during onboarding — we don't want
+  // to layer two modals.
+  if (!data.needsOnboarding) {
+    setTimeout(() => { void maybeShowCcBootstrapModal(); }, 1200);
   }
 });
 

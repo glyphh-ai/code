@@ -45,6 +45,7 @@ import { getPreference, setPreference } from "./stores/preferences-db";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import * as providerKeysModule from "./provider-keys";
+import { bootstrapStatus as ccBootstrapStatus, spawnCcLogin } from "./cc-bootstrap";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
@@ -2381,6 +2382,11 @@ async function boot() {
   });
   ipcMain.handle("provider-keys-test", (_e, provider: string) =>
     providerKeysModule.testKey(provider as providerKeysModule.ProviderId));
+
+  // IPC: Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
+  // Renderer polls cc-status to detect login completion after spawning.
+  ipcMain.handle("cc-status", () => ccBootstrapStatus());
+  ipcMain.handle("cc-login-open-terminal", () => spawnCcLogin());
 
   // IPC: Yo chat history
   ipcMain.handle("yo-chats-list", () => yoAgent.listChats());
