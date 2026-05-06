@@ -15,7 +15,6 @@ import os from "os";
 const QUEUE_FILE = path.join(os.homedir(), "yo", ".usage-queue");
 const QUEUE_DIR = path.dirname(QUEUE_FILE);
 const FLUSH_INTERVAL_MS = 30_000;
-const API_URL = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
 
 interface UsageRecord {
   inputTokens: number;
@@ -89,84 +88,18 @@ class UsageQueueImpl {
     }
   }
 
+  /**
+   * Phase 7 of THE-PIVOT-BYOK: yo-server's /api/usage/batch is gone.
+   * Drain the local queue without posting — users see their real usage on
+   * the provider's own dashboard (Anthropic / OpenAI / etc.).
+   */
   private async flush(): Promise<void> {
     if (this.flushing) return;
     this.flushing = true;
-
     try {
-      if (!fs.existsSync(QUEUE_FILE)) return;
-      const raw = fs.readFileSync(QUEUE_FILE, "utf-8").trim();
-      if (!raw) return;
-
-      const lines = raw.split("\n");
-      const records: UsageRecord[] = [];
-      for (const line of lines) {
-        try {
-          records.push(JSON.parse(line));
-        } catch {
-          // Skip malformed lines (e.g. partial write from crash)
-        }
-      }
-
-      if (records.length === 0) {
-        // All lines were malformed — clear the file
-        fs.writeFileSync(QUEUE_FILE, "", "utf-8");
-        return;
-      }
-
-      const token = this.getToken?.();
-      if (!token) return; // Can't push without auth — leave in queue
-
-      const ok = await this.pushBatch(records, token);
-      if (ok) {
-        // Atomic clear: write empty to temp, rename over original
-        const tmp = QUEUE_FILE + ".tmp";
-        fs.writeFileSync(tmp, "", "utf-8");
-        fs.renameSync(tmp, QUEUE_FILE);
-      }
-    } catch {
-      // Network/disk error — records stay in queue for next cycle
-    } finally {
-      this.flushing = false;
-    }
-  }
-
-  private async pushBatch(records: UsageRecord[], token: string): Promise<boolean> {
-    try {
-      const { net } = await import("electron");
-
-      return new Promise<boolean>((resolve) => {
-        const req = net.request({
-          method: "POST",
-          url: `${API_URL}/api/usage/batch`,
-        });
-        req.setHeader("Content-Type", "application/json");
-        req.setHeader("Authorization", `Bearer ${token}`);
-
-        let body = "";
-        req.on("response", (res) => {
-          const ok = res.statusCode >= 200 && res.statusCode < 300;
-          res.on("data", (chunk) => { body += chunk.toString(); });
-          res.on("end", () => {
-            if (ok) {
-              try {
-                const parsed = JSON.parse(body);
-                if (typeof parsed.balance === "number") {
-                  this._lastBalance = parsed.balance;
-                }
-              } catch { /* ignore parse errors */ }
-            }
-            resolve(ok);
-          });
-        });
-
-        req.on("error", () => resolve(false));
-        req.write(JSON.stringify({ records }));
-        req.end();
-      });
-    } catch {
-      return false;
-    }
+      if (fs.existsSync(QUEUE_FILE)) fs.writeFileSync(QUEUE_FILE, "", "utf-8");
+    } catch { /* ignore */ }
+    this.flushing = false;
   }
 }
 

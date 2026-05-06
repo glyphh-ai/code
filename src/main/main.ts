@@ -2880,17 +2880,11 @@ async function boot() {
   ipcMain.handle("agents-id-available", async (_e, id: string) => idAvailable(id));
 
   // ── Marketplace + Reservations IPC handlers ────────────
-  ipcMain.handle("yos-balance", async () => {
-    try {
-      const r = await serverGetAuthed<{ user_id: string; balance: number }>("/api/yos/balance");
-      usageQueue.updateBalance(r.balance);
-      return r;
-    } catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
-  });
-  ipcMain.handle("yos-rate-cards", async () => {
-    try { return await serverGetAuthed<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> }>("/api/yos/rate-cards"); }
-    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
-  });
+  // yos-balance / yos-rate-cards removed in Phase 7 of THE-PIVOT-BYOK.
+  // The yo-server endpoints they fronted are deleted; surfaces that read
+  // these values now display "—" or omit the row entirely.
+  ipcMain.handle("yos-balance", async () => ({ user_id: "", balance: 0 }));
+  ipcMain.handle("yos-rate-cards", async () => ({ cards: [] }));
   ipcMain.handle("models-list", async () => {
     try { return await serverGetAuthed<{ models: Array<{ provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }> }>("/api/models"); }
     catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
