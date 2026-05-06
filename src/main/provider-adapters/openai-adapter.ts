@@ -1,17 +1,18 @@
 /**
- * OpenAI adapter — GPT / Codex via the proxy. Returns 503 from the proxy
- * until OPENAI_API_KEY is set on yo-server.
+ * OpenAI adapter — GPT / Codex via the user's BYOK key. Throws
+ * ProviderNotConfiguredError if the user hasn't saved an OpenAI key
+ * in Settings → Providers.
  */
 
 import type {
   AgentAdapter, AdapterTurnRequest, AdapterTurnSink, LLMProvider,
 } from "./agent-adapter";
-import { runProxyStream } from "./proxy-client";
+import { runByokStream } from "./byok-client";
 
 export class OpenAIAdapter implements AgentAdapter {
   readonly provider: LLMProvider = "openai";
   async run(req: AdapterTurnRequest, sink: AdapterTurnSink, signal?: AbortSignal): Promise<string> {
     const model = req.model || "gpt-5";
-    return runProxyStream("openai", { ...req, model }, sink, signal);
+    return runByokStream("openai", { ...req, model }, sink, signal);
   }
 }

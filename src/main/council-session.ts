@@ -3,8 +3,9 @@
  *
  * Runs entirely in the main process. Each member is a thin chat-completions
  * loop — no Claude Agent SDK, no tools, no path-gate (nothing to gate).
- * Tokens stream through `runProxyStream` so yos billing flows naturally
- * through yo-server's LLM proxy.
+ * After Phase 3 of THE-PIVOT-BYOK, tokens stream directly to each provider
+ * using the user's locally-stored API key (Settings → Providers). yo-server
+ * never sees Council prompts or responses.
  *
  * The .yo agent drives via substrate council tools (council_broadcast,
  * council_interject, council_stop, council_status, council_summarize,
@@ -19,7 +20,7 @@
 
 import crypto from "crypto";
 import type { WebContents } from "electron";
-import { runProxyStream } from "./provider-adapters/proxy-client";
+import { runByokStream } from "./provider-adapters/byok-client";
 import type {
   AdapterMessage, AdapterTurnRequest, AdapterTurnSink, LLMProvider,
 } from "./provider-adapters/agent-adapter";
@@ -242,7 +243,7 @@ export async function askCouncilMember(
   };
 
   try {
-    await runProxyStream(member.provider, req, sink, ac.signal);
+    await runByokStream(member.provider, req, sink, ac.signal);
   } catch (err) {
     emit(s, { kind: "error", member_id: member.id, round, error: err instanceof Error ? err.message : String(err) });
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -403,7 +404,7 @@ async function runMemberTurn(
     };
 
     try {
-      await runProxyStream(member.provider, req, sink, ac.signal);
+      await runByokStream(member.provider, req, sink, ac.signal);
       s.abortControllers = s.abortControllers.filter((x) => x !== ac);
       lastErr = null;
       break;
@@ -507,7 +508,7 @@ Plain markdown. No preamble. Be specific and quote when useful.`;
     maxTokens: 2000,
   };
   let summary = "";
-  await runProxyStream("anthropic", req, {
+  await runByokStream("anthropic", req, {
     onText: (d) => { summary += d; },
     onError: (msg) => { /* fall through; partial summary still useful */ console.warn("[council summarize]", msg); },
   });
