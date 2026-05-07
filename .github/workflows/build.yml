@@ -32,6 +32,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The Claude Agent SDK ships platform-specific native binaries as
+      # optionalDependencies (filtered by `cpu`/`os`). On the arm64 runner
+      # `npm ci` only installs the arm64 variant, so the x64 mac build
+      # crashes at runtime with "Native CLI binary for darwin-x64 not
+      # found". Pull the x64-darwin variants in via a second install
+      # pass that overrides cpu/os without touching the lockfile.
+      - name: Install x64-darwin native deps for cross-arch packaging
+        run: npm install --no-save --include=optional --cpu=x64 --os=darwin
+
       - name: Build
         run: npm run build
 
