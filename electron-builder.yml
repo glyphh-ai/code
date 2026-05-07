@@ -4,16 +4,25 @@ copyright: Copyright © 2026 Glyphh AI
 
 mac:
   category: public.app-category.developer-tools
+  # Build both Apple Silicon (arm64) and Intel (x64) so users on
+  # 2019/2020-era Intel Macs can run Yo. ${arch} in artifactName keeps
+  # the two variants from colliding on filename.
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
   icon: assets/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: entitlements.mac.plist
   entitlementsInherit: entitlements.mac.plist
   notarize: true
-  artifactName: "Yo.${ext}"
+  artifactName: "Yo-${arch}.${ext}"
 
 win:
   target:
