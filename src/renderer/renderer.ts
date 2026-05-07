@@ -1829,17 +1829,32 @@ const DIRECT_TOOL_DESC: Record<string, string> = {
 function formatToolDisplayName(name: string): string {
   if (DELEGATION_DESC[name]) return DELEGATION_DESC[name];
   if (DIRECT_TOOL_DESC[name]) return DIRECT_TOOL_DESC[name];
-  if (name.startsWith("skill_")) return name.slice(6).replace(/_/g, " ");
+  if (name.startsWith("skill_")) return dedupeLeadingToken(name.slice(6)).replace(/_/g, " ");
   // Strip MCP server prefix (e.g. "mcp__yo__list_panels" → "list_panels")
   const mcpMatch = name.match(/^mcp__[^_]+__(.+)$/);
-  if (mcpMatch) return mcpMatch[1].replace(/_/g, " ");
-  const parts = name.split("_");
+  if (mcpMatch) return dedupeLeadingToken(mcpMatch[1]).replace(/_/g, " ");
+  const cleaned = dedupeLeadingToken(name);
+  const parts = cleaned.split("_");
   if (parts.length >= 2) {
     const app = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
     const action = parts.slice(1).join(" ");
     return `${app}: ${action}`;
   }
-  return name.replace(/_/g, " ");
+  return cleaned.replace(/_/g, " ");
+}
+
+/**
+ * Pipedream connectors (and a handful of MCP servers) emit tool names like
+ * "gmail_gmail_find_email" — the connector slug prepended onto a tool name
+ * that already starts with the same slug. Strip the duplicate so the label
+ * renders as "Gmail: find email" instead of "Gmail: gmail find email".
+ */
+function dedupeLeadingToken(s: string): string {
+  const parts = s.split("_");
+  if (parts.length >= 2 && parts[0] && parts[0] === parts[1]) {
+    return parts.slice(1).join("_");
+  }
+  return s;
 }
 
 const BRAILLE = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
