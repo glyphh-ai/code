@@ -3,21 +3,29 @@
  *
  * Phase 2 of THE-PIVOT-BYOK. We don't ship our own auth for Claude
  * Code. Instead, on launch we check whether `~/.claude/.credentials.json`
- * (or platform equivalent) exists; if not, we offer to spawn the user's
- * default terminal running `claude /login` so they can complete the
- * existing CC OAuth flow.
+ * (or platform equivalent) exists; if not, we spawn `claude /login`
+ * directly (no terminal popup) — the CLI opens the user's browser for
+ * OAuth and writes creds when done. The renderer polls for creds
+ * appearing and auto-closes the modal.
  *
- * This module's surface is two things:
- *   • bootstrapStatus()   — { found, claudePath } for the renderer
- *   • spawnCcLogin()      — opens a terminal subprocess running `claude /login`.
- *                            Cross-platform best effort; returns whether the
- *                            spawn appeared to succeed.
+ * Why direct spawn instead of an osascript-driven Terminal.app: the
+ * AppleEvents path needs `com.apple.security.automation.apple-events`
+ * in entitlements (we don't have it), gets blocked by hardenedRuntime
+ * + notarization in prod, and ignores users on iTerm2/Warp/Ghostty
+ * anyway. Direct spawn works on all three platforms identically and
+ * needs no special entitlements.
  *
- * The renderer polls bootstrapStatus() periodically after spawnCcLogin()
- * to detect when the user finishes auth in the terminal.
+ * Surface:
+ *   • bootstrapStatus()  — { found, claudePath } for the renderer
+ *   • spawnCcLogin()     — fires `claude /login` headless; the CLI
+ *                          handles browser-opening on every platform.
+ *                          Returns whether the spawn launched (not
+ *                          whether the user actually completed sign-in
+ *                          — caller polls bootstrapStatus).
  */
 
 import { spawn } from "child_process";
+import { getShellPath } from "./shell-path";
 import { findCcCredentials, findClaudeCli, type CcCredsResult } from "./cc-creds";
 
 export interface BootstrapStatus extends CcCredsResult {
@@ -30,9 +38,10 @@ export function bootstrapStatus(): BootstrapStatus {
 }
 
 /**
- * Spawn the user's default terminal running `claude /login`.
- * Returns true if the spawn launched without error (not whether the
- * user actually completed login — caller should poll bootstrapStatus).
+ * Spawn `claude /login` directly (no terminal). Claude Code opens the
+ * default browser for OAuth and writes credentials when the callback
+ * fires. Returns true if the spawn launched without error — caller
+ * polls bootstrapStatus to know when sign-in actually completed.
  */
 export function spawnCcLogin(): { ok: boolean; error?: string } {
   const claudePath = findClaudeCli();
@@ -41,42 +50,19 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
   }
 
   try {
-    if (process.platform === "darwin") {
-      // Tell Terminal.app to open a new window running the command.
-      // shell-quote `claudePath` defensively; spaces in install paths happen.
-      const safePath = claudePath.replace(/(["\\])/g, "\\$1");
-      const script = `tell application "Terminal" to do script "${safePath} /login"\nactivate application "Terminal"`;
-      const child = spawn("osascript", ["-e", script], { detached: true, stdio: "ignore" });
-      child.unref();
-      return { ok: true };
-    }
-    if (process.platform === "win32") {
-      // `start` opens cmd, `/k` keeps it open after the command finishes
-      // so the user can see any error output.
-      const child = spawn("cmd", ["/c", "start", "cmd", "/k", `"${claudePath} /login"`], {
-        detached: true, stdio: "ignore", shell: false,
-      });
-      child.unref();
-      return { ok: true };
-    }
-    // Linux / other Unix — try common terminal emulators.
-    const candidates = [
-      ["x-terminal-emulator", ["-e", `${claudePath} /login`]],
-      ["gnome-terminal", ["--", "sh", "-c", `${claudePath} /login; exec sh`]],
-      ["konsole", ["-e", `${claudePath} /login`]],
-      ["xterm", ["-e", `${claudePath} /login`]],
-    ] as Array<[string, string[]]>;
-    for (const [cmd, args] of candidates) {
-      try {
-        const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-        child.unref();
-        return { ok: true };
-      } catch {
-        continue;
-      }
-    }
-    return { ok: false, error: "no supported terminal emulator found — run `claude /login` manually in any terminal" };
+    // Use the user's interactive-shell PATH, not the launch-services
+    // PATH that Electron inherits when launched from Finder. Without
+    // this, claude can't find git/node/etc. it depends on at runtime.
+    const env = { ...process.env, PATH: getShellPath() };
+    const child = spawn(claudePath, ["/login"], {
+      detached: true,
+      stdio: "ignore",
+      env,
+    });
+    child.unref();
+    return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "terminal spawn failed" };
+    const msg = err instanceof Error ? err.message : "claude /login spawn failed";
+    return { ok: false, error: msg };
   }
 }
