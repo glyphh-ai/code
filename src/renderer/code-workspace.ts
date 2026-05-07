@@ -424,7 +424,8 @@ async function refreshCypherBar() {
     if (s.associated === true) {
       cypherBarDot.classList.add("live");
       cypherBarTitle.textContent = s.title;
-      cypherBarKitty.textContent = `${fmtYos(s.kitty)} yos`;
+      // Kitty / yos display removed in Phase 7 of THE-PIVOT-BYOK.
+      cypherBarKitty.textContent = "";
       cypherBarJammers.textContent = `${s.jammers} jammers`;
     } else {
       cypherBarDot.classList.remove("live");

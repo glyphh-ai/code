@@ -388,41 +388,10 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => {
 });
 
 
-// -- Yos balance badge --
-
-const yosBadge = document.getElementById("yos-badge") as HTMLButtonElement | null;
-const yosBadgeAmount = document.getElementById("yos-badge-amount");
-
-function fmtYosCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1) + "k";
-  return String(n);
-}
-
-async function updateYosBadge(): Promise<void> {
-  if (!yosBadge || !yosBadgeAmount) return;
-  try {
-    const r = await window.yo.yosBalance();
-    if ("error" in r) { yosBadge.classList.add("hidden"); return; }
-    yosBadgeAmount.textContent = fmtYosCount(r.balance);
-    yosBadge.classList.remove("hidden");
-    yosBadge.title = `${r.balance} yos · click to buy more`;
-  } catch {
-    yosBadge.classList.add("hidden");
-  }
-}
-
-yosBadge?.addEventListener("click", () => {
-  window.yo.execCommand(`dip ${window.yo.platformUrl}`);
-});
-
-updateYosBadge();
-setInterval(updateYosBadge, 30000);
-// Refresh on window focus so credits land instantly when the user returns
-// from the platform Stripe Checkout.
-window.addEventListener("focus", updateYosBadge);
-// Expose so other modules can force a refresh after a known balance change.
-(window as unknown as { refreshYosBadge?: () => void }).refreshYosBadge = updateYosBadge;
+// Yos badge removed in Phase 7 of THE-PIVOT-BYOK — yo-server no longer
+// tracks balances; users pay providers directly. The window.refreshYosBadge
+// hook becomes a no-op for any caller that still touches it.
+(window as unknown as { refreshYosBadge?: () => void }).refreshYosBadge = () => {};
 
 // -- Tab bar --
 

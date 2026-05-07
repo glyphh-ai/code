@@ -436,18 +436,16 @@ async function loadSettings() {
     ? modelsResult.models.filter((m: any) => m.provider === "anthropic")
     : [];
   if (sdkModels.length > 0) {
-    const minCost = Math.min(...sdkModels.map((m: any) => m.yos_per_1k_output || 1));
     for (const m of sdkModels) {
-      const mult = Math.round(m.yos_per_1k_output / minCost);
       const opt = document.createElement("option");
       opt.value = `${m.provider}::${m.model}`;
-      opt.textContent = mult <= 1 ? m.display_name : `${m.display_name} (${mult}x yos)`;
+      opt.textContent = m.display_name;
       settingsModelSelect.appendChild(opt);
     }
   } else {
     for (const fallback of [
-      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (3x yos)" },
-      { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6 (5x yos)" },
+      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+      { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
       { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
     ]) {
       const opt = document.createElement("option");

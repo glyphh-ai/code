@@ -3108,21 +3108,12 @@ async function boot() {
     try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/events${qs ? "?" + qs : ""}`); }
     catch (err) { return { error: err instanceof Error ? err.message : "events failed" }; }
   });
-  ipcMain.handle("cypher-kitty-deposit", async (_e, id: string, amount: number) => {
-    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/deposit`, { amount }); }
-    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "deposit failed" }; }
-  });
-  ipcMain.handle("cypher-kitty-balance", async (_e, id: string) => {
-    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/balance`); }
-    catch (err) { return { error: err instanceof Error ? err.message : "balance failed" }; }
-  });
-  ipcMain.handle("cypher-kitty-ledger", async (_e, id: string, opts?: { limit?: number }) => {
-    const p = new URLSearchParams();
-    if (opts?.limit) p.set("limit", String(opts.limit));
-    const qs = p.toString();
-    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/ledger${qs ? "?" + qs : ""}`); }
-    catch (err) { return { error: err instanceof Error ? err.message : "ledger failed" }; }
-  });
+  // cypher-kitty-* handlers neutralized in Phase 7 of THE-PIVOT-BYOK.
+  // The server endpoints are gone; the legacy yo://cypher panel still
+  // calls these, so we return zeroed shapes locally instead of fetching.
+  ipcMain.handle("cypher-kitty-deposit", async () => ({ ok: true, kitty_balance: 0 }));
+  ipcMain.handle("cypher-kitty-balance", async () => ({ balance: 0 }));
+  ipcMain.handle("cypher-kitty-ledger", async () => ({ entries: [], count: 0 }));
 
   ipcMain.handle("auth-me", async () => {
     try {

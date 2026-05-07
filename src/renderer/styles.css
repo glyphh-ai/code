@@ -891,32 +891,6 @@ body {
 .mcp-indicator.running .mcp-indicator-dot { background: var(--accent); }
 .mcp-indicator.stopped .mcp-indicator-dot { background: var(--danger, #ef4444); }
 
-/* Yos balance badge — persistent in titlebar, click to open buy modal */
-.yos-badge {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  margin-right: 10px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  color: var(--accent-dark, var(--accent));
-  font-size: 10px;
-  font-weight: 700;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-.yos-badge.hidden { display: none; }
-.yos-badge:hover { background: var(--accent); color: #000; }
-[data-theme="light"] .yos-badge { background: #d1fae5; border-color: #1a9e48; color: #15803d; }
-[data-theme="light"] .yos-badge:hover { background: var(--accent); color: #fff; }
-.yos-badge-icon { font-size: 11px; line-height: 1; }
-.yos-badge-amount { letter-spacing: 0.2px; }
-.yos-badge-label { opacity: 0.7; font-weight: 500; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* ── Download button & dropdown ─────────────────────────── */
 

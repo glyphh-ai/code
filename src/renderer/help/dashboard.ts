@@ -23,69 +23,21 @@ function dateKeyInTz(date: Date, tz: string): string {
   return `${y}-${m}-${d}`;
 }
 
-const MODEL_RATES: Record<string, { input: number; output: number }> = {
-  "claude-haiku-4-5-20251001": { input: 10, output: 50 },
-  "claude-sonnet-4-6":         { input: 30, output: 150 },
-  "claude-opus-4-6":           { input: 50, output: 250 },
-  "claude-opus-4-7":           { input: 50, output: 250 },
-  "gemini-2.5-pro":            { input: 25, output: 125 },
-  "gemini-2.5-flash":          { input: 8,  output: 40 },
-  "gpt-5":                     { input: 30, output: 150 },
-  "grok-4":                    { input: 30, output: 150 },
-  "sonar-pro":                 { input: 30, output: 150 },
-};
-
-function computeYos(inputTokens: number, outputTokens: number, model: string): number {
-  const rate = MODEL_RATES[model] || { input: 30, output: 150 };
-  return Math.max(1, Math.ceil(
-    (inputTokens / 1000) * rate.input + (outputTokens / 1000) * rate.output,
-  ));
-}
-
-const AGENT_COLORS: Record<string, string> = {
-  orchestrator: "#25C75E", navigator: "#48dbfb", researcher: "#feca57",
-  coder: "#ff6b6b", "skill-runner": "#cc5de8", manager: "#ff9f43",
-};
-const AGENT_LABELS: Record<string, string> = {
-  orchestrator: "Orchestrator", navigator: "Navigator", researcher: "Researcher",
-  coder: "Coder", "skill-runner": "Skill Runner", manager: "Manager",
-};
-
-let dashAgentChart: any = null;
-let dashHistoryChart: any = null;
 let dashIntakeChart: any = null;
 let dashFlowChart: any = null;
-let dashRangeMode: "7" | "30" = "7";
 let storeRangeMode: "7" | "30" = "7";
 
-async function refreshDashboardYosCard(): Promise<void> {
-  const amt = document.getElementById("dash-yos-amount");
-  if (!amt) return;
-  try {
-    const r = await window.yo.yosBalance();
-    amt.textContent = "error" in r ? "—" : new Intl.NumberFormat().format(r.balance);
-  } catch { amt.textContent = "—"; }
-}
+// Yos wallet card / usage charts removed in Phase 7 of THE-PIVOT-BYOK.
+// yo-server no longer tracks token usage — providers do, via the user's
+// own dashboards.
 
 export async function loadDashboard() {
-  void refreshDashboardYosCard();
-  const tz = await getTimezone();
-  const [today, allTime, llmInfo, captureStats] = await Promise.all([
-    window.yo.dashboardToday(tz),
-    window.yo.dashboardAllTime(tz),
+  const [llmInfo, captureStats] = await Promise.all([
     window.yo.dashboardLLMInfo(),
     window.yo.capturesStats(),
   ]);
 
   document.getElementById("dash-provider")!.textContent = `${llmInfo.provider} / ${llmInfo.model}`;
-
-  const todayYos = today?.total?.yos || 0;
-  const todayCalls = today?.total?.calls || 0;
-  document.getElementById("dash-today-yos")!.textContent = formatTokens(todayYos);
-  document.getElementById("dash-today-calls")!.textContent = String(todayCalls);
-
-  document.getElementById("dash-alltime-yos")!.textContent = formatTokens(allTime.total.yos);
-  document.getElementById("dash-alltime-calls")!.textContent = String(allTime.total.calls);
 
   document.getElementById("dash-captures")!.textContent = String(captureStats.count);
   document.getElementById("dash-embedded")!.textContent = String(captureStats.embeddedCount);
@@ -94,92 +46,10 @@ export async function loadDashboard() {
   document.getElementById("dash-oldest")!.textContent = relativeTime(captureStats.oldestTs);
   document.getElementById("dash-newest")!.textContent = relativeTime(captureStats.newestTs);
 
-  renderDashAgentChart(allTime);
-  renderDashHistoryChart();
   renderDashFlowChart(captureStats);
   renderDashIntakeChart();
   renderDashPrompts();
   loadData();
-}
-
-function renderDashAgentChart(allTime: { agents: Record<string, any>; total: any }) {
-  const agents = Object.keys(allTime.agents);
-  const canvas = document.getElementById("dash-chart-agents") as HTMLCanvasElement | null;
-  if (!canvas) return;
-  if (agents.length === 0) {
-    if (dashAgentChart) { dashAgentChart.destroy(); dashAgentChart = null; }
-    return;
-  }
-
-  const labels = agents.map(a => AGENT_LABELS[a] || a);
-  const data = agents.map(a => allTime.agents[a].yos || 0);
-  const colors = agents.map(a => AGENT_COLORS[a] || "#888");
-
-  const ctx = canvas.getContext("2d")!;
-  if (dashAgentChart) dashAgentChart.destroy();
-
-  dashAgentChart = new Chart(ctx, {
-    type: "doughnut",
-    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: "65%",
-      plugins: {
-        legend: { position: "right", labels: { color: cssVar("--text-2"), font: { size: 11 }, padding: 10, usePointStyle: true, pointStyleWidth: 8 } },
-        tooltip: { callbacks: { label: (c: any) => `${c.label}: ${formatTokens(c.parsed)} yos` } },
-      },
-    },
-  });
-}
-
-async function renderDashHistoryChart() {
-  const days = parseInt(dashRangeMode);
-  const tz = await getTimezone();
-  const history = await window.yo.dashboardHistory(days, tz);
-  const canvas = document.getElementById("dash-chart-history") as HTMLCanvasElement | null;
-  if (!canvas) return;
-  if (history.length === 0) {
-    if (dashHistoryChart) { dashHistoryChart.destroy(); dashHistoryChart = null; }
-    return;
-  }
-
-  const dateMap = new Map(history.map((d: any) => [d.date, d]));
-  const labels: string[] = [];
-  const yosData: number[] = [];
-
-  const now = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const key = dateKeyInTz(d, tz);
-    labels.push(d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" }));
-    const entry = dateMap.get(key);
-    yosData.push(entry?.total?.yos || 0);
-  }
-
-  const ctx = canvas.getContext("2d")!;
-  if (dashHistoryChart) dashHistoryChart.destroy();
-
-  dashHistoryChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "Yos consumed", data: yosData, borderColor: "#25C75E", backgroundColor: "rgba(37,199,94,0.1)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      scales: {
-        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
-        y: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: cssVar("--border") } },
-      },
-      plugins: {
-        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
-        tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${formatTokens(c.parsed.y)}` } },
-      },
-    },
-  });
 }
 
 async function renderDashIntakeChart() {
@@ -323,7 +193,7 @@ async function renderDashPrompts() {
 
     const tokSpan = document.createElement("span");
     tokSpan.style.cssText = "font-size:10px;color:var(--accent);flex-shrink:0;";
-    tokSpan.textContent = `${formatTokens(computeYos(e.inputTokens, e.outputTokens, e.model))} yos`;
+    tokSpan.textContent = `${formatTokens(e.inputTokens + e.outputTokens)} tok`;
     nameRow.appendChild(tokSpan);
 
     info.appendChild(nameRow);
@@ -362,9 +232,8 @@ async function openDashPromptDetail(id: string) {
   const metaGrid = document.getElementById("dash-prompt-meta")!;
   const duration = entry.endTs - entry.startTs;
 
-  const yos = computeYos(entry.inputTokens, entry.outputTokens, entry.model);
   const items = [
-    { label: "Yos", value: formatTokens(yos) },
+    { label: "Tokens", value: `${formatTokens(entry.inputTokens)} in / ${formatTokens(entry.outputTokens)} out` },
     { label: "Model", value: entry.model },
     { label: "Mode", value: entry.mode },
     { label: "Duration", value: formatDuration(duration) },
@@ -391,27 +260,8 @@ export function closeDashPromptDetail() {
 
 let dashPromptSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function openBuyYosOnPlatform(): Promise<void> {
-  const r = await window.yo.yosBuyUrl();
-  window.yo.openExternal(r.url);
-}
-
 export function initDashboardEvents() {
   document.getElementById("dash-refresh")?.addEventListener("click", () => loadDashboard());
-  document.getElementById("dash-yos-buy-btn")?.addEventListener("click", () => { void openBuyYosOnPlatform(); });
-
-  document.getElementById("dash-range-7")?.addEventListener("click", () => {
-    dashRangeMode = "7";
-    document.getElementById("dash-range-7")!.classList.add("active");
-    document.getElementById("dash-range-30")!.classList.remove("active");
-    renderDashHistoryChart();
-  });
-  document.getElementById("dash-range-30")?.addEventListener("click", () => {
-    dashRangeMode = "30";
-    document.getElementById("dash-range-30")!.classList.add("active");
-    document.getElementById("dash-range-7")!.classList.remove("active");
-    renderDashHistoryChart();
-  });
 
   document.getElementById("store-range-7")?.addEventListener("click", () => {
     storeRangeMode = "7";
