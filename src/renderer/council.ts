@@ -32,6 +32,11 @@ interface Model {
 interface CouncilAPI {
   modelsList: () => Promise<{ models?: Model[]; error?: string }>;
   authMe: () => Promise<{ id?: string; email?: string; error?: string }>;
+  providerKeysList: () => Promise<Array<{
+    provider: string; configured: boolean;
+    savedAt: string | null; lastTested: string | null;
+    lastTestOk: boolean | null; lastTestError: string | null;
+  }>>;
   councilCreate: (config: {
     name: string;
     council_prompt: string;
@@ -65,6 +70,7 @@ const escapeHtml = (s: string) =>
 // ── State ──────────────────────────────────────────────
 
 let modelsCache: Model[] = [];
+let configuredProviders: Set<string> = new Set();
 const formState = {
   style: "chained" as "chained" | "free_for_all" | "debate",
   members: [] as Array<{ provider: string; model: string; startup_prompt: string }>,
@@ -198,17 +204,28 @@ function renderMembers(): void {
     const row = document.createElement("div");
     row.className = "member-row";
 
-    // Provider select
+    // Provider select — providers without a saved BYOK key are still selectable
+    // but flagged "(no key)" so the user knows convene will fail until they add one.
     const providerSel = document.createElement("select");
     providerSel.innerHTML = `<option value="">Provider</option>` +
-      Array.from(byProvider.keys()).map((p) =>
-        `<option value="${escapeHtml(p)}" ${p === member.provider ? "selected" : ""}>${escapeHtml(p)}</option>`
-      ).join("");
+      Array.from(byProvider.keys()).map((p) => {
+        const flag = configuredProviders.has(p) ? "" : "  (no key)";
+        return `<option value="${escapeHtml(p)}" ${p === member.provider ? "selected" : ""}>${escapeHtml(p)}${flag}</option>`;
+      }).join("");
     providerSel.addEventListener("change", () => {
       formState.members[i] = { ...formState.members[i], provider: providerSel.value, model: "" };
       renderMembers();
     });
     row.appendChild(providerSel);
+
+    // Inline warning if this member's chosen provider has no saved key yet
+    if (member.provider && !configuredProviders.has(member.provider)) {
+      const warn = document.createElement("span");
+      warn.className = "member-warn";
+      warn.style.cssText = "color:#d4a017;font-size:11px;margin-left:6px;";
+      warn.textContent = `add ${member.provider} key in Settings → Providers`;
+      row.appendChild(warn);
+    }
 
     // Model select (filtered to provider)
     const modelSel = document.createElement("select");
@@ -248,6 +265,16 @@ function renderMembers(): void {
 
   // Toggle add button enabled state
   ($("cf-add-member") as HTMLButtonElement).disabled = formState.members.length >= 10;
+
+  // Disable Convene if any selected member's provider doesn't have a key yet.
+  const saveBtn = document.getElementById("cf-save") as HTMLButtonElement | null;
+  if (saveBtn) {
+    const blocked = formState.members.some(
+      (m) => m.provider && !configuredProviders.has(m.provider),
+    );
+    saveBtn.disabled = blocked;
+    saveBtn.title = blocked ? "Some members are missing API keys — Settings → Providers" : "";
+  }
 }
 
 function setStyleChip(style: typeof formState.style): void {
@@ -615,6 +642,14 @@ async function init(): Promise<void> {
     const r = await council.modelsList();
     if (r && "models" in r && Array.isArray(r.models)) modelsCache = r.models;
   } catch { modelsCache = []; }
+
+  // Load BYOK provider statuses (Phase 5 of THE-PIVOT-BYOK).
+  // Members whose provider lacks a saved key are flagged in renderMembers
+  // and the convene button is disabled while any selected member is unconfigured.
+  try {
+    const status = await council.providerKeysList();
+    configuredProviders = new Set(status.filter((s) => s.configured).map((s) => s.provider));
+  } catch { configuredProviders = new Set(); }
 
   // Two starter members so the form isn't empty
   formState.members = [

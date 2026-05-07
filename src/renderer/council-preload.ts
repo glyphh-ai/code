@@ -4,6 +4,14 @@ interface CouncilAPI {
   modelsList: () => Promise<unknown>;
   authMe: () => Promise<unknown>;
 
+  // BYOK provider keys (Phase 5 of THE-PIVOT-BYOK).
+  // Returns status only (configured / not / verified) — never the key itself.
+  providerKeysList: () => Promise<Array<{
+    provider: string; configured: boolean;
+    savedAt: string | null; lastTested: string | null;
+    lastTestOk: boolean | null; lastTestError: string | null;
+  }>>;
+
   // Council session lifecycle
   councilCreate: (config: {
     name: string;
@@ -46,6 +54,7 @@ interface CouncilAPI {
 const api: CouncilAPI = {
   modelsList: () => ipcRenderer.invoke("models-list"),
   authMe: () => ipcRenderer.invoke("auth-me"),
+  providerKeysList: () => ipcRenderer.invoke("provider-keys-list"),
   councilCreate: (config) => ipcRenderer.invoke("council-create", config),
   councilStop: (id) => ipcRenderer.invoke("council-stop", id),
   councilEnd: (id) => ipcRenderer.invoke("council-end", id),

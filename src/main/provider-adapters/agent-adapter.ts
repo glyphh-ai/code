@@ -1,17 +1,15 @@
 /**
  * AgentAdapter — provider-agnostic interface for running an agent turn.
  *
- * Phase 3.5 model: every LLM call routes through the yo-server LLM proxy.
- * Clients never BYO key. Adapters are thin shims over POST /api/llm/proxy
- * with provider-specific message shaping (system prompt placement, model
- * defaults, role mapping). The proxy meters tokens and debits yos —
- * adapters don't track usage themselves.
+ * Post-BYOK model (Phase 3 of THE-PIVOT-BYOK): every adapter calls the
+ * provider's HTTPS endpoint directly using the user's locally-stored
+ * API key (Settings → Providers). yo-server never sees inference. The
+ * old proxy path (POST /api/llm/proxy) is gone.
  *
- * Workers (cypher participants doing real work) default to the Claude SDK
- * path through ClaudeSDKAdapter (still talks to the proxy) for tool-loop
- * coverage. Council jammers and one-shot adapters use the simpler
- * proxy-direct adapters: ClaudeMsgAdapter, OpenAIAdapter, GeminiAdapter,
- * XAIAdapter, PerplexityAdapter.
+ * Workers that need the full Claude tool loop use Claude Code as a
+ * subprocess (see Phase 4). Council members and one-shot turns use the
+ * simple direct adapters here: ClaudeAdapter, OpenAIAdapter,
+ * GeminiAdapter, XAIAdapter, PerplexityAdapter.
  */
 
 export type LLMProvider = "anthropic" | "openai" | "google" | "xai" | "perplexity";
@@ -51,10 +49,10 @@ export interface AgentAdapter {
   run(req: AdapterTurnRequest, sink: AdapterTurnSink, signal?: AbortSignal): Promise<string>;
 }
 
-/** Top-level error thrown when the proxy says the provider isn't configured. */
+/** Thrown when the user hasn't saved a key for this provider in Settings → Providers. */
 export class ProviderNotConfiguredError extends Error {
   constructor(public provider: LLMProvider) {
-    super(`provider "${provider}" not configured on yo-server`);
+    super(`provider "${provider}" not configured — add an API key in Settings → Providers`);
     this.name = "ProviderNotConfiguredError";
   }
 }

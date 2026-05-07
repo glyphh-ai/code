@@ -76,21 +76,12 @@ const DELETE_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="n
 
 // $a, slugify, formatYos imported from shared
 
-async function refreshYosBalanceLabel(): Promise<void> {
-  const el = $a("agent-yos-balance");
-  if (!el) return;
-  const r = await window.yo.yosBalance();
-  if ("error" in r) { el.textContent = "— yos"; return; }
-  el.textContent = formatYos(r.balance);
-}
+// Yos balance label + rate-cards lookup removed in Phase 7 of
+// THE-PIVOT-BYOK. The legacy agent panel's #agent-yos-balance element
+// (if still in the DOM) renders blank.
 
 async function loadAgents(): Promise<void> {
   agentsCache = (await window.yo.agentsList() as AgentDef[]) || [];
-  void refreshYosBalanceLabel();
-  if (rateCardCache.length === 0) {
-    const rc = await window.yo.yosRateCards();
-    if (!("error" in rc)) rateCardCache = rc.cards;
-  }
   if (modelsCache.length === 0) {
     const mr = await window.yo.modelsList();
     if (!("error" in mr)) modelsCache = mr.models;
@@ -426,7 +417,7 @@ function populateModelSelector(provider?: string, model?: string): void {
     for (const m of models) {
       const opt = document.createElement("option");
       opt.value = `${m.provider}::${m.model}`;
-      opt.textContent = `${m.display_name} (${m.yos_per_1k_input}/${m.yos_per_1k_output} yos/1k)`;
+      opt.textContent = m.display_name;
       group.appendChild(opt);
     }
     sel.appendChild(group);
@@ -443,17 +434,10 @@ function populateModelSelector(provider?: string, model?: string): void {
 }
 
 function updateModelCostHint(): void {
-  const sel = $a<HTMLSelectElement>("agent-detail-model");
+  // Model cost label removed in Phase 7 of THE-PIVOT-BYOK — users pay
+  // their provider directly and check costs on the provider's dashboard.
   const costEl = $a("agent-detail-model-cost");
-  const val = sel.value;
-  if (!val) { costEl.textContent = ""; return; }
-  const [prov, mod] = val.split("::");
-  const m = modelsCache.find((x) => x.provider === prov && x.model === mod);
-  if (m) {
-    costEl.textContent = `${m.yos_per_1k_input} yos/1k input · ${m.yos_per_1k_output} yos/1k output`;
-  } else {
-    costEl.textContent = "";
-  }
+  if (costEl) costEl.textContent = "";
 }
 
 function switchAgentTab(tab: string): void {
@@ -581,9 +565,9 @@ function renderRemoteGrid(): void {
     const card = document.createElement("div");
     card.className = "connector-card";
     const tierColor = e.derived_tier === "premiere" ? "#a78bfa" : e.derived_tier === "standard" ? "#60a5fa" : "var(--text-2)";
-    const priceLabel = e.pricing && e.pricing.terms === "rate" && e.pricing.yos_per_1k_output
-      ? `${e.pricing.yos_per_1k_input}in / ${e.pricing.yos_per_1k_output}out yos·1k`
-      : "free";
+    // yos pricing labels removed in Phase 7 of THE-PIVOT-BYOK; agent
+    // marketplace listings are tier-only after the pivot (no per-token rates).
+    const priceLabel = e.derived_tier;
     const isReserved = currentAgent?.remote?.active_provider_handle === e.offer_handle;
     card.innerHTML = `
       <div class="connector-card-name">${escapeHtml(e.providers.join(", ") || "—")}</div>
@@ -631,7 +615,7 @@ async function reserveAgent(entry: MarketEntry): Promise<void> {
     active_provider_handle: entry.offer_handle,
   };
   await window.yo.agentsSave(currentAgent);
-  await refreshYosBalanceLabel();
+  /* yos balance label removed */
   renderRemoteGrid();
   void refreshActiveReservation();
 }
@@ -658,7 +642,7 @@ async function refreshActiveReservation(): Promise<void> {
     currentAgent.remote = { ...(currentAgent.remote || {}), active_reservation_id: undefined, active_provider_handle: undefined };
     await window.yo.agentsSave(currentAgent);
     card.classList.add("hidden");
-    void refreshYosBalanceLabel();
+    /* yos balance label removed */
     return;
   }
   const remaining = Math.max(0, Math.round((new Date(r.release_at).getTime() - Date.now()) / 60000));
@@ -673,7 +657,7 @@ async function releaseActiveReservation(): Promise<void> {
   if (!result.ok) { alert(`Release failed: ${result.error || "unknown error"}`); return; }
   currentAgent.remote = { ...(currentAgent.remote || {}), active_reservation_id: undefined, active_provider_handle: undefined };
   await window.yo.agentsSave(currentAgent);
-  await refreshYosBalanceLabel();
+  /* yos balance label removed */
   renderRemoteGrid();
   void refreshActiveReservation();
 }
@@ -696,7 +680,7 @@ function stopAgentMarketTimer(): void {
 }
 function startAgentBalanceTimer(): void {
   if (agentBalanceTimer) return;
-  agentBalanceTimer = setInterval(() => { void refreshYosBalanceLabel(); }, 10000);
+  agentBalanceTimer = setInterval(() => { /* yos balance label removed */ }, 10000);
 }
 function stopAgentBalanceTimer(): void {
   if (agentBalanceTimer) { clearInterval(agentBalanceTimer); agentBalanceTimer = null; }

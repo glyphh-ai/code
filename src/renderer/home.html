@@ -91,30 +91,22 @@
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
 
-          <!-- Yos balance card — the wallet at a glance -->
-          <div id="dash-yos-card" style="display:flex;align-items:center;gap:16px;padding:16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-bg);margin-bottom:16px;">
-            <div style="flex:1;">
-              <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;">Your wallet</div>
-              <div style="display:flex;align-items:baseline;gap:6px;margin-top:2px;">
-                <span id="dash-yos-amount" style="font-size:32px;font-weight:700;color:var(--accent);font-family:'SF Mono','Fira Code',monospace;">—</span>
-                <span style="font-size:14px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.5px;">yos</span>
-              </div>
-            </div>
-            <button id="dash-yos-buy-btn" class="action-btn primary" style="font-size:13px;padding:8px 16px;">Buy yos</button>
-          </div>
-
           <div class="dash-split-row">
-            <!-- Left: Yos Usage -->
+            <!-- Left: Token Metrics (input/output, no yos billing) -->
             <div class="dash-split-col">
-              <div class="dash-split-header">Yos Usage</div>
+              <div class="dash-split-header">Token Metrics</div>
 
               <div class="dash-stat-row">
                 <div class="dash-stat-card">
                   <div class="dash-stat-label">Today</div>
                   <div class="dash-stat-values">
                     <div class="dash-stat-item">
-                      <div class="dash-stat-num green" id="dash-today-yos">0</div>
-                      <div class="dash-stat-sub">Consumed</div>
+                      <div class="dash-stat-num green" id="dash-today-input">0</div>
+                      <div class="dash-stat-sub">Input</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="dash-today-output">0</div>
+                      <div class="dash-stat-sub">Output</div>
                     </div>
                     <div class="dash-stat-item">
                       <div class="dash-stat-num" id="dash-today-calls">0</div>
@@ -126,8 +118,12 @@
                   <div class="dash-stat-label">All Time</div>
                   <div class="dash-stat-values">
                     <div class="dash-stat-item">
-                      <div class="dash-stat-num green" id="dash-alltime-yos">0</div>
-                      <div class="dash-stat-sub">Consumed</div>
+                      <div class="dash-stat-num green" id="dash-alltime-input">0</div>
+                      <div class="dash-stat-sub">Input</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="dash-alltime-output">0</div>
+                      <div class="dash-stat-sub">Output</div>
                     </div>
                     <div class="dash-stat-item">
                       <div class="dash-stat-num" id="dash-alltime-calls">0</div>
@@ -139,7 +135,7 @@
 
               <div class="dash-chart-stack">
                 <div class="dash-chart-container">
-                  <div class="dash-stat-label">Token Usage by Agent</div>
+                  <div class="dash-stat-label">Tokens by Agent</div>
                   <div class="dash-chart-box"><canvas id="dash-chart-agents"></canvas></div>
                 </div>
                 <div class="dash-chart-container">
@@ -1329,6 +1325,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <nav class="settings-nav">
               <button class="settings-nav-item active" data-sub="general">General</button>
               <button class="settings-nav-item" data-sub="agent">Agent</button>
+              <button class="settings-nav-item" data-sub="providers">Providers</button>
               <button class="settings-nav-item" data-sub="appearance">Appearance</button>
               <button class="settings-nav-item" data-sub="account">Account</button>
               <button class="settings-nav-item" data-sub="mcp">MCP Server</button>
@@ -1377,6 +1374,19 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                 </div>
 
+              </div>
+
+              <!-- Providers: BYOK keys for direct provider access -->
+              <div class="settings-panel" data-sub="providers">
+                <h2>Providers</h2>
+                <p class="section-desc">
+                  Bring your own API keys. yo never sees these values — they live encrypted on this machine
+                  via the OS keychain and call providers directly. Removing a key disables that provider in
+                  Council and any feature that uses it.
+                </p>
+                <div id="provider-keys-list" class="settings-form" style="gap:12px;display:flex;flex-direction:column;">
+                  <!-- rows rendered by settings.ts -->
+                </div>
               </div>
 
               <!-- Appearance: Tabs, URL bar, Browser home -->
@@ -1658,6 +1668,24 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
     </div>
     </div>
   </div>
+  <!-- Claude Code bootstrap modal (Phase 2 of THE-PIVOT-BYOK).
+       Hidden by default; shown by renderer.ts when CC creds are missing. -->
+  <div id="cc-bootstrap-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:520px;width:90%;font-family:var(--font);">
+      <h2 style="margin:0 0 8px 0;font-size:20px;">Sign in to Claude Code</h2>
+      <p id="cc-bootstrap-body" style="margin:0 0 18px 0;color:var(--text-2);font-size:14px;line-height:1.5;">
+        Yo runs your agent loop on your own Claude Code subscription. You'll need to sign in once via the Claude CLI.
+        We'll open it in a terminal — finish in your browser, then come back.
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="cc-bootstrap-open" class="action-btn primary">Open Claude Code in Terminal</button>
+        <button id="cc-bootstrap-recheck" class="action-btn">I've signed in — recheck</button>
+        <button id="cc-bootstrap-skip" class="action-btn" style="margin-left:auto;">Skip for now</button>
+      </div>
+      <div id="cc-bootstrap-error" style="margin-top:12px;color:#d44a4a;font-size:12px;font-family:var(--font-mono, monospace);"></div>
+    </div>
+  </div>
+
   <script type="module" src="home.js"></script>
 </body>
 </html>

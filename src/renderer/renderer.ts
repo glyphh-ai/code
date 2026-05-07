@@ -253,6 +253,25 @@ declare global {
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
       mcpExposeGenToken: (label: string, ttlDays?: number) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
+
+      // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
+      providerKeysList: () => Promise<Array<{
+        provider: string;
+        configured: boolean;
+        savedAt: string | null;
+        lastTested: string | null;
+        lastTestOk: boolean | null;
+        lastTestError: string | null;
+      }>>;
+      providerKeysSet: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
+      providerKeysRemove: (provider: string) => Promise<{ ok: boolean }>;
+      providerKeysTest: (provider: string) => Promise<{ ok: boolean; error?: string }>;
+
+      // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
+      ccStatus: () => Promise<{
+        found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
+      }>;
+      ccLoginOpenTerminal: () => Promise<{ ok: boolean; error?: string }>;
       // Capability Offer
       capabilitiesSetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>;
       capabilitiesGetStatus: () => Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>;
@@ -369,41 +388,10 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => {
 });
 
 
-// -- Yos balance badge --
-
-const yosBadge = document.getElementById("yos-badge") as HTMLButtonElement | null;
-const yosBadgeAmount = document.getElementById("yos-badge-amount");
-
-function fmtYosCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1) + "k";
-  return String(n);
-}
-
-async function updateYosBadge(): Promise<void> {
-  if (!yosBadge || !yosBadgeAmount) return;
-  try {
-    const r = await window.yo.yosBalance();
-    if ("error" in r) { yosBadge.classList.add("hidden"); return; }
-    yosBadgeAmount.textContent = fmtYosCount(r.balance);
-    yosBadge.classList.remove("hidden");
-    yosBadge.title = `${r.balance} yos · click to buy more`;
-  } catch {
-    yosBadge.classList.add("hidden");
-  }
-}
-
-yosBadge?.addEventListener("click", () => {
-  window.yo.execCommand(`dip ${window.yo.platformUrl}`);
-});
-
-updateYosBadge();
-setInterval(updateYosBadge, 30000);
-// Refresh on window focus so credits land instantly when the user returns
-// from the platform Stripe Checkout.
-window.addEventListener("focus", updateYosBadge);
-// Expose so other modules can force a refresh after a known balance change.
-(window as unknown as { refreshYosBadge?: () => void }).refreshYosBadge = updateYosBadge;
+// Yos badge removed in Phase 7 of THE-PIVOT-BYOK — yo-server no longer
+// tracks balances; users pay providers directly. The window.refreshYosBadge
+// hook becomes a no-op for any caller that still touches it.
+(window as unknown as { refreshYosBadge?: () => void }).refreshYosBadge = () => {};
 
 // -- Tab bar --
 
@@ -1841,17 +1829,32 @@ const DIRECT_TOOL_DESC: Record<string, string> = {
 function formatToolDisplayName(name: string): string {
   if (DELEGATION_DESC[name]) return DELEGATION_DESC[name];
   if (DIRECT_TOOL_DESC[name]) return DIRECT_TOOL_DESC[name];
-  if (name.startsWith("skill_")) return name.slice(6).replace(/_/g, " ");
+  if (name.startsWith("skill_")) return dedupeLeadingToken(name.slice(6)).replace(/_/g, " ");
   // Strip MCP server prefix (e.g. "mcp__yo__list_panels" → "list_panels")
   const mcpMatch = name.match(/^mcp__[^_]+__(.+)$/);
-  if (mcpMatch) return mcpMatch[1].replace(/_/g, " ");
-  const parts = name.split("_");
+  if (mcpMatch) return dedupeLeadingToken(mcpMatch[1]).replace(/_/g, " ");
+  const cleaned = dedupeLeadingToken(name);
+  const parts = cleaned.split("_");
   if (parts.length >= 2) {
     const app = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
     const action = parts.slice(1).join(" ");
     return `${app}: ${action}`;
   }
-  return name.replace(/_/g, " ");
+  return cleaned.replace(/_/g, " ");
+}
+
+/**
+ * Pipedream connectors (and a handful of MCP servers) emit tool names like
+ * "gmail_gmail_find_email" — the connector slug prepended onto a tool name
+ * that already starts with the same slug. Strip the duplicate so the label
+ * renders as "Gmail: find email" instead of "Gmail: gmail find email".
+ */
+function dedupeLeadingToken(s: string): string {
+  const parts = s.split("_");
+  if (parts.length >= 2 && parts[0] && parts[0] === parts[1]) {
+    return parts.slice(1).join("_");
+  }
+  return s;
 }
 
 const BRAILLE = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827"];
@@ -2900,6 +2903,71 @@ function dismissSplash(): void {
   }
 });
 
+// ── Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK) ─────────────────────
+// Show a modal nudging the user to `claude /login` when CC credentials are
+// missing. Skipping is allowed for this session; subsequent app-feature CTAs
+// can re-prompt. Auto-detects login completion via a 2s poll after the user
+// clicks "Open Terminal".
+async function maybeShowCcBootstrapModal(): Promise<void> {
+  const modal = document.getElementById("cc-bootstrap-modal");
+  if (!modal) return;
+  // Session-scoped skip flag — survives until reload, not across sessions.
+  if (sessionStorage.getItem("yoCcBootstrapSkipped") === "1") return;
+  const status = await window.yo.ccStatus();
+  if (status.found) return;
+
+  const errEl = document.getElementById("cc-bootstrap-error")!;
+  const bodyEl = document.getElementById("cc-bootstrap-body")!;
+  if (!status.claudePath) {
+    bodyEl.innerHTML = `Yo's agent loop runs on Claude Code. You don't have <code>claude</code> on your PATH yet — install it first via the <a href="https://docs.claude.com/en/docs/claude-code/quickstart" target="_blank">Claude Code installer</a>, then come back.`;
+    (document.getElementById("cc-bootstrap-open") as HTMLButtonElement).disabled = true;
+  }
+
+  modal.style.display = "flex";
+
+  let pollHandle: number | null = null;
+  const cleanupPoll = () => { if (pollHandle) { clearInterval(pollHandle); pollHandle = null; } };
+
+  const recheckAndClose = async (showErrIfMissing: boolean) => {
+    const s = await window.yo.ccStatus();
+    if (s.found) {
+      cleanupPoll();
+      modal.style.display = "none";
+      return true;
+    }
+    if (showErrIfMissing) errEl.textContent = "still not signed in — finish in the terminal first";
+    return false;
+  };
+
+  document.getElementById("cc-bootstrap-open")!.onclick = async () => {
+    errEl.textContent = "";
+    const r = await window.yo.ccLoginOpenTerminal();
+    if (!r.ok) {
+      errEl.textContent = r.error || "couldn't open a terminal — run `claude /login` manually in any shell";
+      return;
+    }
+    // Start polling once the terminal is open. Stop after 5 minutes.
+    cleanupPoll();
+    let ticks = 0;
+    pollHandle = window.setInterval(async () => {
+      ticks++;
+      const ok = await recheckAndClose(false);
+      if (ok || ticks > 150) cleanupPoll(); // 150 * 2s = 5 min
+    }, 2000);
+  };
+
+  document.getElementById("cc-bootstrap-recheck")!.onclick = async () => {
+    errEl.textContent = "";
+    await recheckAndClose(true);
+  };
+
+  document.getElementById("cc-bootstrap-skip")!.onclick = () => {
+    cleanupPoll();
+    sessionStorage.setItem("yoCcBootstrapSkipped", "1");
+    modal.style.display = "none";
+  };
+}
+
 window.yo.onBoot((data) => {
   booted = true;
   bootData = data;
@@ -2914,6 +2982,13 @@ window.yo.onBoot((data) => {
     window.yo.getPreference("hasSeenTutorial", false).then((seen) => {
       if (!seen) showTutorial();
     });
+  }
+
+  // CC bootstrap (Phase 2 of THE-PIVOT-BYOK): nudge the user to log in to
+  // Claude Code if they haven't yet. Skip during onboarding — we don't want
+  // to layer two modals.
+  if (!data.needsOnboarding) {
+    setTimeout(() => { void maybeShowCcBootstrapModal(); }, 1200);
   }
 });
 

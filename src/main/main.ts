@@ -44,6 +44,8 @@ import { executeCommand } from "./dom-bridge";
 import { getPreference, setPreference } from "./stores/preferences-db";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
+import * as providerKeysModule from "./provider-keys";
+import { bootstrapStatus as ccBootstrapStatus, spawnCcLogin } from "./cc-bootstrap";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
@@ -2361,6 +2363,31 @@ async function boot() {
     }
   });
 
+  // IPC: BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
+  // The renderer never receives plaintext keys — list/status only. Set/remove
+  // round-trip through here, and `test` fires a cheap health check against the
+  // provider so the user can verify the key works without committing to it.
+  ipcMain.handle("provider-keys-list", () => providerKeysModule.listStatus());
+  ipcMain.handle("provider-keys-set", (_e, provider: string, key: string) => {
+    try {
+      providerKeysModule.setKey(provider as providerKeysModule.ProviderId, key);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "save failed" };
+    }
+  });
+  ipcMain.handle("provider-keys-remove", (_e, provider: string) => {
+    providerKeysModule.removeKey(provider as providerKeysModule.ProviderId);
+    return { ok: true };
+  });
+  ipcMain.handle("provider-keys-test", (_e, provider: string) =>
+    providerKeysModule.testKey(provider as providerKeysModule.ProviderId));
+
+  // IPC: Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
+  // Renderer polls cc-status to detect login completion after spawning.
+  ipcMain.handle("cc-status", () => ccBootstrapStatus());
+  ipcMain.handle("cc-login-open-terminal", () => spawnCcLogin());
+
   // IPC: Yo chat history
   ipcMain.handle("yo-chats-list", () => yoAgent.listChats());
   ipcMain.handle("yo-chats-load", (_e, id: string) => yoAgent.loadChat(id));
@@ -2853,17 +2880,11 @@ async function boot() {
   ipcMain.handle("agents-id-available", async (_e, id: string) => idAvailable(id));
 
   // ── Marketplace + Reservations IPC handlers ────────────
-  ipcMain.handle("yos-balance", async () => {
-    try {
-      const r = await serverGetAuthed<{ user_id: string; balance: number }>("/api/yos/balance");
-      usageQueue.updateBalance(r.balance);
-      return r;
-    } catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
-  });
-  ipcMain.handle("yos-rate-cards", async () => {
-    try { return await serverGetAuthed<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> }>("/api/yos/rate-cards"); }
-    catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
-  });
+  // yos-balance / yos-rate-cards removed in Phase 7 of THE-PIVOT-BYOK.
+  // The yo-server endpoints they fronted are deleted; surfaces that read
+  // these values now display "—" or omit the row entirely.
+  ipcMain.handle("yos-balance", async () => ({ user_id: "", balance: 0 }));
+  ipcMain.handle("yos-rate-cards", async () => ({ cards: [] }));
   ipcMain.handle("models-list", async () => {
     try { return await serverGetAuthed<{ models: Array<{ provider: string; model: string; display_name: string; yos_per_1k_input: number; yos_per_1k_output: number }> }>("/api/models"); }
     catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
@@ -3087,21 +3108,12 @@ async function boot() {
     try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/events${qs ? "?" + qs : ""}`); }
     catch (err) { return { error: err instanceof Error ? err.message : "events failed" }; }
   });
-  ipcMain.handle("cypher-kitty-deposit", async (_e, id: string, amount: number) => {
-    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/deposit`, { amount }); }
-    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "deposit failed" }; }
-  });
-  ipcMain.handle("cypher-kitty-balance", async (_e, id: string) => {
-    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/balance`); }
-    catch (err) { return { error: err instanceof Error ? err.message : "balance failed" }; }
-  });
-  ipcMain.handle("cypher-kitty-ledger", async (_e, id: string, opts?: { limit?: number }) => {
-    const p = new URLSearchParams();
-    if (opts?.limit) p.set("limit", String(opts.limit));
-    const qs = p.toString();
-    try { return await serverGetAuthed(`/api/cyphers/${encodeURIComponent(id)}/kitty/ledger${qs ? "?" + qs : ""}`); }
-    catch (err) { return { error: err instanceof Error ? err.message : "ledger failed" }; }
-  });
+  // cypher-kitty-* handlers neutralized in Phase 7 of THE-PIVOT-BYOK.
+  // The server endpoints are gone; the legacy yo://cypher panel still
+  // calls these, so we return zeroed shapes locally instead of fetching.
+  ipcMain.handle("cypher-kitty-deposit", async () => ({ ok: true, kitty_balance: 0 }));
+  ipcMain.handle("cypher-kitty-balance", async () => ({ balance: 0 }));
+  ipcMain.handle("cypher-kitty-ledger", async () => ({ entries: [], count: 0 }));
 
   ipcMain.handle("auth-me", async () => {
     try {
@@ -3340,35 +3352,12 @@ async function boot() {
 
   // ── Dashboard IPC handlers ─────────────────────────────
 
-  let usageSummaryCache: { ts: number; tz: string; data: any } | null = null;
-  const USAGE_CACHE_TTL = 30_000;
-
-  async function fetchUsageSummary(days: number, tz?: string) {
-    const tzParam = tz || "UTC";
-    if (usageSummaryCache && Date.now() - usageSummaryCache.ts < USAGE_CACHE_TTL && usageSummaryCache.tz === tzParam && days <= 30) {
-      return usageSummaryCache.data;
-    }
-    try {
-      const data = await serverGetAuthed<any>(`/api/usage/summary?days=${days}&tz=${encodeURIComponent(tzParam)}`);
-      if (days <= 30) usageSummaryCache = { ts: Date.now(), tz: tzParam, data };
-      return data;
-    } catch {
-      return usageTracker.getAllTime() ? { today: usageTracker.getToday(), history: usageTracker.getHistory(days), allTime: usageTracker.getAllTime() } : null;
-    }
-  }
-
-  ipcMain.handle("dashboard:today", async (_e, tz?: string) => {
-    const summary = await fetchUsageSummary(30, tz);
-    return summary?.today || null;
-  });
-  ipcMain.handle("dashboard:history", async (_e, days?: number, tz?: string) => {
-    const summary = await fetchUsageSummary(days || 30, tz);
-    return summary?.history || [];
-  });
-  ipcMain.handle("dashboard:all-time", async (_e, tz?: string) => {
-    const summary = await fetchUsageSummary(90, tz);
-    return summary?.allTime || { agents: {}, total: { yos: 0, calls: 0 } };
-  });
+  // Phase 7 of THE-PIVOT-BYOK: yo-server's /api/usage/summary is gone.
+  // Dashboard reads come straight from the local UsageTracker, which now
+  // records input/output token counts (not yos).
+  ipcMain.handle("dashboard:today", () => usageTracker.getToday());
+  ipcMain.handle("dashboard:history", (_e, days?: number) => usageTracker.getHistory(days || 30));
+  ipcMain.handle("dashboard:all-time", () => usageTracker.getAllTime());
 
   ipcMain.handle("dashboard:apps", () => {
     const appsDir = path.join(os.homedir(), "yo", "apps");

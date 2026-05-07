@@ -121,8 +121,146 @@ async function renderMcpTokens() {
   }
 }
 
+// ── BYOK provider keys (Phase 1 of THE-PIVOT-BYOK) ──────────
+
+interface ProviderRow {
+  id: string;
+  label: string;
+  hint: string;
+  keyExample: string;
+}
+
+const PROVIDER_ROWS: ProviderRow[] = [
+  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Required for Claude chat outside the agent loop and Council members on Claude.", keyExample: "sk-ant-…" },
+  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across Council, agents, and direct chat.",                          keyExample: "sk-proj-…" },
+  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in Council and direct chat.",                                keyExample: "AIza…" },
+  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in Council and direct chat.",                                         keyExample: "xai-…" },
+  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in Council.",                                   keyExample: "pplx-…" },
+];
+
+async function renderProviderKeys() {
+  const container = document.getElementById("provider-keys-list");
+  if (!container) return;
+  const status = await window.yo.providerKeysList();
+  const byId = new Map(status.map((s) => [s.provider, s]));
+  container.innerHTML = "";
+
+  for (const row of PROVIDER_ROWS) {
+    const s = byId.get(row.id);
+    const card = document.createElement("div");
+    card.style.cssText = "background:var(--surface-2);border-radius:8px;padding:12px 14px;border:1px solid var(--border);";
+
+    // Header row: label + status badge
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;";
+    const label = document.createElement("div");
+    label.style.cssText = "font-weight:600;";
+    label.textContent = row.label;
+    const badge = document.createElement("span");
+    badge.style.cssText = "font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500;";
+    if (!s?.configured) {
+      badge.textContent = "not set";
+      badge.style.background = "var(--surface-3)";
+      badge.style.color = "var(--text-3)";
+    } else if (s.lastTestOk === false) {
+      badge.textContent = "invalid";
+      badge.style.background = "rgba(212,74,74,0.18)";
+      badge.style.color = "#d44a4a";
+    } else if (s.lastTestOk) {
+      badge.textContent = "verified";
+      badge.style.background = "rgba(37,199,94,0.18)";
+      badge.style.color = "var(--accent)";
+    } else {
+      badge.textContent = "configured";
+      badge.style.background = "rgba(165,165,255,0.18)";
+      badge.style.color = "var(--text-2)";
+    }
+    head.appendChild(label);
+    head.appendChild(badge);
+    card.appendChild(head);
+
+    // Hint
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:12px;color:var(--text-3);margin-bottom:10px;";
+    hint.textContent = row.hint;
+    card.appendChild(hint);
+
+    // Input + buttons
+    const inputRow = document.createElement("div");
+    inputRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+    const input = document.createElement("input");
+    input.type = "password";
+    input.className = "settings-input";
+    input.placeholder = s?.configured ? "•••••••• (configured — paste to replace)" : row.keyExample;
+    input.style.cssText = "flex:1;font-family:var(--font-mono, monospace);";
+    inputRow.appendChild(input);
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "action-btn";
+    saveBtn.textContent = "Save";
+    saveBtn.addEventListener("click", async () => {
+      const key = input.value.trim();
+      if (!key) return;
+      saveBtn.disabled = true;
+      const r = await window.yo.providerKeysSet(row.id, key);
+      saveBtn.disabled = false;
+      input.value = "";
+      if (!r.ok) { alert(`Save failed: ${r.error || "unknown"}`); return; }
+      await renderProviderKeys();
+    });
+    inputRow.appendChild(saveBtn);
+
+    if (s?.configured) {
+      const testBtn = document.createElement("button");
+      testBtn.className = "action-btn";
+      testBtn.textContent = "Test";
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        testBtn.textContent = "Testing…";
+        try { await window.yo.providerKeysTest(row.id); } catch { /* surfaced via reload */ }
+        await renderProviderKeys();
+      });
+      inputRow.appendChild(testBtn);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "action-btn danger";
+      removeBtn.textContent = "Remove";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`Remove the saved ${row.label} key?`)) return;
+        await window.yo.providerKeysRemove(row.id);
+        await renderProviderKeys();
+      });
+      inputRow.appendChild(removeBtn);
+    }
+
+    card.appendChild(inputRow);
+
+    // Last-test detail line (failures only)
+    if (s?.lastTestOk === false && s.lastTestError) {
+      const err = document.createElement("div");
+      err.style.cssText = "font-size:11px;color:#d44a4a;margin-top:8px;font-family:var(--font-mono, monospace);";
+      err.textContent = `last test: ${s.lastTestError}`;
+      card.appendChild(err);
+    }
+
+    container.appendChild(card);
+  }
+}
+
+
 function initSettings() {
   settingsSaveBtn.addEventListener("click", saveSettings);
+
+  // Render BYOK provider keys when the Providers sub-tab is opened.
+  // The settings nav already toggles `.active` on the panel; we just
+  // re-render on every nav click so status is fresh.
+  document.querySelectorAll<HTMLButtonElement>(".settings-nav-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.getAttribute("data-sub") === "providers") {
+        void renderProviderKeys();
+      }
+    });
+  });
 
   // Theme picker
   const themePicker = document.getElementById("theme-picker");
@@ -298,18 +436,16 @@ async function loadSettings() {
     ? modelsResult.models.filter((m: any) => m.provider === "anthropic")
     : [];
   if (sdkModels.length > 0) {
-    const minCost = Math.min(...sdkModels.map((m: any) => m.yos_per_1k_output || 1));
     for (const m of sdkModels) {
-      const mult = Math.round(m.yos_per_1k_output / minCost);
       const opt = document.createElement("option");
       opt.value = `${m.provider}::${m.model}`;
-      opt.textContent = mult <= 1 ? m.display_name : `${m.display_name} (${mult}x yos)`;
+      opt.textContent = m.display_name;
       settingsModelSelect.appendChild(opt);
     }
   } else {
     for (const fallback of [
-      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (3x yos)" },
-      { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6 (5x yos)" },
+      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+      { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
       { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
     ]) {
       const opt = document.createElement("option");

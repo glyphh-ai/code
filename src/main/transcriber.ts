@@ -1,34 +1,39 @@
 /**
- * Transcriber — speech-to-text via server-proxied Whisper.
+ * Transcriber — speech-to-text via OpenAI Whisper using the user's BYOK key.
  *
- * Accepts raw 16kHz mono Float32Array audio from the renderer,
- * encodes to WAV, and sends to the yo-server transcription proxy.
+ * Phase 6 of THE-PIVOT-BYOK. Was a thin wrapper over yo-server's
+ * /api/llm/transcribe proxy; now calls api.openai.com/v1/audio/transcriptions
+ * directly with the user's locally-stored OpenAI key.
+ *
+ * Accepts raw 16kHz mono Float32Array audio from the renderer, encodes
+ * to WAV, and POSTs as multipart/form-data.
  */
 
-import { AUTH_SERVER, getAuthToken } from "./auth";
+import * as providerKeys from "./provider-keys";
+import { ProviderNotConfiguredError } from "./provider-adapters/agent-adapter";
 
 export class Transcriber {
   async transcribe(audio: Float32Array): Promise<string> {
-    const token = getAuthToken();
-    if (!token) throw new Error("Not authenticated — sign in to use voice input");
+    const apiKey = providerKeys.getKey("openai");
+    if (!apiKey) throw new ProviderNotConfiguredError("openai");
 
     const wav = encodeWav(audio, 16000);
+    const form = new FormData();
+    form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
+    form.append("model", "whisper-1");
 
-    const res = await fetch(`${AUTH_SERVER}/api/llm/transcribe`, {
+    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "audio/wav",
-      },
-      body: wav,
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
     });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`Transcription ${res.status}: ${body}`);
+      throw new Error(`Whisper ${res.status}: ${body.slice(0, 300)}`);
     }
 
-    const data: any = await res.json();
+    const data = await res.json() as { text?: string };
     return (data.text ?? "").trim();
   }
 }

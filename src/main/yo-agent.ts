@@ -27,7 +27,6 @@ import type { SkillEngine } from "./skill-engine";
 import type { NoteStore } from "./note-store";
 import { getAgentMode, gate } from "./action-gate";
 import type { AgentMode } from "./action-gate";
-import { AUTH_SERVER, getAuthToken } from "./auth";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -264,12 +263,15 @@ export class YoAgent {
       includePartialMessages: true,
       persistSession: true,
       todoFeatureEnabled: true,
+      // Phase 4 of THE-PIVOT-BYOK: SDK calls api.anthropic.com directly
+      // using the user's Claude Code OAuth creds at ~/.claude/.credentials.json
+      // (or platform equivalent). yo-server is no longer in the inference
+      // path. ANTHROPIC_API_KEY / BASE_URL deliberately NOT set so the SDK
+      // auto-discovers the CC credentials.
       env: {
         ...process.env,
         PATH: shellPath,
         CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
-        ANTHROPIC_BASE_URL: `${AUTH_SERVER}/api/llm/anthropic`,
-        ANTHROPIC_API_KEY: getAuthToken() || "not-authenticated",
       },
     };
 
@@ -353,8 +355,6 @@ export class YoAgent {
               usageTracker.record("orchestrator", {
                 inputTokens: usage.input_tokens || 0,
                 outputTokens: usage.output_tokens || 0,
-                yosConsumed: 0,
-                yosRemaining: 0,
               });
               this.reportUsage(usage.input_tokens || 0, usage.output_tokens || 0, model);
             }
