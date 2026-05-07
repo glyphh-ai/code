@@ -3,28 +3,25 @@
  *
  * Phase 2 of THE-PIVOT-BYOK. We don't ship our own auth for Claude
  * Code. Instead, on launch we check whether `~/.claude/.credentials.json`
- * (or platform equivalent) exists; if not, we spawn `claude /login`
- * directly (no terminal popup) — the CLI opens the user's browser for
- * OAuth and writes creds when done. The renderer polls for creds
- * appearing and auto-closes the modal.
+ * (or platform equivalent) exists; if not, we spawn `claude /login`,
+ * intercept its OAuth URL from stdout, and open it inside an in-app
+ * BrowserWindow (same pattern as the main platform login). Claude's
+ * embedded localhost callback server still receives the redirect, so
+ * the BrowserWindow never has to know how OAuth works — it just
+ * navigates and lets claude do its thing.
  *
- * Why direct spawn instead of an osascript-driven Terminal.app: the
- * AppleEvents path needs `com.apple.security.automation.apple-events`
- * in entitlements (we don't have it), gets blocked by hardenedRuntime
- * + notarization in prod, and ignores users on iTerm2/Warp/Ghostty
- * anyway. Direct spawn works on all three platforms identically and
- * needs no special entitlements.
+ * On claude exit, the BrowserWindow is closed and the renderer's
+ * poll loop catches the freshly-written creds.
  *
  * Surface:
  *   • bootstrapStatus()  — { found, claudePath } for the renderer
- *   • spawnCcLogin()     — fires `claude /login` headless; the CLI
- *                          handles browser-opening on every platform.
- *                          Returns whether the spawn launched (not
- *                          whether the user actually completed sign-in
- *                          — caller polls bootstrapStatus).
+ *   • spawnCcLogin()     — pipe-spawn claude /login, intercept URL,
+ *                          open BrowserWindow. Returns whether the
+ *                          spawn launched. Caller polls bootstrapStatus.
  */
 
-import { spawn } from "child_process";
+import { spawn, ChildProcess } from "child_process";
+import { BrowserWindow } from "electron";
 import { getShellPath } from "./shell-path";
 import { findCcCredentials, findClaudeCli, type CcCredsResult } from "./cc-creds";
 
@@ -38,10 +35,71 @@ export function bootstrapStatus(): BootstrapStatus {
 }
 
 /**
- * Spawn `claude /login` directly (no terminal). Claude Code opens the
- * default browser for OAuth and writes credentials when the callback
- * fires. Returns true if the spawn launched without error — caller
- * polls bootstrapStatus to know when sign-in actually completed.
+ * If Claude Code creds are present, return true. Otherwise open the
+ * in-app OAuth window via spawnCcLogin() and return false. Use this
+ * before any agent-loop launch so users on a fresh machine never see
+ * a raw SDK auth error — they see the panel-based sign-in flow instead.
+ *
+ * Caller should surface a brief "Signing in…" message to the user and
+ * either abort the current call (next try will succeed once creds land)
+ * or await re-check via bootstrapStatus().
+ */
+export function ensureCcAuth(): boolean {
+  if (bootstrapStatus().found) return true;
+  spawnCcLogin();
+  return false;
+}
+
+let activeOAuthWindow: BrowserWindow | null = null;
+let activeChild: ChildProcess | null = null;
+
+function closeOAuthWindow(): void {
+  if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
+    try { activeOAuthWindow.close(); } catch { /* ignore */ }
+  }
+  activeOAuthWindow = null;
+}
+
+function openOAuthWindow(url: string): void {
+  // Reuse an existing window if one's already up (rapid double-clicks).
+  if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
+    activeOAuthWindow.loadURL(url);
+    activeOAuthWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 600,
+    height: 800,
+    title: "Sign in to Claude Code",
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      partition: "persist:cc-oauth", // isolated cookie jar from the main app
+    },
+  });
+  win.loadURL(url);
+  win.on("closed", () => {
+    activeOAuthWindow = null;
+    // If the user closed the OAuth window before claude finished,
+    // kill the child so we don't leak processes.
+    if (activeChild && activeChild.exitCode === null) {
+      try { activeChild.kill(); } catch { /* ignore */ }
+      activeChild = null;
+    }
+  });
+  activeOAuthWindow = win;
+}
+
+/**
+ * Spawn `claude /login` and host the OAuth flow in-app.
+ *
+ * Pipes claude's stdout/stderr, watches for an OAuth URL (matches
+ * claude.ai/anthropic.com hosts), and loads it in a BrowserWindow.
+ * If claude doesn't print a URL within ~6s we let the spawn run on
+ * its own — claude itself falls back to opening the system browser
+ * via xdg-open/open/start, so the user still gets a working flow.
  */
 export function spawnCcLogin(): { ok: boolean; error?: string } {
   const claudePath = findClaudeCli();
@@ -49,17 +107,46 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
     return { ok: false, error: "claude CLI not found on PATH — install Claude Code first" };
   }
 
+  // Don't double-spawn. If a login is already in flight, just refocus
+  // the existing OAuth window.
+  if (activeChild && activeChild.exitCode === null) {
+    if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
+      activeOAuthWindow.focus();
+    }
+    return { ok: true };
+  }
+
   try {
-    // Use the user's interactive-shell PATH, not the launch-services
-    // PATH that Electron inherits when launched from Finder. Without
-    // this, claude can't find git/node/etc. it depends on at runtime.
     const env = { ...process.env, PATH: getShellPath() };
     const child = spawn(claudePath, ["/login"], {
-      detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       env,
     });
-    child.unref();
+
+    let urlOpened = false;
+    const tryOpen = (chunk: Buffer): void => {
+      if (urlOpened) return;
+      const text = chunk.toString();
+      const match = text.match(/https:\/\/[^\s]+/);
+      if (!match) return;
+      const url = match[0].replace(/[)\].,;]+$/, ""); // strip trailing punctuation
+      if (!/claude\.ai|anthropic\.com/.test(url)) return;
+      urlOpened = true;
+      openOAuthWindow(url);
+    };
+
+    child.stdout?.on("data", tryOpen);
+    child.stderr?.on("data", tryOpen);
+
+    child.on("exit", () => {
+      closeOAuthWindow();
+      activeChild = null;
+    });
+    child.on("error", () => {
+      activeChild = null;
+    });
+
+    activeChild = child;
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "claude /login spawn failed";

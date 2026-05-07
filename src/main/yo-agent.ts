@@ -216,6 +216,18 @@ export class YoAgent {
       this.chatId = `${Date.now()}`;
     }
 
+    // Pre-flight: if Claude Code creds are missing, pop the in-app
+    // OAuth window so the user can sign in without leaving yo-client.
+    // Abort this turn — once they finish the sign-in, the next message
+    // succeeds against the freshly-written creds.
+    {
+      const { ensureCcAuth } = await import("./cc-bootstrap");
+      if (!ensureCcAuth()) {
+        cb.onError("Sign in to Claude Code — we opened the login window. Try again once you finish.");
+        return;
+      }
+    }
+
     let sdk: any;
     try {
       sdk = await this.ensureSDK();

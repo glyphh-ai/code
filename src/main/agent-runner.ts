@@ -120,6 +120,23 @@ export class AgentRunner {
     }
     this.stopAgent(wc.id, config.name);
 
+    // Pre-flight CC auth — if creds are missing, pop the in-app OAuth
+    // window and surface a clear status to the renderer instead of
+    // letting the SDK error out cryptically downstream.
+    {
+      const { ensureCcAuth } = await import("./cc-bootstrap");
+      if (!ensureCcAuth()) {
+        if (!wc.isDestroyed()) {
+          wc.send("cw:agent:status", config.name, "error");
+          wc.send("cw:agent:message", config.name, {
+            type: "error",
+            text: "Sign in to Claude Code — we opened the login window. Try again once you finish.",
+          });
+        }
+        return;
+      }
+    }
+
     let sdk: any;
     try {
       sdk = await this.ensureSDK();
