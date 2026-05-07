@@ -355,8 +355,6 @@ export class YoAgent {
               usageTracker.record("orchestrator", {
                 inputTokens: usage.input_tokens || 0,
                 outputTokens: usage.output_tokens || 0,
-                yosConsumed: 0,
-                yosRemaining: 0,
               });
               this.reportUsage(usage.input_tokens || 0, usage.output_tokens || 0, model);
             }

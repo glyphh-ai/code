@@ -92,8 +92,64 @@
           </div>
 
           <div class="dash-split-row">
-            <!-- Left: Prompts (post-BYOK: no yos balance, no usage charts) -->
+            <!-- Left: Token Metrics (input/output, no yos billing) -->
             <div class="dash-split-col">
+              <div class="dash-split-header">Token Metrics</div>
+
+              <div class="dash-stat-row">
+                <div class="dash-stat-card">
+                  <div class="dash-stat-label">Today</div>
+                  <div class="dash-stat-values">
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num green" id="dash-today-input">0</div>
+                      <div class="dash-stat-sub">Input</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="dash-today-output">0</div>
+                      <div class="dash-stat-sub">Output</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="dash-today-calls">0</div>
+                      <div class="dash-stat-sub">Calls</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="dash-stat-card">
+                  <div class="dash-stat-label">All Time</div>
+                  <div class="dash-stat-values">
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num green" id="dash-alltime-input">0</div>
+                      <div class="dash-stat-sub">Input</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="dash-alltime-output">0</div>
+                      <div class="dash-stat-sub">Output</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="dash-alltime-calls">0</div>
+                      <div class="dash-stat-sub">Calls</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dash-chart-stack">
+                <div class="dash-chart-container">
+                  <div class="dash-stat-label">Tokens by Agent</div>
+                  <div class="dash-chart-box"><canvas id="dash-chart-agents"></canvas></div>
+                </div>
+                <div class="dash-chart-container">
+                  <div style="display:flex;align-items:center;margin-bottom:8px;">
+                    <div class="dash-stat-label" style="margin-bottom:0">Usage History</div>
+                    <div class="dash-range-toggle" style="margin-left:auto">
+                      <button class="dash-range-btn active" id="dash-range-7">7d</button>
+                      <button class="dash-range-btn" id="dash-range-30">30d</button>
+                    </div>
+                  </div>
+                  <div class="dash-chart-box"><canvas id="dash-chart-history"></canvas></div>
+                </div>
+              </div>
+
               <div class="dash-split-subhead">Prompts</div>
               <div id="dash-prompts-toolbar" class="crud-toolbar">
                 <input id="dash-prompts-search" type="text" class="crud-search" placeholder="Search prompts..." spellcheck="false" autocomplete="off" />
