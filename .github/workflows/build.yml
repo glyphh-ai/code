@@ -17,6 +17,18 @@ jobs:
           node-version: 20
           cache: npm
 
+      # Pin Python to 3.11 + ensure setuptools is available. macos-latest
+      # ships Python 3.12+, which removed `distutils` from stdlib. node-gyp
+      # still imports it during electron-rebuild for native deps that don't
+      # have prebuilt x64-darwin binaries (node-pty in particular). Without
+      # this the multi-arch build fails on the x64 rebuild pass.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install setuptools (provides distutils for node-gyp)
+        run: python3 -m pip install --upgrade setuptools
+
       - name: Install dependencies
         run: npm ci
 
