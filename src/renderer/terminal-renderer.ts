@@ -12,8 +12,13 @@ declare global {
   }
 }
 
+const fontSize = parseInt(
+  new URLSearchParams(window.location.search).get("font") || "14",
+  10,
+);
+
 const term = new Terminal({
-  fontSize: 14,
+  fontSize,
   fontFamily: '"SF Mono", "Menlo", "Monaco", "Courier New", monospace',
   theme: {
     background: "#0d0d14",

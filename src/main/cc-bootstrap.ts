@@ -99,10 +99,8 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
 
   try {
     const win = new BrowserWindow({
-      width: 1000,
-      height: 640,
-      minWidth: 900,
-      minHeight: 560,
+      width: 720,
+      height: 520,
       title: "Sign in to Claude Code",
       autoHideMenuBar: true,
       backgroundColor: "#0d0d14",
@@ -114,7 +112,12 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
       },
     });
     activeTermWindow = win;
-    win.loadFile(path.join(__dirname, "..", "renderer", "terminal.html"));
+    // ?font=11 → smaller font in xterm so claude's ~96-col TUI fits in
+    // a 720-wide window without wrapping.
+    win.loadFile(
+      path.join(__dirname, "..", "renderer", "terminal.html"),
+      { search: "font=11" },
+    );
 
     let urlOpened = false;
     let outputBuffer = "";
