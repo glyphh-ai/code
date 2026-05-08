@@ -2872,6 +2872,7 @@ const SPLASH_MIN_MS = 1800;
 let booted = false;
 let bootData: any = null;
 let tutorialShowing = false;
+let ccModalShowing = false;
 
 
 function dismissSplash(): void {
@@ -2880,8 +2881,8 @@ function dismissSplash(): void {
   const remaining = Math.max(0, SPLASH_MIN_MS - elapsed);
   setTimeout(() => {
     // Show panels first (behind splash z-index:9999) so they're ready when splash fades
-    // BUT not if tutorial is showing — BrowserViews paint over HTML overlays
-    if (!tutorialShowing) window.yo.panelsShow();
+    // BUT not if tutorial or CC bootstrap modal is showing — BrowserViews paint over HTML overlays
+    if (!tutorialShowing && !ccModalShowing) window.yo.panelsShow();
     const splash = document.getElementById("splash");
     if (splash) {
       splash.classList.add("fade-out");
@@ -2922,7 +2923,9 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
   }
 
   // BrowserView panels are native and paint over HTML. Hide them while
-  // the modal is up, then restore them when the user closes/skips it.
+  // the modal is up, then restore them when CC creds land. The flag also
+  // tells dismissSplash() to skip its own panelsShow() if it fires later.
+  ccModalShowing = true;
   window.yo.panelsHide();
   modal.style.display = "flex";
 
@@ -2930,6 +2933,7 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
   const cleanupPoll = () => { if (pollHandle) { clearInterval(pollHandle); pollHandle = null; } };
 
   const dismissModal = () => {
+    ccModalShowing = false;
     modal.style.display = "none";
     window.yo.panelsShow();
   };
