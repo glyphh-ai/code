@@ -3,24 +3,28 @@
  *
  * Phase 2 of THE-PIVOT-BYOK. We don't ship our own auth for Claude
  * Code. Instead, on launch we check whether `~/.claude/.credentials.json`
- * (or platform equivalent) exists; if not, we spawn `claude /login`,
- * intercept its OAuth URL from stdout, and open it inside an in-app
- * BrowserWindow (same pattern as the main platform login). Claude's
- * embedded localhost callback server still receives the redirect, so
- * the BrowserWindow never has to know how OAuth works — it just
+ * (or platform equivalent) exists; if not, we spawn `claude /login`
+ * inside a PTY so it renders its interactive menu, send Enter to pick
+ * the default OAuth option, intercept the resulting OAuth URL from the
+ * PTY output, and open it inside an in-app BrowserWindow.
+ *
+ * Claude's embedded localhost callback server still receives the redirect,
+ * so the BrowserWindow never has to know how OAuth works — it just
  * navigates and lets claude do its thing.
  *
- * On claude exit, the BrowserWindow is closed and the renderer's
- * poll loop catches the freshly-written creds.
+ * On claude exit the BrowserWindow is closed and the renderer's poll
+ * loop catches the freshly-written creds.
  *
  * Surface:
  *   • bootstrapStatus()  — { found, claudePath } for the renderer
- *   • spawnCcLogin()     — pipe-spawn claude /login, intercept URL,
- *                          open BrowserWindow. Returns whether the
- *                          spawn launched. Caller polls bootstrapStatus.
+ *   • spawnCcLogin()     — pty-spawn claude /login, send Enter to pick
+ *                          OAuth, intercept URL, open BrowserWindow.
+ *                          Returns whether the spawn launched.
+ *   • ensureCcAuth()     — pre-flight helper for agent callers
  */
 
-import { spawn, ChildProcess } from "child_process";
+import * as pty from "node-pty";
+import * as os from "os";
 import { BrowserWindow } from "electron";
 import { getShellPath } from "./shell-path";
 import { findCcCredentials, findClaudeCli, type CcCredsResult } from "./cc-creds";
@@ -36,13 +40,7 @@ export function bootstrapStatus(): BootstrapStatus {
 
 /**
  * If Claude Code creds are present, return true. Otherwise open the
- * in-app OAuth window via spawnCcLogin() and return false. Use this
- * before any agent-loop launch so users on a fresh machine never see
- * a raw SDK auth error — they see the panel-based sign-in flow instead.
- *
- * Caller should surface a brief "Signing in…" message to the user and
- * either abort the current call (next try will succeed once creds land)
- * or await re-check via bootstrapStatus().
+ * in-app OAuth window via spawnCcLogin() and return false.
  */
 export function ensureCcAuth(): boolean {
   if (bootstrapStatus().found) return true;
@@ -51,7 +49,8 @@ export function ensureCcAuth(): boolean {
 }
 
 let activeOAuthWindow: BrowserWindow | null = null;
-let activeChild: ChildProcess | null = null;
+let activeChild: pty.IPty | null = null;
+let activeChildRunning = false;
 
 function closeOAuthWindow(): void {
   if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
@@ -82,24 +81,23 @@ function openOAuthWindow(url: string): void {
   win.loadURL(url);
   win.on("closed", () => {
     activeOAuthWindow = null;
-    // If the user closed the OAuth window before claude finished,
-    // kill the child so we don't leak processes.
-    if (activeChild && activeChild.exitCode === null) {
+    if (activeChild && activeChildRunning) {
       try { activeChild.kill(); } catch { /* ignore */ }
       activeChild = null;
+      activeChildRunning = false;
     }
   });
   activeOAuthWindow = win;
 }
 
 /**
- * Spawn `claude /login` and host the OAuth flow in-app.
+ * Spawn `claude /login` in a PTY and host the OAuth flow in-app.
  *
- * Pipes claude's stdout/stderr, watches for an OAuth URL (matches
- * claude.ai/anthropic.com hosts), and loads it in a BrowserWindow.
- * If claude doesn't print a URL within ~6s we let the spawn run on
- * its own — claude itself falls back to opening the system browser
- * via xdg-open/open/start, so the user still gets a working flow.
+ * Using a PTY (instead of plain spawn) lets claude render its interactive
+ * menu — with stdin as /dev/null it gets EOF and never reaches the OAuth
+ * URL. We send Enter after 600 ms to accept the default "Anthropic account"
+ * option, then watch PTY output for an OAuth URL and load it in a
+ * BrowserWindow.
  */
 export function spawnCcLogin(): { ok: boolean; error?: string } {
   const claudePath = findClaudeCli();
@@ -107,9 +105,8 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
     return { ok: false, error: "claude CLI not found on PATH — install Claude Code first" };
   }
 
-  // Don't double-spawn. If a login is already in flight, just refocus
-  // the existing OAuth window.
-  if (activeChild && activeChild.exitCode === null) {
+  // Don't double-spawn; refocus the existing window if login is in flight.
+  if (activeChild && activeChildRunning) {
     if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
       activeOAuthWindow.focus();
     }
@@ -117,38 +114,58 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
   }
 
   try {
-    const env = { ...process.env, PATH: getShellPath() };
-    const child = spawn(claudePath, ["/login"], {
-      stdio: ["ignore", "pipe", "pipe"],
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ ...process.env, PATH: getShellPath() })) {
+      if (v !== undefined) env[k] = v;
+    }
+
+    const child = pty.spawn(claudePath, ["/login"], {
+      name: "xterm-color",
+      cols: 120,
+      rows: 30,
+      cwd: os.homedir(),
       env,
     });
 
+    activeChild = child;
+    activeChildRunning = true;
+
     let urlOpened = false;
-    const tryOpen = (chunk: Buffer): void => {
+
+    const tryOpen = (text: string): void => {
       if (urlOpened) return;
-      const text = chunk.toString();
-      const match = text.match(/https:\/\/[^\s]+/);
+      // Strip ANSI escape codes before scanning for URLs.
+      const plain = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+      const match = plain.match(/https:\/\/[^\s\r\n]+/);
       if (!match) return;
-      const url = match[0].replace(/[)\].,;]+$/, ""); // strip trailing punctuation
+      const url = match[0].replace(/[)\].,;'"]+$/, "");
       if (!/claude\.ai|anthropic\.com/.test(url)) return;
       urlOpened = true;
       openOAuthWindow(url);
     };
 
-    child.stdout?.on("data", tryOpen);
-    child.stderr?.on("data", tryOpen);
+    child.onData((data: string) => tryOpen(data));
 
-    child.on("exit", () => {
+    child.onExit(() => {
+      activeChildRunning = false;
+      activeChild = null;
       closeOAuthWindow();
-      activeChild = null;
-    });
-    child.on("error", () => {
-      activeChild = null;
     });
 
-    activeChild = child;
+    // Send Enter after 600 ms to accept the default "Anthropic account /
+    // OAuth" option in claude's interactive menu. If the menu hasn't
+    // appeared yet this is a no-op; the PTY just discards the stray
+    // keystroke.
+    setTimeout(() => {
+      if (activeChild && activeChildRunning) {
+        try { activeChild.write("\r"); } catch { /* ignore */ }
+      }
+    }, 600);
+
     return { ok: true };
   } catch (err) {
+    activeChildRunning = false;
+    activeChild = null;
     const msg = err instanceof Error ? err.message : "claude /login spawn failed";
     return { ok: false, error: msg };
   }

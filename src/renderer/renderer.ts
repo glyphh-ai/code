@@ -2928,25 +2928,7 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
   let pollHandle: number | null = null;
   const cleanupPoll = () => { if (pollHandle) { clearInterval(pollHandle); pollHandle = null; } };
 
-  const recheckAndClose = async (showErrIfMissing: boolean) => {
-    const s = await window.yo.ccStatus();
-    if (s.found) {
-      cleanupPoll();
-      modal.style.display = "none";
-      return true;
-    }
-    if (showErrIfMissing) errEl.textContent = "still not signed in — finish in the terminal first";
-    return false;
-  };
-
-  document.getElementById("cc-bootstrap-open")!.onclick = async () => {
-    errEl.textContent = "";
-    const r = await window.yo.ccLoginOpenTerminal();
-    if (!r.ok) {
-      errEl.textContent = r.error || "couldn't open a terminal — run `claude /login` manually in any shell";
-      return;
-    }
-    // Start polling once the terminal is open. Stop after 5 minutes.
+  const startPolling = () => {
     cleanupPoll();
     let ticks = 0;
     pollHandle = window.setInterval(async () => {
@@ -2954,6 +2936,38 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
       const ok = await recheckAndClose(false);
       if (ok || ticks > 150) cleanupPoll(); // 150 * 2s = 5 min
     }, 2000);
+  };
+
+  const recheckAndClose = async (showErrIfMissing: boolean) => {
+    const s = await window.yo.ccStatus();
+    if (s.found) {
+      cleanupPoll();
+      modal.style.display = "none";
+      return true;
+    }
+    if (showErrIfMissing) errEl.textContent = "still not signed in — finish in the login window first";
+    return false;
+  };
+
+  // Auto-trigger the OAuth window so the user doesn't have to click. The
+  // modal stays visible behind it as a status surface (recheck / skip).
+  if (status.claudePath) {
+    const r = await window.yo.ccLoginOpenTerminal();
+    if (!r.ok) {
+      errEl.textContent = r.error || "couldn't open the login window — try the button or run `claude /login` in any shell";
+    } else {
+      startPolling();
+    }
+  }
+
+  document.getElementById("cc-bootstrap-open")!.onclick = async () => {
+    errEl.textContent = "";
+    const r = await window.yo.ccLoginOpenTerminal();
+    if (!r.ok) {
+      errEl.textContent = r.error || "couldn't open the login window — run `claude /login` manually in any shell";
+      return;
+    }
+    startPolling();
   };
 
   document.getElementById("cc-bootstrap-recheck")!.onclick = async () => {
@@ -3009,6 +3023,9 @@ window.addEventListener("yo-onboarding-done", async () => {
   } else {
     window.yo.panelsShow();
   }
+  // Prompt for Claude Code login if creds are still missing — onBoot skipped
+  // this when needsOnboarding was true, so it has to fire here instead.
+  setTimeout(() => { void maybeShowCcBootstrapModal(); }, 1200);
 });
 
 // ── First-time tutorial ──────────────────────────────────
