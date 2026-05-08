@@ -141,9 +141,11 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
     let loginMethodAnswered = false;
 
     const tryOpen = (text: string): void => {
-      console.log("[cc-bootstrap] pty:", JSON.stringify(text).slice(0, 200));
-      // Strip ANSI escape codes + 1-col-spacer codes before scanning.
+      // Claude uses ESC[NC (cursor-forward) between words instead of literal
+      // spaces. Convert those to spaces first so prompt strings are detectable;
+      // then strip remaining ANSI/OSC codes.
       const plain = text
+        .replace(/\x1b\[(\d+)C/g, (_, n) => " ".repeat(Math.min(parseInt(n, 10), 80)))
         .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
         .replace(/\x1b\][^\x07]*\x07/g, "");
       outputBuffer += plain;
