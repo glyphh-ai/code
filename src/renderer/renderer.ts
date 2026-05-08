@@ -2923,10 +2923,18 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
     (document.getElementById("cc-bootstrap-open") as HTMLButtonElement).disabled = true;
   }
 
+  // BrowserView panels are native and paint over HTML. Hide them while
+  // the modal is up, then restore them when the user closes/skips it.
+  window.yo.panelsHide();
   modal.style.display = "flex";
 
   let pollHandle: number | null = null;
   const cleanupPoll = () => { if (pollHandle) { clearInterval(pollHandle); pollHandle = null; } };
+
+  const dismissModal = () => {
+    modal.style.display = "none";
+    window.yo.panelsShow();
+  };
 
   const startPolling = () => {
     cleanupPoll();
@@ -2942,7 +2950,7 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
     const s = await window.yo.ccStatus();
     if (s.found) {
       cleanupPoll();
-      modal.style.display = "none";
+      dismissModal();
       return true;
     }
     if (showErrIfMissing) errEl.textContent = "still not signed in — finish in the login window first";
@@ -2978,7 +2986,7 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
   document.getElementById("cc-bootstrap-skip")!.onclick = () => {
     cleanupPoll();
     sessionStorage.setItem("yoCcBootstrapSkipped", "1");
-    modal.style.display = "none";
+    dismissModal();
   };
 }
 
