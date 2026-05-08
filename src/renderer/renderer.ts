@@ -2985,6 +2985,10 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
     errEl.textContent = "";
     await recheckAndClose(true);
   };
+
+  document.getElementById("cc-bootstrap-quit")!.onclick = () => {
+    window.yo.windowClose();
+  };
 }
 
 window.yo.onBoot((data) => {

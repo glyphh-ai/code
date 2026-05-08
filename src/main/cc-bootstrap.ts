@@ -134,37 +134,55 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
     activeChild = child;
     activeChildRunning = true;
 
+    console.log("[cc-bootstrap] spawned claude /login pty pid=", child.pid);
+
     let urlOpened = false;
+    let outputBuffer = "";
 
     const tryOpen = (text: string): void => {
-      if (urlOpened) return;
+      // Log raw PTY output so we can see what claude is actually doing.
+      console.log("[cc-bootstrap] pty:", JSON.stringify(text));
       // Strip ANSI escape codes before scanning for URLs.
-      const plain = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-      const match = plain.match(/https:\/\/[^\s\r\n]+/);
+      const plain = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+      outputBuffer += plain;
+      if (urlOpened) return;
+      const match = outputBuffer.match(/https:\/\/[^\s\r\n]+/);
       if (!match) return;
       const url = match[0].replace(/[)\].,;'"]+$/, "");
       if (!/claude\.ai|anthropic\.com/.test(url)) return;
+      console.log("[cc-bootstrap] caught oauth url:", url);
       urlOpened = true;
       openOAuthWindow(url);
     };
 
     child.onData((data: string) => tryOpen(data));
 
-    child.onExit(() => {
+    child.onExit(({ exitCode }) => {
+      console.log("[cc-bootstrap] claude /login exited code=", exitCode);
       activeChildRunning = false;
       activeChild = null;
-      closeOAuthWindow();
+      // Don't auto-close OAuth window on exit — claude exits as soon as
+      // it hands off the URL, but the user still needs the window open
+      // to finish authenticating. The window's own "closed" event clears
+      // activeOAuthWindow.
     });
 
-    // Send Enter after 600 ms to accept the default "Anthropic account /
-    // OAuth" option in claude's interactive menu. If the menu hasn't
-    // appeared yet this is a no-op; the PTY just discards the stray
-    // keystroke.
+    // Try a sequence of inputs to navigate claude's menu. Different
+    // claude versions present the menu differently; we send Enter (default
+    // selection), then after another delay try Down+Enter in case the
+    // default is API key. The PTY discards extras silently.
     setTimeout(() => {
       if (activeChild && activeChildRunning) {
         try { activeChild.write("\r"); } catch { /* ignore */ }
       }
     }, 600);
+    setTimeout(() => {
+      if (activeChild && activeChildRunning && !urlOpened) {
+        // If Enter alone didn't surface a URL, try arrow-down + Enter
+        // (in case the default sits on API key on this version).
+        try { activeChild.write("\x1b[B\r"); } catch { /* ignore */ }
+      }
+    }, 1500);
 
     return { ok: true };
   } catch (err) {
