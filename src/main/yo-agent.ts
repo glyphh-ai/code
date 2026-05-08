@@ -222,10 +222,10 @@ export class YoAgent {
     // succeeds against the freshly-written creds.
     {
       const { ensureCcAuth } = await import("./cc-bootstrap");
-      if (!ensureCcAuth()) {
-        cb.onError("Sign in to Claude Code — we opened the login window. Try again once you finish.");
-        return;
-      }
+      // ensureCcAuth() pops the gating modal in the renderer if creds
+      // are missing; we just need to abort this call. The user will be
+      // unblocked once they finish the sign-in shown on screen.
+      if (!ensureCcAuth()) return;
     }
 
     let sdk: any;

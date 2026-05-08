@@ -39,12 +39,16 @@ export function bootstrapStatus(): BootstrapStatus {
 }
 
 /**
- * If Claude Code creds are present, return true. Otherwise open the
- * in-app OAuth window via spawnCcLogin() and return false.
+ * If Claude Code creds are present, return true. Otherwise tell the
+ * renderer to show the gating bootstrap modal (which auto-triggers
+ * spawnCcLogin) and return false. Callers (agent runners) abort the
+ * current call; the modal blocks the user until creds land.
  */
 export function ensureCcAuth(): boolean {
   if (bootstrapStatus().found) return true;
-  spawnCcLogin();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("cc-show-modal");
+  }
   return false;
 }
 

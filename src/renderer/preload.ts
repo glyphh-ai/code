@@ -388,6 +388,11 @@ contextBridge.exposeInMainWorld("yo", {
     found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
   }>,
   ccLoginOpenTerminal: () => ipcRenderer.invoke("cc-login-open-terminal") as Promise<{ ok: boolean; error?: string }>,
+  onCcShowModal: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("cc-show-modal", handler);
+    return () => ipcRenderer.removeListener("cc-show-modal", handler);
+  },
 
   // Capability Offer — share this client's compute/LLM capacity with the .yo network
   capabilitiesSetEnabled: (enabled: boolean) => ipcRenderer.invoke("capabilities-set-enabled", enabled) as Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>,

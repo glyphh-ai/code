@@ -125,16 +125,11 @@ export class AgentRunner {
     // letting the SDK error out cryptically downstream.
     {
       const { ensureCcAuth } = await import("./cc-bootstrap");
-      if (!ensureCcAuth()) {
-        if (!wc.isDestroyed()) {
-          wc.send("cw:agent:status", config.name, "error");
-          wc.send("cw:agent:message", config.name, {
-            type: "error",
-            text: "Sign in to Claude Code — we opened the login window. Try again once you finish.",
-          });
-        }
-        return;
-      }
+      // ensureCcAuth() pops the gating modal in the renderer if creds
+      // are missing; abort this call and let the modal block the user
+      // until creds land. No status/error needed here — the modal owns
+      // user-facing comms.
+      if (!ensureCcAuth()) return;
     }
 
     let sdk: any;

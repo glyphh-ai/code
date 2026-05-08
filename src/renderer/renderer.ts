@@ -272,6 +272,7 @@ declare global {
         found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
       }>;
       ccLoginOpenTerminal: () => Promise<{ ok: boolean; error?: string }>;
+      onCcShowModal: (callback: () => void) => () => void;
       // Capability Offer
       capabilitiesSetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>;
       capabilitiesGetStatus: () => Promise<{ enabled: boolean; client_id: string; derived_tier: string | null; report: unknown }>;
@@ -3017,6 +3018,11 @@ window.yo.onThemeChanged((theme) => {
 
 window.yo.onShowOnboarding(() => {
   showOnboarding(true);
+});
+
+// Triggered by main when an agent call hits ensureCcAuth() with no creds.
+window.yo.onCcShowModal(() => {
+  void maybeShowCcBootstrapModal();
 });
 
 // After onboarding activation, show tutorial (first time only) or restore panels
