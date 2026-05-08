@@ -133,6 +133,7 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
 
     activeChild = child;
     activeChildRunning = true;
+    console.log("[cc-bootstrap] spawned claude /login pty pid=", child.pid);
 
     let urlOpened = false;
     let outputBuffer = "";
@@ -151,10 +152,12 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
       // want for both: Dark theme + Claude account/OAuth).
       if (!themeAnswered && /Choose the text style/i.test(outputBuffer)) {
         themeAnswered = true;
+        console.log("[cc-bootstrap] answering theme prompt");
         try { child.write("\r"); } catch { /* ignore */ }
       }
       if (!loginMethodAnswered && /Select login method/i.test(outputBuffer)) {
         loginMethodAnswered = true;
+        console.log("[cc-bootstrap] answering login method prompt");
         try { child.write("\r"); } catch { /* ignore */ }
       }
 
@@ -164,6 +167,7 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
       const url = match[0].replace(/[)\].,;'"]+$/, "");
       if (!/claude\.ai|anthropic\.com/.test(url)) return;
       urlOpened = true;
+      console.log("[cc-bootstrap] caught oauth url:", url);
       openOAuthWindow(url);
     };
 
