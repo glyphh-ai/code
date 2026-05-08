@@ -99,8 +99,10 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
 
   try {
     const win = new BrowserWindow({
-      width: 720,
-      height: 520,
+      width: 1000,
+      height: 640,
+      minWidth: 900,
+      minHeight: 560,
       title: "Sign in to Claude Code",
       autoHideMenuBar: true,
       backgroundColor: "#0d0d14",
