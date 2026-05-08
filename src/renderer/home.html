@@ -1668,26 +1668,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
     </div>
     </div>
   </div>
-  <!-- Claude Code bootstrap modal (Phase 2 of THE-PIVOT-BYOK).
-       Hidden by default; shown by renderer.ts when CC creds are missing. -->
-  <div id="cc-bootstrap-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
-    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:520px;width:90%;font-family:var(--font);">
-      <h2 style="margin:0 0 8px 0;font-size:20px;">Sign in to Claude Code</h2>
-      <p id="cc-bootstrap-body" style="margin:0 0 18px 0;color:var(--text-2);font-size:14px;line-height:1.5;">
-        Yo runs your agent loop on your own Claude Code subscription.
-        We've opened the login window — finish there and we'll detect it automatically.
-      </p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button id="cc-bootstrap-open" class="action-btn primary">Reopen login window</button>
-        <button id="cc-bootstrap-recheck" class="action-btn">I've signed in — recheck</button>
-      </div>
-      <p style="margin:12px 0 0;font-size:11px;color:var(--text-3);">
-        Or run <code style="font-family:var(--font-mono);background:var(--surface-2);padding:1px 5px;border-radius:3px;">claude /login</code> manually in any terminal.
-      </p>
-      <div id="cc-bootstrap-error" style="margin-top:12px;color:#d44a4a;font-size:12px;font-family:var(--font-mono, monospace);"></div>
-    </div>
-  </div>
-
   <script type="module" src="home.js"></script>
 </body>
 </html>
