@@ -141,6 +141,7 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
     let loginMethodAnswered = false;
 
     const tryOpen = (text: string): void => {
+      console.log("[cc-bootstrap] pty:", JSON.stringify(text).slice(0, 200));
       // Strip ANSI escape codes + 1-col-spacer codes before scanning.
       const plain = text
         .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
@@ -173,7 +174,8 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
 
     child.onData((data: string) => tryOpen(data));
 
-    child.onExit(() => {
+    child.onExit(({ exitCode, signal }) => {
+      console.log("[cc-bootstrap] claude /login exited code=", exitCode, "signal=", signal);
       activeChildRunning = false;
       activeChild = null;
       // Don't auto-close OAuth window on exit — claude exits as soon as
