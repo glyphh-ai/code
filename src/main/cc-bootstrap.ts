@@ -2,30 +2,29 @@
  * cc-bootstrap — first-run Claude Code login flow.
  *
  * Phase 2 of THE-PIVOT-BYOK. We don't ship our own auth for Claude
- * Code. Instead, on launch we check whether `~/.claude/.credentials.json`
- * (or platform equivalent) exists; if not, we spawn `claude /login`
- * inside a PTY so it renders its interactive menu, send Enter to pick
- * the default OAuth option, intercept the resulting OAuth URL from the
- * PTY output, and open it inside an in-app BrowserWindow.
+ * Code. Instead, when we detect missing creds we open a small in-app
+ * BrowserWindow that hosts a real xterm running `claude /login` in a
+ * PTY. The user interacts with claude's actual TUI — picks the theme,
+ * picks the login method, sees the OAuth URL — and we just provide the
+ * surface. No menu-string scraping, no prompt detection, no fragile
+ * driving.
  *
- * Claude's embedded localhost callback server still receives the redirect,
- * so the BrowserWindow never has to know how OAuth works — it just
- * navigates and lets claude do its thing.
- *
- * On claude exit the BrowserWindow is closed and the renderer's poll
- * loop catches the freshly-written creds.
+ * Optional polish: we still scan PTY output for an OAuth URL and, if
+ * we catch one, also open it in a dedicated BrowserWindow so the user
+ * doesn't have to copy/paste it. Claude Code's local callback server
+ * receives the redirect either way; once creds land on disk the
+ * renderer's poll dismisses the gating modal.
  *
  * Surface:
  *   • bootstrapStatus()  — { found, claudePath } for the renderer
- *   • spawnCcLogin()     — pty-spawn claude /login, send Enter to pick
- *                          OAuth, intercept URL, open BrowserWindow.
- *                          Returns whether the spawn launched.
+ *   • spawnCcLogin()     — open the terminal panel + (optional) OAuth window
  *   • ensureCcAuth()     — pre-flight helper for agent callers
  */
 
 import * as pty from "node-pty";
 import * as os from "os";
-import { BrowserWindow } from "electron";
+import * as path from "path";
+import { BrowserWindow, ipcMain, type IpcMainEvent } from "electron";
 import { getShellPath } from "./shell-path";
 import { findCcCredentials, findClaudeCli, type CcCredsResult } from "./cc-creds";
 
@@ -41,8 +40,7 @@ export function bootstrapStatus(): BootstrapStatus {
 /**
  * If Claude Code creds are present, return true. Otherwise tell the
  * renderer to show the gating bootstrap modal (which auto-triggers
- * spawnCcLogin) and return false. Callers (agent runners) abort the
- * current call; the modal blocks the user until creds land.
+ * spawnCcLogin) and return false.
  */
 export function ensureCcAuth(): boolean {
   if (bootstrapStatus().found) return true;
@@ -53,18 +51,10 @@ export function ensureCcAuth(): boolean {
 }
 
 let activeOAuthWindow: BrowserWindow | null = null;
+let activeTermWindow: BrowserWindow | null = null;
 let activeChild: pty.IPty | null = null;
-let activeChildRunning = false;
-
-function closeOAuthWindow(): void {
-  if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
-    try { activeOAuthWindow.close(); } catch { /* ignore */ }
-  }
-  activeOAuthWindow = null;
-}
 
 function openOAuthWindow(url: string): void {
-  // Reuse an existing window if one's already up (rapid double-clicks).
   if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
     activeOAuthWindow.loadURL(url);
     activeOAuthWindow.focus();
@@ -79,29 +69,20 @@ function openOAuthWindow(url: string): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      partition: "persist:cc-oauth", // isolated cookie jar from the main app
+      partition: "persist:cc-oauth",
     },
   });
   win.loadURL(url);
-  win.on("closed", () => {
-    activeOAuthWindow = null;
-    if (activeChild && activeChildRunning) {
-      try { activeChild.kill(); } catch { /* ignore */ }
-      activeChild = null;
-      activeChildRunning = false;
-    }
-  });
+  win.on("closed", () => { activeOAuthWindow = null; });
   activeOAuthWindow = win;
 }
 
 /**
- * Spawn `claude /login` in a PTY and host the OAuth flow in-app.
- *
- * Using a PTY (instead of plain spawn) lets claude render its interactive
- * menu — with stdin as /dev/null it gets EOF and never reaches the OAuth
- * URL. We send Enter after 600 ms to accept the default "Anthropic account"
- * option, then watch PTY output for an OAuth URL and load it in a
- * BrowserWindow.
+ * Open a small BrowserWindow with an xterm.js terminal running
+ * `claude /login`. The user navigates the TUI themselves — robust to
+ * menu copy / order changes since we don't try to drive it. We watch
+ * the PTY output for an OAuth URL and pop our own BrowserWindow at it
+ * if/when we see one (so the user doesn't have to copy-paste).
  */
 export function spawnCcLogin(): { ok: boolean; error?: string } {
   const claudePath = findClaudeCli();
@@ -109,62 +90,41 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
     return { ok: false, error: "claude CLI not found on PATH — install Claude Code first" };
   }
 
-  // Don't double-spawn; refocus the existing window if login is in flight.
-  if (activeChild && activeChildRunning) {
-    if (activeOAuthWindow && !activeOAuthWindow.isDestroyed()) {
-      activeOAuthWindow.focus();
-    }
+  // Don't double-spawn; refocus the existing terminal window if a login
+  // session is already running.
+  if (activeTermWindow && !activeTermWindow.isDestroyed()) {
+    activeTermWindow.focus();
     return { ok: true };
   }
 
   try {
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries({ ...process.env, PATH: getShellPath() })) {
-      if (v !== undefined) env[k] = v;
-    }
-
-    const child = pty.spawn(claudePath, ["/login"], {
-      name: "xterm-color",
-      cols: 120,
-      rows: 30,
-      cwd: os.homedir(),
-      env,
+    const win = new BrowserWindow({
+      width: 720,
+      height: 520,
+      title: "Sign in to Claude Code",
+      autoHideMenuBar: true,
+      backgroundColor: "#0d0d14",
+      webPreferences: {
+        preload: path.join(__dirname, "terminal-preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
     });
-
-    activeChild = child;
-    activeChildRunning = true;
-    console.log("[cc-bootstrap] spawned claude /login pty pid=", child.pid);
+    activeTermWindow = win;
+    win.loadFile(path.join(__dirname, "..", "renderer", "terminal.html"));
 
     let urlOpened = false;
     let outputBuffer = "";
-    let themeAnswered = false;
-    let loginMethodAnswered = false;
 
-    const tryOpen = (text: string): void => {
-      // Claude uses ESC[NC (cursor-forward) between words instead of literal
-      // spaces. Convert those to spaces first so prompt strings are detectable;
-      // then strip remaining ANSI/OSC codes.
+    const tryCatchUrl = (text: string): void => {
+      if (urlOpened) return;
+      // Strip ANSI just for URL scanning (display passes through raw).
       const plain = text
         .replace(/\x1b\[(\d+)C/g, (_, n) => " ".repeat(Math.min(parseInt(n, 10), 80)))
         .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
         .replace(/\x1b\][^\x07]*\x07/g, "");
       outputBuffer += plain;
-
-      // Drive past claude's two interactive prompts by detecting their
-      // copy in the buffer and pressing Enter (default option = what we
-      // want for both: Dark theme + Claude account/OAuth).
-      if (!themeAnswered && /Choose the text style/i.test(outputBuffer)) {
-        themeAnswered = true;
-        console.log("[cc-bootstrap] answering theme prompt");
-        try { child.write("\r"); } catch { /* ignore */ }
-      }
-      if (!loginMethodAnswered && /Select login method/i.test(outputBuffer)) {
-        loginMethodAnswered = true;
-        console.log("[cc-bootstrap] answering login method prompt");
-        try { child.write("\r"); } catch { /* ignore */ }
-      }
-
-      if (urlOpened) return;
       const match = outputBuffer.match(/https:\/\/[^\s\r\n]+/);
       if (!match) return;
       const url = match[0].replace(/[)\].,;'"]+$/, "");
@@ -174,22 +134,59 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
       openOAuthWindow(url);
     };
 
-    child.onData((data: string) => tryOpen(data));
+    // Spawn the PTY once the renderer has loaded so xterm is ready to
+    // receive data and report its size.
+    const onWriteHandler = (e: IpcMainEvent, data: string) => {
+      if (e.sender !== win.webContents) return;
+      try { activeChild?.write(data); } catch { /* ignore */ }
+    };
+    const onResizeHandler = (e: IpcMainEvent, cols: number, rows: number) => {
+      if (e.sender !== win.webContents) return;
+      try { activeChild?.resize(cols, rows); } catch { /* ignore */ }
+    };
 
-    child.onExit(({ exitCode, signal }) => {
-      console.log("[cc-bootstrap] claude /login exited code=", exitCode, "signal=", signal);
-      activeChildRunning = false;
-      activeChild = null;
-      // Don't auto-close OAuth window on exit — claude exits as soon as
-      // it hands off the URL, but the user still needs the window open
-      // to finish authenticating. The window's own "closed" event clears
-      // activeOAuthWindow.
+    win.webContents.once("did-finish-load", () => {
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries({ ...process.env, PATH: getShellPath() })) {
+        if (v !== undefined) env[k] = v;
+      }
+      const child = pty.spawn(claudePath, ["/login"], {
+        name: "xterm-256color",
+        cols: 100,
+        rows: 28,
+        cwd: os.homedir(),
+        env,
+      });
+      activeChild = child;
+      console.log("[cc-bootstrap] spawned claude /login pty pid=", child.pid);
+
+      child.onData((data: string) => {
+        if (!win.isDestroyed()) win.webContents.send("terminal:data", data);
+        tryCatchUrl(data);
+      });
+      child.onExit(({ exitCode, signal }) => {
+        console.log("[cc-bootstrap] claude /login exited code=", exitCode, "signal=", signal);
+        if (!win.isDestroyed()) win.webContents.send("terminal:exit", exitCode);
+        activeChild = null;
+      });
+
+      ipcMain.on("terminal:write", onWriteHandler);
+      ipcMain.on("terminal:resize", onResizeHandler);
+    });
+
+    win.on("closed", () => {
+      activeTermWindow = null;
+      ipcMain.removeListener("terminal:write", onWriteHandler);
+      ipcMain.removeListener("terminal:resize", onResizeHandler);
+      if (activeChild) {
+        try { activeChild.kill(); } catch { /* ignore */ }
+        activeChild = null;
+      }
     });
 
     return { ok: true };
   } catch (err) {
-    activeChildRunning = false;
-    activeChild = null;
+    activeTermWindow = null;
     const msg = err instanceof Error ? err.message : "claude /login spawn failed";
     return { ok: false, error: msg };
   }
