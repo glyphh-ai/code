@@ -2904,15 +2904,13 @@ function dismissSplash(): void {
 });
 
 // ── Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK) ─────────────────────
-// Show a modal nudging the user to `claude /login` when CC credentials are
-// missing. Skipping is allowed for this session; subsequent app-feature CTAs
-// can re-prompt. Auto-detects login completion via a 2s poll after the user
-// clicks "Open Terminal".
+// Block the user behind a `claude /login` modal once they're past .yo auth.
+// CC creds are required for any agent feature, so this is a hard gate — no
+// skip option. Auto-triggers spawnCcLogin() on first show and polls every
+// 2s for the credentials file landing on disk.
 async function maybeShowCcBootstrapModal(): Promise<void> {
   const modal = document.getElementById("cc-bootstrap-modal");
   if (!modal) return;
-  // Session-scoped skip flag — survives until reload, not across sessions.
-  if (sessionStorage.getItem("yoCcBootstrapSkipped") === "1") return;
   const status = await window.yo.ccStatus();
   if (status.found) return;
 
@@ -2981,12 +2979,6 @@ async function maybeShowCcBootstrapModal(): Promise<void> {
   document.getElementById("cc-bootstrap-recheck")!.onclick = async () => {
     errEl.textContent = "";
     await recheckAndClose(true);
-  };
-
-  document.getElementById("cc-bootstrap-skip")!.onclick = () => {
-    cleanupPoll();
-    sessionStorage.setItem("yoCcBootstrapSkipped", "1");
-    dismissModal();
   };
 }
 
