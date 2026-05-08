@@ -134,8 +134,6 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
       openOAuthWindow(url);
     };
 
-    // Spawn the PTY once the renderer has loaded so xterm is ready to
-    // receive data and report its size.
     const onWriteHandler = (e: IpcMainEvent, data: string) => {
       if (e.sender !== win.webContents) return;
       try { activeChild?.write(data); } catch { /* ignore */ }
@@ -145,20 +143,26 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
       try { activeChild?.resize(cols, rows); } catch { /* ignore */ }
     };
 
-    win.webContents.once("did-finish-load", () => {
+    // Wait for the renderer to report its actual xterm size before spawning
+    // — claude's banner / menu render at first-output dimensions, so getting
+    // them right up front avoids jumbled wrapping when xterm later resizes.
+    const onFirstResize = (e: IpcMainEvent, cols: number, rows: number) => {
+      if (e.sender !== win.webContents) return;
+      ipcMain.removeListener("terminal:resize", onFirstResize);
+
       const env: Record<string, string> = {};
       for (const [k, v] of Object.entries({ ...process.env, PATH: getShellPath() })) {
         if (v !== undefined) env[k] = v;
       }
       const child = pty.spawn(claudePath, ["/login"], {
         name: "xterm-256color",
-        cols: 100,
-        rows: 28,
+        cols: cols || 100,
+        rows: rows || 28,
         cwd: os.homedir(),
         env,
       });
       activeChild = child;
-      console.log("[cc-bootstrap] spawned claude /login pty pid=", child.pid);
+      console.log("[cc-bootstrap] spawned claude /login pty pid=", child.pid, "size=", cols, "x", rows);
 
       child.onData((data: string) => {
         if (!win.isDestroyed()) win.webContents.send("terminal:data", data);
@@ -172,10 +176,12 @@ export function spawnCcLogin(): { ok: boolean; error?: string } {
 
       ipcMain.on("terminal:write", onWriteHandler);
       ipcMain.on("terminal:resize", onResizeHandler);
-    });
+    };
+    ipcMain.on("terminal:resize", onFirstResize);
 
     win.on("closed", () => {
       activeTermWindow = null;
+      ipcMain.removeListener("terminal:resize", onFirstResize);
       ipcMain.removeListener("terminal:write", onWriteHandler);
       ipcMain.removeListener("terminal:resize", onResizeHandler);
       if (activeChild) {
