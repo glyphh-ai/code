@@ -30,7 +30,7 @@ declare global {
       skillsList: () => Promise<string[]>;
       skillsListDetailed: () => Promise<Array<{ name: string; description?: string; hasRunner: boolean; hasApp: boolean; scheduled: boolean; scheduleExpr?: string }>>;
       skillsRead: (name: string) => Promise<string | null>;
-      skillsGet: (name: string) => Promise<{ name: string; manifest: any; prompt: string; hasRunner: boolean; hasApp: boolean; runnerCode: string | null } | null>;
+      skillsGet: (name: string) => Promise<{ name: string; manifest: any; prompt: string; hasRunner: boolean; hasApp: boolean; runnerCode: string | null; runnerSchedule: string | null } | null>;
       skillsWrite: (name: string, prompt: string) => Promise<boolean | { error: string }>;
       skillsWriteFull: (name: string, manifest: any, prompt: string, runnerCode?: string | null) => Promise<boolean | { error: string }>;
       skillsRemove: (name: string) => Promise<boolean>;

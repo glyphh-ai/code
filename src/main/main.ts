@@ -2409,6 +2409,7 @@ async function boot() {
     const hasRunner = skillEngine.hasRunner(name);
     const hasApp = !!skillEngine.readSkillFile(name, "app/index.html");
     const runnerCode = hasRunner ? skillEngine.readSkillFile(name, "SKILL.js") : null;
+    const runnerSchedule = skillEngine.getSkillJsSchedule(name);
     return {
       name: s.name,
       manifest: s.manifest,
@@ -2416,6 +2417,7 @@ async function boot() {
       hasRunner,
       hasApp,
       runnerCode,
+      runnerSchedule,
     };
   });
   ipcMain.handle("skills-write", (_e, name: string, prompt: string) => {

@@ -438,7 +438,10 @@ async function openSkillEditor(name: string | null) {
     const full = await window.yo.skillsGet(name!);
     if (full) {
       skillDescInput.value = full.manifest?.description || "";
-      setScheduleFromCron(full.manifest?.schedule || "");
+      // SKILL.js's exported `schedule` wins over SKILL.md frontmatter at
+      // scheduler-time; show that one in the UI when present so the
+      // builder reflects what's actually scheduled.
+      setScheduleFromCron(full.manifest?.schedule || full.runnerSchedule || "");
       editingFileContents.set("SKILL.md", full.prompt || "");
       if (full.runnerCode != null) {
         editingFileContents.set("SKILL.js", full.runnerCode);
