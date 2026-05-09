@@ -216,7 +216,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
   {
     name: "mcp_tools_list",
     namespace: "yo",
-    description: "List every connected MCP tool with description and input schema. Use this BEFORE writing a skill so allowed-tools and ctx.tools.call(...) reference real names. Optionally filter by namespace (e.g. 'gmail', 'slack_v2').",
+    description: "List every connected MCP tool with name, description, and a typed-key summary. Inputs are shown as 'key:type*' where * means required. ALWAYS call this before drafting a skill so allowed-tools and ctx.tools.call(...) reference real names. Use mcp_tool_schema for the full input schema of a specific tool.",
     input_schema: {
       type: "object",
       properties: {
@@ -229,14 +229,57 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const tools = deps.mcpRouter.resolveAll();
       const filtered = filter ? tools.filter(t => t.name.startsWith(filter + ".") || t.name.startsWith(filter + "_") || t.name.split(".")[0] === filter) : tools;
       if (filtered.length === 0) return filter ? `No tools found for namespace "${filter}".` : "No MCP tools connected.";
-      // Compact output: name, description, top-level input keys.
       const lines = filtered.map((t) => {
-        const props = (t.input_schema?.properties || {}) as Record<string, unknown>;
-        const required = ((t.input_schema?.required || []) as string[]).join(",");
-        const keys = Object.keys(props).map(k => required.includes(k) ? `${k}*` : k).join(", ");
+        const props = (t.input_schema?.properties || {}) as Record<string, { type?: string }>;
+        const required = new Set((t.input_schema?.required || []) as string[]);
+        const keys = Object.entries(props)
+          .map(([k, v]) => `${k}:${v?.type || "any"}${required.has(k) ? "*" : ""}`)
+          .join(", ");
         return `- ${t.name}${keys ? ` (${keys})` : ""}\n    ${t.description?.slice(0, 200) || ""}`;
       });
-      return `${filtered.length} MCP tool(s) (suffix * = required):\n\n${lines.join("\n")}`;
+      return `${filtered.length} MCP tool(s) (* = required):\n\n${lines.join("\n")}`;
+    },
+  },
+  {
+    name: "mcp_tool_schema",
+    namespace: "yo",
+    description: "Return the complete JSON input schema for a single MCP tool, qualified as '<server>.<tool>' (e.g. 'gmail.gmail-find-email'). Use this BEFORE writing a ctx.tools.call(...) so you don't miss required fields like Pipedream's withTextPayload.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Qualified tool name '<server>.<tool>'" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.mcpRouter?.resolveAll) return "MCP router not available.";
+      const target = (input.name as string)?.trim();
+      if (!target || target.indexOf(".") < 1) {
+        return "Invalid name. Use '<server>.<tool>' (e.g. 'gmail.gmail-find-email').";
+      }
+      const dot = target.indexOf(".");
+      const ns = target.slice(0, dot);
+      const toolName = target.slice(dot + 1);
+      // resolveAll returns short names like "gmail__gmail_find_email" (hyphens
+      // converted to underscores). Compare against the qualified pair from
+      // mcpManager directly. We re-walk getAllTools because resolveAll
+      // doesn't keep the raw schema mapping addressable by qualified name.
+      const tools = deps.mcpRouter.resolveAll();
+      const match = tools.find(t => {
+        const short = `${ns.replace(/-/g, "_")}__${toolName.replace(/-/g, "_")}`;
+        return t.name === short;
+      });
+      if (!match) return `Tool "${target}" not found. Run mcp_tools_list to see what's connected.`;
+      return [
+        `# ${target}`,
+        ``,
+        match.description || "(no description)",
+        ``,
+        `## input_schema`,
+        "```json",
+        JSON.stringify(match.input_schema, null, 2),
+        "```",
+      ].join("\n");
     },
   },
   {
@@ -1766,7 +1809,7 @@ const PATH_GATE_EXEMPT = new Set([
   // Skill-authoring tools — take a `name` not a path; SkillEngine.sanitizeName
   // already constrains the folder, and skill folders live under ~/.claude/skills
   // (outside the ~/.yo/ trust boundary the gate enforces by default).
-  "mcp_tools_list", "skill_list", "skill_get", "skill_create",
+  "mcp_tools_list", "mcp_tool_schema", "skill_list", "skill_get", "skill_create",
   "skill_write_runner", "skill_delete", "skill_run", "skill_run_history",
 ]);
 
