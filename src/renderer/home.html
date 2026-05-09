@@ -739,6 +739,14 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <label class="settings-label">Description</label>
                   <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
 
+                  <label class="settings-label">Allowed tools</label>
+                  <div id="skill-tools-list" class="skill-row-list"></div>
+                  <button id="skill-tools-add" class="skill-row-add-btn" type="button">+ Add tool</button>
+
+                  <label class="settings-label">Depends on <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
+                  <div id="skill-requires-list" class="skill-row-list"></div>
+                  <button id="skill-requires-add" class="skill-row-add-btn" type="button">+ Add dependency</button>
+
                   <label class="settings-label">Schedule</label>
                   <div id="skill-schedule-builder" class="skill-schedule-builder">
                     <div class="sched-row">
@@ -789,8 +797,17 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <div class="skill-left-footer">
                   <button id="skill-delete" class="action-btn danger">Delete</button>
                   <div style="flex:1;"></div>
+                  <button id="skill-run" class="action-btn">Run</button>
                   <button id="skill-cancel" class="action-btn">Cancel</button>
                   <button id="skill-save" class="action-btn primary">Save</button>
+                </div>
+
+                <div id="skill-run-output" class="skill-run-output hidden">
+                  <div class="skill-run-output-header">
+                    <span id="skill-run-output-status">Last run</span>
+                    <button id="skill-run-output-close" class="skill-run-output-close" title="Close">×</button>
+                  </div>
+                  <pre id="skill-run-output-body" class="skill-run-output-body"></pre>
                 </div>
               </div>
 

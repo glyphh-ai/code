@@ -1502,6 +1502,30 @@ body {
 }
 .skill-row input[type="text"]:focus { border-color: var(--accent); }
 
+.skill-run-output {
+  margin-top: 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); display: flex; flex-direction: column; max-height: 300px;
+}
+.skill-run-output.error { border-color: var(--danger, #d44a4a); }
+.skill-run-output-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+}
+.skill-run-output-status-ok { color: var(--accent); }
+.skill-run-output-status-error { color: var(--danger, #d44a4a); }
+.skill-run-output-status-running { color: var(--text-2); }
+.skill-run-output-close {
+  margin-left: auto; background: none; border: 0; color: var(--text-3);
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.skill-run-output-close:hover { color: var(--text); }
+.skill-run-output-body {
+  margin: 0; padding: 8px 10px; font-family: var(--font-mono, monospace);
+  font-size: 11px; line-height: 1.5; color: var(--text-2); overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+}
+
 .agent-row-wrapper {
   display: flex; flex-direction: column; gap: 4px;
   padding-bottom: 8px; border-bottom: 1px solid var(--border);

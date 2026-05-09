@@ -11,6 +11,7 @@ import {
 
 let skillsPage = 0;
 let allSkillsDetailed: Array<{ name: string; description?: string; hasRunner: boolean; hasApp: boolean; scheduled: boolean; scheduleExpr?: string }> = [];
+let cachedToolGroups: Array<{ namespace: string; label: string; tools: Array<{ name: string; description: string }> }> = [];
 const skillsListEl = document.getElementById("skills-list")!;
 const skillsToolbar = document.getElementById("skills-toolbar")!;
 const skillEditor = document.getElementById("skill-editor")!;
@@ -417,6 +418,11 @@ async function openSkillEditor(name: string | null) {
   editingFileContents = new Map();
   collapsedFolders.clear();
 
+  await ensureToolGroups();
+  clearToolRows();
+  clearRequiresRows();
+  document.getElementById("skill-run-output")!.classList.add("hidden");
+
   const newSkill = !name;
 
   if (newSkill) {
@@ -437,6 +443,13 @@ async function openSkillEditor(name: string | null) {
       if (full.runnerCode != null) {
         editingFileContents.set("SKILL.js", full.runnerCode);
       }
+      const tools: string[] = full.manifest?.["allowed-tools"] || [];
+      for (const qualified of tools) {
+        const dot = qualified.indexOf(".");
+        if (dot > 0) addToolRow(qualified.slice(0, dot), qualified.slice(dot + 1));
+      }
+      const requires: string[] = full.manifest?.requires || [];
+      for (const r of requires) addRequiresRow(r);
     }
     editingSkillFiles = await window.yo.skillsListFiles(name!);
     if (editingSkillFiles.length === 0) editingSkillFiles = ["SKILL.md"];
@@ -600,9 +613,13 @@ async function saveSkill() {
 
   const description = skillDescInput.value.trim();
   const schedule = getScheduleCron();
+  const allowedTools = getToolEntries();
+  const requires = getRequiresEntries();
 
   const manifest: any = { name, description };
   if (schedule) manifest.schedule = schedule;
+  if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
+  if (requires.length) manifest.requires = requires;
 
   const prompt = editingFileContents.get("SKILL.md") ?? "";
   const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
@@ -737,8 +754,12 @@ async function saveSkillInline() {
   if (!name) return;
   const description = skillDescInput.value.trim();
   const schedule = getScheduleCron();
+  const allowedTools = getToolEntries();
+  const requires = getRequiresEntries();
   const manifest: any = { name, description };
   if (schedule) manifest.schedule = schedule;
+  if (allowedTools.length) manifest["allowed-tools"] = allowedTools;
+  if (requires.length) manifest.requires = requires;
   const promptBody = editingFileContents.get("SKILL.md") ?? "";
   const runnerCode = editingFileContents.has("SKILL.js") ? editingFileContents.get("SKILL.js") ?? "" : null;
   await window.yo.skillsWriteFull(name, manifest, promptBody, runnerCode);
@@ -780,6 +801,154 @@ async function importSkill(file: File) {
 
 
 
+// ── Tool row list (allowed-tools) ────────────────────────
+
+async function ensureToolGroups() {
+  if (cachedToolGroups.length) return;
+  try { cachedToolGroups = await window.yo.skillsAvailableTools(); } catch { /* empty */ }
+}
+
+function addToolRow(ns?: string, tool?: string) {
+  const list = document.getElementById("skill-tools-list")!;
+  const row = document.createElement("div");
+  row.className = "skill-row";
+
+  // Resolve namespace: exact match first, then case-insensitive suffix match
+  let resolvedNs = ns;
+  if (ns && !cachedToolGroups.find(g => g.namespace === ns)) {
+    const lower = ns.toLowerCase();
+    const fuzzy = cachedToolGroups.find(g =>
+      g.namespace.toLowerCase().endsWith(lower) ||
+      g.namespace.toLowerCase().includes(lower)
+    );
+    if (fuzzy) resolvedNs = fuzzy.namespace;
+  }
+
+  const appSel = document.createElement("select");
+  let appOptions = cachedToolGroups.map(g =>
+    `<option value="${g.namespace}"${g.namespace === resolvedNs ? " selected" : ""}>${g.label}</option>`
+  ).join("");
+  if (resolvedNs && !cachedToolGroups.find(g => g.namespace === resolvedNs)) {
+    appOptions += `<option value="${resolvedNs}" selected>${resolvedNs} (unresolved)</option>`;
+  }
+  appSel.innerHTML = `<option value="">App...</option>` + appOptions;
+
+  const toolSel = document.createElement("select");
+  const populateTools = (selectedNs: string, preselect?: string) => {
+    const group = cachedToolGroups.find(g => g.namespace === selectedNs);
+    const toolOptions = group ? group.tools.map(t =>
+      `<option value="${t.name}"${t.name === preselect ? " selected" : ""}>${t.name}</option>`
+    ).join("") : "";
+    const hasMatch = group?.tools.some(t => t.name === preselect);
+    const unresolvedOpt = preselect && !hasMatch
+      ? `<option value="${preselect}" selected>${preselect} (unresolved)</option>`
+      : "";
+    toolSel.innerHTML = `<option value="">Tool...</option>` + toolOptions + unresolvedOpt;
+  };
+  if (resolvedNs) populateTools(resolvedNs, tool);
+  else toolSel.innerHTML = `<option value="">Tool...</option>`;
+
+  appSel.addEventListener("change", () => { populateTools(appSel.value); });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "skill-row-remove";
+  removeBtn.type = "button";
+  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+  removeBtn.addEventListener("click", () => row.remove());
+
+  row.appendChild(appSel);
+  row.appendChild(toolSel);
+  row.appendChild(removeBtn);
+  list.appendChild(row);
+}
+
+function getToolEntries(): string[] {
+  const rows = document.querySelectorAll("#skill-tools-list .skill-row");
+  const entries: string[] = [];
+  rows.forEach(row => {
+    const selects = row.querySelectorAll("select");
+    const ns = (selects[0] as HTMLSelectElement)?.value;
+    const tool = (selects[1] as HTMLSelectElement)?.value;
+    if (ns && tool) entries.push(`${ns}.${tool}`);
+  });
+  return entries;
+}
+
+function clearToolRows() {
+  document.getElementById("skill-tools-list")!.innerHTML = "";
+}
+
+// ── Requires row list (dependent skills) ─────────────────
+
+function addRequiresRow(skillName?: string) {
+  const list = document.getElementById("skill-requires-list")!;
+  const row = document.createElement("div");
+  row.className = "skill-row";
+
+  const sel = document.createElement("select");
+  sel.innerHTML = `<option value="">Select skill...</option>` +
+    allSkillsDetailed
+      .filter(s => s.name !== editingSkillName)
+      .map(s => `<option value="${s.name}"${s.name === skillName ? " selected" : ""}>${s.name}${s.description ? " — " + s.description : ""}</option>`)
+      .join("");
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "skill-row-remove";
+  removeBtn.type = "button";
+  removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+  removeBtn.addEventListener("click", () => row.remove());
+
+  row.appendChild(sel);
+  row.appendChild(removeBtn);
+  list.appendChild(row);
+}
+
+function getRequiresEntries(): string[] {
+  const rows = document.querySelectorAll("#skill-requires-list .skill-row");
+  const entries: string[] = [];
+  rows.forEach(row => {
+    const val = (row.querySelector("select") as HTMLSelectElement)?.value;
+    if (val) entries.push(val);
+  });
+  return entries;
+}
+
+function clearRequiresRows() {
+  document.getElementById("skill-requires-list")!.innerHTML = "";
+}
+
+// ── Run a skill from the editor ──────────────────────────
+
+function showRunOutput(state: "running" | "ok" | "error", body: string) {
+  const panel = document.getElementById("skill-run-output")!;
+  const status = document.getElementById("skill-run-output-status")!;
+  const out = document.getElementById("skill-run-output-body")!;
+  panel.classList.remove("hidden");
+  panel.classList.toggle("error", state === "error");
+  status.className = `skill-run-output-status-${state}`;
+  status.textContent = state === "running" ? "Running…" : state === "ok" ? "Last run · ok" : "Last run · error";
+  out.textContent = body;
+}
+
+async function runEditingSkill() {
+  if (!editingSkillName) {
+    showRunOutput("error", "Save the skill before running it.");
+    return;
+  }
+  showRunOutput("running", "Invoking skill…");
+  try {
+    const result = await window.yo.skillsRun(editingSkillName, null);
+    if (result.ok) {
+      const body = typeof result.output === "string" ? result.output : JSON.stringify(result.output, null, 2);
+      showRunOutput("ok", body || "(no output)");
+    } else {
+      showRunOutput("error", result.error || "Unknown error");
+    }
+  } catch (err) {
+    showRunOutput("error", err instanceof Error ? err.message : String(err));
+  }
+}
+
 export { loadSkills };
 
 export function initSkillsEvents() {
@@ -788,6 +957,15 @@ export function initSkillsEvents() {
   document.getElementById("skill-cancel")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-back-link")!.addEventListener("click", closeSkillEditor);
   document.getElementById("skill-delete")!.addEventListener("click", deleteSkill);
+  document.getElementById("skill-tools-add")!.addEventListener("click", async () => {
+    await ensureToolGroups();
+    addToolRow();
+  });
+  document.getElementById("skill-requires-add")!.addEventListener("click", () => addRequiresRow());
+  document.getElementById("skill-run")!.addEventListener("click", runEditingSkill);
+  document.getElementById("skill-run-output-close")!.addEventListener("click", () => {
+    document.getElementById("skill-run-output")!.classList.add("hidden");
+  });
   document.getElementById("skill-schedule-freq")!.addEventListener("change", updateScheduleOpts);
   document.querySelectorAll("#sched-days-row .sched-day-chip").forEach(chip => {
     chip.addEventListener("click", () => { chip.classList.toggle("active"); updateSchedulePreview(); });
