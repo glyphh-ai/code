@@ -29,6 +29,10 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
+// THE-PIVOT-GITHUB Phase 1 scaffolding (gh-pivot branch). Drop session is
+// scoped — independent rotation/revocation from the main yo session.
+import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus } from "./drop-auth";
+import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
 import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler, setEventObserver } from "./cypher-runtime";
@@ -1955,6 +1959,9 @@ async function boot() {
   // Initialize auth — restore session, schedule refresh, start heartbeat.
   // Hard 3s timeout so splash never hangs if server is unreachable.
   await Promise.race([initAuth(), new Promise((r) => setTimeout(r, 3000))]);
+  // THE-PIVOT-GITHUB: hydrate Drop session from disk + schedule refresh.
+  // No-op if .session.drop doesn't exist (most users today).
+  initDropAuth();
 
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
@@ -2786,6 +2793,10 @@ async function boot() {
   // never set these so the UI behaves as if the features don't exist.
   ipcMain.handle("dev-flags", () => ({
     cyphersEnabled: process.env.YO_CYPHERS_ENABLED === "1" || process.env.YO_CYPHERS_ENABLED === "true",
+    // THE-PIVOT-GITHUB feature flag. When true the Drop renders the
+    // "Continue with GitHub" landing card and switches its data source to
+    // /api/projects/*. Default off so the existing UX ships unchanged.
+    enableGhAuth: process.env.YO_ENABLE_GH_AUTH === "1" || process.env.YO_ENABLE_GH_AUTH === "true",
   }));
   ipcMain.handle("get-account-info", () => getAccountInfo());
   ipcMain.handle("get-auth-status", () => getAuthStatus());
@@ -3298,6 +3309,29 @@ async function boot() {
       return { ok: false, error: err instanceof Error ? err.message : "spawn failed" };
     }
   });
+
+  // ── THE-PIVOT-GITHUB: GH-bound Drop session + Projects API ───────────
+  // (Phase 1 OAuth + Phases 11/14/15 reads — all server endpoints are
+  // currently 501 stubs; the wiring exists today so the renderer can be
+  // authored end-to-end and the "live" flip is a server-side change.)
+  ipcMain.handle("drop-gh-status", () => getDropAuthStatus());
+  ipcMain.handle("drop-gh-sign-in", async () => {
+    try { return await signInWithGitHub(); }
+    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "sign-in failed" }; }
+  });
+  ipcMain.handle("drop-gh-sign-out", () => { signOutDrop(); return { ok: true }; });
+
+  ipcMain.handle("projects-mine", () => dropApi.projectsMine());
+  ipcMain.handle("projects-discover", (_e, opts?: { q?: string; mode?: string; capability?: string; limit?: number }) =>
+    dropApi.projectDiscover(opts));
+  ipcMain.handle("project-get", (_e, ref: string, withParts?: string[]) => dropApi.projectGet(ref, withParts));
+  ipcMain.handle("project-board", (_e, ref: string) => dropApi.projectBoard(ref));
+  ipcMain.handle("project-create", (_e, input: Record<string, unknown>) => dropApi.projectCreate(input));
+  ipcMain.handle("project-start", (_e, ref: string) => dropApi.projectStart(ref));
+  ipcMain.handle("project-wrap", (_e, ref: string) => dropApi.projectWrap(ref));
+
+  ipcMain.handle("installations-list", () => dropApi.installationsList());
+  ipcMain.handle("repos-for-installation", (_e, owner: string) => dropApi.reposForInstallation(owner));
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose!.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose!.generateToken(label, ttlDays));

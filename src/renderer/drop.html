@@ -810,6 +810,57 @@
     animation: reveal 0.45s ease forwards;
     opacity: 0;
   }
+
+  /* ── THE-PIVOT-GITHUB Phase 1: GH-bound landing + pickers ──────── */
+  .yo-gh-landing {
+    position: fixed; inset: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(0,0,0,0.94);
+    z-index: 1000; backdrop-filter: blur(8px);
+  }
+  .yo-gh-landing-card {
+    background: var(--surface, #161616); border: 1px solid var(--border, #2a2a2a);
+    border-radius: 14px; padding: 36px 40px; max-width: 460px; text-align: center;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+  .yo-gh-landing-mark { font-size: 56px; line-height: 1; }
+  .yo-gh-landing h1 { margin: 12px 0 8px; font-size: 22px; font-weight: 700; }
+  .yo-gh-landing-sub { margin: 0 0 20px; color: var(--text-2, #a8a8a8); font-size: 14px; line-height: 1.5; }
+  .yo-gh-landing-btn {
+    background: #2da44e; color: #fff; border: 0; border-radius: 8px;
+    padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: filter 0.15s; width: 100%;
+  }
+  .yo-gh-landing-btn:hover { filter: brightness(1.1); }
+  .yo-gh-landing-btn:disabled { opacity: 0.6; cursor: progress; }
+  .yo-gh-landing-why {
+    margin-top: 20px; font-size: 12px; color: var(--text-3, #777);
+    text-align: left;
+  }
+  .yo-gh-landing-why summary { cursor: pointer; padding: 6px 0; }
+  .yo-gh-landing-why p { margin: 8px 0 0; line-height: 1.55; }
+  .yo-gh-landing-error {
+    margin-top: 14px; padding: 8px 10px; font-size: 12px;
+    color: #ff8a8a; background: rgba(255,90,90,0.08);
+    border: 1px solid rgba(255,90,90,0.25); border-radius: 6px;
+    font-family: var(--font-mono, monospace); text-align: left;
+  }
+
+  .yo-owner-picker { display: flex; flex-direction: column; gap: 4px; }
+  .yo-owner-picker-select {
+    background: var(--bg, #0f0f0f); color: var(--text, #eee);
+    border: 1px solid var(--border, #2a2a2a); border-radius: 6px;
+    padding: 8px 10px; font-size: 13px;
+  }
+  .yo-repo-picker { display: flex; flex-direction: column; gap: 6px; }
+  .yo-repo-picker-empty { font-size: 12px; color: var(--text-3, #777); padding: 6px 0; }
+  .yo-repo-picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
+  .yo-repo-picker-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    background: var(--bg, #0f0f0f); border: 1px solid var(--border, #2a2a2a);
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .yo-repo-picker-row:hover { border-color: var(--accent, #2da44e); }
+  .yo-repo-picker-meta { color: var(--text-3, #777); font-size: 11px; margin-left: 8px; }
 </style>
 </head>
 <body>

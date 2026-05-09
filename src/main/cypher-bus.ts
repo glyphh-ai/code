@@ -5,6 +5,29 @@
  * and the local event-log. When no cypher is bound, posts go to event-log only.
  * Inbound cypher events (agent_message, post_to) are dispatched to registered
  * per-agent handlers — replacing the file-based inbox as the primary path.
+ *
+ * ─── THE-PIVOT-GITHUB MIGRATION NOTES (Phases 5 + 6) ──────────────────────
+ * This bus is on the deprecation list once GH Projects becomes the cypher
+ * backend. Replacement mapping:
+ *
+ *   postCypherEvent / cypher-events SSE     → /api/projects/:ref/events/stream
+ *                                              (webhook-driven, see
+ *                                              project-routes.ts SSE stub)
+ *   subscribeCypherAgent / per-agent inbox  → /api/me/assignments/stream
+ *                                              (matchmaker-driven, see
+ *                                              installation-routes.ts SSE stub)
+ *   getCypherForWorkspace                   → drop session's bound project_id
+ *                                              (resolved from
+ *                                              ~/.yo/workspaces/<slug>/.project)
+ *   dispatchInbound (in main.ts)            → daemon in agent-runner.ts that
+ *                                              consumes /api/me/assignments/
+ *                                              stream and routes to local
+ *                                              jammer loadouts
+ *
+ * Plan: keep both running for one Drop release after the new SSE streams
+ * land server-side, then delete this file once telemetry shows no traffic
+ * on the old path. See Phase 6 in docs/THE-PIVOT-GITHUB.md.
+ * ───────────────────────────────────────────────────────────────────────
  */
 
 import { postCypherEvent, subscribeCypherAgent, unsubscribeCypherAgent } from "./cypher-runtime";

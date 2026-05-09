@@ -39,6 +39,22 @@ interface DropAPI {
   execCommand: (cmd: string) => Promise<unknown>;
   /** Subscribe to live cypher SSE events forwarded by main. Returns an unsubscribe fn. */
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
+
+  // ── THE-PIVOT-GITHUB Phase 1+: scoped GH binding + Projects API ─────
+  ghStatus: () => Promise<{ signedIn: boolean; github: { gh_login: string; gh_avatar: string } | null; expiresAt: number | null }>;
+  signInWithGitHub: () => Promise<{ ok: true; status: { signedIn: boolean; github: { gh_login: string; gh_avatar: string } | null; expiresAt: number | null } } | { ok: false; error: string; status?: number }>;
+  signOutGitHub: () => Promise<{ ok: true }>;
+
+  projectsMine: () => Promise<unknown>;
+  projectDiscover: (opts?: { q?: string; mode?: string; capability?: string; limit?: number }) => Promise<unknown>;
+  projectGet: (ref: string, withParts?: string[]) => Promise<unknown>;
+  projectBoard: (ref: string) => Promise<unknown>;
+  projectCreate: (input: Record<string, unknown>) => Promise<unknown>;
+  projectStart: (ref: string) => Promise<unknown>;
+  projectWrap: (ref: string) => Promise<unknown>;
+
+  installationsList: () => Promise<unknown>;
+  reposForInstallation: (owner: string) => Promise<unknown>;
 }
 
 const api: DropAPI = {
@@ -76,6 +92,22 @@ const api: DropAPI = {
     ipcRenderer.on("cypher-event", handler);
     return () => { ipcRenderer.removeListener("cypher-event", handler); };
   },
+
+  // ── THE-PIVOT-GITHUB ──────────────────────────────────────────────
+  ghStatus: () => ipcRenderer.invoke("drop-gh-status"),
+  signInWithGitHub: () => ipcRenderer.invoke("drop-gh-sign-in"),
+  signOutGitHub: () => ipcRenderer.invoke("drop-gh-sign-out"),
+
+  projectsMine: () => ipcRenderer.invoke("projects-mine"),
+  projectDiscover: (opts) => ipcRenderer.invoke("projects-discover", opts),
+  projectGet: (ref, withParts) => ipcRenderer.invoke("project-get", ref, withParts),
+  projectBoard: (ref) => ipcRenderer.invoke("project-board", ref),
+  projectCreate: (input) => ipcRenderer.invoke("project-create", input),
+  projectStart: (ref) => ipcRenderer.invoke("project-start", ref),
+  projectWrap: (ref) => ipcRenderer.invoke("project-wrap", ref),
+
+  installationsList: () => ipcRenderer.invoke("installations-list"),
+  reposForInstallation: (owner) => ipcRenderer.invoke("repos-for-installation", owner),
 };
 
 contextBridge.exposeInMainWorld("drop", api);

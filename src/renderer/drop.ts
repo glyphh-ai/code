@@ -1468,6 +1468,36 @@ function init(): void {
   void ensureCurrentUser();
   void ensureDevFlags();
 
+  // ── THE-PIVOT-GITHUB Phase 1: GH-bound landing card ────────────────
+  // When enableGhAuth is on AND the user isn't GH-bound, the landing
+  // takes over the panel until they sign in (or the server stub returns
+  // 501, which we surface). Hidden / no-op otherwise.
+  void (async () => {
+    try {
+      const mod = await import("./drop-gh-landing.js");
+      const host = document.getElementById("drop-gh-landing-host")
+        || (() => {
+          const el = document.createElement("div");
+          el.id = "drop-gh-landing-host";
+          document.body.appendChild(el);
+          return el;
+        })();
+      const r = await mod.maybeRenderGhLanding(host);
+      if (r.shown && !r.signedIn) {
+        // Hide the rest of the Drop UI behind the landing.
+        document.querySelectorAll<HTMLElement>(".view-tabs, .view-pane, #drop-topbar")
+          .forEach((el) => { el.style.display = "none"; });
+        window.addEventListener("drop-gh-signed-in", () => {
+          // User completed sign-in — restore the normal Drop UI.
+          document.querySelectorAll<HTMLElement>(".view-tabs, .view-pane, #drop-topbar")
+            .forEach((el) => { el.style.display = ""; });
+        }, { once: true });
+      }
+    } catch (e) {
+      console.warn("[drop] gh-landing init failed:", e);
+    }
+  })();
+
   // Browse loaders fire on launch (cypher loaders are no-ops if hidden)
   void loadLive();
   void loadLeaderboard();
