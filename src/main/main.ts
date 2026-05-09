@@ -413,6 +413,9 @@ async function boot() {
       readSkillFile: (name, rel) => skillEngine.readSkillFile(name, rel),
       writeSkillFile: (name, rel, content) => skillEngine.writeSkillFile(name, rel, content),
       listSkillFiles: (name) => skillEngine.listSkillFiles(name),
+      runSkill: (name, input, opts) => skillEngine.runSkill(name, input, opts),
+      getRunHistory: (name) => skillEngine.getRunHistory(name) as any,
+      hasRunner: (name) => skillEngine.hasRunner(name),
     },
     dripManager: {
       listCustoms: () => dripManager!.listCustoms(),

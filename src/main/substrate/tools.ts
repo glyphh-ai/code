@@ -26,13 +26,16 @@ export interface SubstrateToolDeps {
   memoryStore?: { save: (content: string, category: string) => Promise<string> };
   skillEngine?: {
     process: (content: string, skillName?: string) => Promise<string>;
-    listSkillsDetailed: () => Array<{ name: string; description?: string; scheduled: boolean; scheduleExpr?: string }>;
+    listSkillsDetailed: () => Array<{ name: string; description?: string; scheduled: boolean; scheduleExpr?: string; hasRunner?: boolean; hasApp?: boolean }>;
     getSkill: (name: string) => { manifest: Record<string, unknown>; prompt: string; folderPath: string } | null;
     writeSkill: (name: string, manifest: Record<string, unknown>, prompt: string) => boolean;
     deleteSkill: (name: string) => boolean;
     readSkillFile: (name: string, rel: string) => string | null;
     writeSkillFile: (name: string, rel: string, content: string) => boolean;
     listSkillFiles: (name: string) => string[];
+    runSkill?: (name: string, input: unknown, opts?: { trigger?: "manual" | "schedule" | "skill" }) => Promise<unknown>;
+    getRunHistory?: (name: string) => Array<{ id: string; trigger: string; startedAt: number; durationMs?: number; output?: unknown; error?: string; logs: string[]; events: Array<{ type: string; label: string; status: string }> }>;
+    hasRunner?: (name: string) => boolean;
   };
   mcpRouter?: { resolveAll: () => Array<{ name: string; description: string; input_schema: Record<string, unknown> }>; callMcp?: (name: string, input: Record<string, unknown>) => Promise<string>; hasTool?: (name: string) => boolean; mcpCoveredApps?: () => Map<string, string[]> };
   dripManager?: {
@@ -208,6 +211,207 @@ const BUILTIN_TOOLS: ToolDef[] = [
       }
     },
   },
+
+  // ── Skill authoring (agent uses these to build user skills on demand) ──
+  {
+    name: "mcp_tools_list",
+    namespace: "yo",
+    description: "List every connected MCP tool with description and input schema. Use this BEFORE writing a skill so allowed-tools and ctx.tools.call(...) reference real names. Optionally filter by namespace (e.g. 'gmail', 'slack_v2').",
+    input_schema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string", description: "Filter to one MCP namespace (server id)" },
+      },
+    },
+    async run(input) {
+      if (!deps.mcpRouter?.resolveAll) return "MCP router not available.";
+      const filter = (input.namespace as string | undefined)?.trim();
+      const tools = deps.mcpRouter.resolveAll();
+      const filtered = filter ? tools.filter(t => t.name.startsWith(filter + ".") || t.name.startsWith(filter + "_") || t.name.split(".")[0] === filter) : tools;
+      if (filtered.length === 0) return filter ? `No tools found for namespace "${filter}".` : "No MCP tools connected.";
+      // Compact output: name, description, top-level input keys.
+      const lines = filtered.map((t) => {
+        const props = (t.input_schema?.properties || {}) as Record<string, unknown>;
+        const required = ((t.input_schema?.required || []) as string[]).join(",");
+        const keys = Object.keys(props).map(k => required.includes(k) ? `${k}*` : k).join(", ");
+        return `- ${t.name}${keys ? ` (${keys})` : ""}\n    ${t.description?.slice(0, 200) || ""}`;
+      });
+      return `${filtered.length} MCP tool(s) (suffix * = required):\n\n${lines.join("\n")}`;
+    },
+  },
+  {
+    name: "skill_list",
+    namespace: "yo",
+    description: "List user skills (folder + SKILL.md + optional SKILL.js under ~/.claude/skills/). Returns name, description, hasRunner, schedule.",
+    input_schema: { type: "object", properties: {} },
+    async run() {
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const skills = deps.skillEngine.listSkillsDetailed();
+      if (skills.length === 0) return "No skills found in ~/.claude/skills/.";
+      return skills.map(s => {
+        const tags = [];
+        if (s.hasRunner) tags.push("runner");
+        if (s.scheduled) tags.push(`cron: ${s.scheduleExpr}`);
+        const tagStr = tags.length ? ` [${tags.join(", ")}]` : "";
+        return `- ${s.name}${tagStr}${s.description ? ` — ${s.description}` : ""}`;
+      }).join("\n");
+    },
+  },
+  {
+    name: "skill_get",
+    namespace: "yo",
+    description: "Read a skill's SKILL.md (frontmatter + body) and SKILL.js (if present). Use to inspect or template off existing skills before editing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill folder name" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      const name = input.name as string;
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const s = deps.skillEngine.getSkill(name);
+      if (!s) return `Skill "${name}" not found.`;
+      const runnerCode = deps.skillEngine.readSkillFile(name, "SKILL.js");
+      const out: string[] = [];
+      out.push(`# Skill: ${name}`);
+      out.push(`folder: ${s.folderPath}`);
+      out.push(`hasRunner: ${!!runnerCode}`);
+      out.push("");
+      out.push("## SKILL.md");
+      out.push("```yaml");
+      out.push(JSON.stringify(s.manifest, null, 2));
+      out.push("```");
+      out.push("");
+      out.push("### body");
+      out.push(s.prompt || "(empty)");
+      if (runnerCode) {
+        out.push("");
+        out.push("## SKILL.js");
+        out.push("```js");
+        out.push(runnerCode);
+        out.push("```");
+      }
+      return out.join("\n");
+    },
+  },
+  {
+    name: "skill_create",
+    namespace: "yo",
+    description: "Create or replace a skill's SKILL.md (frontmatter + body). For SKILL.js use skill_write_runner. Frontmatter fields: description, allowed-tools (array of '<server>.<tool>'), schedule (cron, optional), when_to_use, model.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Folder name (alphanumeric, hyphens)" },
+        manifest: {
+          type: "object",
+          description: "YAML frontmatter object: { description, when_to_use?, allowed-tools?, schedule?, model? }",
+        },
+        body: { type: "string", description: "Markdown body of SKILL.md (description, usage notes, examples)" },
+      },
+      required: ["name", "manifest", "body"],
+    },
+    async run(input) {
+      const name = input.name as string;
+      const manifest = input.manifest as Record<string, unknown>;
+      const body = input.body as string;
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const ok = deps.skillEngine.writeSkill(name, { name, ...manifest }, body || "");
+      if (!ok) return `Failed to write skill "${name}". Bad name?`;
+      return `Wrote ~/.claude/skills/${name}/SKILL.md`;
+    },
+  },
+  {
+    name: "skill_write_runner",
+    namespace: "yo",
+    description: "Write or replace a skill's SKILL.js (the deterministic runner). The code uses module.exports = { schedule?, init?, async start(ctx) {...}, exit? }. ctx surface: ctx.claude(prompt, {system,model}) → string, ctx.tools.call('server.tool', args) → string, ctx.step, ctx.evaluate, ctx.ask, ctx.progress, ctx.state, ctx.exit(value), ctx.log, ctx.config (frontmatter), ctx.file, ctx.library.{read,write}.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill folder name (must already exist)" },
+        code: { type: "string", description: "Full JS content for SKILL.js" },
+      },
+      required: ["name", "code"],
+    },
+    async run(input) {
+      const name = input.name as string;
+      const code = input.code as string;
+      if (!deps.skillEngine) return "Skill engine not available.";
+      if (!deps.skillEngine.getSkill(name)) return `Skill "${name}" doesn't exist — call skill_create first.`;
+      const ok = deps.skillEngine.writeSkillFile(name, "SKILL.js", code);
+      return ok ? `Wrote ~/.claude/skills/${name}/SKILL.js (${code.length} chars)` : "Failed to write SKILL.js";
+    },
+  },
+  {
+    name: "skill_delete",
+    namespace: "yo",
+    description: "Delete a skill folder under ~/.claude/skills/. Destructive — confirm with the user before calling.",
+    destructive: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill folder name" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      const name = input.name as string;
+      if (!deps.skillEngine) return "Skill engine not available.";
+      const ok = deps.skillEngine.deleteSkill(name);
+      return ok ? `Deleted skill "${name}".` : `Skill "${name}" not found or could not be removed.`;
+    },
+  },
+  {
+    name: "skill_run",
+    namespace: "yo",
+    description: "Execute a skill end-to-end (runner if SKILL.js exists, prompt-mode otherwise) and return the structured run output. Use after authoring/editing to verify it works before iterating.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill name" },
+        input: { description: "Optional input passed to the skill" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      const name = input.name as string;
+      if (!deps.skillEngine?.runSkill) return "Skill engine runSkill not available.";
+      try {
+        const out = await deps.skillEngine.runSkill(name, input.input ?? null, { trigger: "manual" });
+        return `Skill "${name}" ran. Output:\n${typeof out === "string" ? out : JSON.stringify(out, null, 2)}`;
+      } catch (err) {
+        return `Skill "${name}" errored: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    },
+  },
+  {
+    name: "skill_run_history",
+    namespace: "yo",
+    description: "Read the last 10 runs of a skill — duration, output, error, logs, event tree. Use to debug failures and iterate on a skill.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Skill name" },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      const name = input.name as string;
+      if (!deps.skillEngine?.getRunHistory) return "Run history not available.";
+      const runs = deps.skillEngine.getRunHistory(name);
+      if (runs.length === 0) return `No runs recorded for "${name}".`;
+      return runs.map((r, i) => {
+        const when = new Date(r.startedAt).toLocaleString();
+        const status = r.error ? `ERROR: ${r.error}` : "ok";
+        const events = r.events.length > 0 ? `\n  events: ${r.events.map(e => `${e.type}/${e.label}/${e.status}`).slice(0, 8).join(", ")}` : "";
+        const logs = r.logs.length > 0 ? `\n  logs: ${r.logs.slice(0, 5).join(" | ")}` : "";
+        const out = r.output !== undefined ? `\n  output: ${typeof r.output === "string" ? r.output.slice(0, 200) : JSON.stringify(r.output).slice(0, 200)}` : "";
+        return `[${i + 1}] ${when} (${r.durationMs ?? "?"}ms, ${r.trigger}) — ${status}${events}${logs}${out}`;
+      }).join("\n\n");
+    },
+  },
+
   {
     name: "save_memory",
     namespace: "yo",
@@ -1559,6 +1763,11 @@ const PATH_GATE_EXEMPT = new Set([
   "council_create", "council_broadcast", "council_interject", "council_stop",
   "council_status", "council_summarize", "council_list_models",
   "search_captures", "search_notes", "store_get", "store_set", "store_list", "store_query",
+  // Skill-authoring tools — take a `name` not a path; SkillEngine.sanitizeName
+  // already constrains the folder, and skill folders live under ~/.claude/skills
+  // (outside the ~/.yo/ trust boundary the gate enforces by default).
+  "mcp_tools_list", "skill_list", "skill_get", "skill_create",
+  "skill_write_runner", "skill_delete", "skill_run", "skill_run_history",
 ]);
 
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
