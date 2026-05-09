@@ -816,14 +816,20 @@ function addToolRow(ns?: string, tool?: string) {
   const row = document.createElement("div");
   row.className = "skill-row";
 
-  // Resolve namespace: exact match first, then case-insensitive suffix match
+  // Resolve namespace: exact match first, then bidirectional substring match
+  // (saved "slack_v2" should fuzzy-resolve to live group "slack" — Pipedream
+  // sometimes registers a connector under one slug and emits tools with a
+  // different prefix).
   let resolvedNs = ns;
   if (ns && !cachedToolGroups.find(g => g.namespace === ns)) {
     const lower = ns.toLowerCase();
-    const fuzzy = cachedToolGroups.find(g =>
-      g.namespace.toLowerCase().endsWith(lower) ||
-      g.namespace.toLowerCase().includes(lower)
-    );
+    const fuzzy = cachedToolGroups.find(g => {
+      const gl = g.namespace.toLowerCase();
+      return gl === lower
+        || gl.startsWith(lower) || lower.startsWith(gl)
+        || gl.endsWith(lower) || lower.endsWith(gl)
+        || gl.includes(lower) || lower.includes(gl);
+    });
     if (fuzzy) resolvedNs = fuzzy.namespace;
   }
 
