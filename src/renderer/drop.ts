@@ -404,9 +404,20 @@ function fillRow(rowId: string, emptyId: string, items: HTMLElement[]): void {
 }
 
 async function loadFeatured(): Promise<void> {
-  const r = await drop.cyphersDiscover({ status: "open", limit: 8 }) as { entries?: Cypher[]; error?: string };
-  const entries = (r && "entries" in r ? r.entries : []) ?? [];
-  const featured = entries.sort((a, b) => (b.jammers ?? 0) - (a.jammers ?? 0)).slice(0, 5);
+  const [discR, mineR] = await Promise.all([
+    drop.cyphersDiscover({ status: "open", limit: 8 }) as Promise<{ entries?: Cypher[]; error?: string }>,
+    drop.cyphersMine() as Promise<{ cyphers?: Cypher[]; error?: string }>,
+  ]);
+  const disc = (discR && "entries" in discR ? discR.entries : []) ?? [];
+  const mine = ((mineR && "cyphers" in mineR ? mineR.cyphers : []) ?? [])
+    .filter((c) => c.status === "lobby" || c.status === "live");
+  // Merge, deduplicate by id, sort by jammer count
+  const seen = new Set<string>();
+  const merged: Cypher[] = [];
+  for (const c of [...disc, ...mine]) {
+    if (!seen.has(c.id)) { seen.add(c.id); merged.push(c); }
+  }
+  const featured = merged.sort((a, b) => (b.jammers ?? 0) - (a.jammers ?? 0)).slice(0, 5);
   renderCarousel(featured);
 }
 
@@ -1080,8 +1091,8 @@ function renderLobby(): void {
   // Host-only: Start + Cancel
   $("lobby-start").classList.toggle("hidden", !isHost || c.status !== "lobby");
   $("lobby-cancel").classList.toggle("hidden", !isHost || terminal);
-  // Join visible only in lobby AND user not yet a jammer
-  $("lobby-join").classList.toggle("hidden", terminal || c.status !== "lobby" || isJammed);
+  // Join visible in lobby or live, if user has agents not yet in the cypher
+  $("lobby-join").classList.toggle("hidden", terminal || (c.status !== "lobby" && c.status !== "live") || allAgentsJammed());
   // Leave visible only if user IS a jammer (and not terminal)
   $("lobby-leave").classList.toggle("hidden", terminal || !isJammed);
 
@@ -1099,6 +1110,12 @@ function isUserJammed(): boolean {
   if (lobbyState.jammers.length === 0 || agentsCache.length === 0) return false;
   const mine = new Set(agentsCache.map((a) => a.id));
   return lobbyState.jammers.some((j) => mine.has(j.agent_local_id));
+}
+
+function allAgentsJammed(): boolean {
+  if (agentsCache.length === 0) return false;
+  const joined = new Set(lobbyState.jammers.map((j) => j.agent_local_id));
+  return agentsCache.every((a) => joined.has(a.id));
 }
 
 // Kinds of SSE events that should trigger an immediate refresh.
