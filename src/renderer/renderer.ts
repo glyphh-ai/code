@@ -1849,8 +1849,17 @@ function formatToolDisplayName(name: string): string {
  * "gmail_gmail_find_email" — the connector slug prepended onto a tool name
  * that already starts with the same slug. Strip the duplicate so the label
  * renders as "Gmail: find email" instead of "Gmail: gmail find email".
+ *
+ * Two patterns handled:
+ *   single underscore: "gmail_gmail_find_email" → "gmail_find_email"
+ *   double underscore: "gmail__gmail_find_email" → "gmail_find_email"
+ *     (this comes from the <server>__<tool> short-name encoding in
+ *     mcpRouter.resolveAll(), which collides with the leading token of
+ *     hyphen-converted Pipedream tool names like gmail-find-email.)
  */
 function dedupeLeadingToken(s: string): string {
+  const dblMatch = s.match(/^([^_]+)__\1(_|$)/);
+  if (dblMatch) return s.slice(dblMatch[1].length + 2);
   const parts = s.split("_");
   if (parts.length >= 2 && parts[0] && parts[0] === parts[1]) {
     return parts.slice(1).join("_");
