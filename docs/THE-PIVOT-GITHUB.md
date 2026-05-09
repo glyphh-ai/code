@@ -33,14 +33,14 @@
 
 | Phase | Title | Server prereq | Status |
 |---|---|---|---|
-| 1 | GH OAuth scoped to The Drop panel | server 9 + 10 | 🟡 scaffold on `gh-pivot` |
-| 2 | The Drop's Browse + Your Cyphers read Projects | server 11 + 15 | 🟡 IPC + dropApi wired |
-| 3 | Drop-a-Cypher wizard creates a real GitHub Project | server 11 | 🟡 pickers scaffolded |
-| 4 | Lobby view = Project `Status = Lobby` | server 11 + 14 | ⬜ not started |
-| 5 | Workspace view = Project board hydration | server 14 | 🟡 cypher-bus migration TODOs annotated |
-| 6 | Jammer daemon: assignment → clone → Claude Code → PR | server 12 + 13 | 🟡 cypher-bus migration TODOs annotated |
-| 7 | Reputation in The Drop UI (merged-PR count) | server 16 | ⬜ not started |
-| 8 | Org install flow + per-seat billing in Drop Preferences | server 16 | ⬜ not started |
+| 1 | GH OAuth scoped to The Drop panel | server 9 + 10 ✅ | 🟡 scaffold on `gh-pivot` (server live, just needs App registration) |
+| 2 | The Drop's Browse + Your Cyphers read Projects | server 11 + 15 ✅ | 🟡 IPC + dropApi wired; Drop UI swap pending |
+| 3 | Drop-a-Cypher wizard creates a real GitHub Project | server 11 ✅ | 🟡 pickers scaffolded; wizard rewrite pending |
+| 4 | Lobby view = Project `Status = Lobby` | server 11 + 14 ✅ | ⬜ not started |
+| 5 | Workspace view = Project board hydration | server 14 ✅ | 🟡 cypher-bus migration TODOs annotated |
+| 6 | Jammer daemon: assignment → clone → Claude Code → PR | server 12 ⬜ + 13 ⬜ | 🟡 cypher-bus migration TODOs annotated |
+| 7 | Reputation in The Drop UI (merged-PR count) | server 16 ⬜ | ⬜ not started |
+| 8 | Org install flow + per-seat billing in Drop Preferences | server 16 ⬜ | ⬜ not started |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done
 

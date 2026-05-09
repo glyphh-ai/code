@@ -1,10 +1,26 @@
-# GH-Pivot session notes — 2026-05-08
+# GH-Pivot session notes — 2026-05-08 → 2026-05-09
 
 Branch: `gh-pivot` on both yo-client and yo-server.
-Goal: scaffold THE-PIVOT-GITHUB end-to-end skeletons in one night so that
-the live cut-over is mostly server-side flips later.
+Goal (5/8): scaffold THE-PIVOT-GITHUB end-to-end skeletons in one night.
+Goal (5/9): make the server side actually run end-to-end.
 
-This doc is the morning-regroup brief. Read it before opening the diffs.
+This doc is the rolling regroup brief. Read it before opening the diffs.
+
+---
+
+## Status by phase (server)
+
+| Phase | Title | Server | Notes |
+|---|---|---|---|
+|  9 | GH App config scaffold | ✅ env-driven | needs registration |
+| 10 | /start + /callback + /exchange | ✅ live | requires GH_APP_* env |
+| 11 | Projects schema + CRUD | ✅ live | gh_project_id null until GraphQL writer |
+| 11 | Installations + repos proxy | ✅ live | `has_ci` always false (polish) |
+| 12 | Heartbeat + assignments stream | ⬜ stubbed | matchmaker still TBD |
+| 13 | Daemon helpers (TUI/Drop) | ⬜ | client-side, see THE-PIVOT-GITHUB |
+| 14 | SSE board stream + webhook ingest | ✅ live | pg LISTEN/NOTIFY + HMAC |
+| 15 | FTS-ranked discover | ✅ live | tsv index on projects |
+| 16 | Reputation + per-seat Stripe | ⬜ | |
 
 ---
 
@@ -123,49 +139,84 @@ Both branches: TypeScript clean. `npm run build` clean. Ready to push.
 
 ---
 
+## 2026-05-09 server build — what landed
+
+Three focused commits on `yo-server/gh-pivot` past the prior scaffold:
+
+- **`6022b98`** — `/api/auth/github/exchange` real impl (Phase 10)
+  Token swap → `/user` + `/user/emails` → `upsertGhUser` (4-case ladder:
+  existing-link / bind / email-match / net-new) → mark state consumed →
+  mint yo session JWT enriched with GH identity. Native fetch (no deps).
+  user-service.ts grew `findByGhUserId` + `upsertGhUser`. UserRow type
+  has gh_user_id / gh_login / gh_avatar.
+
+- **`171663b`** — Projects API + SSE backbone (Phases 11 + 14 + 15)
+  Migration 036 adds `projects`, `project_linked_repos`, `project_items`,
+  `project_assignees`, `project_events` tables (FTS tsv on projects).
+  `services/project-service.ts` (CRUD, slug gen, listMine, FTS discover,
+  status transitions, append/list events). `routes/project-routes.ts`
+  goes live for POST/GET/start/wrap and the SSE stream uses pg
+  LISTEN/NOTIFY (channel `project:<id>`) for fan-out from the event log.
+
+- **`df31e7c`** — Installations + webhook ingest (Phases 11 + 14)
+  Migration 037 adds `github_user_tokens` (AES-256-GCM, key derived via
+  HKDF from JWT_SECRET). `services/gh-token-service.ts` — store/refresh
+  user-OAuth tokens. `/exchange` now persists tokens after step 4.
+  `routes/installation-routes.ts` lights up GET /api/me/installations
+  and /api/me/installations/:owner/repos as live proxies.
+  `routes/github-webhook-routes.ts` (NEW): HMAC verification on
+  X-Hub-Signature-256, routes pull_request / issues / issue_comment to
+  project_events. server.ts mounts express.raw before json for /webhook.
+
+End state: every HTTP entry point the Drop client calls is **live** as
+soon as `GH_APP_*` env is set + the App is registered. The matchmaker
+(Phase 12) is the only remaining server prereq for end-to-end work
+distribution.
+
+---
+
 ## What is still 501 / TODO before live
 
-These need real credentials + work I can't do tonight:
+Now that the server side runs:
 
-1. **Register the yo-cypher GitHub App.** Apple-style App registration on
-   github.com. Needs an account + manual UI clicks. After registration:
+1. **Register the yo-cypher GitHub App** (manual GH UI).
    - Set env on the server: `GH_APP_ID`, `GH_APP_PRIVATE_KEY` (PEM),
      `GH_APP_WEBHOOK_SECRET`, `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET`,
      `GH_OAUTH_CALLBACK_URL` (must point to a public yo-server URL).
+   - Configure webhook URL → `${YO_SERVER}/api/github/webhook`, subscribe
+     to: `pull_request`, `issues`, `issue_comment`, `installation`,
+     `installation_repositories`.
+   - Run pending migrations on the target database (035, 036, 037).
 
-2. **Implement `POST /api/auth/github/exchange` body** (Phase 10):
-   - Look up the state row by `state`, verify not consumed, not expired
-   - POST to `https://github.com/login/oauth/access_token` with `code` +
-     `client_id` + `client_secret` to swap for user-OAuth token
-   - GET `https://api.github.com/user` with `Authorization: token <ghtok>`
-   - UPSERT yo user by `gh_user_id` (preserves email-match join when
-     binding while logged in via `bind_user_id`)
-   - Mark state row consumed, mint yo session JWT enriched with
-     `gh_user_id` / `gh_login` / `gh_avatar`
-   - Return `EXCHANGE_RESPONSE_CONTRACT`
+2. **GraphQL writer to actually create the GitHub Project v2 on github.com**
+   (Phase 11 polish). Right now `gh_project_id` / `gh_project_number` /
+   `gh_project_url` stay null after `POST /api/projects` — the row in
+   our DB is correct but no Project on github.com exists. Need:
+   - Mint installation token via `POST /app/installations/:id/access_tokens`
+     (signed JWT from the App's private key)
+   - GraphQL `createProjectV2` mutation against the owner
+   - Set custom fields (Status, Mode, Capability, Slots, Winners, ReviewMode)
+   - PATCH our `projects` row with the resulting `id`/`number`/`url`
 
-3. **Webhook ingest endpoint** (separate file, Phase 11+12+14):
-   `POST /api/github/webhook` with HMAC verification using
-   `GH_APP_WEBHOOK_SECRET`. Routes events into pg `LISTEN/NOTIFY` channel
-   that `/api/projects/:ref/events/stream` consumes.
+3. **Matchmaker (Phase 12).**
+   `/api/me/heartbeat` records jammer presence + capability stack.
+   `/api/me/assignments/stream` SSE delivers items. Needs:
+   - `jammer_presence` table (user_id, loadout_id, capabilities, last_seen)
+   - Rule: when an item is opened on a project's repo, find the closest
+     capability match among presence rows that are joinable, post an
+     assignment row, NOTIFY a per-user channel that the SSE handler
+     subscribes to.
 
-4. **Project-creation matchmaker** (Phase 11):
-   - Schema: `projects` table, `project_items` table, `project_assignees`
-   - Server creates the actual GitHub Project v2 via GraphQL using an
-     installation token (App-as-bot)
-   - Custom fields: `Status`, `Mode`, `Capability`, `Slots`, `Winners`,
-     `ReviewMode` (matches the wizard inputs)
+4. **Reputation + per-seat Stripe (Phase 16)** — covers `/api/users/:id/
+   reputation` and `/api/leaderboard`. Reads merged-PR count + tournament
+   wins. Per-seat billing is a re-shape of existing org billing.
 
-5. **`installationsList` + `reposForInstallation`** (Phase 11):
-   Proxy `/user/installations` and `/installation/repositories` from the
-   user's stored OAuth token.
+5. **Jammer daemon hook in `agent-runner.ts`** (client Phase 6).
+   Subscribe to `/api/me/assignments/stream` whenever `.session.drop`
+   exists AND at least one local agent loadout has `joinable: true`. The
+   IPC and `dropApi.heartbeat()` exist; the daemon code does not.
 
-6. **Jammer daemon hook in `agent-runner.ts`** (Phase 6):
-   Subscribe to `/api/me/assignments/stream` whenever `.session.drop` exists
-   AND at least one local agent loadout has `joinable: true`. The IPC and
-   `dropApi.heartbeat()` exist; the daemon code does not.
-
-7. **Drop-a-Cypher wizard rewrite** (Phase 3):
+6. **Drop-a-Cypher wizard rewrite** (client Phase 3).
    The pickers live in `drop-pickers.ts` but the existing wizard in
    `drop.ts` (3000+ LOC) still uses the old steps. Rewrite once Phase 1
    sign-in is real.
@@ -215,13 +266,18 @@ To test cypher-bus migration audit: `grep "PIVOT-GITHUB MIGRATION" src/main/cyph
 
 ## What I'd do next session
 
-1. **Server first**: register the GH App (manual), set env, implement
-   `/exchange` body. ~half day to get end-to-end sign-in green.
-2. **Client**: rewire The Drop's Browse / Your Cyphers data sources to
-   `dropApi.projectDiscover()` / `projectsMine()`. The IPC + bridges are
-   already in place.
-3. **Schema for projects table** + matchmaker stub that writes a row +
-   creates a Project v2 via GraphQL.
-4. **Webhook ingress + pg LISTEN/NOTIFY** for the SSE streams.
-5. **Drop-a-Cypher wizard rewrite** in drop.ts using the pickers.
-6. **Daemon in agent-runner.ts** subscribing to assignments stream.
+1. **Register the GH App on github.com** + set the 6 `GH_*` env vars on
+   yo-server. Run migrations 035 + 036 + 037 against the target DB.
+2. **Smoke the live exchange** end-to-end: `YO_ENABLE_GH_AUTH=1` in the
+   client, click "Continue with GitHub" → completes → `~/yo/.session.drop`
+   on disk → `dropApi.projectsMine()` returns 200 (empty).
+3. **GraphQL Project v2 writer** — currently the highest-leverage TODO.
+   Once it lands, `POST /api/projects` populates `gh_project_url` and the
+   Drop UI can deep-link out.
+4. **Rewire Browse / Your Cyphers** in `drop.ts` to call
+   `dropApi.projectDiscover()` / `projectsMine()` instead of the cypher
+   IPC. Mostly a data-source swap.
+5. **Drop-a-Cypher wizard rewrite** using `drop-pickers.ts`.
+6. **Matchmaker stub + heartbeat + assignments stream** so a single end-to-end
+   demo from "Drop a Cypher" → assignment lands locally → daemon clones repo
+   → Claude opens PR works on one machine.

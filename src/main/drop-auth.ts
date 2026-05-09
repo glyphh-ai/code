@@ -157,7 +157,12 @@ export async function signInWithGitHub(): Promise<{ ok: true; status: DropAuthSt
     const body = await exchangeRes.text();
     return { ok: false, error: `auth/github/exchange failed (${exchangeRes.status}): ${body.slice(0, 200)}`, status: exchangeRes.status };
   }
-  const session = await exchangeRes.json() as DropSession;
+  // Server returns expiresAt as ISO8601 string; we store ms epoch internally.
+  const raw = await exchangeRes.json() as Omit<DropSession, "expiresAt"> & { expiresAt: string | number };
+  const session: DropSession = {
+    ...raw,
+    expiresAt: typeof raw.expiresAt === "string" ? Date.parse(raw.expiresAt) : raw.expiresAt,
+  };
   writeSession(session);
   return { ok: true, status: getDropAuthStatus() };
 }
