@@ -55,7 +55,7 @@ const drop = (window as unknown as { drop: DropAPI }).drop;
 
 interface Cypher {
   id: string; slug: string; title: string; status: string; type?: string;
-  kitty?: number; jammers?: number; description?: string; goal?: string;
+  kitty?: number; jammers?: number; jammer_count?: number; description?: string; goal?: string;
   owner_user_id?: string;
   lobby_started_at?: string | null;
   lobby_duration_seconds?: number | null;
@@ -170,13 +170,13 @@ function cssCoverGradient(title: string): string {
   const h = hashStr(title);
   const h1 = h % 360;
   const h2 = (h * 7 + 137) % 360;
-  return `linear-gradient(135deg, hsl(${h1},70%,25%) 0%, hsl(${h2},60%,15%) 100%)`;
+  return `linear-gradient(135deg, hsl(${h1},80%,40%) 0%, hsl(${h2},70%,25%) 100%)`;
 }
 
 function cypherCard(c: Cypher): HTMLElement {
   const el = document.createElement("div");
   el.className = "cypher-card reveal";
-  const jammers = c.jammers ?? 0;
+  const jammers = c.jammer_count ?? c.jammers ?? 0;
   const isLive = c.status === "open" || c.status === "live" || c.status === "running";
   const url = coverUrl(c);
   const posterStyle = url
@@ -245,7 +245,7 @@ function renderCarousel(cyphers: Cypher[]): void {
     slide.className = "carousel-slide";
     const url = coverUrl(c);
     const bg = url ? `url('${url}')` : cssCoverGradient(c.title || "untitled");
-    const jammers = c.jammers ?? 0;
+    const jammers = c.jammer_count ?? c.jammers ?? 0;
     slide.innerHTML = `
       <div class="carousel-slide-bg" style="background:${bg};background-size:cover;background-position:center;"></div>
       <div class="carousel-slide-overlay"></div>
@@ -308,10 +308,10 @@ async function loadDirectory(): Promise<void> {
     type: filters.type,
     limit: DIR_PAGE_SIZE,
     offset: dirPage * DIR_PAGE_SIZE,
-  }) as { entries?: Cypher[]; count?: number; error?: string };
+  }) as { cyphers?: Cypher[]; entries?: Cypher[]; count?: number; error?: string };
 
-  let entries = (r && "entries" in r ? r.entries : []) ?? [];
-  dirTotalCount = (r as { count?: number }).count ?? entries.length;
+  let entries = (r?.cyphers ?? r?.entries ?? []);
+  dirTotalCount = r?.count ?? entries.length;
 
   // Client-side text search (server may not support q yet)
   if (filters.q) {
@@ -361,7 +361,7 @@ function renderDirectoryTable(entries: Cypher[]): void {
       <td style="font-weight:600;">${escapeHtml(c.title || c.slug || "untitled")}</td>
       <td><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);">${escapeHtml(c.type || "open")}</span></td>
       <td><span class="dir-table-status ${statusClass}">${escapeHtml(c.status || "")}</span></td>
-      <td style="font-family:var(--font-mono);">${c.jammers ?? 0}</td>
+      <td style="font-family:var(--font-mono);">${c.jammer_count ?? c.jammers ?? 0}</td>
       <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);">${c.lobby_started_at ? new Date(c.lobby_started_at).toLocaleDateString() : "—"}</td>
     `;
     tr.addEventListener("click", () => enterLobby(c));
@@ -405,19 +405,18 @@ function fillRow(rowId: string, emptyId: string, items: HTMLElement[]): void {
 
 async function loadFeatured(): Promise<void> {
   const [discR, mineR] = await Promise.all([
-    drop.cyphersDiscover({ status: "open", limit: 8 }) as Promise<{ entries?: Cypher[]; error?: string }>,
+    drop.cyphersDiscover({ status: "open", limit: 8 }) as Promise<{ cyphers?: Cypher[]; entries?: Cypher[]; error?: string }>,
     drop.cyphersMine() as Promise<{ cyphers?: Cypher[]; error?: string }>,
   ]);
-  const disc = (discR && "entries" in discR ? discR.entries : []) ?? [];
-  const mine = ((mineR && "cyphers" in mineR ? mineR.cyphers : []) ?? [])
+  const disc = discR?.cyphers ?? discR?.entries ?? [];
+  const mine = (mineR?.cyphers ?? [])
     .filter((c) => c.status === "lobby" || c.status === "live");
-  // Merge, deduplicate by id, sort by jammer count
   const seen = new Set<string>();
   const merged: Cypher[] = [];
   for (const c of [...disc, ...mine]) {
     if (!seen.has(c.id)) { seen.add(c.id); merged.push(c); }
   }
-  const featured = merged.sort((a, b) => (b.jammers ?? 0) - (a.jammers ?? 0)).slice(0, 5);
+  const featured = merged.sort((a, b) => (b.jammer_count ?? b.jammers ?? 0) - (a.jammer_count ?? a.jammers ?? 0)).slice(0, 5);
   renderCarousel(featured);
 }
 
@@ -905,7 +904,8 @@ async function publishCypherFromWizard(): Promise<void> {
 
   // 2. Upload cover image if user generated or uploaded one
   if (wizard.coverDataB64 && wizard.coverMode !== "css") {
-    await drop.cypherCoverUpload(cypherId, wizard.coverDataB64, wizard.coverContentType).catch(() => {});
+    const upR = await drop.cypherCoverUpload(cypherId, wizard.coverDataB64, wizard.coverContentType) as { ok?: boolean; error?: string };
+    if (!upR?.ok) console.warn("[drop] cover upload failed:", upR?.error || upR);
   }
 
   // 3. Seed roster — join the host's agents into the draft cypher
