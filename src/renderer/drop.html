@@ -3,49 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <title>The Drop</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
 <style>
-  :root {
-    --black: #000;
-    --bg: #0a0a0a;
-    --surface: #111;
-    --surface-2: #161616;
-    --surface-3: #1c1c1c;
-    --border: #1e1e1e;
-    --border-2: #2a2a2a;
-    --text: #e8e8e8;
-    --text-2: #999;
-    --text-3: #666;
-    --text-4: #444;
-    --green: #25C75E;
-    --green-light: #2EE06B;
-    --green-dim: #1a9145;
-    --green-glow: rgba(37, 199, 94, 0.15);
-    --green-tint: rgba(37, 199, 94, 0.08);
-    --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-  }
+  /* Drop-specific layout — base reset, fonts, colors, buttons all from styles.css */
 
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.5;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
+  body { font-size: 14px; line-height: 1.5; overflow-y: auto; overflow-x: hidden; height: 100%; }
 
   /* ── Top bar ───────────────────────────────────────────── */
   .topbar {
     position: sticky; top: 0; z-index: 50;
     display: flex; align-items: center; gap: 12px;
     padding: 14px 24px;
-    background: rgba(10, 10, 10, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--surface);
     border-bottom: 1px solid var(--border);
   }
   .view-tabs {
@@ -68,7 +37,7 @@
     color: var(--text); letter-spacing: -0.02em;
     margin-right: 8px;
   }
-  .brand .dot { color: var(--green); }
+  .brand .dot { color: var(--accent); }
   .search {
     flex: 1; max-width: 480px;
     display: flex; align-items: center; gap: 8px;
@@ -77,7 +46,7 @@
     border: 1px solid var(--border);
     transition: border-color 0.2s ease, background 0.2s ease;
   }
-  .search:focus-within { border-color: var(--green); background: var(--surface-2); }
+  .search:focus-within { border-color: var(--accent); background: var(--surface-2); }
   .search input {
     flex: 1; background: transparent; border: none; outline: none;
     color: var(--text); font: inherit;
@@ -93,8 +62,8 @@
     cursor: pointer; border: none;
     transition: all 0.15s ease;
   }
-  .btn-primary { background: var(--green); color: #000; }
-  .btn-primary:hover { background: var(--green-light); }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: var(--accent-hover); }
   .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border-2); }
   .btn-ghost:hover { color: var(--text); border-color: var(--text-3); }
 
@@ -112,7 +81,7 @@
   .hero::before {
     content: ""; position: absolute; inset: 0;
     background:
-      radial-gradient(circle at 20% 30%, var(--green-tint), transparent 50%),
+      radial-gradient(circle at 20% 30%, var(--active-bg), transparent 50%),
       radial-gradient(circle at 80% 70%, rgba(255, 100, 60, 0.06), transparent 60%);
     pointer-events: none;
   }
@@ -124,13 +93,13 @@
   .hero-tag {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 10px; border-radius: 999px;
-    background: var(--green-glow); color: var(--green);
+    background: var(--active-bg); color: var(--accent);
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
     margin-bottom: 16px;
   }
   .hero-tag .pulse {
     width: 6px; height: 6px; border-radius: 50%;
-    background: var(--green);
+    background: var(--accent);
     animation: pulse-dot 2s ease-in-out infinite;
   }
   .hero h1 {
@@ -149,7 +118,7 @@
     color: var(--text-3); font-size: 12px;
     font-family: var(--font-mono);
   }
-  .hero-meta strong { color: var(--green); font-weight: 700; }
+  .hero-meta strong { color: var(--accent); font-weight: 700; }
   .hero-actions { display: flex; gap: 8px; margin-top: 20px; }
 
   /* ── Section ───────────────────────────────────────────── */
@@ -173,7 +142,7 @@
     color: var(--text-3); font-size: 12px; text-decoration: none;
     transition: color 0.2s ease;
   }
-  .section-head a:hover { color: var(--green); }
+  .section-head a:hover { color: var(--accent); }
 
   /* ── Horizontal scroll row ─────────────────────────────── */
   .row {
@@ -199,7 +168,7 @@
     transition: border-color 0.2s ease, transform 0.2s ease;
     display: flex; flex-direction: column;
   }
-  .cypher-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .cypher-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .cypher-poster {
     height: 140px;
     background: linear-gradient(135deg, var(--surface-3) 0%, var(--surface) 100%);
@@ -209,12 +178,12 @@
   }
   .cypher-poster::before {
     content: ""; position: absolute; inset: 0;
-    background: radial-gradient(circle at center, var(--green-tint), transparent 70%);
+    background: radial-gradient(circle at center, var(--active-bg), transparent 70%);
   }
   .cypher-poster .glyph {
     position: relative; z-index: 1;
     font-family: var(--font-mono); font-size: 36px; font-weight: 800;
-    color: var(--green); letter-spacing: -0.05em;
+    color: var(--accent); letter-spacing: -0.05em;
     opacity: 0.7;
   }
   .cypher-status-badge {
@@ -224,8 +193,8 @@
     background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px);
     font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
   }
-  .cypher-status-badge.live { color: var(--green); }
-  .cypher-status-badge.live .pulse { background: var(--green); }
+  .cypher-status-badge.live { color: var(--accent); }
+  .cypher-status-badge.live .pulse { background: var(--accent); }
   .cypher-status-badge .pulse {
     width: 5px; height: 5px; border-radius: 50%;
     animation: pulse-dot 2s ease-in-out infinite;
@@ -247,7 +216,7 @@
     color: var(--text-3);
     margin-top: auto;
   }
-  .cypher-stats strong { color: var(--green); font-weight: 700; }
+  .cypher-stats strong { color: var(--accent); font-weight: 700; }
 
   /* ── Agent leaderboard card (compact) ──────────────────── */
   .agent-card {
@@ -262,7 +231,7 @@
     transition: border-color 0.2s ease, transform 0.2s ease;
     cursor: pointer;
   }
-  .agent-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .agent-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .agent-rank {
     align-self: flex-start;
     font-family: var(--font-mono); font-size: 11px; font-weight: 700;
@@ -288,14 +257,12 @@
   }
   .agent-score {
     font-family: var(--font-mono); font-size: 14px; font-weight: 800;
-    color: var(--green);
+    color: var(--accent);
     margin-top: 4px;
   }
   .agent-substat {
     font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
   }
-
-  .hidden { display: none !important; }
 
   /* ── Grid (Your Agents view) ───────────────────────────── */
   .grid {
@@ -313,7 +280,7 @@
     cursor: pointer;
     transition: border-color 0.2s ease, transform 0.2s ease;
   }
-  .roster-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .roster-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .roster-head {
     display: flex; align-items: center; gap: 12px;
     margin-bottom: 10px;
@@ -353,7 +320,7 @@
     background: var(--surface-3); color: var(--text-2);
   }
   .roster-tag.live {
-    background: var(--green-glow); color: var(--green);
+    background: var(--active-bg); color: var(--accent);
   }
 
   /* ── Edit overlay ──────────────────────────────────────── */
@@ -413,7 +380,7 @@
     cursor: pointer; transition: all 0.15s ease;
   }
   .overlay-tab:hover { color: var(--text-2); }
-  .overlay-tab.active { color: var(--text); border-bottom-color: var(--green); }
+  .overlay-tab.active { color: var(--text); border-bottom-color: var(--accent); }
   .overlay-body {
     flex: 1; overflow-y: auto;
     padding: 20px;
@@ -426,11 +393,11 @@
     background: var(--surface);
   }
   .overlay-error {
-    color: #ef5350; font-size: 12px;
+    color: var(--danger); font-size: 12px;
     margin-right: 8px;
   }
-  .btn-danger { color: #ef5350 !important; border-color: rgba(239, 83, 80, 0.4) !important; }
-  .btn-danger:hover { color: #fff !important; background: #b71c1c; border-color: #b71c1c !important; }
+  .btn-danger { color: var(--danger) !important; border-color: rgba(255, 95, 87, 0.4) !important; }
+  .btn-danger:hover { color: var(--text-bright) !important; background: var(--danger) !important; border-color: var(--danger) !important; }
 
   /* ── Form ──────────────────────────────────────────────── */
   .form-grid { display: flex; flex-direction: column; gap: 6px; }
@@ -454,7 +421,7 @@
     outline: none;
     transition: border-color 0.15s ease, background 0.15s ease;
   }
-  .form-input:focus { border-color: var(--green); background: var(--surface-2); }
+  .form-input:focus { border-color: var(--accent); background: var(--surface-2); }
   .form-input.mono { font-family: var(--font-mono); font-size: 12px; }
   textarea.form-input { resize: vertical; min-height: 60px; line-height: 1.5; }
   .form-toggle {
@@ -463,7 +430,7 @@
     color: var(--text-2); font-size: 12px;
     cursor: pointer;
   }
-  .form-toggle input { accent-color: var(--green); }
+  .form-toggle input { accent-color: var(--accent); }
 
   /* ── Chip group (Vibe / Visibility) ────────────────────── */
   .chip-group {
@@ -478,8 +445,8 @@
   }
   .chip:hover { border-color: var(--text-3); color: var(--text); }
   .chip.active {
-    background: var(--green-glow); color: var(--green);
-    border-color: var(--green-dim);
+    background: var(--active-bg); color: var(--accent);
+    border-color: var(--accent-dark);
   }
 
   /* ── Lobby view ────────────────────────────────────────── */
@@ -528,7 +495,7 @@
     color: var(--text);
   }
   .lobby-timer-clock.urgent {
-    color: var(--green);
+    color: var(--accent);
     animation: pulse-dot 1s ease-in-out infinite;
   }
   .lobby-timer.elapsed { background: var(--surface); }
@@ -552,7 +519,7 @@
     transition: all 0.15s ease;
   }
   .seed-card:hover { border-color: var(--text-3); }
-  .seed-card.selected { border-color: var(--green); background: var(--green-tint); }
+  .seed-card.selected { border-color: var(--accent); background: var(--active-bg); }
   .seed-avatar {
     width: 36px; height: 36px; border-radius: 8px;
     overflow: hidden; flex-shrink: 0; background: var(--surface-3);
@@ -575,7 +542,7 @@
     transition: all 0.15s ease;
   }
   .seed-card.selected .seed-check {
-    background: var(--green); border-color: var(--green); color: #000;
+    background: var(--accent); border-color: var(--accent); color: #000;
   }
 
   /* ── Draft card (assignment) ──────────────────────────── */
@@ -586,7 +553,7 @@
     padding: 14px;
     display: flex; flex-direction: column; gap: 8px;
   }
-  .draft-card.position-leader { border-color: var(--green); background: var(--green-tint); }
+  .draft-card.position-leader { border-color: var(--accent); background: var(--active-bg); }
   .draft-row {
     display: flex; align-items: center; gap: 10px;
   }
@@ -611,7 +578,7 @@
     flex-shrink: 0;
   }
   .draft-position-badge.position-leader {
-    background: var(--green); color: #000;
+    background: var(--accent); color: #000;
   }
   .draft-area {
     font-size: 12px; color: var(--text-2); line-height: 1.45;
@@ -661,7 +628,7 @@
     transition: all 0.15s ease;
   }
   .ws-tile:hover { border-color: var(--text-3); }
-  .ws-tile.active { border-color: var(--green); background: var(--green-tint); }
+  .ws-tile.active { border-color: var(--accent); background: var(--active-bg); }
   .ws-tile-avatar {
     width: 36px; height: 36px; border-radius: 8px;
     overflow: hidden; flex-shrink: 0; background: var(--surface-3); position: relative;
@@ -673,9 +640,9 @@
     background: var(--text-faint);
     border: 2px solid var(--surface);
   }
-  .ws-tile-avatar .dot.active { background: var(--green); animation: pulse-dot 1.6s ease-in-out infinite; }
-  .ws-tile-avatar .dot.done { background: var(--green-dim); }
-  .ws-tile-avatar .dot.error { background: #ef5350; }
+  .ws-tile-avatar .dot.active { background: var(--accent); animation: pulse-dot 1.6s ease-in-out infinite; }
+  .ws-tile-avatar .dot.done { background: var(--accent-dark); }
+  .ws-tile-avatar .dot.error { background: var(--danger); }
   .ws-tile-meta { flex: 1; min-width: 0; }
   .ws-tile-name {
     font-size: 12px; font-weight: 600; color: var(--text);
@@ -731,7 +698,7 @@
   .ws-event-kind {
     display: inline-block;
     font-family: var(--font-mono); font-size: 10px; font-weight: 700;
-    color: var(--green); text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em;
     margin-right: 6px;
   }
   .ws-event-body {
@@ -772,7 +739,7 @@
   }
   .ws-activity-row:hover { background: var(--surface-2); cursor: pointer; }
   .ws-activity-row .from {
-    font-family: var(--font-mono); font-weight: 600; color: var(--green);
+    font-family: var(--font-mono); font-weight: 600; color: var(--accent);
     flex-shrink: 0;
   }
   .ws-activity-row .kind {
@@ -818,50 +785,100 @@
     z-index: 1000; backdrop-filter: blur(8px);
   }
   .yo-gh-landing-card {
-    background: var(--surface, #161616); border: 1px solid var(--border, #2a2a2a);
+    background: var(--surface); border: 1px solid var(--border-2);
     border-radius: 14px; padding: 36px 40px; max-width: 460px; text-align: center;
-    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    box-shadow: 0 30px 80px var(--shadow);
   }
   .yo-gh-landing-mark { font-size: 56px; line-height: 1; }
   .yo-gh-landing h1 { margin: 12px 0 8px; font-size: 22px; font-weight: 700; }
-  .yo-gh-landing-sub { margin: 0 0 20px; color: var(--text-2, #a8a8a8); font-size: 14px; line-height: 1.5; }
+  .yo-gh-landing-sub { margin: 0 0 20px; color: var(--text-2); font-size: 14px; line-height: 1.5; }
   .yo-gh-landing-btn {
-    background: #2da44e; color: #fff; border: 0; border-radius: 8px;
+    background: var(--accent); color: #000; border: 0; border-radius: 8px;
     padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
-    transition: filter 0.15s; width: 100%;
+    transition: background 0.15s; width: 100%;
   }
-  .yo-gh-landing-btn:hover { filter: brightness(1.1); }
+  .yo-gh-landing-btn:hover { background: var(--accent-hover); }
   .yo-gh-landing-btn:disabled { opacity: 0.6; cursor: progress; }
   .yo-gh-landing-why {
-    margin-top: 20px; font-size: 12px; color: var(--text-3, #777);
+    margin-top: 20px; font-size: 12px; color: var(--text-3);
     text-align: left;
   }
   .yo-gh-landing-why summary { cursor: pointer; padding: 6px 0; }
   .yo-gh-landing-why p { margin: 8px 0 0; line-height: 1.55; }
   .yo-gh-landing-error {
     margin-top: 14px; padding: 8px 10px; font-size: 12px;
-    color: #ff8a8a; background: rgba(255,90,90,0.08);
+    color: var(--danger-soft); background: rgba(255,90,90,0.08);
     border: 1px solid rgba(255,90,90,0.25); border-radius: 6px;
-    font-family: var(--font-mono, monospace); text-align: left;
+    font-family: var(--font-mono); text-align: left;
   }
 
   .yo-owner-picker { display: flex; flex-direction: column; gap: 4px; }
   .yo-owner-picker-select {
-    background: var(--bg, #0f0f0f); color: var(--text, #eee);
-    border: 1px solid var(--border, #2a2a2a); border-radius: 6px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border-2); border-radius: 6px;
     padding: 8px 10px; font-size: 13px;
   }
   .yo-repo-picker { display: flex; flex-direction: column; gap: 6px; }
-  .yo-repo-picker-empty { font-size: 12px; color: var(--text-3, #777); padding: 6px 0; }
+  .yo-repo-picker-empty { font-size: 12px; color: var(--text-3); padding: 6px 0; }
   .yo-repo-picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
   .yo-repo-picker-row {
     display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-    background: var(--bg, #0f0f0f); border: 1px solid var(--border, #2a2a2a);
+    background: var(--bg); border: 1px solid var(--border-2);
     border-radius: 6px; cursor: pointer; font-size: 13px;
   }
-  .yo-repo-picker-row:hover { border-color: var(--accent, #2da44e); }
-  .yo-repo-picker-meta { color: var(--text-3, #777); font-size: 11px; margin-left: 8px; }
+  .yo-repo-picker-row:hover { border-color: var(--accent); }
+  .yo-repo-picker-meta { color: var(--text-3); font-size: 11px; margin-left: 8px; }
+
+  /* ── Drop topbar GH identity badge + popover ──────────── */
+  .drop-gh-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 10px 4px 4px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    cursor: pointer; transition: border-color 0.15s ease;
+    position: relative;
+  }
+  .drop-gh-badge:hover { border-color: var(--text-3); }
+  .drop-gh-avatar {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--surface-3); flex-shrink: 0;
+  }
+  .drop-gh-login {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+    color: var(--text-2); white-space: nowrap;
+  }
+  .drop-gh-popover {
+    position: absolute; top: 52px; right: 24px; z-index: 200;
+    background: var(--surface-2); border: 1px solid var(--border-2);
+    border-radius: 10px; padding: 10px 0;
+    min-width: 240px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .drop-gh-popover-row {
+    padding: 8px 16px; font-size: 12px; color: var(--text-2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .drop-gh-popover-ghline {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--text-3);
+  }
+  .drop-gh-popover-signout {
+    display: block; width: calc(100% - 16px); margin: 6px 8px 2px;
+    padding: 8px 12px; border-radius: 6px;
+    background: transparent; border: 1px solid rgba(255,95,87,0.3);
+    color: var(--danger); font: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease; text-align: center;
+  }
+  .drop-gh-popover-signout:hover { background: rgba(255,95,87,0.1); border-color: var(--danger); }
 </style>
+<script>
+  try {
+    var t = localStorage.getItem("yoTheme") || "light";
+    var r = t === "system"
+      ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+      : t;
+    document.documentElement.setAttribute("data-theme", r);
+  } catch (e) {}
+</script>
 </head>
 <body>
   <!-- ── Top bar ────────────────────────────────────────── -->
@@ -876,9 +893,21 @@
       <input id="drop-search" type="text" placeholder="Search cyphers, agents, skills..." spellcheck="false" autocomplete="off" />
     </div>
     <div class="topbar-spacer"></div>
-    <button class="btn btn-ghost" id="drop-refresh">Refresh</button>
     <button class="btn btn-primary" id="drop-cta-browse" data-view-only="browse">+ Drop a Cypher</button>
     <button class="btn btn-primary hidden" id="drop-cta-agents" data-view-only="agents">+ New Jammer</button>
+    <button class="btn btn-ghost" id="drop-refresh">Refresh</button>
+    <div id="drop-gh-badge" class="drop-gh-badge hidden">
+      <img id="drop-gh-avatar" class="drop-gh-avatar" src="" alt="" />
+      <span id="drop-gh-login" class="drop-gh-login"></span>
+    </div>
+    <div id="drop-gh-popover" class="drop-gh-popover hidden">
+      <div class="drop-gh-popover-row" id="drop-gh-popover-email"></div>
+      <div class="drop-gh-popover-row drop-gh-popover-ghline">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span id="drop-gh-popover-login"></span>
+      </div>
+      <button class="drop-gh-popover-signout" id="drop-gh-signout">Sign out of GitHub</button>
+    </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════ -->

@@ -2684,9 +2684,9 @@ async function boot() {
   });
 
   // IPC: apps CRUD (panel apps)
-  const INTERNAL_APP_IDS = new Set(["home", "drop", "council", "vscode", "monaco", "term", "browser", "context"]);
+  const INTERNAL_APP_IDS = new Set(["home", "vscode", "monaco", "browser", "context"]);
   ipcMain.handle("apps-list", () =>
-    appConnector.list().filter(a => !a.url?.startsWith("yo://") && !INTERNAL_APP_IDS.has(a.id))
+    appConnector.list().filter(a => !INTERNAL_APP_IDS.has(a.id))
   );
   ipcMain.handle("apps-add", (_e, id: string, name: string, url?: string) => {
     const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;

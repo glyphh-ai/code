@@ -33,7 +33,7 @@
 
 | Phase | Title | Server prereq | Status |
 |---|---|---|---|
-| 1 | GH OAuth scoped to The Drop panel | server 9 + 10 ✅ | 🟡 scaffold on `gh-pivot` (server live, just needs App registration) |
+| 1 | GH OAuth scoped to The Drop panel | server 9 + 10 ✅ | ✅ done (install prompt deferred to Phase 3) |
 | 2 | The Drop's Browse + Your Cyphers read Projects | server 11 + 15 ✅ | 🟡 IPC + dropApi wired; Drop UI swap pending |
 | 3 | Drop-a-Cypher wizard creates a real GitHub Project | server 11 ✅ | 🟡 pickers scaffolded; wizard rewrite pending |
 | 4 | Lobby view = Project `Status = Lobby` | server 11 + 14 ✅ | ⬜ not started |
@@ -165,33 +165,33 @@ yo-only.
 
 **Tasks:**
 
-- [ ] `drop.ts` boot: check for `~/yo/.session.drop`. If missing or
+- [x] `drop.ts` boot: check for `~/yo/.session.drop`. If missing or
       expired, render a centered "Continue with GitHub" landing card
       (same visual language as the rest of The Drop, locked to the
       single CTA + a "Why GitHub?" expandable explainer).
-- [ ] `drop-preload.ts`: expose `signInWithGitHub()` IPC. Main-process
+- [x] `drop-preload.ts`: expose `signInWithGitHub()` IPC. Main-process
       handler opens a child `BrowserWindow` to
       `${AUTH_SERVER}/api/auth/github/start?return=electron-drop`.
-- [ ] Main process: `drop-auth.ts` (new file alongside `auth.ts`).
+- [x] Main process: `drop-auth.ts` (new file alongside `auth.ts`).
       Watches the BrowserWindow for the redirect to
       `/auth/callback?code=…`, extracts the code, POSTs to
       `${AUTH_SERVER}/api/auth/github/exchange?flow=electron-drop`,
       receives `{ accessToken, refreshToken, expiresAt, gh_user_id,
       gh_login, gh_avatar }`, encrypts via `safeStorage`, writes to
       `~/yo/.session.drop`. Schedules refresh.
-- [ ] Drop-only IPC client (`drop-api.ts`): wraps `net` requests with
+- [x] Drop-only IPC client (`drop-api.ts`): wraps `net` requests with
       `Authorization: Bearer <drop-session-jwt>` instead of the main
       session. Imported only by `drop-preload`.
-- [ ] Render @login + GH avatar in the Drop's header (replacing today's
+- [x] Render @login + GH avatar in the Drop's header (replacing today's
       yos balance slot). Click opens a small popover: "Signed into yo
       as `<email>` · GitHub `<@login>` · [Sign out of GitHub]".
-- [ ] Sign-out: clears `.session.drop`, returns to the landing card.
+- [x] Sign-out: clears `.session.drop`, returns to the landing card.
       Does **not** affect the main yo session.
 - [ ] First-time users: after GH sign-in, prompt "Install the yo
       GitHub App on your account?" (same BrowserWindow flow). Without
       an installation, **hosting** is disabled but **joining** still
-      works. Installation is one-time per account/org.
-- [ ] Token refresh: same `scheduleRefresh()` pattern as the main
+      works. Installation is one-time per account/org. *(deferred to Phase 3)*
+- [x] Token refresh: same `scheduleRefresh()` pattern as the main
       `auth.ts`, but acting on `.session.drop`.
 
 **Demo:** Open The Drop in a fresh client → "Continue with GitHub"

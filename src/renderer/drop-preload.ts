@@ -111,3 +111,8 @@ const api: DropAPI = {
 };
 
 contextBridge.exposeInMainWorld("drop", api);
+
+ipcRenderer.on("theme-changed", (_e, resolved: string) => {
+  document.documentElement.setAttribute("data-theme", resolved);
+  try { localStorage.setItem("yoTheme", resolved); } catch {}
+});

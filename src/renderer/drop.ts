@@ -27,8 +27,13 @@ interface DropAPI {
   cypherSetCurrent: (id: string | null) => Promise<unknown>;
   cypherSpawnJammers: (id: string) => Promise<unknown>;
   authMe: () => Promise<unknown>;
-  devFlags: () => Promise<{ cyphersEnabled: boolean }>;
+  devFlags: () => Promise<{ cyphersEnabled: boolean; enableGhAuth?: boolean }>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
+
+  // GH-bound session (Phase 1)
+  ghStatus: () => Promise<{ signedIn: boolean; github: { gh_login: string; gh_avatar: string } | null; expiresAt: number | null }>;
+  signInWithGitHub: () => Promise<{ ok: true; status: { signedIn: boolean; github: { gh_login: string; gh_avatar: string } | null } } | { ok: false; error: string; status?: number }>;
+  signOutGitHub: () => Promise<{ ok: true }>;
   cypherGet: (id: string) => Promise<unknown>;
   cypherJammers: (id: string) => Promise<unknown>;
   cypherJoin: (id: string, agent_local_id: string, role?: string, invite_token?: string) => Promise<unknown>;
@@ -1460,6 +1465,92 @@ async function workspaceWrap(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────
+// GH identity badge + landing gate (Phase 1)
+// ─────────────────────────────────────────────────────
+
+function updateGhBadge(github: { gh_login: string; gh_avatar: string } | null): void {
+  const badge = document.getElementById("drop-gh-badge");
+  const avatar = document.getElementById("drop-gh-avatar") as HTMLImageElement | null;
+  const login = document.getElementById("drop-gh-login");
+  if (!badge || !avatar || !login) return;
+
+  if (!github) {
+    badge.classList.add("hidden");
+    return;
+  }
+  avatar.src = github.gh_avatar;
+  avatar.alt = github.gh_login;
+  login.textContent = `@${github.gh_login}`;
+  badge.classList.remove("hidden");
+}
+
+function setupGhPopover(): void {
+  const badge = document.getElementById("drop-gh-badge");
+  const popover = document.getElementById("drop-gh-popover");
+  const signoutBtn = document.getElementById("drop-gh-signout");
+  if (!badge || !popover || !signoutBtn) return;
+
+  badge.addEventListener("click", (e) => {
+    e.stopPropagation();
+    popover.classList.toggle("hidden");
+  });
+  document.addEventListener("click", () => { popover.classList.add("hidden"); });
+  popover.addEventListener("click", (e) => { e.stopPropagation(); });
+
+  signoutBtn.addEventListener("click", async () => {
+    await drop.signOutGitHub();
+    updateGhBadge(null);
+    popover.classList.add("hidden");
+    void initGhAuth();
+  });
+}
+
+async function initGhAuth(): Promise<void> {
+  setupGhPopover();
+
+  const status = await drop.ghStatus();
+  if (status.signedIn && status.github) {
+    updateGhBadge(status.github);
+    const emailEl = document.getElementById("drop-gh-popover-email");
+    const loginEl = document.getElementById("drop-gh-popover-login");
+    if (emailEl) emailEl.textContent = currentUserId ? `yo user` : "";
+    if (loginEl) loginEl.textContent = `@${status.github.gh_login}`;
+    return;
+  }
+
+  // Not signed in — show landing card, hide Drop UI
+  try {
+    const mod = await import("./drop-gh-landing.js");
+    const host = document.getElementById("drop-gh-landing-host")
+      || (() => {
+        const el = document.createElement("div");
+        el.id = "drop-gh-landing-host";
+        document.body.appendChild(el);
+        return el;
+      })();
+    const r = await mod.maybeRenderGhLanding(host);
+    if (r.shown && !r.signedIn) {
+      document.querySelectorAll<HTMLElement>(".view-tabs, .view-pane, #drop-topbar")
+        .forEach((el) => { el.style.display = "none"; });
+      window.addEventListener("drop-gh-signed-in", async () => {
+        document.querySelectorAll<HTMLElement>(".view-tabs, .view-pane, #drop-topbar")
+          .forEach((el) => { el.style.display = ""; });
+        const fresh = await drop.ghStatus();
+        if (fresh.signedIn && fresh.github) {
+          updateGhBadge(fresh.github);
+          const emailEl = document.getElementById("drop-gh-popover-email");
+          const loginEl = document.getElementById("drop-gh-popover-login");
+          if (loginEl) loginEl.textContent = `@${fresh.github.gh_login}`;
+          if (emailEl) emailEl.textContent = "";
+        }
+      }, { once: true });
+    }
+  } catch (e) {
+    console.warn("[drop] gh-landing init failed:", e);
+  }
+}
+
+// ─────────────────────────────────────────────────────
 // Init
 // ─────────────────────────────────────────────────────
 
@@ -1468,35 +1559,8 @@ function init(): void {
   void ensureCurrentUser();
   void ensureDevFlags();
 
-  // ── THE-PIVOT-GITHUB Phase 1: GH-bound landing card ────────────────
-  // When enableGhAuth is on AND the user isn't GH-bound, the landing
-  // takes over the panel until they sign in (or the server stub returns
-  // 501, which we surface). Hidden / no-op otherwise.
-  void (async () => {
-    try {
-      const mod = await import("./drop-gh-landing.js");
-      const host = document.getElementById("drop-gh-landing-host")
-        || (() => {
-          const el = document.createElement("div");
-          el.id = "drop-gh-landing-host";
-          document.body.appendChild(el);
-          return el;
-        })();
-      const r = await mod.maybeRenderGhLanding(host);
-      if (r.shown && !r.signedIn) {
-        // Hide the rest of the Drop UI behind the landing.
-        document.querySelectorAll<HTMLElement>(".view-tabs, .view-pane, #drop-topbar")
-          .forEach((el) => { el.style.display = "none"; });
-        window.addEventListener("drop-gh-signed-in", () => {
-          // User completed sign-in — restore the normal Drop UI.
-          document.querySelectorAll<HTMLElement>(".view-tabs, .view-pane, #drop-topbar")
-            .forEach((el) => { el.style.display = ""; });
-        }, { once: true });
-      }
-    } catch (e) {
-      console.warn("[drop] gh-landing init failed:", e);
-    }
-  })();
+  // ── THE-PIVOT-GITHUB Phase 1: GH identity badge + landing gate ─────
+  void initGhAuth();
 
   // Browse loaders fire on launch (cypher loaders are no-ops if hidden)
   void loadLive();

@@ -32,8 +32,6 @@ export interface GhGateResult {
  */
 export async function maybeRenderGhLanding(host: HTMLElement): Promise<GhGateResult> {
   const d = drop();
-  const flags = await safeCall(d?.devFlags) ?? {};
-  if (!flags.enableGhAuth) return { shown: false, signedIn: true /* gate disabled = treat as passed */ };
 
   const status = await safeCall(d?.ghStatus);
   if (status?.signedIn) return { shown: false, signedIn: true };
