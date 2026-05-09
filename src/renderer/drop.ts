@@ -44,6 +44,10 @@ interface DropAPI {
   agentsSave: (cfg: unknown) => Promise<unknown>;
   agentsRemove: (id: string) => Promise<unknown>;
   agentsIdAvailable: (id: string) => Promise<unknown>;
+  cypherCoverGenerate: (opts: { title: string; goal?: string; vibe?: string; customPrompt?: string }) =>
+    Promise<{ ok: true; data_base64: string; content_type: string; prompt_used: string } | { ok: false; error: string }>;
+  cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
+  cypherCoverDelete: (id: string) => Promise<unknown>;
   modelsList: () => Promise<unknown>;
   execCommand: (cmd: string) => Promise<unknown>;
 }
@@ -55,6 +59,7 @@ interface Cypher {
   owner_user_id?: string;
   lobby_started_at?: string | null;
   lobby_duration_seconds?: number | null;
+  cover_image_sha256?: string | null;
 }
 interface Jammer {
   agent_local_id: string;
@@ -139,16 +144,12 @@ async function ensureDevFlags(): Promise<void> {
  */
 function applyCyphersFlag(): void {
   const hide = !cyphersEnabled;
-  // Top-bar CTA — "+ Drop a Cypher" hidden in prod, "+ New Jammer" still toggles per view
   const cta = document.getElementById("drop-cta-browse");
   if (cta) cta.style.display = hide ? "none" : "";
-  // Browse view: hero + live cyphers row + your cyphers row are cypher-specific
-  for (const id of ["drop-hero", "section-mine"]) {
+  for (const id of ["carousel-wrap", "section-mine"]) {
     const el = document.getElementById(id);
     if (el) el.style.display = hide ? "none" : "";
   }
-  const liveSection = document.querySelector<HTMLElement>(".section .row#row-live")?.closest<HTMLElement>(".section");
-  if (liveSection) liveSection.style.display = hide ? "none" : "";
 }
 
 async function ensureCurrentUser(): Promise<void> {
@@ -185,22 +186,41 @@ function setView(view: View): void {
 // Browse view: cyphers + leaderboard
 // ─────────────────────────────────────────────────────
 
+const API_BASE = "https://api.yosup.dev";
+
+function coverUrl(c: Cypher): string | null {
+  if (!c.cover_image_sha256) return null;
+  return `${API_BASE}/api/cyphers/${encodeURIComponent(c.id)}/cover`;
+}
+
+function cssCoverGradient(title: string): string {
+  const h = hashStr(title);
+  const h1 = h % 360;
+  const h2 = (h * 7 + 137) % 360;
+  return `linear-gradient(135deg, hsl(${h1},70%,25%) 0%, hsl(${h2},60%,15%) 100%)`;
+}
+
 function cypherCard(c: Cypher): HTMLElement {
   const el = document.createElement("div");
   el.className = "cypher-card reveal";
   const jammers = c.jammers ?? 0;
   const isLive = c.status === "open" || c.status === "live" || c.status === "running";
+  const url = coverUrl(c);
+  const posterStyle = url
+    ? `background:url('${url}') center/cover no-repeat;`
+    : `background:${cssCoverGradient(c.title || c.slug || "untitled")};`;
   const initial = (c.title || c.slug || "?").trim().charAt(0).toUpperCase();
   el.innerHTML = `
-    <div class="cypher-poster">
+    <div class="cypher-poster" style="${posterStyle}">
       <span class="cypher-status-badge ${isLive ? "live" : ""}">
         <span class="pulse"></span>${escapeHtml(c.status || "")}
       </span>
-      <span class="glyph">${escapeHtml(initial)}</span>
+      ${url ? "" : `<span class="glyph">${escapeHtml(initial)}</span>`}
     </div>
     <div class="cypher-meta">
       <div class="cypher-title">${escapeHtml(c.title || c.slug || "untitled")}</div>
       <div class="cypher-stats">
+        <span>${escapeHtml(c.type || "open")}</span>
         <span><strong>${jammers}</strong> jammer${jammers === 1 ? "" : "s"}</span>
       </div>
     </div>
@@ -228,16 +248,169 @@ function leaderboardCard(e: LeaderboardEntry, rank: number): HTMLElement {
   return el;
 }
 
-function renderHero(c: Cypher | null): void {
-  if (!c) return;
-  $("hero-title").textContent = c.title || c.slug || "Untitled cypher";
-  $("hero-desc").textContent = c.description || c.goal || "Live cypher accepting jammers.";
-  const jammers = c.jammers ?? 0;
-  $("hero-meta").innerHTML = `
-    <span><strong>${jammers}</strong> jammer${jammers === 1 ? "" : "s"}</span>
-    ${c.status ? `<span>· ${escapeHtml(c.status)}</span>` : ""}
-  `;
-  $("hero-cta").addEventListener("click", () => { enterLobby(c); }, { once: true });
+// ── Carousel ──────────────────────────────────────────
+
+let carouselIdx = 0;
+let carouselCyphers: Cypher[] = [];
+
+function renderCarousel(cyphers: Cypher[]): void {
+  carouselCyphers = cyphers;
+  carouselIdx = 0;
+  const track = $("carousel-track");
+  const dots = $("carousel-dots");
+  track.innerHTML = "";
+  dots.innerHTML = "";
+
+  if (cyphers.length === 0) {
+    $("carousel-wrap").classList.add("hidden");
+    return;
+  }
+  $("carousel-wrap").classList.remove("hidden");
+
+  for (const c of cyphers) {
+    const slide = document.createElement("div");
+    slide.className = "carousel-slide";
+    const url = coverUrl(c);
+    const bg = url ? `url('${url}')` : cssCoverGradient(c.title || "untitled");
+    const jammers = c.jammers ?? 0;
+    slide.innerHTML = `
+      <div class="carousel-slide-bg" style="background:${bg};background-size:cover;background-position:center;"></div>
+      <div class="carousel-slide-overlay"></div>
+      <div class="carousel-slide-content">
+        <span class="carousel-slide-tag"><span class="pulse"></span> ${escapeHtml(c.status || "live")}</span>
+        <h2>${escapeHtml(c.title || c.slug || "Untitled")}</h2>
+        <p>${escapeHtml((c.goal || c.description || "").slice(0, 160))}</p>
+        <div class="carousel-slide-stats">
+          <span>${escapeHtml(c.type || "open")}</span>
+          <span><strong>${jammers}</strong> jammer${jammers === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+    `;
+    slide.addEventListener("click", () => enterLobby(c));
+    track.appendChild(slide);
+  }
+
+  for (let i = 0; i < cyphers.length; i++) {
+    const dot = document.createElement("button");
+    dot.className = "carousel-dot" + (i === 0 ? " active" : "");
+    dot.addEventListener("click", () => goToSlide(i));
+    dots.appendChild(dot);
+  }
+
+  updateCarouselPosition();
+}
+
+function goToSlide(idx: number): void {
+  carouselIdx = Math.max(0, Math.min(idx, carouselCyphers.length - 1));
+  updateCarouselPosition();
+}
+
+function updateCarouselPosition(): void {
+  const track = $("carousel-track");
+  track.style.transform = `translateX(-${carouselIdx * 100}%)`;
+  document.querySelectorAll(".carousel-dot").forEach((dot, i) => {
+    dot.classList.toggle("active", i === carouselIdx);
+  });
+}
+
+// ── Directory (card/table view with search + filters) ─
+
+const DIR_PAGE_SIZE = 24;
+let dirPage = 0;
+let dirTotalCount = 0;
+let dirViewMode: "card" | "table" = "card";
+let dirSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function dirFilters(): { status?: string; type?: string; q?: string } {
+  const status = ($("dir-filter-status") as HTMLSelectElement).value || undefined;
+  const type = ($("dir-filter-type") as HTMLSelectElement).value || undefined;
+  const q = ($("dir-search") as HTMLInputElement).value.trim() || undefined;
+  return { status, type, q };
+}
+
+async function loadDirectory(): Promise<void> {
+  const filters = dirFilters();
+  const r = await drop.cyphersDiscover({
+    status: filters.status,
+    type: filters.type,
+    limit: DIR_PAGE_SIZE,
+    offset: dirPage * DIR_PAGE_SIZE,
+  }) as { entries?: Cypher[]; count?: number; error?: string };
+
+  let entries = (r && "entries" in r ? r.entries : []) ?? [];
+  dirTotalCount = (r as { count?: number }).count ?? entries.length;
+
+  // Client-side text search (server may not support q yet)
+  if (filters.q) {
+    const q = filters.q.toLowerCase();
+    entries = entries.filter((c) =>
+      (c.title || "").toLowerCase().includes(q) ||
+      (c.goal || "").toLowerCase().includes(q) ||
+      (c.description || "").toLowerCase().includes(q) ||
+      (c.slug || "").toLowerCase().includes(q)
+    );
+  }
+
+  // Client-side sort
+  const sort = ($("dir-sort") as HTMLSelectElement).value;
+  if (sort === "jammers") entries.sort((a, b) => (b.jammers ?? 0) - (a.jammers ?? 0));
+  else if (sort === "title") entries.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+
+  renderDirectoryCards(entries);
+  renderDirectoryTable(entries);
+  renderDirPagination();
+
+  const empty = $("dir-empty");
+  const hasContent = entries.length > 0;
+  empty.classList.toggle("hidden", hasContent);
+  $("dir-cards").classList.toggle("hidden", !hasContent || dirViewMode !== "card");
+  $("dir-table").classList.toggle("hidden", !hasContent || dirViewMode !== "table");
+}
+
+function renderDirectoryCards(entries: Cypher[]): void {
+  const container = $("dir-cards");
+  container.innerHTML = "";
+  for (const c of entries) {
+    container.appendChild(cypherCard(c));
+  }
+}
+
+function renderDirectoryTable(entries: Cypher[]): void {
+  const tbody = $("dir-table-body");
+  tbody.innerHTML = "";
+  for (const c of entries) {
+    const tr = document.createElement("tr");
+    const url = coverUrl(c);
+    const bg = url ? `url('${url}')` : cssCoverGradient(c.title || "untitled");
+    const statusClass = c.status === "live" || c.status === "open" ? "live" : c.status === "lobby" ? "lobby" : "wrapped";
+    tr.innerHTML = `
+      <td><div class="dir-table-cover" style="background:${bg};background-size:cover;background-position:center;"></div></td>
+      <td style="font-weight:600;">${escapeHtml(c.title || c.slug || "untitled")}</td>
+      <td><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);">${escapeHtml(c.type || "open")}</span></td>
+      <td><span class="dir-table-status ${statusClass}">${escapeHtml(c.status || "")}</span></td>
+      <td style="font-family:var(--font-mono);">${c.jammers ?? 0}</td>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);">${c.lobby_started_at ? new Date(c.lobby_started_at).toLocaleDateString() : "—"}</td>
+    `;
+    tr.addEventListener("click", () => enterLobby(c));
+    tbody.appendChild(tr);
+  }
+}
+
+function renderDirPagination(): void {
+  const totalPages = Math.max(1, Math.ceil(dirTotalCount / DIR_PAGE_SIZE));
+  $("dir-page-info").textContent = `Page ${dirPage + 1} of ${totalPages}`;
+  ($("dir-prev-page") as HTMLButtonElement).disabled = dirPage === 0;
+  ($("dir-next-page") as HTMLButtonElement).disabled = dirPage >= totalPages - 1;
+}
+
+function setDirView(mode: "card" | "table"): void {
+  dirViewMode = mode;
+  $("dir-view-card").classList.toggle("active", mode === "card");
+  $("dir-view-table").classList.toggle("active", mode === "table");
+  // Re-render visibility
+  const hasCards = $("dir-cards").children.length > 0;
+  $("dir-cards").classList.toggle("hidden", !hasCards || mode !== "card");
+  $("dir-table").classList.toggle("hidden", !hasCards || mode !== "table");
 }
 
 function fillRow(rowId: string, emptyId: string, items: HTMLElement[]): void {
@@ -257,20 +430,11 @@ function fillRow(rowId: string, emptyId: string, items: HTMLElement[]): void {
   }
 }
 
-async function loadLive(): Promise<void> {
-  const r = await drop.cyphersDiscover({ status: "open", limit: 24 }) as { entries?: Cypher[]; error?: string };
+async function loadFeatured(): Promise<void> {
+  const r = await drop.cyphersDiscover({ status: "open", limit: 8 }) as { entries?: Cypher[]; error?: string };
   const entries = (r && "entries" in r ? r.entries : []) ?? [];
-  fillRow("row-live", "empty-live", entries.map(cypherCard));
-  if (entries.length > 0) {
-    const featured = entries.slice().sort((a, b) => (b.jammers ?? 0) - (a.jammers ?? 0))[0];
-    renderHero(featured);
-  }
-}
-
-async function loadLeaderboard(): Promise<void> {
-  const r = await drop.agentsLeaderboard({ days: 30, limit: 16 }) as { entries?: LeaderboardEntry[]; error?: string };
-  const entries = (r && "entries" in r ? r.entries : []) ?? [];
-  fillRow("row-agents", "empty-agents", entries.map((e, i) => leaderboardCard(e, i + 1)));
+  const featured = entries.sort((a, b) => (b.jammers ?? 0) - (a.jammers ?? 0)).slice(0, 5);
+  renderCarousel(featured);
 }
 
 async function loadMine(): Promise<void> {
@@ -493,25 +657,31 @@ async function deleteEdit(): Promise<void> {
 // Cypher creation wizard
 // ─────────────────────────────────────────────────────
 
+type WizardStep = 1 | 2 | 3 | 4 | 5;
 const wizard = {
-  step: 1 as 1 | 2 | 3 | 4,
+  step: 1 as WizardStep,
   vibe: "open" as "open" | "coop" | "bounty" | "sponsored",
   visibility: "public" as "public" | "unlisted" | "invite",
   wpMode: "blank" as "blank" | "git",
   seedAgentIds: new Set<string>(),
+  coverMode: "css" as "css" | "generate" | "upload",
+  coverDataB64: null as string | null,
+  coverContentType: "image/png" as string,
+  coverPrompt: "",
 };
 
-function setWizardStep(n: 1 | 2 | 3 | 4): void {
+function setWizardStep(n: WizardStep): void {
   wizard.step = n;
   document.querySelectorAll<HTMLElement>("[data-cw-step]").forEach((el) => {
     el.classList.toggle("hidden", el.dataset.cwStep !== String(n));
   });
-  const labels = ["Goal", "Work Package", "Seed Roster", "Lobby"];
-  $("cw-step-label").textContent = `Step ${n} of 4 — ${labels[n - 1]}`;
+  const labels = ["Goal", "Cover Art", "Work Package", "Seed Roster", "Lobby"];
+  $("cw-step-label").textContent = `Step ${n} of 5 — ${labels[n - 1]}`;
   $("cw-back").classList.toggle("hidden", n === 1);
-  $("cw-next").classList.toggle("hidden", n === 4);
-  $("cw-publish").classList.toggle("hidden", n !== 4);
-  if (n === 3) renderSeedList();
+  $("cw-next").classList.toggle("hidden", n === 5);
+  $("cw-publish").classList.toggle("hidden", n !== 5);
+  if (n === 4) renderSeedList();
+  if (n === 2) initCoverStep();
 }
 
 function setWpMode(mode: "blank" | "git"): void {
@@ -541,6 +711,96 @@ function buildSetupSteps(): SetupStepWire[] {
     steps.push({ kind: "read", path: readPath, into_prompt: true });
   }
   return steps;
+}
+
+// ── Cover Art step helpers ─────────────────────────────
+
+function initCoverStep(): void {
+  setCoverMode(wizard.coverMode);
+  updateCoverPreview();
+}
+
+function setCoverMode(mode: "css" | "generate" | "upload"): void {
+  wizard.coverMode = mode;
+  setChip("cw-cover-mode", mode);
+  $("cw-cover-generate-fields").classList.toggle("hidden", mode !== "generate");
+  $("cw-cover-upload-fields").classList.toggle("hidden", mode !== "upload");
+  $("cw-cover-css-fields").classList.toggle("hidden", mode !== "css");
+}
+
+function updateCoverPreview(): void {
+  const preview = $("cw-cover-preview") as HTMLDivElement;
+  if (wizard.coverDataB64) {
+    preview.innerHTML = `<img src="data:${wizard.coverContentType};base64,${wizard.coverDataB64}" alt="Cover preview" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" />`;
+  } else {
+    const title = $i("cw-title").value.trim() || "Untitled";
+    const hash = hashStr(title);
+    const hue1 = hash % 360;
+    const hue2 = (hash * 7 + 137) % 360;
+    preview.innerHTML = `<div style="width:100%;height:100%;border-radius:10px;background:linear-gradient(135deg, hsl(${hue1},70%,25%) 0%, hsl(${hue2},60%,15%) 100%);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:28px;font-weight:800;color:rgba(255,255,255,0.15);letter-spacing:-0.02em;">${escapeHtml(title)}</div>`;
+  }
+}
+
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+async function generateCoverImage(): Promise<void> {
+  const btn = $("cw-cover-gen-btn") as HTMLButtonElement;
+  const err = $("cw-cover-gen-error") as HTMLDivElement;
+  err.classList.add("hidden");
+  btn.disabled = true;
+  btn.textContent = "Generating…";
+
+  try {
+    const title = $i("cw-title").value.trim() || "Untitled Cypher";
+    const goal = $t("cw-goal").value.trim() || undefined;
+    const customPrompt = $t("cw-cover-prompt").value.trim() || undefined;
+
+    const r = await drop.cypherCoverGenerate({
+      title,
+      goal,
+      vibe: wizard.vibe,
+      customPrompt,
+    });
+
+    if (!r.ok) {
+      err.textContent = r.error;
+      err.classList.remove("hidden");
+      return;
+    }
+
+    wizard.coverDataB64 = r.data_base64;
+    wizard.coverContentType = r.content_type;
+    wizard.coverPrompt = r.prompt_used;
+    $t("cw-cover-prompt").value = r.prompt_used;
+    updateCoverPreview();
+  } catch (e) {
+    err.textContent = e instanceof Error ? e.message : "Generation failed";
+    err.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generate";
+  }
+}
+
+function handleCoverUpload(file: File): void {
+  if (!file.type.startsWith("image/")) return;
+  if (file.size > 10 * 1024 * 1024) {
+    ($("cw-cover-upload-error") as HTMLDivElement).textContent = "Max 10MB";
+    ($("cw-cover-upload-error") as HTMLDivElement).classList.remove("hidden");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const b64 = (reader.result as string).split(",")[1];
+    wizard.coverDataB64 = b64;
+    wizard.coverContentType = file.type;
+    updateCoverPreview();
+  };
+  reader.readAsDataURL(file);
 }
 
 function setChip(groupId: string, value: string): void {
@@ -607,6 +867,10 @@ async function openWizard(): Promise<void> {
   wizard.visibility = "public";
   wizard.wpMode = "blank";
   wizard.seedAgentIds.clear();
+  wizard.coverMode = "css";
+  wizard.coverDataB64 = null;
+  wizard.coverContentType = "image/png";
+  wizard.coverPrompt = "";
   $i("cw-title").value = "";
   $t("cw-goal").value = "";
   $i("cw-max-jammers").value = "";
@@ -655,12 +919,17 @@ async function publishCypherFromWizard(): Promise<void> {
   }
   const cypherId = cr.cypher.id;
 
-  // 2. Seed roster — join the host's agents into the draft cypher
+  // 2. Upload cover image if user generated or uploaded one
+  if (wizard.coverDataB64 && wizard.coverMode !== "css") {
+    await drop.cypherCoverUpload(cypherId, wizard.coverDataB64, wizard.coverContentType).catch(() => {});
+  }
+
+  // 3. Seed roster — join the host's agents into the draft cypher
   for (const agentId of wizard.seedAgentIds) {
     await drop.cypherJoin(cypherId, agentId).catch(() => { /* best-effort */ });
   }
 
-  // 3. Publish → lobby
+  // 4. Publish → lobby
   const pub = await drop.cypherPublish(cypherId, {
     initial_kitty_deposit: 0,
     lobby_duration_seconds,
@@ -715,7 +984,7 @@ function exitLobby(): void {
   lobbyState.jammers = [];
   lobbyState.draft = null;
   setView("browse");
-  void loadLive();
+  void loadFeatured(); void loadDirectory();
   void loadMine();
 }
 
@@ -1223,7 +1492,7 @@ function exitWorkspace(): void {
   wsState.events = [];
   wsState.focusedAgent = null;
   setView("browse");
-  void loadLive();
+  void loadFeatured(); void loadDirectory();
   void loadMine();
 }
 
@@ -1562,9 +1831,9 @@ function init(): void {
   // ── THE-PIVOT-GITHUB Phase 1: GH identity badge + landing gate ─────
   void initGhAuth();
 
-  // Browse loaders fire on launch (cypher loaders are no-ops if hidden)
-  void loadLive();
-  void loadLeaderboard();
+  // Browse loaders fire on launch
+  void loadFeatured();
+  void loadDirectory();
   void loadMine();
 
   // View tabs
@@ -1574,34 +1843,29 @@ function init(): void {
 
   // Top-bar actions
   $("drop-refresh").addEventListener("click", () => {
-    void loadLive(); void loadLeaderboard(); void loadMine();
+    void loadFeatured(); void loadDirectory(); void loadMine();
     void loadAgents();
   });
   $("drop-cta-browse").addEventListener("click", () => { void openWizard(); });
   $("drop-cta-agents").addEventListener("click", () => { void openEdit(null); });
 
-  // Search — client-side filter on visible cards
-  const search = $i("drop-search");
-  search.addEventListener("input", () => {
-    const q = search.value.toLowerCase().trim();
-    document.querySelectorAll<HTMLElement>(".cypher-card").forEach((card) => {
-      const title = card.querySelector(".cypher-title")?.textContent?.toLowerCase() ?? "";
-      card.style.display = !q || title.includes(q) ? "" : "none";
-    });
-    document.querySelectorAll<HTMLElement>(".agent-card").forEach((card) => {
-      const name = card.querySelector(".agent-name")?.textContent?.toLowerCase() ?? "";
-      const bio = card.querySelector(".agent-bio")?.textContent?.toLowerCase() ?? "";
-      card.style.display = !q || name.includes(q) || bio.includes(q) ? "" : "none";
-    });
-    document.querySelectorAll<HTMLElement>(".roster-card").forEach((card) => {
-      const text = card.textContent?.toLowerCase() ?? "";
-      card.style.display = !q || text.includes(q) ? "" : "none";
-    });
-  });
+  // ── Carousel navigation ─────────────────
+  $("carousel-prev").addEventListener("click", () => goToSlide(carouselIdx - 1));
+  $("carousel-next").addEventListener("click", () => goToSlide(carouselIdx + 1));
 
-  $("hero-secondary").addEventListener("click", () => {
-    void drop.execCommand("yo help cyphers");
+  // ── Directory: search, filters, sort, view toggle, pagination ──
+  const dirSearch = $("dir-search").querySelector("input") as HTMLInputElement;
+  dirSearch.addEventListener("input", () => {
+    if (dirSearchTimer) clearTimeout(dirSearchTimer);
+    dirSearchTimer = setTimeout(() => { dirPage = 0; void loadDirectory(); }, 250);
   });
+  $("dir-filter-status").addEventListener("change", () => { dirPage = 0; void loadDirectory(); });
+  $("dir-filter-type").addEventListener("change", () => { dirPage = 0; void loadDirectory(); });
+  $("dir-sort").addEventListener("change", () => { void loadDirectory(); });
+  $("dir-view-card").addEventListener("click", () => setDirView("card"));
+  $("dir-view-table").addEventListener("click", () => setDirView("table"));
+  $("dir-prev-page").addEventListener("click", () => { if (dirPage > 0) { dirPage--; void loadDirectory(); } });
+  $("dir-next-page").addEventListener("click", () => { dirPage++; void loadDirectory(); });
 
   // Edit overlay wiring
   $("agent-overlay-scrim").addEventListener("click", closeEdit);
@@ -1631,10 +1895,10 @@ function init(): void {
   $("cw-close").addEventListener("click", closeWizard);
   $("cw-cancel").addEventListener("click", closeWizard);
   $("cw-back").addEventListener("click", () => {
-    if (wizard.step > 1) setWizardStep((wizard.step - 1) as 1 | 2 | 3 | 4);
+    if (wizard.step > 1) setWizardStep((wizard.step - 1) as WizardStep);
   });
   $("cw-next").addEventListener("click", () => {
-    if (wizard.step < 4) setWizardStep((wizard.step + 1) as 1 | 2 | 3 | 4);
+    if (wizard.step < 5) setWizardStep((wizard.step + 1) as WizardStep);
   });
   $("cw-publish").addEventListener("click", () => { void publishCypherFromWizard(); });
   document.querySelectorAll<HTMLElement>("#cw-vibe .chip").forEach((el) => {
@@ -1653,6 +1917,30 @@ function init(): void {
     el.addEventListener("click", () => {
       setWpMode(el.dataset.chip as typeof wizard.wpMode);
     });
+  });
+  // Cover art step
+  document.querySelectorAll<HTMLElement>("#cw-cover-mode .chip").forEach((el) => {
+    el.addEventListener("click", () => {
+      setCoverMode(el.dataset.chip as "css" | "generate" | "upload");
+    });
+  });
+  $("cw-cover-gen-btn").addEventListener("click", () => { void generateCoverImage(); });
+  $("cw-cover-clear-btn").addEventListener("click", () => {
+    wizard.coverDataB64 = null;
+    updateCoverPreview();
+  });
+  const coverFileInput = $("cw-cover-file") as HTMLInputElement;
+  coverFileInput.addEventListener("change", () => {
+    if (coverFileInput.files?.[0]) handleCoverUpload(coverFileInput.files[0]);
+  });
+  const coverDropZone = $("cw-cover-dropzone");
+  coverDropZone.addEventListener("dragover", (e) => { e.preventDefault(); coverDropZone.classList.add("drag-over"); });
+  coverDropZone.addEventListener("dragleave", () => { coverDropZone.classList.remove("drag-over"); });
+  coverDropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    coverDropZone.classList.remove("drag-over");
+    const file = (e as DragEvent).dataTransfer?.files[0];
+    if (file) handleCoverUpload(file);
   });
 
   // ── Lobby ─────────────────────────────────

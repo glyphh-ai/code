@@ -32,6 +32,12 @@ interface DropAPI {
   agentsRemove: (id: string) => Promise<unknown>;
   agentsIdAvailable: (id: string) => Promise<unknown>;
 
+  // Cover image
+  cypherCoverGenerate: (opts: { title: string; goal?: string; vibe?: string; customPrompt?: string }) =>
+    Promise<{ ok: true; data_base64: string; content_type: string; prompt_used: string } | { ok: false; error: string }>;
+  cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
+  cypherCoverDelete: (id: string) => Promise<unknown>;
+
   // Models for the model picker
   modelsList: () => Promise<unknown>;
 
@@ -84,6 +90,9 @@ const api: DropAPI = {
   agentsSave: (cfg) => ipcRenderer.invoke("agents-save", cfg),
   agentsRemove: (id) => ipcRenderer.invoke("agents-remove", id),
   agentsIdAvailable: (id) => ipcRenderer.invoke("agents-id-available", id),
+  cypherCoverGenerate: (opts) => ipcRenderer.invoke("cypher-cover-generate", opts),
+  cypherCoverUpload: (id, dataBase64, contentType) => ipcRenderer.invoke("cypher-cover-upload", id, dataBase64, contentType),
+  cypherCoverDelete: (id) => ipcRenderer.invoke("cypher-cover-delete", id),
   modelsList: () => ipcRenderer.invoke("models-list"),
   execCommand: (cmd) => ipcRenderer.invoke("exec-command", cmd),
   onCypherEvent: (cb) => {

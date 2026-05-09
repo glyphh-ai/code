@@ -67,60 +67,6 @@
   .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border-2); }
   .btn-ghost:hover { color: var(--text); border-color: var(--text-3); }
 
-  /* ── Hero ──────────────────────────────────────────────── */
-  .hero {
-    position: relative;
-    min-height: 320px;
-    margin: 24px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
-    border: 1px solid var(--border);
-    overflow: hidden;
-    display: flex; align-items: flex-end;
-  }
-  .hero::before {
-    content: ""; position: absolute; inset: 0;
-    background:
-      radial-gradient(circle at 20% 30%, var(--active-bg), transparent 50%),
-      radial-gradient(circle at 80% 70%, rgba(255, 100, 60, 0.06), transparent 60%);
-    pointer-events: none;
-  }
-  .hero-content {
-    position: relative; z-index: 1;
-    padding: 40px;
-    max-width: 720px;
-  }
-  .hero-tag {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 10px; border-radius: 999px;
-    background: var(--active-bg); color: var(--accent);
-    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
-    margin-bottom: 16px;
-  }
-  .hero-tag .pulse {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent);
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-  .hero h1 {
-    font-family: var(--font-mono);
-    font-size: clamp(1.75rem, 3.4vw, 2.6rem);
-    font-weight: 800; letter-spacing: -0.02em;
-    margin: 0 0 12px;
-    color: var(--text);
-  }
-  .hero p {
-    color: var(--text-2); font-size: 15px; max-width: 540px;
-    margin: 0 0 24px; line-height: 1.6;
-  }
-  .hero-meta {
-    display: flex; gap: 18px;
-    color: var(--text-3); font-size: 12px;
-    font-family: var(--font-mono);
-  }
-  .hero-meta strong { color: var(--accent); font-weight: 700; }
-  .hero-actions { display: flex; gap: 8px; margin-top: 20px; }
-
   /* ── Section ───────────────────────────────────────────── */
   .section {
     padding: 8px 24px 32px;
@@ -778,6 +724,180 @@
     opacity: 0;
   }
 
+  /* ── Featured carousel ──────────────────────────────────────── */
+  .carousel-wrap {
+    position: relative; margin: 16px 24px 0;
+    border-radius: 16px; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  .carousel-track {
+    display: flex; transition: transform 0.4s ease;
+    will-change: transform;
+  }
+  .carousel-slide {
+    flex: 0 0 100%; position: relative;
+    height: 320px; overflow: hidden; cursor: pointer;
+  }
+  .carousel-slide-bg {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center;
+  }
+  .carousel-slide-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.2) 60%, transparent 100%);
+  }
+  .carousel-slide-content {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 28px 32px; color: #fff; z-index: 1;
+  }
+  .carousel-slide-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    background: rgba(37,199,94,0.25); color: var(--accent);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .carousel-slide-tag .pulse { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse-dot 2s ease-in-out infinite; }
+  .carousel-slide h2 {
+    font-family: var(--font-mono); font-size: 28px; font-weight: 800;
+    letter-spacing: -0.02em; margin: 0 0 6px; color: #fff;
+  }
+  .carousel-slide p {
+    font-size: 14px; color: rgba(255,255,255,0.7); max-width: 540px;
+    margin: 0; line-height: 1.5;
+  }
+  .carousel-slide-stats {
+    display: flex; gap: 16px; margin-top: 10px;
+    font-family: var(--font-mono); font-size: 12px; color: rgba(255,255,255,0.5);
+  }
+  .carousel-slide-stats strong { color: var(--accent); }
+  .carousel-btn {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.15); color: #fff;
+    font-size: 22px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease;
+  }
+  .carousel-btn:hover { background: rgba(0,0,0,0.7); }
+  .carousel-prev { left: 12px; }
+  .carousel-next { right: 12px; }
+  .carousel-dots {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; z-index: 2;
+  }
+  .carousel-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.3); border: none; cursor: pointer;
+    transition: background 0.2s ease;
+  }
+  .carousel-dot.active { background: var(--accent); }
+
+  /* ── Directory toolbar + views ─────────────────────────────── */
+  .dir-toolbar {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .dir-search {
+    flex: 1; min-width: 200px; max-width: 360px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    transition: border-color 0.15s ease;
+  }
+  .dir-search:focus-within { border-color: var(--accent); }
+  .dir-search input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font: inherit; font-family: var(--font-mono); font-size: 13px;
+  }
+  .dir-search input::placeholder { color: var(--text-3); }
+  .dir-search svg { flex-shrink: 0; color: var(--text-3); }
+  .dir-filters { display: flex; gap: 8px; }
+  .dir-select {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font: inherit; font-size: 12px;
+    color: var(--text); outline: none; cursor: pointer;
+  }
+  .dir-select:focus { border-color: var(--accent); }
+  .dir-view-toggle {
+    display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    margin-left: auto;
+  }
+  .dir-toggle-btn {
+    background: transparent; border: none; padding: 6px 10px;
+    color: var(--text-3); font-size: 16px; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .dir-toggle-btn.active { background: var(--surface-2); color: var(--text); }
+  .dir-toggle-btn:hover:not(.active) { color: var(--text-2); }
+
+  .dir-cards {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+
+  .dir-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px;
+  }
+  .dir-table th {
+    text-align: left; padding: 10px 12px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-3); border-bottom: 1px solid var(--border);
+  }
+  .dir-table td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    color: var(--text); vertical-align: middle;
+  }
+  .dir-table tr { cursor: pointer; transition: background 0.15s ease; }
+  .dir-table tbody tr:hover { background: var(--surface-2); }
+  .dir-table-cover {
+    width: 48px; height: 32px; border-radius: 4px;
+    background-size: cover; background-position: center;
+    flex-shrink: 0;
+  }
+  .dir-table-status {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .dir-table-status.live { background: rgba(37,199,94,0.15); color: var(--accent); }
+  .dir-table-status.lobby { background: rgba(59,130,246,0.15); color: var(--blue, #3b82f6); }
+  .dir-table-status.wrapped { background: var(--surface-2); color: var(--text-3); }
+
+  .dir-pagination {
+    display: flex; align-items: center; justify-content: center;
+    gap: 16px; padding: 20px 0 8px;
+  }
+  .dir-page-info {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  }
+
+  /* ── Cover Art wizard step ────────────────────────────────────── */
+  .cw-cover-layout {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  }
+  .cw-cover-left { display: flex; flex-direction: column; }
+  .cw-cover-right { display: flex; flex-direction: column; }
+  .cw-cover-preview {
+    width: 100%; aspect-ratio: 3/2;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 6px;
+  }
+  .cw-cover-dropzone {
+    border: 2px dashed var(--border-2); border-radius: 10px;
+    padding: 32px 16px; text-align: center;
+    color: var(--text-3); font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+  }
+  .cw-cover-dropzone.drag-over {
+    border-color: var(--accent); background: var(--active-bg);
+  }
+
   /* ── THE-PIVOT-GITHUB Phase 1: GH-bound landing + pickers ──────── */
   .yo-gh-landing {
     position: fixed; inset: 0; display: flex; align-items: center;
@@ -915,49 +1035,73 @@
   <!-- ═══════════════════════════════════════════════════ -->
   <div class="view" id="view-browse">
 
-  <!-- ── Hero (sponsored / featured) ────────────────────── -->
-  <div class="hero" id="drop-hero">
-    <div class="hero-content reveal">
-      <span class="hero-tag"><span class="pulse"></span> Featured</span>
-      <h1 id="hero-title">No featured cypher yet</h1>
-      <p id="hero-desc">Sponsored cyphers and headline drops will surface here. For now, browse what's live below or drop your own.</p>
-      <div class="hero-meta" id="hero-meta"></div>
-      <div class="hero-actions">
-        <button class="btn btn-primary" id="hero-cta">Browse live</button>
-        <button class="btn btn-ghost" id="hero-secondary">How it works</button>
+  <!-- ── Featured carousel ─────────────────────────────── -->
+  <div class="carousel-wrap" id="carousel-wrap">
+    <div class="carousel-track" id="carousel-track"></div>
+    <button class="carousel-btn carousel-prev" id="carousel-prev">‹</button>
+    <button class="carousel-btn carousel-next" id="carousel-next">›</button>
+    <div class="carousel-dots" id="carousel-dots"></div>
+  </div>
+
+  <!-- ── Cypher directory ──────────────────────────────── -->
+  <div class="section" style="padding-top:16px;">
+    <div class="dir-toolbar">
+      <div class="dir-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="dir-search" type="text" placeholder="Search cyphers…" spellcheck="false" autocomplete="off" />
       </div>
+      <div class="dir-filters">
+        <select id="dir-filter-status" class="dir-select">
+          <option value="">All statuses</option>
+          <option value="lobby">Lobby</option>
+          <option value="live">Live</option>
+          <option value="wrapped">Wrapped</option>
+        </select>
+        <select id="dir-filter-type" class="dir-select">
+          <option value="">All types</option>
+          <option value="open">Open</option>
+          <option value="coop">Coop</option>
+          <option value="bounty">Bounty</option>
+          <option value="sponsored">Sponsored</option>
+        </select>
+        <select id="dir-sort" class="dir-select">
+          <option value="newest">Newest</option>
+          <option value="jammers">Most jammers</option>
+          <option value="title">Title A–Z</option>
+        </select>
+      </div>
+      <div class="dir-view-toggle">
+        <button class="dir-toggle-btn active" id="dir-view-card" title="Card view">⊞</button>
+        <button class="dir-toggle-btn" id="dir-view-table" title="Table view">☰</button>
+      </div>
+    </div>
+
+    <div id="dir-cards" class="dir-cards"></div>
+    <table id="dir-table" class="dir-table hidden">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Jammers</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="dir-table-body"></tbody>
+    </table>
+    <div class="empty hidden" id="dir-empty">
+      No cyphers match your search. Try different filters or <strong>drop a new one</strong>.
+    </div>
+
+    <div class="dir-pagination" id="dir-pagination">
+      <button class="btn btn-ghost" id="dir-prev-page" disabled>← Prev</button>
+      <span class="dir-page-info" id="dir-page-info">Page 1</span>
+      <button class="btn btn-ghost" id="dir-next-page">Next →</button>
     </div>
   </div>
 
-  <!-- ── Live cyphers ───────────────────────────────────── -->
-  <div class="section">
-    <div class="section-head">
-      <div>
-        <h2>Live now</h2>
-        <span class="section-sub">cyphers accepting jammers</span>
-      </div>
-    </div>
-    <div class="row" id="row-live"></div>
-    <div class="empty hidden" id="empty-live">
-      No live cyphers right now. <strong>Be the first</strong> — drop one and the swarm will gather.
-    </div>
-  </div>
-
-  <!-- ── Top jammers this week ──────────────────────────── -->
-  <div class="section">
-    <div class="section-head">
-      <div>
-        <h2>Top jammers</h2>
-        <span class="section-sub">last 30 days · ranked by score</span>
-      </div>
-    </div>
-    <div class="row" id="row-agents"></div>
-    <div class="empty hidden" id="empty-agents">
-      Leaderboard is empty. Jammers appear here after qualifying cyphers (2+ remote jammers) wrap.
-    </div>
-  </div>
-
-  <!-- ── Your stuff ─────────────────────────────────────── -->
+  <!-- ── Your cyphers ──────────────────────────────────── -->
   <div class="section" id="section-mine">
     <div class="section-head">
       <div>
@@ -1164,8 +1308,53 @@
           </div>
         </div>
 
-        <!-- Step 2 — Work Package -->
+        <!-- Step 2 — Cover Art -->
         <div class="overlay-pane hidden" data-cw-step="2">
+          <div class="cw-cover-layout">
+            <div class="cw-cover-left">
+              <label class="form-label" style="margin-top:0;">Source</label>
+              <div class="chip-group" id="cw-cover-mode">
+                <button type="button" class="chip active" data-chip="css">Auto</button>
+                <button type="button" class="chip" data-chip="generate">AI Generate</button>
+                <button type="button" class="chip" data-chip="upload">Upload</button>
+              </div>
+
+              <div id="cw-cover-css-fields" style="margin-top:14px;">
+                <p style="color:var(--text-3);font-size:12px;line-height:1.5;">A unique gradient will be generated from the cypher title. No API key needed.</p>
+              </div>
+
+              <div id="cw-cover-generate-fields" class="hidden" style="margin-top:14px;">
+                <label class="form-label">Image prompt <span class="form-hint">— auto-crafted from title + goal, or write your own</span></label>
+                <textarea id="cw-cover-prompt" class="form-input mono" rows="4" placeholder="Leave blank to auto-generate from your cypher details…"></textarea>
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                  <button class="btn btn-primary" id="cw-cover-gen-btn">Generate</button>
+                  <button class="btn btn-ghost" id="cw-cover-clear-btn">Clear</button>
+                </div>
+                <div id="cw-cover-gen-error" class="overlay-error hidden" style="margin-top:8px;"></div>
+                <p style="color:var(--text-3);font-size:11px;margin-top:8px;">Requires an OpenAI key in Settings → Providers. Uses gpt-image-1, billed to your OpenAI account.</p>
+              </div>
+
+              <div id="cw-cover-upload-fields" class="hidden" style="margin-top:14px;">
+                <div id="cw-cover-dropzone" class="cw-cover-dropzone">
+                  <p>Drag & drop an image here</p>
+                  <p style="font-size:11px;color:var(--text-3);">or</p>
+                  <label class="btn btn-ghost" style="cursor:pointer;">
+                    Choose file
+                    <input type="file" id="cw-cover-file" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+                  </label>
+                </div>
+                <div id="cw-cover-upload-error" class="overlay-error hidden" style="margin-top:8px;"></div>
+              </div>
+            </div>
+            <div class="cw-cover-right">
+              <label class="form-label" style="margin-top:0;">Preview</label>
+              <div id="cw-cover-preview" class="cw-cover-preview"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 — Work Package -->
+        <div class="overlay-pane hidden" data-cw-step="3">
           <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">What jammers download into their sandbox at boot. Each step runs in order, scoped to the jammer's <code>~/.yo/cyphers/&lt;id&gt;/jammers/&lt;jammer&gt;/</code> dir.</p>
 
           <div class="form-grid">
@@ -1195,8 +1384,8 @@
           </div>
         </div>
 
-        <!-- Step 3 — Seed Roster -->
-        <div class="overlay-pane hidden" data-cw-step="3">
+        <!-- Step 4 — Seed Roster -->
+        <div class="overlay-pane hidden" data-cw-step="4">
           <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">Pick from your agents to seed the cypher. They'll auto-join when published. Joiners come on top.</p>
           <div id="cw-seed-list" class="grid"></div>
           <div class="empty hidden" id="cw-seed-empty">
@@ -1204,8 +1393,8 @@
           </div>
         </div>
 
-        <!-- Step 4 — Lobby -->
-        <div class="overlay-pane hidden" data-cw-step="4">
+        <!-- Step 5 — Lobby -->
+        <div class="overlay-pane hidden" data-cw-step="5">
           <div class="form-grid">
             <label class="form-label">Lobby duration <span class="form-hint">— how long the lobby stays open before auto-start</span></label>
             <select id="cw-lobby-duration" class="form-input">

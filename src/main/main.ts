@@ -3147,6 +3147,98 @@ async function boot() {
   ipcMain.handle("cypher-kitty-balance", async () => ({ balance: 0 }));
   ipcMain.handle("cypher-kitty-ledger", async () => ({ entries: [], count: 0 }));
 
+  // ── Cover image: upload, delete, AI generate ────────────
+  function buildCoverPrompt(title: string, goal?: string, vibe?: string): string {
+    const vibeStyle: Record<string, string> = {
+      open: "vibrant open-world atmosphere, collaborative energy, warm neon glow",
+      bounty: "intense bounty-hunter aesthetic, dark dramatic lighting, reward poster vibe",
+      coop: "team coordination feel, interconnected nodes, cooperative synergy",
+      sponsored: "premium corporate event poster, sleek and polished, gold accents",
+    };
+    const mood = vibeStyle[vibe || "open"] || vibeStyle.open;
+    const goalClause = goal ? ` The project goal: "${goal.slice(0, 120)}".` : "";
+    return `Digital art, wide cinematic composition (3:2 aspect ratio). A visually striking cover image for a coding cypher called "${title}".${goalClause} Style: ${mood}. Abstract tech-art with depth, NOT a screenshot or UI mockup. No text or lettering in the image. Rich color palette, high contrast, atmospheric lighting.`;
+  }
+
+  ipcMain.handle("cypher-cover-upload", async (_e, id: string, dataBase64: string, contentType?: string) => {
+    try {
+      const token = (await import("./auth")).getAuthToken();
+      if (!token) return { ok: false, error: "Not authenticated" };
+      const { net } = await import("electron");
+      return await new Promise((resolve, reject) => {
+        const req = net.request({
+          url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}/cover`,
+          method: "PUT",
+        });
+        req.setHeader("Content-Type", "application/json");
+        req.setHeader("Authorization", `Bearer ${token}`);
+        let body = "";
+        req.on("response", (r) => {
+          r.on("data", (c) => { body += c.toString(); });
+          r.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid response")); } });
+        });
+        req.on("error", reject);
+        req.write(JSON.stringify({ data_base64: dataBase64, content_type: contentType || "image/png" }));
+        req.end();
+      });
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "cover upload failed" }; }
+  });
+
+  ipcMain.handle("cypher-cover-delete", async (_e, id: string) => {
+    try {
+      const token = (await import("./auth")).getAuthToken();
+      if (!token) return { ok: false, error: "Not authenticated" };
+      const { net } = await import("electron");
+      return await new Promise((resolve, reject) => {
+        const req = net.request({
+          url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}/cover`,
+          method: "DELETE",
+        });
+        req.setHeader("Authorization", `Bearer ${token}`);
+        let body = "";
+        req.on("response", (r) => {
+          r.on("data", (c) => { body += c.toString(); });
+          r.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid response")); } });
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "cover delete failed" }; }
+  });
+
+  ipcMain.handle("cypher-cover-generate", async (_e, opts: { title: string; goal?: string; vibe?: string; customPrompt?: string }) => {
+    try {
+      const providerKeysModule = await import("./provider-keys");
+      const openaiKey = providerKeysModule.getKey("openai");
+      if (!openaiKey) return { ok: false, error: "No OpenAI key configured. Go to Settings → Providers to add one." };
+
+      const imagePrompt = opts.customPrompt || buildCoverPrompt(opts.title, opts.goal, opts.vibe);
+
+      const resp = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          prompt: imagePrompt,
+          n: 1,
+          size: "1536x1024",
+          quality: "high",
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.text();
+        return { ok: false, error: `OpenAI error (${resp.status}): ${err.slice(0, 300)}` };
+      }
+
+      const json = await resp.json() as { data?: Array<{ b64_json?: string }> };
+      const b64 = json.data?.[0]?.b64_json;
+      if (!b64) return { ok: false, error: "No image data in response" };
+
+      return { ok: true, data_base64: b64, content_type: "image/png", prompt_used: imagePrompt };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "generation failed" }; }
+  });
+
   ipcMain.handle("auth-me", async () => {
     try {
       return await serverGetAuthed<{ id: string; email: string; role: string }>("/api/auth/me");
