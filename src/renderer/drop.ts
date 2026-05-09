@@ -1854,7 +1854,7 @@ function init(): void {
   $("carousel-next").addEventListener("click", () => goToSlide(carouselIdx + 1));
 
   // ── Directory: search, filters, sort, view toggle, pagination ──
-  const dirSearch = $("dir-search").querySelector("input") as HTMLInputElement;
+  const dirSearch = $i("dir-search");
   dirSearch.addEventListener("input", () => {
     if (dirSearchTimer) clearTimeout(dirSearchTimer);
     dirSearchTimer = setTimeout(() => { dirPage = 0; void loadDirectory(); }, 250);
