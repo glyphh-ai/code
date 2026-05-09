@@ -124,33 +124,6 @@ let modelsCache: Model[] = [];
 let editingAgent: Agent | null = null;
 let editingIsNew = false;
 let currentUserId: string | null = null;
-let cyphersEnabled: boolean = false;
-
-async function ensureDevFlags(): Promise<void> {
-  try {
-    const flags = await drop.devFlags();
-    cyphersEnabled = !!flags.cyphersEnabled;
-  } catch {
-    cyphersEnabled = false;
-  }
-  applyCyphersFlag();
-}
-
-/**
- * Hide cypher remote-work UI when the dev flag is off. Production users see:
- *   - Top jammers (read-only leaderboard)
- *   - Your jammers (registry CRUD)
- * Production users do NOT see cypher creation, lobby, workspace, or live rows.
- */
-function applyCyphersFlag(): void {
-  const hide = !cyphersEnabled;
-  const cta = document.getElementById("drop-cta-browse");
-  if (cta) cta.style.display = hide ? "none" : "";
-  for (const id of ["carousel-wrap", "section-mine"]) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = hide ? "none" : "";
-  }
-}
 
 async function ensureCurrentUser(): Promise<void> {
   if (currentUserId) return;
@@ -1826,7 +1799,6 @@ async function initGhAuth(): Promise<void> {
 function init(): void {
   // Cache the authenticated user up front so isHostOf() works on first render
   void ensureCurrentUser();
-  void ensureDevFlags();
 
   // ── THE-PIVOT-GITHUB Phase 1: GH identity badge + landing gate ─────
   void initGhAuth();
