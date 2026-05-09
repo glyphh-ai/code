@@ -391,6 +391,7 @@ async function boot() {
   skillToolRouter = new SkillToolRouter();
   skillToolRouter.setYoTools(listBuiltinYoTools());
   skillToolRouter.setMcpManager(mcpManager);
+  skillEngine.setMcpManager(mcpManager);
   skillScheduler = new SkillScheduler(skillEngine);
   skillScheduler.start();
 
@@ -2402,10 +2403,16 @@ async function boot() {
   ipcMain.handle("skills-get", (_e, name: string) => {
     const s = skillEngine.getSkill(name);
     if (!s) return null;
+    const hasRunner = skillEngine.hasRunner(name);
+    const hasApp = !!skillEngine.readSkillFile(name, "app/index.html");
+    const runnerCode = hasRunner ? skillEngine.readSkillFile(name, "SKILL.js") : null;
     return {
       name: s.name,
       manifest: s.manifest,
       prompt: s.prompt,
+      hasRunner,
+      hasApp,
+      runnerCode,
     };
   });
   ipcMain.handle("skills-write", (_e, name: string, prompt: string) => {
@@ -2420,13 +2427,20 @@ async function boot() {
     skillEngine.writeSkill(name, { name, description: "" }, prompt);
     return true;
   });
-  ipcMain.handle("skills-write-full", (_e, name: string, manifest: any, prompt: string) => {
+  ipcMain.handle("skills-write-full", (_e, name: string, manifest: any, prompt: string, runnerCode?: string | null) => {
     const existing = skillEngine.getSkill(name);
     if (!existing) {
       const gate = canCreateSkill(skillEngine.listSkills().length);
       if (!gate.allowed) return { error: gate.reason };
     }
     skillEngine.writeSkill(name, manifest, prompt);
+    // Persist SKILL.js alongside SKILL.md when the editor has runner code; if
+    // the caller passes null we explicitly remove an existing runner file.
+    if (typeof runnerCode === "string" && runnerCode.trim().length > 0) {
+      skillEngine.writeSkillFile(name, "SKILL.js", runnerCode);
+    } else if (runnerCode === null) {
+      skillEngine.deleteSkillFile(name, "SKILL.js");
+    }
     skillScheduler?.refresh();
     return true;
   });
@@ -2465,13 +2479,15 @@ async function boot() {
   // Run a skill (LLM call with skill's prompt)
   ipcMain.handle("skills-run", async (_e, name: string, input: unknown) => {
     try {
-      const content = typeof input === "string" ? input : JSON.stringify(input);
-      const output = await skillEngine.process(content, name);
+      // runSkill() dispatches to the JS runner if SKILL.js exists, else falls
+      // back to prompt-mode (process()) — same code path the scheduler uses.
+      const output = await skillEngine.runSkill(name, input, { trigger: "manual" });
       return { ok: true, output };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
+  ipcMain.handle("skills-run-history", (_e, name: string) => skillEngine.getRunHistory(name));
   // Export/import .yo bundles
   ipcMain.handle("skills-export", (_e, name: string) => {
     const buf = skillEngine.exportSkill(name);

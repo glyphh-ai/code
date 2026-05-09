@@ -59,33 +59,37 @@ export class SkillScheduler {
     const seen = new Set<string>();
     for (const name of skills) {
       const skill = this.engine.getSkill(name);
-      if (!skill?.manifest.schedule) continue;
+      if (!skill) continue;
+      // SKILL.js `schedule` export wins over SKILL.md frontmatter so a runner
+      // skill can keep its .md description in sync with claude's view of the
+      // skill while owning its own scheduling.
+      const jsSchedule = this.engine.getSkillJsSchedule(name);
+      const expr = jsSchedule || skill.manifest.schedule;
+      if (!expr) continue;
       seen.add(name);
 
-      const expr = expandShorthand(skill.manifest.schedule);
-      // If already scheduled with same expression, skip
+      const cronExpr = expandShorthand(expr);
       const existing = this.tasks.get(name);
       if (existing) {
-        // Re-registration: stop old and re-create (handles expression changes)
         existing.stop();
         this.tasks.delete(name);
       }
 
-      if (!cron.validate(expr)) {
-        console.warn(`[scheduler] invalid cron for skill "${name}": ${expr}`);
+      if (!cron.validate(cronExpr)) {
+        console.warn(`[scheduler] invalid cron for skill "${name}": ${cronExpr}`);
         continue;
       }
 
-      const task = cron.schedule(expr, () => {
+      const task = cron.schedule(cronExpr, () => {
         if (this.paused.has(name)) return;
-        this.engine.process("", name).catch((err) => {
+        this.engine.runSkill(name, undefined, { trigger: "schedule" }).catch((err) => {
           console.error(`[scheduler] skill "${name}" failed:`, err);
         });
       });
       this.tasks.set(name, task);
     }
 
-    // Remove schedules for skills that no longer have `schedule:`
+    // Remove schedules for skills that no longer have any schedule source
     for (const [name, task] of this.tasks) {
       if (!seen.has(name)) {
         task.stop();
@@ -103,9 +107,10 @@ export class SkillScheduler {
     const out: Array<{ name: string; schedule: string; paused: boolean }> = [];
     for (const name of this.tasks.keys()) {
       const skill = this.engine.getSkill(name);
+      const expr = this.engine.getSkillJsSchedule(name) || skill?.manifest.schedule || "";
       out.push({
         name,
-        schedule: skill?.manifest.schedule ?? "",
+        schedule: expr,
         paused: this.paused.has(name),
       });
     }

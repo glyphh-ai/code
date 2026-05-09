@@ -1,11 +1,16 @@
 /**
  * SkillEngine — folder-based skill storage and lifecycle execution.
  *
- * A skill is a folder under ~/yo/skills/<name>/ containing:
+ * Skills live under ~/.claude/skills/<name>/ (extending claude's native
+ * skill folder; claude can use SKILL.md when reasoning, yo runs SKILL.js
+ * when present):
  *   - SKILL.md    (required): YAML frontmatter + prompt body
+ *   - SKILL.js    (optional): deterministic JS runner — see skill-runner.ts
  *   - Any other files (arbitrary artifacts, templates, examples)
  *
- * This file handles storage, CRUD, and run history.
+ * Dispatch in runSkill():
+ *   - SKILL.js present → runs through SkillRunner (ctx.tools.call, ctx.claude, lifecycle hooks)
+ *   - SKILL.js missing → falls back to prompt-mode (process() — SDK runs the .md body as system prompt)
  */
 
 import fs from "fs";
@@ -17,15 +22,19 @@ import AdmZip from "adm-zip";
 
 import { LLMConfig } from "./llm-config";
 import { sdkComplete } from "./sdk-llm";
+import type { McpManager } from "./mcp-manager";
 import {
   Skill,
   SkillManifest,
   SkillSummary,
   SkillRun,
   ProgressEvent,
+  RunOpts,
 } from "./skill-types";
+import { runSkillJs, readSkillJsSchedule, buildRunRecord, type RunnerDeps } from "./skill-runner";
 
 const SKILL_MD = "SKILL.md";
+const SKILL_JS = "SKILL.js";
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 // Legacy fallback prompt when a skill has neither runner nor body.
@@ -47,15 +56,28 @@ export class SkillEngine {
   private llmConfig: LLMConfig | null = null;
   private runHistory: Map<string, SkillRun[]> = new Map();
   private onChangeCallbacks: Array<() => void> = [];
+  private mcpManager: McpManager | null = null;
+  private libraryDir: string;
 
   constructor() {
-    this.skillsDir = path.join(os.homedir(), "yo", "skills");
+    this.skillsDir = path.join(os.homedir(), ".claude", "skills");
+    this.libraryDir = path.join(os.homedir(), ".claude", "skill-library");
     fs.mkdirSync(this.skillsDir, { recursive: true });
+    fs.mkdirSync(this.libraryDir, { recursive: true });
   }
 
   setLLMConfig(config: LLMConfig): void { this.llmConfig = config; }
   getLLMConfig(): LLMConfig | null { return this.llmConfig; }
   getSkillsDir(): string { return this.skillsDir; }
+  setMcpManager(m: McpManager | null): void { this.mcpManager = m; }
+  hasRunner(name: string): boolean {
+    const folder = this.skillFolder(name);
+    return fs.existsSync(path.join(folder, SKILL_JS));
+  }
+  getSkillJsSchedule(name: string): string | null {
+    const folder = this.skillFolder(name);
+    return readSkillJsSchedule(path.join(folder, SKILL_JS));
+  }
 
   onChange(cb: () => void): void { this.onChangeCallbacks.push(cb); }
   private emitChange(): void { for (const cb of this.onChangeCallbacks) try { cb(); } catch {} }
@@ -117,12 +139,19 @@ export class SkillEngine {
   listSkillsDetailed(): SkillSummary[] {
     return this.listSkills().map((name) => {
       const s = this.getSkill(name);
-      if (!s) return { name, scheduled: false };
+      const folder = this.skillFolder(name);
+      const hasRunner = fs.existsSync(path.join(folder, SKILL_JS));
+      const hasApp = fs.existsSync(path.join(folder, "app", "index.html"));
+      const jsSchedule = readSkillJsSchedule(path.join(folder, SKILL_JS));
+      if (!s) return { name, scheduled: !!jsSchedule, scheduleExpr: jsSchedule ?? undefined, hasRunner, hasApp };
+      const expr = jsSchedule || s.manifest.schedule;
       return {
         name,
         description: s.manifest.description,
-        scheduled: !!s.manifest.schedule,
-        scheduleExpr: s.manifest.schedule ?? undefined,
+        scheduled: !!expr,
+        scheduleExpr: expr ?? undefined,
+        hasRunner,
+        hasApp,
       };
     });
   }
@@ -316,6 +345,76 @@ export class SkillEngine {
   clearRunHistory(skillName?: string): void {
     if (skillName) this.runHistory.delete(skillName);
     else this.runHistory.clear();
+  }
+
+  // ── Top-level dispatch ─────────────────────────────────────────
+  //
+  // Single entry point used by the scheduler, IPC handlers, and ctx.skill()
+  // chain calls (when we add them). If SKILL.js exists → runner; else falls
+  // back to prompt-mode (the existing process() path the SDK migration left
+  // in place).
+
+  async runSkill(name: string, input: unknown, opts: RunOpts = {}): Promise<unknown> {
+    const skill = this.getSkill(name);
+    if (!skill) throw new Error(`Skill "${name}" not found`);
+
+    const runId = crypto.randomBytes(6).toString("hex");
+    const startedAt = Date.now();
+
+    // SKILL.js path — runner owns the lifecycle, progress, errors
+    if (this.hasRunner(name)) {
+      const deps: RunnerDeps = {
+        mcpManager: this.mcpManager,
+        libraryRead: (libName) => this.libraryRead(libName),
+        libraryWrite: (libName, content) => this.libraryWrite(libName, content),
+        readSkillFile: (sk, rel) => this.readSkillFile(sk, rel),
+      };
+      const result = await runSkillJs(skill, input, deps, opts);
+      this.appendRun(buildRunRecord(name, runId, startedAt, input, result, opts.trigger || "manual"));
+      if (result.error) throw new Error(result.error);
+      return result.output;
+    }
+
+    // SKILL.md prompt-mode fallback — wrap process() in a SkillRun for parity
+    const buffer = typeof input === "string" ? input : JSON.stringify(input ?? "");
+    let output: string | undefined;
+    let error: string | undefined;
+    try {
+      output = await this.process(buffer, name);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    this.appendRun({
+      id: runId,
+      skillName: name,
+      trigger: opts.trigger || "manual",
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      input,
+      output,
+      error,
+      events: [],
+      logs: [],
+    });
+    if (error) throw new Error(error);
+    return output;
+  }
+
+  // ── Skill-library (artifacts shared across skills) ─────────────
+
+  private libraryRead(name: string): string | null {
+    const safe = this.safePath(this.libraryDir, name);
+    if (!safe || !fs.existsSync(safe)) return null;
+    try { return fs.readFileSync(safe, "utf-8"); } catch { return null; }
+  }
+  private libraryWrite(name: string, content: string): boolean {
+    const safe = this.safePath(this.libraryDir, name);
+    if (!safe) return false;
+    try {
+      fs.mkdirSync(path.dirname(safe), { recursive: true });
+      fs.writeFileSync(safe, content, "utf-8");
+      return true;
+    } catch { return false; }
   }
 
   // ── Prompt-mode processing (fallback for skills without a runner) ──────
