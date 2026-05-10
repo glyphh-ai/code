@@ -210,6 +210,7 @@ declare global {
       yoPanelStop: () => void;
       onYoPanelOpen: (cb: (query: string) => void) => void;
       onYoPanelToggle: (cb: () => void) => void;
+      onYoPanelKickoff: (cb: (prompt: string) => void) => void;
       onYoPanelToken: (cb: (delta: string) => void) => void;
       onYoPanelToolUse: (cb: (id: string, name: string, input: unknown) => void) => void;
       onYoPanelToolResult: (cb: (id: string, detail: string) => void) => void;
@@ -1601,11 +1602,13 @@ let yoControlsInited = false;
 const MODE_ICONS: Record<string, string> = {
   standard: "\u2753",
   council:  "\ud83c\udfdb",
+  cypher:   "\u26a1",
 };
 
 const MODE_COLORS: Record<string, string> = {
   standard: "#25C75E",
   council:  "#A855F7",
+  cypher:   "#FF6B2C",
 };
 
 const PERM_ICONS: Record<string, string> = {
@@ -1663,14 +1666,20 @@ function applyModeColor() {
   document.documentElement.style.setProperty("--yo-mode-color", color);
 }
 
-// Send mode + perm to main. Council is a behavioral overlay; the
+// Send mode + perm to main. Council/cypher are behavioral overlays; the
 // permission (ask/auto/bypass) applies independently.
 function syncAgentMode(): void {
   if (currentMode === "council") {
+    window.yo.setAgentMode("exit-cypher");
     window.yo.setAgentMode("council");
+    window.yo.setAgentMode(currentPerm);
+  } else if (currentMode === "cypher") {
+    window.yo.setAgentMode("exit-council");
+    window.yo.setAgentMode("cypher");
     window.yo.setAgentMode(currentPerm);
   } else {
     window.yo.setAgentMode("exit-council");
+    window.yo.setAgentMode("exit-cypher");
     window.yo.setAgentMode(currentPerm);
   }
 }
@@ -1716,7 +1725,7 @@ document.addEventListener("click", (e) => {
 
 // Listen for mode changes pushed from main process
 window.yo.onAgentModeChanged?.((mode: string) => {
-  if (mode === "standard" || mode === "council") {
+  if (mode === "standard" || mode === "council" || mode === "cypher") {
     setModeValue(mode);
   } else {
     // It's a permission value (ask/plan/auto/bypass)
@@ -1728,8 +1737,8 @@ window.yo.onAgentModeChanged?.((mode: string) => {
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
-  if (mode === "council") {
-    setModeValue("council");
+  if (mode === "council" || mode === "cypher") {
+    setModeValue(mode);
     setPermValue("default");
   } else {
     setModeValue("standard");
@@ -2454,6 +2463,11 @@ window.yo.onYoPanelToggle(() => {
     window.yo.yoPanelOpen("");
     openYoPanel("");
   }
+});
+window.yo.onYoPanelKickoff((prompt: string) => {
+  hideYoWelcome();
+  addYoUserMessage(prompt);
+  setYoThinking(true);
 });
 window.yo.onYoPanelToken((delta) => appendYoToken(delta));
 window.yo.onYoPanelToolUse((id, name, input) => showYoToolUse(id, name, input));

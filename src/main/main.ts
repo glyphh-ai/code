@@ -689,6 +689,8 @@ async function boot() {
         try { ensureProjectMcpJson(ws, url, token); } catch { /* */ }
       }
       inboxRouter?.watch(wsSlug);
+      // Activate yo/dip/drip interceptor so command palette works on cypher panel
+      yoInterceptor.activate(wc, id);
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
@@ -835,6 +837,8 @@ async function boot() {
   const dropPreload = path.join(__dirname, "drop-preload.js");
   const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
   const councilPreload = path.join(__dirname, "council-preload.js");
+  const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "cypher.html")}`;
+  const cypherPreload = path.join(__dirname, "cypher-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
@@ -900,6 +904,8 @@ async function boot() {
     }
   }
 
+  // Cypher Mode panel — registered statically (not in app-connector)
+  panelManager.addPanel("cypher", cypherHtml, cypherPreload);
 
   // Start VS Code server in the background if enabled and CLI is available
   if (enableVscode && vscodeServer.available) {
@@ -1265,6 +1271,69 @@ async function boot() {
         }
       },
     },
+    project: {
+      getForCypher: async (cypherId: string) => {
+        try {
+          const r = await serverGetAuthed<{ projects?: Array<{ slug: string }> }>(`/api/projects/mine`);
+          const projects = r?.projects || [];
+          const match = projects.find((p: any) => p.cypher_id === cypherId);
+          return match?.slug || null;
+        } catch { return null; }
+      },
+      create: async (cypherId: string, goal: string, linkedRepos: string[]) => {
+        try {
+          const r = await serverPostAuthed(`/api/projects`, {
+            goal,
+            cypher_id: cypherId,
+            linked_repos: linkedRepos.map((r) => ({ full_name: r })),
+          }) as any;
+          return r?.project?.slug ? `Project created: ${r.project.slug}` : `Project created.`;
+        } catch (err) {
+          return `Create failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      board: async (projectRef: string) => {
+        try {
+          const r = await serverGetAuthed<{ items?: Array<{ id: string; title: string; status: string; assignee_user_id?: string; pr_url?: string; pr_state?: string }> }>(`/api/projects/${encodeURIComponent(projectRef)}/board`);
+          const items = r?.items || [];
+          if (items.length === 0) return "Board is empty. Add items with project_add_item.";
+          const lines = items.map((i) => {
+            const assign = i.assignee_user_id ? ` → ${i.assignee_user_id}` : "";
+            const pr = i.pr_url ? ` [PR: ${i.pr_state || "open"}]` : "";
+            return `[${i.status}] ${i.title}${assign}${pr} (id: ${i.id})`;
+          });
+          return lines.join("\n");
+        } catch (err) {
+          return `Board fetch failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      createItem: async (projectRef: string, title: string, body?: string, assignee?: string) => {
+        try {
+          const r = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items`, {
+            title, body, assignee_agent_id: assignee,
+          }) as any;
+          return r?.item?.id ? `Item created: "${title}" (id: ${r.item.id})` : `Item created.`;
+        } catch (err) {
+          return `Item create failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      updateItemStatus: async (projectRef: string, itemId: string, status: string) => {
+        try {
+          await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/status`, { status });
+          return `Item moved to ${status}.`;
+        } catch (err) {
+          return `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+      assignItem: async (projectRef: string, itemId: string, assigneeAgentId: string) => {
+        try {
+          await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/assign`, { agent_id: assigneeAgentId });
+          return `Item assigned to ${assigneeAgentId}.`;
+        } catch (err) {
+          return `Assign failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+    },
     council: {
       getCurrent: () => {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1568,6 +1637,7 @@ async function boot() {
     }
     console.log(`[restorePanels] allPanelIds:`, allPanelIds);
     for (const id of allPanelIds) {
+      if (!id) continue;
       if (panelManager.hasPanel(id)) { console.log(`[restorePanels] skip "${id}" — already registered`); continue; }
       const baseId = resolveAppId(id);
       if (baseId === id) { console.log(`[restorePanels] skip "${id}" — is base app, already registered at boot`); continue; }
@@ -1634,6 +1704,7 @@ async function boot() {
     // Restore all saved tabs (not just those in the current view).
     // Skip code panels — they're managed by the layout restore above, not as standalone tabs.
     for (const id of savedTabs) {
+      if (!id) continue;
       if (!openTabs.includes(id) && resolveAppId(id) !== "code") {
         openTabs.push(id);
       }
@@ -1669,7 +1740,8 @@ async function boot() {
   let tabBrowserCounter = 0;
   let panelInstanceCounter = 0;
 
-  function resolveAppId(panelId: string): string {
+  function resolveAppId(panelId: string | null | undefined): string {
+    if (!panelId) return "";
     if (appConnector.hasDirect(panelId)) return panelId;
     if (panelId.startsWith("browse-")) return "browser";
     if (panelId.startsWith("code-")) return "code";
@@ -1746,7 +1818,9 @@ async function boot() {
   const panelFavicons: Record<string, string> = getPreference<Record<string, string>>("panelFavicons", {});
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
 
-  function getTabName(id: string): string {
+  function getTabName(id: string | null | undefined): string {
+    if (!id) return "";
+    if (id === "cypher" && cypherPanelContext?.title) return `⚡ ${cypherPanelContext.title}`;
     const app = appConnector.get(id) || appConnector.get(resolveAppId(id));
     return app?.name || id;
   }
@@ -1756,8 +1830,14 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     const suspendedInfo = layoutManager.getSuspendedGridInfo();
     const layoutInfo = gridInfo || suspendedInfo;
+    if (layoutInfo) layoutInfo.panelIds = layoutInfo.panelIds.filter(Boolean);
     const hasLayout = layoutInfo && layoutInfo.panelIds.length > 1;
     const isActiveLayout = gridInfo && gridInfo.panelIds.length > 1;
+
+    // Filter any stale null entries from openTabs
+    for (let i = openTabs.length - 1; i >= 0; i--) {
+      if (!openTabs[i]) openTabs.splice(i, 1);
+    }
 
     // Ensure "home" is always the leftmost tab
     if (!openTabs.includes("home")) {
@@ -1848,7 +1928,8 @@ async function boot() {
     });
   }
 
-  function ensureTab(id: string) {
+  function ensureTab(id: string | null | undefined) {
+    if (!id) return;
     if (!openTabs.includes(id)) {
       openTabs.push(id);
       persistTabs();
@@ -1949,6 +2030,7 @@ async function boot() {
       const wsSlug = workspaceManager.getActive().slug;
       const map = getPreference<Record<string, string>>("workspaceCypher", {});
       setPreference("workspaceCypher", { ...map, [wsSlug]: r.cypher.id });
+      cypherPanelContext = { cypherId: r.cypher.id, isOwner: false };
       panelManager.switchTo("cypher", mainWindow);
       return true;
     } catch {
@@ -1989,6 +2071,11 @@ async function boot() {
   setEventObserver((cypherId, kind, payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("cypher-event", cypherId, kind, payload);
+    }
+    // Also forward to the cypher panel (separate BrowserView with own webContents)
+    const cypherView = panelManager.getView("cypher");
+    if (cypherView) {
+      cypherView.webContents.send("cypher-event", cypherId, kind, payload);
     }
   });
 
@@ -2255,13 +2342,26 @@ async function boot() {
     const wc = mainWindow?.webContents;
     if (!wc || mainWindow!.isDestroyed()) return;
 
-    // Everything else goes to the yo agent
+    // Everything goes to the yo agent (in cypher mode it has orchestration tools)
+    const cypherView = yoAgent.isCypherMode() ? panelManager.getView("cypher") : null;
     yoAgent.send(trimmed, {
-      onText: (delta) => wc.send("yo-panel-token", delta),
-      onToolUse: (id, name, input) => wc.send("yo-panel-tool-use", id, name, input),
-      onToolResult: (id, detail) => wc.send("yo-panel-tool-result", id, detail),
+      onText: (delta) => {
+        wc.send("yo-panel-token", delta);
+        cypherView?.webContents.send("cypher-stage-token", delta);
+      },
+      onToolUse: (id, name, input) => {
+        wc.send("yo-panel-tool-use", id, name, input);
+        cypherView?.webContents.send("cypher-stage-tool", id, name, input);
+      },
+      onToolResult: (id, detail) => {
+        wc.send("yo-panel-tool-result", id, detail);
+        cypherView?.webContents.send("cypher-stage-tool-result", id, detail);
+      },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
-      onDone: (fullText) => wc.send("yo-panel-done", fullText),
+      onDone: (fullText) => {
+        wc.send("yo-panel-done", fullText);
+        cypherView?.webContents.send("cypher-stage-done", fullText);
+      },
       onError: (err) => wc.send("yo-panel-error", err),
     });
   });
@@ -2324,12 +2424,27 @@ async function boot() {
       yoAgent.clear();
       return;
     }
+    if (mode === "exit-cypher") {
+      yoAgent.setCypherMode(false);
+      yoAgent.clear();
+      return;
+    }
+    if (mode === "cypher") {
+      yoAgent.setCypherMode(true);
+      yoAgent.setMode("default" as any);
+      yoAgent.clear();
+      setPreference("agentMode", "cypher");
+      mainWindow?.webContents.send("agent-mode-changed", "cypher");
+      yoInterceptor.setAgentMode("cypher");
+      return;
+    }
     yoAgent.setMode(mode as any);
-    if (!yoAgent.isCouncilMode()) {
+    if (!yoAgent.isCouncilMode() && !yoAgent.isCypherMode()) {
       setPreference("agentMode", mode);
     }
-    mainWindow?.webContents.send("agent-mode-changed", yoAgent.isCouncilMode() ? "council" : mode);
-    yoInterceptor.setAgentMode(yoAgent.isCouncilMode() ? "council" : mode);
+    const effectiveMode = yoAgent.isCypherMode() ? "cypher" : yoAgent.isCouncilMode() ? "council" : mode;
+    mainWindow?.webContents.send("agent-mode-changed", effectiveMode);
+    yoInterceptor.setAgentMode(effectiveMode);
   });
 
   // Approval system — pending approvals map + IPC
@@ -3337,6 +3452,107 @@ async function boot() {
       return { ok: true };
     });
   }
+
+  // ── Cypher panel context — tells the cypher.html panel which cypher to load.
+  let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null = null;
+
+  ipcMain.handle("cypher-panel-context", () => cypherPanelContext);
+
+  ipcMain.handle("cypher-panel-activate", async (_e, cypherId: string, isOwner: boolean, title?: string) => {
+    cypherPanelContext = { cypherId, isOwner, title: title || undefined };
+
+    // Set current cypher so .yo substrate tools know the active cypher
+    const { setCurrentCypher: setCypher } = await import("./current-cypher");
+    setCypher(cypherId);
+
+    // Switch to the cypher panel
+    if (mainWindow) panelManager.switchTo("cypher", mainWindow);
+
+    // Tell the cypher panel to re-init with the new context
+    const cypherView = panelManager.getView("cypher");
+    if (cypherView) {
+      cypherView.webContents.send("cypher-context-ready");
+    }
+
+    // Enter cypher mode on the .yo agent
+    yoAgent.setCypherMode(true);
+    setPreference("agentMode", "cypher");
+    mainWindow?.webContents.send("agent-mode-changed", "cypher");
+    yoInterceptor.setAgentMode("cypher");
+
+    // Open the .yo agent panel alongside
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      openYoPanel("");
+    }
+
+    // Auto-kick the orchestrator with cypher context
+    if (isOwner && mainWindow && !mainWindow.isDestroyed()) {
+      const wc = mainWindow.webContents;
+      // Fetch cypher status for the kickoff prompt
+      try {
+        const [cData, jData] = await Promise.all([
+          serverGetAuthed<{ cypher?: { title?: string; goal?: string; status?: string } }>(`/api/cyphers/${encodeURIComponent(cypherId)}`),
+          serverGetAuthed<{ jammers?: Array<{ agent_local_id: string; position?: string; left_at?: string | null }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/jammers`),
+        ]);
+        const cy = cData?.cypher;
+        const activeJammers = (jData?.jammers || []).filter((j: any) => !j.left_at);
+        const jammerList = activeJammers.map((j: any) => `${j.agent_local_id} (${j.position || "jammer"})`).join(", ");
+
+        const kickoff = [
+          `You are orchestrating cypher "${cy?.title || title || "Untitled"}".`,
+          cy?.goal ? `Goal: ${cy.goal}` : "",
+          `Jammers: ${jammerList || "none yet"}`,
+          ``,
+          `Start by calling cypher_status to orient, then project_create to set up the board.`,
+          `Break the goal into discrete tasks, create items with project_add_item, and assign them to jammers.`,
+          `Use cypher_post_to to send instructions to each jammer with their task details.`,
+        ].filter(Boolean).join("\n");
+
+        yoAgent.clear();
+        wc.send("yo-panel-open", "");
+        setTimeout(() => {
+          wc.send("yo-panel-kickoff", kickoff);
+          const cv = panelManager.getView("cypher");
+          yoAgent.send(kickoff, {
+            onText: (delta) => {
+              wc.send("yo-panel-token", delta);
+              cv?.webContents.send("cypher-stage-token", delta);
+            },
+            onToolUse: (id, name, input) => {
+              wc.send("yo-panel-tool-use", id, name, input);
+              cv?.webContents.send("cypher-stage-tool", id, name, input);
+            },
+            onToolResult: (id, detail) => {
+              wc.send("yo-panel-tool-result", id, detail);
+              cv?.webContents.send("cypher-stage-tool-result", id, detail);
+            },
+            onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
+            onDone: (fullText) => {
+              wc.send("yo-panel-done", fullText);
+              cv?.webContents.send("cypher-stage-done", fullText);
+            },
+            onError: (err) => wc.send("yo-panel-error", err),
+          });
+        }, 500);
+      } catch { /* best effort — user can still interact manually */ }
+    }
+
+    return { ok: true };
+  });
+
+  ipcMain.on("cypher-panel-leave", () => {
+    cypherPanelContext = null;
+    yoAgent.setCypherMode(false);
+    setPreference("agentMode", "default");
+    mainWindow?.webContents.send("agent-mode-changed", "standard");
+    yoInterceptor.setAgentMode("default");
+
+    // Remove cypher from open tabs and switch to drop
+    const idx = openTabs.indexOf("cypher");
+    if (idx !== -1) { openTabs.splice(idx, 1); persistTabs(); }
+    if (mainWindow) panelManager.switchTo("drop", mainWindow);
+    sendTabState();
+  });
 
   // ── Council session IPC ──────────────────────────────────
   // Same pattern as cypher: renderer creates / sets-current; substrate council

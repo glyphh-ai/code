@@ -273,6 +273,9 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelToggle: (cb: () => void) => {
     ipcRenderer.on("yo-panel-toggle", () => cb());
   },
+  onYoPanelKickoff: (cb: (prompt: string) => void) => {
+    ipcRenderer.on("yo-panel-kickoff", (_e, prompt) => cb(prompt));
+  },
   onYoPanelToken: (cb: (delta: string) => void) => {
     ipcRenderer.on("yo-panel-token", (_e, delta) => cb(delta));
   },

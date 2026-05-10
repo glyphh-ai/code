@@ -108,6 +108,14 @@ export class YoAgent {
     this._councilMode = on;
   }
   isCouncilMode(): boolean { return this._councilMode; }
+  private _cypherMode: boolean = false;
+  private _cypherAgentTarget: string | null = null;
+  setCypherMode(on: boolean, agentTarget?: string): void {
+    this._cypherMode = on;
+    this._cypherAgentTarget = agentTarget || null;
+  }
+  isCypherMode(): boolean { return this._cypherMode; }
+  getCypherAgentTarget(): string | null { return this._cypherAgentTarget; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 

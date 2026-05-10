@@ -53,6 +53,9 @@ interface DropAPI {
   // Config
   getApiBase: () => string;
 
+  // Cypher Mode panel
+  cypherPanelActivate: (cypherId: string, isOwner: boolean, title?: string) => Promise<unknown>;
+
   // Misc
   execCommand: (cmd: string) => Promise<unknown>;
   /** Subscribe to live cypher SSE events forwarded by main. Returns an unsubscribe fn. */
@@ -114,6 +117,7 @@ const api: DropAPI = {
   skillsList: () => ipcRenderer.invoke("skills-list"),
   skillsListDetailed: () => ipcRenderer.invoke("skills-list-detailed"),
   getApiBase: () => process.env.YO_AUTH_SERVER || "https://api.yosup.dev",
+  cypherPanelActivate: (cypherId, isOwner, title) => ipcRenderer.invoke("cypher-panel-activate", cypherId, isOwner, title),
   execCommand: (cmd) => ipcRenderer.invoke("exec-command", cmd),
   onCypherEvent: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, cypherId: string, kind: string, payload: Record<string, unknown>) =>

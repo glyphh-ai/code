@@ -56,6 +56,7 @@ interface DropAPI {
   skillsList: () => Promise<string[]>;
   skillsListDetailed: () => Promise<{ name: string; description?: string }[]>;
   getApiBase: () => string;
+  cypherPanelActivate: (cypherId: string, isOwner: boolean, title?: string) => Promise<unknown>;
   execCommand: (cmd: string) => Promise<unknown>;
 }
 const drop = (window as unknown as { drop: DropAPI }).drop;
@@ -259,10 +260,11 @@ function cypherCard(c: Cypher): HTMLElement {
     </div>
     <div class="cypher-meta">
       <div class="cypher-title">${escapeHtml(c.title || c.slug || "untitled")}</div>
+      ${c.goal || c.description ? `<div class="cypher-desc">${escapeHtml(c.goal || c.description || "")}</div>` : ""}
       <div class="cypher-stats">
         <span>${escapeHtml(c.type || "open")}</span>
         <span><strong>${jammers}</strong> jammer${jammers === 1 ? "" : "s"}</span>
-        ${(c.total_input_tokens || c.total_output_tokens) ? `<span class="cypher-tokens-stat">${fmtNum((c.total_input_tokens ?? 0) + (c.total_output_tokens ?? 0))} tokens</span>` : ""}
+        <span class="cypher-stats-right">${(c.total_input_tokens || c.total_output_tokens) ? `<span class="cypher-tokens-stat">↓${fmtNum(c.total_input_tokens ?? 0)} ↑${fmtNum(c.total_output_tokens ?? 0)}</span>` : ""}</span>
       </div>
     </div>
   `;
@@ -1224,10 +1226,17 @@ let lobbyState = {
 };
 
 async function enterLobby(c: Cypher): Promise<void> {
-  setView("lobby");
+  await ensureCurrentUser();
   lobbyState.cypherId = c.id;
   lobbyState.cypher = c;
-  await ensureCurrentUser();
+
+  // Live cyphers go straight to the cypher panel
+  if (c.status === "live") {
+    void activateCypherPanel(c.id, isHostOf(c), c.title);
+    return;
+  }
+
+  setView("lobby");
   if (agentsCache.length === 0) {
     const r = await drop.agentsList() as Agent[] | { error?: string };
     agentsCache = Array.isArray(r) ? r : [];
@@ -1403,6 +1412,8 @@ function renderLobby(): void {
   $("lobby-start").classList.toggle("hidden", !isHost || c.status !== "lobby");
   $("lobby-cancel").classList.toggle("hidden", !isHost || terminal);
   $("lobby-edit").classList.toggle("hidden", !isHost || terminal);
+  // Enter Cypher — visible when live (for owner or participants)
+  $("lobby-enter").classList.toggle("hidden", c.status !== "live");
   // Join visible in lobby or live, if user has agents not yet in the cypher
   $("lobby-join").classList.toggle("hidden", terminal || (c.status !== "lobby" && c.status !== "live") || allAgentsJammed());
   // Leave visible only if user IS a jammer (and not terminal)
@@ -1551,7 +1562,11 @@ async function lobbyStartNow(): Promise<void> {
   }
   if (r.cypher) lobbyState.cypher = r.cypher;
   renderLobby();
-  // TODO: hand off to the cypher app for the match phase
+  void activateCypherPanel(lobbyState.cypherId, true, lobbyState.cypher?.title);
+}
+
+async function activateCypherPanel(cypherId: string, isOwner: boolean, title?: string): Promise<void> {
+  await drop.cypherPanelActivate(cypherId, isOwner, title);
 }
 
 async function lobbyCancel(): Promise<void> {
@@ -2343,6 +2358,9 @@ function init(): void {
   $("lobby-start").addEventListener("click", () => { void lobbyStartNow(); });
   $("lobby-cancel").addEventListener("click", () => { void lobbyCancel(); });
   $("lobby-edit").addEventListener("click", openCypherEdit);
+  $("lobby-enter").addEventListener("click", () => {
+    if (lobbyState.cypherId) void activateCypherPanel(lobbyState.cypherId, isHostOf(lobbyState.cypher), lobbyState.cypher?.title);
+  });
   $("cypher-edit-scrim").addEventListener("click", closeCypherEdit);
   $("cypher-edit-close").addEventListener("click", closeCypherEdit);
   $("cypher-edit-save").addEventListener("click", () => { void saveCypherEdit(); });
