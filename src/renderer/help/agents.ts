@@ -22,11 +22,12 @@ import { identiconSvg } from "../identicon.js";
 // ─────────────────────────────────────────────────────────────────────
 
 interface AgentGuardrails {
-  max_yos_per_turn?: number;
-  max_yos_per_session?: number;
-  max_yos_per_day?: number;
-  max_idle_minutes?: number;
-  max_concurrent_reservations?: number;
+  max_input_tokens_per_turn?: number;
+  max_output_tokens_per_turn?: number;
+  max_tokens_per_session?: number;
+  max_turns?: number;
+  rate_limit_rpm?: number;
+  auto_stop_idle_seconds?: number;
 }
 interface AgentRemote {
   preferred_tier?: "premiere" | "standard" | "low" | "any";
@@ -191,7 +192,7 @@ async function saveNewAgent(): Promise<void> {
   const cfg: AgentDef = {
     id, name, type,
     guardrails: type === "remote"
-      ? { max_yos_per_session: 5000, max_yos_per_day: 20000, max_idle_minutes: 30, max_concurrent_reservations: 1 }
+      ? { max_tokens_per_session: 500000, max_turns: 100, auto_stop_idle_seconds: 300 }
       : {},
     remote: type === "remote" ? { preferred_tier: "any", default_idle_minutes: 30 } : undefined,
   };
@@ -225,11 +226,11 @@ function openAgentDetail(agent: AgentDef): void {
 
   // Guardrails fields
   const g = agent.guardrails || {};
-  ($a<HTMLInputElement>("agent-guard-per-turn")).value = g.max_yos_per_turn != null ? String(g.max_yos_per_turn) : "";
-  ($a<HTMLInputElement>("agent-guard-per-session")).value = g.max_yos_per_session != null ? String(g.max_yos_per_session) : "";
-  ($a<HTMLInputElement>("agent-guard-per-day")).value = g.max_yos_per_day != null ? String(g.max_yos_per_day) : "";
-  ($a<HTMLInputElement>("agent-guard-max-idle")).value = g.max_idle_minutes != null ? String(g.max_idle_minutes) : "";
-  ($a<HTMLInputElement>("agent-guard-max-concurrent")).value = g.max_concurrent_reservations != null ? String(g.max_concurrent_reservations) : "";
+  ($a<HTMLInputElement>("agent-guard-per-turn")).value = g.max_input_tokens_per_turn != null ? String(g.max_input_tokens_per_turn) : "";
+  ($a<HTMLInputElement>("agent-guard-per-session")).value = g.max_tokens_per_session != null ? String(g.max_tokens_per_session) : "";
+  ($a<HTMLInputElement>("agent-guard-per-day")).value = g.max_turns != null ? String(g.max_turns) : "";
+  ($a<HTMLInputElement>("agent-guard-max-idle")).value = g.auto_stop_idle_seconds != null ? String(g.auto_stop_idle_seconds) : "";
+  ($a<HTMLInputElement>("agent-guard-max-concurrent")).value = g.rate_limit_rpm != null ? String(g.rate_limit_rpm) : "";
 
   // Remote fields
   const r = agent.remote || {};
@@ -489,11 +490,11 @@ async function saveCurrentAgent(includeGuardrails = true, includeRemote = false)
       return v ? Math.max(0, Number(v)) : undefined;
     };
     cfg.guardrails = {
-      max_yos_per_turn: num("agent-guard-per-turn"),
-      max_yos_per_session: num("agent-guard-per-session"),
-      max_yos_per_day: num("agent-guard-per-day"),
-      max_idle_minutes: num("agent-guard-max-idle"),
-      max_concurrent_reservations: num("agent-guard-max-concurrent"),
+      max_input_tokens_per_turn: num("agent-guard-per-turn"),
+      max_tokens_per_session: num("agent-guard-per-session"),
+      max_turns: num("agent-guard-per-day"),
+      auto_stop_idle_seconds: num("agent-guard-max-idle"),
+      rate_limit_rpm: num("agent-guard-max-concurrent"),
     };
   }
   if (includeRemote || currentAgent.type === "remote") {

@@ -21,16 +21,12 @@ const AGENTS_DIR = path.join(os.homedir(), "yo", "agents");
 export type AgentType = "local" | "remote";
 
 export interface Guardrails {
-  /** Spend cap per single LLM turn (Phase 3 enforces; stored now). */
-  max_yos_per_turn?: number;
-  /** Spend cap across the whole reservation/session. */
-  max_yos_per_session?: number;
-  /** Rolling 24h spend cap across all sessions for this agent. */
-  max_yos_per_day?: number;
-  /** Auto-release a reservation if no activity for N minutes. */
-  max_idle_minutes?: number;
-  /** How many concurrent reservations this agent may hold. */
-  max_concurrent_reservations?: number;
+  max_input_tokens_per_turn?: number;
+  max_output_tokens_per_turn?: number;
+  max_tokens_per_session?: number;
+  max_turns?: number;
+  rate_limit_rpm?: number;
+  auto_stop_idle_seconds?: number;
 }
 
 export interface RemoteConfig {
@@ -77,6 +73,13 @@ export interface AgentConfig {
 
   remote?: RemoteConfig;
   guardrails?: Guardrails;
+  tool_permissions?: {
+    shell?: "full" | "read" | "disabled";
+    file_system?: "full" | "read" | "disabled";
+    git?: "full" | "read" | "disabled";
+    browser?: "full" | "read" | "disabled";
+    mcp?: "full" | "read" | "disabled";
+  };
 
   meta?: {
     createdAt: string;

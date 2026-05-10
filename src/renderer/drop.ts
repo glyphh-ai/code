@@ -19,6 +19,8 @@ interface DropAPI {
   cypherPublish: (id: string, opts?: { initial_kitty_deposit?: number; lobby_duration_seconds?: number | null }) => Promise<unknown>;
   cypherStart: (id: string) => Promise<unknown>;
   cypherCancel: (id: string) => Promise<unknown>;
+  cypherDelete: (id: string) => Promise<unknown>;
+  cypherUpdateMeta: (id: string, patch: { title?: string; goal?: string; description?: string; max_jammers?: number | null }) => Promise<unknown>;
   cypherDraftGet: (id: string) => Promise<unknown>;
   cypherRedraft: (id: string, opts?: { ratio?: number }) => Promise<unknown>;
   cypherDecline: (id: string, agent_local_id: string) => Promise<unknown>;
@@ -39,6 +41,8 @@ interface DropAPI {
   cypherJoin: (id: string, agent_local_id: string, role?: string, invite_token?: string) => Promise<unknown>;
   cypherLeave: (id: string, agent_local_id: string) => Promise<unknown>;
   agentsLeaderboard: (opts?: { skills?: string; days?: number; limit?: number }) => Promise<unknown>;
+  leaderboardTopCyphers: (limit?: number) => Promise<unknown>;
+  leaderboardTopJammers: (limit?: number) => Promise<unknown>;
   agentsList: () => Promise<unknown>;
   agentsGet: (id: string) => Promise<unknown>;
   agentsSave: (cfg: unknown) => Promise<unknown>;
@@ -48,7 +52,9 @@ interface DropAPI {
     Promise<{ ok: true; data_base64: string; content_type: string; prompt_used: string } | { ok: false; error: string }>;
   cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
   cypherCoverDelete: (id: string) => Promise<unknown>;
-  modelsList: () => Promise<unknown>;
+  skillsList: () => Promise<string[]>;
+  skillsListDetailed: () => Promise<{ name: string; description?: string }[]>;
+  getApiBase: () => string;
   execCommand: (cmd: string) => Promise<unknown>;
 }
 const drop = (window as unknown as { drop: DropAPI }).drop;
@@ -56,7 +62,7 @@ const drop = (window as unknown as { drop: DropAPI }).drop;
 interface Cypher {
   id: string; slug: string; title: string; status: string; type?: string;
   kitty?: number; jammers?: number; jammer_count?: number; description?: string; goal?: string;
-  owner_user_id?: string;
+  owner_user_id?: string; max_jammers?: number | null;
   lobby_started_at?: string | null;
   lobby_duration_seconds?: number | null;
   cover_image_sha256?: string | null;
@@ -97,17 +103,33 @@ interface LeaderboardEntry {
   avatar_url: string | null; bio: string | null; skills: string[];
   cyphers_count: number; tasks_completed: number; success_rate: number; score: number;
 }
+interface Guardrails {
+  max_input_tokens_per_turn?: number;
+  max_output_tokens_per_turn?: number;
+  max_tokens_per_session?: number;
+  max_turns?: number;
+  rate_limit_rpm?: number;
+  auto_stop_idle_seconds?: number;
+}
+type ToolPerm = "full" | "read" | "disabled";
+interface ToolPermissions {
+  shell?: ToolPerm;
+  file_system?: ToolPerm;
+  git?: ToolPerm;
+  browser?: ToolPerm;
+  mcp?: ToolPerm;
+}
 interface Agent {
   id: string; name: string; type: "local" | "remote";
   role?: string; systemPrompt?: string;
   apps?: string[]; skills?: string[];
   model_provider?: string; model_name?: string;
   joinable?: boolean; avatar_url?: string; bio?: string;
+  guardrails?: Guardrails;
+  tool_permissions?: ToolPermissions;
 }
-interface Model {
-  provider: string; model: string; display_name: string;
-  yos_per_1k_input: number; yos_per_1k_output: number;
-}
+interface SkillEntry { name: string; description?: string; }
+
 
 // ── DOM helpers ────────────────────────────────────────
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
@@ -120,7 +142,7 @@ const fmtNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n
 
 // ── State ──────────────────────────────────────────────
 let agentsCache: Agent[] = [];
-let modelsCache: Model[] = [];
+let skillsCache: SkillEntry[] = [];
 let editingAgent: Agent | null = null;
 let editingIsNew = false;
 let currentUserId: string | null = null;
@@ -180,7 +202,7 @@ function setView(view: View): void {
 // Browse view: cyphers + leaderboard
 // ─────────────────────────────────────────────────────
 
-const API_BASE = "https://api.yosup.dev";
+const API_BASE = drop.getApiBase();
 
 function coverUrl(c: Cypher): string | null {
   if (!c.cover_image_sha256) return null;
@@ -212,6 +234,7 @@ function cypherCard(c: Cypher): HTMLElement {
         <span class="pulse"></span>${escapeHtml(c.status || "")}
       </span>
       ${isOwner && !isTerminal ? `<button class="cypher-cancel-btn" title="Cancel cypher"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>` : ""}
+      ${isOwner && isTerminal ? `<button class="cypher-cancel-btn cypher-delete-btn" title="Delete cypher"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>` : ""}
       ${url ? "" : `<span class="glyph">${escapeHtml(initial)}</span>`}
     </div>
     <div class="cypher-meta">
@@ -222,7 +245,7 @@ function cypherCard(c: Cypher): HTMLElement {
       </div>
     </div>
   `;
-  const cancelBtn = el.querySelector(".cypher-cancel-btn");
+  const cancelBtn = el.querySelector(".cypher-cancel-btn:not(.cypher-delete-btn)");
   if (cancelBtn) {
     cancelBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -235,6 +258,24 @@ function cypherCard(c: Cypher): HTMLElement {
       if (!confirmed) return;
       const r = await drop.cypherCancel(c.id) as { ok?: boolean; error?: string };
       if (!r.ok) { alert(r.error || "Cancel failed"); return; }
+      void loadMine();
+      void loadFeatured();
+      void loadDirectory();
+    });
+  }
+  const deleteBtn = el.querySelector(".cypher-delete-btn");
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = await showConfirm({
+        title: "Delete cypher",
+        subtitle: c.title || c.slug || "",
+        message: "This will permanently delete this cypher and all its data. This cannot be undone.",
+        actionLabel: "Delete",
+      });
+      if (!confirmed) return;
+      const r = await drop.cypherDelete(c.id) as { ok?: boolean; error?: string };
+      if (!r.ok) { alert(r.error || "Delete failed"); return; }
       void loadMine();
       void loadFeatured();
       void loadDirectory();
@@ -462,6 +503,41 @@ async function loadFeatured(): Promise<void> {
   renderCarousel(featured);
 }
 
+async function loadSidebar(): Promise<void> {
+  try {
+    const [cyphersR, jammersR] = await Promise.all([
+      drop.leaderboardTopCyphers(10) as Promise<{ data?: { id: string; title: string; total_input_tokens: number; total_output_tokens: number }[]; error?: string }>,
+      drop.leaderboardTopJammers(10) as Promise<{ data?: { user_id: string; agent_local_id: string; input_tokens: number; output_tokens: number }[]; error?: string }>,
+    ]);
+    const cyphers = cyphersR?.data ?? [];
+    const jammers = jammersR?.data ?? [];
+
+    const cEl = $("sidebar-top-cyphers");
+    if (cyphers.length === 0) {
+      cEl.innerHTML = `<span style="font-size:12px;color:var(--text-3);">No data yet</span>`;
+    } else {
+      cEl.innerHTML = cyphers.map((c, i) => `
+        <div class="sidebar-item">
+          <span class="sidebar-rank">${i + 1}</span>
+          <span class="sidebar-name">${escapeHtml(c.title)}</span>
+          <span class="sidebar-tokens">${fmtNum(c.total_input_tokens + c.total_output_tokens)}</span>
+        </div>`).join("");
+    }
+
+    const jEl = $("sidebar-top-jammers");
+    if (jammers.length === 0) {
+      jEl.innerHTML = `<span style="font-size:12px;color:var(--text-3);">No data yet</span>`;
+    } else {
+      jEl.innerHTML = jammers.map((j, i) => `
+        <div class="sidebar-item">
+          <span class="sidebar-rank">${i + 1}</span>
+          <span class="sidebar-name">${escapeHtml(j.agent_local_id)}</span>
+          <span class="sidebar-tokens">${fmtNum(j.input_tokens + j.output_tokens)}</span>
+        </div>`).join("");
+    }
+  } catch { /* sidebar is non-critical */ }
+}
+
 async function loadMine(): Promise<void> {
   const r = await drop.cyphersMine() as { cyphers?: Cypher[]; error?: string };
   const entries = (r && "cyphers" in r ? r.cyphers : []) ?? [];
@@ -541,32 +617,25 @@ function renderEditAvatar(id: string, url?: string): void {
   }
 }
 
-async function ensureModelsLoaded(): Promise<void> {
-  if (modelsCache.length > 0) return;
-  const r = await drop.modelsList() as { models?: Model[]; error?: string };
-  modelsCache = (r && "models" in r ? r.models : []) ?? [];
-}
+const SDK_MODELS: { value: string; label: string; hint: string }[] = [
+  { value: "anthropic::claude-sonnet-4-20250514", label: "Claude Code — Sonnet", hint: "Balanced speed + capability" },
+  { value: "anthropic::claude-opus-4-20250514", label: "Claude Code — Opus", hint: "Strongest reasoning" },
+  { value: "anthropic::claude-haiku-4-20250514", label: "Claude Code — Haiku", hint: "Fast + lightweight" },
+];
+
+function ensureModelsLoaded(): void { /* static list, nothing to load */ }
 
 function populateModelSelector(provider?: string, model?: string): void {
   const sel = $s("ae-model");
-  sel.innerHTML = `<option value="">Default (Sonnet)</option>`;
-  const grouped = new Map<string, Model[]>();
-  for (const m of modelsCache) {
-    if (!grouped.has(m.provider)) grouped.set(m.provider, []);
-    grouped.get(m.provider)!.push(m);
+  sel.innerHTML = "";
+  for (const m of SDK_MODELS) {
+    const opt = document.createElement("option");
+    opt.value = m.value;
+    opt.textContent = m.label;
+    sel.appendChild(opt);
   }
-  for (const [prov, models] of grouped) {
-    const group = document.createElement("optgroup");
-    group.label = prov.charAt(0).toUpperCase() + prov.slice(1);
-    for (const m of models) {
-      const opt = document.createElement("option");
-      opt.value = `${m.provider}::${m.model}`;
-      opt.textContent = `${m.display_name} (${m.yos_per_1k_input}/${m.yos_per_1k_output} yos/1k)`;
-      group.appendChild(opt);
-    }
-    sel.appendChild(group);
-  }
-  sel.value = provider && model ? `${provider}::${model}` : "";
+  const cur = provider && model ? `${provider}::${model}` : "";
+  sel.value = cur || SDK_MODELS[0].value;
   updateModelCostHint();
   sel.onchange = () => updateModelCostHint();
 }
@@ -574,15 +643,76 @@ function populateModelSelector(provider?: string, model?: string): void {
 function updateModelCostHint(): void {
   const sel = $s("ae-model");
   const hint = $("ae-model-cost");
-  if (!sel.value) { hint.textContent = ""; return; }
-  const [prov, mod] = sel.value.split("::");
-  const m = modelsCache.find((x) => x.provider === prov && x.model === mod);
-  hint.textContent = m
-    ? `${m.yos_per_1k_input} yos/1k input · ${m.yos_per_1k_output} yos/1k output`
-    : "";
+  const m = SDK_MODELS.find((x) => x.value === sel.value);
+  hint.textContent = m ? m.hint : "";
 }
 
-function setEditTab(tab: "profile" | "behavior"): void {
+// ── Skills picker for jammer editor ───────────────────────
+
+async function ensureSkillsLoaded(): Promise<void> {
+  if (skillsCache.length > 0) return;
+  try {
+    const detailed = await drop.skillsListDetailed();
+    skillsCache = detailed ?? [];
+  } catch { skillsCache = []; }
+}
+
+function renderSkillsList(): void {
+  if (!editingAgent) return;
+  const list = $("ae-skills-list");
+  list.innerHTML = "";
+  const enabled = new Set(editingAgent.skills || []);
+
+  if (skillsCache.length === 0) {
+    list.innerHTML = `<span style="font-size:12px;color:var(--text-3);">No skills available</span>`;
+    return;
+  }
+
+  for (const sk of skillsCache) {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s;";
+    row.addEventListener("mouseenter", () => { row.style.background = "var(--surface-2)"; });
+    row.addEventListener("mouseleave", () => { row.style.background = ""; });
+    const checked = enabled.has(sk.name);
+    row.innerHTML = `
+      <input type="checkbox" ${checked ? "checked" : ""} style="accent-color:var(--accent);flex-shrink:0;" />
+      <span style="font-size:12px;color:var(--text);font-weight:500;">${escapeHtml(sk.name)}</span>
+      ${sk.description ? `<span style="font-size:11px;color:var(--text-3);margin-left:auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(sk.description)}</span>` : ""}
+    `;
+    const checkbox = row.querySelector("input")!;
+    checkbox.addEventListener("change", () => {
+      const cur = new Set(editingAgent!.skills || []);
+      if (checkbox.checked) cur.add(sk.name); else cur.delete(sk.name);
+      editingAgent!.skills = [...cur];
+    });
+    list.appendChild(row);
+  }
+}
+
+function showSkillsAddPicker(): void {
+  // Legacy — now handled inline via toggles; re-render refreshes the list
+  renderSkillsList();
+}
+
+function fmtGrVal(id: string, val: number): string {
+  if (val === 0) return "off";
+  if (id === "ae-gr-idle") {
+    if (val >= 60) return `${Math.round(val / 60)}m`;
+    return `${val}s`;
+  }
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `${Math.round(val / 1_000)}k`;
+  return String(val);
+}
+
+function updateGrDisplay(id: string): void {
+  const slider = $i(id);
+  const val = parseInt(slider.value, 10);
+  const display = $(`${id}-val`);
+  if (display) display.textContent = fmtGrVal(id, val);
+}
+
+function setEditTab(tab: "profile" | "behavior" | "guardrails"): void {
   document.querySelectorAll<HTMLElement>(".overlay-tab").forEach((el) => {
     el.classList.toggle("active", el.dataset.aeTab === tab);
   });
@@ -603,7 +733,8 @@ function showError(msg: string): void {
 }
 
 async function openEdit(a: Agent | null): Promise<void> {
-  await ensureModelsLoaded();
+  ensureModelsLoaded();
+  await ensureSkillsLoaded();
   editingIsNew = !a;
   editingAgent = a ? { ...a } : { id: "", name: "", type: "local" };
 
@@ -620,6 +751,25 @@ async function openEdit(a: Agent | null): Promise<void> {
   $("ae-heading-id").textContent = editingAgent.id || "";
   renderEditAvatar(editingAgent.id, editingAgent.avatar_url);
   populateModelSelector(editingAgent.model_provider, editingAgent.model_name);
+  renderSkillsList();
+
+  // Tool permissions
+  const tp = editingAgent.tool_permissions ?? {};
+  $s("ae-tp-shell").value = tp.shell ?? "full";
+  $s("ae-tp-file_system").value = tp.file_system ?? "full";
+  $s("ae-tp-git").value = tp.git ?? "full";
+  $s("ae-tp-browser").value = tp.browser ?? "full";
+  $s("ae-tp-mcp").value = tp.mcp ?? "full";
+
+  // Guardrails tab — sliders (0 = unlimited/off)
+  const gr = editingAgent.guardrails ?? {};
+  $i("ae-gr-input-per-turn").value = String(gr.max_input_tokens_per_turn ?? 0);
+  $i("ae-gr-output-per-turn").value = String(gr.max_output_tokens_per_turn ?? 0);
+  $i("ae-gr-tokens-session").value = String(gr.max_tokens_per_session ?? 0);
+  $i("ae-gr-max-turns").value = String(gr.max_turns ?? 0);
+  $i("ae-gr-rpm").value = String(gr.rate_limit_rpm ?? 0);
+  $i("ae-gr-idle").value = String(gr.auto_stop_idle_seconds ?? 0);
+  ["ae-gr-input-per-turn","ae-gr-output-per-turn","ae-gr-tokens-session","ae-gr-max-turns","ae-gr-rpm","ae-gr-idle"].forEach(updateGrDisplay);
 
   $("ae-delete").classList.toggle("hidden", editingIsNew);
   setEditTab("profile");
@@ -653,6 +803,24 @@ async function saveEdit(): Promise<void> {
   const modelVal = $s("ae-model").value;
   const [modelProvider, modelName] = modelVal ? modelVal.split("::") : [undefined, undefined];
 
+  const grN = (id: string) => { const v = parseInt($i(id).value, 10); return v > 0 ? v : undefined; };
+  const guardrails: Guardrails = {};
+  const grInput = grN("ae-gr-input-per-turn"); if (grInput) guardrails.max_input_tokens_per_turn = grInput;
+  const grOutput = grN("ae-gr-output-per-turn"); if (grOutput) guardrails.max_output_tokens_per_turn = grOutput;
+  const grSession = grN("ae-gr-tokens-session"); if (grSession) guardrails.max_tokens_per_session = grSession;
+  const grTurns = grN("ae-gr-max-turns"); if (grTurns) guardrails.max_turns = grTurns;
+  const grRpm = grN("ae-gr-rpm"); if (grRpm) guardrails.rate_limit_rpm = grRpm;
+  const grIdle = grN("ae-gr-idle"); if (grIdle) guardrails.auto_stop_idle_seconds = grIdle;
+
+  const tool_permissions: ToolPermissions = {
+    shell: $s("ae-tp-shell").value as ToolPerm,
+    file_system: $s("ae-tp-file_system").value as ToolPerm,
+    git: $s("ae-tp-git").value as ToolPerm,
+    browser: $s("ae-tp-browser").value as ToolPerm,
+    mcp: $s("ae-tp-mcp").value as ToolPerm,
+  };
+  const allFull = Object.values(tool_permissions).every((v) => v === "full");
+
   const cfg: Agent = {
     ...editingAgent,
     id,
@@ -664,6 +832,9 @@ async function saveEdit(): Promise<void> {
     joinable: $i("ae-joinable").checked,
     model_provider: modelProvider,
     model_name: modelName,
+    skills: editingAgent.skills || [],
+    guardrails: Object.keys(guardrails).length > 0 ? guardrails : undefined,
+    tool_permissions: allFull ? undefined : tool_permissions,
   };
 
   try {
@@ -849,7 +1020,7 @@ function setChip(groupId: string, value: string): void {
   });
 }
 
-function renderSeedList(): void {
+function renderSeedList(filter?: string): void {
   const list = $("cw-seed-list");
   const empty = $("cw-seed-empty");
   list.innerHTML = "";
@@ -858,9 +1029,25 @@ function renderSeedList(): void {
     list.style.display = "none";
     return;
   }
+
+  let agents = agentsCache;
+  if (filter) {
+    const q = filter.toLowerCase();
+    agents = agents.filter((a) =>
+      a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q) || (a.role || "").toLowerCase().includes(q)
+    );
+  }
+
+  if (agents.length === 0) {
+    empty.classList.remove("hidden");
+    empty.textContent = "No matching agents.";
+    list.style.display = "none";
+    return;
+  }
+
   empty.classList.add("hidden");
   list.style.display = "";
-  for (const a of agentsCache) {
+  for (const a of agents) {
     const card = document.createElement("div");
     card.className = "seed-card" + (wizard.seedAgentIds.has(a.id) ? " selected" : "");
     const avatarHtml = a.avatar_url
@@ -961,16 +1148,15 @@ async function publishCypherFromWizard(): Promise<void> {
 
   // 2. Upload cover image if user generated or uploaded one
   if (wizard.coverDataB64 && wizard.coverMode !== "css") {
-    const upR = await drop.cypherCoverUpload(cypherId, wizard.coverDataB64, wizard.coverContentType) as { ok?: boolean; error?: string };
-    if (!upR?.ok) console.warn("[drop] cover upload failed:", upR?.error || upR);
+    const upR = await drop.cypherCoverUpload(cypherId, wizard.coverDataB64, wizard.coverContentType) as { ok?: boolean; error?: string; cover?: { sha256: string } };
+    if (!upR?.ok) {
+      console.error("[drop] cover upload failed:", upR?.error || upR);
+      showWizardError(`Cover upload failed: ${upR?.error || "unknown error"}`);
+      return;
+    }
   }
 
-  // 3. Seed roster — join the host's agents into the draft cypher
-  for (const agentId of wizard.seedAgentIds) {
-    await drop.cypherJoin(cypherId, agentId).catch(() => { /* best-effort */ });
-  }
-
-  // 4. Publish → lobby
+  // 3. Publish → lobby (must happen before joining agents — join requires lobby/live status)
   const pub = await drop.cypherPublish(cypherId, {
     initial_kitty_deposit: 0,
     lobby_duration_seconds,
@@ -978,6 +1164,11 @@ async function publishCypherFromWizard(): Promise<void> {
   if (!pub.ok || !pub.cypher) {
     showWizardError(pub.error || "Publish failed");
     return;
+  }
+
+  // 4. Seed roster — join the host's agents into the lobby
+  for (const agentId of wizard.seedAgentIds) {
+    await drop.cypherJoin(cypherId, agentId).catch(() => { /* best-effort */ });
   }
 
   closeWizard();
@@ -1003,7 +1194,7 @@ async function enterLobby(c: Cypher): Promise<void> {
   setView("lobby");
   lobbyState.cypherId = c.id;
   lobbyState.cypher = c;
-  // Make sure we know the user's roster so we can detect "am I a jammer"
+  await ensureCurrentUser();
   if (agentsCache.length === 0) {
     const r = await drop.agentsList() as Agent[] | { error?: string };
     agentsCache = Array.isArray(r) ? r : [];
@@ -1119,6 +1310,8 @@ function renderLobby(): void {
   } else {
     empty.classList.add("hidden");
     list.style.display = "";
+    const isHost = isHostOf(c);
+    const canRemove = isHost && (c.status === "lobby" || c.status === "live");
     for (const j of lobbyState.jammers) {
       const card = document.createElement("div");
       card.className = "roster-card reveal";
@@ -1132,8 +1325,19 @@ function renderLobby(): void {
             <div class="roster-name">${escapeHtml(j.name || j.agent_local_id)}</div>
             <div class="roster-id">${escapeHtml(j.agent_local_id)}${j.role ? ` · ${escapeHtml(j.role)}` : ""}</div>
           </div>
+          ${canRemove ? `<button class="jammer-remove-btn" title="Remove jammer">×</button>` : ""}
         </div>
       `;
+      if (canRemove) {
+        card.querySelector(".jammer-remove-btn")!.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const r = await drop.cypherLeave(lobbyState.cypherId!, j.agent_local_id) as { ok?: boolean; error?: string };
+          if (!r.ok) { alert(r.error || "Remove failed"); return; }
+          const jR = await drop.cypherJammers(lobbyState.cypherId!) as { jammers?: Jammer[]; error?: string };
+          if (jR && Array.isArray(jR.jammers)) lobbyState.jammers = jR.jammers;
+          renderLobby();
+        });
+      }
       list.appendChild(card);
     }
   }
@@ -1148,6 +1352,7 @@ function renderLobby(): void {
   // Host-only: Start + Cancel
   $("lobby-start").classList.toggle("hidden", !isHost || c.status !== "lobby");
   $("lobby-cancel").classList.toggle("hidden", !isHost || terminal);
+  $("lobby-edit").classList.toggle("hidden", !isHost || terminal);
   // Join visible in lobby or live, if user has agents not yet in the cypher
   $("lobby-join").classList.toggle("hidden", terminal || (c.status !== "lobby" && c.status !== "live") || allAgentsJammed());
   // Leave visible only if user IS a jammer (and not terminal)
@@ -1313,6 +1518,42 @@ async function lobbyCancel(): Promise<void> {
   exitLobby();
 }
 
+// ── Cypher edit (from lobby) ──────────────────────────
+
+function openCypherEdit(): void {
+  const c = lobbyState.cypher;
+  if (!c) return;
+  $i("ce-title").value = c.title || "";
+  $t("ce-goal").value = c.goal || "";
+  $t("ce-description").value = c.description || "";
+  $i("ce-max-jammers").value = c.max_jammers != null ? String(c.max_jammers) : "";
+  $("ce-error").classList.add("hidden");
+  $("cypher-edit-overlay").classList.remove("hidden");
+}
+
+function closeCypherEdit(): void {
+  $("cypher-edit-overlay").classList.add("hidden");
+}
+
+async function saveCypherEdit(): Promise<void> {
+  if (!lobbyState.cypherId) return;
+  const title = $i("ce-title").value.trim();
+  if (!title) { $("ce-error").textContent = "Title is required"; $("ce-error").classList.remove("hidden"); return; }
+  const patch: { title: string; goal?: string; description?: string; max_jammers?: number | null } = { title };
+  const goal = $t("ce-goal").value.trim();
+  if (goal) patch.goal = goal;
+  const desc = $t("ce-description").value.trim();
+  if (desc) patch.description = desc;
+  const maxJ = $i("ce-max-jammers").value.trim();
+  patch.max_jammers = maxJ ? Number(maxJ) : null;
+
+  const r = await drop.cypherUpdateMeta(lobbyState.cypherId, patch) as { ok?: boolean; cypher?: Cypher; error?: string };
+  if (!r.ok) { $("ce-error").textContent = r.error || "Save failed"; $("ce-error").classList.remove("hidden"); return; }
+  if (r.cypher) lobbyState.cypher = r.cypher;
+  closeCypherEdit();
+  renderLobby();
+}
+
 /**
  * Leave: if I'm a jammer, call cypherLeave for each of my jammed agents
  * before exiting. If I'm just a viewer, exit without calling anything.
@@ -1329,12 +1570,16 @@ async function lobbyLeave(): Promise<void> {
 
 // ── Join flow ─────────────────────────────────────────
 
+let joinSelectedIds = new Set<string>();
+
 function openJoinPicker(): void {
   if (!lobbyState.cypher) return;
-  const titleEl = $("join-cypher-title");
-  titleEl.textContent = lobbyState.cypher.title || lobbyState.cypher.slug || "";
+  $("join-cypher-title").textContent = lobbyState.cypher.title || lobbyState.cypher.slug || "";
+  joinSelectedIds.clear();
   clearJoinError();
+  $i("join-search").value = "";
   renderJoinList();
+  updateJoinCount();
   $("join-overlay").classList.remove("hidden");
 }
 
@@ -1353,7 +1598,12 @@ function showJoinError(msg: string): void {
   e.classList.remove("hidden");
 }
 
-function renderJoinList(): void {
+function updateJoinCount(): void {
+  const el = $("join-selected-count");
+  el.textContent = joinSelectedIds.size > 0 ? `${joinSelectedIds.size} selected` : "";
+}
+
+function renderJoinList(filter?: string): void {
   const list = $("join-pick-list");
   const empty = $("join-pick-empty");
   list.innerHTML = "";
@@ -1365,22 +1615,28 @@ function renderJoinList(): void {
   empty.classList.add("hidden");
   list.style.display = "";
 
-  // Hide any of my jammers that are already on the cypher's jammer list.
   const onCypher = new Set(lobbyState.jammers.map((j) => j.agent_local_id));
-  const candidates = agentsCache
+  let candidates = agentsCache
     .filter((a) => !onCypher.has(a.id))
     .sort((a, b) => Number(!!b.joinable) - Number(!!a.joinable));
 
+  if (filter) {
+    const q = filter.toLowerCase();
+    candidates = candidates.filter((a) =>
+      a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q) || (a.role || "").toLowerCase().includes(q)
+    );
+  }
+
   if (candidates.length === 0) {
     empty.classList.remove("hidden");
-    empty.textContent = "All your jammers are already on this cypher.";
+    empty.textContent = filter ? "No matching jammers." : "All your jammers are already on this cypher.";
     list.style.display = "none";
     return;
   }
 
   for (const a of candidates) {
     const card = document.createElement("div");
-    card.className = "seed-card";
+    card.className = "seed-card" + (joinSelectedIds.has(a.id) ? " selected" : "");
     const avatarHtml = a.avatar_url
       ? `<img src="${escapeHtml(a.avatar_url)}" alt="" />`
       : identiconSvg(a.id, 36);
@@ -1390,23 +1646,33 @@ function renderJoinList(): void {
         <div class="seed-name">${escapeHtml(a.name || a.id)}${a.joinable ? "" : ' <span class="form-hint">(not joinable)</span>'}</div>
         <div class="seed-id">${escapeHtml(a.id)}${a.role ? ` · ${escapeHtml(a.role)}` : ""}</div>
       </div>
-      <div class="seed-check">→</div>
+      <div class="seed-check">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
     `;
-    card.addEventListener("click", () => { void joinAsJammer(a.id); });
+    card.addEventListener("click", () => {
+      if (joinSelectedIds.has(a.id)) joinSelectedIds.delete(a.id);
+      else joinSelectedIds.add(a.id);
+      card.classList.toggle("selected", joinSelectedIds.has(a.id));
+      updateJoinCount();
+    });
     list.appendChild(card);
   }
 }
 
-async function joinAsJammer(agentId: string): Promise<void> {
-  if (!lobbyState.cypherId) return;
+async function joinSelectedJammers(): Promise<void> {
+  if (!lobbyState.cypherId || joinSelectedIds.size === 0) return;
   clearJoinError();
-  const r = await drop.cypherJoin(lobbyState.cypherId, agentId) as { ok?: boolean; error?: string };
-  if (!r.ok) {
-    showJoinError(r.error || "Join failed");
-    return;
+  const errors: string[] = [];
+  for (const agentId of joinSelectedIds) {
+    const r = await drop.cypherJoin(lobbyState.cypherId, agentId) as { ok?: boolean; error?: string };
+    if (!r.ok) errors.push(`${agentId}: ${r.error || "failed"}`);
   }
-  closeJoinPicker();
-  // Refresh the lobby's roster immediately so the user sees themselves in.
+  if (errors.length > 0) {
+    showJoinError(errors.join("; "));
+  } else {
+    closeJoinPicker();
+  }
   if (lobbyState.cypherId) {
     const jR = await drop.cypherJammers(lobbyState.cypherId) as { jammers?: Jammer[]; error?: string };
     if (jR && Array.isArray(jR.jammers)) lobbyState.jammers = jR.jammers;
@@ -1902,6 +2168,7 @@ function init(): void {
   // Browse loaders fire on launch
   void loadFeatured();
   void loadDirectory();
+  void loadSidebar();
 
   // View tabs
   document.querySelectorAll<HTMLElement>(".view-tab").forEach((el) => {
@@ -1942,7 +2209,7 @@ function init(): void {
   $("ae-save").addEventListener("click", () => { void saveEdit(); });
   $("ae-delete").addEventListener("click", () => { void deleteEdit(); });
   document.querySelectorAll<HTMLElement>(".overlay-tab").forEach((el) => {
-    el.addEventListener("click", () => setEditTab(el.dataset.aeTab as "profile" | "behavior"));
+    el.addEventListener("click", () => setEditTab(el.dataset.aeTab as "profile" | "behavior" | "guardrails"));
   });
 
   // Live identicon preview as id / avatar URL change
@@ -1957,6 +2224,12 @@ function init(): void {
   $i("ae-name").addEventListener("input", () => {
     $("ae-heading-name").textContent = $i("ae-name").value || "New jammer";
   });
+  $("ae-skills-add").addEventListener("click", () => { showSkillsAddPicker(); });
+
+  // Guardrails sliders — live value display
+  ["ae-gr-input-per-turn","ae-gr-output-per-turn","ae-gr-tokens-session","ae-gr-max-turns","ae-gr-rpm","ae-gr-idle"].forEach((id) => {
+    $i(id).addEventListener("input", () => updateGrDisplay(id));
+  });
 
   // ── Cypher creation wizard ─────────────────
   $("cypher-overlay-scrim").addEventListener("click", closeWizard);
@@ -1969,6 +2242,9 @@ function init(): void {
     if (wizard.step < 5) setWizardStep((wizard.step + 1) as WizardStep);
   });
   $("cw-publish").addEventListener("click", () => { void publishCypherFromWizard(); });
+  $i("cw-seed-search").addEventListener("input", () => {
+    renderSeedList($i("cw-seed-search").value.trim() || undefined);
+  });
   document.querySelectorAll<HTMLElement>("#cw-vibe .chip").forEach((el) => {
     el.addEventListener("click", () => {
       wizard.vibe = el.dataset.chip as typeof wizard.vibe;
@@ -2016,10 +2292,18 @@ function init(): void {
   $("lobby-leave").addEventListener("click", () => { void lobbyLeave(); });
   $("lobby-start").addEventListener("click", () => { void lobbyStartNow(); });
   $("lobby-cancel").addEventListener("click", () => { void lobbyCancel(); });
+  $("lobby-edit").addEventListener("click", openCypherEdit);
+  $("cypher-edit-scrim").addEventListener("click", closeCypherEdit);
+  $("cypher-edit-close").addEventListener("click", closeCypherEdit);
+  $("cypher-edit-save").addEventListener("click", () => { void saveCypherEdit(); });
   $("lobby-join").addEventListener("click", openJoinPicker);
   $("join-overlay-scrim").addEventListener("click", closeJoinPicker);
   $("join-close").addEventListener("click", closeJoinPicker);
   $("join-cancel").addEventListener("click", closeJoinPicker);
+  $("join-confirm").addEventListener("click", () => { void joinSelectedJammers(); });
+  $i("join-search").addEventListener("input", () => {
+    renderJoinList($i("join-search").value.trim() || undefined);
+  });
   $("lobby-redraft").addEventListener("click", async () => {
     if (!lobbyState.cypherId) return;
     const r = await drop.cypherRedraft(lobbyState.cypherId) as { ok?: boolean; draft_round?: number; assignments?: AssignmentRow[]; error?: string };

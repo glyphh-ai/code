@@ -8,6 +8,8 @@ interface DropAPI {
   cypherPublish: (id: string, opts?: { initial_kitty_deposit?: number; lobby_duration_seconds?: number | null }) => Promise<unknown>;
   cypherStart: (id: string) => Promise<unknown>;
   cypherCancel: (id: string) => Promise<unknown>;
+  cypherDelete: (id: string) => Promise<unknown>;
+  cypherUpdateMeta: (id: string, patch: { title?: string; goal?: string; description?: string; max_jammers?: number | null }) => Promise<unknown>;
   cypherDraftGet: (id: string) => Promise<unknown>;
   cypherRedraft: (id: string, opts?: { ratio?: number }) => Promise<unknown>;
   cypherDecline: (id: string, agent_local_id: string) => Promise<unknown>;
@@ -24,6 +26,8 @@ interface DropAPI {
 
   // Leaderboard
   agentsLeaderboard: (opts?: { skills?: string; days?: number; limit?: number }) => Promise<unknown>;
+  leaderboardTopCyphers: (limit?: number) => Promise<unknown>;
+  leaderboardTopJammers: (limit?: number) => Promise<unknown>;
 
   // Agent registry CRUD
   agentsList: () => Promise<unknown>;
@@ -40,6 +44,13 @@ interface DropAPI {
 
   // Models for the model picker
   modelsList: () => Promise<unknown>;
+
+  // Skills
+  skillsList: () => Promise<string[]>;
+  skillsListDetailed: () => Promise<{ name: string; description?: string }[]>;
+
+  // Config
+  getApiBase: () => string;
 
   // Misc
   execCommand: (cmd: string) => Promise<unknown>;
@@ -70,6 +81,8 @@ const api: DropAPI = {
   cypherPublish: (id, opts) => ipcRenderer.invoke("cypher-publish", id, opts),
   cypherStart: (id) => ipcRenderer.invoke("cypher-start", id),
   cypherCancel: (id) => ipcRenderer.invoke("cypher-cancel", id),
+  cypherDelete: (id) => ipcRenderer.invoke("cypher-delete", id),
+  cypherUpdateMeta: (id, patch) => ipcRenderer.invoke("cypher-update-meta", id, patch),
   cypherDraftGet: (id) => ipcRenderer.invoke("cypher-draft-get", id),
   cypherRedraft: (id, opts) => ipcRenderer.invoke("cypher-redraft", id, opts),
   cypherDecline: (id, agentLocalId) => ipcRenderer.invoke("cypher-decline", id, agentLocalId),
@@ -85,6 +98,8 @@ const api: DropAPI = {
     ipcRenderer.invoke("cypher-join", id, agent_local_id, role, invite_token),
   cypherLeave: (id, agent_local_id) => ipcRenderer.invoke("cypher-leave", id, agent_local_id),
   agentsLeaderboard: (opts) => ipcRenderer.invoke("agents-leaderboard", opts),
+  leaderboardTopCyphers: (limit) => ipcRenderer.invoke("leaderboard-top-cyphers", limit),
+  leaderboardTopJammers: (limit) => ipcRenderer.invoke("leaderboard-top-jammers", limit),
   agentsList: () => ipcRenderer.invoke("agents-list"),
   agentsGet: (id) => ipcRenderer.invoke("agents-get", id),
   agentsSave: (cfg) => ipcRenderer.invoke("agents-save", cfg),
@@ -94,6 +109,9 @@ const api: DropAPI = {
   cypherCoverUpload: (id, dataBase64, contentType) => ipcRenderer.invoke("cypher-cover-upload", id, dataBase64, contentType),
   cypherCoverDelete: (id) => ipcRenderer.invoke("cypher-cover-delete", id),
   modelsList: () => ipcRenderer.invoke("models-list"),
+  skillsList: () => ipcRenderer.invoke("skills-list"),
+  skillsListDetailed: () => ipcRenderer.invoke("skills-list-detailed"),
+  getApiBase: () => process.env.YO_AUTH_SERVER || "https://api.yosup.dev",
   execCommand: (cmd) => ipcRenderer.invoke("exec-command", cmd),
   onCypherEvent: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, cypherId: string, kind: string, payload: Record<string, unknown>) =>

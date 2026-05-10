@@ -2942,6 +2942,22 @@ async function boot() {
       return { error: err instanceof Error ? err.message : "fetch failed" };
     }
   });
+  ipcMain.handle("leaderboard-top-cyphers", async (_e, limit?: number) => {
+    try {
+      return await serverGetAuthed<unknown>(`/api/cyphers/leaderboard/tokens?limit=${limit || 10}`);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "fetch failed" };
+    }
+  });
+
+  ipcMain.handle("leaderboard-top-jammers", async (_e, limit?: number) => {
+    try {
+      return await serverGetAuthed<unknown>(`/api/jammers/leaderboard/tokens?limit=${limit || 10}`);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "fetch failed" };
+    }
+  });
+
   ipcMain.handle("marketplace-available", async (_e, opts?: { tier?: string; provider?: string; limit?: number }) => {
     const params = new URLSearchParams();
     if (opts?.tier) params.set("tier", opts.tier);
@@ -3001,6 +3017,26 @@ async function boot() {
       });
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "update failed" }; }
   });
+  ipcMain.handle("cypher-update-meta", async (_e, id: string, patch: Record<string, unknown>) => {
+    try {
+      const token = (await import("./auth")).getAuthToken();
+      if (!token) return { ok: false, error: "Not authenticated" };
+      const { net } = await import("electron");
+      return await new Promise((resolve, reject) => {
+        const req = net.request({ url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}/meta`, method: "PATCH" });
+        req.setHeader("Content-Type", "application/json");
+        req.setHeader("Authorization", `Bearer ${token}`);
+        let body = "";
+        req.on("response", (r) => {
+          r.on("data", (c) => { body += c.toString(); });
+          r.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid response")); } });
+        });
+        req.on("error", reject);
+        req.write(JSON.stringify(patch));
+        req.end();
+      });
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "update failed" }; }
+  });
   ipcMain.handle("cypher-publish", async (_e, id: string, opts?: { initial_kitty_deposit?: number; lobby_duration_seconds?: number | null }) => {
     try {
       const body: Record<string, unknown> = {
@@ -3034,6 +3070,27 @@ async function boot() {
   ipcMain.handle("cypher-cancel", async (_e, id: string) => {
     try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/cancel`, {}); }
     catch (err) { return { ok: false, error: err instanceof Error ? err.message : "cancel failed" }; }
+  });
+  ipcMain.handle("cypher-delete", async (_e, id: string) => {
+    try {
+      const token = (await import("./auth")).getAuthToken();
+      if (!token) return { ok: false, error: "Not authenticated" };
+      const { net } = await import("electron");
+      return await new Promise((resolve, reject) => {
+        const req = net.request({
+          url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}`,
+          method: "DELETE",
+        });
+        req.setHeader("Authorization", `Bearer ${token}`);
+        let body = "";
+        req.on("response", (r) => {
+          r.on("data", (c) => { body += c.toString(); });
+          r.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid response")); } });
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "delete failed" }; }
   });
   ipcMain.handle("cypher-discover", async (_e, opts?: { status?: string; type?: string; limit?: number; offset?: number }) => {
     const p = new URLSearchParams();
