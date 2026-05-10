@@ -2347,20 +2347,20 @@ async function boot() {
     yoAgent.send(trimmed, {
       onText: (delta) => {
         wc.send("yo-panel-token", delta);
-        cypherView?.webContents.send("cypher-stage-token", delta);
+        cypherView?.webContents?.send("cypher-stage-token", delta);
       },
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
-        cypherView?.webContents.send("cypher-stage-tool", id, name, input);
+        cypherView?.webContents?.send("cypher-stage-tool", id, name, input);
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
-        cypherView?.webContents.send("cypher-stage-tool-result", id, detail);
+        cypherView?.webContents?.send("cypher-stage-tool-result", id, detail);
       },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
-        cypherView?.webContents.send("cypher-stage-done", fullText);
+        cypherView?.webContents?.send("cypher-stage-done", fullText);
       },
       onError: (err) => wc.send("yo-panel-error", err),
     });
@@ -3511,27 +3511,34 @@ async function boot() {
         yoAgent.clear();
         wc.send("yo-panel-open", "");
         setTimeout(() => {
-          wc.send("yo-panel-kickoff", kickoff);
+          if (mainWindow?.isDestroyed()) return;
+          const mwc = mainWindow!.webContents;
+          mwc.send("yo-panel-kickoff", kickoff);
           const cv = panelManager.getView("cypher");
+          const stageWc = cv?.webContents;
           yoAgent.send(kickoff, {
             onText: (delta) => {
-              wc.send("yo-panel-token", delta);
-              cv?.webContents.send("cypher-stage-token", delta);
+              if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-token", delta);
+              stageWc?.send("cypher-stage-token", delta);
             },
             onToolUse: (id, name, input) => {
-              wc.send("yo-panel-tool-use", id, name, input);
-              cv?.webContents.send("cypher-stage-tool", id, name, input);
+              if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-tool-use", id, name, input);
+              stageWc?.send("cypher-stage-tool", id, name, input);
             },
             onToolResult: (id, detail) => {
-              wc.send("yo-panel-tool-result", id, detail);
-              cv?.webContents.send("cypher-stage-tool-result", id, detail);
+              if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-tool-result", id, detail);
+              stageWc?.send("cypher-stage-tool-result", id, detail);
             },
-            onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
+            onToolProgress: (id, status) => {
+              if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-tool-progress", id, status);
+            },
             onDone: (fullText) => {
-              wc.send("yo-panel-done", fullText);
-              cv?.webContents.send("cypher-stage-done", fullText);
+              if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-done", fullText);
+              stageWc?.send("cypher-stage-done", fullText);
             },
-            onError: (err) => wc.send("yo-panel-error", err),
+            onError: (err) => {
+              if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-error", err);
+            },
           });
         }, 500);
       } catch { /* best effort — user can still interact manually */ }
