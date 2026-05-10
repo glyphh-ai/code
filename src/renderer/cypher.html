@@ -106,9 +106,14 @@
     flex-shrink: 0;
   }
   .roster-status-dot.idle { background: var(--text-3); }
-  .roster-status-dot.running { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-  .roster-status-dot.waiting { background: #ffb400; }
+  .roster-status-dot.running { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
+  .roster-status-dot.waiting { background: #4caf50; box-shadow: 0 0 6px #4caf5088; }
+  .roster-status-dot.starting { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
   .roster-status-dot.error { background: #f44; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
 
   /* ── Center: Stage (agent output) ──────────────────────── */
   .stage-panel {

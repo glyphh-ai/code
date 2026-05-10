@@ -3853,6 +3853,7 @@ async function boot() {
         cypherId: cypId,
         model: reg.model_name,
       };
+      console.log(`[spawn-jammers] starting agent "${reg.id}" (position=${a.position})`);
       agentRunner.startAgent(wc, config).catch((startErr) => {
         console.error(`[spawn-jammers] start failed for ${reg.id}:`, startErr instanceof Error ? startErr.message : startErr);
       });
