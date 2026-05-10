@@ -1843,6 +1843,7 @@ async function boot() {
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
   let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null =
     getPreference<{ cypherId: string; isOwner: boolean; title?: string } | null>("cypherPanelContext", null);
+  let pendingCypherRestore: string | null = null;
 
   function getTabName(id: string | null | undefined): string {
     if (!id) return "";
@@ -2141,26 +2142,10 @@ async function boot() {
       yoAgent.setMode("acceptEdits");
       setPreference("agentMode", "cypher");
       yoInterceptor.setAgentMode("cypher");
-      if (mainWindow) mainWindow.webContents.send("agent-mode-changed", "cypher");
-      openYoPanel("");
-
-      // Wait for cypher panel to finish loading, then run deterministic setup
-      const waitForPanel = () => {
-        const cv = panelManager.getView("cypher");
-        if (cv && !cv.webContents.isDestroyed()) {
-          const run = () => {
-            cv.webContents.send("cypher-context-ready");
-            activateCypherSession(cypherRestoreId).catch((err) => {
-              console.warn("[cypher-restore] session activate failed:", err instanceof Error ? err.message : err);
-            });
-          };
-          if (!cv.webContents.isLoading()) run();
-          else cv.webContents.once("did-finish-load", run);
-        } else {
-          setTimeout(waitForPanel, 300);
-        }
-      };
-      setTimeout(waitForPanel, 150);
+      // Don't send IPC yet — renderer isn't ready during splash.
+      // Renderer will read correct mode via get-agent-mode on its own init.
+      // Open .yo panel + activate session AFTER panels-show (splash dismissed)
+      pendingCypherRestore = cypherRestoreId;
     }
   }
 
@@ -2373,6 +2358,22 @@ async function boot() {
         view.webContents.reload();
       }
     }
+
+    // Deferred cypher restore — renderer is now ready
+    if (pendingCypherRestore) {
+      const cypId = pendingCypherRestore;
+      pendingCypherRestore = null;
+      mainWindow.webContents.send("agent-mode-changed", "cypher");
+      openYoPanel("");
+      // Activate session (project check + jammer spawn)
+      const cv = panelManager.getView("cypher");
+      if (cv && !cv.webContents.isDestroyed()) {
+        cv.webContents.send("cypher-context-ready");
+        activateCypherSession(cypId).catch((err) => {
+          console.warn("[cypher-restore] session activate failed:", err instanceof Error ? err.message : err);
+        });
+      }
+    }
   });
 
   // IPC: Command palette — toggle the injected overlay on the active panel
@@ -2465,10 +2466,8 @@ async function boot() {
 
   // IPC: Agent mode + guardrails
   ipcMain.handle("get-agent-mode", () => {
-    // Returns the user-facing mode preference: "council" | "default" | "plan"
-    // | "acceptEdits" | "bypassPermissions". Council is surfaced separately
-    // because it's a behavioral overlay, not an SDK permissionMode.
     if (yoAgent.isCouncilMode()) return "council";
+    if (yoAgent.isCypherMode()) return "cypher";
     return yoAgent.getMode();
   });
   ipcMain.on("set-agent-mode", (_e, mode: string) => {
@@ -3556,14 +3555,28 @@ async function boot() {
       } catch { /* project creation failed — non-fatal */ }
     }
 
-    // 3. Spawn local jammer agents
-    if (stageWc && !stageWc.isDestroyed()) {
-      spawnCypherJammers(cypId, stageWc).catch((err) => {
-        console.warn("[cypher-session] jammer spawn failed:", err instanceof Error ? err.message : err);
-      });
+    // 3. Ensure draft assignments exist — run draft if missing
+    if (activeJammers.length > 0) {
+      try {
+        const manifestR = await serverGetAuthed<{ ok?: boolean; manifest?: { assignments: unknown[] } }>(
+          `/api/cyphers/${encodeURIComponent(cypId)}/manifest`,
+        );
+        if (!manifestR?.manifest?.assignments?.length) {
+          // Draft hasn't run or produced empty — trigger it
+          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypId)}/redraft`, {});
+        }
+      } catch { /* draft/manifest check failed — try spawn anyway */ }
     }
 
-    // 4. Send status to stage panel (deterministic text, not LLM output)
+    // 4. Spawn local jammer agents
+    if (stageWc && !stageWc.isDestroyed()) {
+      const spawnResult = await spawnCypherJammers(cypId, stageWc);
+      if (spawnResult.spawned === 0 && activeJammers.length > 0) {
+        console.warn("[cypher-session] 0 jammers spawned despite", activeJammers.length, "active.", spawnResult);
+      }
+    }
+
+    // 5. Send status to stage panel (deterministic text, not LLM output)
     if (stageWc && !stageWc.isDestroyed()) {
       const statusLines = [
         `⚡ Cypher: ${cy?.title || "Untitled"} [${cy?.status || "unknown"}]`,
