@@ -86,6 +86,7 @@ import { initLocalDb, closeLocalDb } from "./local-db";
 import { migrateFromFiles } from "./stores/migrate-from-files";
 import { setSubstrateToolDeps, listBuiltinYoTools } from "./substrate/tools";
 import { getAgentMode } from "./action-gate";
+import * as threadStore from "./cypher-thread-store";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -609,10 +610,13 @@ async function boot() {
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   {
     const savedModeRaw = getPreference<string>("agentMode", "default");
-    const savedMode = savedModeRaw === "council" ? "council" : getAgentMode();
+    const savedMode = savedModeRaw === "council" ? "council" : savedModeRaw === "cypher" ? "cypher" : getAgentMode();
     yoInterceptor.setAgentMode(savedMode);
     if (savedMode === "council") {
       yoAgent.setCouncilMode(true);
+    } else if (savedMode === "cypher") {
+      yoAgent.setCypherMode(true);
+      yoAgent.setMode("acceptEdits");
     } else {
       yoAgent.setMode(savedMode as any);
     }
@@ -1291,10 +1295,8 @@ async function boot() {
     project: {
       getForCypher: async (cypherId: string) => {
         try {
-          const r = await serverGetAuthed<{ projects?: Array<{ slug: string }> }>(`/api/projects/mine`);
-          const projects = r?.projects || [];
-          const match = projects.find((p: any) => p.cypher_id === cypherId);
-          return match?.slug || null;
+          const r = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypherId)}`);
+          return r?.project?.slug || null;
         } catch { return null; }
       },
       create: async (cypherId: string, goal: string, linkedRepos: string[]) => {
@@ -1839,7 +1841,8 @@ async function boot() {
   const panelUrls: Record<string, string> = {};
   const panelFavicons: Record<string, string> = getPreference<Record<string, string>>("panelFavicons", {});
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
-  let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null = null;
+  let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null =
+    getPreference<{ cypherId: string; isOwner: boolean; title?: string } | null>("cypherPanelContext", null);
 
   function getTabName(id: string | null | undefined): string {
     if (!id) return "";
@@ -1857,9 +1860,9 @@ async function boot() {
     const hasLayout = layoutInfo && layoutInfo.panelIds.length > 1;
     const isActiveLayout = gridInfo && gridInfo.panelIds.length > 1;
 
-    // Filter any stale null entries from openTabs
+    // Filter stale null entries and deduplicate
     for (let i = openTabs.length - 1; i >= 0; i--) {
-      if (!openTabs[i]) openTabs.splice(i, 1);
+      if (!openTabs[i] || openTabs.indexOf(openTabs[i]) !== i) openTabs.splice(i, 1);
     }
 
     // Ensure "home" is always the leftmost tab
@@ -1960,7 +1963,7 @@ async function boot() {
   }
 
   function persistTabs() {
-    setPreference("openTabs", [...openTabs]);
+    setPreference("openTabs", [...new Set(openTabs)]);
   }
 
   // Hook into panel focus events — add tab when panel becomes active
@@ -2125,6 +2128,47 @@ async function boot() {
     panelsReady = true;
     // Hide panels during splash — renderer will show them after splash dismisses
     if (mainWindow) panelManager.hideActive(mainWindow);
+
+    // Restore cypher mode if the cypher tab was active
+    if (cypherPanelContext?.cypherId && openTabs.includes("cypher")) {
+      const { setCurrentCypher: restoreCy } = require("./current-cypher") as { setCurrentCypher: (id: string | null) => void };
+      restoreCy(cypherPanelContext.cypherId);
+      yoAgent.setCypherMode(true);
+      yoAgent.setMode("acceptEdits");
+      setPreference("agentMode", "cypher");
+      yoInterceptor.setAgentMode("cypher");
+      if (mainWindow) mainWindow.webContents.send("agent-mode-changed", "cypher");
+
+      // Signal cypher panel to load persisted threads once its webContents is ready
+      const cypherRestoreId = cypherPanelContext.cypherId;
+      let cypherRestoreFired = false;
+      const fireCypherRestore = (wc: Electron.WebContents) => {
+        if (cypherRestoreFired) return;
+        cypherRestoreFired = true;
+        wc.send("cypher-context-ready");
+        spawnCypherJammers(cypherRestoreId, wc).catch((err) => {
+          console.warn("[cypher-restore] jammer spawn failed:", err instanceof Error ? err.message : err);
+        });
+      };
+      const signalCypherRestore = () => {
+        const cv = panelManager.getView("cypher");
+        if (cv && !cv.webContents.isDestroyed()) {
+          if (!cv.webContents.isLoading()) {
+            fireCypherRestore(cv.webContents);
+          } else {
+            cv.webContents.once("did-finish-load", () => {
+              fireCypherRestore(cv.webContents);
+            });
+          }
+        } else {
+          setTimeout(signalCypherRestore, 500);
+        }
+      };
+      setTimeout(signalCypherRestore, 200);
+
+      // Open .yo panel alongside
+      openYoPanel("");
+    }
   }
 
   // Start cloud sync if authenticated and tier allows it
@@ -2367,23 +2411,29 @@ async function boot() {
 
     // Everything goes to the yo agent (in cypher mode it has orchestration tools)
     const cypherView = yoAgent.isCypherMode() ? panelManager.getView("cypher") : null;
+    const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
+    const activeCypherId = cypherView ? getCy() : null;
     yoAgent.send(trimmed, {
       onText: (delta) => {
         wc.send("yo-panel-token", delta);
         cypherView?.webContents?.send("cypher-stage-token", delta);
+        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "text", content: delta });
       },
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
         cypherView?.webContents?.send("cypher-stage-tool", id, name, input);
+        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
         cypherView?.webContents?.send("cypher-stage-tool-result", id, detail);
+        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool-result", content: detail.slice(0, 500), toolId: id });
       },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
         cypherView?.webContents?.send("cypher-stage-done", fullText);
+        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "done", content: "" });
       },
       onError: (err) => wc.send("yo-panel-error", err),
     });
@@ -3483,6 +3533,7 @@ async function boot() {
 
   ipcMain.handle("cypher-panel-activate", async (_e, cypherId: string, isOwner: boolean, title?: string) => {
     cypherPanelContext = { cypherId, isOwner, title: title || undefined };
+    setPreference("cypherPanelContext", cypherPanelContext);
 
     // Set current cypher so .yo substrate tools know the active cypher
     const { setCurrentCypher: setCypher } = await import("./current-cypher");
@@ -3497,8 +3548,9 @@ async function boot() {
       cypherView.webContents.send("cypher-context-ready");
     }
 
-    // Enter cypher mode on the .yo agent
+    // Enter cypher mode on the .yo agent — "acceptEdits" auto-approves reads, asks for mutations
     yoAgent.setCypherMode(true);
+    yoAgent.setMode("acceptEdits");
     setPreference("agentMode", "cypher");
     mainWindow?.webContents.send("agent-mode-changed", "cypher");
     yoInterceptor.setAgentMode("cypher");
@@ -3511,7 +3563,6 @@ async function boot() {
     // Auto-kick the orchestrator with cypher context
     if (isOwner && mainWindow && !mainWindow.isDestroyed()) {
       const wc = mainWindow.webContents;
-      // Fetch cypher status for the kickoff prompt
       try {
         const [cData, jData] = await Promise.all([
           serverGetAuthed<{ cypher?: { title?: string; goal?: string; status?: string } }>(`/api/cyphers/${encodeURIComponent(cypherId)}`),
@@ -3521,36 +3572,83 @@ async function boot() {
         const activeJammers = (jData?.jammers || []).filter((j: any) => !j.left_at);
         const jammerList = activeJammers.map((j: any) => `${j.agent_local_id} (${j.position || "jammer"})`).join(", ");
 
-        const kickoff = [
-          `You are orchestrating cypher "${cy?.title || title || "Untitled"}".`,
-          cy?.goal ? `Goal: ${cy.goal}` : "",
-          `Jammers: ${jammerList || "none yet"}`,
-          ``,
-          `Start by calling cypher_status to orient, then project_create to set up the board.`,
-          `Break the goal into discrete tasks, create items with project_add_item, and assign them to jammers.`,
-          `Use cypher_post_to to send instructions to each jammer with their task details.`,
-        ].filter(Boolean).join("\n");
+        // Check for prior state — resume instead of starting fresh
+        const priorStage = threadStore.loadStage(cypherId);
+        const hasHistory = priorStage.length > 0;
+
+        let projectState = "";
+        try {
+          const projR = await serverGetAuthed<{ project?: { slug: string; status: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypherId)}`);
+          if (projR?.project) projectState = `Project board: "${projR.project.slug}" (status: ${projR.project.status})`;
+        } catch { /* no project yet */ }
+
+        let kickoff: string;
+        if (hasHistory) {
+          // Resumption prompt — don't start from scratch
+          const lastEntries = priorStage.slice(-20);
+          const summary = lastEntries
+            .filter((e) => e.kind === "text" || e.kind === "tool")
+            .map((e) => e.kind === "tool" ? `[tool] ${e.toolName}(${e.content.slice(0, 80)})` : e.content.slice(0, 150))
+            .join("\n")
+            .slice(0, 800);
+
+          kickoff = [
+            `You are orchestrating cypher "${cy?.title || title || "Untitled"}".`,
+            cy?.goal ? `Goal: ${cy.goal}` : "",
+            `Jammers: ${jammerList || "none yet"}`,
+            projectState,
+            ``,
+            `--- RESUMING SESSION ---`,
+            `You were previously working on this cypher. Here is your recent activity:`,
+            summary,
+            ``,
+            `Call cypher_status and project_board to check current state.`,
+            `Do NOT recreate the project or re-assign tasks that are already in progress.`,
+            `Pick up where you left off — check what's done, what's pending, and continue.`,
+          ].filter(Boolean).join("\n");
+        } else {
+          kickoff = [
+            `You are orchestrating cypher "${cy?.title || title || "Untitled"}".`,
+            cy?.goal ? `Goal: ${cy.goal}` : "",
+            `Jammers: ${jammerList || "none yet"}`,
+            projectState,
+            ``,
+            `Start by calling cypher_status to orient, then project_create to set up the board.`,
+            `Break the goal into discrete tasks, create items with project_add_item, and assign them to jammers.`,
+            `Use cypher_post_to to send instructions to each jammer with their task details.`,
+          ].filter(Boolean).join("\n");
+        }
 
         yoAgent.clear();
         wc.send("yo-panel-open", "");
+
+        // Auto-spawn jammer agents for this cypher (fire-and-forget)
+        spawnCypherJammers(cypherId, wc).catch((err) => {
+          console.warn("[cypher-activate] auto-spawn failed:", err instanceof Error ? err.message : err);
+        });
+
         setTimeout(() => {
           if (mainWindow?.isDestroyed()) return;
           const mwc = mainWindow!.webContents;
           mwc.send("yo-panel-kickoff", kickoff);
           const cv = panelManager.getView("cypher");
           const stageWc = cv?.webContents;
+          const kickCyId = cypherId;
           yoAgent.send(kickoff, {
             onText: (delta) => {
               if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-token", delta);
               stageWc?.send("cypher-stage-token", delta);
+              threadStore.appendStage(kickCyId, { ts: Date.now(), kind: "text", content: delta });
             },
             onToolUse: (id, name, input) => {
               if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-tool-use", id, name, input);
               stageWc?.send("cypher-stage-tool", id, name, input);
+              threadStore.appendStage(kickCyId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
             },
             onToolResult: (id, detail) => {
               if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-tool-result", id, detail);
               stageWc?.send("cypher-stage-tool-result", id, detail);
+              threadStore.appendStage(kickCyId, { ts: Date.now(), kind: "tool-result", content: detail.slice(0, 500), toolId: id });
             },
             onToolProgress: (id, status) => {
               if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-tool-progress", id, status);
@@ -3558,6 +3656,7 @@ async function boot() {
             onDone: (fullText) => {
               if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-done", fullText);
               stageWc?.send("cypher-stage-done", fullText);
+              threadStore.appendStage(kickCyId, { ts: Date.now(), kind: "done", content: "" });
             },
             onError: (err) => {
               if (!mainWindow?.isDestroyed()) mwc.send("yo-panel-error", err);
@@ -3572,6 +3671,7 @@ async function boot() {
 
   ipcMain.on("cypher-panel-leave", () => {
     cypherPanelContext = null;
+    setPreference("cypherPanelContext", null);
     yoAgent.setCypherMode(false);
     setPreference("agentMode", "default");
     mainWindow?.webContents.send("agent-mode-changed", "standard");
@@ -3582,6 +3682,19 @@ async function boot() {
     if (idx !== -1) { openTabs.splice(idx, 1); persistTabs(); }
     if (mainWindow) panelManager.switchTo("drop", mainWindow);
     sendTabState();
+  });
+
+  // ── Cypher thread persistence IPC ─────────────────────────
+  ipcMain.handle("cypher-thread-load-stage", (_e, cypherId: string) => {
+    return threadStore.loadStage(cypherId);
+  });
+
+  ipcMain.handle("cypher-thread-load-agent", (_e, cypherId: string, agentName: string) => {
+    return threadStore.loadAgent(cypherId, agentName);
+  });
+
+  ipcMain.handle("cypher-thread-list-agents", (_e, cypherId: string) => {
+    return threadStore.listAgentThreads(cypherId);
   });
 
   // ── Council session IPC ──────────────────────────────────
@@ -3629,103 +3742,148 @@ async function boot() {
   // *this* user's local registry (i.e. the jammers I fielded), creates a
   // sandboxed cwd per jammer, builds an AgentConfig, and starts each one
   // through the existing agent-runner. Idempotent (skips already-running).
-  ipcMain.handle("cypher-spawn-jammers", async (e, cypherId: string) => {
-    if (!cypherId) return { ok: false, error: "cypherId required" };
-    try {
-      // Fetch the manifest (assignments + setup steps) — single source of truth.
-      const manifestR = await serverGetAuthed<{
-        ok?: boolean;
-        manifest?: {
-          cypher_id: string;
-          slug: string;
-          title: string;
-          goal: string | null;
-          type: string;
-          status: string;
-          assignments: Array<{ agent_local_id: string; user_id: string; position: string; area: string | null; contract: string | null }>;
-          setup: Array<Record<string, unknown>>;
-          generated_at: string;
-        };
-      }>(`/api/cyphers/${encodeURIComponent(cypherId)}/manifest`);
-      const manifest = manifestR?.manifest;
-      if (!manifest) return { ok: false, error: "manifest unavailable" };
-      const assignments = manifest.assignments ?? [];
-      if (assignments.length === 0) return { ok: true, spawned: 0, reason: "no assignments yet" };
 
-      const localAgents = listAgents();
-      const localIds = new Set(localAgents.map((a) => a.id));
-      const mine = assignments.filter((a) => localIds.has(a.agent_local_id));
-      if (mine.length === 0) return { ok: true, spawned: 0, reason: "no local jammers in this draft" };
+  async function spawnCypherJammers(cypId: string, wc: Electron.WebContents): Promise<{ ok: boolean; spawned?: number; skipped?: string[]; error?: string }> {
+    if (!cypId) return { ok: false, error: "cypherId required" };
 
-      const wsSlug = workspaceManager.getActive().slug;
-      const wpModule = await import("./work-package-runner");
-      const { runWorkPackage, jammerSandboxPath } = wpModule;
-      type SetupStep = import("./work-package-runner").SetupStep;
-      const setupSteps = manifest.setup as unknown as SetupStep[]; // already sanitized server-side
+    const manifestR = await serverGetAuthed<{
+      ok?: boolean;
+      manifest?: {
+        cypher_id: string;
+        slug: string;
+        title: string;
+        goal: string | null;
+        type: string;
+        status: string;
+        assignments: Array<{ agent_local_id: string; user_id: string; position: string; area: string | null; contract: string | null }>;
+        setup: Array<Record<string, unknown>>;
+        generated_at: string;
+      };
+    }>(`/api/cyphers/${encodeURIComponent(cypId)}/manifest`);
+    const manifest = manifestR?.manifest;
+    if (!manifest) return { ok: false, error: "manifest unavailable" };
+    const assignments = manifest.assignments ?? [];
+    if (assignments.length === 0) return { ok: true, spawned: 0 };
 
-      let spawned = 0;
-      const skipped: string[] = [];
-      const setupReports: Array<{ jammer: string; ok: boolean; logs: number; error?: string }> = [];
+    const localAgents = listAgents();
+    const localIds = new Set(localAgents.map((a) => a.id));
+    const mine = assignments.filter((a) => localIds.has(a.agent_local_id));
+    if (mine.length === 0) return { ok: true, spawned: 0 };
 
-      for (const a of mine) {
-        const reg = getAgent(a.agent_local_id);
-        if (!reg) { skipped.push(`${a.agent_local_id} (not in registry)`); continue; }
-        const sandbox = jammerSandboxPath(cypherId, a.agent_local_id);
-        try { fs.mkdirSync(sandbox, { recursive: true }); } catch { /* ignore */ }
+    const wsSlug = workspaceManager.getActive().slug;
+    const wpModule = await import("./work-package-runner");
+    const { runWorkPackage, jammerSandboxPath } = wpModule;
+    type SetupStep = import("./work-package-runner").SetupStep;
+    const setupSteps = manifest.setup as unknown as SetupStep[];
 
-        // Drop the manifest itself into the sandbox so the agent can read
-        // ./cypher.json as its plan.
-        try {
-          fs.writeFileSync(path.join(sandbox, "cypher.json"), JSON.stringify(manifest, null, 2));
-        } catch (err) {
-          console.warn(`[cypher-spawn-jammers] failed writing cypher.json for ${reg.id}:`, err instanceof Error ? err.message : err);
-        }
+    let spawned = 0;
+    const skipped: string[] = [];
 
-        // Run setup steps (best-effort). If setup fails, the jammer still
-        // boots — agent will discover the gap and report it. Future: gate
-        // start on setup success.
-        let promptAddition = "";
-        if (setupSteps.length > 0) {
-          const result = await runWorkPackage(setupSteps, sandbox);
-          setupReports.push({
-            jammer: reg.id,
-            ok: result.ok,
-            logs: result.logs.length,
-            error: result.ok ? undefined : result.logs[result.logs.length - 1]?.message,
-          });
-          promptAddition = result.prompt_addition;
-        }
+    for (const a of mine) {
+      const reg = getAgent(a.agent_local_id);
+      if (!reg) { skipped.push(`${a.agent_local_id} (not in registry)`); continue; }
+      const sandbox = jammerSandboxPath(cypId, a.agent_local_id);
+      try { fs.mkdirSync(sandbox, { recursive: true }); } catch { /* ignore */ }
 
-        const role = reg.role || a.position;
-        const briefing = [
-          `You are jammer "${reg.id}" in cypher ${cypherId}.`,
-          `Position: ${a.position}.${a.area ? ` Area: ${a.area}` : ""}`,
-          a.contract ? `Contract: ${a.contract}` : "",
-          `Your sandboxed working directory is ${sandbox}.`,
-          `Read ./cypher.json for the cypher's goal, roster, and setup plan.`,
-          `Bus messages from teammates arrive automatically. Say "Ready" and wait for instructions.`,
-          promptAddition,
-        ].filter(Boolean).join(" ");
-
-        const config: import("./agent-runner").AgentConfig = {
-          name: reg.id,
-          role,
-          cwd: sandbox,
-          prompt: reg.systemPrompt,
-          startPrompt: briefing,
-          workspace: wsSlug,
-          cypherId,
-          model: reg.model_name,
-        };
-        agentRunner.startAgent(e.sender, config).catch((err) => {
-          console.error(`[cypher-spawn-jammers] start failed for ${reg.id}:`, err instanceof Error ? err.message : err);
-        });
-        spawned++;
+      try {
+        fs.writeFileSync(path.join(sandbox, "cypher.json"), JSON.stringify(manifest, null, 2));
+      } catch (writeErr) {
+        console.warn(`[spawn-jammers] failed writing cypher.json for ${reg.id}:`, writeErr instanceof Error ? writeErr.message : writeErr);
       }
-      return { ok: true, spawned, skipped, setup_reports: setupReports };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "spawn failed" };
+
+      let promptAddition = "";
+      if (setupSteps.length > 0) {
+        const result = await runWorkPackage(setupSteps, sandbox);
+        promptAddition = result.prompt_addition;
+      }
+
+      // Load prior thread for state reload on re-entry
+      const priorThread = threadStore.loadAgent(cypId, reg.id);
+      let stateContext = "";
+      if (priorThread.length > 0) {
+        const recent = priorThread.slice(-15);
+        stateContext = [
+          `\n--- PRIOR SESSION STATE ---`,
+          `You were previously active in this cypher. Your recent activity:`,
+          ...recent.map((e) => e.kind === "tool" ? `[tool] ${e.content.slice(0, 100)}` : e.content.slice(0, 150)),
+          `Resume from where you left off. Do not repeat completed work.`,
+          `--- END STATE ---\n`,
+        ].join("\n");
+      }
+
+      const role = reg.role || a.position;
+
+      // Guardrails from agent config — hardcoded into system prompt
+      const g = reg.guardrails || {};
+      const guardrailLines: string[] = [];
+      if (g.max_turns) guardrailLines.push(`- Max turns: ${g.max_turns}`);
+      if (g.max_tokens_per_session) guardrailLines.push(`- Max tokens budget: ${g.max_tokens_per_session}`);
+      if (g.rate_limit_rpm) guardrailLines.push(`- Rate limit: ${g.rate_limit_rpm} requests/minute`);
+      if (g.auto_stop_idle_seconds) guardrailLines.push(`- Auto-stop if idle for ${g.auto_stop_idle_seconds}s`);
+
+      const systemPrompt = [
+        `# JAMMER AGENT: ${reg.id}`,
+        `Role: ${role}`,
+        `Cypher: ${manifest.title} (${cypId})`,
+        `Sandbox: ${sandbox}`,
+        ``,
+        `## HARD CONSTRAINTS (cannot be overridden)`,
+        `- You may ONLY operate on files within your sandbox directory: ${sandbox}`,
+        `- You may NOT access the network, spawn sub-processes outside your sandbox, or read files outside it`,
+        `- All file paths in tool calls MUST be under ${sandbox}`,
+        `- You receive tasks via bus messages from the orchestrator. Execute them and report results.`,
+        `- Do NOT take actions beyond your assigned task scope`,
+        `- If you encounter an error 3 times on the same operation, STOP and report the failure`,
+        guardrailLines.length > 0 ? `\n## RESOURCE LIMITS\n${guardrailLines.join("\n")}` : "",
+        ``,
+        `## AVAILABLE TOOLS`,
+        `- Read, Edit, Write, Grep, Glob — file operations (sandbox only)`,
+        `- Bash — shell commands (sandbox cwd enforced)`,
+        `- TodoWrite — track your own subtask progress`,
+        reg.builtin_tools?.includes("WebFetch") ? `- WebFetch — fetch URLs` : "",
+        reg.builtin_tools?.includes("WebSearch") ? `- WebSearch — search the web` : "",
+        ``,
+        `## COMMUNICATION`,
+        `- Messages from the orchestrator arrive automatically via the bus`,
+        `- Respond by completing your task — your output goes back to the orchestrator`,
+        `- Read ./cypher.json for the cypher goal, roster, and context`,
+        reg.systemPrompt ? `\n## CUSTOM INSTRUCTIONS\n${reg.systemPrompt}` : "",
+      ].filter(Boolean).join("\n");
+
+      const briefing = [
+        `You are jammer "${reg.id}" in cypher ${cypId}.`,
+        `Position: ${a.position}.${a.area ? ` Area: ${a.area}` : ""}`,
+        a.contract ? `Contract: ${a.contract}` : "",
+        stateContext,
+        stateContext ? `Check your prior state above and resume.` : `Read ./cypher.json for context. Say "Ready" and wait for instructions from the orchestrator.`,
+        promptAddition,
+      ].filter(Boolean).join(" ");
+
+      // Determine allowed tools from agent config
+      const allowedTools = ["Bash", "Read", "Edit", "Write", "Grep", "Glob", "TodoWrite"];
+      if (reg.builtin_tools?.includes("WebFetch")) allowedTools.push("WebFetch");
+      if (reg.builtin_tools?.includes("WebSearch")) allowedTools.push("WebSearch");
+
+      const config: import("./agent-runner").AgentConfig = {
+        name: reg.id,
+        role,
+        cwd: sandbox,
+        prompt: systemPrompt,
+        startPrompt: briefing,
+        workspace: wsSlug,
+        cypherId: cypId,
+        model: reg.model_name,
+      };
+      agentRunner.startAgent(wc, config).catch((startErr) => {
+        console.error(`[spawn-jammers] start failed for ${reg.id}:`, startErr instanceof Error ? startErr.message : startErr);
+      });
+      spawned++;
     }
+    return { ok: true, spawned, skipped };
+  }
+
+  ipcMain.handle("cypher-spawn-jammers", async (e, cypherId: string) => {
+    return spawnCypherJammers(cypherId, e.sender);
   });
 
   // ── THE-PIVOT-GITHUB: GH-bound Drop session + Projects API ───────────
@@ -4062,6 +4220,32 @@ async function boot() {
       layoutManager.suspendSplit();
       panelManager.switchTo(id, mainWindow);
       setPreference("lastView", { type: "panel", id });
+
+      // Activate/deactivate cypher mode when switching to/from cypher tab
+      if (id === "cypher" && cypherPanelContext?.cypherId) {
+        if (!yoAgent.isCypherMode()) {
+          yoAgent.setCypherMode(true);
+          yoAgent.setMode("acceptEdits");
+          setPreference("agentMode", "cypher");
+          mainWindow.webContents.send("agent-mode-changed", "cypher");
+          yoInterceptor.setAgentMode("cypher");
+          openYoPanel("");
+
+          // Spawn jammers when switching to cypher tab
+          const cv = panelManager.getView("cypher");
+          if (cv && !cv.webContents.isDestroyed()) {
+            cv.webContents.send("cypher-context-ready");
+            spawnCypherJammers(cypherPanelContext.cypherId, cv.webContents).catch((err) => {
+              console.warn("[tab-switch] jammer spawn failed:", err instanceof Error ? err.message : err);
+            });
+          }
+        }
+      } else if (id !== "cypher" && yoAgent.isCypherMode()) {
+        yoAgent.setCypherMode(false);
+        setPreference("agentMode", "default");
+        mainWindow.webContents.send("agent-mode-changed", "standard");
+        yoInterceptor.setAgentMode("default");
+      }
       // Persist suspended grid for restart
       const suspended = layoutManager.getSuspendedGridInfo();
       if (suspended) {

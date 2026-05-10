@@ -34,6 +34,11 @@ interface CypherPanelAPI {
   // Leave cypher — close tab, switch to drop
   leaveCypher: () => void;
 
+  // Thread persistence — load stored stage/agent threads
+  loadStageThread: (cypherId: string) => Promise<Array<{ ts: number; kind: string; content: string; toolId?: string; toolName?: string }>>;
+  loadAgentThread: (cypherId: string, agentName: string) => Promise<Array<{ ts: number; kind: string; content: string }>>;
+  listAgentThreads: (cypherId: string) => Promise<string[]>;
+
   // Fired when context changes (panel should re-init)
   onContextReady: (cb: () => void) => () => void;
 }
@@ -104,6 +109,10 @@ const api: CypherPanelAPI = {
   getCypherContext: () => ipcRenderer.invoke("cypher-panel-context"),
 
   leaveCypher: () => ipcRenderer.send("cypher-panel-leave"),
+
+  loadStageThread: (cypherId: string) => ipcRenderer.invoke("cypher-thread-load-stage", cypherId),
+  loadAgentThread: (cypherId: string, agentName: string) => ipcRenderer.invoke("cypher-thread-load-agent", cypherId, agentName),
+  listAgentThreads: (cypherId: string) => ipcRenderer.invoke("cypher-thread-list-agents", cypherId),
 
   onContextReady: (cb) => {
     const handler = () => cb();

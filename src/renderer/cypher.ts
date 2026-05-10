@@ -36,6 +36,9 @@ interface CypherPanelAPI {
   onThemeChanged: (cb: (theme: string) => void) => () => void;
   getCypherContext: () => Promise<{ cypherId: string; isOwner: boolean } | null>;
   leaveCypher: () => void;
+  loadStageThread: (cypherId: string) => Promise<Array<{ ts: number; kind: string; content: string; toolId?: string; toolName?: string }>>;
+  loadAgentThread: (cypherId: string, agentName: string) => Promise<Array<{ ts: number; kind: string; content: string }>>;
+  listAgentThreads: (cypherId: string) => Promise<string[]>;
   onContextReady: (cb: () => void) => () => void;
 }
 
@@ -79,13 +82,18 @@ let unsubStageDone: (() => void) | null = null;
 
 // Per-agent message buffers for the stage
 const agentStreams = new Map<string, string[]>();
+let initRunning = false;
 
 // ── Init ───────────────────────────────────────────────
 
 async function init(): Promise<void> {
+  if (!document.getElementById("stage-stream")) return;
+  if (initRunning) return;
+  initRunning = true;
   const ctx = await api.getCypherContext();
   if (!ctx) {
     $("stage-empty").textContent = "No cypher context. Open a cypher from The Drop.";
+    initRunning = false;
     return;
   }
 
@@ -100,6 +108,7 @@ async function init(): Promise<void> {
   isOwner = ctx.isOwner || (cypherData?.owner_user_id != null && cypherData.owner_user_id === currentUserId);
   await loadJammers();
   await loadRecentChat();
+  await loadPersistedThreads();
   subscribeEvents();
   renderRoster();
   renderStage();
@@ -109,6 +118,7 @@ async function init(): Promise<void> {
   if (!isOwner) {
     $("btn-spawn").classList.add("hidden");
   }
+  initRunning = false;
 }
 
 async function loadCypher(): Promise<void> {
@@ -168,6 +178,49 @@ async function loadRecentChat(): Promise<void> {
   } catch { /* noop */ }
 }
 
+async function loadPersistedThreads(): Promise<void> {
+  if (!cypherId) return;
+  try {
+    // Load orchestrator stage thread
+    const stageEntries = await api.loadStageThread(cypherId);
+    let textBuf: string[] = [];
+    for (const entry of stageEntries) {
+      if (entry.kind === "text") {
+        textBuf.push(entry.content);
+      } else {
+        // Finalize accumulated text
+        if (textBuf.length > 0) {
+          stageSegments.push({ kind: "text", content: textBuf.join("") });
+          textBuf = [];
+        }
+        if (entry.kind === "tool") {
+          const label = entry.toolName ? `⚡ ${entry.toolName}(${entry.content})` : entry.content;
+          stageSegments.push({ kind: "tool", content: label });
+        } else if (entry.kind === "tool-result") {
+          stageSegments.push({ kind: "tool-result", content: entry.content });
+        }
+        // "done" entries just finalize text, already handled above
+      }
+    }
+    if (textBuf.length > 0) {
+      stageSegments.push({ kind: "text", content: textBuf.join("") });
+    }
+
+    // Load per-agent threads
+    const agentNames = await api.listAgentThreads(cypherId);
+    for (const name of agentNames) {
+      const entries = await api.loadAgentThread(cypherId, name);
+      const stream: string[] = [];
+      for (const e of entries) {
+        stream.push(`${e.kind}::${e.content}`);
+      }
+      if (stream.length > 0) {
+        agentStreams.set(name, stream);
+      }
+    }
+  } catch { /* best effort — fresh start if store is empty */ }
+}
+
 // ── Event Subscriptions ────────────────────────────────
 
 function subscribeEvents(): void {
@@ -225,28 +278,34 @@ function subscribeEvents(): void {
 
   // Subscribe to orchestrator (.yo agent) stream for the center stage
   unsubStageToken = api.onStageToken((delta) => {
-    stageBuffer.push(delta);
+    currentTextSegment.push(delta);
     if (focusedAgent === null) {
-      // Append live to the stage
-      const stream = $("stage-stream");
-      $("stage-empty").classList.add("hidden");
+      const stream = document.getElementById("stage-stream");
+      const empty = document.getElementById("stage-empty");
+      if (!stream || !empty) return;
+      empty.classList.add("hidden");
       if (!stageCurrentBlock) {
         stageCurrentBlock = document.createElement("div");
         stageCurrentBlock.className = "stage-msg";
         stream.appendChild(stageCurrentBlock);
       }
-      stageCurrentBlock.innerHTML = formatMarkdown(stageBuffer.join(""));
+      stageCurrentBlock.innerHTML = formatMarkdown(currentTextSegment.join(""));
       stream.scrollTop = stream.scrollHeight;
     }
   });
 
   unsubStageTool = api.onStageTool((_id, name, input) => {
+    // Finalize current text segment
+    if (currentTextSegment.length > 0) {
+      stageSegments.push({ kind: "text", content: currentTextSegment.join("") });
+      currentTextSegment = [];
+    }
     const text = `⚡ ${name}(${JSON.stringify(input).slice(0, 200)})`;
-    stageBuffer.push(`\n\n${text}\n`);
+    stageSegments.push({ kind: "tool", content: text });
+    stageCurrentBlock = null;
     if (focusedAgent === null) {
-      // Finalize current text block, add tool block
-      stageCurrentBlock = null;
-      const stream = $("stage-stream");
+      const stream = document.getElementById("stage-stream");
+      if (!stream) return;
       const el = document.createElement("div");
       el.className = "stage-msg tool-use";
       el.textContent = text;
@@ -256,17 +315,24 @@ function subscribeEvents(): void {
   });
 
   unsubStageToolResult = api.onStageToolResult((_id, detail) => {
+    const trimmed = detail.slice(0, 500);
+    stageSegments.push({ kind: "tool-result", content: trimmed });
     if (focusedAgent === null) {
-      const stream = $("stage-stream");
+      const stream = document.getElementById("stage-stream");
+      if (!stream) return;
       const el = document.createElement("div");
       el.className = "stage-msg tool-result";
-      el.textContent = detail.slice(0, 500);
+      el.textContent = trimmed;
       stream.appendChild(el);
       stream.scrollTop = stream.scrollHeight;
     }
   });
 
   unsubStageDone = api.onStageDone(() => {
+    if (currentTextSegment.length > 0) {
+      stageSegments.push({ kind: "text", content: currentTextSegment.join("") });
+      currentTextSegment = [];
+    }
     stageCurrentBlock = null;
   });
 }
@@ -344,41 +410,72 @@ function renderRoster(): void {
   }
 }
 
-// Orchestration stream buffer (the .yo agent's cypher-mode output)
-const stageBuffer: string[] = [];
+// Orchestration stream — structured segments for replay
+interface StageSegment {
+  kind: "text" | "tool" | "tool-result";
+  content: string;
+}
+const stageSegments: StageSegment[] = [];
+let currentTextSegment: string[] = [];
 let stageCurrentBlock: HTMLElement | null = null;
 
 function renderStage(): void {
-  const stream = $("stage-stream");
-  const empty = $("stage-empty");
+  const stream = document.getElementById("stage-stream");
+  const empty = document.getElementById("stage-empty");
+  if (!stream || !empty) return;
+  stream.innerHTML = "";
+  stageCurrentBlock = null;
 
   if (focusedAgent === null) {
     // "All" — show orchestration thread
-    $("stage-agent-name").textContent = "Orchestrator";
-    $("stage-agent-status").textContent = "";
-    if (stageBuffer.length === 0) {
+    const nameEl = document.getElementById("stage-agent-name");
+    const statusEl = document.getElementById("stage-agent-status");
+    if (nameEl) nameEl.textContent = "Orchestrator";
+    if (statusEl) statusEl.textContent = "";
+    if (stageSegments.length === 0 && currentTextSegment.length === 0) {
       empty.classList.remove("hidden");
       empty.textContent = "Waiting for orchestrator to start...";
-      stream.querySelectorAll(".stage-msg").forEach((el) => el.remove());
       return;
     }
     empty.classList.add("hidden");
-    // Don't re-render — live tokens are appended directly
+    // Replay completed segments
+    for (const seg of stageSegments) {
+      const el = document.createElement("div");
+      if (seg.kind === "text") {
+        el.className = "stage-msg";
+        el.innerHTML = formatMarkdown(seg.content);
+      } else if (seg.kind === "tool") {
+        el.className = "stage-msg tool-use";
+        el.textContent = seg.content;
+      } else {
+        el.className = "stage-msg tool-result";
+        el.textContent = seg.content;
+      }
+      stream.appendChild(el);
+    }
+    // Render in-progress text segment
+    if (currentTextSegment.length > 0) {
+      stageCurrentBlock = document.createElement("div");
+      stageCurrentBlock.className = "stage-msg";
+      stageCurrentBlock.innerHTML = formatMarkdown(currentTextSegment.join(""));
+      stream.appendChild(stageCurrentBlock);
+    }
+    stream.scrollTop = stream.scrollHeight;
   } else {
     // Individual agent feed
-    $("stage-agent-name").textContent = focusedAgent;
+    const nameEl2 = document.getElementById("stage-agent-name");
+    const statusEl2 = document.getElementById("stage-agent-status");
+    if (nameEl2) nameEl2.textContent = focusedAgent;
     const jammer = jammers.find((j) => j.agent_local_id === focusedAgent);
-    $("stage-agent-status").textContent = jammer?.status || "";
+    if (statusEl2) statusEl2.textContent = jammer?.status || "";
 
     const messages = agentStreams.get(focusedAgent) || [];
     if (messages.length === 0) {
       empty.classList.remove("hidden");
       empty.textContent = "Waiting for agent output...";
-      stream.querySelectorAll(".stage-msg").forEach((el) => el.remove());
       return;
     }
     empty.classList.add("hidden");
-    stream.innerHTML = "";
     for (const entry of messages) {
       const sep = entry.indexOf("::");
       const kind = entry.slice(0, sep) as "text" | "tool" | "error";
@@ -393,8 +490,10 @@ function renderStage(): void {
 }
 
 function appendToStage(text: string, kind: "text" | "tool" | "error"): void {
-  const stream = $("stage-stream");
-  $("stage-empty").classList.add("hidden");
+  const stream = document.getElementById("stage-stream");
+  const empty = document.getElementById("stage-empty");
+  if (!stream) return;
+  if (empty) empty.classList.add("hidden");
 
   const el = document.createElement("div");
   el.className = `stage-msg${kind === "tool" ? " tool-use" : ""}${kind === "error" ? " error" : ""}`;
@@ -491,17 +590,32 @@ api.onThemeChanged((theme) => {
 
 // ── Boot ───────────────────────────────────────────────
 
-void init();
-
-api.onContextReady(() => {
-  cleanup();
-  cypherId = null;
-  jammers = [];
-  focusedAgent = null;
-  chatMessages = [];
-  agentStreams.clear();
-  stageBuffer.length = 0;
-  stageCurrentBlock = null;
-  $("stage-stream").innerHTML = "";
+function boot() {
+  if (!document.getElementById("stage-stream")) {
+    // Ghost panel — DOM not loaded. Bail entirely.
+    return;
+  }
   void init();
-});
+
+  api.onContextReady(() => {
+    cleanup();
+    cypherId = null;
+    jammers = [];
+    focusedAgent = null;
+    chatMessages = [];
+    agentStreams.clear();
+    stageSegments.length = 0;
+    currentTextSegment = [];
+    stageCurrentBlock = null;
+    initRunning = false;
+    const stream = document.getElementById("stage-stream");
+    if (stream) stream.innerHTML = "";
+    void init();
+  });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
+} else {
+  boot();
+}

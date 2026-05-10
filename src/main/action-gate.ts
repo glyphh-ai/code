@@ -122,6 +122,7 @@ export function getToolTier(toolName: string): ToolTier {
 export function getAgentMode(): AgentMode {
   const raw = getPreference<string>("agentMode", "default");
   if (raw === "bypass") return "bypassPermissions";
+  if (raw === "cypher") return "acceptEdits";
   if (raw === "council") return "default";
   return raw as AgentMode;
 }

@@ -20,6 +20,7 @@ import path from "path";
 import os from "os";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import type { CypherBus } from "./cypher-bus";
+import * as threadStore from "./cypher-thread-store";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -313,6 +314,11 @@ export class AgentRunner {
         if (this.bus && instance.config.cypherId) {
           this.postToBus(instance, msg);
         }
+
+        // Persist agent thread to local store
+        if (instance.config.cypherId && serialized) {
+          this.persistAgentEntry(instance.config.cypherId, instance.name, serialized);
+        }
       }
 
       instance.activeQuery = null;
@@ -520,6 +526,25 @@ export class AgentRunner {
         if (input.path || input.file_path) return input.path || input.file_path;
         return "";
     }
+  }
+
+  private persistAgentEntry(cypherId: string, agentName: string, serialized: any): void {
+    try {
+      if (serialized.type === "assistant" && serialized.text) {
+        threadStore.appendAgent(cypherId, agentName, { ts: Date.now(), kind: "text", content: serialized.text });
+      }
+      if (serialized.type === "assistant" && serialized.toolUses?.length) {
+        for (const tu of serialized.toolUses) {
+          threadStore.appendAgent(cypherId, agentName, { ts: Date.now(), kind: "tool", content: `${tu.name}(${tu.input})` });
+        }
+      }
+      if (serialized.type === "result" && serialized.result) {
+        threadStore.appendAgent(cypherId, agentName, { ts: Date.now(), kind: "text", content: serialized.result });
+      }
+      if (serialized.type === "error" || (serialized.type === "result" && serialized.isError)) {
+        threadStore.appendAgent(cypherId, agentName, { ts: Date.now(), kind: "error", content: serialized.text || serialized.result || "error" });
+      }
+    } catch { /* best effort */ }
   }
 
   /** Post agent events to the cypher bus for visibility + coordination. */
