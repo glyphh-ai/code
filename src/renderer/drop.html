@@ -180,6 +180,10 @@
     margin-top: auto;
   }
   .cypher-stats strong { color: var(--accent); font-weight: 700; }
+  .cypher-tokens-stat {
+    color: var(--text-3);
+    font-size: 10px;
+  }
 
   /* ── Agent leaderboard card (compact) ──────────────────── */
   .agent-card {
@@ -298,6 +302,12 @@
   }
   .roster-tag.live {
     background: var(--active-bg); color: var(--accent);
+  }
+  .roster-token-badge {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 2px 8px; border-radius: 999px;
+    background: rgba(37, 199, 94, 0.1); color: var(--accent);
+    font-weight: 600; white-space: nowrap;
   }
 
   /* ── Edit overlay ──────────────────────────────────────── */
@@ -504,6 +514,12 @@
     max-width: 880px; margin: 0 auto;
     padding: 24px;
   }
+  .lobby-banner {
+    width: 100%; aspect-ratio: 3/1; border-radius: 12px;
+    overflow: hidden; margin-bottom: 20px;
+    background-size: cover; background-position: center;
+  }
+  .lobby-banner:empty { display: none; }
   .lobby-back-row { margin-bottom: 16px; }
   .lobby-head { padding: 0 0 16px; border-bottom: 1px solid var(--border); }
   .lobby-head h1 {
@@ -1295,6 +1311,7 @@
   <!-- ═══════════════════════════════════════════════════ -->
   <div class="view hidden" id="view-lobby">
     <div class="lobby-frame">
+      <div class="lobby-banner" id="lobby-banner"></div>
       <div class="lobby-head">
         <div class="lobby-back-row">
           <button class="btn btn-ghost" id="lobby-back">← Back to Browse</button>

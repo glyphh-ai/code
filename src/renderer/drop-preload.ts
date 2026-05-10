@@ -39,6 +39,7 @@ interface DropAPI {
   // Cover image
   cypherCoverGenerate: (opts: { title: string; goal?: string; vibe?: string; customPrompt?: string }) =>
     Promise<{ ok: true; data_base64: string; content_type: string; prompt_used: string } | { ok: false; error: string }>;
+  cypherCoverGet: (id: string) => Promise<{ ok: boolean; data_base64?: string; content_type?: string }>;
   cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
   cypherCoverDelete: (id: string) => Promise<unknown>;
 
@@ -106,6 +107,7 @@ const api: DropAPI = {
   agentsRemove: (id) => ipcRenderer.invoke("agents-remove", id),
   agentsIdAvailable: (id) => ipcRenderer.invoke("agents-id-available", id),
   cypherCoverGenerate: (opts) => ipcRenderer.invoke("cypher-cover-generate", opts),
+  cypherCoverGet: (id) => ipcRenderer.invoke("cypher-cover-get", id),
   cypherCoverUpload: (id, dataBase64, contentType) => ipcRenderer.invoke("cypher-cover-upload", id, dataBase64, contentType),
   cypherCoverDelete: (id) => ipcRenderer.invoke("cypher-cover-delete", id),
   modelsList: () => ipcRenderer.invoke("models-list"),

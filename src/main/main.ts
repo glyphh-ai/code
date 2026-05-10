@@ -3217,6 +3217,29 @@ async function boot() {
     return `Digital art, wide cinematic composition (3:2 aspect ratio). A visually striking cover image for a coding cypher called "${title}".${goalClause} Style: ${mood}. Abstract tech-art with depth, NOT a screenshot or UI mockup. No text or lettering in the image. Rich color palette, high contrast, atmospheric lighting.`;
   }
 
+  ipcMain.handle("cypher-cover-get", async (_e, id: string) => {
+    try {
+      const { net } = await import("electron");
+      const url = `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}/cover`;
+      return await new Promise((resolve) => {
+        const req = net.request({ url, method: "GET" });
+        const chunks: Buffer[] = [];
+        req.on("response", (r) => {
+          if (r.statusCode !== 200) { resolve({ ok: false }); return; }
+          const ct = r.headers["content-type"];
+          const contentType = Array.isArray(ct) ? ct[0] : ct || "image/png";
+          r.on("data", (c) => { chunks.push(Buffer.from(c)); });
+          r.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            resolve({ ok: true, data_base64: buf.toString("base64"), content_type: contentType });
+          });
+        });
+        req.on("error", () => { resolve({ ok: false }); });
+        req.end();
+      });
+    } catch { return { ok: false }; }
+  });
+
   ipcMain.handle("cypher-cover-upload", async (_e, id: string, dataBase64: string, contentType?: string) => {
     try {
       const token = (await import("./auth")).getAuthToken();

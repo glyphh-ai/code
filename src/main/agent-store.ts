@@ -131,12 +131,22 @@ export function getAgent(id: string): AgentConfig | null {
   return safeRead(pathFor(id));
 }
 
+const DEFAULT_GUARDRAILS: Guardrails = {
+  max_input_tokens_per_turn: 50000,
+  max_output_tokens_per_turn: 16000,
+  max_tokens_per_session: 500000,
+  max_turns: 100,
+  rate_limit_rpm: 30,
+  auto_stop_idle_seconds: 300,
+};
+
 export function saveAgent(cfg: AgentConfig): AgentConfig {
   ensureDir();
   const now = new Date().toISOString();
   const existing = safeRead(pathFor(cfg.id));
   const merged: AgentConfig = {
     ...cfg,
+    guardrails: cfg.guardrails ?? existing?.guardrails ?? DEFAULT_GUARDRAILS,
     meta: {
       createdAt: existing?.meta?.createdAt || now,
       updatedAt: now,

@@ -50,6 +50,7 @@ interface DropAPI {
   agentsIdAvailable: (id: string) => Promise<unknown>;
   cypherCoverGenerate: (opts: { title: string; goal?: string; vibe?: string; customPrompt?: string }) =>
     Promise<{ ok: true; data_base64: string; content_type: string; prompt_used: string } | { ok: false; error: string }>;
+  cypherCoverGet: (id: string) => Promise<{ ok: boolean; data_base64?: string; content_type?: string }>;
   cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
   cypherCoverDelete: (id: string) => Promise<unknown>;
   skillsList: () => Promise<string[]>;
@@ -66,6 +67,8 @@ interface Cypher {
   lobby_started_at?: string | null;
   lobby_duration_seconds?: number | null;
   cover_image_sha256?: string | null;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
 }
 interface Jammer {
   agent_local_id: string;
@@ -74,6 +77,9 @@ interface Jammer {
   avatar_url?: string | null;
   role?: string | null;
   joined_at?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  turns?: number;
 }
 
 type DraftPosition = "leader" | "lieutenant" | "sub-lead" | "worker";
@@ -202,11 +208,25 @@ function setView(view: View): void {
 // Browse view: cyphers + leaderboard
 // ─────────────────────────────────────────────────────
 
-const API_BASE = drop.getApiBase();
+
+const coverCache = new Map<string, string>();
 
 function coverUrl(c: Cypher): string | null {
   if (!c.cover_image_sha256) return null;
-  return `${API_BASE}/api/cyphers/${encodeURIComponent(c.id)}/cover`;
+  return coverCache.get(c.id) ?? null;
+}
+
+async function fetchCovers(cyphers: Cypher[]): Promise<void> {
+  const need = cyphers.filter((c) => c.cover_image_sha256 && !coverCache.has(c.id));
+  if (need.length === 0) return;
+  await Promise.all(need.map(async (c) => {
+    try {
+      const r = await drop.cypherCoverGet(c.id) as { ok: boolean; data_base64?: string; content_type?: string };
+      if (r.ok && r.data_base64) {
+        coverCache.set(c.id, `data:${r.content_type || "image/png"};base64,${r.data_base64}`);
+      }
+    } catch { /* cover fetch failed silently */ }
+  }));
 }
 
 function cssCoverGradient(title: string): string {
@@ -242,6 +262,7 @@ function cypherCard(c: Cypher): HTMLElement {
       <div class="cypher-stats">
         <span>${escapeHtml(c.type || "open")}</span>
         <span><strong>${jammers}</strong> jammer${jammers === 1 ? "" : "s"}</span>
+        ${(c.total_input_tokens || c.total_output_tokens) ? `<span class="cypher-tokens-stat">${fmtNum((c.total_input_tokens ?? 0) + (c.total_output_tokens ?? 0))} tokens</span>` : ""}
       </div>
     </div>
   `;
@@ -421,6 +442,9 @@ async function loadDirectory(): Promise<void> {
   empty.classList.toggle("hidden", hasContent);
   $("dir-cards").classList.toggle("hidden", !hasContent || dirViewMode !== "card");
   $("dir-table").classList.toggle("hidden", !hasContent || dirViewMode !== "table");
+
+  // Fetch covers then re-render cards with images
+  void fetchCovers(entries).then(() => { renderDirectoryCards(entries); renderDirectoryTable(entries); });
 }
 
 function renderDirectoryCards(entries: Cypher[]): void {
@@ -501,6 +525,8 @@ async function loadFeatured(): Promise<void> {
   }
   const featured = merged.sort((a, b) => (b.jammer_count ?? b.jammers ?? 0) - (a.jammer_count ?? a.jammers ?? 0)).slice(0, 5);
   renderCarousel(featured);
+  // Fetch covers async then re-render carousel with images
+  void fetchCovers(featured).then(() => renderCarousel(featured));
 }
 
 async function loadSidebar(): Promise<void> {
@@ -552,6 +578,11 @@ async function loadMine(): Promise<void> {
   for (const c of entries) {
     grid.appendChild(cypherCard(c));
   }
+  // Fetch covers then re-render
+  void fetchCovers(entries).then(() => {
+    grid.innerHTML = "";
+    for (const c of entries) grid.appendChild(cypherCard(c));
+  });
 }
 
 // ─────────────────────────────────────────────────────
@@ -689,8 +720,10 @@ function renderSkillsList(): void {
   }
 }
 
-function showSkillsAddPicker(): void {
-  // Legacy — now handled inline via toggles; re-render refreshes the list
+async function showSkillsAddPicker(): Promise<void> {
+  // Force reload in case new skills were installed since editor opened
+  skillsCache = [];
+  await ensureSkillsLoaded();
   renderSkillsList();
 }
 
@@ -1200,6 +1233,10 @@ async function enterLobby(c: Cypher): Promise<void> {
     agentsCache = Array.isArray(r) ? r : [];
   }
   renderLobby();
+  // Fetch cover for lobby banner
+  if (c.cover_image_sha256 && !coverCache.has(c.id)) {
+    void fetchCovers([c]).then(() => renderLobby());
+  }
   startLobbyPolling();
   startLobbyTimer();
 }
@@ -1287,6 +1324,17 @@ function renderDraft(): void {
 function renderLobby(): void {
   const c = lobbyState.cypher;
   if (!c) return;
+
+  const banner = $("lobby-banner");
+  const url = coverUrl(c);
+  if (url) {
+    banner.style.backgroundImage = `url(${url})`;
+    banner.innerHTML = "&nbsp;";
+  } else {
+    banner.style.backgroundImage = cssCoverGradient(c.title || c.slug || "");
+    banner.innerHTML = "&nbsp;";
+  }
+
   $("lobby-title").textContent = c.title || c.slug || "Untitled cypher";
   $("lobby-goal").textContent = c.goal || c.description || "";
 
@@ -1318,6 +1366,7 @@ function renderLobby(): void {
       const avatarHtml = j.avatar_url
         ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
         : identiconSvg(j.agent_local_id, 48);
+      const totalTok = (j.input_tokens ?? 0) + (j.output_tokens ?? 0);
       card.innerHTML = `
         <div class="roster-head">
           <div class="roster-avatar">${avatarHtml}</div>
@@ -1325,6 +1374,7 @@ function renderLobby(): void {
             <div class="roster-name">${escapeHtml(j.name || j.agent_local_id)}</div>
             <div class="roster-id">${escapeHtml(j.agent_local_id)}${j.role ? ` · ${escapeHtml(j.role)}` : ""}</div>
           </div>
+          ${totalTok > 0 ? `<span class="roster-token-badge">${fmtNum(totalTok)} tok</span>` : ""}
           ${canRemove ? `<button class="jammer-remove-btn" title="Remove jammer">×</button>` : ""}
         </div>
       `;
