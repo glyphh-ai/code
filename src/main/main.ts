@@ -4263,21 +4263,19 @@ async function boot() {
       // Activate/deactivate cypher mode when switching to/from cypher tab
       if (id === "cypher" && cypherPanelContext?.cypherId) {
         if (!yoAgent.isCypherMode()) {
-          // Re-entering cypher mode — restore mode state without wiping history
           yoAgent.setCypherMode(true);
           yoAgent.setMode("acceptEdits");
           setPreference("agentMode", "cypher");
           mainWindow.webContents.send("agent-mode-changed", "cypher");
           yoInterceptor.setAgentMode("cypher");
-          openYoPanel("");
         }
+        // Always open yo panel when switching to cypher tab
+        openYoPanel("");
         // Re-bind agents to current panel (may have been recreated)
         const cypWc = panelManager.getView("cypher")?.webContents;
         if (cypWc && !cypWc.isDestroyed()) {
           agentRunner.rebindWebContents(cypWc);
         }
-        // Never send cypher-context-ready on tab switch — the panel already has
-        // its state (persisted threads loaded on first init). Re-sending it wipes history.
       } else if (id !== "cypher" && yoAgent.isCypherMode()) {
         yoAgent.setCypherMode(false);
         setPreference("agentMode", "default");
