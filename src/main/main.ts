@@ -3223,7 +3223,6 @@ async function boot() {
           n: 1,
           size: "1536x1024",
           quality: "high",
-          response_format: "b64_json",
         }),
       });
 

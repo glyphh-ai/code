@@ -1346,14 +1346,15 @@
               </div>
 
               <div id="cw-cover-generate-fields" class="hidden" style="margin-top:14px;">
-                <label class="form-label">Image prompt <span class="form-hint">— auto-crafted from title + goal, or write your own</span></label>
+                <label class="form-label">Image Prompt</label>
+                <p style="color:var(--text-2);font-size:12px;margin:0 0 8px;line-height:1.4;">Auto-crafted from title + goal, or write your own prompt:</p>
                 <textarea id="cw-cover-prompt" class="form-input mono" rows="4" placeholder="Leave blank to auto-generate from your cypher details…"></textarea>
-                <div style="display:flex;gap:8px;margin-top:10px;">
+                <p style="color:var(--text-3);font-size:11px;margin-top:8px;">Requires an OpenAI key in Settings → Providers. Uses gpt-image-1 model.</p>
+                <div style="display:flex;gap:8px;margin-top:12px;">
                   <button class="btn btn-primary" id="cw-cover-gen-btn">Generate</button>
                   <button class="btn btn-ghost" id="cw-cover-clear-btn">Clear</button>
                 </div>
                 <div id="cw-cover-gen-error" class="overlay-error hidden" style="margin-top:8px;"></div>
-                <p style="color:var(--text-3);font-size:11px;margin-top:8px;">Requires an OpenAI key in Settings → Providers. Uses gpt-image-1, billed to your OpenAI account.</p>
               </div>
 
               <div id="cw-cover-upload-fields" class="hidden" style="margin-top:14px;">
