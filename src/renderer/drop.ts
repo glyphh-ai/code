@@ -137,6 +137,26 @@ function isHostOf(c: Cypher | null): boolean {
 }
 
 // ─────────────────────────────────────────────────────
+// Confirm modal
+// ─────────────────────────────────────────────────────
+
+let confirmResolve: ((v: boolean) => void) | null = null;
+
+function showConfirm(opts: { title: string; subtitle?: string; message: string; actionLabel?: string }): Promise<boolean> {
+  $("confirm-title").textContent = opts.title;
+  $("confirm-subtitle").textContent = opts.subtitle || "";
+  $("confirm-message").textContent = opts.message;
+  $("confirm-action").textContent = opts.actionLabel || "Confirm";
+  $("confirm-overlay").classList.remove("hidden");
+  return new Promise((resolve) => { confirmResolve = resolve; });
+}
+
+function closeConfirm(result: boolean): void {
+  $("confirm-overlay").classList.add("hidden");
+  if (confirmResolve) { confirmResolve(result); confirmResolve = null; }
+}
+
+// ─────────────────────────────────────────────────────
 // View router
 // ─────────────────────────────────────────────────────
 
@@ -190,7 +210,7 @@ function cypherCard(c: Cypher): HTMLElement {
       <span class="cypher-status-badge ${isLive ? "live" : ""}">
         <span class="pulse"></span>${escapeHtml(c.status || "")}
       </span>
-      ${isOwner && !isTerminal ? `<button class="cypher-cancel-btn" title="Cancel cypher">×</button>` : ""}
+      ${isOwner && !isTerminal ? `<button class="cypher-cancel-btn" title="Cancel cypher"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>` : ""}
       ${url ? "" : `<span class="glyph">${escapeHtml(initial)}</span>`}
     </div>
     <div class="cypher-meta">
@@ -205,7 +225,13 @@ function cypherCard(c: Cypher): HTMLElement {
   if (cancelBtn) {
     cancelBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm(`Cancel "${c.title || c.slug}"? This cannot be undone.`)) return;
+      const confirmed = await showConfirm({
+        title: "Cancel cypher",
+        subtitle: c.title || c.slug || "",
+        message: "This will cancel the cypher and remove all jammers. This cannot be undone.",
+        actionLabel: "Cancel cypher",
+      });
+      if (!confirmed) return;
       const r = await drop.cypherCancel(c.id) as { ok?: boolean; error?: string };
       if (!r.ok) { alert(r.error || "Cancel failed"); return; }
       void loadMine();
@@ -640,7 +666,12 @@ async function saveEdit(): Promise<void> {
 
 async function deleteEdit(): Promise<void> {
   if (!editingAgent || editingIsNew) return;
-  const ok = confirm(`Delete jammer "${editingAgent.name || editingAgent.id}"?`);
+  const ok = await showConfirm({
+    title: "Delete jammer",
+    subtitle: editingAgent.name || editingAgent.id,
+    message: "This will permanently remove this jammer from your roster.",
+    actionLabel: "Delete",
+  });
   if (!ok) return;
   try {
     await drop.agentsRemove(editingAgent.id);
@@ -1259,7 +1290,13 @@ async function lobbyStartNow(): Promise<void> {
 
 async function lobbyCancel(): Promise<void> {
   if (!lobbyState.cypherId) return;
-  if (!confirm("Cancel this cypher? Jammers will be kicked.")) return;
+  const confirmed = await showConfirm({
+    title: "Cancel cypher",
+    subtitle: lobbyState.cypher?.title || "",
+    message: "This will cancel the cypher and remove all jammers. This cannot be undone.",
+    actionLabel: "Cancel cypher",
+  });
+  if (!confirmed) return;
   const r = await drop.cypherCancel(lobbyState.cypherId) as { ok?: boolean; error?: string };
   if (!r.ok) { alert(r.error || "Cancel failed"); return; }
   exitLobby();
@@ -1742,7 +1779,13 @@ function startWorkspacePolling(): void {
 
 async function workspaceWrap(): Promise<void> {
   if (!wsState.cypherId) return;
-  if (!confirm("Wrap up this cypher? Match ends and results are recorded.")) return;
+  const confirmed = await showConfirm({
+    title: "Wrap up cypher",
+    subtitle: wsState.cypher?.title || "",
+    message: "This will end the match and record results. All jammers will be disconnected.",
+    actionLabel: "Wrap up",
+  });
+  if (!confirmed) return;
   const r = await drop.cypherWrap(wsState.cypherId) as { ok?: boolean; error?: string };
   if (!r.ok) { alert(r.error || "Wrap failed"); return; }
   exitWorkspace();
@@ -1984,6 +2027,11 @@ function init(): void {
   $("ws-back").addEventListener("click", exitWorkspace);
   $("ws-leave").addEventListener("click", () => { void leaveWorkspace(); });
   $("ws-wrap").addEventListener("click", () => { void workspaceWrap(); });
+
+  // ── Confirm modal ─────────────────
+  $("confirm-scrim").addEventListener("click", () => closeConfirm(false));
+  $("confirm-cancel").addEventListener("click", () => closeConfirm(false));
+  $("confirm-action").addEventListener("click", () => closeConfirm(true));
 }
 
 init();

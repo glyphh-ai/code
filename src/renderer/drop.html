@@ -134,14 +134,15 @@
   }
   .cypher-cancel-btn {
     position: absolute; top: 8px; right: 8px; z-index: 2;
-    width: 24px; height: 24px; border-radius: 50%;
-    background: rgba(0,0,0,0.7); border: none; cursor: pointer;
-    color: #ff6b6b; font-size: 16px; font-weight: 700;
+    width: 28px; height: 28px; border-radius: 6px;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.1); cursor: pointer;
+    color: var(--text-2); font-size: 14px;
     display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: opacity 0.15s ease;
+    opacity: 0; transition: opacity 0.15s ease, background 0.15s ease;
   }
   .cypher-card:hover .cypher-cancel-btn { opacity: 1; }
-  .cypher-cancel-btn:hover { background: rgba(255,60,60,0.3); color: #fff; }
+  .cypher-cancel-btn:hover { background: rgba(255,60,60,0.4); color: var(--danger); border-color: rgba(255,60,60,0.4); }
   .cypher-status-badge {
     position: absolute; top: 10px; left: 10px;
     display: inline-flex; align-items: center; gap: 6px;
@@ -1496,6 +1497,27 @@
         <span id="ae-error" class="overlay-error hidden"></span>
         <button class="btn btn-ghost" id="ae-cancel">Cancel</button>
         <button class="btn btn-primary" id="ae-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Confirm modal ──────────────────────────────────── -->
+  <div class="overlay hidden" id="confirm-overlay">
+    <div class="overlay-scrim" id="confirm-scrim"></div>
+    <div class="overlay-panel" style="max-width:420px;">
+      <div class="overlay-head">
+        <div class="overlay-head-meta">
+          <div class="overlay-name" id="confirm-title">Confirm</div>
+          <div class="overlay-id" id="confirm-subtitle"></div>
+        </div>
+      </div>
+      <div class="overlay-body" style="padding:20px;">
+        <p id="confirm-message" style="margin:0;color:var(--text-2);font-size:14px;line-height:1.5;"></p>
+      </div>
+      <div class="overlay-foot">
+        <div class="overlay-spacer"></div>
+        <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-ghost btn-danger" id="confirm-action">Delete</button>
       </div>
     </div>
   </div>
