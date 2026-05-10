@@ -1205,6 +1205,14 @@ async function boot() {
       },
       post: async (cypherId: string, text: string) => {
         try {
+          // Broadcast locally to all running agents
+          const wsSlug = workspaceManager.getActive()?.slug || "";
+          cypherBus.dispatchBroadcast(wsSlug, {
+            from: "orchestrator",
+            body: text,
+            kind: "post",
+          });
+          // Persist to server
           await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
             kind: "post", payload: { text },
           });
@@ -1215,6 +1223,15 @@ async function boot() {
       },
       postTo: async (cypherId: string, agentLocalId: string, text: string) => {
         try {
+          // Deliver locally to the running agent via the bus
+          const wsSlug = workspaceManager.getActive()?.slug || "";
+          cypherBus.dispatchInbound(agentLocalId, wsSlug, {
+            from: "orchestrator",
+            to: agentLocalId,
+            body: text,
+            kind: "post_to",
+          });
+          // Also persist to server for observers/recovery
           await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
             kind: "post_to", payload: { to: agentLocalId, text },
           });
@@ -1282,10 +1299,15 @@ async function boot() {
       },
       create: async (cypherId: string, goal: string, linkedRepos: string[]) => {
         try {
+          // Get GitHub owner info from drop auth
+          const ghStatus = await getDropAuthStatus();
+          const ownerLogin = ghStatus?.github?.gh_login || "local";
           const r = await serverPostAuthed(`/api/projects`, {
             goal,
             cypher_id: cypherId,
-            linked_repos: linkedRepos.map((r) => ({ full_name: r })),
+            owner_login: ownerLogin,
+            owner_kind: "user",
+            linked_repos: linkedRepos.map((repo) => ({ full_name: repo })),
           }) as any;
           return r?.project?.slug ? `Project created: ${r.project.slug}` : `Project created.`;
         } catch (err) {
