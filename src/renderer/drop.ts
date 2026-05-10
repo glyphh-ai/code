@@ -160,7 +160,7 @@ function closeConfirm(result: boolean): void {
 // View router
 // ─────────────────────────────────────────────────────
 
-type View = "browse" | "agents" | "lobby" | "workspace";
+type View = "browse" | "agents" | "mine" | "lobby" | "workspace";
 
 function setView(view: View): void {
   document.querySelectorAll<HTMLElement>(".view").forEach((el) => {
@@ -173,6 +173,7 @@ function setView(view: View): void {
     el.classList.toggle("hidden", el.dataset.viewOnly !== view);
   });
   if (view === "agents") void loadAgents();
+  if (view === "mine") void loadMine();
 }
 
 // ─────────────────────────────────────────────────────
@@ -207,7 +208,7 @@ function cypherCard(c: Cypher): HTMLElement {
   const initial = (c.title || c.slug || "?").trim().charAt(0).toUpperCase();
   el.innerHTML = `
     <div class="cypher-poster" style="${posterStyle}">
-      <span class="cypher-status-badge ${isLive ? "live" : ""}">
+      <span class="cypher-status-badge ${c.status || ""}">
         <span class="pulse"></span>${escapeHtml(c.status || "")}
       </span>
       ${isOwner && !isTerminal ? `<button class="cypher-cancel-btn" title="Cancel cypher"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>` : ""}
@@ -464,7 +465,17 @@ async function loadFeatured(): Promise<void> {
 async function loadMine(): Promise<void> {
   const r = await drop.cyphersMine() as { cyphers?: Cypher[]; error?: string };
   const entries = (r && "cyphers" in r ? r.cyphers : []) ?? [];
-  fillRow("row-mine", "empty-mine", entries.map(cypherCard));
+  const grid = $("mine-grid");
+  const empty = $("mine-empty");
+  grid.innerHTML = "";
+  if (entries.length === 0) {
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  for (const c of entries) {
+    grid.appendChild(cypherCard(c));
+  }
 }
 
 // ─────────────────────────────────────────────────────
@@ -1891,20 +1902,20 @@ function init(): void {
   // Browse loaders fire on launch
   void loadFeatured();
   void loadDirectory();
-  void loadMine();
 
   // View tabs
   document.querySelectorAll<HTMLElement>(".view-tab").forEach((el) => {
-    el.addEventListener("click", () => setView(el.dataset.view as "browse" | "agents"));
+    el.addEventListener("click", () => setView(el.dataset.view as View));
   });
 
   // Top-bar actions
   $("drop-refresh").addEventListener("click", () => {
-    void loadFeatured(); void loadDirectory(); void loadMine();
-    void loadAgents();
+    void loadFeatured(); void loadDirectory();
+    void loadAgents(); void loadMine();
   });
   $("drop-cta-browse").addEventListener("click", () => { void openWizard(); });
   $("drop-cta-agents").addEventListener("click", () => { void openEdit(null); });
+  $("drop-cta-mine").addEventListener("click", () => { void openWizard(); });
 
   // ── Carousel navigation ─────────────────
   $("carousel-prev").addEventListener("click", () => goToSlide(carouselIdx - 1));

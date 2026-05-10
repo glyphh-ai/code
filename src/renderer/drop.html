@@ -39,7 +39,7 @@
   }
   .brand .dot { color: var(--accent); }
   .search {
-    flex: 1; max-width: 480px;
+    flex: 1;
     display: flex; align-items: center; gap: 8px;
     padding: 8px 14px; border-radius: 8px;
     background: var(--surface);
@@ -146,12 +146,18 @@
   .cypher-status-badge {
     position: absolute; top: 10px; left: 10px;
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 3px 8px; border-radius: 999px;
-    background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px);
+    padding: 4px 10px; border-radius: 999px;
+    background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.85);
   }
-  .cypher-status-badge.live { color: var(--accent); }
+  .cypher-status-badge.live { color: var(--accent); border-color: rgba(37, 199, 94, 0.3); }
   .cypher-status-badge.live .pulse { background: var(--accent); }
+  .cypher-status-badge.lobby { color: #60a5fa; border-color: rgba(96, 165, 250, 0.3); }
+  .cypher-status-badge.lobby .pulse { background: #60a5fa; }
+  .cypher-status-badge.wrapped { color: var(--text-2); border-color: rgba(255,255,255,0.08); }
+  .cypher-status-badge.cancelled { color: var(--danger-soft); border-color: rgba(255, 95, 87, 0.2); }
   .cypher-status-badge .pulse {
     width: 5px; height: 5px; border-radius: 50%;
     animation: pulse-dot 2s ease-in-out infinite;
@@ -1017,15 +1023,16 @@
     <div class="brand">the<span class="dot">.</span>drop</div>
     <div class="view-tabs">
       <button class="view-tab active" data-view="browse">Browse</button>
-      <button class="view-tab" data-view="agents">Your Jammers</button>
+      <button class="view-tab" data-view="agents">My Jammers</button>
+      <button class="view-tab" data-view="mine">My Cyphers</button>
     </div>
     <div class="search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       <input id="drop-search" type="text" placeholder="Search cyphers, agents, skills..." spellcheck="false" autocomplete="off" />
     </div>
-    <div class="topbar-spacer"></div>
     <button class="btn btn-primary" id="drop-cta-browse" data-view-only="browse">+ Drop a Cypher</button>
     <button class="btn btn-primary hidden" id="drop-cta-agents" data-view-only="agents">+ New Jammer</button>
+    <button class="btn btn-primary hidden" id="drop-cta-mine" data-view-only="mine">+ Drop a Cypher</button>
     <button class="btn btn-ghost" id="drop-refresh">Refresh</button>
     <div id="drop-gh-badge" class="drop-gh-badge hidden">
       <img id="drop-gh-avatar" class="drop-gh-avatar" src="" alt="" />
@@ -1112,24 +1119,28 @@
     </div>
   </div>
 
-  <!-- ── Your cyphers ──────────────────────────────────── -->
-  <div class="section" id="section-mine">
-    <div class="section-head">
-      <div>
-        <h2>Your cyphers</h2>
-        <span class="section-sub">recent + active</span>
-      </div>
-    </div>
-    <div class="row" id="row-mine"></div>
-    <div class="empty hidden" id="empty-mine">
-      You haven't dropped any cyphers yet. Click <strong>+ Drop a Cypher</strong> to start one.
-    </div>
-  </div>
-
   </div><!-- /view-browse -->
 
   <!-- ═══════════════════════════════════════════════════ -->
-  <!-- ── View: Your Jammers ────────────────────────────── -->
+  <!-- ── View: My Cyphers ──────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div class="view hidden" id="view-mine">
+    <div class="section">
+      <div class="section-head">
+        <div>
+          <h2>My cyphers</h2>
+          <span class="section-sub">cyphers you've created or joined</span>
+        </div>
+      </div>
+      <div class="grid" id="mine-grid"></div>
+      <div class="empty hidden" id="mine-empty">
+        You haven't dropped any cyphers yet. Click <strong>+ Drop a Cypher</strong> to start one.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ── View: My Jammers ──────────────────────────────── -->
   <!-- ═══════════════════════════════════════════════════ -->
   <div class="view hidden" id="view-agents">
     <div class="section">
