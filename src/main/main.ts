@@ -3524,6 +3524,11 @@ async function boot() {
   async function activateCypherSession(cypId: string): Promise<void> {
     const stageWc = panelManager.getView("cypher")?.webContents;
 
+    // Re-bind orphaned agents to current panel webContents (panel may have been recreated)
+    if (stageWc && !stageWc.isDestroyed()) {
+      agentRunner.rebindWebContents(stageWc);
+    }
+
     // 1. Fetch cypher data + jammers from server
     const [cData, jData] = await Promise.all([
       serverGetAuthed<{ cypher?: { title?: string; goal?: string; status?: string; owner_login?: string } }>(`/api/cyphers/${encodeURIComponent(cypId)}`),
@@ -4211,6 +4216,11 @@ async function boot() {
           mainWindow.webContents.send("agent-mode-changed", "cypher");
           yoInterceptor.setAgentMode("cypher");
           openYoPanel("");
+        }
+        // Re-bind agents to current panel (may have been recreated)
+        const cypWc = panelManager.getView("cypher")?.webContents;
+        if (cypWc && !cypWc.isDestroyed()) {
+          agentRunner.rebindWebContents(cypWc);
         }
         // Never send cypher-context-ready on tab switch — the panel already has
         // its state (persisted threads loaded on first init). Re-sending it wipes history.

@@ -417,6 +417,34 @@ export class AgentRunner {
     }
   }
 
+  /** Re-bind all agents from any destroyed webContents to a new one. */
+  rebindWebContents(newWc: WebContents): number {
+    let rebound = 0;
+    const toMove: Array<[string, AgentInstance]> = [];
+
+    for (const [key, instance] of this.agents) {
+      const wc = instance.wcRef.deref();
+      if (!wc || wc.isDestroyed()) {
+        toMove.push([key, instance]);
+      }
+    }
+
+    for (const [oldKey, instance] of toMove) {
+      this.agents.delete(oldKey);
+      const newKey = this.key(newWc.id, instance.name);
+      instance.wcRef = new WeakRef(newWc);
+      this.agents.set(newKey, instance);
+      rebound++;
+      // Send current status to new webContents
+      newWc.send("cw:agent:status", instance.name, instance.status);
+    }
+
+    if (rebound > 0) {
+      console.log(`[agent-runner] rebound ${rebound} agents to wcId=${newWc.id}`);
+    }
+    return rebound;
+  }
+
   getStatus(wcId: number, agentName: string): string {
     return this.agents.get(this.key(wcId, agentName))?.status || "idle";
   }
