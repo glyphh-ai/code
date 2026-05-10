@@ -132,6 +132,16 @@
     color: var(--accent); letter-spacing: -0.05em;
     opacity: 0.7;
   }
+  .cypher-cancel-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 2;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(0,0,0,0.7); border: none; cursor: pointer;
+    color: #ff6b6b; font-size: 16px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.15s ease;
+  }
+  .cypher-card:hover .cypher-cancel-btn { opacity: 1; }
+  .cypher-cancel-btn:hover { background: rgba(255,60,60,0.3); color: #fff; }
   .cypher-status-badge {
     position: absolute; top: 10px; left: 10px;
     display: inline-flex; align-items: center; gap: 6px;

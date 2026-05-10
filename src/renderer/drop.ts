@@ -178,6 +178,8 @@ function cypherCard(c: Cypher): HTMLElement {
   el.className = "cypher-card reveal";
   const jammers = c.jammer_count ?? c.jammers ?? 0;
   const isLive = c.status === "open" || c.status === "live" || c.status === "running";
+  const isTerminal = c.status === "wrapped" || c.status === "cancelled";
+  const isOwner = c.owner_user_id === currentUserId;
   const url = coverUrl(c);
   const posterStyle = url
     ? `background:url('${url}') center/cover no-repeat;`
@@ -188,6 +190,7 @@ function cypherCard(c: Cypher): HTMLElement {
       <span class="cypher-status-badge ${isLive ? "live" : ""}">
         <span class="pulse"></span>${escapeHtml(c.status || "")}
       </span>
+      ${isOwner && !isTerminal ? `<button class="cypher-cancel-btn" title="Cancel cypher">×</button>` : ""}
       ${url ? "" : `<span class="glyph">${escapeHtml(initial)}</span>`}
     </div>
     <div class="cypher-meta">
@@ -198,6 +201,18 @@ function cypherCard(c: Cypher): HTMLElement {
       </div>
     </div>
   `;
+  const cancelBtn = el.querySelector(".cypher-cancel-btn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Cancel "${c.title || c.slug}"? This cannot be undone.`)) return;
+      const r = await drop.cypherCancel(c.id) as { ok?: boolean; error?: string };
+      if (!r.ok) { alert(r.error || "Cancel failed"); return; }
+      void loadMine();
+      void loadFeatured();
+      void loadDirectory();
+    });
+  }
   el.addEventListener("click", () => { enterLobby(c); });
   return el;
 }
@@ -1466,6 +1481,17 @@ function subscribeWorkspaceEvents(): void {
   });
 }
 
+async function leaveWorkspace(): Promise<void> {
+  if (wsState.cypherId) {
+    const mine = new Set(agentsCache.map((a) => a.id));
+    const myJammers = wsState.jammers.filter((j) => mine.has(j.agent_local_id));
+    for (const j of myJammers) {
+      await drop.cypherLeave(wsState.cypherId, j.agent_local_id).catch(() => {});
+    }
+  }
+  exitWorkspace();
+}
+
 function exitWorkspace(): void {
   if (wsState.pollHandle) clearInterval(wsState.pollHandle);
   if (wsState.clockHandle) clearInterval(wsState.clockHandle);
@@ -1473,7 +1499,6 @@ function exitWorkspace(): void {
   wsState.pollHandle = null;
   wsState.clockHandle = null;
   wsState.unsubscribeEvents = null;
-  // .yo no longer piloting any cypher — cypher tools de-activate.
   void drop.cypherSetCurrent(null);
   wsState.cypherId = null;
   wsState.cypher = null;
@@ -1957,7 +1982,7 @@ function init(): void {
 
   // ── Workspace ─────────────────────────────
   $("ws-back").addEventListener("click", exitWorkspace);
-  $("ws-leave").addEventListener("click", exitWorkspace);
+  $("ws-leave").addEventListener("click", () => { void leaveWorkspace(); });
   $("ws-wrap").addEventListener("click", () => { void workspaceWrap(); });
 }
 
