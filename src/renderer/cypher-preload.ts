@@ -39,6 +39,20 @@ interface CypherPanelAPI {
   loadAgentThread: (cypherId: string, agentName: string) => Promise<Array<{ ts: number; kind: string; content: string }>>;
   listAgentThreads: (cypherId: string) => Promise<string[]>;
 
+  // File system (host/jammer — local files)
+  listDir: (dirPath: string) => Promise<Array<{ name: string; isDir: boolean }>>;
+  readFile: (filePath: string) => Promise<{ content: string; binary: boolean }>;
+  getCypherWorkspacePath: (cypherId: string) => Promise<string | null>;
+
+  // Project board
+  projectBoard: (cypherId: string) => Promise<{
+    items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }>;
+  }>;
+  onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
+
+  // Open in VS Code
+  openInVSCode: (filePath: string) => void;
+
   // Fired when context changes (panel should re-init)
   onContextReady: (cb: () => void) => () => void;
 }
@@ -113,6 +127,20 @@ const api: CypherPanelAPI = {
   loadStageThread: (cypherId: string) => ipcRenderer.invoke("cypher-thread-load-stage", cypherId),
   loadAgentThread: (cypherId: string, agentName: string) => ipcRenderer.invoke("cypher-thread-load-agent", cypherId, agentName),
   listAgentThreads: (cypherId: string) => ipcRenderer.invoke("cypher-thread-list-agents", cypherId),
+
+  listDir: (dirPath) => ipcRenderer.invoke("cypher-list-dir", dirPath),
+  readFile: (filePath) => ipcRenderer.invoke("cypher-read-file", filePath),
+  getCypherWorkspacePath: (cypherId) => ipcRenderer.invoke("cypher-workspace-path", cypherId),
+
+  projectBoard: (cypherId) => ipcRenderer.invoke("cypher-project-board", cypherId),
+  onProjectItemUpdate: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, item: { id: string; title: string; status: string; assignee?: string }) =>
+      cb(item);
+    ipcRenderer.on("cypher-project-item-update", handler);
+    return () => { ipcRenderer.removeListener("cypher-project-item-update", handler); };
+  },
+
+  openInVSCode: (filePath) => ipcRenderer.send("cypher-open-vscode", filePath),
 
   onContextReady: (cb) => {
     const handler = () => cb();

@@ -3680,6 +3680,60 @@ async function boot() {
     return threadStore.listAgentThreads(cypherId);
   });
 
+  // ── Cypher file system IPC (host/jammer local files) ─────
+  ipcMain.handle("cypher-workspace-path", (_e, cypherId: string) => {
+    const base = path.join(os.homedir(), ".yo", "cyphers", cypherId, "jammers");
+    try {
+      if (fs.existsSync(base)) return base;
+    } catch { /* noop */ }
+    return null;
+  });
+
+  ipcMain.handle("cypher-list-dir", (_e, dirPath: string) => {
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      return entries
+        .filter((e) => !e.name.startsWith("."))
+        .map((e) => ({ name: e.name, isDir: e.isDirectory() }))
+        .sort((a, b) => {
+          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle("cypher-read-file", (_e, filePath: string) => {
+    try {
+      const buf = fs.readFileSync(filePath);
+      const isBinary = buf.includes(0);
+      if (isBinary) {
+        return { content: buf.toString("base64"), binary: true };
+      }
+      return { content: buf.toString("utf-8"), binary: false };
+    } catch {
+      return { content: "", binary: false };
+    }
+  });
+
+  ipcMain.handle("cypher-project-board", async (_e, cypherId: string) => {
+    try {
+      const r = await serverGetAuthed<{ items?: Array<{ id: string; title: string; status: string; assignee_user_id?: string; pr_url?: string | null }> }>(
+        `/api/projects/by-cypher/${encodeURIComponent(cypherId)}?with=items`,
+      );
+      const items = (r as any)?.items || [];
+      return { items };
+    } catch {
+      return { items: [] };
+    }
+  });
+
+  ipcMain.on("cypher-open-vscode", (_e, filePath: string) => {
+    const { exec } = require("child_process") as typeof import("child_process");
+    exec(`code "${filePath}"`);
+  });
+
   // ── Council session IPC ──────────────────────────────────
   // Same pattern as cypher: renderer creates / sets-current; substrate council
   // tools read the current council and call into the session module.

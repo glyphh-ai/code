@@ -1,625 +1,487 @@
 /**
- * Cypher Mode — live collaborative workspace panel.
+ * cypher.ts — Cypher workspace renderer.
  *
- * Three columns:
- *  - Left: jammer roster with live status indicators
- *  - Center: agent output stream (owner sees full SDK output, observer sees SSE feed)
- *  - Right: chat/drips (real-time messages between participants)
- *
- * Owner mode: can spawn agents, send instructions, view full output.
- * Observer mode: sees SSE-forwarded events, can chat/drip.
+ * Layout: flow board (top) + file tree (left) + Monaco viewer (center).
+ * Roster is compact in the left sidebar below the file tree.
+ * All orchestrator/agent output goes through the yo panel (not rendered here).
  */
 
-import { formatMarkdown } from "./format-markdown";
+declare const require: any;
 
-// ── Types ──────────────────────────────────────────────
-
-interface CypherPanelAPI {
-  authMe: () => Promise<{ id?: string; email?: string; handle?: string; error?: string }>;
+interface CypherAPI {
+  authMe: () => Promise<{ id?: string; email?: string; handle?: string }>;
   cypherGet: (id: string) => Promise<any>;
   cypherJammers: (id: string) => Promise<any>;
-  cypherEventsList: (id: string, opts?: { since?: number; limit?: number }) => Promise<any>;
-  cypherCoverGet: (id: string) => Promise<{ ok: boolean; data_base64?: string; content_type?: string }>;
-  agentStart: (agentName: string) => void;
-  agentStop: (agentName: string) => void;
-  agentSend: (agentName: string, message: string) => void;
   cypherSpawnJammers: (id: string) => Promise<any>;
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
-  onAgentMessage: (cb: (agentName: string, msg: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
-  onStageToken: (cb: (delta: string) => void) => () => void;
-  onStageTool: (cb: (id: string, name: string, input: unknown) => void) => () => void;
-  onStageToolResult: (cb: (id: string, detail: string) => void) => () => void;
-  onStageDone: (cb: (fullText: string) => void) => () => void;
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
   getCypherContext: () => Promise<{ cypherId: string; isOwner: boolean } | null>;
   leaveCypher: () => void;
-  loadStageThread: (cypherId: string) => Promise<Array<{ ts: number; kind: string; content: string; toolId?: string; toolName?: string }>>;
-  loadAgentThread: (cypherId: string, agentName: string) => Promise<Array<{ ts: number; kind: string; content: string }>>;
-  listAgentThreads: (cypherId: string) => Promise<string[]>;
+  listDir: (dirPath: string) => Promise<Array<{ name: string; isDir: boolean }>>;
+  readFile: (filePath: string) => Promise<{ content: string; binary: boolean }>;
+  getCypherWorkspacePath: (cypherId: string) => Promise<string | null>;
+  projectBoard: (cypherId: string) => Promise<{ items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }> }>;
+  onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
+  openInVSCode: (filePath: string) => void;
   onContextReady: (cb: () => void) => () => void;
 }
 
-const api = (window as unknown as { cypher: CypherPanelAPI }).cypher;
-
-const $ = (id: string) => document.getElementById(id) as HTMLElement;
-const escapeHtml = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+const api = (window as any).cypher as CypherAPI;
 
 // ── State ──────────────────────────────────────────────
-
-interface Jammer {
-  id: string;
-  agent_local_id: string;
-  user_id: string;
-  position: string;
-  status: "idle" | "running" | "waiting" | "error";
-}
-
-interface ChatMessage {
-  author: string;
-  body: string;
-  time: Date;
-  system?: boolean;
-}
-
 let cypherId: string | null = null;
 let isOwner = false;
-let currentUserId: string | null = null;
-let cypherData: any = null;
-let jammers: Jammer[] = [];
-let focusedAgent: string | null = null;
-let chatMessages: ChatMessage[] = [];
-let unsubEvents: (() => void) | null = null;
-let unsubAgentMsg: (() => void) | null = null;
-let unsubAgentStatus: (() => void) | null = null;
-let unsubStageToken: (() => void) | null = null;
-let unsubStageTool: (() => void) | null = null;
-let unsubStageToolResult: (() => void) | null = null;
-let unsubStageDone: (() => void) | null = null;
+let workspacePath: string | null = null;
 
-// Per-agent message buffers for the stage
-const agentStreams = new Map<string, string[]>();
+interface Jammer {
+  agent_local_id: string;
+  position: string;
+  status: "idle" | "running" | "waiting" | "starting" | "error";
+}
+let jammers: Jammer[] = [];
+
+interface FileNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children?: FileNode[];
+  expanded?: boolean;
+  depth: number;
+}
+let fileTree: FileNode[] = [];
+let activeFile: string | null = null;
+
+interface BoardItem {
+  id: string;
+  title: string;
+  status: string;
+  assignee?: string;
+  pr_url?: string | null;
+}
+let boardItems: BoardItem[] = [];
+
+interface OpenTab {
+  path: string;
+  name: string;
+}
+let openTabs: OpenTab[] = [];
+
+let monacoEditor: any = null;
+let monacoReady: Promise<void> | null = null;
+
+let unsubEvents: (() => void) | null = null;
+let unsubStatus: (() => void) | null = null;
+let unsubItemUpdate: (() => void) | null = null;
 let initRunning = false;
 
-// ── Init ───────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────
+function $(id: string): HTMLElement { return document.getElementById(id)!; }
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
+function fileExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+function languageFromExt(ext: string): string {
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    json: "json", md: "markdown", html: "html", css: "css", scss: "scss",
+    py: "python", rs: "rust", go: "go", rb: "ruby", sh: "shell",
+    yml: "yaml", yaml: "yaml", toml: "toml", sql: "sql",
+    c: "c", cpp: "cpp", h: "c", hpp: "cpp", java: "java",
+    swift: "swift", kt: "kotlin", xml: "xml", svg: "xml",
+  };
+  return map[ext] || "plaintext";
+}
+
+function isMediaFile(ext: string): boolean {
+  return ["png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "wav", "ogg", "mp4", "webm"].includes(ext);
+}
+
+// ── Monaco ─────────────────────────────────────────────
+function ensureMonaco(): Promise<void> {
+  if (monacoReady) return monacoReady;
+  monacoReady = new Promise<void>((resolve) => {
+    const w = window as any;
+    if (w.monaco) { resolve(); return; }
+    w.require.config({ paths: { vs: "monaco" } });
+    w.require(["vs/editor/editor.main"], () => resolve());
+  });
+  return monacoReady;
+}
+
+async function initEditor(): Promise<void> {
+  await ensureMonaco();
+  const monaco = (window as any).monaco;
+  const container = $("monaco-container");
+  if (monacoEditor) return;
+  monacoEditor = monaco.editor.create(container, {
+    value: "",
+    language: "plaintext",
+    theme: "vs-dark",
+    fontSize: 13,
+    fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+    minimap: { enabled: false },
+    wordWrap: "on",
+    automaticLayout: true,
+    readOnly: true,
+    padding: { top: 12 },
+    smoothScrolling: true,
+    scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+    renderLineHighlight: "none",
+    lineNumbers: "on",
+  });
+}
+
+// ── File Tree ──────────────────────────────────────────
+async function loadFileTree(dirPath: string, depth: number = 0): Promise<FileNode[]> {
+  const entries = await api.listDir(dirPath);
+  return entries.map((e) => ({
+    name: e.name,
+    path: dirPath + "/" + e.name,
+    isDir: e.isDir,
+    children: undefined,
+    expanded: depth === 0, // auto-expand first level
+    depth,
+  }));
+}
+
+async function expandNode(node: FileNode): Promise<void> {
+  if (!node.isDir) return;
+  if (!node.children) {
+    node.children = await loadFileTree(node.path, node.depth + 1);
+  }
+  node.expanded = !node.expanded;
+}
+
+function flattenTree(nodes: FileNode[]): FileNode[] {
+  const out: FileNode[] = [];
+  for (const n of nodes) {
+    out.push(n);
+    if (n.isDir && n.expanded && n.children) {
+      out.push(...flattenTree(n.children));
+    }
+  }
+  return out;
+}
+
+function renderFileTree(filter?: string): void {
+  const container = $("file-tree");
+  container.innerHTML = "";
+  const flat = flattenTree(fileTree);
+  const lowerFilter = filter?.toLowerCase();
+
+  for (const node of flat) {
+    if (lowerFilter && !node.name.toLowerCase().includes(lowerFilter)) {
+      if (!node.isDir) continue;
+    }
+    const el = document.createElement("div");
+    el.className = `tree-item${node.path === activeFile ? " active" : ""}${node.isDir ? " dir" : ""}`;
+    const indent = node.depth * 12;
+    const icon = node.isDir
+      ? (node.expanded ? "▾" : "▸")
+      : "·";
+    el.innerHTML = `<span class="tree-indent" style="width:${indent}px"></span><span class="tree-icon">${icon}</span>${escapeHtml(node.name)}`;
+    el.addEventListener("click", async () => {
+      if (node.isDir) {
+        await expandNode(node);
+        renderFileTree(filter);
+      } else {
+        openFile(node.path, node.name);
+      }
+    });
+    el.addEventListener("dblclick", () => {
+      if (!node.isDir) api.openInVSCode(node.path);
+    });
+    container.appendChild(el);
+  }
+}
+
+// ── File Viewer ────────────────────────────────────────
+async function openFile(filePath: string, name: string): Promise<void> {
+  activeFile = filePath;
+
+  // Add to tabs if not already open
+  if (!openTabs.find((t) => t.path === filePath)) {
+    openTabs.push({ path: filePath, name });
+  }
+  renderTabs();
+  renderFileTree();
+
+  const ext = fileExtension(name);
+
+  if (isMediaFile(ext)) {
+    $("monaco-container").style.display = "none";
+    const viewer = $("media-viewer");
+    viewer.style.display = "flex";
+    $("viewer-empty").classList.add("hidden");
+
+    const { content, binary } = await api.readFile(filePath);
+    if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+      const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
+      viewer.innerHTML = `<img src="${src}" />`;
+    } else if (ext === "svg") {
+      viewer.innerHTML = binary ? "" : content;
+    } else if (["mp3", "wav", "ogg"].includes(ext)) {
+      const src = binary ? `data:audio/${ext};base64,${content}` : "";
+      viewer.innerHTML = `<audio controls src="${src}"></audio>`;
+    } else if (["mp4", "webm"].includes(ext)) {
+      const src = binary ? `data:video/${ext};base64,${content}` : "";
+      viewer.innerHTML = `<video controls src="${src}"></video>`;
+    }
+  } else {
+    $("media-viewer").style.display = "none";
+    $("monaco-container").style.display = "block";
+    $("viewer-empty").classList.add("hidden");
+
+    await initEditor();
+    const { content } = await api.readFile(filePath);
+    const monaco = (window as any).monaco;
+    const lang = languageFromExt(ext);
+    const model = monaco.editor.createModel(content, lang);
+    monacoEditor.setModel(model);
+  }
+}
+
+function renderTabs(): void {
+  const container = $("viewer-tabs");
+  container.innerHTML = "";
+  for (const tab of openTabs) {
+    const el = document.createElement("div");
+    el.className = `viewer-tab${tab.path === activeFile ? " active" : ""}`;
+    el.innerHTML = `${escapeHtml(tab.name)}<span class="tab-close">✕</span>`;
+    el.addEventListener("click", () => openFile(tab.path, tab.name));
+    el.querySelector(".tab-close")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeTab(tab.path);
+    });
+    container.appendChild(el);
+  }
+}
+
+function closeTab(filePath: string): void {
+  openTabs = openTabs.filter((t) => t.path !== filePath);
+  if (activeFile === filePath) {
+    if (openTabs.length > 0) {
+      openFile(openTabs[openTabs.length - 1].path, openTabs[openTabs.length - 1].name);
+    } else {
+      activeFile = null;
+      $("monaco-container").style.display = "none";
+      $("media-viewer").style.display = "none";
+      $("viewer-empty").classList.remove("hidden");
+      renderTabs();
+      renderFileTree();
+    }
+  } else {
+    renderTabs();
+  }
+}
+
+// ── Flow Board ─────────────────────────────────────────
+function renderFlowBoard(): void {
+  const columns: Record<string, BoardItem[]> = {
+    Backlog: [], InProgress: [], Review: [], Done: [],
+  };
+  for (const item of boardItems) {
+    const col = columns[item.status] || columns.Backlog;
+    col.push(item);
+  }
+
+  for (const [status, items] of Object.entries(columns)) {
+    const key = status === "InProgress" ? "active" : status.toLowerCase();
+    const container = $(`flow-${key}`);
+    const count = $(`flow-count-${key}`);
+    if (container) {
+      container.innerHTML = "";
+      for (const item of items) {
+        const card = document.createElement("div");
+        card.className = "flow-card";
+        card.innerHTML = `${escapeHtml(item.title)}${item.assignee ? `<div class="card-assignee">@${escapeHtml(item.assignee)}</div>` : ""}`;
+        container.appendChild(card);
+      }
+    }
+    if (count) count.textContent = String(items.length);
+  }
+}
+
+// ── Roster ─────────────────────────────────────────────
+function renderRoster(filter?: string): void {
+  const container = $("roster-list");
+  container.innerHTML = "";
+  const lowerFilter = filter?.toLowerCase();
+
+  for (const j of jammers) {
+    if (lowerFilter && !j.agent_local_id.toLowerCase().includes(lowerFilter)) continue;
+    const el = document.createElement("div");
+    el.className = "roster-item";
+    el.innerHTML = `
+      <div class="roster-dot ${j.status}"></div>
+      <span class="roster-name">${escapeHtml(j.agent_local_id)}</span>
+      <span class="roster-role">${escapeHtml(j.position)}</span>
+    `;
+    container.appendChild(el);
+  }
+}
+
+// ── Init ───────────────────────────────────────────────
 async function init(): Promise<void> {
-  if (!document.getElementById("stage-stream")) return;
   if (initRunning) return;
   initRunning = true;
-  const ctx = await api.getCypherContext();
-  if (!ctx) {
-    $("stage-empty").textContent = "No cypher context. Open a cypher from The Drop.";
-    initRunning = false;
-    return;
-  }
 
-  cypherId = ctx.cypherId;
-
-  const me = await api.authMe();
-  currentUserId = me.id || null;
-
-  await loadCypher();
-
-  // Determine ownership from cypher data (overrides context hint)
-  isOwner = ctx.isOwner || (cypherData?.owner_user_id != null && cypherData.owner_user_id === currentUserId);
-  await loadJammers();
-  await loadRecentChat();
-  await loadPersistedThreads();
-  subscribeEvents();
-  renderRoster();
-  renderStage();
-  wireUI();
-
-  // Hide owner-only controls for observers
-  if (!isOwner) {
-    $("btn-spawn").classList.add("hidden");
-  }
-  initRunning = false;
-}
-
-async function loadCypher(): Promise<void> {
-  if (!cypherId) return;
   try {
-    const r = await api.cypherGet(cypherId);
-    cypherData = (r as any)?.cypher || r;
-    $("cypher-title").textContent = cypherData?.title || "Untitled";
-    const status = cypherData?.status || "lobby";
-    $("cypher-status-text").textContent = status;
-    const statusEl = $("cypher-status");
-    statusEl.className = `topbar-status ${status === "live" ? "live" : "lobby"}`;
-  } catch { /* noop */ }
-}
+    const ctx = await api.getCypherContext();
+    if (!ctx) {
+      $("viewer-empty").textContent = "No cypher context. Open a cypher from The Drop.";
+      initRunning = false;
+      return;
+    }
+    cypherId = ctx.cypherId;
+    isOwner = ctx.isOwner;
 
-async function loadJammers(): Promise<void> {
-  if (!cypherId) return;
-  try {
-    const r = await api.cypherJammers(cypherId);
-    const raw = (r as any)?.jammers || [];
+    // Load cypher data
+    const cypherData = await api.cypherGet(cypherId);
+    const cypher = (cypherData as any)?.cypher;
+    if (cypher) {
+      $("cypher-title").textContent = cypher.title || "Untitled";
+      const statusText = $("cypher-status-text");
+      const statusEl = $("cypher-status");
+      statusText.textContent = cypher.status || "lobby";
+      statusEl.className = `topbar-status ${cypher.status === "live" ? "live" : "lobby"}`;
+    }
+
+    // Load jammers
+    const jData = await api.cypherJammers(cypherId);
+    const raw = (jData as any)?.jammers || [];
     jammers = raw
       .filter((j: any) => !j.left_at)
       .map((j: any) => ({
-        id: j.id,
         agent_local_id: j.agent_local_id,
-        user_id: j.user_id,
         position: j.position || "jammer",
         status: "idle" as const,
       }));
-    // Default to orchestrator view (focusedAgent = null)
-  } catch { /* noop */ }
-}
+    renderRoster();
 
-async function loadRecentChat(): Promise<void> {
-  if (!cypherId) return;
-  try {
-    const r = await api.cypherEventsList(cypherId, { limit: 50 });
-    const events = (r as any)?.events || [];
-    for (const ev of events) {
-      if (ev.kind === "post" && ev.payload?.tags?.includes("drip")) {
-        chatMessages.push({
-          author: ev.payload.author || ev.by_agent_id || "unknown",
-          body: ev.payload.body || ev.payload.text || "",
-          time: new Date(ev.created_at),
-          system: false,
-        });
-      } else if (ev.kind === "jammer_join" || ev.kind === "jammer_leave") {
-        chatMessages.push({
-          author: "system",
-          body: `${ev.payload?.agent_local_id || "someone"} ${ev.kind === "jammer_join" ? "joined" : "left"}`,
-          time: new Date(ev.created_at),
-          system: true,
-        });
-      }
-    }
-    renderChat();
-  } catch { /* noop */ }
-}
+    // Load project board
+    const boardData = await api.projectBoard(cypherId);
+    boardItems = boardData.items || [];
+    renderFlowBoard();
 
-async function loadPersistedThreads(): Promise<void> {
-  if (!cypherId) return;
-  try {
-    // Load orchestrator stage thread
-    const stageEntries = await api.loadStageThread(cypherId);
-    let textBuf: string[] = [];
-    for (const entry of stageEntries) {
-      if (entry.kind === "text") {
-        textBuf.push(entry.content);
-      } else {
-        // Finalize accumulated text
-        if (textBuf.length > 0) {
-          stageSegments.push({ kind: "text", content: textBuf.join("") });
-          textBuf = [];
+    // Load file tree
+    workspacePath = await api.getCypherWorkspacePath(cypherId);
+    if (workspacePath) {
+      fileTree = await loadFileTree(workspacePath);
+      // Auto-expand first-level dirs
+      for (const node of fileTree) {
+        if (node.isDir) {
+          node.children = await loadFileTree(node.path, 1);
+          node.expanded = true;
         }
-        if (entry.kind === "tool") {
-          const label = entry.toolName ? `⚡ ${entry.toolName}(${entry.content})` : entry.content;
-          stageSegments.push({ kind: "tool", content: label });
-        } else if (entry.kind === "tool-result") {
-          stageSegments.push({ kind: "tool-result", content: entry.content });
-        }
-        // "done" entries just finalize text, already handled above
       }
-    }
-    if (textBuf.length > 0) {
-      stageSegments.push({ kind: "text", content: textBuf.join("") });
+      renderFileTree();
     }
 
-    // Load per-agent threads
-    const agentNames = await api.listAgentThreads(cypherId);
-    for (const name of agentNames) {
-      const entries = await api.loadAgentThread(cypherId, name);
-      const stream: string[] = [];
-      for (const e of entries) {
-        stream.push(`${e.kind}::${e.content}`);
-      }
-      if (stream.length > 0) {
-        agentStreams.set(name, stream);
-      }
-    }
-  } catch { /* best effort — fresh start if store is empty */ }
+    // Subscribe to events
+    subscribeEvents();
+
+  } finally {
+    initRunning = false;
+  }
 }
-
-// ── Event Subscriptions ────────────────────────────────
 
 function subscribeEvents(): void {
+  cleanup();
+
+  unsubStatus = api.onAgentStatus((agentName, status) => {
+    const jammer = jammers.find((j) => j.agent_local_id === agentName);
+    if (jammer) {
+      jammer.status = status as Jammer["status"];
+      renderRoster();
+    }
+  });
+
   unsubEvents = api.onCypherEvent((evCypherId, kind, payload) => {
     if (evCypherId !== cypherId) return;
-
-    if (kind === "post" && (payload as any)?.tags?.includes("drip")) {
-      chatMessages.push({
-        author: (payload as any).author || (payload as any).by_agent_id || "unknown",
-        body: (payload as any).body || (payload as any).text || "",
-        time: new Date(),
-        system: false,
-      });
-      renderChat();
-    } else if (kind === "jammer_join" || kind === "jammer_leave") {
-      chatMessages.push({
-        author: "system",
-        body: `${(payload as any)?.agent_local_id || "someone"} ${kind === "jammer_join" ? "joined" : "left"}`,
-        time: new Date(),
-        system: true,
-      });
-      renderChat();
-      void loadJammers().then(renderRoster);
-    } else if (kind === "cypher_started") {
+    if (kind === "cypher_started") {
       $("cypher-status-text").textContent = "live";
       $("cypher-status").className = "topbar-status live";
     } else if (kind === "cypher_wrapped") {
       $("cypher-status-text").textContent = "wrapped";
       $("cypher-status").className = "topbar-status lobby";
-    } else if (kind === "agent_output" && !isOwner) {
-      // Observer: show relayed agent output
-      const agent = (payload as any).agent_local_id || "agent";
-      const text = (payload as any).text || "";
-      appendAgentMessage(agent, text, "text");
     }
   });
 
-  // Owner gets direct SDK messages
-  if (isOwner) {
-    unsubAgentMsg = api.onAgentMessage((agentName, msg) => {
-      handleAgentMessage(agentName, msg);
-    });
-
-    unsubAgentStatus = api.onAgentStatus((agentName, status) => {
-      const jammer = jammers.find((j) => j.agent_local_id === agentName);
-      if (jammer) {
-        jammer.status = status as Jammer["status"];
-        renderRoster();
-        if (agentName === focusedAgent) {
-          $("stage-agent-status").textContent = status;
-        }
-      }
-    });
-  }
-
-  // Subscribe to orchestrator (.yo agent) stream for the center stage
-  unsubStageToken = api.onStageToken((delta) => {
-    currentTextSegment.push(delta);
-    if (focusedAgent === null) {
-      const stream = document.getElementById("stage-stream");
-      if (!stream) return;
-      const empty = document.getElementById("stage-empty");
-      if (empty) empty.classList.add("hidden");
-      if (!stageCurrentBlock) {
-        stageCurrentBlock = document.createElement("div");
-        stageCurrentBlock.className = "stage-msg";
-        stream.appendChild(stageCurrentBlock);
-      }
-      stageCurrentBlock.innerHTML = formatMarkdown(currentTextSegment.join(""));
-      stream.scrollTop = stream.scrollHeight;
+  unsubItemUpdate = api.onProjectItemUpdate((item) => {
+    const existing = boardItems.find((i) => i.id === item.id);
+    if (existing) {
+      existing.status = item.status;
+      existing.assignee = item.assignee;
+    } else {
+      boardItems.push(item as BoardItem);
     }
-  });
-
-  unsubStageTool = api.onStageTool((_id, name, input) => {
-    // Finalize current text segment
-    if (currentTextSegment.length > 0) {
-      stageSegments.push({ kind: "text", content: currentTextSegment.join("") });
-      currentTextSegment = [];
-    }
-    const text = `⚡ ${name}(${JSON.stringify(input).slice(0, 200)})`;
-    stageSegments.push({ kind: "tool", content: text });
-    stageCurrentBlock = null;
-    if (focusedAgent === null) {
-      const stream = document.getElementById("stage-stream");
-      if (!stream) return;
-      const el = document.createElement("div");
-      el.className = "stage-msg tool-use";
-      el.textContent = text;
-      stream.appendChild(el);
-      stream.scrollTop = stream.scrollHeight;
-    }
-  });
-
-  unsubStageToolResult = api.onStageToolResult((_id, detail) => {
-    const trimmed = detail.slice(0, 500);
-    stageSegments.push({ kind: "tool-result", content: trimmed });
-    if (focusedAgent === null) {
-      const stream = document.getElementById("stage-stream");
-      if (!stream) return;
-      const el = document.createElement("div");
-      el.className = "stage-msg tool-result";
-      el.textContent = trimmed;
-      stream.appendChild(el);
-      stream.scrollTop = stream.scrollHeight;
-    }
-  });
-
-  unsubStageDone = api.onStageDone(() => {
-    if (currentTextSegment.length > 0) {
-      stageSegments.push({ kind: "text", content: currentTextSegment.join("") });
-      currentTextSegment = [];
-    }
-    stageCurrentBlock = null;
-  });
-}
-
-function handleAgentMessage(agentName: string, msg: Record<string, unknown>): void {
-  const type = msg.type as string;
-  if (type === "assistant" && msg.content) {
-    const parts = msg.content as Array<{ type: string; text?: string; name?: string; input?: unknown }>;
-    for (const part of parts) {
-      if (part.type === "text" && part.text) {
-        appendAgentMessage(agentName, part.text, "text");
-      } else if (part.type === "tool_use") {
-        appendAgentMessage(agentName, `${part.name}(${JSON.stringify(part.input).slice(0, 120)})`, "tool");
-      }
-    }
-  } else if (type === "result") {
-    const text = msg.result as string;
-    if (text) appendAgentMessage(agentName, text, "text");
-  } else if (type === "error") {
-    appendAgentMessage(agentName, (msg.text as string) || "Unknown error", "error");
-  }
-}
-
-function appendAgentMessage(agentName: string, text: string, kind: "text" | "tool" | "error"): void {
-  if (!agentStreams.has(agentName)) agentStreams.set(agentName, []);
-  const entry = `${kind}::${text}`;
-  agentStreams.get(agentName)!.push(entry);
-
-  // Only render if this is the focused agent
-  if (agentName === focusedAgent) {
-    appendToStage(text, kind);
-  }
-}
-
-// ── Rendering ──────────────────────────────────────────
-
-function renderRoster(): void {
-  const list = $("roster-list");
-  list.innerHTML = "";
-
-  // "All" feed option
-  const allEl = document.createElement("div");
-  allEl.className = `roster-item${focusedAgent === null ? " active" : ""}`;
-  allEl.innerHTML = `
-    <div class="roster-avatar" style="background:var(--accent)">ALL</div>
-    <div class="roster-info">
-      <div class="roster-name">All Agents</div>
-      <div class="roster-role">combined feed</div>
-    </div>
-  `;
-  allEl.addEventListener("click", () => {
-    focusedAgent = null;
-    renderRoster();
-    renderStage();
-  });
-  list.appendChild(allEl);
-
-  for (const j of jammers) {
-    const el = document.createElement("div");
-    el.className = `roster-item${j.agent_local_id === focusedAgent ? " active" : ""}`;
-    el.innerHTML = `
-      <div class="roster-avatar">${escapeHtml(j.agent_local_id.slice(0, 2).toUpperCase())}</div>
-      <div class="roster-info">
-        <div class="roster-name">${escapeHtml(j.agent_local_id)}</div>
-        <div class="roster-role">${escapeHtml(j.position)}</div>
-      </div>
-      <div class="roster-status-dot ${j.status}"></div>
-    `;
-    el.addEventListener("click", () => {
-      focusedAgent = j.agent_local_id;
-      renderRoster();
-      renderStage();
-    });
-    list.appendChild(el);
-  }
-}
-
-// Orchestration stream — structured segments for replay
-interface StageSegment {
-  kind: "text" | "tool" | "tool-result";
-  content: string;
-}
-const stageSegments: StageSegment[] = [];
-let currentTextSegment: string[] = [];
-let stageCurrentBlock: HTMLElement | null = null;
-
-function renderStage(): void {
-  const stream = document.getElementById("stage-stream");
-  if (!stream) return;
-  stream.innerHTML = "";
-  stageCurrentBlock = null;
-
-  // Re-create the empty placeholder (it lives inside stream which was just cleared)
-  let empty = document.getElementById("stage-empty");
-  if (!empty) {
-    empty = document.createElement("div");
-    empty.id = "stage-empty";
-    empty.className = "stage-empty";
-    stream.appendChild(empty);
-  }
-
-  if (focusedAgent === null) {
-    // "All" — show orchestration thread
-    const nameEl = document.getElementById("stage-agent-name");
-    const statusEl = document.getElementById("stage-agent-status");
-    if (nameEl) nameEl.textContent = "Orchestrator";
-    if (statusEl) statusEl.textContent = "";
-    if (stageSegments.length === 0 && currentTextSegment.length === 0) {
-      empty.classList.remove("hidden");
-      empty.textContent = "Waiting for orchestrator to start...";
-      return;
-    }
-    empty.classList.add("hidden");
-    // Replay completed segments
-    for (const seg of stageSegments) {
-      const el = document.createElement("div");
-      if (seg.kind === "text") {
-        el.className = "stage-msg";
-        el.innerHTML = formatMarkdown(seg.content);
-      } else if (seg.kind === "tool") {
-        el.className = "stage-msg tool-use";
-        el.textContent = seg.content;
-      } else {
-        el.className = "stage-msg tool-result";
-        el.textContent = seg.content;
-      }
-      stream.appendChild(el);
-    }
-    // Render in-progress text segment
-    if (currentTextSegment.length > 0) {
-      stageCurrentBlock = document.createElement("div");
-      stageCurrentBlock.className = "stage-msg";
-      stageCurrentBlock.innerHTML = formatMarkdown(currentTextSegment.join(""));
-      stream.appendChild(stageCurrentBlock);
-    }
-    stream.scrollTop = stream.scrollHeight;
-  } else {
-    // Individual agent feed
-    const nameEl2 = document.getElementById("stage-agent-name");
-    const statusEl2 = document.getElementById("stage-agent-status");
-    if (nameEl2) nameEl2.textContent = focusedAgent;
-    const jammer = jammers.find((j) => j.agent_local_id === focusedAgent);
-    if (statusEl2) statusEl2.textContent = jammer?.status || "";
-
-    const messages = agentStreams.get(focusedAgent) || [];
-    if (messages.length === 0) {
-      empty.classList.remove("hidden");
-      empty.textContent = "Waiting for agent output...";
-      return;
-    }
-    empty.classList.add("hidden");
-    for (const entry of messages) {
-      const sep = entry.indexOf("::");
-      const kind = entry.slice(0, sep) as "text" | "tool" | "error";
-      const text = entry.slice(sep + 2);
-      const el = document.createElement("div");
-      el.className = `stage-msg${kind === "tool" ? " tool-use" : ""}${kind === "error" ? " error" : ""}`;
-      el.innerHTML = kind === "text" ? formatMarkdown(text) : escapeHtml(text);
-      stream.appendChild(el);
-    }
-    stream.scrollTop = stream.scrollHeight;
-  }
-}
-
-function appendToStage(text: string, kind: "text" | "tool" | "error"): void {
-  const stream = document.getElementById("stage-stream");
-  const empty = document.getElementById("stage-empty");
-  if (!stream) return;
-  if (empty) empty.classList.add("hidden");
-
-  const el = document.createElement("div");
-  el.className = `stage-msg${kind === "tool" ? " tool-use" : ""}${kind === "error" ? " error" : ""}`;
-  el.innerHTML = kind === "text" ? formatMarkdown(text) : escapeHtml(text);
-  stream.appendChild(el);
-  stream.scrollTop = stream.scrollHeight;
-}
-
-function renderChat(): void {
-  const container = $("chat-messages");
-  container.innerHTML = "";
-  for (const msg of chatMessages) {
-    const el = document.createElement("div");
-    el.className = `chat-msg${msg.system ? " system" : ""}`;
-    el.innerHTML = `
-      <div class="chat-msg-author">${escapeHtml(msg.author)}</div>
-      <div class="chat-msg-body">${escapeHtml(msg.body)}</div>
-      <div class="chat-msg-time">${formatTime(msg.time)}</div>
-    `;
-    container.appendChild(el);
-  }
-  container.scrollTop = container.scrollHeight;
-  $("chat-count").textContent = String(chatMessages.filter((m) => !m.system).length);
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-// ── UI Wiring ──────────────────────────────────────────
-
-function wireUI(): void {
-  // Spawn button (owner only)
-  $("btn-spawn").addEventListener("click", async () => {
-    if (!cypherId) return;
-    $("btn-spawn").textContent = "Spawning...";
-    try {
-      await api.cypherSpawnJammers(cypherId);
-      $("btn-spawn").textContent = "Spawned";
-      setTimeout(() => { $("btn-spawn").textContent = "Spawn"; }, 2000);
-    } catch {
-      $("btn-spawn").textContent = "Failed";
-      setTimeout(() => { $("btn-spawn").textContent = "Spawn"; }, 2000);
-    }
-  });
-
-  // Leave button — close cypher tab, return to .drop
-  $("btn-leave").addEventListener("click", () => {
-    cleanup();
-    api.leaveCypher();
-  });
-
-  // Chat input
-  const chatInput = $("chat-input") as HTMLInputElement;
-  const sendChat = async () => {
-    const text = chatInput.value.trim();
-    if (!text || !cypherId) return;
-    chatInput.value = "";
-    const me = currentUserId || "me";
-    chatMessages.push({ author: me, body: text, time: new Date() });
-    renderChat();
-    try {
-      await api.cypherPostEvent(cypherId, "post", {
-        body: text,
-        author: me,
-        tags: ["drip"],
-      });
-    } catch { /* best effort */ }
-  };
-  $("btn-send-chat").addEventListener("click", sendChat);
-  chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendChat(); }
+    renderFlowBoard();
   });
 }
 
 function cleanup(): void {
-  if (unsubEvents) { unsubEvents(); unsubEvents = null; }
-  if (unsubAgentMsg) { unsubAgentMsg(); unsubAgentMsg = null; }
-  if (unsubAgentStatus) { unsubAgentStatus(); unsubAgentStatus = null; }
-  if (unsubStageToken) { unsubStageToken(); unsubStageToken = null; }
-  if (unsubStageTool) { unsubStageTool(); unsubStageTool = null; }
-  if (unsubStageToolResult) { unsubStageToolResult(); unsubStageToolResult = null; }
-  if (unsubStageDone) { unsubStageDone(); unsubStageDone = null; }
+  unsubEvents?.();
+  unsubStatus?.();
+  unsubItemUpdate?.();
+  unsubEvents = null;
+  unsubStatus = null;
+  unsubItemUpdate = null;
 }
 
-// ── Theme ──────────────────────────────────────────────
-
-api.getTheme().then((theme) => {
-  document.documentElement.setAttribute("data-theme", theme);
-});
-api.onThemeChanged((theme) => {
-  document.documentElement.setAttribute("data-theme", theme);
-});
-
 // ── Boot ───────────────────────────────────────────────
+function boot(): void {
+  // File search
+  $("file-search").addEventListener("input", (e) => {
+    renderFileTree((e.target as HTMLInputElement).value);
+  });
 
-function boot() {
-  if (!document.getElementById("stage-stream")) {
-    // Ghost panel — DOM not loaded. Bail entirely.
-    return;
-  }
-  void init();
+  // Roster search
+  $("roster-search").addEventListener("input", (e) => {
+    renderRoster((e.target as HTMLInputElement).value);
+  });
 
+  // Spawn button
+  $("btn-spawn").addEventListener("click", () => {
+    if (cypherId) api.cypherSpawnJammers(cypherId);
+  });
+
+  // Leave button
+  $("btn-leave").addEventListener("click", () => {
+    api.leaveCypher();
+  });
+
+  // Context ready = new cypher loaded
   api.onContextReady(() => {
     cleanup();
     cypherId = null;
     jammers = [];
-    focusedAgent = null;
-    chatMessages = [];
-    agentStreams.clear();
-    stageSegments.length = 0;
-    currentTextSegment = [];
-    stageCurrentBlock = null;
+    fileTree = [];
+    boardItems = [];
+    openTabs = [];
+    activeFile = null;
+    if (monacoEditor) {
+      monacoEditor.setModel(null);
+    }
+    $("file-tree").innerHTML = "";
+    $("roster-list").innerHTML = "";
+    $("viewer-tabs").innerHTML = "";
+    $("monaco-container").style.display = "none";
+    $("media-viewer").style.display = "none";
+    $("viewer-empty").classList.remove("hidden");
     initRunning = false;
-    const stream = document.getElementById("stage-stream");
-    if (stream) stream.innerHTML = "";
     void init();
   });
+
+  void init();
 }
 
 if (document.readyState === "loading") {

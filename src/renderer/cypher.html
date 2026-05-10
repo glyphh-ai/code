@@ -10,7 +10,7 @@
   /* ── Top bar ───────────────────────────────────────────── */
   .topbar {
     display: flex; align-items: center; gap: 12px;
-    padding: 10px 20px;
+    padding: 8px 16px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     flex-shrink: 0;
@@ -30,17 +30,13 @@
     padding: 3px 10px; border-radius: 999px;
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
   }
-  .topbar-status.live {
-    background: var(--accent-glow); color: var(--accent);
-  }
-  .topbar-status.lobby {
-    background: rgba(255,180,0,0.1); color: #ffb400;
-  }
+  .topbar-status.live { background: var(--accent-glow); color: var(--accent); }
+  .topbar-status.lobby { background: rgba(255,180,0,0.1); color: #ffb400; }
   .topbar-status .pulse {
     width: 6px; height: 6px; border-radius: 50%;
-    background: currentColor; animation: pulse-dot 2s ease-in-out infinite;
+    background: currentColor; animation: pulse-anim 2s ease-in-out infinite;
   }
-  @keyframes pulse-dot {
+  @keyframes pulse-anim {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.4; transform: scale(0.7); }
   }
@@ -55,201 +51,183 @@
   .topbar-btn:hover { border-color: var(--accent); color: var(--accent); }
   .topbar-btn.danger:hover { border-color: #f44; color: #f44; }
 
-  /* ── Main layout ─────────────────────────────────────────── */
-  .cypher-layout {
+  /* ── Flow board (top strip) ────────────────────────────── */
+  .flow-board {
+    display: flex; gap: 2px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    height: 110px; min-height: 110px;
+    overflow: hidden;
+  }
+  .flow-column {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column;
+    padding: 0 6px;
+  }
+  .flow-column-header {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-3);
+    padding: 2px 4px 4px; border-bottom: 2px solid var(--border);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .flow-column-header .count {
+    background: var(--surface-3); border-radius: 8px;
+    padding: 0 5px; font-size: 9px; color: var(--text-2);
+  }
+  .flow-column-header.active { border-color: var(--accent); }
+  .flow-column-header.done { border-color: #4caf50; }
+  .flow-cards {
+    flex: 1; overflow-y: auto; padding: 4px 0;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .flow-card {
+    padding: 4px 8px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    font-size: 11px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: all 0.2s ease;
+    cursor: default;
+  }
+  .flow-card:hover { border-color: var(--accent); }
+  .flow-card .card-assignee {
+    font-size: 9px; color: var(--text-3); margin-top: 1px;
+  }
+
+  /* ── Main layout (below flow) ──────────────────────────── */
+  .cypher-main {
     display: flex;
-    height: calc(100vh - 49px);
+    height: calc(100vh - 49px - 110px);
     overflow: hidden;
   }
 
-  /* ── Left: Roster ──────────────────────────────────────── */
-  .roster-panel {
-    width: 220px; min-width: 180px;
+  /* ── Left sidebar: file tree + roster ──────────────────── */
+  .left-panel {
+    width: 240px; min-width: 200px;
     border-right: 1px solid var(--border);
     background: var(--surface);
     display: flex; flex-direction: column;
     overflow: hidden;
   }
-  .roster-header {
-    padding: 14px 16px 10px;
-    font-size: 11px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--text-2);
-    border-bottom: 1px solid var(--border);
+
+  /* File tree section */
+  .file-section {
+    flex: 1; display: flex; flex-direction: column;
+    overflow: hidden; border-bottom: 1px solid var(--border);
+  }
+  .section-header {
+    padding: 8px 12px 6px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-3);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-search {
+    margin: 0 8px 6px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 4px 8px;
+    font-size: 11px; color: var(--text); outline: none; width: calc(100% - 16px);
+  }
+  .section-search:focus { border-color: var(--accent); }
+  .file-tree {
+    flex: 1; overflow-y: auto; padding: 0 4px 8px;
+    font-family: var(--font-mono); font-size: 12px;
+  }
+  .tree-item {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 4px;
+    cursor: default; color: var(--text-2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tree-item:hover { background: var(--surface-2); color: var(--text); }
+  .tree-item.active { background: var(--accent-glow); color: var(--text); }
+  .tree-item.dir { color: var(--text); font-weight: 600; }
+  .tree-icon { width: 14px; text-align: center; flex-shrink: 0; font-size: 10px; }
+  .tree-indent { display: inline-block; }
+
+  /* Roster section */
+  .roster-section {
+    height: 180px; min-height: 120px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
   }
   .roster-list {
-    flex: 1; overflow-y: auto; padding: 8px;
+    flex: 1; overflow-y: auto; padding: 4px 8px;
   }
   .roster-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 10px; border-radius: 8px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px;
     cursor: default; transition: background 0.12s ease;
   }
   .roster-item:hover { background: var(--surface-2); }
   .roster-item.active { background: var(--accent-glow); }
-  .roster-avatar {
-    width: 28px; height: 28px; border-radius: 50%;
-    background: var(--surface-3); display: flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 700; color: var(--text-2);
-    flex-shrink: 0;
-  }
-  .roster-info { flex: 1; min-width: 0; }
   .roster-name {
-    font-size: 12px; font-weight: 600; color: var(--text);
+    font-size: 11px; font-weight: 600; color: var(--text);
+    flex: 1; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .roster-role {
-    font-size: 10px; color: var(--text-3);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 9px; color: var(--text-3);
   }
-  .roster-status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    flex-shrink: 0;
+  .roster-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
   }
-  .roster-status-dot.idle { background: var(--text-3); }
-  .roster-status-dot.running { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
-  .roster-status-dot.waiting { background: #4caf50; box-shadow: 0 0 6px #4caf5088; }
-  .roster-status-dot.starting { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
-  .roster-status-dot.error { background: #f44; }
+  .roster-dot.idle { background: var(--text-3); }
+  .roster-dot.running { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
+  .roster-dot.waiting { background: #4caf50; box-shadow: 0 0 4px #4caf5088; }
+  .roster-dot.starting { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
+  .roster-dot.error { background: #f44; }
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
   }
 
-  /* ── Center: Stage (agent output) ──────────────────────── */
-  .stage-panel {
+  /* ── Center: Monaco viewer ─────────────────────────────── */
+  .viewer-panel {
     flex: 1; min-width: 0;
     display: flex; flex-direction: column;
     overflow: hidden;
   }
-  .stage-header {
-    padding: 10px 20px;
+  .viewer-tabs {
+    display: flex; gap: 0;
+    background: var(--surface);
     border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 12px;
-    background: var(--surface);
+    overflow-x: auto;
+    flex-shrink: 0;
   }
-  .stage-agent-name {
-    font-size: 13px; font-weight: 700; color: var(--text);
+  .viewer-tab {
+    padding: 6px 14px;
+    font-size: 12px; color: var(--text-3);
+    border-right: 1px solid var(--border);
+    cursor: default; white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+    transition: all 0.12s;
   }
-  .stage-agent-status {
-    font-size: 11px; color: var(--text-3); font-weight: 500;
+  .viewer-tab:hover { color: var(--text); background: var(--surface-2); }
+  .viewer-tab.active { color: var(--text); background: var(--bg); border-bottom: 2px solid var(--accent); }
+  .viewer-tab .tab-close {
+    font-size: 10px; opacity: 0; padding: 2px;
+    border-radius: 3px; transition: opacity 0.1s;
   }
-  .stage-stream {
-    flex: 1; overflow-y: auto; padding: 20px;
+  .viewer-tab:hover .tab-close { opacity: 0.6; }
+  .viewer-tab .tab-close:hover { opacity: 1; background: var(--surface-3); }
+  .viewer-empty {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-3); font-size: 13px;
   }
-  .stage-msg {
-    margin-bottom: 16px; padding: 12px 16px;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; font-size: 13px; color: var(--text);
-    line-height: 1.6;
+  #monaco-container {
+    flex: 1; overflow: hidden;
   }
-  .stage-msg.tool-use {
-    border-left: 3px solid var(--accent);
-    font-family: var(--font-mono); font-size: 12px;
-    color: var(--text-2);
+  /* Media viewer for non-code files */
+  #media-viewer {
+    flex: 1; overflow: auto; padding: 20px;
+    display: none; align-items: center; justify-content: center;
   }
-  .stage-msg.error {
-    border-left: 3px solid #f44;
-    color: #f88;
-  }
-  .stage-msg.tool-result {
-    border-left: 3px solid var(--text-3);
-    font-family: var(--font-mono); font-size: 11px;
-    color: var(--text-3); max-height: 120px; overflow-y: auto;
-  }
-  .stage-msg .msg-meta {
-    font-size: 10px; color: var(--text-3); margin-bottom: 4px;
-    display: flex; gap: 8px; align-items: center;
-  }
-  .stage-empty {
-    display: flex; align-items: center; justify-content: center;
-    height: 100%; color: var(--text-3); font-size: 14px;
-  }
-
-  /* Owner input bar at bottom of stage */
-  .stage-input-bar {
-    display: flex; gap: 8px; padding: 12px 20px;
-    border-top: 1px solid var(--border);
-    background: var(--surface);
-  }
-  .stage-input-bar input {
-    flex: 1;
-    background: var(--surface-2); border: 1px solid var(--border-2);
-    border-radius: 8px; padding: 8px 14px;
-    font-size: 13px; color: var(--text); outline: none;
-  }
-  .stage-input-bar input:focus { border-color: var(--accent); }
-  .stage-input-bar button {
-    padding: 8px 16px; border-radius: 8px;
-    background: var(--accent); color: #000;
-    font-size: 12px; font-weight: 700; border: none;
-    cursor: pointer; transition: opacity 0.15s;
-  }
-  .stage-input-bar button:hover { opacity: 0.85; }
-
-  /* ── Right: Chat / Drips ───────────────────────────────── */
-  .chat-panel {
-    width: 300px; min-width: 240px;
-    border-left: 1px solid var(--border);
-    background: var(--surface);
-    display: flex; flex-direction: column;
-    overflow: hidden;
-  }
-  .chat-header {
-    padding: 14px 16px 10px;
-    font-size: 11px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--text-2);
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  .chat-messages {
-    flex: 1; overflow-y: auto; padding: 12px;
-  }
-  .chat-msg {
-    margin-bottom: 10px;
-  }
-  .chat-msg-author {
-    font-size: 11px; font-weight: 700; color: var(--accent);
-    margin-bottom: 2px;
-  }
-  .chat-msg-body {
-    font-size: 13px; color: var(--text); line-height: 1.5;
-    word-wrap: break-word;
-  }
-  .chat-msg-time {
-    font-size: 10px; color: var(--text-3); margin-top: 2px;
-  }
-  .chat-msg.system .chat-msg-author { color: var(--text-3); }
-  .chat-msg.system .chat-msg-body { color: var(--text-2); font-style: italic; }
-
-  .chat-input-bar {
-    display: flex; gap: 8px; padding: 12px;
-    border-top: 1px solid var(--border);
-  }
-  .chat-input-bar input {
-    flex: 1;
-    background: var(--surface-2); border: 1px solid var(--border-2);
-    border-radius: 8px; padding: 8px 12px;
-    font-size: 13px; color: var(--text); outline: none;
-  }
-  .chat-input-bar input:focus { border-color: var(--accent); }
-  .chat-input-bar button {
-    padding: 8px 12px; border-radius: 6px;
-    background: var(--accent); color: #000;
-    font-size: 12px; font-weight: 700; border: none;
-    cursor: pointer;
-  }
+  #media-viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+  #media-viewer audio { width: 80%; }
+  #media-viewer video { max-width: 100%; max-height: 100%; border-radius: 8px; }
 
   /* ── Utilities ─────────────────────────────────────────── */
   .hidden { display: none !important; }
-
-  /* Markdown rendered content */
-  .stage-msg :is(pre, code) { font-family: var(--font-mono); font-size: 12px; }
-  .stage-msg pre {
-    background: var(--surface-2); border-radius: 6px;
-    padding: 10px 14px; overflow-x: auto; margin: 8px 0;
-  }
-  .stage-msg code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
-  .stage-msg pre code { background: none; padding: 0; }
 </style>
 </head>
 <body>
@@ -267,41 +245,54 @@
   <button class="topbar-btn danger" id="btn-leave" title="Leave cypher">Leave</button>
 </div>
 
-<!-- Main 3-column layout -->
-<div class="cypher-layout">
+<!-- Flow board — compact live kanban -->
+<div class="flow-board" id="flow-board">
+  <div class="flow-column">
+    <div class="flow-column-header">Backlog <span class="count" id="flow-count-backlog">0</span></div>
+    <div class="flow-cards" id="flow-backlog"></div>
+  </div>
+  <div class="flow-column">
+    <div class="flow-column-header active">In Progress <span class="count" id="flow-count-active">0</span></div>
+    <div class="flow-cards" id="flow-active"></div>
+  </div>
+  <div class="flow-column">
+    <div class="flow-column-header">Review <span class="count" id="flow-count-review">0</span></div>
+    <div class="flow-cards" id="flow-review"></div>
+  </div>
+  <div class="flow-column">
+    <div class="flow-column-header done">Done <span class="count" id="flow-count-done">0</span></div>
+    <div class="flow-cards" id="flow-done"></div>
+  </div>
+</div>
 
-  <!-- Left: Roster -->
-  <div class="roster-panel">
-    <div class="roster-header">Jammers</div>
-    <div class="roster-list" id="roster-list"></div>
+<!-- Main area: left sidebar + viewer -->
+<div class="cypher-main">
+
+  <!-- Left: File tree + Roster -->
+  <div class="left-panel">
+    <div class="file-section">
+      <div class="section-header">Files</div>
+      <input type="text" class="section-search" id="file-search" placeholder="Search files..." />
+      <div class="file-tree" id="file-tree"></div>
+    </div>
+    <div class="roster-section">
+      <div class="section-header">Jammers</div>
+      <input type="text" class="section-search" id="roster-search" placeholder="Search agents..." />
+      <div class="roster-list" id="roster-list"></div>
+    </div>
   </div>
 
-  <!-- Center: Agent output stage -->
-  <div class="stage-panel">
-    <div class="stage-header">
-      <span class="stage-agent-name" id="stage-agent-name">—</span>
-      <span class="stage-agent-status" id="stage-agent-status"></span>
-    </div>
-    <div class="stage-stream" id="stage-stream">
-      <div class="stage-empty" id="stage-empty">Waiting for agents to start...</div>
-    </div>
-  </div>
-
-  <!-- Right: Chat / Drips -->
-  <div class="chat-panel">
-    <div class="chat-header">
-      <span>Chat</span>
-      <span id="chat-count" style="font-weight:400; color:var(--text-3);">0</span>
-    </div>
-    <div class="chat-messages" id="chat-messages"></div>
-    <div class="chat-input-bar">
-      <input type="text" id="chat-input" placeholder="Say something..." />
-      <button id="btn-send-chat">Send</button>
-    </div>
+  <!-- Center: Monaco viewer -->
+  <div class="viewer-panel">
+    <div class="viewer-tabs" id="viewer-tabs"></div>
+    <div class="viewer-empty" id="viewer-empty">Select a file to view</div>
+    <div id="monaco-container"></div>
+    <div id="media-viewer"></div>
   </div>
 
 </div>
 
+<script src="monaco/loader.js"></script>
 <script src="cypher.js"></script>
 </body>
 </html>
