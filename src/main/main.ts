@@ -1839,6 +1839,7 @@ async function boot() {
   const panelUrls: Record<string, string> = {};
   const panelFavicons: Record<string, string> = getPreference<Record<string, string>>("panelFavicons", {});
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
+  let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null = null;
 
   function getTabName(id: string | null | undefined): string {
     if (!id) return "";
@@ -3476,7 +3477,7 @@ async function boot() {
   }
 
   // ── Cypher panel context — tells the cypher.html panel which cypher to load.
-  let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null = null;
+  // (cypherPanelContext declared earlier, near getTabName)
 
   ipcMain.handle("cypher-panel-context", () => cypherPanelContext);
 
