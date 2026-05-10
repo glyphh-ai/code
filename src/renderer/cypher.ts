@@ -281,9 +281,9 @@ function subscribeEvents(): void {
     currentTextSegment.push(delta);
     if (focusedAgent === null) {
       const stream = document.getElementById("stage-stream");
+      if (!stream) return;
       const empty = document.getElementById("stage-empty");
-      if (!stream || !empty) return;
-      empty.classList.add("hidden");
+      if (empty) empty.classList.add("hidden");
       if (!stageCurrentBlock) {
         stageCurrentBlock = document.createElement("div");
         stageCurrentBlock.className = "stage-msg";
@@ -421,10 +421,18 @@ let stageCurrentBlock: HTMLElement | null = null;
 
 function renderStage(): void {
   const stream = document.getElementById("stage-stream");
-  const empty = document.getElementById("stage-empty");
-  if (!stream || !empty) return;
+  if (!stream) return;
   stream.innerHTML = "";
   stageCurrentBlock = null;
+
+  // Re-create the empty placeholder (it lives inside stream which was just cleared)
+  let empty = document.getElementById("stage-empty");
+  if (!empty) {
+    empty = document.createElement("div");
+    empty.id = "stage-empty";
+    empty.className = "stage-empty";
+    stream.appendChild(empty);
+  }
 
   if (focusedAgent === null) {
     // "All" — show orchestration thread
