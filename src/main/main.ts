@@ -3562,10 +3562,17 @@ async function boot() {
           `/api/cyphers/${encodeURIComponent(cypId)}/manifest`,
         );
         if (!manifestR?.manifest?.assignments?.length) {
-          // Draft hasn't run or produced empty — trigger it
-          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypId)}/redraft`, {});
+          console.log("[cypher-session] No assignments found, triggering redraft for", activeJammers.length, "jammers");
+          const draftResult = await serverPostAuthed<{ ok?: boolean; error?: string; assignments?: unknown[] }>(
+            `/api/cyphers/${encodeURIComponent(cypId)}/redraft`, {},
+          );
+          console.log("[cypher-session] Redraft result:", JSON.stringify(draftResult));
+        } else {
+          console.log("[cypher-session] Assignments already exist:", manifestR.manifest.assignments.length);
         }
-      } catch { /* draft/manifest check failed — try spawn anyway */ }
+      } catch (err) {
+        console.error("[cypher-session] Draft/manifest check failed:", err instanceof Error ? err.message : err);
+      }
     }
 
     // 4. Spawn local jammer agents
@@ -3597,6 +3604,8 @@ async function boot() {
   ipcMain.handle("cypher-panel-context", () => cypherPanelContext);
 
   ipcMain.handle("cypher-panel-activate", async (_e, cypherId: string, isOwner: boolean, title?: string) => {
+    const isSameCypher = cypherPanelContext?.cypherId === cypherId;
+
     cypherPanelContext = { cypherId, isOwner, title: title || undefined };
     setPreference("cypherPanelContext", cypherPanelContext);
 
@@ -3607,14 +3616,18 @@ async function boot() {
     // Switch to the cypher panel
     if (mainWindow) panelManager.switchTo("cypher", mainWindow);
 
-    // Tell the cypher panel to re-init with the new context
-    const cypherView = panelManager.getView("cypher");
-    if (cypherView) {
-      cypherView.webContents.send("cypher-context-ready");
+    // Only send cypher-context-ready if this is a NEW cypher (not re-entering same one)
+    if (!isSameCypher) {
+      const cypherView = panelManager.getView("cypher");
+      if (cypherView) {
+        cypherView.webContents.send("cypher-context-ready");
+      }
     }
 
-    // Enter cypher mode — agent only responds when user asks, no auto-kickoff
-    yoAgent.clear();
+    // Enter cypher mode — only clear agent state if switching to a different cypher
+    if (!isSameCypher) {
+      yoAgent.clear();
+    }
     yoAgent.setCypherMode(true);
     yoAgent.setMode("acceptEdits");
     setPreference("agentMode", "cypher");
@@ -3726,14 +3739,15 @@ async function boot() {
       };
     }>(`/api/cyphers/${encodeURIComponent(cypId)}/manifest`);
     const manifest = manifestR?.manifest;
-    if (!manifest) return { ok: false, error: "manifest unavailable" };
+    if (!manifest) { console.warn("[spawn-jammers] manifest unavailable"); return { ok: false, error: "manifest unavailable" }; }
     const assignments = manifest.assignments ?? [];
-    if (assignments.length === 0) return { ok: true, spawned: 0 };
+    if (assignments.length === 0) { console.warn("[spawn-jammers] manifest has 0 assignments"); return { ok: true, spawned: 0 }; }
 
     const localAgents = listAgents();
     const localIds = new Set(localAgents.map((a) => a.id));
+    console.log("[spawn-jammers] assignments:", assignments.map((a) => a.agent_local_id), "local:", [...localIds]);
     const mine = assignments.filter((a) => localIds.has(a.agent_local_id));
-    if (mine.length === 0) return { ok: true, spawned: 0 };
+    if (mine.length === 0) { console.warn("[spawn-jammers] no assignments match local agents"); return { ok: true, spawned: 0 }; }
 
     const wsSlug = workspaceManager.getActive().slug;
     const wpModule = await import("./work-package-runner");
@@ -4189,23 +4203,16 @@ async function boot() {
       // Activate/deactivate cypher mode when switching to/from cypher tab
       if (id === "cypher" && cypherPanelContext?.cypherId) {
         if (!yoAgent.isCypherMode()) {
-          yoAgent.clear();
+          // Re-entering cypher mode — restore mode state without wiping history
           yoAgent.setCypherMode(true);
           yoAgent.setMode("acceptEdits");
           setPreference("agentMode", "cypher");
           mainWindow.webContents.send("agent-mode-changed", "cypher");
           yoInterceptor.setAgentMode("cypher");
           openYoPanel("");
-
-          // Deterministic session activation
-          const cv = panelManager.getView("cypher");
-          if (cv && !cv.webContents.isDestroyed()) {
-            cv.webContents.send("cypher-context-ready");
-            activateCypherSession(cypherPanelContext.cypherId).catch((err) => {
-              console.warn("[tab-switch] session activate failed:", err instanceof Error ? err.message : err);
-            });
-          }
         }
+        // Never send cypher-context-ready on tab switch — the panel already has
+        // its state (persisted threads loaded on first init). Re-sending it wipes history.
       } else if (id !== "cypher" && yoAgent.isCypherMode()) {
         yoAgent.setCypherMode(false);
         setPreference("agentMode", "default");
