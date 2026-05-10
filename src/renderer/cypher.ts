@@ -6,8 +6,6 @@
  * All orchestrator/agent output goes through the yo panel (not rendered here).
  */
 
-declare const require: any;
-
 interface CypherAPI {
   authMe: () => Promise<{ id?: string; email?: string; handle?: string }>;
   cypherGet: (id: string) => Promise<any>;
