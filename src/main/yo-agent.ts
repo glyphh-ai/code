@@ -27,6 +27,7 @@ import type { SkillEngine } from "./skill-engine";
 import type { NoteStore } from "./note-store";
 import { getAgentMode, gate } from "./action-gate";
 import type { AgentMode } from "./action-gate";
+import { getPreference } from "./preferences";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -259,7 +260,7 @@ export class YoAgent {
     const isBypass = this._mode === "bypassPermissions";
     const options: Record<string, any> = {
       model,
-      maxTurns: 25,
+      maxTurns: getPreference<number>("maxTurns", 200),
       ...asarSafeQueryOptions(),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
