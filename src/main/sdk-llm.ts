@@ -79,12 +79,18 @@ export function asarSafeQueryOptions(cwd?: string): Record<string, any> {
         cmd = cmd.replace("app.asar" + path.sep, "app.asar.unpacked" + path.sep);
       }
       const spawnCwd = opts.cwd?.includes?.(".asar") ? safeCwd : opts.cwd;
+      console.log(`[sdk-llm] spawn: cmd=${cmd} cwd=${spawnCwd} args=${opts.args.join(" ")}`);
       const child = spawn(cmd, opts.args, {
         cwd: spawnCwd,
         stdio: ["pipe", "pipe", "pipe"],
         signal: opts.signal,
         env: opts.env,
         windowsHide: true,
+      });
+      let stderrBuf = "";
+      child.stderr?.on("data", (chunk: Buffer) => { stderrBuf += chunk.toString(); });
+      child.on("exit", (code: number | null) => {
+        if (code && code !== 0) console.error(`[sdk-llm] CC exited code=${code} stderr=${stderrBuf.slice(0, 500)}`);
       });
       return { stdin: child.stdin, stdout: child.stdout, get killed() { return child.killed; }, get exitCode() { return child.exitCode; }, kill: child.kill.bind(child), on: child.on.bind(child), once: child.once.bind(child), off: child.off.bind(child) };
     },
