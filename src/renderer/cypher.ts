@@ -333,6 +333,10 @@ async function init(): Promise<void> {
   if (initRunning) return;
   initRunning = true;
 
+  const theme = await api.getTheme();
+  document.documentElement.setAttribute("data-theme", theme);
+  api.onThemeChanged((t) => document.documentElement.setAttribute("data-theme", t));
+
   try {
     const ctx = await api.getCypherContext();
     if (!ctx) {

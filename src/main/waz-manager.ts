@@ -109,6 +109,10 @@ export class WazManager {
       return this.themeFn?.() || "dark";
     });
 
+    wc.ipc.handle("waz-get-mode", () => {
+      return agent.getMode();
+    });
+
     wc.ipc.on("waz-send", (_e, message: string) => {
       this.runAgent(instance, message);
     });
@@ -125,6 +129,42 @@ export class WazManager {
     wc.ipc.on("waz-minimize", () => {
       win.minimize();
     });
+
+    wc.ipc.on("waz-set-mode", (_e, mode: string) => {
+      agent.setMode(mode as any);
+    });
+
+    // Approval responses from the renderer
+    const pendingApprovals = new Map<string, (approved: boolean) => void>();
+    (instance as any)._pendingApprovals = pendingApprovals;
+
+    wc.ipc.on("waz-approval-respond", (_e, approvalId: string, approved: boolean) => {
+      const resolve = pendingApprovals.get(approvalId);
+      if (resolve) {
+        pendingApprovals.delete(approvalId);
+        resolve(approved);
+      }
+    });
+
+    let approvalCounter = 0;
+    agent.setApprovalCallback(async (toolName, input) => {
+      const approvalId = `waz-approval-${id}-${++approvalCounter}`;
+      let toolLabel = toolName.replace(/_/g, " ");
+      const mcpMatch = toolName.match(/^mcp__[^_]+__(.+)$/);
+      if (mcpMatch) toolLabel = mcpMatch[1].replace(/_/g, " ");
+      if (!wc.isDestroyed()) {
+        wc.send("waz-approval-request", approvalId, toolName, toolLabel, input);
+      }
+      return new Promise<boolean>((resolve) => {
+        pendingApprovals.set(approvalId, resolve);
+        setTimeout(() => {
+          if (pendingApprovals.has(approvalId)) {
+            pendingApprovals.delete(approvalId);
+            resolve(false);
+          }
+        }, 60000);
+      });
+    });
   }
 
   private runAgent(instance: WazInstance, message: string): void {
@@ -140,6 +180,9 @@ export class WazManager {
       },
       onToolResult: (toolId, detail) => {
         if (!wc.isDestroyed()) wc.send("waz-tool-result", toolId, detail);
+      },
+      onToolProgress: (toolId, status) => {
+        if (!wc.isDestroyed()) wc.send("waz-tool-progress", toolId, status);
       },
       onDone: (fullText) => {
         if (!wc.isDestroyed()) wc.send("waz-done", fullText);

@@ -1603,8 +1603,39 @@
           </div>
         </div>
 
-        <!-- Step 4 — Seed Roster -->
+        <!-- Step 4 — Project Board -->
         <div class="overlay-pane hidden" data-cw-step="4">
+          <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">Link a GitHub repo to track issues, PRs, and project board items. This is separate from the work package clone in the previous step.</p>
+
+          <div id="cw-repo-no-install" class="hidden" style="text-align:center;padding:20px 0;">
+            <p style="color:var(--text-2);font-size:13px;margin-bottom:12px;">No GitHub App installations found. Install the yo-cypher app on your GitHub account to enable project tracking.</p>
+            <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
+              <button class="btn btn-primary" id="cw-repo-install-btn">Install yo-cypher on GitHub</button>
+              <button class="btn btn-ghost" id="cw-repo-refresh-btn">Refresh</button>
+            </div>
+            <p style="color:var(--text-muted);font-size:11px;margin-top:8px;">After installing, click Refresh. You can also skip this step.</p>
+          </div>
+
+          <div id="cw-repo-fields" class="form-grid hidden">
+            <label class="form-label">Owner</label>
+            <select id="cw-repo-owner" class="form-input"></select>
+
+            <label class="form-label">Repository</label>
+            <select id="cw-repo-select" class="form-input">
+              <option value="">— select or create new —</option>
+            </select>
+
+            <label class="form-toggle" style="margin-top:10px;">
+              <input type="checkbox" id="cw-repo-create-new" />
+              <span>Create a new private repo</span>
+            </label>
+
+            <input id="cw-repo-new-name" class="form-input mono hidden" placeholder="my-cypher-repo" spellcheck="false" style="margin-left:24px;" />
+          </div>
+        </div>
+
+        <!-- Step 5 — Seed Roster -->
+        <div class="overlay-pane hidden" data-cw-step="5">
           <p class="section-desc" style="margin-top:0;color:var(--text-2);font-size:13px;">Pick from your agents to seed the cypher. They'll auto-join when published.</p>
           <div class="search" style="margin-bottom:10px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1616,8 +1647,8 @@
           </div>
         </div>
 
-        <!-- Step 5 — Lobby -->
-        <div class="overlay-pane hidden" data-cw-step="5">
+        <!-- Step 6 — Lobby -->
+        <div class="overlay-pane hidden" data-cw-step="6">
           <div class="form-grid">
             <label class="form-label">Lobby duration <span class="form-hint">— how long the lobby stays open before auto-start</span></label>
             <select id="cw-lobby-duration" class="form-input">

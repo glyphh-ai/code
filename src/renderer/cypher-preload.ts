@@ -34,8 +34,7 @@ interface CypherPanelAPI {
   // Leave cypher — close tab, switch to drop
   leaveCypher: () => void;
 
-  // Thread persistence — load stored stage/agent threads
-  loadStageThread: (cypherId: string) => Promise<Array<{ ts: number; kind: string; content: string; toolId?: string; toolName?: string }>>;
+  // Thread persistence
   loadAgentThread: (cypherId: string, agentName: string) => Promise<Array<{ ts: number; kind: string; content: string }>>;
   listAgentThreads: (cypherId: string) => Promise<string[]>;
 
@@ -91,28 +90,6 @@ const api: CypherPanelAPI = {
     return () => { ipcRenderer.removeListener("cw:agent:status", handler); };
   },
 
-  // Stage stream — orchestrator (.yo agent) output mirrored here
-  onStageToken: (cb) => {
-    const handler = (_e: Electron.IpcRendererEvent, delta: string) => cb(delta);
-    ipcRenderer.on("cypher-stage-token", handler);
-    return () => { ipcRenderer.removeListener("cypher-stage-token", handler); };
-  },
-  onStageTool: (cb) => {
-    const handler = (_e: Electron.IpcRendererEvent, id: string, name: string, input: unknown) => cb(id, name, input);
-    ipcRenderer.on("cypher-stage-tool", handler);
-    return () => { ipcRenderer.removeListener("cypher-stage-tool", handler); };
-  },
-  onStageToolResult: (cb) => {
-    const handler = (_e: Electron.IpcRendererEvent, id: string, detail: string) => cb(id, detail);
-    ipcRenderer.on("cypher-stage-tool-result", handler);
-    return () => { ipcRenderer.removeListener("cypher-stage-tool-result", handler); };
-  },
-  onStageDone: (cb) => {
-    const handler = (_e: Electron.IpcRendererEvent, fullText: string) => cb(fullText);
-    ipcRenderer.on("cypher-stage-done", handler);
-    return () => { ipcRenderer.removeListener("cypher-stage-done", handler); };
-  },
-
   getTheme: () => ipcRenderer.invoke("get-theme") as Promise<string>,
   onThemeChanged: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, theme: string) => cb(theme);
@@ -124,7 +101,6 @@ const api: CypherPanelAPI = {
 
   leaveCypher: () => ipcRenderer.send("cypher-panel-leave"),
 
-  loadStageThread: (cypherId: string) => ipcRenderer.invoke("cypher-thread-load-stage", cypherId),
   loadAgentThread: (cypherId: string, agentName: string) => ipcRenderer.invoke("cypher-thread-load-agent", cypherId, agentName),
   listAgentThreads: (cypherId: string) => ipcRenderer.invoke("cypher-thread-list-agents", cypherId),
 

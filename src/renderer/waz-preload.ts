@@ -10,8 +10,14 @@ interface WazAPI {
   onToken: (cb: (delta: string) => void) => () => void;
   onToolUse: (cb: (id: string, name: string, input: unknown) => void) => () => void;
   onToolResult: (cb: (id: string, detail: string) => void) => () => void;
+  onToolProgress: (cb: (id: string, status: string) => void) => () => void;
   onDone: (cb: (fullText: string) => void) => () => void;
   onError: (cb: (error: string) => void) => () => void;
+
+  onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => () => void;
+  approvalRespond: (id: string, approved: boolean) => void;
+  setMode: (mode: string) => void;
+  getMode: () => Promise<string>;
 
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
@@ -39,6 +45,11 @@ const api: WazAPI = {
     ipcRenderer.on("waz-tool-result", handler);
     return () => { ipcRenderer.removeListener("waz-tool-result", handler); };
   },
+  onToolProgress: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, id: string, status: string) => cb(id, status);
+    ipcRenderer.on("waz-tool-progress", handler);
+    return () => { ipcRenderer.removeListener("waz-tool-progress", handler); };
+  },
   onDone: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, fullText: string) => cb(fullText);
     ipcRenderer.on("waz-done", handler);
@@ -49,6 +60,16 @@ const api: WazAPI = {
     ipcRenderer.on("waz-error", handler);
     return () => { ipcRenderer.removeListener("waz-error", handler); };
   },
+
+  onApprovalRequest: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, id: string, toolName: string, toolLabel: string, input: unknown) =>
+      cb(id, toolName, toolLabel, input);
+    ipcRenderer.on("waz-approval-request", handler);
+    return () => { ipcRenderer.removeListener("waz-approval-request", handler); };
+  },
+  approvalRespond: (id, approved) => ipcRenderer.send("waz-approval-respond", id, approved),
+  setMode: (mode) => ipcRenderer.send("waz-set-mode", mode),
+  getMode: () => ipcRenderer.invoke("waz-get-mode") as Promise<string>,
 
   getTheme: () => ipcRenderer.invoke("get-theme") as Promise<string>,
   onThemeChanged: (cb) => {

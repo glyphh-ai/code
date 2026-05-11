@@ -15,7 +15,7 @@
     background: var(--surface-2);
   }
 
-  /* ── Header ─────────────────────────────────── */
+  /* ── Header (waz-specific — frameless window chrome) ── */
   .waz-header {
     display: flex;
     align-items: center;
@@ -59,9 +59,8 @@
     transition: color 0.15s;
   }
   .waz-btn:hover { color: var(--white); }
-  .waz-btn.hidden { display: none; }
 
-  /* ── Messages — reuse yo-panel-messages + yo-msg styles ── */
+  /* ── Messages — same layout as yo panel ── */
   .waz-messages {
     flex: 1;
     overflow-y: auto;
@@ -72,16 +71,8 @@
     position: relative;
   }
 
-  /* ── Input — same as yo panel ── */
-  .waz-input-wrap {
-    display: flex;
-    align-items: flex-end;
-    gap: 6px;
-    padding: 12px 14px 8px;
-    border-top: 1px solid var(--border-2);
-    flex-shrink: 0;
-  }
-  .waz-input-wrap textarea {
+  /* ── Override yo-panel IDs to work with generic classes ── */
+  #input {
     flex: 1;
     background: var(--surface-3);
     border: 1px solid var(--border-3);
@@ -98,11 +89,10 @@
     line-height: 1.5;
     overflow-y: auto;
   }
-  .waz-input-wrap textarea:focus { border-color: var(--accent); }
-  .waz-input-wrap textarea::placeholder { color: var(--text-muted); }
+  #input:focus { border-color: var(--accent); }
+  #input::placeholder { color: var(--text-muted); }
 
-  /* Send / Stop button — same as yo */
-  .waz-send {
+  #btn-send {
     background: var(--accent);
     color: #000;
     border: 2px solid transparent;
@@ -118,17 +108,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 8px;
   }
-  .waz-send:hover { opacity: 0.8; }
-  .waz-send.stop {
+  #btn-send:hover { opacity: 0.8; }
+  #btn-send.stop {
     background: transparent !important;
     border-color: var(--accent);
     color: transparent;
     position: relative;
     font-size: 0;
   }
-  .waz-send.stop::before {
+  #btn-send.stop::before {
     content: "";
     display: block;
     width: 10px;
@@ -149,9 +138,49 @@
 
 <div class="waz-messages" id="messages"></div>
 
-<div class="waz-input-wrap">
+<div class="yo-panel-input-wrap">
   <textarea id="input" rows="1" placeholder=".waz ..."></textarea>
-  <button class="waz-send" id="btn-send">&uarr;</button>
+</div>
+<div class="yo-panel-controls">
+  <div id="waz-perm-dropdown" class="yo-mode-dropdown">
+    <button id="waz-perm-trigger" class="yo-mode-trigger" title="Permissions">
+      <span class="yo-perm-icon">&#x1F512;</span>
+      <span class="yo-perm-label">ask</span>
+      <span class="yo-mode-chevron">&#x25BE;</span>
+    </button>
+    <div id="waz-perm-menu" class="yo-mode-menu hidden">
+      <div class="yo-perm-option" data-value="default">
+        <span class="yo-mode-opt-icon">&#x1F512;</span>
+        <div class="yo-mode-opt-text">
+          <span class="yo-mode-opt-label">ask</span>
+          <span class="yo-mode-opt-desc">confirms before acting</span>
+        </div>
+      </div>
+      <div class="yo-perm-option" data-value="plan">
+        <span class="yo-mode-opt-icon">&#x1F4CB;</span>
+        <div class="yo-mode-opt-text">
+          <span class="yo-mode-opt-label">plan</span>
+          <span class="yo-mode-opt-desc">drafts a plan, no tools</span>
+        </div>
+      </div>
+      <div class="yo-perm-option" data-value="acceptEdits">
+        <span class="yo-mode-opt-icon">&#x26A1;</span>
+        <div class="yo-mode-opt-text">
+          <span class="yo-mode-opt-label">auto</span>
+          <span class="yo-mode-opt-desc">runs safe tools, asks for risky</span>
+        </div>
+      </div>
+      <div class="yo-perm-option" data-value="bypassPermissions">
+        <span class="yo-mode-opt-icon">&#x1F525;</span>
+        <div class="yo-mode-opt-text">
+          <span class="yo-mode-opt-label">bypass</span>
+          <span class="yo-mode-opt-desc">no prompts &mdash; use with care</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="yo-controls-spacer"></div>
+  <button id="btn-send">&uarr;</button>
 </div>
 
 <script src="waz.js"></script>

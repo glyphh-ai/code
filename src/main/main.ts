@@ -2431,7 +2431,7 @@ async function boot() {
     // Route dot-commands (.dip, .drip, .sup) through command parser
     if (trimmed.startsWith(".")) {
       const firstWord = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase();
-      if (firstWord && ["dip", "drip", "sup"].includes(firstWord)) {
+      if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
           mainWindow?.webContents.send("yo-panel-done", result || "done.");
@@ -2446,29 +2446,24 @@ async function boot() {
     if (!wc || mainWindow!.isDestroyed()) return;
 
     // Everything goes to the yo agent (in cypher mode it has orchestration tools)
-    const cypherView = yoAgent.isCypherMode() ? panelManager.getView("cypher") : null;
     const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-    const activeCypherId = cypherView ? getCy() : null;
+    const activeCypherId = yoAgent.isCypherMode() ? getCy() : null;
     yoAgent.send(trimmed, {
       onText: (delta) => {
         wc.send("yo-panel-token", delta);
-        cypherView?.webContents?.send("cypher-stage-token", delta);
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "text", content: delta });
       },
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
-        cypherView?.webContents?.send("cypher-stage-tool", id, name, input);
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
-        cypherView?.webContents?.send("cypher-stage-tool-result", id, detail);
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool-result", content: detail.slice(0, 500), toolId: id });
       },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
-        cypherView?.webContents?.send("cypher-stage-done", fullText);
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "done", content: "" });
       },
       onError: (err) => wc.send("yo-panel-error", err),
@@ -3020,6 +3015,12 @@ async function boot() {
     // /api/projects/*. Default off so the existing UX ships unchanged.
     enableGhAuth: process.env.YO_ENABLE_GH_AUTH === "1" || process.env.YO_ENABLE_GH_AUTH === "true",
   }));
+  ipcMain.handle("gh-app-info", async () => {
+    try {
+      const r = await serverGetAuthed<{ slug: string; installUrl: string }>("/api/github/app-info");
+      return r ?? null;
+    } catch { return null; }
+  });
   ipcMain.handle("get-account-info", () => getAccountInfo());
   ipcMain.handle("get-auth-status", () => getAuthStatus());
   ipcMain.handle("refresh-auth", async () => {
@@ -3579,28 +3580,14 @@ async function boot() {
     const cy = cData?.cypher;
     const activeJammers = (jData?.jammers || []).filter((j: any) => !j.left_at);
 
-    // 2. Ensure project board exists — create if missing
+    // 2. Look up project board (created at publish time by the server)
     let projectSlug: string | null = null;
     try {
-      const projR = await serverGetAuthed<{ project?: { slug: string; status: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+      const projR = await serverGetAuthed<{ project?: { slug: string; gh_project_url: string | null } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
       if (projR?.project) {
         projectSlug = projR.project.slug;
       }
-    } catch { /* no project yet */ }
-
-    if (!projectSlug && cy) {
-      try {
-        const createR = await serverPostAuthed<{ project?: { slug: string } }>(`/api/projects`, {
-          goal: cy.goal || cy.title || "Untitled",
-          owner_kind: "user",
-          owner_login: cy.owner_login || "unknown",
-          cypher_id: cypId,
-          mode: "solo",
-          visibility: "unlisted",
-        });
-        projectSlug = createR?.project?.slug || null;
-      } catch { /* project creation failed — non-fatal */ }
-    }
+    } catch { /* no project yet — publish may not have included github config */ }
 
     // 3. Ensure draft assignments exist — run draft if missing
     if (activeJammers.length > 0) {
@@ -3630,19 +3617,19 @@ async function boot() {
       }
     }
 
-    // 5. Send status to stage panel (deterministic text, not LLM output)
-    if (stageWc && !stageWc.isDestroyed()) {
-      const statusLines = [
-        `⚡ Cypher: ${cy?.title || "Untitled"} [${cy?.status || "unknown"}]`,
-        cy?.goal ? `Goal: ${cy.goal}` : "",
-        `Jammers: ${activeJammers.length > 0 ? activeJammers.map((j: any) => j.agent_local_id).join(", ") : "none"}`,
-        projectSlug ? `Project: ${projectSlug}` : "Project: creating...",
-      ].filter(Boolean).join("\n");
-      stageWc.send("cypher-stage-token", statusLines + "\n\n");
-      stageWc.send("cypher-stage-done", statusLines);
-      threadStore.appendStage(cypId, { ts: Date.now(), kind: "text", content: statusLines });
-      threadStore.appendStage(cypId, { ts: Date.now(), kind: "done", content: "" });
+    // 5. Send status summary to yo panel (not cypher stage)
+    const statusLines = [
+      `⚡ Cypher: ${cy?.title || "Untitled"} [${cy?.status || "unknown"}]`,
+      cy?.goal ? `Goal: ${cy.goal}` : "",
+      `Jammers: ${activeJammers.length > 0 ? activeJammers.map((j: any) => j.agent_local_id).join(", ") : "none"}`,
+      projectSlug ? `Project: ${projectSlug}` : "Project: creating...",
+    ].filter(Boolean).join("\n");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("yo-panel-token", statusLines + "\n\n");
+      mainWindow.webContents.send("yo-panel-done", statusLines);
     }
+    threadStore.appendStage(cypId, { ts: Date.now(), kind: "text", content: statusLines });
+    threadStore.appendStage(cypId, { ts: Date.now(), kind: "done", content: "" });
   }
 
   // ── Cypher panel context — tells the cypher.html panel which cypher to load.
@@ -3710,10 +3697,6 @@ async function boot() {
   });
 
   // ── Cypher thread persistence IPC ─────────────────────────
-  ipcMain.handle("cypher-thread-load-stage", (_e, cypherId: string) => {
-    return threadStore.loadStage(cypherId);
-  });
-
   ipcMain.handle("cypher-thread-load-agent", (_e, cypherId: string, agentName: string) => {
     return threadStore.loadAgent(cypherId, agentName);
   });

@@ -58,6 +58,8 @@ interface DropAPI {
 
   // Misc
   execCommand: (cmd: string) => Promise<unknown>;
+  openExternal: (url: string) => void;
+  ghAppInfo: () => Promise<{ slug: string; installUrl: string } | null>;
   /** Subscribe to live cypher SSE events forwarded by main. Returns an unsubscribe fn. */
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
 
@@ -119,6 +121,8 @@ const api: DropAPI = {
   getApiBase: () => process.env.YO_AUTH_SERVER || "https://api.yosup.dev",
   cypherPanelActivate: (cypherId, isOwner, title) => ipcRenderer.invoke("cypher-panel-activate", cypherId, isOwner, title),
   execCommand: (cmd) => ipcRenderer.invoke("exec-command", cmd),
+  openExternal: (url) => ipcRenderer.send("open-external", url),
+  ghAppInfo: () => ipcRenderer.invoke("gh-app-info"),
   onCypherEvent: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, cypherId: string, kind: string, payload: Record<string, unknown>) =>
       cb(cypherId, kind, payload);

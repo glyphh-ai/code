@@ -742,7 +742,8 @@ function autoSwitchModeForActiveTab(tabs: TabInfo[], activeId: string) {
   if (!yoControlsInited) return;
   const tab = tabs.find((t) => t.id === activeId);
   const isCouncil = tab?.url === "yo://council";
-  const target = isCouncil ? "council" : "standard";
+  const isCypher = activeId === "cypher";
+  const target = isCouncil ? "council" : isCypher ? "cypher" : "standard";
   if (currentMode === target) return;
   setModeValue(target);
   syncAgentMode();

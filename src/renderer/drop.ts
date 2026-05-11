@@ -16,7 +16,7 @@ interface DropAPI {
   cyphersDiscover: (opts?: { status?: string; type?: string; limit?: number; offset?: number }) => Promise<unknown>;
   cyphersMine: () => Promise<unknown>;
   cypherCreate: (input: Record<string, unknown>) => Promise<unknown>;
-  cypherPublish: (id: string, opts?: { initial_kitty_deposit?: number; lobby_duration_seconds?: number | null }) => Promise<unknown>;
+  cypherPublish: (id: string, opts?: Record<string, unknown>) => Promise<unknown>;
   cypherStart: (id: string) => Promise<unknown>;
   cypherCancel: (id: string) => Promise<unknown>;
   cypherDelete: (id: string) => Promise<unknown>;
@@ -58,6 +58,10 @@ interface DropAPI {
   getApiBase: () => string;
   cypherPanelActivate: (cypherId: string, isOwner: boolean, title?: string) => Promise<unknown>;
   execCommand: (cmd: string) => Promise<unknown>;
+  openExternal: (url: string) => void;
+  ghAppInfo: () => Promise<{ slug: string; installUrl: string } | null>;
+  installationsList: () => Promise<unknown>;
+  reposForInstallation: (owner: string) => Promise<unknown>;
 }
 const drop = (window as unknown as { drop: DropAPI }).drop;
 
@@ -903,7 +907,7 @@ async function deleteEdit(): Promise<void> {
 // Cypher creation wizard
 // ─────────────────────────────────────────────────────
 
-type WizardStep = 1 | 2 | 3 | 4 | 5;
+type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
 const wizard = {
   step: 1 as WizardStep,
   vibe: "open" as "open" | "coop" | "bounty" | "sponsored",
@@ -914,6 +918,13 @@ const wizard = {
   coverDataB64: null as string | null,
   coverContentType: "image/png" as string,
   coverPrompt: "",
+  // Repo step state
+  selectedOwner: null as string | null,
+  selectedOwnerKind: "user" as "user" | "organization",
+  installationId: null as number | null,
+  selectedRepoFullName: null as string | null,
+  autoCreateRepo: false,
+  newRepoName: "",
 };
 
 function setWizardStep(n: WizardStep): void {
@@ -921,13 +932,16 @@ function setWizardStep(n: WizardStep): void {
   document.querySelectorAll<HTMLElement>("[data-cw-step]").forEach((el) => {
     el.classList.toggle("hidden", el.dataset.cwStep !== String(n));
   });
-  const labels = ["Goal", "Cover Art", "Work Package", "Seed Roster", "Lobby"];
-  $("cw-step-label").textContent = `Step ${n} of 5 — ${labels[n - 1]}`;
+  const labels = ["Goal", "Cover Art", "Work Package", "Project Board", "Seed Roster", "Lobby"];
+  $("cw-step-label").textContent = `Step ${n} of 6 — ${labels[n - 1]}`;
   $("cw-back").classList.toggle("hidden", n === 1);
-  $("cw-next").classList.toggle("hidden", n === 5);
-  $("cw-publish").classList.toggle("hidden", n !== 5);
-  if (n === 4) renderSeedList();
+  const nextBtn = $("cw-next");
+  nextBtn.classList.toggle("hidden", n === 6);
+  nextBtn.textContent = "Next";
+  $("cw-publish").classList.toggle("hidden", n !== 6);
+  if (n === 5) renderSeedList();
   if (n === 2) initCoverStep();
+  if (n === 4) void loadRepoStep();
 }
 
 function setWpMode(mode: "blank" | "git"): void {
@@ -1107,6 +1121,112 @@ function renderSeedList(filter?: string): void {
   }
 }
 
+// ── Repo step ────────────────────────────────────────────────────────
+interface InstallationInfo { id: number; account: { login: string; type: string } }
+interface RepoInfo { name: string; full_name: string }
+
+let repoStepEventsWired = false;
+
+function wireRepoStepEvents(): void {
+  if (repoStepEventsWired) return;
+  repoStepEventsWired = true;
+
+  const ownerSelect = $("cw-repo-owner") as HTMLSelectElement;
+  ownerSelect.addEventListener("change", () => void loadReposForOwner());
+
+  $("cw-repo-create-new").addEventListener("change", () => {
+    const checked = ($("cw-repo-create-new") as HTMLInputElement).checked;
+    wizard.autoCreateRepo = checked;
+    $("cw-repo-new-name").classList.toggle("hidden", !checked);
+    ($("cw-repo-select") as HTMLSelectElement).disabled = checked;
+  });
+
+  ($("cw-repo-new-name") as HTMLInputElement).addEventListener("input", () => {
+    wizard.newRepoName = ($("cw-repo-new-name") as HTMLInputElement).value.trim();
+  });
+
+  ($("cw-repo-select") as HTMLSelectElement).addEventListener("change", () => {
+    wizard.selectedRepoFullName = ($("cw-repo-select") as HTMLSelectElement).value || null;
+  });
+
+  $("cw-repo-install-btn").addEventListener("click", async () => {
+    const info = await drop.ghAppInfo();
+    const url = info?.installUrl ?? "https://github.com/apps/yo-cypher/installations/new";
+    drop.openExternal(url);
+  });
+
+  $("cw-repo-refresh-btn")?.addEventListener("click", () => void loadRepoStep());
+}
+
+async function loadRepoStep(): Promise<void> {
+  const noInstall = $("cw-repo-no-install");
+  const fields = $("cw-repo-fields");
+  const ownerSelect = $("cw-repo-owner") as HTMLSelectElement;
+  const nextBtn = $("cw-next");
+
+  wireRepoStepEvents();
+
+  try {
+    const installations = (await drop.installationsList()) as InstallationInfo[];
+    if (!installations || installations.length === 0) {
+      noInstall.classList.remove("hidden");
+      fields.classList.add("hidden");
+      nextBtn.textContent = "Skip";
+      wizard.installationId = null;
+      return;
+    }
+
+    noInstall.classList.add("hidden");
+    fields.classList.remove("hidden");
+    nextBtn.textContent = "Next";
+
+    ownerSelect.innerHTML = "";
+    for (const inst of installations) {
+      const opt = document.createElement("option");
+      opt.value = JSON.stringify({ id: inst.id, login: inst.account.login, type: inst.account.type });
+      opt.textContent = inst.account.login;
+      ownerSelect.appendChild(opt);
+    }
+
+    void loadReposForOwner();
+  } catch (err) {
+    noInstall.classList.remove("hidden");
+    fields.classList.add("hidden");
+    nextBtn.textContent = "Skip";
+    wizard.installationId = null;
+  }
+}
+
+async function loadReposForOwner(): Promise<void> {
+  const ownerSelect = $("cw-repo-owner") as HTMLSelectElement;
+  const repoSelect = $("cw-repo-select") as HTMLSelectElement;
+  const val = ownerSelect.value;
+  if (!val) return;
+
+  const parsed = JSON.parse(val) as { id: number; login: string; type: string };
+  wizard.installationId = parsed.id;
+  wizard.selectedOwner = parsed.login;
+  wizard.selectedOwnerKind = parsed.type === "Organization" ? "organization" : "user";
+
+  repoSelect.innerHTML = `<option value="">— loading... —</option>`;
+  repoSelect.disabled = true;
+
+  try {
+    const repos = (await drop.reposForInstallation(parsed.login)) as RepoInfo[];
+    repoSelect.innerHTML = `<option value="">— select or create new —</option>`;
+    for (const r of repos) {
+      const opt = document.createElement("option");
+      opt.value = r.full_name;
+      opt.textContent = r.full_name;
+      repoSelect.appendChild(opt);
+    }
+  } catch {
+    repoSelect.innerHTML = `<option value="">— failed to load repos —</option>`;
+  }
+
+  repoSelect.disabled = ($("cw-repo-create-new") as HTMLInputElement).checked;
+}
+
 function clearWizardError(): void {
   const e = $("cw-error");
   e.classList.add("hidden");
@@ -1133,6 +1253,12 @@ async function openWizard(): Promise<void> {
   wizard.coverDataB64 = null;
   wizard.coverContentType = "image/png";
   wizard.coverPrompt = "";
+  wizard.selectedOwner = null;
+  wizard.selectedOwnerKind = "user";
+  wizard.installationId = null;
+  wizard.selectedRepoFullName = null;
+  wizard.autoCreateRepo = false;
+  wizard.newRepoName = "";
   $i("cw-title").value = "";
   $t("cw-goal").value = "";
   $i("cw-max-jammers").value = "";
@@ -1192,10 +1318,22 @@ async function publishCypherFromWizard(): Promise<void> {
   }
 
   // 3. Publish → lobby (must happen before joining agents — join requires lobby/live status)
-  const pub = await drop.cypherPublish(cypherId, {
+  // Include GitHub config so the server auto-creates the project board.
+  const publishOpts: Record<string, unknown> = {
     initial_kitty_deposit: 0,
     lobby_duration_seconds,
-  }) as { ok?: boolean; cypher?: Cypher; error?: string };
+  };
+  if (wizard.installationId) {
+    publishOpts.github = {
+      installation_id: wizard.installationId,
+      owner_login: wizard.selectedOwner,
+      owner_kind: wizard.selectedOwnerKind,
+      repo_full_name: wizard.autoCreateRepo ? null : wizard.selectedRepoFullName,
+      auto_create_repo: wizard.autoCreateRepo,
+      repo_name: wizard.autoCreateRepo ? wizard.newRepoName : undefined,
+    };
+  }
+  const pub = await drop.cypherPublish(cypherId, publishOpts) as { ok?: boolean; cypher?: Cypher; error?: string };
   if (!pub.ok || !pub.cypher) {
     showWizardError(pub.error || "Publish failed");
     return;
@@ -2304,7 +2442,7 @@ function init(): void {
     if (wizard.step > 1) setWizardStep((wizard.step - 1) as WizardStep);
   });
   $("cw-next").addEventListener("click", () => {
-    if (wizard.step < 5) setWizardStep((wizard.step + 1) as WizardStep);
+    if (wizard.step < 6) setWizardStep((wizard.step + 1) as WizardStep);
   });
   $("cw-publish").addEventListener("click", () => { void publishCypherFromWizard(); });
   $i("cw-seed-search").addEventListener("input", () => {
