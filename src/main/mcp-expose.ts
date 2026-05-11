@@ -182,14 +182,7 @@ export class McpExpose {
   // ── HTTP handling ─────────────────────────────────────────
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    // Auth check
-    if (!this.checkAuth(req)) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-
-    // CORS for local tools
+    // CORS for local tools — must run before auth so preflight isn't blocked
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Yo-Agent, X-Yo-Workspace");
@@ -197,6 +190,13 @@ export class McpExpose {
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // Auth check
+    if (!this.checkAuth(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
 

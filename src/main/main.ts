@@ -4037,8 +4037,11 @@ async function boot() {
     cypherBus.setHierarchyContext(hierarchyMap);
 
     const mcpUrl = mcpExpose?.isRunning ? `http://127.0.0.1:${mcpExpose.getPort()}/mcp` : null;
-    const mcpTokens = mcpExpose?.getTokens() ?? [];
-    const mcpToken = mcpTokens.length > 0 ? mcpTokens[0].token : mcpExpose?.generateToken("jammer").token;
+    let mcpToken: string | undefined;
+    if (mcpUrl && mcpExpose) {
+      const mcpTokens = mcpExpose.getTokens();
+      mcpToken = mcpTokens.length > 0 ? mcpTokens[0].token : mcpExpose.generateToken("jammer").token;
+    }
 
     let spawned = 0;
     const skipped: string[] = [];
@@ -4166,7 +4169,7 @@ async function boot() {
         ...(mcpUrl && mcpToken ? {
           mcpServers: {
             "yo-workspace": {
-              type: "url",
+              type: "http",
               url: mcpUrl,
               headers: {
                 "X-Yo-Agent": reg.id,

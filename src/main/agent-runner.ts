@@ -187,7 +187,7 @@ export class AgentRunner {
       baseOptions.systemPrompt = config.prompt;
     }
     if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
-      baseOptions.mcpServers = config.mcpServers;
+      baseOptions.mcpServers = [config.mcpServers];
     }
 
     // Path-gate: in cypher mode, every tool call resolves through the
