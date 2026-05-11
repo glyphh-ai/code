@@ -53,6 +53,12 @@ export interface HierarchyEntry {
   contract: string | null;
 }
 
+export interface ProjectContext {
+  projectRef: string;
+  serverGet: <T>(path: string) => Promise<T | null>;
+  serverPost: <T>(path: string, body: Record<string, unknown>) => Promise<T | null>;
+}
+
 export class McpExpose {
   private server: http.Server | null = null;
   private captureStore: CaptureStore | null = null;
@@ -62,6 +68,7 @@ export class McpExpose {
   private workspaceManager: WorkspaceManager | null = null;
   private bus: CypherBus | null = null;
   private hierarchyContext: Map<string, HierarchyEntry> | null = null;
+  private projectContext: ProjectContext | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
@@ -73,6 +80,10 @@ export class McpExpose {
 
   setHierarchyContext(ctx: Map<string, HierarchyEntry> | null): void {
     this.hierarchyContext = ctx;
+  }
+
+  setProjectContext(ctx: ProjectContext | null): void {
+    this.projectContext = ctx;
   }
 
   setWorkspaceBackend(eventLog: EventLog, wm: WorkspaceManager): void {
@@ -687,6 +698,53 @@ export class McpExpose {
         return replyJson({ ok: true, requested_by: agent, reviewer: caller.parentAgentId });
       }
 
+      // ── Project board tools (cypher mode only) ────────────
+      case "board_list": {
+        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
+        const ref = encodeURIComponent(this.projectContext.projectRef);
+        const data = await this.projectContext.serverGet<{ items?: unknown[] }>(`/api/projects/${ref}/board`);
+        if (!data) return reply("Failed to fetch board", true);
+        return replyJson(data);
+      }
+
+      case "board_add_item": {
+        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
+        const title = String(args.title || "").trim();
+        if (!title) return reply("title is required", true);
+        const ref = encodeURIComponent(this.projectContext.projectRef);
+        const body: Record<string, unknown> = { title };
+        if (args.body) body.body = String(args.body);
+        if (args.assignee) body.assignee_agent_id = String(args.assignee);
+        const data = await this.projectContext.serverPost(`/api/projects/${ref}/items`, body);
+        if (!data) return reply("Failed to create item", true);
+        return replyJson(data);
+      }
+
+      case "board_update_status": {
+        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
+        const itemId = String(args.item_id || "").trim();
+        const status = String(args.status || "").trim();
+        if (!itemId) return reply("item_id is required", true);
+        if (!status) return reply("status is required", true);
+        const validStatuses = ["Lobby", "Backlog", "InProgress", "Review", "Done"];
+        if (!validStatuses.includes(status)) return reply(`Invalid status. Must be one of: ${validStatuses.join(", ")}`, true);
+        const ref = encodeURIComponent(this.projectContext.projectRef);
+        const data = await this.projectContext.serverPost(`/api/projects/${ref}/items/${encodeURIComponent(itemId)}/status`, { status });
+        if (!data) return reply("Failed to update status", true);
+        return replyJson(data);
+      }
+
+      case "board_assign": {
+        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
+        const itemId2 = String(args.item_id || "").trim();
+        if (!itemId2) return reply("item_id is required", true);
+        const agentId = args.agent_id != null ? String(args.agent_id).trim() : null;
+        const ref = encodeURIComponent(this.projectContext.projectRef);
+        const data = await this.projectContext.serverPost(`/api/projects/${ref}/items/${encodeURIComponent(itemId2)}/assign`, { agent_id: agentId });
+        if (!data) return reply("Failed to assign item", true);
+        return replyJson(data);
+      }
+
       default:
         return { jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown tool: ${params.name}` } };
     }
@@ -867,6 +925,53 @@ export class McpExpose {
               body: { type: "string", description: "Description of what needs review" },
             },
             required: ["body"],
+          },
+        },
+      );
+    }
+
+    if (this.projectContext) {
+      tools.push(
+        {
+          name: "board_list",
+          description: "List all items on the project kanban board with their status and assignees.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "board_add_item",
+          description: "Create a new work item on the project kanban board.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Item title" },
+              body: { type: "string", description: "Item description/details" },
+              assignee: { type: "string", description: "Agent ID to assign to (optional)" },
+            },
+            required: ["title"],
+          },
+        },
+        {
+          name: "board_update_status",
+          description: "Move a board item to a different status column. Valid statuses: Lobby, Backlog, InProgress, Review, Done.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              item_id: { type: "string", description: "Item ID from board_list" },
+              status: { type: "string", enum: ["Lobby", "Backlog", "InProgress", "Review", "Done"] },
+            },
+            required: ["item_id", "status"],
+          },
+        },
+        {
+          name: "board_assign",
+          description: "Assign a board item to an agent, or unassign by passing null.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              item_id: { type: "string", description: "Item ID from board_list" },
+              agent_id: { type: ["string", "null"], description: "Agent ID to assign, or null to unassign" },
+            },
+            required: ["item_id"],
           },
         },
       );

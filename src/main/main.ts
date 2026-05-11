@@ -4036,6 +4036,19 @@ async function boot() {
     mcpExpose?.setHierarchyContext(hierarchyMap);
     cypherBus.setHierarchyContext(hierarchyMap);
 
+    // Wire project board context so jammers can create/update kanban items via MCP
+    try {
+      const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+      if (projR?.project?.slug && mcpExpose) {
+        mcpExpose.setProjectContext({
+          projectRef: projR.project.slug,
+          serverGet: serverGetAuthed,
+          serverPost: serverPostAuthed,
+        });
+        console.log(`[spawn-jammers] project board wired: ${projR.project.slug}`);
+      }
+    } catch { /* no project yet — board tools won't appear */ }
+
     const mcpUrl = mcpExpose?.isRunning ? `http://127.0.0.1:${mcpExpose.getPort()}/mcp` : null;
     let mcpToken: string | undefined;
     if (mcpUrl && mcpExpose) {
@@ -4119,20 +4132,26 @@ async function boot() {
           ? [
               `As ${a.position}, you MUST:`,
               `1. Read ./cypher.json for the goal and roster`,
-              `2. Decompose the goal into discrete tasks`,
-              `3. Use the assign_task tool to delegate work to your direct reports: ${reportsStr}`,
-              `4. Monitor progress via report_status events from your reports`,
-              `5. Use report_status to post your own updates`,
+              `2. Use board_list to check existing kanban items`,
+              `3. Use board_add_item to create work items on the kanban for each task`,
+              `4. Use board_assign to assign items to agents, then use assign_task to notify them`,
+              `5. Use board_update_status to move items through: Lobby → Backlog → InProgress → Review → Done`,
+              `6. Use assign_task to delegate work to your direct reports: ${reportsStr}`,
+              `7. Monitor progress via report_status events from your reports`,
+              `8. Use report_status to post your own updates`,
               `Workers activate ONLY when you assign them a task — they are idle until then.`,
+              `IMPORTANT: Every task MUST be tracked on the kanban board. Use board_add_item before assign_task.`,
             ].join("\n")
           : [
               `As a worker, you MUST:`,
               `1. You have been activated because your leader assigned you a task`,
               `2. Use accept_task to acknowledge your assignment`,
-              `3. Execute the task in your sandbox`,
-              `4. Use report_status to update your leader on progress`,
-              `5. Use complete_task when done`,
-              `6. Use request_review to request sign-off from your leader`,
+              `3. Use board_update_status to move your assigned item to InProgress`,
+              `4. Execute the task in your sandbox`,
+              `5. Use report_status to update your leader on progress`,
+              `6. Use board_update_status to move your item to Review when done`,
+              `7. Use complete_task when done`,
+              `8. Use request_review to request sign-off from your leader`,
               `Do NOT start work on anything other than your assigned task.`,
             ].join("\n"),
         ``,
