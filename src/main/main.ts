@@ -3745,63 +3745,67 @@ async function boot() {
     const cy = cData?.cypher;
     const activeJammers = (jData?.jammers || []).filter((j: any) => !j.left_at);
 
-    // 2. Look up or auto-create project board
+    // 2. GitHub project + repo are REQUIRED. No GitHub = no cypher.
+    const ghStatus = getDropAuthStatus();
+    const ownerLogin = ghStatus?.github?.gh_login;
+    if (!ownerLogin) {
+      const msg = "GitHub login required. Connect GitHub in the Drop before starting a cypher.";
+      console.error("[cypher-session] BLOCKED:", msg);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+        mainWindow.webContents.send("yo-panel-done", msg);
+      }
+      return;
+    }
+
+    const instResult = await dropApi.installationsList();
+    const installations = instResult.ok ? ((instResult.data as any)?.installations ?? []) : [];
+    const inst = installations.find((i: any) => i.account_login?.toLowerCase() === ownerLogin.toLowerCase()) || installations[0];
+    const installationId = inst?.installation_id;
+    if (!installationId) {
+      const msg = `GitHub App not installed for ${ownerLogin}. Install the yo-cypher app on GitHub first.`;
+      console.error("[cypher-session] BLOCKED:", msg);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+        mainWindow.webContents.send("yo-panel-done", msg);
+      }
+      return;
+    }
+
     let projectSlug: string | null = null;
-    try {
-      const projR = await serverGetAuthed<{ project?: { slug: string; gh_project_url: string | null } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
-      if (projR?.project) {
-        projectSlug = projR.project.slug;
-      }
-    } catch { /* no project yet */ }
+    const projR = await serverGetAuthed<{ project?: { slug: string; gh_project_url: string | null } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+    if (projR?.project) {
+      projectSlug = projR.project.slug;
+      console.log("[cypher-session] existing project:", projectSlug);
+    }
 
-    if (!projectSlug && cy?.goal) {
-      const ghStatus = getDropAuthStatus();
-      const ownerLogin = ghStatus?.github?.gh_login;
-      console.log("[cypher-session] project auto-create: projectSlug=", projectSlug, "ownerLogin=", ownerLogin, "ghStatus=", JSON.stringify(ghStatus?.github || null));
-      if (!ownerLogin) {
-        console.warn("[cypher-session] skipping project auto-create — no gh_login in drop auth status");
-      } else {
-        try {
-          const instResult = await dropApi.installationsList();
-          const installations = instResult.ok ? ((instResult.data as any)?.installations ?? []) : [];
-          console.log("[cypher-session] installations:", installations.length, installations.map((i: any) => i.account_login));
-          const inst = installations.find((i: any) => i.account_login?.toLowerCase() === ownerLogin.toLowerCase()) || installations[0];
-          const installationId = inst?.installation_id;
-          if (!installationId) {
-            console.warn("[cypher-session] no installation found for", ownerLogin);
-          }
-
-          console.log("[cypher-session] Auto-creating project for cypher", cypId, "owner:", ownerLogin, "installationId:", installationId);
-          const projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
-            "/api/projects",
-            {
-              goal: cy.goal,
-              description: cy.title || cy.goal,
-              owner_kind: inst?.account_kind || "user",
-              owner_login: ownerLogin,
-              installation_id: installationId,
-              cypher_id: cypId,
-            },
-          );
-          projectSlug = projCreate?.slug || projCreate?.project?.slug || null;
-          console.log("[cypher-session] Project created:", projectSlug, "response:", JSON.stringify(projCreate));
-
-          if (projectSlug && installationId) {
-            try {
-              const repoResult = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
-              console.log("[cypher-session] Repo auto-created:", JSON.stringify(repoResult));
-            } catch (err) {
-              console.error("[cypher-session] Repo auto-create FAILED:", err instanceof Error ? err.message : err);
-            }
-          } else {
-            console.warn("[cypher-session] skipping repo — projectSlug=", projectSlug, "installationId=", installationId);
-          }
-        } catch (err) {
-          console.error("[cypher-session] Auto-create project FAILED:", err instanceof Error ? err.message : err);
+    if (!projectSlug) {
+      console.log("[cypher-session] creating GitHub project for cypher", cypId, "owner:", ownerLogin, "installationId:", installationId);
+      const projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
+        "/api/projects",
+        {
+          goal: cy?.goal || cy?.title || "Cypher project",
+          description: cy?.title || cy?.goal || "",
+          owner_kind: inst?.account_kind || "user",
+          owner_login: ownerLogin,
+          installation_id: installationId,
+          cypher_id: cypId,
+        },
+      );
+      projectSlug = projCreate?.slug || projCreate?.project?.slug || null;
+      if (!projectSlug) {
+        const msg = `Failed to create GitHub project: ${projCreate?.error || "unknown error"}`;
+        console.error("[cypher-session] BLOCKED:", msg);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+          mainWindow.webContents.send("yo-panel-done", msg);
         }
+        return;
       }
-    } else if (projectSlug) {
-      console.log("[cypher-session] project already exists:", projectSlug);
+      console.log("[cypher-session] project created:", projectSlug);
+
+      const repoResult = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
+      console.log("[cypher-session] repo ensured:", JSON.stringify(repoResult));
     }
 
     // 3. Ensure draft assignments exist — run draft if missing
@@ -3832,42 +3836,35 @@ async function boot() {
       }
     }
 
-    // 5. If project was created but has no items, seed the board via yo agent tools
-    if (projectSlug && cy?.goal) {
-      try {
-        const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
-        if (!boardR?.items?.length) {
-          // Auto-seed board items from the goal
-          const assignments = activeJammers.map((j: any) => j.agent_local_id);
-          const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignments[0];
-          const workers = assignments.filter((a: string) => a !== leader);
+    // 5. Seed board if empty
+    const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
+    if (!boardR?.items?.length && cy?.goal) {
+      const assignments = activeJammers.map((j: any) => j.agent_local_id);
+      const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignments[0];
+      const workers = assignments.filter((a: string) => a !== leader);
 
-          const items = [
-            { title: `Decompose goal: ${(cy.goal || "").slice(0, 60)}`, assignee: leader },
-            { title: "Set up project scaffolding", assignee: workers[0] || leader },
-            { title: "Implement core feature", assignee: workers[0] || leader },
-            ...(workers.length > 1 ? [{ title: "Implement secondary feature", assignee: workers[1] }] : []),
-            { title: "Integration and testing", assignee: leader },
-          ];
-          for (const item of items) {
-            try {
-              await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/items`, {
-                title: item.title,
-                assignee: item.assignee,
-              });
-            } catch { /* best effort */ }
-          }
-          console.log("[cypher-session] Seeded", items.length, "board items for project", projectSlug);
-        }
-      } catch { /* board seeding is best-effort */ }
+      const items = [
+        { title: `Decompose goal: ${(cy.goal || "").slice(0, 60)}`, assignee: leader },
+        { title: "Set up project scaffolding", assignee: workers[0] || leader },
+        { title: "Implement core feature", assignee: workers[0] || leader },
+        ...(workers.length > 1 ? [{ title: "Implement secondary feature", assignee: workers[1] }] : []),
+        { title: "Integration and testing", assignee: leader },
+      ];
+      for (const item of items) {
+        await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/items`, {
+          title: item.title,
+          assignee: item.assignee,
+        });
+      }
+      console.log("[cypher-session] Seeded", items.length, "board items for project", projectSlug);
     }
 
-    // 6. Send status summary to yo panel (not cypher stage)
+    // 6. Send status summary to yo panel
     const statusLines = [
       `⚡ Cypher: ${cy?.title || "Untitled"} [${cy?.status || "unknown"}]`,
       cy?.goal ? `Goal: ${cy.goal}` : "",
       `Jammers: ${activeJammers.length > 0 ? activeJammers.map((j: any) => j.agent_local_id).join(", ") : "none"}`,
-      projectSlug ? `Project: ${projectSlug}` : "No project (GitHub not configured)",
+      `Project: ${projectSlug}`,
     ].filter(Boolean).join("\n");
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("yo-panel-token", statusLines + "\n\n");
@@ -4045,18 +4042,20 @@ async function boot() {
     mcpExpose?.setHierarchyContext(hierarchyMap);
     cypherBus.setHierarchyContext(hierarchyMap);
 
-    // Wire project board context so jammers can create/update kanban items via MCP
-    try {
-      const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
-      if (projR?.project?.slug && mcpExpose) {
-        mcpExpose.setProjectContext({
-          projectRef: projR.project.slug,
-          serverGet: serverGetAuthed,
-          serverPost: serverPostAuthed,
-        });
-        console.log(`[spawn-jammers] project board wired: ${projR.project.slug}`);
-      }
-    } catch { /* no project yet — board tools won't appear */ }
+    // Wire project board context — GitHub project is required
+    const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+    if (!projR?.project?.slug) {
+      console.error("[spawn-jammers] BLOCKED: no GitHub project for cypher", cypId);
+      return { ok: false, error: "No GitHub project linked to this cypher" };
+    }
+    if (mcpExpose) {
+      mcpExpose.setProjectContext({
+        projectRef: projR.project.slug,
+        serverGet: serverGetAuthed,
+        serverPost: serverPostAuthed,
+      });
+    }
+    console.log(`[spawn-jammers] project board wired: ${projR.project.slug}`);
 
     const mcpUrl = mcpExpose?.isRunning ? `http://127.0.0.1:${mcpExpose.getPort()}/mcp` : null;
     let mcpToken: string | undefined;
