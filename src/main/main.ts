@@ -107,6 +107,7 @@ let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
 let inboxRouter: InboxRouter | null = null;
 let mcpManager: McpManager | null = null;
+let wazManager: import("./waz-manager").WazManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
 let connectorManager: ConnectorManager | null = null;
@@ -301,6 +302,7 @@ async function boot() {
     yoChat?.setLLMConfig(config);
     skillEngine?.setLLMConfig(config);
     yoAgent?.setLLMConfig(config);
+    wazManager?.setLLMConfig(config);
     yoInterceptor?.setCurrentModel(config.model);
     const modelNames = serverModelsCache.length > 0
       ? serverModelsCache.map((m) => m.model)
@@ -580,6 +582,13 @@ async function boot() {
   yoAgent.setCaptureStore(captureStore);
   yoAgent.setWorkspaceGetter(workspaceGetter);
   yoAgent.setSkillEngine(skillEngine);
+
+  // Waz manager — disposable agent popup windows (.waz command)
+  const { WazManager } = await import("./waz-manager");
+  wazManager = new WazManager();
+  wazManager.setCaptureStore(captureStore);
+  wazManager.setWorkspaceGetter(workspaceGetter);
+  wazManager.setSkillEngine(skillEngine);
 
   // Terminal manager — pty processes for terminal panels
   terminalManager = new TerminalManager();
@@ -951,6 +960,11 @@ async function boot() {
   yoAgent.setSessionCache(session);
   yoAgent.setMemoryStore(memoryStore);
   yoAgent.setNoteStore(noteStore);
+
+  // Wire waz manager dependencies
+  wazManager.setSessionCache(session);
+  wazManager.setMemoryStore(memoryStore);
+  wazManager.setNoteStore(noteStore);
 
   // Panel interaction + layout tools — wired directly to substrate deps
   setSubstrateToolDeps({
@@ -1531,6 +1545,13 @@ async function boot() {
   const callbacks = { openYoPanel: null as ((query: string) => void) | null };
 
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
+    // .waz — spawn a disposable agent popup
+    if (/^waz\b/i.test(cmd)) {
+      const prompt = cmd.replace(/^waz\s*/i, "").trim();
+      wazManager?.spawn(prompt);
+      return ".waz spawned";
+    }
+
     const result = await commandParser.execute(cmd, sourcePanelId);
 
     // .yo always opens the agent side panel
@@ -1599,6 +1620,11 @@ async function boot() {
   };
   yoInterceptor.setPanelOpener(openYoPanel);
   yoInterceptor.setLastAgentResult(() => yoAgent.getLastResponse());
+  wazManager.setThemeFn(() => {
+    const t = getPreference<string>("theme", "light");
+    return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t;
+  });
+  yoInterceptor.setWazSpawner((prompt) => wazManager?.spawn(prompt));
   yoInterceptor.setFaviconsGetter(() => panelFavicons);
   yoInterceptor.setLayoutsGetter(() => layoutManager.listLayouts());
 
@@ -4732,6 +4758,7 @@ function cleanupAll() {
   configSync?.stop();
   configSync = null;
   terminalManager?.killAll();
+  wazManager?.closeAll();
   // agentRunner instances are aborted when their webContents are destroyed
   vscodeServer?.stop();
   mcpExpose?.stop();

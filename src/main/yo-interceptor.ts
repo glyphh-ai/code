@@ -52,6 +52,7 @@ export class YoInterceptor {
   private getDripCustoms: (() => Array<{ name: string; recipe: string }>) | null = null;
   private modeChanger: ((mode: string) => void) | null = null;
   private modelChanger: ((model: string) => void) | null = null;
+  private wazSpawner: ((prompt: string) => void) | null = null;
 
   constructor(
     private appConnector: AppConnector,
@@ -72,6 +73,7 @@ export class YoInterceptor {
   setLastAgentResult(fn: () => string): void { this.lastAgentResult = fn; }
   setModeChanger(fn: (mode: string) => void): void { this.modeChanger = fn; }
   setModelChanger(fn: (model: string) => void): void { this.modelChanger = fn; }
+  setWazSpawner(fn: (prompt: string) => void): void { this.wazSpawner = fn; }
   setAvailableModels(models: string[]): void { this.availableModels = models; }
   setCurrentModel(model: string): void {
     this.currentModel = model;
@@ -229,7 +231,7 @@ var __yoT=__yoThemes[${JSON.stringify(this.theme)}]||__yoThemes.dark;
 (function(){var s=document.getElementById('__yo-theme-vars');if(!s){s=document.createElement('style');s.id='__yo-theme-vars';(document.head||document.documentElement).appendChild(s);}var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;})();
 window.__yoSetTheme=function(t){__yoT=__yoThemes[t]||__yoThemes.dark;var s=document.getElementById('__yo-theme-vars');if(s){var css=':root{';for(var k in __yoT)css+='--yo-'+k+':'+__yoT[k]+';';css+='}';s.textContent=css;}};
 var _n=${JSON.stringify(nonce)};
-var CMD_RE=/^\\.(yo|sup|dip|drip|peace|council)(?:\\s+([\\s\\S]+))?$/i;
+var CMD_RE=/^\\.(yo|sup|dip|drip|peace|council|waz)(?:\\s+([\\s\\S]+))?$/i;
 var lastText='';
 var handled=false;
 var firing=false;
@@ -537,6 +539,12 @@ document.addEventListener('keydown',function(e){
         if (this.commandHandler) {
           const cmd = data.instruction ? `peace ${data.instruction}` : "peace";
           await this.commandHandler(cmd);
+        }
+        break;
+      case "waz":
+        if (this.wazSpawner) {
+          this.wazSpawner(data.instruction || "");
+          this.notify(wc, ".waz spawned", "success");
         }
         break;
       case "yo-toggle-panel":

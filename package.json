@@ -5,7 +5,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
-    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:drop && npm run build:council && npm run build:cypher",
+    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:drop && npm run build:council && npm run build:cypher && npm run build:waz",
     "build:main": "tsc",
     "build:renderer": "tsc -p src/renderer/tsconfig.json && shx cp src/renderer/index.html src/renderer/home.html src/renderer/styles.css src/renderer/browser.html src/renderer/context.html dist/renderer/ && shx cp -r src/renderer/fonts dist/renderer/ && shx cp node_modules/chart.js/dist/chart.umd.min.js dist/renderer/",
     "build:terminal": "esbuild src/renderer/terminal-renderer.ts --bundle --outfile=dist/renderer/terminal-bundle.js --platform=browser && shx cp node_modules/@xterm/xterm/css/xterm.css src/renderer/terminal.html dist/renderer/",
@@ -14,6 +14,7 @@
     "build:drop": "esbuild src/renderer/drop.ts --bundle --outfile=dist/renderer/drop.js --platform=browser && esbuild src/renderer/drop-preload.ts --bundle --outfile=dist/main/drop-preload.js --platform=node --external:electron && shx cp src/renderer/drop.html dist/renderer/",
     "build:council": "esbuild src/renderer/council.ts --bundle --outfile=dist/renderer/council.js --platform=browser && esbuild src/renderer/council-preload.ts --bundle --outfile=dist/main/council-preload.js --platform=node --external:electron && shx cp src/renderer/council.html dist/renderer/",
     "build:cypher": "esbuild src/renderer/cypher.ts --bundle --outfile=dist/renderer/cypher.js --platform=browser && esbuild src/renderer/cypher-preload.ts --bundle --outfile=dist/main/cypher-preload.js --platform=node --external:electron && shx cp src/renderer/cypher.html dist/renderer/",
+    "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
     "start": "electron .",
     "postinstall": "electron-rebuild",
     "package:mac": "electron-builder --mac",
