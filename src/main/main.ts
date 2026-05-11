@@ -3755,17 +3755,23 @@ async function boot() {
     } catch { /* no project yet */ }
 
     if (!projectSlug && cy?.goal) {
-      try {
-        const ghStatus = getDropAuthStatus();
-        const ownerLogin = ghStatus?.github?.gh_login;
-        if (ownerLogin) {
-          // Find the user's first GitHub App installation
+      const ghStatus = getDropAuthStatus();
+      const ownerLogin = ghStatus?.github?.gh_login;
+      console.log("[cypher-session] project auto-create: projectSlug=", projectSlug, "ownerLogin=", ownerLogin, "ghStatus=", JSON.stringify(ghStatus?.github || null));
+      if (!ownerLogin) {
+        console.warn("[cypher-session] skipping project auto-create — no gh_login in drop auth status");
+      } else {
+        try {
           const instResult = await dropApi.installationsList();
           const installations = instResult.ok ? ((instResult.data as any)?.installations ?? []) : [];
+          console.log("[cypher-session] installations:", installations.length, installations.map((i: any) => i.account_login));
           const inst = installations.find((i: any) => i.account_login?.toLowerCase() === ownerLogin.toLowerCase()) || installations[0];
           const installationId = inst?.installation_id;
+          if (!installationId) {
+            console.warn("[cypher-session] no installation found for", ownerLogin);
+          }
 
-          console.log("[cypher-session] Auto-creating project for cypher", cypId, "owner:", ownerLogin);
+          console.log("[cypher-session] Auto-creating project for cypher", cypId, "owner:", ownerLogin, "installationId:", installationId);
           const projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
             "/api/projects",
             {
@@ -3778,21 +3784,24 @@ async function boot() {
             },
           );
           projectSlug = projCreate?.slug || projCreate?.project?.slug || null;
-          console.log("[cypher-session] Project created:", projectSlug);
+          console.log("[cypher-session] Project created:", projectSlug, "response:", JSON.stringify(projCreate));
 
-          // Auto-create repo if we have an installation
           if (projectSlug && installationId) {
             try {
-              await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
-              console.log("[cypher-session] Repo auto-created for project", projectSlug);
+              const repoResult = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
+              console.log("[cypher-session] Repo auto-created:", JSON.stringify(repoResult));
             } catch (err) {
-              console.warn("[cypher-session] Repo auto-create failed (non-fatal):", err instanceof Error ? err.message : err);
+              console.error("[cypher-session] Repo auto-create FAILED:", err instanceof Error ? err.message : err);
             }
+          } else {
+            console.warn("[cypher-session] skipping repo — projectSlug=", projectSlug, "installationId=", installationId);
           }
+        } catch (err) {
+          console.error("[cypher-session] Auto-create project FAILED:", err instanceof Error ? err.message : err);
         }
-      } catch (err) {
-        console.warn("[cypher-session] Auto-create project failed (non-fatal):", err instanceof Error ? err.message : err);
       }
+    } else if (projectSlug) {
+      console.log("[cypher-session] project already exists:", projectSlug);
     }
 
     // 3. Ensure draft assignments exist — run draft if missing
