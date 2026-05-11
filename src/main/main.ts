@@ -1336,7 +1336,15 @@ async function boot() {
           const r = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items`, {
             title, body, assignee_agent_id: assignee,
           }) as any;
-          return r?.item?.id ? `Item created: "${title}" (id: ${r.item.id})` : `Item created.`;
+          const item = r?.item;
+          if (item?.id) {
+            const cypherWc = panelManager.getView("cypher")?.webContents;
+            if (cypherWc && !cypherWc.isDestroyed()) {
+              cypherWc.send("cypher-project-item-update", { id: item.id, title, status: item.status || "Backlog", assignee });
+            }
+            return `Item created: "${title}" (id: ${item.id})`;
+          }
+          return `Item created.`;
         } catch (err) {
           return `Item create failed: ${err instanceof Error ? err.message : String(err)}`;
         }
@@ -1344,6 +1352,10 @@ async function boot() {
       updateItemStatus: async (projectRef: string, itemId: string, status: string) => {
         try {
           await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/status`, { status });
+          const cypherWc = panelManager.getView("cypher")?.webContents;
+          if (cypherWc && !cypherWc.isDestroyed()) {
+            cypherWc.send("cypher-project-item-update", { id: itemId, status });
+          }
           return `Item moved to ${status}.`;
         } catch (err) {
           return `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -1352,6 +1364,10 @@ async function boot() {
       assignItem: async (projectRef: string, itemId: string, assigneeAgentId: string) => {
         try {
           await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/assign`, { agent_id: assigneeAgentId });
+          const cypherWc = panelManager.getView("cypher")?.webContents;
+          if (cypherWc && !cypherWc.isDestroyed()) {
+            cypherWc.send("cypher-project-item-update", { id: itemId, assignee: assigneeAgentId });
+          }
           return `Item assigned to ${assigneeAgentId}.`;
         } catch (err) {
           return `Assign failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -3719,11 +3735,10 @@ async function boot() {
 
   ipcMain.handle("cypher-project-board", async (_e, cypherId: string) => {
     try {
-      const r = await serverGetAuthed<{ items?: Array<{ id: string; title: string; status: string; assignee_user_id?: string; pr_url?: string | null }> }>(
+      const r = await serverGetAuthed<{ project?: { id: string }; items?: Array<{ id: string; title: string; status: string; assignee_user_id?: string; pr_url?: string | null }> }>(
         `/api/projects/by-cypher/${encodeURIComponent(cypherId)}?with=items`,
       );
-      const items = (r as any)?.items || [];
-      return { items };
+      return { items: (r as any)?.items || [] };
     } catch {
       return { items: [] };
     }

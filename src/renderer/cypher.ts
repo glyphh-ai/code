@@ -73,6 +73,7 @@ let monacoReady: Promise<void> | null = null;
 let unsubEvents: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
 let unsubItemUpdate: (() => void) | null = null;
+let fileTreeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let initRunning = false;
 
 // ── Helpers ────────────────────────────────────────────
@@ -417,13 +418,35 @@ function subscribeEvents(): void {
   unsubItemUpdate = api.onProjectItemUpdate((item) => {
     const existing = boardItems.find((i) => i.id === item.id);
     if (existing) {
-      existing.status = item.status;
-      existing.assignee = item.assignee;
+      if (item.title) existing.title = item.title;
+      if (item.status) existing.status = item.status;
+      if (item.assignee !== undefined) existing.assignee = item.assignee;
     } else {
-      boardItems.push(item as BoardItem);
+      boardItems.push({
+        id: item.id,
+        title: item.title || "Untitled",
+        status: item.status || "Backlog",
+        assignee: item.assignee,
+      });
     }
     renderFlowBoard();
   });
+
+  fileTreeRefreshTimer = setInterval(async () => {
+    if (!workspacePath) return;
+    const anyRunning = jammers.some((j) => j.status === "running" || j.status === "starting");
+    if (!anyRunning) return;
+    try {
+      fileTree = await loadFileTree(workspacePath);
+      for (const node of fileTree) {
+        if (node.isDir) {
+          node.children = await loadFileTree(node.path, 1);
+          node.expanded = true;
+        }
+      }
+      renderFileTree();
+    } catch { /* workspace may not exist yet */ }
+  }, 5000);
 }
 
 function cleanup(): void {
@@ -433,6 +456,7 @@ function cleanup(): void {
   unsubEvents = null;
   unsubStatus = null;
   unsubItemUpdate = null;
+  if (fileTreeRefreshTimer) { clearInterval(fileTreeRefreshTimer); fileTreeRefreshTimer = null; }
 }
 
 // ── Boot ───────────────────────────────────────────────

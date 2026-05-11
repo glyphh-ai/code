@@ -48,7 +48,7 @@ interface CypherPanelAPI {
   projectBoard: (cypherId: string) => Promise<{
     items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }>;
   }>;
-  onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
+  onProjectItemUpdate: (cb: (item: { id: string; title?: string; status?: string; assignee?: string }) => void) => () => void;
 
   // Open in VS Code
   openInVSCode: (filePath: string) => void;
