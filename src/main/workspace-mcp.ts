@@ -37,10 +37,20 @@ interface CallContext {
 const SERVER_NAME = "yo-workspace";
 const SERVER_VERSION = "1.0.0";
 
+export interface HierarchyEntry {
+  agentId: string;
+  position: string;
+  parentAgentId: string | null;
+  reports: string[];
+  area: string | null;
+  contract: string | null;
+}
+
 export class WorkspaceMcpServer {
   private server: http.Server | null = null;
   private port = 0;
   private bus: CypherBus | null = null;
+  private hierarchyContext: Map<string, HierarchyEntry> | null = null;
 
   constructor(
     private eventLog: EventLog,
@@ -49,6 +59,10 @@ export class WorkspaceMcpServer {
 
   setBus(bus: CypherBus): void {
     this.bus = bus;
+  }
+
+  setHierarchyContext(ctx: Map<string, HierarchyEntry> | null): void {
+    this.hierarchyContext = ctx;
   }
 
   get isRunning(): boolean {
@@ -175,7 +189,7 @@ export class WorkspaceMcpServer {
         return null;
 
       case "tools/list":
-        return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
+        return { jsonrpc: "2.0", id, result: { tools: this.hierarchyContext ? [...TOOLS, ...HIERARCHY_TOOLS] : TOOLS } };
 
       case "tools/call":
         return this.handleToolCall(id, params as { name: string; arguments?: Record<string, unknown> }, ctx);
@@ -320,6 +334,107 @@ export class WorkspaceMcpServer {
           return reply(ok ? "ok" : `No subscription ${subId} for ${ctx.agent}`, !ok);
         }
 
+        // ── Hierarchy tools (cypher mode only) ──────────────────
+        case "get_hierarchy": {
+          if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+          const entry = this.hierarchyContext.get(ctx.agent);
+          if (!entry) return reply(`Agent "${ctx.agent}" not found in hierarchy`, true);
+          const chain: string[] = [];
+          let cur = entry.parentAgentId;
+          while (cur) {
+            chain.push(cur);
+            const p = this.hierarchyContext.get(cur);
+            cur = p?.parentAgentId ?? null;
+          }
+          return replyJson({ ...entry, chain_of_command: chain });
+        }
+
+        case "assign_task": {
+          if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+          const caller = this.hierarchyContext.get(ctx.agent);
+          if (!caller) return reply(`Agent "${ctx.agent}" not found in hierarchy`, true);
+          if (caller.reports.length === 0) return reply(`${ctx.agent} has no direct reports — only leaders/lieutenants/sub-leads can assign tasks`, true);
+          const target = String(args.agent || "").trim();
+          const taskBody = String(args.body || "").trim();
+          if (!target) return reply("agent is required", true);
+          if (!taskBody) return reply("body is required", true);
+          if (!caller.reports.includes(target)) return reply(`${target} is not a direct report of ${ctx.agent}. Your reports: ${caller.reports.join(", ")}`, true);
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, { from: ctx.agent, to: target, kind: "assign_task", body: taskBody });
+          }
+          return replyJson({ ok: true, assigned_to: target, task: taskBody });
+        }
+
+        case "accept_task": {
+          if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+          const caller2 = this.hierarchyContext.get(ctx.agent);
+          if (!caller2) return reply(`Agent "${ctx.agent}" not found in hierarchy`, true);
+          const taskId = String(args.task_id || "").trim();
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, {
+              from: ctx.agent,
+              to: caller2.parentAgentId || undefined,
+              kind: "accept_task",
+              body: taskId ? `Accepted task ${taskId}` : "Task accepted",
+              meta: taskId ? { task_id: taskId } : undefined,
+            });
+          }
+          return replyJson({ ok: true, accepted_by: ctx.agent });
+        }
+
+        case "complete_task": {
+          if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+          const caller3 = this.hierarchyContext.get(ctx.agent);
+          if (!caller3) return reply(`Agent "${ctx.agent}" not found in hierarchy`, true);
+          const summary = String(args.summary || "").trim();
+          if (!summary) return reply("summary is required", true);
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, {
+              from: ctx.agent,
+              to: caller3.parentAgentId || undefined,
+              kind: "complete_task",
+              body: summary,
+            });
+          }
+          return replyJson({ ok: true, completed_by: ctx.agent });
+        }
+
+        case "report_status": {
+          if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+          const caller4 = this.hierarchyContext.get(ctx.agent);
+          if (!caller4) return reply(`Agent "${ctx.agent}" not found in hierarchy`, true);
+          const statusBody = String(args.body || "").trim();
+          if (!statusBody) return reply("body is required", true);
+          const statusKind = String(args.kind || "progress");
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, {
+              from: ctx.agent,
+              to: caller4.parentAgentId || undefined,
+              kind: "report_status",
+              body: statusBody,
+              meta: { status_kind: statusKind },
+            });
+          }
+          return replyJson({ ok: true, reported_by: ctx.agent, to: caller4.parentAgentId });
+        }
+
+        case "request_review": {
+          if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+          const caller5 = this.hierarchyContext.get(ctx.agent);
+          if (!caller5) return reply(`Agent "${ctx.agent}" not found in hierarchy`, true);
+          const reviewBody = String(args.body || "").trim();
+          if (!reviewBody) return reply("body is required", true);
+          if (this.bus) {
+            await this.bus.post(ctx.workspace, {
+              from: ctx.agent,
+              to: caller5.parentAgentId || undefined,
+              kind: "request_review",
+              body: reviewBody,
+            });
+          }
+          return replyJson({ ok: true, requested_by: ctx.agent, reviewer: caller5.parentAgentId });
+        }
+
         default:
           return {
             jsonrpc: "2.0",
@@ -439,6 +554,70 @@ const TOOLS = [
       type: "object",
       properties: { id: { type: "string" } },
       required: ["id"],
+    },
+  },
+];
+
+const HIERARCHY_TOOLS = [
+  {
+    name: "get_hierarchy",
+    description: "Returns your position, parent, direct reports, and full chain of command in the cypher hierarchy.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "assign_task",
+    description: "Assign a task to one of your direct reports. Only leaders, lieutenants, and sub-leads can call this. The target must be in your reports list.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Agent name of the direct report to assign to" },
+        body: { type: "string", description: "Task description" },
+      },
+      required: ["agent", "body"],
+    },
+  },
+  {
+    name: "accept_task",
+    description: "Accept a task assigned to you by your parent in the chain of command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Optional task identifier" },
+      },
+    },
+  },
+  {
+    name: "complete_task",
+    description: "Mark your current task as complete. Notifies your parent in the chain of command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "Summary of what was accomplished" },
+      },
+      required: ["summary"],
+    },
+  },
+  {
+    name: "report_status",
+    description: "Report progress, blockers, or other status to your parent in the chain of command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "Status update" },
+        kind: { type: "string", enum: ["progress", "blocker", "question", "complete"], description: "Status type (default: progress)" },
+      },
+      required: ["body"],
+    },
+  },
+  {
+    name: "request_review",
+    description: "Request your parent to review your completed work before it's considered done.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "Description of what needs review" },
+      },
+      required: ["body"],
     },
   },
 ];

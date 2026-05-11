@@ -301,6 +301,11 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("yo-panel-council-ready", (_e, info) => cb(info));
   },
 
+  // Jammer activity feed (workspace bus events forwarded from main)
+  onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => {
+    ipcRenderer.on("jammer-activity", (_e, event) => cb(event));
+  },
+
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>,

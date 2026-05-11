@@ -57,6 +57,8 @@ export interface AgentConfig {
 
   /** Apps this agent has access to (for tools and context). Slugs from ~/yo/apps/. */
   apps?: string[];
+  /** Per-app tool/skill selection — which panel tools and MCP tools each app exposes. */
+  appConfigs?: Record<string, { allowAll?: boolean; panelTools?: string[]; mcpTools?: string[] }>;
   /** Skills this agent can run. Names from the skill registry. */
   skills?: string[];
   /** Built-in tools the agent is allowed to call (read/write/shell/git/...). */

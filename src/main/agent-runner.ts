@@ -67,13 +67,20 @@ interface AgentInstance {
   config: AgentConfig;
 }
 
+export type UsagePoster = (cypherId: string, agentId: string, inputTokens: number, outputTokens: number) => void;
+
 export class AgentRunner {
   private agents = new Map<string, AgentInstance>();
   private sdk: any = null;
   private bus: CypherBus | null = null;
+  private usagePoster: UsagePoster | null = null;
 
   setBus(bus: CypherBus): void {
     this.bus = bus;
+  }
+
+  setUsagePoster(fn: UsagePoster): void {
+    this.usagePoster = fn;
   }
 
   private async ensureSDK(): Promise<any> {
@@ -298,11 +305,17 @@ export class AgentRunner {
             instance.sessionId = msg.session_id || null;
           }
         } else if (msg.type === "result") {
-          console.log(`[agent-runner] ${instance.name}: result/${msg.subtype} error=${msg.is_error} result="${(msg.result || "").slice(0, 100)}"`);
-          instance.tokens.input += msg.usage?.input_tokens || 0;
-          instance.tokens.output += msg.usage?.output_tokens || 0;
+          const inTok = msg.usage?.input_tokens || 0;
+          const outTok = msg.usage?.output_tokens || 0;
+          console.log(`[agent-runner] ${instance.name}: result/${msg.subtype} error=${msg.is_error} in=${inTok} out=${outTok}`);
+          instance.tokens.input += inTok;
+          instance.tokens.output += outTok;
           instance.costUsd += msg.total_cost_usd || 0;
           instance.turns += msg.num_turns || 0;
+
+          if (instance.config.cypherId && (inTok || outTok) && this.usagePoster) {
+            this.usagePoster(instance.config.cypherId, instance.name, inTok, outTok);
+          }
         }
 
         const serialized = this.serializeMessage(msg);
@@ -588,7 +601,7 @@ export class AgentRunner {
           this.bus.post(ws, {
             from,
             kind: "agent_thinking",
-            body: block.text.slice(0, 200),
+            body: block.text.slice(0, 500),
             meta: { agent_id: from },
           }).catch(() => {});
         } else if (block.type === "tool_use") {
@@ -600,6 +613,23 @@ export class AgentRunner {
           }).catch(() => {});
         }
       }
+    } else if (msg.type === "result") {
+      const body = msg.is_error
+        ? `Error: ${(msg.result || "unknown error").slice(0, 300)}`
+        : `Completed turn (${msg.num_turns || 0} turns, ${msg.usage?.input_tokens || 0}+${msg.usage?.output_tokens || 0} tok)`;
+      this.bus.post(ws, {
+        from,
+        kind: msg.is_error ? "agent_error" : "agent_result",
+        body,
+        meta: { agent_id: from },
+      }).catch(() => {});
+    } else if (msg.type === "system" && msg.subtype === "status") {
+      this.bus.post(ws, {
+        from,
+        kind: "status",
+        body: `${from}: ${msg.status || msg.subtype}`,
+        meta: { agent_id: from },
+      }).catch(() => {});
     }
   }
 }

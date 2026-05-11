@@ -308,6 +308,98 @@
   .roster-tag.live {
     background: var(--active-bg); color: var(--accent);
   }
+  .roster-apps {
+    display: flex; gap: 4px; align-items: center; margin-top: 6px;
+  }
+  .roster-app-icon {
+    width: 18px; height: 18px; border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--text-2);
+    background: var(--surface-3); flex-shrink: 0;
+  }
+  img.roster-app-icon { object-fit: contain; background: none; }
+  .ae-tab-intro {
+    font-size: 12px; color: var(--text-3); line-height: 1.5; margin: 0 0 14px;
+  }
+  .ae-apps-search-wrap { margin-bottom: 12px; }
+  .ae-apps-cards {
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 440px; overflow-y: auto;
+  }
+  .ae-app-card {
+    border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .ae-app-card.enabled { border-color: var(--accent); }
+  .ae-app-card-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; cursor: pointer; transition: background 0.1s;
+  }
+  .ae-app-card-head:hover { background: var(--surface-2); }
+  .ae-app-icon {
+    width: 20px; height: 20px; border-radius: 4px; flex-shrink: 0; object-fit: contain;
+  }
+  .ae-app-initial {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 700;
+  }
+  .ae-app-card-name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .ae-app-card-id { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); margin-left: auto; }
+  .ae-app-card-chevron {
+    font-size: 10px; color: var(--text-3); transition: transform 0.15s; margin-left: 6px;
+  }
+  .ae-app-card.expanded .ae-app-card-chevron { transform: rotate(90deg); }
+  .ae-app-card-body {
+    display: none; padding: 0 10px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .ae-app-card.expanded .ae-app-card-body { display: block; }
+  .ae-app-allow-all {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; font-size: 12px; color: var(--text-2); cursor: pointer;
+  }
+  .ae-app-tool-section {
+    margin-top: 6px;
+  }
+  .ae-app-tool-heading {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-3); margin-bottom: 4px;
+  }
+  .ae-app-tool-list {
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .ae-app-tool-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0; font-size: 12px; color: var(--text-2); cursor: pointer;
+  }
+  .ae-app-tool-row:hover { color: var(--text); }
+  .ae-app-tool-name { font-weight: 500; color: var(--text); }
+  .ae-app-tool-desc { color: var(--text-3); font-size: 11px; margin-left: auto; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ae-skills-cards {
+    display: flex; flex-direction: column; gap: 4px;
+    min-height: 28px;
+  }
+  .ae-skill-card {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); transition: border-color 0.15s, background 0.1s;
+  }
+  .ae-skill-card:hover { background: var(--surface-2); }
+  .ae-skill-card.enabled { border-color: var(--accent); }
+  .ae-skill-meta { flex: 1; min-width: 0; }
+  .ae-skill-name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .ae-skill-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .ae-skill-deps {
+    display: flex; gap: 4px; align-items: center; margin-top: 4px; flex-wrap: wrap;
+  }
+  .ae-skill-dep {
+    font-size: 10px; font-family: var(--font-mono); padding: 1px 6px;
+    border-radius: 3px; background: var(--surface-3); color: var(--text-2);
+  }
+  .ae-skill-dep.missing {
+    background: rgba(255, 95, 87, 0.15); color: var(--danger);
+  }
   .roster-token-badge {
     font-family: var(--font-mono); font-size: 10px;
     padding: 2px 8px; border-radius: 999px;
@@ -365,7 +457,7 @@
     border-bottom: 1px solid var(--border);
   }
   .overlay-tab {
-    padding: 12px 18px;
+    padding: 12px 14px;
     background: transparent; color: var(--text-3);
     border: none; border-bottom: 2px solid transparent;
     font: inherit; font-size: 13px; font-weight: 600;
@@ -448,10 +540,11 @@
     cursor: pointer;
   }
   .ae-tp-select:focus { border-color: var(--accent); outline: none; }
-  .ae-skills-toggles {
-    display: flex; flex-direction: column; gap: 4px;
-    min-height: 28px; margin-top: 8px;
+  .ae-app-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background 0.1s;
   }
+  .ae-app-row:hover { background: var(--surface-2); }
 
   /* ── Guardrails sliders ─────────────────────────────────── */
   .gr-intro {
@@ -1609,11 +1702,7 @@
 
           <div id="cw-repo-no-install" class="hidden" style="text-align:center;padding:20px 0;">
             <p style="color:var(--text-2);font-size:13px;margin-bottom:12px;">No GitHub App installations found. Install the yo-cypher app on your GitHub account to enable project tracking.</p>
-            <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
-              <button class="btn btn-primary" id="cw-repo-install-btn">Install yo-cypher on GitHub</button>
-              <button class="btn btn-ghost" id="cw-repo-refresh-btn">Refresh</button>
-            </div>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:8px;">After installing, click Refresh. You can also skip this step.</p>
+            <button class="btn btn-primary" id="cw-repo-install-btn">Install yo-cypher on GitHub</button>
           </div>
 
           <div id="cw-repo-fields" class="form-grid hidden">
@@ -1690,6 +1779,8 @@
 
       <div class="overlay-tabs">
         <button class="overlay-tab active" data-ae-tab="profile">Profile</button>
+        <button class="overlay-tab" data-ae-tab="apps">Apps</button>
+        <button class="overlay-tab" data-ae-tab="skillz">Skillz</button>
         <button class="overlay-tab" data-ae-tab="behavior">Behavior</button>
         <button class="overlay-tab" data-ae-tab="guardrails">Guardrails</button>
       </div>
@@ -1704,8 +1795,11 @@
             <label class="form-label">Name <span class="form-hint">— display name on cypher tiles + leaderboard</span></label>
             <input id="ae-name" class="form-input" placeholder="Atlas" spellcheck="false" />
 
-            <label class="form-label">Avatar URL <span class="form-hint">— paste an image; falls back to identicon</span></label>
-            <input id="ae-avatar-url" class="form-input mono" placeholder="https://..." spellcheck="false" />
+            <label class="form-label">Avatar <span class="form-hint">— paste URL or generate</span></label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input id="ae-avatar-url" class="form-input mono" placeholder="https://..." spellcheck="false" style="flex:1;" />
+              <button type="button" class="btn btn-ghost" id="ae-avatar-gen" style="flex-shrink:0;font-size:12px;">Generate</button>
+            </div>
 
             <label class="form-label">Bio <span class="form-hint">— short tagline, ~140 chars</span></label>
             <textarea id="ae-bio" class="form-input" rows="3" maxlength="200" placeholder="React + Tailwind specialist. Ships fast, light on commentary."></textarea>
@@ -1715,6 +1809,22 @@
               <span>Publish to cyphers — appear in The Drop and accept invitations.</span>
             </label>
           </div>
+        </div>
+
+        <!-- Apps tab -->
+        <div class="overlay-pane hidden" data-ae-pane="apps">
+          <p class="ae-tab-intro">Select which apps this jammer can access. Expand each app to choose specific panel tools and MCP tools — or allow all.</p>
+          <div class="ae-apps-search-wrap">
+            <input id="ae-apps-search" class="form-input mono" placeholder="Filter apps…" spellcheck="false" style="width:100%;font-size:12px;" />
+          </div>
+          <div id="ae-apps-list" class="ae-apps-cards"></div>
+        </div>
+
+        <!-- Skillz tab -->
+        <div class="overlay-pane hidden" data-ae-pane="skillz">
+          <p class="ae-tab-intro">Toggle which skills this jammer can invoke. Skills may depend on apps — those dependencies are shown inline.</p>
+          <div id="ae-skills-list" class="ae-skills-cards"></div>
+          <button type="button" class="btn btn-ghost" id="ae-skills-add" style="align-self:start;font-size:12px;margin-top:8px;">+ Add skill</button>
         </div>
 
         <!-- Behavior tab -->
@@ -1744,10 +1854,6 @@
               <tr><td>MCP servers <span class="form-hint">— external tool servers</span></td><td><select id="ae-tp-mcp" class="ae-tp-select"><option value="full">Full access</option><option value="read">Read only</option><option value="disabled">Disabled</option></select></td></tr>
             </tbody>
           </table>
-
-          <label class="form-label" style="margin-top:20px;">Skills <span class="form-hint">— toggle which skills this jammer can invoke</span></label>
-          <div id="ae-skills-list" class="ae-skills-toggles"></div>
-          <button type="button" class="btn btn-ghost" id="ae-skills-add" style="align-self:start;font-size:12px;margin-top:8px;">+ Add skill</button>
         </div>
 
         <!-- Guardrails tab -->

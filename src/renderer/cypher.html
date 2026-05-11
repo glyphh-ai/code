@@ -5,7 +5,7 @@
 <title>Cypher</title>
 <link rel="stylesheet" href="styles.css">
 <style>
-  body { font-size: 14px; line-height: 1.5; overflow: hidden; }
+  body { font-size: 14px; line-height: 1.5; overflow: hidden; margin: 0; }
 
   /* ── Top bar ───────────────────────────────────────────── */
   .topbar {
@@ -14,6 +14,7 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     flex-shrink: 0;
+    height: 42px; box-sizing: border-box;
   }
   .brand {
     font-family: var(--font-mono); font-size: 16px; font-weight: 800;
@@ -40,6 +41,12 @@
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.4; transform: scale(0.7); }
   }
+  .topbar-tokens {
+    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .topbar-tokens:empty { display: none; }
   .topbar-spacer { flex: 1; }
   .topbar-btn {
     padding: 5px 12px; border-radius: 6px;
@@ -51,83 +58,79 @@
   .topbar-btn:hover { border-color: var(--accent); color: var(--accent); }
   .topbar-btn.danger:hover { border-color: #f44; color: #f44; }
 
-  /* ── Flow board (top strip) ────────────────────────────── */
-  .flow-board {
-    display: flex; gap: 2px;
-    padding: 8px 12px;
+  /* ── Workspace (3-column layout) ──────────────────────── */
+  .workspace {
+    display: flex;
+    height: calc(100vh - 42px);
+    overflow: hidden;
+  }
+
+  .col {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+  .col-left { width: 220px; min-width: 140px; max-width: 400px; }
+  .col-center { flex: 1; min-width: 200px; }
+  .col-right { width: 280px; min-width: 160px; max-width: 500px; }
+  .col-left.collapsed, .col-right.collapsed {
+    width: 0 !important; min-width: 0 !important;
+    overflow: hidden;
+  }
+
+  /* ── Vertical splitter (between columns) ──────────────── */
+  .vsplit {
+    width: 5px; min-width: 5px;
+    cursor: col-resize;
+    background: var(--border);
+    transition: background 0.15s;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .vsplit:hover, .vsplit.dragging { background: var(--accent); }
+
+  /* ── Horizontal splitter (within a column) ────────────── */
+  .hsplit {
+    height: 5px; min-height: 5px;
+    cursor: row-resize;
+    background: var(--border);
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+  .hsplit:hover, .hsplit.dragging { background: var(--accent); }
+
+  /* ── Pane (generic panel within a column) ─────────────── */
+  .pane {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .pane-top { flex: 1; }
+  .pane-bottom { flex: 1; }
+
+  .pane-header {
+    padding: 6px 12px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-3);
     border-bottom: 1px solid var(--border);
     background: var(--surface);
-    height: 110px; min-height: 110px;
-    overflow: hidden;
-  }
-  .flow-column {
-    flex: 1; min-width: 0;
-    display: flex; flex-direction: column;
-    padding: 0 6px;
-  }
-  .flow-column-header {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--text-3);
-    padding: 2px 4px 4px; border-bottom: 2px solid var(--border);
-    display: flex; align-items: center; gap: 6px;
-  }
-  .flow-column-header .count {
-    background: var(--surface-3); border-radius: 8px;
-    padding: 0 5px; font-size: 9px; color: var(--text-2);
-  }
-  .flow-column-header.active { border-color: var(--accent); }
-  .flow-column-header.done { border-color: #4caf50; }
-  .flow-cards {
-    flex: 1; overflow-y: auto; padding: 4px 0;
-    display: flex; flex-direction: column; gap: 3px;
-  }
-  .flow-card {
-    padding: 4px 8px; border-radius: 5px;
-    background: var(--surface-2); border: 1px solid var(--border);
-    font-size: 11px; color: var(--text);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    transition: all 0.2s ease;
-    cursor: default;
-  }
-  .flow-card:hover { border-color: var(--accent); }
-  .flow-card .card-assignee {
-    font-size: 9px; color: var(--text-3); margin-top: 1px;
-  }
-
-  /* ── Main layout (below flow) ──────────────────────────── */
-  .cypher-main {
-    display: flex;
-    height: calc(100vh - 49px - 110px);
-    overflow: hidden;
-  }
-
-  /* ── Left sidebar: file tree + roster ──────────────────── */
-  .left-panel {
-    width: 240px; min-width: 200px;
-    border-right: 1px solid var(--border);
-    background: var(--surface);
-    display: flex; flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* File tree section */
-  .file-section {
-    flex: 1; display: flex; flex-direction: column;
-    overflow: hidden; border-bottom: 1px solid var(--border);
-  }
-  .section-header {
-    padding: 8px 12px 6px;
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--text-3);
     display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
   }
-  .section-search {
-    margin: 0 8px 6px;
+  .pane-header .count {
+    background: var(--surface-3); border-radius: 8px;
+    padding: 1px 6px; font-size: 10px; color: var(--text-2);
+  }
+
+  /* ── Files pane (left top) ────────────────────────────── */
+  .pane-search {
+    margin: 6px 8px;
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: 5px; padding: 4px 8px;
-    font-size: 11px; color: var(--text); outline: none; width: calc(100% - 16px);
+    font-size: 11px; color: var(--text); outline: none;
+    width: calc(100% - 16px); box-sizing: border-box;
   }
-  .section-search:focus { border-color: var(--accent); }
+  .pane-search:focus { border-color: var(--accent); }
+
   .file-tree {
     flex: 1; overflow-y: auto; padding: 0 4px 8px;
     font-family: var(--font-mono); font-size: 12px;
@@ -144,49 +147,148 @@
   .tree-icon { width: 14px; text-align: center; flex-shrink: 0; font-size: 10px; }
   .tree-indent { display: inline-block; }
 
-  /* Roster section */
-  .roster-section {
-    height: 180px; min-height: 120px;
-    display: flex; flex-direction: column;
+  /* ── Jammers pane (left bottom) ───────────────────────── */
+  .jammer-search {
+    display: block; width: calc(100% - 16px); margin: 4px 8px;
+    padding: 4px 8px; border-radius: 4px;
+    font-size: 11px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .jammer-search:focus { border-color: var(--accent); }
+  .jammer-list {
+    flex: 1; overflow-y: auto; padding: 4px;
+  }
+  .jammer-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; border-radius: 6px;
+    cursor: default; transition: background 0.12s;
+  }
+  .jammer-row:hover { background: var(--surface-2); }
+  .jammer-avatar {
+    width: 24px; height: 24px; border-radius: 6px;
+    flex-shrink: 0; background: var(--surface-3);
     overflow: hidden;
   }
-  .roster-list {
-    flex: 1; overflow-y: auto; padding: 4px 8px;
+  .jammer-avatar img, .jammer-avatar svg {
+    width: 100%; height: 100%; display: block; object-fit: cover;
   }
-  .roster-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 5px 8px; border-radius: 6px;
-    cursor: default; transition: background 0.12s ease;
-  }
-  .roster-item:hover { background: var(--surface-2); }
-  .roster-item.active { background: var(--accent-glow); }
-  .roster-name {
-    font-size: 11px; font-weight: 600; color: var(--text);
-    flex: 1; min-width: 0;
+  .jammer-info { flex: 1; min-width: 0; }
+  .jammer-name {
+    font-size: 12px; font-weight: 600; color: var(--text);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .roster-role {
-    font-size: 9px; color: var(--text-3);
+  .jammer-role {
+    font-size: 10px; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .roster-dot {
-    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  .jammer-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   }
-  .roster-dot.idle { background: var(--text-3); }
-  .roster-dot.running { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
-  .roster-dot.waiting { background: #4caf50; box-shadow: 0 0 4px #4caf5088; }
-  .roster-dot.starting { background: #ffb400; animation: pulse-dot 1.2s ease-in-out infinite; }
-  .roster-dot.error { background: #f44; }
-  @keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+  .jammer-status-dot.idle { background: var(--text-3); }
+  .jammer-status-dot.running { background: #ffb400; }
+  .jammer-status-dot.waiting { background: #4caf50; }
+  .jammer-status-dot.starting { background: #ffb400; }
+  .jammer-status-dot.error { background: #f44; }
+
+  .jammer-empty, .feed-empty {
+    font-size: 11px; color: var(--text-3); padding: 20px 0; text-align: center;
+  }
+  .jammer-page-controls {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 4px 8px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .jammer-page-btn {
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-2);
+    cursor: pointer;
+  }
+  .jammer-page-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .jammer-page-btn:disabled { opacity: 0.3; cursor: default; }
+  .jammer-page-info {
+    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
   }
 
-  /* ── Center: Monaco viewer ─────────────────────────────── */
-  .viewer-panel {
-    flex: 1; min-width: 0;
-    display: flex; flex-direction: column;
-    overflow: hidden;
+  /* ── Center tabs (Board / Files) ────────────────────── */
+  .center-tabs {
+    display: flex; gap: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
+  .center-tab {
+    padding: 7px 20px;
+    font-size: 12px; font-weight: 600; color: var(--text-3);
+    border: none; border-bottom: 2px solid transparent;
+    background: transparent; cursor: pointer; transition: all 0.15s;
+  }
+  .center-tab:hover { color: var(--text-2); }
+  .center-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .center-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Board view (kanban) ───────────────────────────────── */
+  .board-view {
+    flex: 1; display: flex; gap: 8px;
+    padding: 12px; overflow-x: auto; overflow-y: hidden;
+  }
+  .board-column {
+    flex: 1; min-width: 160px; max-width: 320px;
+    display: flex; flex-direction: column;
+    background: var(--surface); border-radius: 8px;
+    border: 1px solid var(--border); overflow: hidden;
+  }
+  .board-col-header {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-3);
+    padding: 10px 12px 8px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  .board-col-header .count {
+    background: var(--surface-3); border-radius: 8px;
+    padding: 1px 6px; font-size: 10px; color: var(--text-2);
+  }
+  .board-col-header.col-active { border-color: var(--accent); }
+  .board-col-header.col-review { border-color: #ffb400; }
+  .board-col-header.col-done { border-color: #4caf50; }
+  .board-cards {
+    flex: 1; overflow-y: auto; padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .board-card {
+    padding: 10px 12px; border-radius: 6px;
+    background: var(--bg); border: 1px solid var(--border);
+    transition: border-color 0.15s; cursor: default;
+  }
+  .board-card:hover { border-color: var(--accent); }
+  .board-card-title {
+    font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.4;
+  }
+  .board-card-meta {
+    display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  }
+  .board-card-assignee {
+    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
+  }
+  .board-card-avatar {
+    width: 16px; height: 16px; border-radius: 4px;
+    object-fit: cover; background: var(--surface-3); overflow: hidden;
+  }
+  .board-card-avatar img, .board-card-avatar svg {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  .board-card-pr {
+    font-size: 10px; color: var(--accent); text-decoration: none; margin-left: auto;
+  }
+  .board-empty {
+    font-size: 11px; color: var(--text-3); padding: 12px 0; text-align: center;
+  }
+
+  /* ── Files view (Monaco viewer) ───────────────────────── */
   .viewer-tabs {
     display: flex; gap: 0;
     background: var(--surface);
@@ -214,10 +316,7 @@
     flex: 1; display: flex; align-items: center; justify-content: center;
     color: var(--text-3); font-size: 13px;
   }
-  #monaco-container {
-    flex: 1; overflow: hidden;
-  }
-  /* Media viewer for non-code files */
+  #monaco-container { flex: 1; overflow: hidden; }
   #media-viewer {
     flex: 1; overflow: auto; padding: 20px;
     display: none; align-items: center; justify-content: center;
@@ -226,8 +325,218 @@
   #media-viewer audio { width: 80%; }
   #media-viewer video { max-width: 100%; max-height: 100%; border-radius: 8px; }
 
+  /* ── Feed pane (right top) ────────────────────────────── */
+  .feed-controls {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .feed-ctrl-btn {
+    padding: 2px 6px; border-radius: 4px;
+    font-size: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-2);
+    cursor: pointer; line-height: 1;
+  }
+  .feed-ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .feed-ctrl-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .feed-filter {
+    padding: 2px 6px; border-radius: 4px;
+    font-size: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-2);
+    cursor: pointer; outline: none;
+  }
+  .feed-filter:focus { border-color: var(--accent); }
+  .feed-list {
+    flex: 1; overflow-y: auto; padding: 4px 8px;
+  }
+  .feed-item {
+    padding: 8px 10px; border-radius: 6px;
+    margin-bottom: 4px;
+    background: var(--bg); border: 1px solid var(--border);
+    animation: feed-in 0.25s ease;
+  }
+  @keyframes feed-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .feed-item-header {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 3px;
+  }
+  .feed-item-avatar {
+    width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
+    overflow: hidden; background: var(--surface-3);
+  }
+  .feed-item-avatar img, .feed-item-avatar svg {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  .feed-item-name {
+    font-size: 11px; font-weight: 600; color: var(--accent);
+  }
+  .feed-item-kind {
+    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
+    margin-left: auto;
+  }
+  .feed-item-time {
+    font-size: 9px; color: var(--text-3); font-family: var(--font-mono);
+  }
+  .feed-item-body {
+    font-size: 12px; color: var(--text-2); line-height: 1.4;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 60px; overflow: hidden;
+    cursor: pointer; transition: max-height 0.2s ease;
+  }
+  .feed-item.expanded .feed-item-body {
+    max-height: none;
+  }
+  .feed-item-expand {
+    font-size: 10px; color: var(--text-3); cursor: pointer;
+    margin-top: 2px; user-select: none;
+  }
+  .feed-item-expand:hover { color: var(--accent); }
+
+  /* ── Chat pane (right bottom) ─────────────────────────── */
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .chat-input-area {
+    display: flex; gap: 6px;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px;
+    font-size: 12px; color: var(--text); outline: none;
+    font-family: inherit;
+  }
+  .chat-input:focus { border-color: var(--accent); }
+  .chat-send-btn {
+    padding: 6px 12px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-2);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .chat-send-btn:hover { border-color: var(--text-3); color: var(--text); }
+
+  /* ── Chat message identity ─────────────────────────────── */
+  .chat-msg-row {
+    display: flex; gap: 8px; align-items: flex-start;
+    max-width: 100%;
+  }
+  .chat-msg-row.mine { flex-direction: row-reverse; }
+  .chat-msg-avatar {
+    width: 22px; height: 22px; border-radius: 6px;
+    flex-shrink: 0; overflow: hidden; background: var(--surface-3);
+    margin-top: 2px;
+  }
+  .chat-msg-avatar img, .chat-msg-avatar svg {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  .chat-msg-bubble {
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 12px; max-width: 80%; min-width: 0;
+  }
+  .chat-msg-row.mine .chat-msg-bubble {
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .chat-msg-row.theirs .chat-msg-bubble {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .chat-msg-sender {
+    font-size: 10px; font-weight: 600; margin-bottom: 2px;
+    color: var(--text-3);
+  }
+  .chat-msg-body { line-height: 1.4; word-break: break-word; }
+  .chat-msg-drip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 12px;
+    background: var(--surface-3); color: var(--text-2);
+    font-size: 11px; font-weight: 600;
+  }
+  .chat-msg-drip::before { content: "✨"; }
+
+  /* ── Wrapped results view ───────────────────────────────── */
+  .wrapped-view {
+    flex: 1; overflow-y: auto; padding: 24px;
+  }
+  .wrapped-summary {
+    max-width: 800px; margin: 0 auto;
+  }
+  .wrapped-header {
+    text-align: center; margin-bottom: 24px;
+  }
+  .wrapped-header h2 {
+    font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 4px;
+  }
+  .wrapped-header .wrapped-subtitle {
+    font-size: 12px; color: var(--text-3);
+  }
+  .wrapped-stats {
+    display: flex; gap: 12px; justify-content: center; margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .wrapped-stat {
+    padding: 12px 20px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    text-align: center; min-width: 100px;
+  }
+  .wrapped-stat-value {
+    font-size: 20px; font-weight: 800; color: var(--text);
+    font-family: var(--font-mono);
+  }
+  .wrapped-stat-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-3); margin-top: 2px;
+  }
+  .wrapped-section-title {
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-3);
+    margin: 20px 0 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wrapped-agent-table {
+    width: 100%; border-collapse: collapse;
+  }
+  .wrapped-agent-table th {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-3);
+    padding: 6px 10px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .wrapped-agent-table th.num { text-align: right; }
+  .wrapped-agent-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--text);
+  }
+  .wrapped-agent-table td.num {
+    text-align: right; font-family: var(--font-mono); font-size: 11px;
+  }
+  .wrapped-agent-row { transition: background 0.1s; }
+  .wrapped-agent-row:hover { background: var(--surface-2); }
+  .wrapped-agent-cell {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .wrapped-agent-avatar {
+    width: 24px; height: 24px; border-radius: 6px;
+    overflow: hidden; background: var(--surface-3); flex-shrink: 0;
+  }
+  .wrapped-agent-avatar img, .wrapped-agent-avatar svg {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  .wrapped-agent-name { font-weight: 600; }
+  .wrapped-agent-role { font-size: 10px; color: var(--text-3); }
+
   /* ── Utilities ─────────────────────────────────────────── */
   .hidden { display: none !important; }
+
+  /* Prevent text selection during drag */
+  body.dragging { user-select: none; cursor: col-resize; }
+  body.dragging-h { user-select: none; cursor: row-resize; }
 </style>
 </head>
 <body>
@@ -235,61 +544,119 @@
 <!-- Top bar -->
 <div class="topbar">
   <span class="brand"><span class="dot">.</span>cypher</span>
-  <span class="topbar-title" id="cypher-title">—</span>
+  <span class="topbar-title" id="cypher-title">&mdash;</span>
   <span class="topbar-status lobby" id="cypher-status">
     <span class="pulse"></span>
     <span id="cypher-status-text">lobby</span>
   </span>
+  <span class="topbar-tokens" id="cypher-tokens" title="Total tokens (in / out)"></span>
   <span class="topbar-spacer"></span>
-  <button class="topbar-btn" id="btn-spawn" title="Start agents">Spawn</button>
-  <button class="topbar-btn danger" id="btn-leave" title="Leave cypher">Leave</button>
+  <button class="topbar-btn danger" id="btn-close-cypher" title="Wrap cypher and show results">Close Cypher</button>
+  <button class="topbar-btn" id="btn-leave" title="Leave cypher">Leave</button>
 </div>
 
-<!-- Flow board — compact live kanban -->
-<div class="flow-board" id="flow-board">
-  <div class="flow-column">
-    <div class="flow-column-header">Backlog <span class="count" id="flow-count-backlog">0</span></div>
-    <div class="flow-cards" id="flow-backlog"></div>
-  </div>
-  <div class="flow-column">
-    <div class="flow-column-header active">In Progress <span class="count" id="flow-count-active">0</span></div>
-    <div class="flow-cards" id="flow-active"></div>
-  </div>
-  <div class="flow-column">
-    <div class="flow-column-header">Review <span class="count" id="flow-count-review">0</span></div>
-    <div class="flow-cards" id="flow-review"></div>
-  </div>
-  <div class="flow-column">
-    <div class="flow-column-header done">Done <span class="count" id="flow-count-done">0</span></div>
-    <div class="flow-cards" id="flow-done"></div>
-  </div>
-</div>
+<!-- 3-column workspace -->
+<div class="workspace" id="workspace">
 
-<!-- Main area: left sidebar + viewer -->
-<div class="cypher-main">
-
-  <!-- Left: File tree + Roster -->
-  <div class="left-panel">
-    <div class="file-section">
-      <div class="section-header">Files</div>
-      <input type="text" class="section-search" id="file-search" placeholder="Search files..." />
+  <!-- Left column: files + jammers -->
+  <div class="col col-left" id="col-left">
+    <div class="pane pane-top" id="pane-files">
+      <div class="pane-header">Files</div>
+      <input type="text" class="pane-search" id="file-search" placeholder="Search files..." />
       <div class="file-tree" id="file-tree"></div>
     </div>
-    <div class="roster-section">
-      <div class="section-header">Jammers</div>
-      <input type="text" class="section-search" id="roster-search" placeholder="Search agents..." />
-      <div class="roster-list" id="roster-list"></div>
+    <div class="hsplit" id="hsplit-left"></div>
+    <div class="pane pane-bottom" id="pane-jammers">
+      <div class="pane-header">
+        Jammers <span class="count" id="jammer-count">0</span>
+      </div>
+      <input type="text" class="jammer-search" id="jammer-search" placeholder="Search jammers..." />
+      <div class="jammer-list" id="jammer-list"></div>
+      <div class="jammer-page-controls hidden" id="jammer-page-controls">
+        <button class="jammer-page-btn" id="jammer-prev" disabled>&laquo;</button>
+        <span class="jammer-page-info" id="jammer-page-info">1 / 1</span>
+        <button class="jammer-page-btn" id="jammer-next" disabled>&raquo;</button>
+      </div>
     </div>
   </div>
 
-  <!-- Center: Monaco viewer -->
-  <div class="viewer-panel">
-    <div class="viewer-tabs" id="viewer-tabs"></div>
-    <div class="viewer-empty" id="viewer-empty">Select a file to view</div>
-    <div id="monaco-container"></div>
-    <div id="media-viewer"></div>
+  <div class="vsplit" id="vsplit-left"></div>
+
+  <!-- Center column: Board + Files tabs -->
+  <div class="col col-center" id="col-center">
+    <div class="center-tabs">
+      <button class="center-tab active" data-ctab="board">Board</button>
+      <button class="center-tab" data-ctab="files">Files</button>
+    </div>
+
+    <!-- Board view -->
+    <div class="center-pane" id="center-board">
+      <div class="board-view" id="board-view">
+        <div class="board-column">
+          <div class="board-col-header">Backlog <span class="count" id="board-count-backlog">0</span></div>
+          <div class="board-cards" id="board-backlog"></div>
+        </div>
+        <div class="board-column">
+          <div class="board-col-header col-active">In Progress <span class="count" id="board-count-active">0</span></div>
+          <div class="board-cards" id="board-active"></div>
+        </div>
+        <div class="board-column">
+          <div class="board-col-header col-review">Review <span class="count" id="board-count-review">0</span></div>
+          <div class="board-cards" id="board-review"></div>
+        </div>
+        <div class="board-column">
+          <div class="board-col-header col-done">Done <span class="count" id="board-count-done">0</span></div>
+          <div class="board-cards" id="board-done"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Files view -->
+    <div class="center-pane hidden" id="center-files">
+      <div class="viewer-tabs" id="viewer-tabs"></div>
+      <div class="viewer-empty" id="viewer-empty">Select a file to view</div>
+      <div id="monaco-container"></div>
+      <div id="media-viewer"></div>
+    </div>
   </div>
 
+  <div class="vsplit" id="vsplit-right"></div>
+
+  <!-- Right column: feed + chat -->
+  <div class="col col-right" id="col-right">
+    <div class="pane pane-top" id="pane-feed">
+      <div class="pane-header">
+        Feed
+        <div class="feed-controls">
+          <button class="feed-ctrl-btn" id="feed-pause" title="Pause feed">&#9646;&#9646;</button>
+          <select class="feed-filter" id="feed-filter">
+            <option value="all">All</option>
+            <option value="status">Status</option>
+            <option value="broadcast">Broadcast</option>
+            <option value="board">Board</option>
+          </select>
+        </div>
+      </div>
+      <div class="feed-list" id="feed-list">
+        <div class="feed-empty" id="feed-empty">No activity yet</div>
+      </div>
+    </div>
+    <div class="hsplit" id="hsplit-right"></div>
+    <div class="pane pane-bottom" id="pane-chat">
+      <div class="pane-header">Chat</div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-area">
+        <input type="text" class="chat-input" id="chat-input" placeholder="Message..." />
+        <button class="chat-send-btn" id="chat-send">Send</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Wrapped results (shown after cypher closes) -->
+<div class="wrapped-view hidden" id="wrapped-view">
+  <div class="wrapped-summary" id="wrapped-summary"></div>
 </div>
 
 <script src="monaco/loader.js"></script>

@@ -397,21 +397,22 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
       console.warn("[cypher-runtime] failed to post text:", err instanceof Error ? err.message : err);
     }
 
-    if (result.yos_used && result.yos_used > 0) {
+    const hasTokens = result.meta && (result.meta.input_tokens || result.meta.output_tokens);
+    if (result.yos_used || hasTokens) {
       try {
         await serverPostAuthed(`/api/cyphers/${encodeURIComponent(sub.cypherId)}/events`, {
           kind: "usage",
           jam_id: payload.jam_id,
           by_agent_id: respondAs,
           payload: {
-            yos_amount: result.yos_used,
+            yos_amount: result.yos_used ?? 0,
             turn_id: payload.id,
             description: `turn response by ${respondAs}`,
             ...(result.meta ?? {}),
           },
         });
       } catch (err) {
-        console.warn("[cypher-runtime] usage post rejected (likely kitty empty):", err instanceof Error ? err.message : err);
+        console.warn("[cypher-runtime] usage post failed:", err instanceof Error ? err.message : err);
       }
     }
     return;

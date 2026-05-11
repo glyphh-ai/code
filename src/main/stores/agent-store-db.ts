@@ -77,6 +77,8 @@ function agentToParams(cfg: AgentConfig, existingCreatedAt?: string) {
   const extra: Record<string, unknown> = {};
   if (cfg.model_provider) extra.model_provider = cfg.model_provider;
   if (cfg.model_name) extra.model_name = cfg.model_name;
+  if (cfg.appConfigs && Object.keys(cfg.appConfigs).length > 0) extra.appConfigs = cfg.appConfigs;
+  if (cfg.tool_permissions) extra.tool_permissions = cfg.tool_permissions;
   if (cfg.meta?.description) extra._description = cfg.meta.description;
 
   return {

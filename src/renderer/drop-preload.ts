@@ -43,12 +43,34 @@ interface DropAPI {
   cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
   cypherCoverDelete: (id: string) => Promise<unknown>;
 
+  // Apps (for jammer app picker)
+  appsList: () => Promise<Array<{
+    id: string; name: string; url?: string; connected: boolean;
+    commands: Record<string, { description: string }>;
+    connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
+    mcp?: { enabled: boolean };
+    meta?: { description: string; capabilities: string[] };
+  }>>;
+
+  // MCP tools per connected server
+  mcpToolsList: () => Promise<Array<{
+    serverId: string; serverName: string;
+    name: string; qualifiedName: string; description: string;
+  }>>;
+
+  // Avatar generation
+  agentAvatarGenerate: (opts: { name: string; role?: string; bio?: string }) =>
+    Promise<{ ok: true; data_base64: string; content_type: string } | { ok: false; error: string }>;
+
   // Models for the model picker
   modelsList: () => Promise<unknown>;
 
   // Skills
   skillsList: () => Promise<string[]>;
-  skillsListDetailed: () => Promise<{ name: string; description?: string }[]>;
+  skillsListDetailed: () => Promise<Array<{
+    name: string; description?: string;
+    requires?: string[]; allowedTools?: string[];
+  }>>;
 
   // Config
   getApiBase: () => string;
@@ -58,8 +80,7 @@ interface DropAPI {
 
   // Misc
   execCommand: (cmd: string) => Promise<unknown>;
-  openExternal: (url: string) => void;
-  ghAppInfo: () => Promise<{ slug: string; installUrl: string } | null>;
+  ghAppInstall: () => Promise<{ ok: boolean; installed?: boolean; error?: string }>;
   /** Subscribe to live cypher SSE events forwarded by main. Returns an unsubscribe fn. */
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
 
@@ -111,6 +132,9 @@ const api: DropAPI = {
   agentsSave: (cfg) => ipcRenderer.invoke("agents-save", cfg),
   agentsRemove: (id) => ipcRenderer.invoke("agents-remove", id),
   agentsIdAvailable: (id) => ipcRenderer.invoke("agents-id-available", id),
+  appsList: () => ipcRenderer.invoke("apps-list"),
+  mcpToolsList: () => ipcRenderer.invoke("mcp-tools-list"),
+  agentAvatarGenerate: (opts) => ipcRenderer.invoke("agent-avatar-generate", opts),
   cypherCoverGenerate: (opts) => ipcRenderer.invoke("cypher-cover-generate", opts),
   cypherCoverGet: (id) => ipcRenderer.invoke("cypher-cover-get", id),
   cypherCoverUpload: (id, dataBase64, contentType) => ipcRenderer.invoke("cypher-cover-upload", id, dataBase64, contentType),
@@ -121,8 +145,7 @@ const api: DropAPI = {
   getApiBase: () => process.env.YO_AUTH_SERVER || "https://api.yosup.dev",
   cypherPanelActivate: (cypherId, isOwner, title) => ipcRenderer.invoke("cypher-panel-activate", cypherId, isOwner, title),
   execCommand: (cmd) => ipcRenderer.invoke("exec-command", cmd),
-  openExternal: (url) => ipcRenderer.send("open-external", url),
-  ghAppInfo: () => ipcRenderer.invoke("gh-app-info"),
+  ghAppInstall: () => ipcRenderer.invoke("gh-app-install"),
   onCypherEvent: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, cypherId: string, kind: string, payload: Record<string, unknown>) =>
       cb(cypherId, kind, payload);

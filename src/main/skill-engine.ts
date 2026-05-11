@@ -152,6 +152,8 @@ export class SkillEngine {
         scheduleExpr: expr ?? undefined,
         hasRunner,
         hasApp,
+        requires: s.manifest.requires,
+        allowedTools: s.manifest["allowed-tools"],
       };
     });
   }

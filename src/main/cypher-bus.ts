@@ -32,6 +32,7 @@
 
 import { postCypherEvent, subscribeCypherAgent, unsubscribeCypherAgent } from "./cypher-runtime";
 import type { EventLog, YoEvent } from "./event-log";
+import type { HierarchyEntry } from "./mcp-expose";
 
 export interface BusEvent {
   from: string;
@@ -52,10 +53,16 @@ interface AgentRegistration {
   handler: BusMessageHandler;
 }
 
+export type BusObserver = (wsSlug: string, event: BusEvent) => void;
+
+const TASK_KINDS = new Set(["assign_task", "accept_task", "complete_task", "request_review"]);
+
 export class CypherBus {
   private registrations = new Map<string, AgentRegistration>();
   private getCypherForWorkspace: (wsSlug: string) => string | null;
   private eventLog: EventLog;
+  private observers: BusObserver[] = [];
+  private hierarchyContext: Map<string, HierarchyEntry> | null = null;
 
   constructor(
     getCypherForWorkspace: (wsSlug: string) => string | null,
@@ -63,6 +70,15 @@ export class CypherBus {
   ) {
     this.getCypherForWorkspace = getCypherForWorkspace;
     this.eventLog = eventLog;
+  }
+
+  setHierarchyContext(ctx: Map<string, HierarchyEntry> | null): void {
+    this.hierarchyContext = ctx;
+  }
+
+  onPost(cb: BusObserver): () => void {
+    this.observers.push(cb);
+    return () => { this.observers = this.observers.filter((o) => o !== cb); };
   }
 
   /**
@@ -91,6 +107,21 @@ export class CypherBus {
    * Post an event. Routes to the cypher (if bound) and always to local event-log.
    */
   async post(wsSlug: string, event: BusEvent): Promise<void> {
+    // Validate task-kind events against hierarchy
+    if (TASK_KINDS.has(event.kind) && this.hierarchyContext) {
+      const sender = this.hierarchyContext.get(event.from);
+      if (!sender) {
+        console.warn(`[cypher-bus] rejected ${event.kind} from unregistered agent: ${event.from}`);
+        return;
+      }
+      if (event.kind === "assign_task" && event.to) {
+        if (!sender.reports.includes(event.to)) {
+          console.warn(`[cypher-bus] rejected assign_task: ${event.from} cannot assign to ${event.to} (not a direct report)`);
+          return;
+        }
+      }
+    }
+
     // Always write to local event-log
     this.eventLog.append(wsSlug, {
       from: event.from,
@@ -100,6 +131,11 @@ export class CypherBus {
       body: event.body,
       refs: event.refs,
     });
+
+    // Notify observers (UI feed)
+    for (const obs of this.observers) {
+      try { obs(wsSlug, event); } catch {}
+    }
 
     // If workspace has a cypher, also post to the server
     const cypherId = this.getCypherForWorkspace(wsSlug);

@@ -53,13 +53,28 @@ interface DropAPI {
   cypherCoverGet: (id: string) => Promise<{ ok: boolean; data_base64?: string; content_type?: string }>;
   cypherCoverUpload: (id: string, dataBase64: string, contentType?: string) => Promise<unknown>;
   cypherCoverDelete: (id: string) => Promise<unknown>;
+  appsList: () => Promise<Array<{
+    id: string; name: string; url?: string; connected: boolean;
+    commands: Record<string, { description: string }>;
+    connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
+    mcp?: { enabled: boolean };
+    meta?: { description: string; capabilities: string[] };
+  }>>;
+  mcpToolsList: () => Promise<Array<{
+    serverId: string; serverName: string;
+    name: string; qualifiedName: string; description: string;
+  }>>;
+  agentAvatarGenerate: (opts: { name: string; role?: string; bio?: string }) =>
+    Promise<{ ok: true; data_base64: string; content_type: string } | { ok: false; error: string }>;
   skillsList: () => Promise<string[]>;
-  skillsListDetailed: () => Promise<{ name: string; description?: string }[]>;
+  skillsListDetailed: () => Promise<Array<{
+    name: string; description?: string;
+    requires?: string[]; allowedTools?: string[];
+  }>>;
   getApiBase: () => string;
   cypherPanelActivate: (cypherId: string, isOwner: boolean, title?: string) => Promise<unknown>;
   execCommand: (cmd: string) => Promise<unknown>;
-  openExternal: (url: string) => void;
-  ghAppInfo: () => Promise<{ slug: string; installUrl: string } | null>;
+  ghAppInstall: () => Promise<{ ok: boolean; installed?: boolean; error?: string }>;
   installationsList: () => Promise<unknown>;
   reposForInstallation: (owner: string) => Promise<unknown>;
 }
@@ -130,16 +145,22 @@ interface ToolPermissions {
   browser?: ToolPerm;
   mcp?: ToolPerm;
 }
+interface AppToolConfig {
+  allowAll?: boolean;
+  panelTools?: string[];
+  mcpTools?: string[];
+}
 interface Agent {
   id: string; name: string; type: "local" | "remote";
   role?: string; systemPrompt?: string;
   apps?: string[]; skills?: string[];
+  appConfigs?: Record<string, AppToolConfig>;
   model_provider?: string; model_name?: string;
   joinable?: boolean; avatar_url?: string; bio?: string;
   guardrails?: Guardrails;
   tool_permissions?: ToolPermissions;
 }
-interface SkillEntry { name: string; description?: string; }
+interface SkillEntry { name: string; description?: string; requires?: string[]; allowedTools?: string[]; }
 
 
 // ── DOM helpers ────────────────────────────────────────
@@ -151,8 +172,18 @@ const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 const fmtNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
+interface McpTool { serverId: string; serverName: string; name: string; qualifiedName: string; description: string; }
+interface AppInfo {
+  id: string; name: string; url?: string; iconUrl: string;
+  commandKeys: string[];
+  commandDescs: Record<string, string>;
+  hasMcp: boolean;
+}
+
 // ── State ──────────────────────────────────────────────
 let agentsCache: Agent[] = [];
+let appsCache: AppInfo[] = [];
+let mcpToolsCache: McpTool[] = [];
 let skillsCache: SkillEntry[] = [];
 let editingAgent: Agent | null = null;
 let editingIsNew = false;
@@ -595,6 +626,28 @@ async function loadMine(): Promise<void> {
 // Your Agents view
 // ─────────────────────────────────────────────────────
 
+async function ensureAppsLoaded(): Promise<void> {
+  if (appsCache.length > 0) return;
+  try {
+    const [raw, mcpTools] = await Promise.all([drop.appsList(), drop.mcpToolsList()]);
+    mcpToolsCache = mcpTools;
+    appsCache = raw.map((a) => {
+      const cmds = a.commands ?? {};
+      return {
+        id: a.id,
+        name: a.name,
+        url: a.url,
+        iconUrl: a.url
+          ? `https://www.google.com/s2/favicons?domain=${new URL(a.url).hostname}&sz=32`
+          : "",
+        commandKeys: Object.keys(cmds),
+        commandDescs: Object.fromEntries(Object.entries(cmds).map(([k, v]) => [k, v.description])),
+        hasMcp: !!(a.mcp?.enabled),
+      };
+    });
+  } catch { appsCache = []; mcpToolsCache = []; }
+}
+
 function rosterCard(a: Agent): HTMLElement {
   const el = document.createElement("div");
   el.className = "roster-card reveal";
@@ -606,6 +659,14 @@ function rosterCard(a: Agent): HTMLElement {
     a.joinable ? `<span class="roster-tag live">joinable</span>` : "",
     ...skills.map((s) => `<span class="roster-tag">${escapeHtml(s)}</span>`),
   ].filter(Boolean).join("");
+
+  const agentApps = (a.apps ?? []).slice(0, 6);
+  const appIconsHtml = agentApps.map((appId) => {
+    const app = appsCache.find((c) => c.id === appId);
+    if (!app?.iconUrl) return `<span class="roster-app-icon" title="${escapeHtml(appId)}">${escapeHtml(appId.charAt(0).toUpperCase())}</span>`;
+    return `<img class="roster-app-icon" src="${escapeHtml(app.iconUrl)}" alt="${escapeHtml(app.name)}" title="${escapeHtml(app.name)}" onerror="this.outerHTML='<span class=\\'roster-app-icon\\'>${escapeHtml(app.name.charAt(0).toUpperCase())}</span>'" />`;
+  }).join("");
+
   el.innerHTML = `
     <div class="roster-head">
       <div class="roster-avatar">${avatarHtml}</div>
@@ -615,6 +676,7 @@ function rosterCard(a: Agent): HTMLElement {
       </div>
     </div>
     <div class="roster-bio">${a.bio ? escapeHtml(a.bio) : `<span style="color:var(--text-3);">No bio</span>`}</div>
+    ${appIconsHtml ? `<div class="roster-apps">${appIconsHtml}</div>` : ""}
     <div class="roster-tags">${tagsHtml}</div>
   `;
   el.addEventListener("click", () => openEdit(a));
@@ -622,7 +684,10 @@ function rosterCard(a: Agent): HTMLElement {
 }
 
 async function loadAgents(): Promise<void> {
-  const r = await drop.agentsList() as Agent[] | { error?: string };
+  const [r] = await Promise.all([
+    drop.agentsList() as Promise<Agent[] | { error?: string }>,
+    ensureAppsLoaded(),
+  ]);
   agentsCache = Array.isArray(r) ? r : [];
   const grid = $("agents-grid");
   const empty = $("agents-empty");
@@ -684,21 +749,250 @@ function updateModelCostHint(): void {
   hint.textContent = m ? m.hint : "";
 }
 
+// ── Avatar generation ────────────────────────────────────
+
+async function generateAvatar(): Promise<void> {
+  if (!editingAgent) return;
+  const btn = $("ae-avatar-gen") as HTMLButtonElement;
+  btn.disabled = true;
+  btn.textContent = "Generating…";
+
+  try {
+    const r = await drop.agentAvatarGenerate({
+      name: $i("ae-name").value.trim() || editingAgent.id || "Agent",
+      role: $i("ae-role").value.trim() || undefined,
+      bio: $t("ae-bio").value.trim() || undefined,
+    });
+    if (!r.ok) {
+      showError(r.error);
+      return;
+    }
+    const dataUrl = `data:${r.content_type};base64,${r.data_base64}`;
+    $i("ae-avatar-url").value = dataUrl;
+    editingAgent.avatar_url = dataUrl;
+    renderEditAvatar(editingAgent.id, dataUrl);
+  } catch (e) {
+    showError(e instanceof Error ? e.message : "Generation failed");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generate";
+  }
+}
+
+// ── Apps tab for jammer editor ──────────────────────────
+
+function getMcpToolsForApp(appId: string): McpTool[] {
+  return mcpToolsCache.filter((t) => t.serverId === appId);
+}
+
+function getAppConfig(appId: string): AppToolConfig {
+  return editingAgent?.appConfigs?.[appId] ?? {};
+}
+
+function setAppConfig(appId: string, cfg: AppToolConfig): void {
+  if (!editingAgent) return;
+  if (!editingAgent.appConfigs) editingAgent.appConfigs = {};
+  editingAgent.appConfigs[appId] = cfg;
+  // keep flat apps list in sync
+  editingAgent.apps = Object.keys(editingAgent.appConfigs);
+}
+
+function removeAppConfig(appId: string): void {
+  if (!editingAgent) return;
+  if (editingAgent.appConfigs) delete editingAgent.appConfigs[appId];
+  editingAgent.apps = (editingAgent.apps || []).filter((a) => a !== appId);
+}
+
+function renderAppsTab(filter?: string): void {
+  if (!editingAgent) return;
+  const list = $("ae-apps-list");
+  list.innerHTML = "";
+  const enabled = new Set(editingAgent.apps || []);
+
+  if (appsCache.length === 0) {
+    list.innerHTML = `<span style="font-size:12px;color:var(--text-3);">No apps configured. Add apps in Home → Apps.</span>`;
+    return;
+  }
+
+  const lowerFilter = (filter || "").toLowerCase();
+  const filtered = lowerFilter
+    ? appsCache.filter((a) => a.name.toLowerCase().includes(lowerFilter) || a.id.toLowerCase().includes(lowerFilter))
+    : appsCache;
+
+  for (const app of filtered) {
+    const isEnabled = enabled.has(app.id);
+    const cfg = getAppConfig(app.id);
+    const mcpTools = getMcpToolsForApp(app.id);
+    const card = document.createElement("div");
+    card.className = `ae-app-card${isEnabled ? " enabled" : ""}`;
+
+    const iconHtml = app.iconUrl
+      ? `<img src="${escapeHtml(app.iconUrl)}" class="ae-app-icon" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><span class="ae-app-icon ae-app-initial" style="display:none">${escapeHtml(app.name.charAt(0).toUpperCase())}</span>`
+      : `<span class="ae-app-icon ae-app-initial">${escapeHtml(app.name.charAt(0).toUpperCase())}</span>`;
+
+    const toolCount = app.commandKeys.length + mcpTools.length;
+
+    card.innerHTML = `
+      <div class="ae-app-card-head">
+        <input type="checkbox" ${isEnabled ? "checked" : ""} style="accent-color:var(--accent);flex-shrink:0;" />
+        ${iconHtml}
+        <span class="ae-app-card-name">${escapeHtml(app.name)}</span>
+        <span class="ae-app-card-id">${escapeHtml(app.id)}</span>
+        <span class="ae-app-card-chevron">▸</span>
+      </div>
+      <div class="ae-app-card-body"></div>
+    `;
+
+    const checkbox = card.querySelector("input")!;
+    const head = card.querySelector(".ae-app-card-head")!;
+    const body = card.querySelector(".ae-app-card-body")!;
+
+    checkbox.addEventListener("change", (e) => {
+      e.stopPropagation();
+      if (checkbox.checked) {
+        setAppConfig(app.id, { allowAll: true });
+        card.classList.add("enabled");
+      } else {
+        removeAppConfig(app.id);
+        card.classList.remove("enabled");
+      }
+      renderAppCardBody(body as HTMLElement, app, mcpTools);
+    });
+
+    head.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).tagName === "INPUT") return;
+      card.classList.toggle("expanded");
+      if (card.classList.contains("expanded")) {
+        renderAppCardBody(body as HTMLElement, app, mcpTools);
+      }
+    });
+
+    list.appendChild(card);
+  }
+}
+
+function renderAppCardBody(body: HTMLElement, app: AppInfo, mcpTools: McpTool[]): void {
+  if (!editingAgent) return;
+  const cfg = getAppConfig(app.id);
+  const isEnabled = (editingAgent.apps || []).includes(app.id);
+  body.innerHTML = "";
+
+  if (!isEnabled) {
+    body.innerHTML = `<p style="font-size:11px;color:var(--text-3);padding:8px 0;">Enable this app to configure tools.</p>`;
+    return;
+  }
+
+  const allowAll = cfg.allowAll !== false;
+
+  // Allow all toggle
+  const allowAllLabel = document.createElement("label");
+  allowAllLabel.className = "ae-app-allow-all";
+  allowAllLabel.innerHTML = `
+    <input type="checkbox" ${allowAll ? "checked" : ""} style="accent-color:var(--accent);flex-shrink:0;" />
+    <span>Allow all tools</span>
+  `;
+  const allowAllCb = allowAllLabel.querySelector("input")!;
+  allowAllCb.addEventListener("change", () => {
+    const c = getAppConfig(app.id);
+    if (allowAllCb.checked) {
+      setAppConfig(app.id, { allowAll: true });
+    } else {
+      setAppConfig(app.id, { allowAll: false, panelTools: [...app.commandKeys], mcpTools: mcpTools.map((t) => t.name) });
+    }
+    renderAppCardBody(body, app, mcpTools);
+  });
+  body.appendChild(allowAllLabel);
+
+  // Panel tools section
+  if (app.commandKeys.length > 0) {
+    const section = document.createElement("div");
+    section.className = "ae-app-tool-section";
+    section.innerHTML = `<div class="ae-app-tool-heading">Panel tools</div>`;
+    const toolList = document.createElement("div");
+    toolList.className = "ae-app-tool-list";
+
+    const selectedPanelTools = new Set(allowAll ? app.commandKeys : (cfg.panelTools ?? []));
+    for (const key of app.commandKeys) {
+      const row = document.createElement("label");
+      row.className = "ae-app-tool-row";
+      row.innerHTML = `
+        <input type="checkbox" ${selectedPanelTools.has(key) ? "checked" : ""} ${allowAll ? "disabled" : ""} style="accent-color:var(--accent);flex-shrink:0;" />
+        <span class="ae-app-tool-name">${escapeHtml(key)}</span>
+        <span class="ae-app-tool-desc">${escapeHtml(app.commandDescs[key] || "")}</span>
+      `;
+      if (!allowAll) {
+        const cb = row.querySelector("input")!;
+        cb.addEventListener("change", () => {
+          const c = getAppConfig(app.id);
+          const set = new Set(c.panelTools ?? []);
+          if (cb.checked) set.add(key); else set.delete(key);
+          setAppConfig(app.id, { ...c, panelTools: [...set] });
+        });
+      }
+      toolList.appendChild(row);
+    }
+    section.appendChild(toolList);
+    body.appendChild(section);
+  }
+
+  // MCP tools section
+  if (mcpTools.length > 0) {
+    const section = document.createElement("div");
+    section.className = "ae-app-tool-section";
+    section.innerHTML = `<div class="ae-app-tool-heading">MCP tools</div>`;
+    const toolList = document.createElement("div");
+    toolList.className = "ae-app-tool-list";
+
+    const selectedMcpTools = new Set(allowAll ? mcpTools.map((t) => t.name) : (cfg.mcpTools ?? []));
+    for (const tool of mcpTools) {
+      const row = document.createElement("label");
+      row.className = "ae-app-tool-row";
+      row.innerHTML = `
+        <input type="checkbox" ${selectedMcpTools.has(tool.name) ? "checked" : ""} ${allowAll ? "disabled" : ""} style="accent-color:var(--accent);flex-shrink:0;" />
+        <span class="ae-app-tool-name">${escapeHtml(tool.name)}</span>
+        <span class="ae-app-tool-desc">${escapeHtml(tool.description)}</span>
+      `;
+      if (!allowAll) {
+        const cb = row.querySelector("input")!;
+        cb.addEventListener("change", () => {
+          const c = getAppConfig(app.id);
+          const set = new Set(c.mcpTools ?? []);
+          if (cb.checked) set.add(tool.name); else set.delete(tool.name);
+          setAppConfig(app.id, { ...c, mcpTools: [...set] });
+        });
+      }
+      toolList.appendChild(row);
+    }
+    section.appendChild(toolList);
+    body.appendChild(section);
+  }
+
+  if (app.commandKeys.length === 0 && mcpTools.length === 0) {
+    body.innerHTML += `<p style="font-size:11px;color:var(--text-3);padding:4px 0;">No tools configured for this app.</p>`;
+  }
+}
+
 // ── Skills picker for jammer editor ───────────────────────
 
 async function ensureSkillsLoaded(): Promise<void> {
   if (skillsCache.length > 0) return;
   try {
     const detailed = await drop.skillsListDetailed();
-    skillsCache = detailed ?? [];
+    skillsCache = (detailed ?? []).map((s) => ({
+      name: s.name,
+      description: s.description,
+      requires: s.requires,
+      allowedTools: s.allowedTools,
+    }));
   } catch { skillsCache = []; }
 }
 
-function renderSkillsList(): void {
+function renderSkillzTab(): void {
   if (!editingAgent) return;
   const list = $("ae-skills-list");
   list.innerHTML = "";
   const enabled = new Set(editingAgent.skills || []);
+  const enabledApps = new Set(editingAgent.apps || []);
 
   if (skillsCache.length === 0) {
     list.innerHTML = `<span style="font-size:12px;color:var(--text-3);">No skills available</span>`;
@@ -706,31 +1000,44 @@ function renderSkillsList(): void {
   }
 
   for (const sk of skillsCache) {
-    const row = document.createElement("label");
-    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s;";
-    row.addEventListener("mouseenter", () => { row.style.background = "var(--surface-2)"; });
-    row.addEventListener("mouseleave", () => { row.style.background = ""; });
     const checked = enabled.has(sk.name);
-    row.innerHTML = `
-      <input type="checkbox" ${checked ? "checked" : ""} style="accent-color:var(--accent);flex-shrink:0;" />
-      <span style="font-size:12px;color:var(--text);font-weight:500;">${escapeHtml(sk.name)}</span>
-      ${sk.description ? `<span style="font-size:11px;color:var(--text-3);margin-left:auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(sk.description)}</span>` : ""}
+    const card = document.createElement("label");
+    card.className = `ae-skill-card${checked ? " enabled" : ""}`;
+
+    const deps = sk.requires || [];
+    const depsHtml = deps.length > 0
+      ? `<div class="ae-skill-deps">
+          <span style="font-size:10px;color:var(--text-3);">needs:</span>
+          ${deps.map((d) => {
+            const missing = !enabledApps.has(d);
+            return `<span class="ae-skill-dep${missing ? " missing" : ""}" title="${missing ? "Not enabled in Apps tab" : "Enabled"}">${escapeHtml(d)}</span>`;
+          }).join("")}
+        </div>`
+      : "";
+
+    card.innerHTML = `
+      <input type="checkbox" ${checked ? "checked" : ""} style="accent-color:var(--accent);flex-shrink:0;margin-top:2px;" />
+      <div class="ae-skill-meta">
+        <div class="ae-skill-name">${escapeHtml(sk.name)}</div>
+        ${sk.description ? `<div class="ae-skill-desc">${escapeHtml(sk.description)}</div>` : ""}
+        ${depsHtml}
+      </div>
     `;
-    const checkbox = row.querySelector("input")!;
+    const checkbox = card.querySelector("input")!;
     checkbox.addEventListener("change", () => {
       const cur = new Set(editingAgent!.skills || []);
       if (checkbox.checked) cur.add(sk.name); else cur.delete(sk.name);
       editingAgent!.skills = [...cur];
+      card.classList.toggle("enabled", checkbox.checked);
     });
-    list.appendChild(row);
+    list.appendChild(card);
   }
 }
 
 async function showSkillsAddPicker(): Promise<void> {
-  // Force reload in case new skills were installed since editor opened
   skillsCache = [];
   await ensureSkillsLoaded();
-  renderSkillsList();
+  renderSkillzTab();
 }
 
 function fmtGrVal(id: string, val: number): string {
@@ -751,7 +1058,8 @@ function updateGrDisplay(id: string): void {
   if (display) display.textContent = fmtGrVal(id, val);
 }
 
-function setEditTab(tab: "profile" | "behavior" | "guardrails"): void {
+type EditTab = "profile" | "apps" | "skillz" | "behavior" | "guardrails";
+function setEditTab(tab: EditTab): void {
   document.querySelectorAll<HTMLElement>(".overlay-tab").forEach((el) => {
     el.classList.toggle("active", el.dataset.aeTab === tab);
   });
@@ -773,11 +1081,12 @@ function showError(msg: string): void {
 
 async function openEdit(a: Agent | null): Promise<void> {
   ensureModelsLoaded();
-  await ensureSkillsLoaded();
+  await Promise.all([ensureSkillsLoaded(), ensureAppsLoaded()]);
   editingIsNew = !a;
-  editingAgent = a ? { ...a } : { id: "", name: "", type: "local" };
+  editingAgent = a ? { ...a, appConfigs: a.appConfigs ? JSON.parse(JSON.stringify(a.appConfigs)) : undefined } : { id: "", name: "", type: "local" };
 
   $i("ae-id").value = editingAgent.id;
+  $i("ae-apps-search").value = "";
   $i("ae-id").readOnly = !editingIsNew;
   $i("ae-name").value = editingAgent.name;
   $i("ae-avatar-url").value = editingAgent.avatar_url ?? "";
@@ -790,7 +1099,8 @@ async function openEdit(a: Agent | null): Promise<void> {
   $("ae-heading-id").textContent = editingAgent.id || "";
   renderEditAvatar(editingAgent.id, editingAgent.avatar_url);
   populateModelSelector(editingAgent.model_provider, editingAgent.model_name);
-  renderSkillsList();
+  renderAppsTab();
+  renderSkillzTab();
 
   // Tool permissions
   const tp = editingAgent.tool_permissions ?? {};
@@ -871,6 +1181,9 @@ async function saveEdit(): Promise<void> {
     joinable: $i("ae-joinable").checked,
     model_provider: modelProvider,
     model_name: modelName,
+    apps: editingAgent.apps || [],
+    appConfigs: editingAgent.appConfigs && Object.keys(editingAgent.appConfigs).length > 0
+      ? editingAgent.appConfigs : undefined,
     skills: editingAgent.skills || [],
     guardrails: Object.keys(guardrails).length > 0 ? guardrails : undefined,
     tool_permissions: allFull ? undefined : tool_permissions,
@@ -935,9 +1248,10 @@ function setWizardStep(n: WizardStep): void {
   const labels = ["Goal", "Cover Art", "Work Package", "Project Board", "Seed Roster", "Lobby"];
   $("cw-step-label").textContent = `Step ${n} of 6 — ${labels[n - 1]}`;
   $("cw-back").classList.toggle("hidden", n === 1);
-  const nextBtn = $("cw-next");
+  const nextBtn = $("cw-next") as HTMLButtonElement;
   nextBtn.classList.toggle("hidden", n === 6);
   nextBtn.textContent = "Next";
+  nextBtn.disabled = false;
   $("cw-publish").classList.toggle("hidden", n !== 6);
   if (n === 5) renderSeedList();
   if (n === 2) initCoverStep();
@@ -1150,19 +1464,21 @@ function wireRepoStepEvents(): void {
   });
 
   $("cw-repo-install-btn").addEventListener("click", async () => {
-    const info = await drop.ghAppInfo();
-    const url = info?.installUrl ?? "https://github.com/apps/yo-cypher/installations/new";
-    drop.openExternal(url);
+    const btn = $("cw-repo-install-btn") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Installing...";
+    await drop.ghAppInstall();
+    btn.disabled = false;
+    btn.textContent = "Install yo-cypher on GitHub";
+    void loadRepoStep();
   });
-
-  $("cw-repo-refresh-btn")?.addEventListener("click", () => void loadRepoStep());
 }
 
 async function loadRepoStep(): Promise<void> {
   const noInstall = $("cw-repo-no-install");
   const fields = $("cw-repo-fields");
   const ownerSelect = $("cw-repo-owner") as HTMLSelectElement;
-  const nextBtn = $("cw-next");
+  const nextBtn = $("cw-next") as HTMLButtonElement;
 
   wireRepoStepEvents();
 
@@ -1171,14 +1487,14 @@ async function loadRepoStep(): Promise<void> {
     if (!installations || installations.length === 0) {
       noInstall.classList.remove("hidden");
       fields.classList.add("hidden");
-      nextBtn.textContent = "Skip";
+      nextBtn.disabled = true;
       wizard.installationId = null;
       return;
     }
 
     noInstall.classList.add("hidden");
     fields.classList.remove("hidden");
-    nextBtn.textContent = "Next";
+    nextBtn.disabled = false;
 
     ownerSelect.innerHTML = "";
     for (const inst of installations) {
@@ -1192,7 +1508,7 @@ async function loadRepoStep(): Promise<void> {
   } catch (err) {
     noInstall.classList.remove("hidden");
     fields.classList.add("hidden");
-    nextBtn.textContent = "Skip";
+    nextBtn.disabled = true;
     wizard.installationId = null;
   }
 }
@@ -1361,12 +1677,14 @@ let lobbyState = {
   pollHandle: null as ReturnType<typeof setInterval> | null,
   timerHandle: null as ReturnType<typeof setInterval> | null,
   unsubscribeEvents: null as (() => void) | null,
+  autoStartFired: false,
 };
 
 async function enterLobby(c: Cypher): Promise<void> {
   await ensureCurrentUser();
   lobbyState.cypherId = c.id;
   lobbyState.cypher = c;
+  lobbyState.autoStartFired = false;
 
   // Live cyphers go straight to the cypher panel
   if (c.status === "live") {
@@ -1686,6 +2004,10 @@ function startLobbyTimer(): void {
     const s = remainSec % 60;
     clock.textContent = `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
     clock.classList.toggle("urgent", remainSec <= 10 && remainSec > 0);
+    if (remainSec === 0 && !lobbyState.autoStartFired) {
+      lobbyState.autoStartFired = true;
+      void lobbyStartNow();
+    }
   };
   tick();
   lobbyState.timerHandle = setInterval(tick, 500);
@@ -2412,7 +2734,7 @@ function init(): void {
   $("ae-save").addEventListener("click", () => { void saveEdit(); });
   $("ae-delete").addEventListener("click", () => { void deleteEdit(); });
   document.querySelectorAll<HTMLElement>(".overlay-tab").forEach((el) => {
-    el.addEventListener("click", () => setEditTab(el.dataset.aeTab as "profile" | "behavior" | "guardrails"));
+    el.addEventListener("click", () => setEditTab(el.dataset.aeTab as EditTab));
   });
 
   // Live identicon preview as id / avatar URL change
@@ -2428,6 +2750,8 @@ function init(): void {
     $("ae-heading-name").textContent = $i("ae-name").value || "New jammer";
   });
   $("ae-skills-add").addEventListener("click", () => { showSkillsAddPicker(); });
+  $("ae-avatar-gen").addEventListener("click", () => { void generateAvatar(); });
+  $i("ae-apps-search").addEventListener("input", () => { renderAppsTab($i("ae-apps-search").value); });
 
   // Guardrails sliders — live value display
   ["ae-gr-input-per-turn","ae-gr-output-per-turn","ae-gr-tokens-session","ae-gr-max-turns","ae-gr-rpm","ae-gr-idle"].forEach((id) => {

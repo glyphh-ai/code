@@ -29,6 +29,8 @@ export interface SkillSummary {
   scheduleExpr?: string;
   hasRunner: boolean;       // SKILL.js present
   hasApp: boolean;          // skill folder includes app/index.html (vibes)
+  requires?: string[];
+  allowedTools?: string[];
 }
 
 // ── Progress / observability ─────────────────────────────

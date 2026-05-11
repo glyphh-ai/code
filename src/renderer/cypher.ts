@@ -1,19 +1,24 @@
 /**
  * cypher.ts — Cypher workspace renderer.
  *
- * Layout: flow board (top) + file tree (left) + Monaco viewer (center).
- * Roster is compact in the left sidebar below the file tree.
- * All orchestrator/agent output goes through the yo panel (not rendered here).
+ * Three-column layout: Files+Jammers | Monaco | Feed+Chat.
+ * Columns and panes are resizable via drag splitters.
  */
+
+import { identiconSvg } from "./identicon";
 
 interface CypherAPI {
   authMe: () => Promise<{ id?: string; email?: string; handle?: string }>;
   cypherGet: (id: string) => Promise<any>;
-  cypherJammers: (id: string) => Promise<any>;
+  cypherJammers: (id: string, opts?: { limit?: number; offset?: number }) => Promise<any>;
+  cypherEventsList: (id: string, opts?: { since?: number; limit?: number }) => Promise<any>;
   cypherSpawnJammers: (id: string) => Promise<any>;
+  cypherWrap: (id: string) => Promise<any>;
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
+  onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => () => void;
+  dripsPreview: (recipe: string) => Promise<string>;
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
   getCypherContext: () => Promise<{ cypherId: string; isOwner: boolean } | null>;
@@ -32,14 +37,24 @@ const api = (window as any).cypher as CypherAPI;
 // ── State ──────────────────────────────────────────────
 let cypherId: string | null = null;
 let isOwner = false;
+let myHandle: string | null = null;
 let workspacePath: string | null = null;
 
 interface Jammer {
   agent_local_id: string;
+  name: string | null;
+  avatar_url: string | null;
   position: string;
   status: "idle" | "running" | "waiting" | "starting" | "error";
+  input_tokens: number;
+  output_tokens: number;
+  turns: number;
 }
 let jammers: Jammer[] = [];
+let jammerTotal = 0;
+const JAMMERS_PER_PAGE = 50;
+let jammerPage = 0;
+let jammerLoading = false;
 
 interface FileNode {
   name: string;
@@ -52,6 +67,12 @@ interface FileNode {
 let fileTree: FileNode[] = [];
 let activeFile: string | null = null;
 
+interface OpenTab {
+  path: string;
+  name: string;
+}
+let openTabs: OpenTab[] = [];
+
 interface BoardItem {
   id: string;
   title: string;
@@ -61,11 +82,18 @@ interface BoardItem {
 }
 let boardItems: BoardItem[] = [];
 
-interface OpenTab {
-  path: string;
-  name: string;
+interface FeedEntry {
+  from: string;
+  kind: string;
+  body: string;
+  ts: number;
+  avatar_url?: string | null;
 }
-let openTabs: OpenTab[] = [];
+const feedItems: FeedEntry[] = [];
+const MAX_FEED_ITEMS = 200;
+let feedPaused = false;
+let feedFilter: string = "all";
+let jammerSearchQuery = "";
 
 let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
@@ -73,6 +101,7 @@ let monacoReady: Promise<void> | null = null;
 let unsubEvents: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
 let unsubItemUpdate: (() => void) | null = null;
+let unsubActivity: (() => void) | null = null;
 let fileTreeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let initRunning = false;
 
@@ -81,12 +110,10 @@ function $(id: string): HTMLElement { return document.getElementById(id)!; }
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-
 function fileExtension(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
-
 function languageFromExt(ext: string): string {
   const map: Record<string, string> = {
     ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -98,9 +125,142 @@ function languageFromExt(ext: string): string {
   };
   return map[ext] || "plaintext";
 }
-
 function isMediaFile(ext: string): boolean {
   return ["png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "wav", "ogg", "mp4", "webm"].includes(ext);
+}
+function relativeTime(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 10) return "now";
+  if (diff < 60) return `${diff}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  return `${Math.floor(diff / 3600)}h`;
+}
+
+// ── Drag / Resize ──────────────────────────────────────
+function initSplitters(): void {
+  const workspace = $("workspace");
+
+  // Left vsplit: drag resizes col-left (positive delta = wider)
+  setupVSplit("vsplit-left", "col-left", false);
+  // Right vsplit: drag resizes col-right (inverted — drag right = narrower)
+  setupVSplit("vsplit-right", "col-right", true);
+
+  // Horizontal splitters (within columns)
+  setupHSplit("hsplit-left", "pane-files", "pane-jammers", "col-left");
+  setupHSplit("hsplit-right", "pane-feed", "pane-chat", "col-right");
+
+  // Double-click to toggle collapse
+  $("vsplit-right").addEventListener("dblclick", () => {
+    const el = $("col-right");
+    if (el.classList.contains("collapsed")) {
+      el.classList.remove("collapsed");
+      el.style.width = "280px";
+    } else {
+      el.classList.add("collapsed");
+    }
+    triggerEditorResize();
+  });
+  $("vsplit-left").addEventListener("dblclick", () => {
+    const el = $("col-left");
+    if (el.classList.contains("collapsed")) {
+      el.classList.remove("collapsed");
+      el.style.width = "220px";
+    } else {
+      el.classList.add("collapsed");
+    }
+    triggerEditorResize();
+  });
+
+  function setupVSplit(splitId: string, targetId: string, invertDelta: boolean): void {
+    const split = $(splitId);
+
+    split.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const targetEl = $(targetId);
+      const startX = e.clientX;
+      const startW = targetEl.getBoundingClientRect().width;
+      split.classList.add("dragging");
+      document.body.classList.add("dragging");
+
+      const onMove = (ev: MouseEvent) => {
+        const rawDelta = ev.clientX - startX;
+        const delta = invertDelta ? -rawDelta : rawDelta;
+        const newW = Math.max(140, Math.min(startW + delta, workspace.clientWidth * 0.45));
+        targetEl.style.width = `${newW}px`;
+        targetEl.style.flex = "none";
+        triggerEditorResize();
+      };
+      const onUp = () => {
+        split.classList.remove("dragging");
+        document.body.classList.remove("dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        triggerEditorResize();
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
+  function setupHSplit(splitId: string, topId: string, bottomId: string, colId: string): void {
+    const split = $(splitId);
+
+    split.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const topEl = $(topId);
+      const colEl = $(colId);
+      const startY = e.clientY;
+      const startTopH = topEl.getBoundingClientRect().height;
+      const colH = colEl.getBoundingClientRect().height;
+      split.classList.add("dragging");
+      document.body.classList.add("dragging-h");
+
+      const onMove = (ev: MouseEvent) => {
+        const delta = ev.clientY - startY;
+        const maxH = colH - 60 - 5;
+        const newH = Math.max(60, Math.min(startTopH + delta, maxH));
+        const ratio = newH / colH;
+        topEl.style.flex = `${ratio}`;
+        $(bottomId).style.flex = `${1 - ratio}`;
+      };
+      const onUp = () => {
+        split.classList.remove("dragging");
+        document.body.classList.remove("dragging-h");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+}
+
+function triggerEditorResize(): void {
+  if (monacoEditor) {
+    requestAnimationFrame(() => monacoEditor.layout());
+  }
+}
+
+// ── Center tab switching ──────────────────────────────
+let activeCenterTab: "board" | "files" = "board";
+
+function switchCenterTab(tab: "board" | "files"): void {
+  activeCenterTab = tab;
+  const boardPane = $("center-board");
+  const filesPane = $("center-files");
+
+  if (tab === "board") {
+    boardPane.classList.remove("hidden");
+    filesPane.classList.add("hidden");
+  } else {
+    boardPane.classList.add("hidden");
+    filesPane.classList.remove("hidden");
+    triggerEditorResize();
+  }
+
+  document.querySelectorAll(".center-tab").forEach((btn) => {
+    btn.classList.toggle("active", (btn as HTMLElement).dataset.ctab === tab);
+  });
 }
 
 // ── Monaco ─────────────────────────────────────────────
@@ -146,7 +306,7 @@ async function loadFileTree(dirPath: string, depth: number = 0): Promise<FileNod
     path: dirPath + "/" + e.name,
     isDir: e.isDir,
     children: undefined,
-    expanded: depth === 0, // auto-expand first level
+    expanded: depth === 0,
     depth,
   }));
 }
@@ -183,9 +343,7 @@ function renderFileTree(filter?: string): void {
     const el = document.createElement("div");
     el.className = `tree-item${node.path === activeFile ? " active" : ""}${node.isDir ? " dir" : ""}`;
     const indent = node.depth * 12;
-    const icon = node.isDir
-      ? (node.expanded ? "▾" : "▸")
-      : "·";
+    const icon = node.isDir ? (node.expanded ? "▾" : "▸") : "·";
     el.innerHTML = `<span class="tree-indent" style="width:${indent}px"></span><span class="tree-icon">${icon}</span>${escapeHtml(node.name)}`;
     el.addEventListener("click", async () => {
       if (node.isDir) {
@@ -205,8 +363,6 @@ function renderFileTree(filter?: string): void {
 // ── File Viewer ────────────────────────────────────────
 async function openFile(filePath: string, name: string): Promise<void> {
   activeFile = filePath;
-
-  // Add to tabs if not already open
   if (!openTabs.find((t) => t.path === filePath)) {
     openTabs.push({ path: filePath, name });
   }
@@ -214,13 +370,11 @@ async function openFile(filePath: string, name: string): Promise<void> {
   renderFileTree();
 
   const ext = fileExtension(name);
-
   if (isMediaFile(ext)) {
     $("monaco-container").style.display = "none";
     const viewer = $("media-viewer");
     viewer.style.display = "flex";
     $("viewer-empty").classList.add("hidden");
-
     const { content, binary } = await api.readFile(filePath);
     if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
@@ -238,7 +392,6 @@ async function openFile(filePath: string, name: string): Promise<void> {
     $("media-viewer").style.display = "none";
     $("monaco-container").style.display = "block";
     $("viewer-empty").classList.add("hidden");
-
     await initEditor();
     const { content } = await api.readFile(filePath);
     const monaco = (window as any).monaco;
@@ -282,8 +435,110 @@ function closeTab(filePath: string): void {
   }
 }
 
-// ── Flow Board ─────────────────────────────────────────
-function renderFlowBoard(): void {
+// ── Jammers (left bottom, server-paginated) ────────────
+async function fetchJammerPage(page: number): Promise<void> {
+  if (!cypherId || jammerLoading) return;
+  jammerLoading = true;
+  try {
+    const offset = page * JAMMERS_PER_PAGE;
+    const data = await api.cypherJammers(cypherId, { limit: JAMMERS_PER_PAGE, offset });
+    const raw = (data as any)?.jammers || [];
+    jammerTotal = (data as any)?.total ?? raw.length;
+    jammers = raw
+      .filter((j: any) => !j.left_at)
+      .map((j: any) => ({
+        agent_local_id: j.agent_local_id,
+        name: j.name || null,
+        avatar_url: j.avatar_url || null,
+        position: j.role || "jammer",
+        status: "idle" as const,
+        input_tokens: Number(j.input_tokens) || 0,
+        output_tokens: Number(j.output_tokens) || 0,
+        turns: Number(j.turns) || 0,
+      }));
+    jammerPage = page;
+    renderJammers();
+  } finally {
+    jammerLoading = false;
+  }
+}
+
+function renderJammers(): void {
+  const container = $("jammer-list");
+  const countEl = $("jammer-count");
+  const controls = $("jammer-page-controls");
+
+  countEl.textContent = String(jammerTotal);
+  container.innerHTML = "";
+
+  if (jammerTotal === 0) {
+    container.innerHTML = `<div class="jammer-empty">No jammers joined</div>`;
+    controls.classList.add("hidden");
+    updateTokenScore();
+    return;
+  }
+
+  const q = jammerSearchQuery.toLowerCase();
+  const filtered = q
+    ? jammers.filter((j) => (j.name || j.agent_local_id).toLowerCase().includes(q) || j.position.toLowerCase().includes(q))
+    : jammers;
+
+  for (const j of filtered) {
+    const row = document.createElement("div");
+    row.className = "jammer-row";
+    const avatarHtml = j.avatar_url
+      ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
+      : identiconSvg(j.agent_local_id, 24);
+    const totalTok = j.input_tokens + j.output_tokens;
+    const tokenStr = totalTok > 0 ? `${formatTokens(totalTok)} tok · ${j.turns} turns` : "";
+    row.innerHTML = `
+      <div class="jammer-avatar">${avatarHtml}</div>
+      <div class="jammer-info">
+        <div class="jammer-name">${escapeHtml(j.name || j.agent_local_id)}</div>
+        <div class="jammer-role">${escapeHtml(j.position)}${tokenStr ? ` · ${tokenStr}` : ""}</div>
+      </div>
+      <div class="jammer-status-dot ${j.status}"></div>
+    `;
+    container.appendChild(row);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(jammerTotal / JAMMERS_PER_PAGE));
+  if (totalPages > 1) {
+    controls.classList.remove("hidden");
+    ($("jammer-prev") as HTMLButtonElement).disabled = jammerPage === 0;
+    ($("jammer-next") as HTMLButtonElement).disabled = jammerPage >= totalPages - 1;
+    $("jammer-page-info").textContent = `${jammerPage + 1} / ${totalPages}`;
+  } else {
+    controls.classList.add("hidden");
+  }
+
+  updateTokenScore();
+}
+
+function updateTokenScore(): void {
+  const totalIn = jammers.reduce((s, j) => s + j.input_tokens, 0);
+  const totalOut = jammers.reduce((s, j) => s + j.output_tokens, 0);
+  const el = $("cypher-tokens");
+  if (totalIn + totalOut > 0) {
+    el.textContent = `${formatTokens(totalIn)} in / ${formatTokens(totalOut)} out`;
+  } else {
+    el.textContent = "";
+  }
+}
+
+// Debounced status update — batch rapid status changes into a single render
+let statusRenderPending = false;
+function scheduleJammerRender(): void {
+  if (statusRenderPending) return;
+  statusRenderPending = true;
+  requestAnimationFrame(() => {
+    statusRenderPending = false;
+    renderJammers();
+  });
+}
+
+// ── Board (center, kanban) ─────────────────────────────
+function renderBoard(): void {
   const columns: Record<string, BoardItem[]> = {
     Backlog: [], InProgress: [], Review: [], Done: [],
   };
@@ -294,14 +549,34 @@ function renderFlowBoard(): void {
 
   for (const [status, items] of Object.entries(columns)) {
     const key = status === "InProgress" ? "active" : status.toLowerCase();
-    const container = $(`flow-${key}`);
-    const count = $(`flow-count-${key}`);
+    const container = document.getElementById(`board-${key}`);
+    const count = document.getElementById(`board-count-${key}`);
     if (container) {
       container.innerHTML = "";
+      if (items.length === 0) {
+        container.innerHTML = `<div class="board-empty">No items</div>`;
+      }
       for (const item of items) {
+        const jammer = item.assignee ? jammers.find((j) => j.agent_local_id === item.assignee) : null;
+        const avatarHtml = jammer?.avatar_url
+          ? `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`
+          : item.assignee
+            ? identiconSvg(item.assignee, 16)
+            : "";
+        const avatarWrap = avatarHtml ? `<div class="board-card-avatar">${avatarHtml}</div>` : "";
+        const assigneeHtml = item.assignee
+          ? `<span class="board-card-assignee">@${escapeHtml(item.assignee)}</span>`
+          : "";
+        const prHtml = item.pr_url
+          ? `<a class="board-card-pr" href="${escapeHtml(item.pr_url)}" title="View PR">PR</a>`
+          : "";
+
         const card = document.createElement("div");
-        card.className = "flow-card";
-        card.innerHTML = `${escapeHtml(item.title)}${item.assignee ? `<div class="card-assignee">@${escapeHtml(item.assignee)}</div>` : ""}`;
+        card.className = "board-card";
+        card.innerHTML = `
+          <div class="board-card-title">${escapeHtml(item.title)}</div>
+          <div class="board-card-meta">${avatarWrap}${assigneeHtml}${prHtml}</div>
+        `;
         container.appendChild(card);
       }
     }
@@ -309,36 +584,356 @@ function renderFlowBoard(): void {
   }
 }
 
-// ── Roster ─────────────────────────────────────────────
-function renderRoster(filter?: string): void {
-  const container = $("roster-list");
-  container.innerHTML = "";
-  const lowerFilter = filter?.toLowerCase();
+// ── Feed (right top) ──────────────────────────────────
+function matchesFeedFilter(entry: FeedEntry): boolean {
+  if (feedFilter === "all") return true;
+  if (feedFilter === "board") return entry.kind === "board";
+  if (feedFilter === "status") return entry.kind === "status";
+  if (feedFilter === "broadcast") return entry.kind !== "board" && entry.kind !== "status";
+  return true;
+}
 
-  for (const j of jammers) {
-    if (lowerFilter && !j.agent_local_id.toLowerCase().includes(lowerFilter)) continue;
-    const el = document.createElement("div");
-    el.className = "roster-item";
-    el.innerHTML = `
-      <div class="roster-dot ${j.status}"></div>
-      <span class="roster-name">${escapeHtml(j.agent_local_id)}</span>
-      <span class="roster-role">${escapeHtml(j.position)}</span>
+function addFeedEntry(entry: FeedEntry): void {
+  feedItems.unshift(entry);
+  if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
+  if (!feedPaused && matchesFeedFilter(entry)) {
+    renderFeedItem(entry, true);
+  }
+}
+
+function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
+  const list = $("feed-list");
+  const empty = document.getElementById("feed-empty");
+  if (empty) empty.remove();
+
+  const el = document.createElement("div");
+  el.className = "feed-item";
+  el.dataset.kind = entry.kind;
+
+  const jammer = jammers.find((j) => j.agent_local_id === entry.from);
+  const avatarHtml = jammer?.avatar_url
+    ? `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`
+    : identiconSvg(entry.from, 18);
+
+  const fullBody = escapeHtml(entry.body);
+  const truncated = entry.body.length > 200;
+
+  el.innerHTML = `
+    <div class="feed-item-header">
+      <div class="feed-item-avatar">${avatarHtml}</div>
+      <span class="feed-item-name">${escapeHtml(entry.from)}</span>
+      <span class="feed-item-kind">${escapeHtml(entry.kind)}</span>
+      <span class="feed-item-time">${relativeTime(entry.ts)}</span>
+    </div>
+    <div class="feed-item-body">${fullBody}</div>
+    ${truncated ? `<div class="feed-item-expand">show more</div>` : ""}
+  `;
+
+  el.addEventListener("click", () => {
+    const isExpanded = el.classList.toggle("expanded");
+    const expandLabel = el.querySelector(".feed-item-expand");
+    if (expandLabel) expandLabel.textContent = isExpanded ? "show less" : "show more";
+  });
+
+  if (prepend) {
+    list.prepend(el);
+    while (list.children.length > 100) list.removeChild(list.lastChild!);
+  } else {
+    list.appendChild(el);
+  }
+}
+
+function rebuildFeed(): void {
+  const list = $("feed-list");
+  list.innerHTML = "";
+  const filtered = feedItems.filter(matchesFeedFilter);
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="feed-empty" id="feed-empty">No activity yet</div>`;
+    return;
+  }
+  const visible = filtered.slice(0, 100);
+  for (const entry of visible) {
+    renderFeedItem(entry, false);
+  }
+}
+
+// ── Chat (right bottom) ──────────────────────────────
+let lastDripTs = 0;
+const DRIP_THROTTLE_MS = 3000;
+
+function senderAvatar(sender: string): string {
+  const jammer = jammers.find((j) => j.agent_local_id === sender || j.name === sender);
+  if (jammer?.avatar_url) return `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`;
+  return identiconSvg(sender, 22);
+}
+
+function addChatMessage(sender: string, body: string, mine: boolean): void {
+  const container = $("chat-messages");
+  const row = document.createElement("div");
+  row.className = `chat-msg-row ${mine ? "mine" : "theirs"}`;
+
+  const avatarHtml = `<div class="chat-msg-avatar">${senderAvatar(sender)}</div>`;
+  const senderLine = !mine ? `<div class="chat-msg-sender">${escapeHtml(sender)}</div>` : "";
+  const bodyHtml = `<div class="chat-msg-body">${escapeHtml(body)}</div>`;
+
+  row.innerHTML = `
+    ${avatarHtml}
+    <div class="chat-msg-bubble">
+      ${senderLine}${bodyHtml}
+    </div>
+  `;
+  container.appendChild(row);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addDripMessage(sender: string, recipe: string, mine: boolean): void {
+  const container = $("chat-messages");
+  const row = document.createElement("div");
+  row.className = `chat-msg-row ${mine ? "mine" : "theirs"}`;
+
+  const avatarHtml = `<div class="chat-msg-avatar">${senderAvatar(sender)}</div>`;
+  const senderLine = !mine ? `<div class="chat-msg-sender">${escapeHtml(sender)}</div>` : "";
+
+  row.innerHTML = `
+    ${avatarHtml}
+    <div class="chat-msg-bubble">
+      ${senderLine}
+      <span class="chat-msg-drip">${escapeHtml(recipe)}</span>
+    </div>
+  `;
+  container.appendChild(row);
+  container.scrollTop = container.scrollHeight;
+}
+
+function fireDripThrottled(recipe: string): void {
+  const now = Date.now();
+  if (now - lastDripTs < DRIP_THROTTLE_MS) return;
+  lastDripTs = now;
+  api.dripsPreview(recipe);
+}
+
+function sendChat(): void {
+  const input = $("chat-input") as HTMLInputElement;
+  const text = input.value.trim();
+  if (!text || !cypherId) return;
+  input.value = "";
+
+  // Detect .drip command
+  if (text.startsWith(".drip ") || text === ".drip") {
+    const recipe = text.slice(5).trim() || "fireworks";
+    addDripMessage(myHandle || "You", recipe, true);
+    fireDripThrottled(recipe);
+    api.cypherPostEvent(cypherId, "drip", { recipe, sender: myHandle || "unknown" });
+    return;
+  }
+
+  addChatMessage(myHandle || "You", text, true);
+  api.cypherPostEvent(cypherId, "chat", { message: text, sender: myHandle || "unknown" });
+}
+
+// ── Close Cypher + Wrapped Results ────────────────────
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function formatDuration(startedAt: string, endedAt: string): string {
+  const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+  if (ms < 0) return "—";
+  const mins = Math.floor(ms / 60_000);
+  const hrs = Math.floor(mins / 60);
+  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
+  return `${mins}m`;
+}
+
+async function closeCypher(): Promise<void> {
+  if (!cypherId || !isOwner) return;
+  const btn = $("btn-close-cypher") as HTMLButtonElement;
+  btn.disabled = true;
+  btn.textContent = "Closing...";
+
+  try {
+    const result = await api.cypherWrap(cypherId);
+    if ((result as any)?.error) {
+      btn.textContent = "Close Cypher";
+      btn.disabled = false;
+      return;
+    }
+
+    // Reload all jammers (all pages) for the summary
+    const allJammers: Jammer[] = [];
+    let offset = 0;
+    let total = 1;
+    while (offset < total) {
+      const data = await api.cypherJammers(cypherId, { limit: 200, offset });
+      const raw = (data as any)?.jammers || [];
+      total = (data as any)?.total ?? raw.length;
+      for (const j of raw) {
+        allJammers.push({
+          agent_local_id: j.agent_local_id,
+          name: j.name || null,
+          avatar_url: j.avatar_url || null,
+          position: j.role || "jammer",
+          status: "idle",
+          input_tokens: Number(j.input_tokens) || 0,
+          output_tokens: Number(j.output_tokens) || 0,
+          turns: Number(j.turns) || 0,
+        });
+      }
+      offset += 200;
+    }
+
+    const cypher = (result as any)?.cypher;
+    showWrappedResults(cypher, allJammers);
+  } catch {
+    btn.textContent = "Close Cypher";
+    btn.disabled = false;
+  }
+}
+
+function showWrappedResults(cypher: any, allJammers: Jammer[]): void {
+  // Hide workspace, show wrapped view
+  $("workspace").classList.add("hidden");
+  $("wrapped-view").classList.remove("hidden");
+  $("btn-close-cypher").classList.add("hidden");
+
+  // Update status badge
+  $("cypher-status-text").textContent = "wrapped";
+  $("cypher-status").className = "topbar-status lobby";
+
+  const totalIn = allJammers.reduce((s, j) => s + j.input_tokens, 0);
+  const totalOut = allJammers.reduce((s, j) => s + j.output_tokens, 0);
+  const totalTurns = allJammers.reduce((s, j) => s + j.turns, 0);
+  const duration = cypher?.started_at && cypher?.ended_at
+    ? formatDuration(cypher.started_at, cypher.ended_at)
+    : "—";
+
+  // Sort jammers by total tokens desc
+  allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
+
+  const container = $("wrapped-summary");
+  container.innerHTML = `
+    <div class="wrapped-header">
+      <h2>${escapeHtml(cypher?.title || "Cypher")}</h2>
+      <div class="wrapped-subtitle">Session wrapped${duration !== "—" ? ` after ${duration}` : ""}</div>
+    </div>
+
+    <div class="wrapped-stats">
+      <div class="wrapped-stat">
+        <div class="wrapped-stat-value">${allJammers.length}</div>
+        <div class="wrapped-stat-label">Jammers</div>
+      </div>
+      <div class="wrapped-stat">
+        <div class="wrapped-stat-value">${formatTokens(totalIn)}</div>
+        <div class="wrapped-stat-label">Input Tokens</div>
+      </div>
+      <div class="wrapped-stat">
+        <div class="wrapped-stat-value">${formatTokens(totalOut)}</div>
+        <div class="wrapped-stat-label">Output Tokens</div>
+      </div>
+      <div class="wrapped-stat">
+        <div class="wrapped-stat-value">${totalTurns}</div>
+        <div class="wrapped-stat-label">Turns</div>
+      </div>
+      <div class="wrapped-stat">
+        <div class="wrapped-stat-value">${duration}</div>
+        <div class="wrapped-stat-label">Duration</div>
+      </div>
+    </div>
+
+    <div class="wrapped-section-title">Agent Performance</div>
+    <table class="wrapped-agent-table">
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>Role</th>
+          <th class="num">Input</th>
+          <th class="num">Output</th>
+          <th class="num">Turns</th>
+        </tr>
+      </thead>
+      <tbody id="wrapped-agents-body"></tbody>
+    </table>
+  `;
+
+  const tbody = document.getElementById("wrapped-agents-body")!;
+  for (const j of allJammers) {
+    const avatarHtml = j.avatar_url
+      ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
+      : identiconSvg(j.agent_local_id, 24);
+
+    const tr = document.createElement("tr");
+    tr.className = "wrapped-agent-row";
+    tr.innerHTML = `
+      <td>
+        <div class="wrapped-agent-cell">
+          <div class="wrapped-agent-avatar">${avatarHtml}</div>
+          <div>
+            <div class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="wrapped-agent-role">${escapeHtml(j.position)}</span></td>
+      <td class="num">${formatTokens(j.input_tokens)}</td>
+      <td class="num">${formatTokens(j.output_tokens)}</td>
+      <td class="num">${j.turns}</td>
     `;
-    container.appendChild(el);
+    tbody.appendChild(tr);
+  }
+
+  // Board summary
+  if (boardItems.length > 0) {
+    const statusCounts: Record<string, number> = {};
+    for (const item of boardItems) {
+      statusCounts[item.status] = (statusCounts[item.status] || 0) + 1;
+    }
+    const boardSummary = document.createElement("div");
+    boardSummary.innerHTML = `<div class="wrapped-section-title">Board Summary</div>
+      <div class="wrapped-stats">
+        ${Object.entries(statusCounts).map(([status, count]) => `
+          <div class="wrapped-stat">
+            <div class="wrapped-stat-value">${count}</div>
+            <div class="wrapped-stat-label">${escapeHtml(status)}</div>
+          </div>
+        `).join("")}
+      </div>`;
+    container.appendChild(boardSummary);
   }
 }
 
 // ── Init ───────────────────────────────────────────────
+let initRetries = 0;
+const MAX_INIT_RETRIES = 5;
+
 async function init(): Promise<void> {
   if (initRunning) return;
   initRunning = true;
 
-  const theme = await api.getTheme();
-  document.documentElement.setAttribute("data-theme", theme);
-  api.onThemeChanged((t) => document.documentElement.setAttribute("data-theme", t));
+  try {
+    const theme = await api.getTheme();
+    document.documentElement.setAttribute("data-theme", theme);
+    api.onThemeChanged((t) => document.documentElement.setAttribute("data-theme", t));
+  } catch { /* theme IPC may not be ready yet */ }
 
   try {
-    const ctx = await api.getCypherContext();
+    let ctx: { cypherId: string; isOwner: boolean } | null = null;
+    let me: { id?: string; email?: string; handle?: string } | null = null;
+    try {
+      [ctx, me] = await Promise.all([
+        api.getCypherContext(),
+        api.authMe(),
+      ]);
+    } catch {
+      // IPC handlers not registered yet — retry after a delay
+      initRunning = false;
+      if (initRetries < MAX_INIT_RETRIES) {
+        initRetries++;
+        setTimeout(() => void init(), 500);
+      }
+      return;
+    }
+
     if (!ctx) {
       $("viewer-empty").textContent = "No cypher context. Open a cypher from The Drop.";
       initRunning = false;
@@ -346,52 +941,107 @@ async function init(): Promise<void> {
     }
     cypherId = ctx.cypherId;
     isOwner = ctx.isOwner;
+    myHandle = me?.handle || me?.email || null;
 
-    // Load cypher data
     const cypherData = await api.cypherGet(cypherId);
     const cypher = (cypherData as any)?.cypher;
     if (cypher) {
       $("cypher-title").textContent = cypher.title || "Untitled";
-      const statusText = $("cypher-status-text");
-      const statusEl = $("cypher-status");
-      statusText.textContent = cypher.status || "lobby";
-      statusEl.className = `topbar-status ${cypher.status === "live" ? "live" : "lobby"}`;
+      $("cypher-status-text").textContent = cypher.status || "lobby";
+      $("cypher-status").className = `topbar-status ${cypher.status === "live" ? "live" : "lobby"}`;
     }
 
-    // Load jammers
-    const jData = await api.cypherJammers(cypherId);
-    const raw = (jData as any)?.jammers || [];
-    jammers = raw
-      .filter((j: any) => !j.left_at)
-      .map((j: any) => ({
-        agent_local_id: j.agent_local_id,
-        position: j.position || "jammer",
-        status: "idle" as const,
-      }));
-    renderRoster();
+    // If already wrapped, show results view
+    if (cypher?.status === "wrapped") {
+      // Load all jammers for summary
+      const allJammers: Jammer[] = [];
+      let offset = 0;
+      let total = 1;
+      while (offset < total) {
+        const data = await api.cypherJammers(cypherId, { limit: 200, offset });
+        const raw = (data as any)?.jammers || [];
+        total = (data as any)?.total ?? raw.length;
+        for (const j of raw) {
+          allJammers.push({
+            agent_local_id: j.agent_local_id,
+            name: j.name || null,
+            avatar_url: j.avatar_url || null,
+            position: j.role || "jammer",
+            status: "idle",
+            input_tokens: Number(j.input_tokens) || 0,
+            output_tokens: Number(j.output_tokens) || 0,
+            turns: Number(j.turns) || 0,
+          });
+        }
+        offset += 200;
+      }
+      // Load board for summary
+      try {
+        const boardData = await api.projectBoard(cypherId);
+        boardItems = boardData.items || [];
+      } catch {}
+      showWrappedResults(cypher, allJammers);
+      return;
+    }
+
+    // Only show close button for owner of a live cypher
+    if (isOwner && cypher?.status === "live") {
+      $("btn-close-cypher").classList.remove("hidden");
+    } else {
+      $("btn-close-cypher").classList.add("hidden");
+    }
+
+    await fetchJammerPage(0);
 
     // Load project board
-    const boardData = await api.projectBoard(cypherId);
-    boardItems = boardData.items || [];
-    renderFlowBoard();
+    try {
+      const boardData = await api.projectBoard(cypherId);
+      boardItems = boardData.items || [];
+      renderBoard();
+    } catch { /* no project yet */ }
 
-    // Load file tree
-    workspacePath = await api.getCypherWorkspacePath(cypherId);
-    if (workspacePath) {
-      fileTree = await loadFileTree(workspacePath);
-      // Auto-expand first-level dirs
-      for (const node of fileTree) {
-        if (node.isDir) {
-          node.children = await loadFileTree(node.path, 1);
-          node.expanded = true;
+    try {
+      workspacePath = await api.getCypherWorkspacePath(cypherId);
+      if (workspacePath) {
+        fileTree = await loadFileTree(workspacePath);
+        for (const node of fileTree) {
+          if (node.isDir) {
+            node.children = await loadFileTree(node.path, 1);
+            node.expanded = true;
+          }
         }
+        renderFileTree();
       }
-      renderFileTree();
-    }
+    } catch { /* workspace IPC may not be ready */ }
 
-    // Subscribe to events
+    // Load historical feed events
+    try {
+      const evData = await api.cypherEventsList(cypherId, { limit: 200 }) as {
+        events?: Array<{ kind: string; by_agent_id?: string | null; payload?: Record<string, unknown>; created_at: string }>;
+      };
+      if (evData?.events) {
+        const feedKinds = new Set(["text", "tool_use", "tool_result", "status", "board", "chat", "drip", "usage"]);
+        for (const ev of evData.events) {
+          if (!feedKinds.has(ev.kind)) continue;
+          const from = ev.by_agent_id || "system";
+          const body = typeof ev.payload?.text === "string"
+            ? ev.payload.text as string
+            : typeof ev.payload?.description === "string"
+              ? ev.payload.description as string
+              : JSON.stringify(ev.payload || {}).slice(0, 300);
+          feedItems.push({
+            from,
+            kind: ev.kind,
+            body,
+            ts: new Date(ev.created_at).getTime(),
+          });
+        }
+        if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
+        rebuildFeed();
+      }
+    } catch { /* events IPC may not be ready */ }
+
     subscribeEvents();
-
   } finally {
     initRunning = false;
   }
@@ -404,7 +1054,7 @@ function subscribeEvents(): void {
     const jammer = jammers.find((j) => j.agent_local_id === agentName);
     if (jammer) {
       jammer.status = status as Jammer["status"];
-      renderRoster();
+      scheduleJammerRender();
     }
   });
 
@@ -414,12 +1064,29 @@ function subscribeEvents(): void {
       $("cypher-status-text").textContent = "live";
       $("cypher-status").className = "topbar-status live";
     } else if (kind === "cypher_wrapped") {
-      $("cypher-status-text").textContent = "wrapped";
-      $("cypher-status").className = "topbar-status lobby";
+      // Reload to show wrapped results
+      cleanup();
+      initRunning = false;
+      void init();
+      return;
+    } else if (kind === "chat") {
+      const sender = (payload as any).sender || (payload as any).from || "unknown";
+      const msg = (payload as any).message || "";
+      if (msg && sender !== myHandle) {
+        addChatMessage(sender, msg, false);
+      }
+    } else if (kind === "drip") {
+      const sender = (payload as any).sender || "unknown";
+      const recipe = (payload as any).recipe || "fireworks";
+      if (sender !== myHandle) {
+        addDripMessage(sender, recipe, false);
+        fireDripThrottled(recipe);
+      }
     }
   });
 
   unsubItemUpdate = api.onProjectItemUpdate((item) => {
+    // Update board state
     const existing = boardItems.find((i) => i.id === item.id);
     if (existing) {
       if (item.title) existing.title = item.title;
@@ -433,7 +1100,26 @@ function subscribeEvents(): void {
         assignee: item.assignee,
       });
     }
-    renderFlowBoard();
+    renderBoard();
+
+    // Add to feed
+    addFeedEntry({
+      from: item.assignee || "system",
+      kind: "board",
+      body: `${item.title} → ${item.status}`,
+      ts: Date.now(),
+    });
+  });
+
+  unsubActivity = api.onJammerActivity((event) => {
+    if (!event.from || event.from === "orchestrator" || event.from === "unknown") return;
+    if (!event.body?.trim()) return;
+    addFeedEntry({
+      from: event.from,
+      kind: event.kind,
+      body: event.body,
+      ts: event.ts || Date.now(),
+    });
   });
 
   fileTreeRefreshTimer = setInterval(async () => {
@@ -457,52 +1143,89 @@ function cleanup(): void {
   unsubEvents?.();
   unsubStatus?.();
   unsubItemUpdate?.();
+  unsubActivity?.();
   unsubEvents = null;
   unsubStatus = null;
   unsubItemUpdate = null;
+  unsubActivity = null;
   if (fileTreeRefreshTimer) { clearInterval(fileTreeRefreshTimer); fileTreeRefreshTimer = null; }
 }
 
 // ── Boot ───────────────────────────────────────────────
 function boot(): void {
-  // File search
+  initSplitters();
+
+  // Center tab switching (Board / Files)
+  document.querySelectorAll(".center-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = (btn as HTMLElement).dataset.ctab as "board" | "files";
+      if (tab) switchCenterTab(tab);
+    });
+  });
+
   $("file-search").addEventListener("input", (e) => {
     renderFileTree((e.target as HTMLInputElement).value);
   });
 
-  // Roster search
-  $("roster-search").addEventListener("input", (e) => {
-    renderRoster((e.target as HTMLInputElement).value);
+  $("jammer-search").addEventListener("input", (e) => {
+    jammerSearchQuery = (e.target as HTMLInputElement).value;
+    renderJammers();
   });
 
-  // Spawn button
-  $("btn-spawn").addEventListener("click", () => {
-    if (cypherId) api.cypherSpawnJammers(cypherId);
+  $("jammer-prev").addEventListener("click", () => {
+    if (jammerPage > 0) void fetchJammerPage(jammerPage - 1);
+  });
+  $("jammer-next").addEventListener("click", () => {
+    const totalPages = Math.max(1, Math.ceil(jammerTotal / JAMMERS_PER_PAGE));
+    if (jammerPage < totalPages - 1) void fetchJammerPage(jammerPage + 1);
   });
 
-  // Leave button
+  $("feed-pause").addEventListener("click", () => {
+    feedPaused = !feedPaused;
+    $("feed-pause").classList.toggle("active", feedPaused);
+    $("feed-pause").innerHTML = feedPaused ? "&#9654;" : "&#9646;&#9646;";
+    $("feed-pause").title = feedPaused ? "Resume feed" : "Pause feed";
+    if (!feedPaused) rebuildFeed();
+  });
+
+  $("feed-filter").addEventListener("change", (e) => {
+    feedFilter = (e.target as HTMLSelectElement).value;
+    rebuildFeed();
+  });
+
+  $("btn-close-cypher").addEventListener("click", () => {
+    void closeCypher();
+  });
+
   $("btn-leave").addEventListener("click", () => {
     api.leaveCypher();
   });
 
-  // Context ready = new cypher loaded
+  $("chat-send").addEventListener("click", sendChat);
+  $("chat-input").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") sendChat();
+  });
+
   api.onContextReady(() => {
     cleanup();
     cypherId = null;
     jammers = [];
     fileTree = [];
     boardItems = [];
+    feedItems.length = 0;
     openTabs = [];
     activeFile = null;
-    if (monacoEditor) {
-      monacoEditor.setModel(null);
-    }
+    jammerPage = 0;
+    if (monacoEditor) monacoEditor.setModel(null);
     $("file-tree").innerHTML = "";
-    $("roster-list").innerHTML = "";
+    $("jammer-list").innerHTML = "";
+    $("feed-list").innerHTML = `<div class="feed-empty" id="feed-empty">No activity yet</div>`;
+    $("chat-messages").innerHTML = "";
     $("viewer-tabs").innerHTML = "";
     $("monaco-container").style.display = "none";
     $("media-viewer").style.display = "none";
     $("viewer-empty").classList.remove("hidden");
+    switchCenterTab("board");
     initRunning = false;
     void init();
   });

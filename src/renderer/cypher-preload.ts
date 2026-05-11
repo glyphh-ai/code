@@ -6,7 +6,7 @@ interface CypherPanelAPI {
 
   // Cypher data
   cypherGet: (id: string) => Promise<unknown>;
-  cypherJammers: (id: string) => Promise<unknown>;
+  cypherJammers: (id: string, opts?: { limit?: number; offset?: number }) => Promise<unknown>;
   cypherEventsList: (id: string, opts?: { since?: number; limit?: number }) => Promise<unknown>;
   cypherCoverGet: (id: string) => Promise<{ ok: boolean; data_base64?: string; content_type?: string }>;
 
@@ -15,6 +15,7 @@ interface CypherPanelAPI {
   agentStop: (agentName: string) => void;
   agentSend: (agentName: string, message: string) => void;
   cypherSpawnJammers: (id: string) => Promise<unknown>;
+  cypherWrap: (id: string) => Promise<unknown>;
 
   // Chat / drips
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<unknown>;
@@ -52,6 +53,12 @@ interface CypherPanelAPI {
   // Open in VS Code
   openInVSCode: (filePath: string) => void;
 
+  // Jammer activity feed (from CypherBus)
+  onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => () => void;
+
+  // Drip effects
+  dripsPreview: (recipe: string) => Promise<string>;
+
   // Fired when context changes (panel should re-init)
   onContextReady: (cb: () => void) => () => void;
 }
@@ -59,7 +66,7 @@ interface CypherPanelAPI {
 const api: CypherPanelAPI = {
   authMe: () => ipcRenderer.invoke("auth-me"),
   cypherGet: (id) => ipcRenderer.invoke("cypher-get", id),
-  cypherJammers: (id) => ipcRenderer.invoke("cypher-jammers", id),
+  cypherJammers: (id, opts) => ipcRenderer.invoke("cypher-jammers", id, opts),
   cypherEventsList: (id, opts) => ipcRenderer.invoke("cypher-events-list", id, opts),
   cypherCoverGet: (id) => ipcRenderer.invoke("cypher-cover-get", id),
 
@@ -67,6 +74,7 @@ const api: CypherPanelAPI = {
   agentStop: (name) => ipcRenderer.send("cw:agent:stop", name),
   agentSend: (name, message) => ipcRenderer.send("cw:agent:send", name, message),
   cypherSpawnJammers: (id) => ipcRenderer.invoke("cypher-spawn-jammers", id),
+  cypherWrap: (id) => ipcRenderer.invoke("cypher-wrap", id),
 
   cypherPostEvent: (id, kind, payload, jamId, byAgentId) =>
     ipcRenderer.invoke("cypher-event-post", id, kind, payload, jamId, byAgentId),
@@ -117,6 +125,15 @@ const api: CypherPanelAPI = {
   },
 
   openInVSCode: (filePath) => ipcRenderer.send("cypher-open-vscode", filePath),
+
+  dripsPreview: (recipe) => ipcRenderer.invoke("drips-preview", recipe) as Promise<string>,
+
+  onJammerActivity: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) =>
+      cb(event);
+    ipcRenderer.on("jammer-activity", handler);
+    return () => { ipcRenderer.removeListener("jammer-activity", handler); };
+  },
 
   onContextReady: (cb) => {
     const handler = () => cb();
