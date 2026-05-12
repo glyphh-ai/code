@@ -967,6 +967,74 @@
   }
   .card-modal-link:hover { text-decoration: underline; }
 
+  /* ── Cypher 3D viz container ────────────────────────────── */
+  #cypher-viz-container {
+    flex: 1; position: relative; overflow: hidden;
+    background: radial-gradient(ellipse at center, rgba(15,20,35,0.95) 0%, rgba(5,8,18,0.98) 100%);
+  }
+  #cypher-viz-container canvas {
+    display: block; width: 100%; height: 100%;
+  }
+
+  /* ── Viz overlay: labels ───────────────────────────────── */
+  .cviz-label {
+    position: absolute;
+    font-size: 9px; font-weight: 600;
+    color: rgba(150, 170, 200, 0.5);
+    font-family: var(--font-mono);
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+    transform: translateX(-50%);
+    letter-spacing: 0.03em;
+    text-shadow: 0 0 8px rgba(0,0,0,0.8);
+  }
+
+  /* ── Viz overlay: dialogs ──────────────────────────────── */
+  .cviz-dialog {
+    position: absolute;
+    background: rgba(8, 12, 22, 0.92);
+    border: 1px solid rgba(100, 200, 255, 0.15);
+    border-radius: 8px;
+    padding: 8px 12px;
+    max-width: 240px;
+    font-size: 11px;
+    color: #99aabb;
+    transform: scale(0);
+    opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+    pointer-events: none;
+    transform-origin: bottom center;
+    z-index: 10;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 15px rgba(60,120,200,0.08);
+  }
+  .cviz-dlg-header {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  }
+  .cviz-dlg-name {
+    font-size: 10px; font-weight: 700;
+    color: var(--accent, #4af);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .cviz-dlg-kind {
+    font-size: 9px; font-family: var(--font-mono);
+    padding: 1px 5px; border-radius: 3px;
+    margin-left: auto;
+  }
+  .cviz-dlg-kind.kthink { color: var(--accent, #4af); background: rgba(100,200,255,0.1); }
+  .cviz-dlg-kind.ktool { color: #ffb400; background: rgba(255,180,0,0.1); }
+  .cviz-dlg-kind.kresult { color: #4caf50; background: rgba(76,175,80,0.1); }
+  .cviz-dlg-kind.kerror { color: #f44; background: rgba(244,68,68,0.1); }
+  .cviz-dlg-body {
+    color: #7788aa;
+    line-height: 1.4;
+    word-break: break-word;
+    max-height: 80px;
+    overflow: hidden;
+  }
+
   /* ── Utilities ─────────────────────────────────────────── */
   .hidden { display: none !important; }
 
@@ -1021,13 +1089,19 @@
   <!-- Center column: Feed + Board + Files tabs -->
   <div class="col col-center" id="col-center">
     <div class="center-tabs">
-      <button class="center-tab active" data-ctab="feed">Feed</button>
+      <button class="center-tab active" data-ctab="cypher">Cypher</button>
+      <button class="center-tab" data-ctab="feed">Feed</button>
       <button class="center-tab" data-ctab="board">Board</button>
       <button class="center-tab" data-ctab="files">Files</button>
     </div>
 
-    <!-- Feed view (default) -->
-    <div class="center-pane" id="center-feed">
+    <!-- Cypher 3D visualization (default) -->
+    <div class="center-pane" id="center-cypher">
+      <div id="cypher-viz-container"></div>
+    </div>
+
+    <!-- Feed view -->
+    <div class="center-pane hidden" id="center-feed">
       <div class="feed-toolbar">
         <div class="feed-controls">
           <button class="feed-ctrl-btn" id="feed-pause" title="Pause feed">&#9646;&#9646;</button>

@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "sourceMap": true
   },
-  "include": ["renderer.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "drop.ts", "drop-gh-landing.ts", "drop-pickers.ts", "council.ts", "cypher.ts"]
+  "include": ["renderer.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "drop.ts", "drop-gh-landing.ts", "drop-pickers.ts", "council.ts", "cypher.ts", "cypher-viz.ts"]
 }

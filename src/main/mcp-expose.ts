@@ -10,6 +10,7 @@
  */
 
 import http from "http";
+import https from "https";
 import crypto from "crypto";
 import type { CaptureStore } from "./capture-store";
 import type { EventLog, YoEvent } from "./event-log";
@@ -57,6 +58,8 @@ export interface ProjectContext {
   projectRef: string;
   serverGet: <T>(path: string) => Promise<T | null>;
   serverPost: <T>(path: string, body: Record<string, unknown>) => Promise<T | null>;
+  ghToken?: string;
+  repoFullName?: string;
 }
 
 export class McpExpose {
@@ -94,6 +97,28 @@ export class McpExpose {
   private workspaceGetter: (() => string) | null = null;
   setWorkspaceGetter(fn: () => string): void {
     this.workspaceGetter = fn;
+  }
+
+  private isLeaderRole(agentId: string): boolean {
+    const entry = this.hierarchyContext?.get(agentId);
+    if (!entry) return false;
+    return entry.position === "leader" || entry.position === "lieutenant" || entry.position === "sub-lead";
+  }
+
+  private async ghApi<T>(method: string, apiPath: string, body?: Record<string, unknown>): Promise<T> {
+    const token = this.projectContext?.ghToken;
+    if (!token) throw new Error("No GitHub token");
+    const res = await ghRequest(method, apiPath, token, "application/vnd.github+json", body ? JSON.stringify(body) : undefined);
+    if (res.status < 200 || res.status >= 300) throw new Error(`${res.status} ${res.data.slice(0, 200)}`);
+    return JSON.parse(res.data);
+  }
+
+  private async ghApiRaw(method: string, apiPath: string, accept: string): Promise<string> {
+    const token = this.projectContext?.ghToken;
+    if (!token) throw new Error("No GitHub token");
+    const res = await ghRequest(method, apiPath, token, accept);
+    if (res.status < 200 || res.status >= 300) throw new Error(`${res.status} ${res.data.slice(0, 200)}`);
+    return res.data;
   }
 
   get isRunning(): boolean {
@@ -745,6 +770,239 @@ export class McpExpose {
         return replyJson(data);
       }
 
+      // ── GitHub tools (cypher mode only) ───────────────────
+      case "gh_repo_info": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) {
+          return reply("No GitHub context (not in cypher mode or no linked repo)", true);
+        }
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        try {
+          const data = await this.ghApi<{ default_branch: string; description: string | null; html_url: string }>(
+            "GET", `/repos/${owner}/${repo}`,
+          );
+          return replyJson({
+            full_name: this.projectContext.repoFullName,
+            default_branch: data.default_branch,
+            description: data.description,
+            html_url: data.html_url,
+            clone_url: `https://x-access-token:${this.projectContext.ghToken}@github.com/${owner}/${repo}.git`,
+          });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_create_issue": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const agent = ctx?.agent || ".yo";
+        if (!this.isLeaderRole(agent)) return reply("Only leaders/lieutenants/sub-leads can create issues", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const title = String(args.title || "").trim();
+        if (!title) return reply("title is required", true);
+        try {
+          const payload: Record<string, unknown> = { title };
+          if (args.body) payload.body = String(args.body);
+          if (args.labels) payload.labels = args.labels;
+          if (args.assignees) payload.assignees = args.assignees;
+          const data = await this.ghApi<{ number: number; html_url: string }>(
+            "POST", `/repos/${owner}/${repo}/issues`, payload,
+          );
+          return replyJson({ number: data.number, url: data.html_url });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_get_issue": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const issueNum = Number(args.number);
+        if (!issueNum) return reply("number is required", true);
+        try {
+          const [issue, comments] = await Promise.all([
+            this.ghApi<{ number: number; title: string; body: string | null; state: string; labels: { name: string }[]; assignees: { login: string }[]; html_url: string }>(
+              "GET", `/repos/${owner}/${repo}/issues/${issueNum}`,
+            ),
+            this.ghApi<{ user: { login: string }; body: string; created_at: string }[]>(
+              "GET", `/repos/${owner}/${repo}/issues/${issueNum}/comments`,
+            ),
+          ]);
+          return replyJson({
+            number: issue.number, title: issue.title, body: issue.body,
+            state: issue.state, labels: issue.labels.map(l => l.name),
+            assignees: issue.assignees.map(a => a.login), url: issue.html_url,
+            comments: comments.map(c => ({ author: c.user.login, body: c.body, created_at: c.created_at })),
+          });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_list_issues": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const state = String(args.state || "open");
+        try {
+          const issues = await this.ghApi<{ number: number; title: string; state: string; assignees: { login: string }[]; labels: { name: string }[] }[]>(
+            "GET", `/repos/${owner}/${repo}/issues?state=${encodeURIComponent(state)}&per_page=50`,
+          );
+          return replyJson(issues.map(i => ({
+            number: i.number, title: i.title, state: i.state,
+            assignees: i.assignees.map(a => a.login), labels: i.labels.map(l => l.name),
+          })));
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_comment_issue": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const issueNum = Number(args.number);
+        const commentBody = String(args.body || "").trim();
+        if (!issueNum) return reply("number is required", true);
+        if (!commentBody) return reply("body is required", true);
+        try {
+          const data = await this.ghApi<{ id: number; html_url: string }>(
+            "POST", `/repos/${owner}/${repo}/issues/${issueNum}/comments`, { body: commentBody },
+          );
+          return replyJson({ id: data.id, url: data.html_url });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_update_issue": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const issueNum = Number(args.number);
+        if (!issueNum) return reply("number is required", true);
+        try {
+          const payload: Record<string, unknown> = {};
+          if (args.title) payload.title = String(args.title);
+          if (args.body) payload.body = String(args.body);
+          if (args.labels) payload.labels = args.labels;
+          if (args.assignees) payload.assignees = args.assignees;
+          if (args.state) payload.state = String(args.state);
+          const data = await this.ghApi<{ number: number; html_url: string }>(
+            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, payload,
+          );
+          return replyJson({ number: data.number, url: data.html_url });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_close_issue": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const agent = ctx?.agent || ".yo";
+        if (!this.isLeaderRole(agent)) return reply("Only leaders can close issues", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const issueNum = Number(args.number);
+        if (!issueNum) return reply("number is required", true);
+        try {
+          const data = await this.ghApi<{ number: number; html_url: string }>(
+            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, { state: "closed" },
+          );
+          return replyJson({ number: data.number, url: data.html_url, closed: true });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_open_pr": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const title = String(args.title || "").trim();
+        const head = String(args.head || "").trim();
+        const base = String(args.base || "").trim();
+        if (!title) return reply("title is required", true);
+        if (!head) return reply("head (branch name) is required", true);
+        if (!base) return reply("base (target branch) is required", true);
+        try {
+          const payload: Record<string, unknown> = { title, head, base };
+          if (args.body) payload.body = String(args.body);
+          const data = await this.ghApi<{ number: number; html_url: string }>(
+            "POST", `/repos/${owner}/${repo}/pulls`, payload,
+          );
+          return replyJson({ number: data.number, url: data.html_url });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_list_prs": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const state = String(args.state || "open");
+        try {
+          const prs = await this.ghApi<{ number: number; title: string; state: string; head: { ref: string }; user: { login: string }; html_url: string }[]>(
+            "GET", `/repos/${owner}/${repo}/pulls?state=${encodeURIComponent(state)}&per_page=50`,
+          );
+          return replyJson(prs.map(p => ({
+            number: p.number, title: p.title, branch: p.head.ref,
+            author: p.user.login, url: p.html_url,
+          })));
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_get_pr_diff": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const prNum = Number(args.number);
+        if (!prNum) return reply("number is required", true);
+        try {
+          const diff = await this.ghApiRaw("GET", `/repos/${owner}/${repo}/pulls/${prNum}`, "application/vnd.github.diff");
+          return reply(diff.length > 50000 ? diff.slice(0, 50000) + "\n... (diff truncated)" : diff);
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_review_pr": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const agent = ctx?.agent || ".yo";
+        if (!this.isLeaderRole(agent)) return reply("Only leaders can review PRs", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const prNum = Number(args.number);
+        const event = String(args.event || "").toUpperCase();
+        if (!prNum) return reply("number is required", true);
+        if (!["APPROVE", "REQUEST_CHANGES", "COMMENT"].includes(event)) {
+          return reply("event must be APPROVE, REQUEST_CHANGES, or COMMENT", true);
+        }
+        try {
+          const payload: Record<string, unknown> = { event };
+          if (args.body) payload.body = String(args.body);
+          const data = await this.ghApi<{ id: number; state: string }>(
+            "POST", `/repos/${owner}/${repo}/pulls/${prNum}/reviews`, payload,
+          );
+          return replyJson({ id: data.id, state: data.state });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_merge_pr": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const agent = ctx?.agent || ".yo";
+        if (!this.isLeaderRole(agent)) return reply("Only leaders can merge PRs", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const prNum = Number(args.number);
+        if (!prNum) return reply("number is required", true);
+        try {
+          const payload: Record<string, unknown> = { merge_method: String(args.method || "squash") };
+          if (args.commit_title) payload.commit_title = String(args.commit_title);
+          const data = await this.ghApi<{ merged: boolean; sha: string; message: string }>(
+            "PUT", `/repos/${owner}/${repo}/pulls/${prNum}/merge`, payload,
+          );
+          return replyJson({ merged: data.merged, sha: data.sha, message: data.message });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
       default:
         return { jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown tool: ${params.name}` } };
     }
@@ -977,6 +1235,145 @@ export class McpExpose {
       );
     }
 
+    if (this.projectContext?.ghToken && this.projectContext?.repoFullName) {
+      tools.push(
+        {
+          name: "gh_repo_info",
+          description: "Get repository info including the authenticated clone URL, default branch, and description.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "gh_create_issue",
+          description: "Create a GitHub issue with title, body, labels, and assignees. Leaders/sub-leads only.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Issue title" },
+              body: { type: "string", description: "Issue body (markdown)" },
+              labels: { type: "array", items: { type: "string" }, description: "Labels to apply" },
+              assignees: { type: "array", items: { type: "string" }, description: "GitHub usernames to assign" },
+            },
+            required: ["title"],
+          },
+        },
+        {
+          name: "gh_get_issue",
+          description: "Get a GitHub issue with all comments.",
+          inputSchema: {
+            type: "object",
+            properties: { number: { type: "number", description: "Issue number" } },
+            required: ["number"],
+          },
+        },
+        {
+          name: "gh_list_issues",
+          description: "List GitHub issues. Returns number, title, state, assignees, and labels.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              state: { type: "string", enum: ["open", "closed", "all"], description: "Filter by state (default: open)" },
+            },
+          },
+        },
+        {
+          name: "gh_comment_issue",
+          description: "Add a comment to a GitHub issue. Use for progress notes, decisions, and as-built documentation.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              number: { type: "number", description: "Issue number" },
+              body: { type: "string", description: "Comment body (markdown)" },
+            },
+            required: ["number", "body"],
+          },
+        },
+        {
+          name: "gh_update_issue",
+          description: "Update a GitHub issue's title, body, labels, assignees, or state.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              number: { type: "number", description: "Issue number" },
+              title: { type: "string" },
+              body: { type: "string" },
+              labels: { type: "array", items: { type: "string" } },
+              assignees: { type: "array", items: { type: "string" } },
+              state: { type: "string", enum: ["open", "closed"] },
+            },
+            required: ["number"],
+          },
+        },
+        {
+          name: "gh_close_issue",
+          description: "Close a GitHub issue. Leaders only.",
+          inputSchema: {
+            type: "object",
+            properties: { number: { type: "number", description: "Issue number" } },
+            required: ["number"],
+          },
+        },
+        {
+          name: "gh_open_pr",
+          description: "Create a pull request from a feature branch.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "PR title" },
+              body: { type: "string", description: "PR description (markdown)" },
+              head: { type: "string", description: "Source branch name" },
+              base: { type: "string", description: "Target branch (e.g. main)" },
+            },
+            required: ["title", "head", "base"],
+          },
+        },
+        {
+          name: "gh_list_prs",
+          description: "List pull requests with branch and author info.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              state: { type: "string", enum: ["open", "closed", "all"], description: "Filter by state (default: open)" },
+            },
+          },
+        },
+        {
+          name: "gh_get_pr_diff",
+          description: "Get the diff for a pull request. Truncated at 50k characters.",
+          inputSchema: {
+            type: "object",
+            properties: { number: { type: "number", description: "PR number" } },
+            required: ["number"],
+          },
+        },
+        {
+          name: "gh_review_pr",
+          description: "Submit a review on a pull request (APPROVE, REQUEST_CHANGES, or COMMENT). Leaders only.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              number: { type: "number", description: "PR number" },
+              event: { type: "string", enum: ["APPROVE", "REQUEST_CHANGES", "COMMENT"], description: "Review action" },
+              body: { type: "string", description: "Review comment" },
+            },
+            required: ["number", "event"],
+          },
+        },
+        {
+          name: "gh_merge_pr",
+          description: "Merge an approved pull request. Leaders only.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              number: { type: "number", description: "PR number" },
+              method: { type: "string", enum: ["squash", "merge", "rebase"], description: "Merge method (default: squash)" },
+              commit_title: { type: "string", description: "Custom merge commit title" },
+            },
+            required: ["number"],
+          },
+        },
+      );
+    }
+
     return tools;
   }
 }
@@ -993,4 +1390,36 @@ function mergeTags(userTags: string[], ctx: CallContext): string[] {
   merged.add(`from:${ctx.agent}`);
   merged.add(`workspace:${ctx.workspace}`);
   return Array.from(merged);
+}
+
+function ghRequest(
+  method: string,
+  apiPath: string,
+  token: string,
+  accept: string,
+  body?: string,
+): Promise<{ status: number; data: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "api.github.com",
+        path: apiPath,
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: accept,
+          "User-Agent": "yo-client",
+          ...(body ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(body)) } : {}),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => (data += chunk));
+        res.on("end", () => resolve({ status: res.statusCode || 0, data }));
+      },
+    );
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
 }

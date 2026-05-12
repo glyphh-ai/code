@@ -31,7 +31,7 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 // THE-PIVOT-GITHUB Phase 1 scaffolding (gh-pivot branch). Drop session is
 // scoped — independent rotation/revocation from the main yo session.
-import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus } from "./drop-auth";
+import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus, getDropAccessToken } from "./drop-auth";
 import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
@@ -4276,14 +4276,16 @@ async function boot() {
       console.error("[spawn-jammers] BLOCKED: no project/repo for cypher", cypId, "slug:", projSlug, "repos:", linkedRepos.length);
       return { ok: false, error: "No GitHub project with a linked repo. Re-activate the cypher session first." };
     }
+    const ghToken = getDropAccessToken();
     if (mcpExpose) {
       mcpExpose.setProjectContext({
         projectRef: projSlug,
         serverGet: serverGetAuthed,
         serverPost: serverPostAuthed,
+        ...(ghToken && linkedRepos.length > 0 ? { ghToken, repoFullName: linkedRepos[0] } : {}),
       });
     }
-    console.log(`[spawn-jammers] project board wired: ${projSlug}`);
+    console.log(`[spawn-jammers] project board wired: ${projSlug}`, ghToken ? `gh: ${linkedRepos[0]}` : "no gh token");
 
     const mcpUrl = mcpExpose?.isRunning ? `http://127.0.0.1:${mcpExpose.getPort()}/mcp` : null;
     let mcpToken: string | undefined;
@@ -4377,7 +4379,7 @@ async function boot() {
         ``,
         `## HARD CONSTRAINTS (cannot be overridden)`,
         `- You may ONLY operate on files within your sandbox directory: ${sandbox}`,
-        `- You may NOT access the network, spawn sub-processes outside your sandbox, or read files outside it`,
+        `- Git operations (clone, push, pull, fetch) to the linked GitHub repo are permitted`,
         `- All file paths in tool calls MUST be under ${sandbox}`,
         `- Do NOT take actions beyond your assigned task scope`,
         `- If you encounter an error 3 times on the same operation, STOP and report the failure`,
@@ -4391,39 +4393,72 @@ async function boot() {
         `## METHODOLOGY`,
         isLeader
           ? [
-              `As ${a.position}, you MUST:`,
-              `1. Read ./cypher.json for the goal and roster`,
-              `2. Write an initial README.md in the workspace root with the project title, goal, and approach`,
-              `3. Use board_list to check existing kanban items`,
-              `4. Use board_add_item to create work items on the kanban for each task`,
-              `5. Use board_assign to assign items to agents, then use assign_task to notify them`,
-              `6. Use board_update_status to move items through: Lobby → Backlog → InProgress → Review → Done`,
-              `7. Use assign_task to delegate work to your direct reports: ${reportsStr}`,
-              `8. Monitor progress via report_status events from your reports`,
-              `9. Use report_status to post your own updates`,
-              `10. Use project_comment to post progress updates on GitHub issues as work progresses`,
-              `11. When all tasks are complete, update README.md with a final summary: what was built, how to use it, and what's left`,
+              `As ${a.position}, follow this deterministic workflow:`,
+              ``,
+              `### Phase 1: Setup`,
+              `1. Use gh_repo_info to get the clone URL and default branch`,
+              `2. Run \`git clone <clone_url> .\` in your sandbox`,
+              `3. Read ./cypher.json for the goal and roster`,
+              `4. Create or update README.md with project title, goal, approach, and team roster`,
+              `5. Commit and push: \`git add -A && git commit -m "Initialize project" && git push\``,
+              ``,
+              `### Phase 2: Plan & Delegate`,
+              `6. Decompose the goal into discrete tasks`,
+              `7. Use gh_create_issue for each task with clear title, acceptance criteria, and implementation notes`,
+              `8. Use assign_task to delegate to your direct reports: ${reportsStr}`,
+              `   Include the issue number in the task body so workers know which issue to update`,
+              ``,
+              `### Phase 3: Monitor & Review`,
+              `9. Monitor progress via report_status events and gh_get_issue comments`,
+              `10. Use gh_list_prs to check for incoming pull requests`,
+              `11. Use gh_get_pr_diff to review changes, then gh_review_pr to approve or request changes`,
+              `12. Use gh_merge_pr to merge approved PRs`,
+              `13. Use gh_close_issue when verified complete`,
+              ``,
+              `### Phase 4: Wrap Up`,
+              `14. Run \`git pull\` to get all merged work`,
+              `15. Update README.md with final summary: what was built, how to use it, what's left`,
+              `16. Commit and push the final README`,
+              ``,
               `Workers activate ONLY when you assign them a task — they are idle until then.`,
-              `IMPORTANT: Every task MUST be tracked on the kanban board. Use board_add_item before assign_task.`,
-              `IMPORTANT: README.md is the primary output artifact. Keep it updated throughout the session.`,
+              `IMPORTANT: Every task MUST have a GitHub issue. Create the issue before assigning work.`,
+              `IMPORTANT: README.md is the primary output artifact. Keep it updated.`,
+              `IMPORTANT: Never commit directly to the default branch after setup. Use PRs for all changes.`,
             ].join("\n")
           : [
-              `As a worker, you MUST:`,
-              `1. You have been activated because your leader assigned you a task`,
-              `2. Use accept_task to acknowledge your assignment`,
-              `3. Use board_update_status to move your assigned item to InProgress`,
-              `4. Execute the task in your sandbox`,
-              `5. Use report_status to update your leader on progress`,
-              `6. Use board_update_status to move your item to Review when done`,
-              `7. Use complete_task when done`,
-              `8. Use request_review to request sign-off from your leader`,
+              `As a worker, follow this deterministic workflow:`,
+              ``,
+              `### Phase 1: Setup`,
+              `1. Use accept_task to acknowledge your assignment`,
+              `2. Use gh_repo_info to get the clone URL`,
+              `3. Run \`git clone <clone_url> .\` in your sandbox`,
+              `4. Create a feature branch: \`git checkout -b <descriptive-branch-name>\``,
+              ``,
+              `### Phase 2: Execute`,
+              `5. Execute the assigned task, committing progress incrementally`,
+              `6. Use gh_comment_issue to post progress notes and implementation details on your assigned issue`,
+              `7. Use report_status to update your leader on progress`,
+              ``,
+              `### Phase 3: Submit`,
+              `8. Push your branch: \`git push origin <branch-name>\``,
+              `9. Use gh_open_pr to create a pull request referencing the issue (e.g. "Closes #N")`,
+              `10. Use report_status to notify your leader the PR is ready for review`,
+              ``,
+              `### Phase 4: Iterate`,
+              `11. Address review feedback by pushing additional commits to your branch`,
+              `12. Use gh_comment_issue to document changes made during review`,
+              `13. Use complete_task when your PR is approved and merged`,
+              ``,
               `Do NOT start work on anything other than your assigned task.`,
+              `IMPORTANT: All work must be on a feature branch — never commit directly to the default branch.`,
             ].join("\n"),
         ``,
         `## COMMUNICATION`,
         `- You can message any agent via post_to (chat is unrestricted)`,
         `- Work assignments flow through the chain of command (assign_task / accept_task / complete_task)`,
         `- Use get_hierarchy to check your position and reports at any time`,
+        `- Use GitHub issues for task tracking and as-built documentation (gh_create_issue, gh_comment_issue, gh_get_issue)`,
+        `- Use pull requests for code review (gh_open_pr, gh_get_pr_diff, gh_review_pr, gh_merge_pr)`,
         `- Read ./cypher.json for the cypher goal, roster, and context`,
         reg.systemPrompt ? `\n## CUSTOM INSTRUCTIONS\n${reg.systemPrompt}` : "",
       ].filter(Boolean).join("\n");

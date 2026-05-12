@@ -6,6 +6,7 @@
  */
 
 import { identiconSvg } from "./identicon";
+import { CypherViz } from "./cypher-viz";
 
 interface CypherAPI {
   authMe: () => Promise<{ id?: string; email?: string; handle?: string }>;
@@ -123,6 +124,7 @@ let jammerSearchQuery = "";
 
 let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
+let cypherViz: CypherViz | null = null;
 
 let unsubEvents: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
@@ -305,14 +307,35 @@ function triggerEditorResize(): void {
 }
 
 // ── Center tab switching ──────────────────────────────
-let activeCenterTab: "feed" | "board" | "files" = "feed";
+type CenterTab = "cypher" | "feed" | "board" | "files";
+let activeCenterTab: CenterTab = "cypher";
 
-function switchCenterTab(tab: "feed" | "board" | "files"): void {
+function switchCenterTab(tab: CenterTab): void {
   activeCenterTab = tab;
-  for (const p of ["feed", "board", "files"]) {
+  for (const p of ["cypher", "feed", "board", "files"]) {
     const el = document.getElementById(`center-${p}`);
     if (el) el.classList.toggle("hidden", p !== tab);
   }
+
+  if (tab === "cypher") {
+    if (!cypherViz) {
+      cypherViz = new CypherViz();
+      cypherViz.init($("cypher-viz-container"));
+      cypherViz.setJammers(
+        jammers.map((j) => ({
+          id: j.agent_local_id,
+          name: j.name || j.agent_local_id,
+          position: j.position,
+          status: j.status,
+        })),
+      );
+    }
+    cypherViz.start();
+    cypherViz.resize();
+  } else {
+    cypherViz?.stop();
+  }
+
   if (tab === "files") triggerEditorResize();
 
   document.querySelectorAll(".center-tab").forEach((btn) => {
@@ -607,6 +630,19 @@ function renderJammers(): void {
   }
 
   updateTokenScore();
+  syncViz();
+}
+
+function syncViz(): void {
+  if (!cypherViz) return;
+  cypherViz.setJammers(
+    jammers.map((j) => ({
+      id: j.agent_local_id,
+      name: j.name || j.agent_local_id,
+      position: j.position,
+      status: j.status,
+    })),
+  );
 }
 
 function updateTokenScore(): void {
@@ -823,6 +859,7 @@ function addFeedEntry(entry: FeedEntry): void {
   if (!feedPaused && matchesFeedFilter(entry)) {
     renderFeedItem(entry, true);
   }
+  cypherViz?.onFeedEvent(entry.from, entry.kind, entry.body);
 }
 
 function feedKindLabel(kind: string): { label: string; cls: string } {
@@ -1394,6 +1431,11 @@ async function init(): Promise<void> {
       rebuildFeed();
     } catch { /* feed IPC may not be ready */ }
 
+    // Start 3D viz if on the cypher tab (default)
+    if (activeCenterTab === "cypher") {
+      switchCenterTab("cypher");
+    }
+
     subscribeEvents();
   } finally {
     initRunning = false;
@@ -1408,6 +1450,7 @@ function subscribeEvents(): void {
     if (jammer) {
       jammer.status = status as Jammer["status"];
       scheduleJammerRender();
+      cypherViz?.updateStatus(agentName, status);
     }
   });
 
@@ -1530,10 +1573,10 @@ function cleanup(): void {
 function boot(): void {
   initSplitters();
 
-  // Center tab switching (Feed / Board / Files)
+  // Center tab switching (Cypher / Feed / Board / Files)
   document.querySelectorAll(".center-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const tab = (btn as HTMLElement).dataset.ctab as "feed" | "board" | "files";
+      const tab = (btn as HTMLElement).dataset.ctab as CenterTab;
       if (tab) switchCenterTab(tab);
     });
   });
@@ -1643,6 +1686,7 @@ function boot(): void {
     activeFile = null;
     jammerPage = 0;
     if (monacoEditor) monacoEditor.setModel(null);
+    if (cypherViz) { cypherViz.dispose(); cypherViz = null; }
     // Reset view visibility — wrapped view may have been shown for previous cypher
     $("workspace").classList.remove("hidden");
     $("wrapped-view").classList.add("hidden");
@@ -1655,7 +1699,7 @@ function boot(): void {
     $("monaco-container").style.display = "none";
     $("media-viewer").style.display = "none";
     $("viewer-empty").classList.remove("hidden");
-    switchCenterTab("feed");
+    switchCenterTab("cypher");
     initRunning = false;
     void init();
   });

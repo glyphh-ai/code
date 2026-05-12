@@ -33,6 +33,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.19.17",
     "@types/node-cron": "^3.0.11",
+    "@types/three": "^0.184.1",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.0",
     "esbuild": "^0.25.0",
@@ -55,6 +56,7 @@
     "node-cron": "^4.2.1",
     "node-pty": "^1.0.0",
     "onnxruntime-node": "^1.24.3",
+    "three": "^0.184.0",
     "zod": "^4.3.6"
   }
 }
