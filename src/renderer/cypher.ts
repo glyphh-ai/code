@@ -1055,22 +1055,6 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
     { v: duration, l: "Duration" },
   ].map(s => `<div class="wrapped-stat"><div class="wrapped-stat-value">${s.v}</div><div class="wrapped-stat-label">${s.l}</div></div>`).join("");
 
-  // Board summary — list all items with their final status
-  if (boardItems.length > 0) {
-    const statusClass = (s: string) => s.toLowerCase().replace(/\s+/g, "");
-    $("wrapped-board-summary").innerHTML = `
-      <div class="wrapped-section-title">Board</div>
-      <div class="wrapped-board-items">
-        ${boardItems.map(item => `
-          <div class="wrapped-board-item">
-            <span class="wrapped-board-item-status ${statusClass(item.status)}">${escapeHtml(item.status)}</span>
-            <span class="wrapped-board-item-title">${escapeHtml(item.title)}</span>
-            ${item.assignee ? `<span class="wrapped-board-item-assignee">@${escapeHtml(item.assignee)}</span>` : ""}
-          </div>
-        `).join("")}
-      </div>`;
-  }
-
   // Agents — compact chips
   allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
   $("wrapped-agents-section").innerHTML = `
@@ -1176,6 +1160,17 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
         }
       };
       rebuildTree();
+
+      // Auto-highlight README.md in the tree
+      const readmeNode = wrappedTree.find(n => n.name.toLowerCase() === "readme.md");
+      if (readmeNode) {
+        const items = wrappedFileTree.querySelectorAll(".tree-item");
+        items.forEach(el => {
+          if (el.textContent?.trim().endsWith("README.md") || el.textContent?.trim().endsWith("readme.md")) {
+            (el as HTMLElement).classList.add("active");
+          }
+        });
+      }
     } catch { /* no workspace */ }
   }
 
@@ -1492,6 +1487,10 @@ function boot(): void {
   $("feed-filter").addEventListener("change", (e) => {
     feedFilter = (e.target as HTMLSelectElement).value;
     rebuildFeed();
+  });
+
+  $("wrapped-back-btn").addEventListener("click", () => {
+    api.leaveCypher();
   });
 
   $("card-modal-close").addEventListener("click", closeCardModal);

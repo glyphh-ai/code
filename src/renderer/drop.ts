@@ -1686,8 +1686,8 @@ async function enterLobby(c: Cypher): Promise<void> {
   lobbyState.cypher = c;
   lobbyState.autoStartFired = false;
 
-  // Live cyphers go straight to the cypher panel
-  if (c.status === "live") {
+  // Live and wrapped cyphers go straight to the cypher panel
+  if (c.status === "live" || c.status === "wrapped") {
     void activateCypherPanel(c.id, isHostOf(c), c.title);
     return;
   }
