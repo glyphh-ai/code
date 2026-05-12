@@ -3805,6 +3805,12 @@ async function boot() {
     const cy = cData?.cypher;
     const activeJammers = (jData?.jammers || []).filter((j: any) => !j.left_at);
 
+    // Skip full setup for wrapped cyphers — no GitHub, no spawning, no notification
+    if (cy?.status === "wrapped") {
+      console.log("[cypher-session] cypher is wrapped, skipping activation");
+      return;
+    }
+
     // 2. GitHub project + repo are REQUIRED. No GitHub = no cypher.
     let ghStatus = getDropAuthStatus();
     let ownerLogin = ghStatus?.github?.gh_login;
@@ -4048,26 +4054,30 @@ async function boot() {
     }
 
     // 5. Spawn local jammer agents — AFTER all GitHub setup is complete
+    let spawned = 0;
     if (stageWc && !stageWc.isDestroyed()) {
       const spawnResult = await spawnCypherJammers(cypId, stageWc);
-      if (spawnResult.spawned === 0 && activeJammers.length > 0) {
+      spawned = spawnResult.spawned ?? 0;
+      if (spawned === 0 && activeJammers.length > 0) {
         console.warn("[cypher-session] 0 jammers spawned despite", activeJammers.length, "active.", spawnResult);
       }
     }
 
-    // 6. Send status summary to yo panel
-    const statusLines = [
-      `⚡ Cypher: ${cy?.title || "Untitled"} [${cy?.status || "unknown"}]`,
-      cy?.goal ? `Goal: ${cy.goal}` : "",
-      `Jammers: ${activeJammers.length > 0 ? activeJammers.map((j: any) => j.agent_local_id).join(", ") : "none"}`,
-      `Project: ${projectSlug}`,
-    ].filter(Boolean).join("\n");
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("yo-panel-token", statusLines + "\n\n");
-      mainWindow.webContents.send("yo-panel-done", statusLines);
+    // 6. Send status summary to yo panel — only on first activation (when jammers are newly spawned)
+    if (spawned > 0) {
+      const statusLines = [
+        `⚡ Cypher: ${cy?.title || "Untitled"} [${cy?.status || "unknown"}]`,
+        cy?.goal ? `Goal: ${cy.goal}` : "",
+        `Jammers: ${activeJammers.length > 0 ? activeJammers.map((j: any) => j.agent_local_id).join(", ") : "none"}`,
+        `Project: ${projectSlug}`,
+      ].filter(Boolean).join("\n");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("yo-panel-token", statusLines + "\n\n");
+        mainWindow.webContents.send("yo-panel-done", statusLines);
+      }
+      threadStore.appendStage(cypId, { ts: Date.now(), kind: "text", content: statusLines });
+      threadStore.appendStage(cypId, { ts: Date.now(), kind: "done", content: "" });
     }
-    threadStore.appendStage(cypId, { ts: Date.now(), kind: "text", content: statusLines });
-    threadStore.appendStage(cypId, { ts: Date.now(), kind: "done", content: "" });
   }
 
   // ── Cypher panel context — tells the cypher.html panel which cypher to load.

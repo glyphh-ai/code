@@ -1067,6 +1067,8 @@
     padding: 10px 12px; border-bottom: 1px solid var(--border);
     color: var(--text); vertical-align: middle;
   }
+  .dir-table td:first-child { padding-right: 0; width: 60px; }
+  .dir-table td:nth-child(2) { padding-left: 6px; }
   .dir-table tr { cursor: pointer; transition: background 0.15s ease; }
   .dir-table tbody tr:hover { background: var(--surface-2); }
   .dir-table-cover {
@@ -1408,11 +1410,11 @@
   <!-- ═══════════════════════════════════════════════════ -->
   <div class="view hidden" id="view-lobby">
     <div class="lobby-frame">
+      <div class="lobby-back-row">
+        <button class="btn btn-ghost" id="lobby-back">&larr; Back</button>
+      </div>
       <div class="lobby-banner" id="lobby-banner"></div>
       <div class="lobby-head">
-        <div class="lobby-back-row">
-          <button class="btn btn-ghost" id="lobby-back">← Back to Browse</button>
-        </div>
         <h1 id="lobby-title">Untitled cypher</h1>
         <p id="lobby-goal" class="lobby-goal"></p>
         <div class="lobby-status-row">

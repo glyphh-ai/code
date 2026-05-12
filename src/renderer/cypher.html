@@ -398,8 +398,14 @@
     padding: 8px 10px; border-radius: 6px;
     margin-bottom: 4px;
     background: var(--bg); border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
     animation: feed-in 0.25s ease;
   }
+  .feed-item[data-kind="agent_thinking"] { border-left-color: var(--accent); }
+  .feed-item[data-kind="agent_tool_use"] { border-left-color: #ffb400; }
+  .feed-item[data-kind="agent_result"] { border-left-color: #4caf50; }
+  .feed-item[data-kind="agent_error"] { border-left-color: #f44; }
+  .feed-item[data-kind="status"] { border-left-color: var(--text-3); }
   @keyframes feed-in {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
@@ -418,9 +424,15 @@
     font-size: 11px; font-weight: 600; color: var(--accent);
   }
   .feed-item-kind {
-    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
+    font-size: 10px; font-family: var(--font-mono);
     margin-left: auto;
+    padding: 1px 6px; border-radius: 3px;
   }
+  .feed-item-kind.kind-thinking { color: var(--accent); background: rgba(100,200,255,0.08); }
+  .feed-item-kind.kind-tool { color: #ffb400; background: rgba(255,180,0,0.08); }
+  .feed-item-kind.kind-result { color: #4caf50; background: rgba(76,175,80,0.08); }
+  .feed-item-kind.kind-error { color: #f44; background: rgba(244,68,68,0.08); }
+  .feed-item-kind.kind-default { color: var(--text-3); }
   .feed-item-time {
     font-size: 9px; color: var(--text-3); font-family: var(--font-mono);
   }
@@ -438,35 +450,95 @@
     margin-top: 2px; user-select: none;
   }
   .feed-item-expand:hover { color: var(--accent); }
+  .feed-spinner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; margin-bottom: 4px;
+    font-size: 11px; color: var(--text-3);
+    border-radius: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  .feed-spinner:empty { display: none; }
+  .feed-spinner-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    animation: pulse-anim 1.5s ease-in-out infinite;
+  }
 
-  /* ── Chat pane (right bottom) ─────────────────────────── */
+  /* ── Feed toolbar (center pane) ────────────────────────── */
+  .feed-toolbar {
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  /* ── Chat pane (right column — full height) ──────────── */
   .chat-messages {
     flex: 1; overflow-y: auto; padding: 8px;
     display: flex; flex-direction: column; gap: 4px;
   }
-  .chat-input-area {
-    display: flex; gap: 6px;
-    padding: 6px 8px;
+  .cypher-input-wrap {
+    display: flex; align-items: flex-end; gap: 6px;
+    padding: 12px 14px 8px;
     border-top: 1px solid var(--border);
-    background: var(--surface);
     flex-shrink: 0;
   }
-  .chat-input {
+  .cypher-input-wrap textarea {
     flex: 1;
     background: var(--surface-2); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 10px;
-    font-size: 12px; color: var(--text); outline: none;
-    font-family: inherit;
+    border-radius: 12px; padding: 10px 12px;
+    color: var(--text); font-size: 13px; font-family: inherit;
+    resize: none; outline: none;
+    max-height: 160px; min-height: 40px; height: 40px;
+    line-height: 1.5; overflow-y: auto;
   }
-  .chat-input:focus { border-color: var(--accent); }
-  .chat-send-btn {
-    padding: 6px 12px; border-radius: 6px;
-    font-size: 11px; font-weight: 600;
-    border: 1px solid var(--border);
-    background: var(--surface-2); color: var(--text-2);
-    cursor: pointer; transition: all 0.15s;
+  .cypher-input-wrap textarea:focus { border-color: var(--accent); }
+  .cypher-input-wrap textarea::placeholder { color: var(--text-3); }
+  .cypher-input-controls {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px 10px;
+    flex-shrink: 0;
   }
-  .chat-send-btn:hover { border-color: var(--text-3); color: var(--text); }
+  .cypher-drip-btn {
+    background: none; border: none;
+    color: var(--text-3); font-size: 16px;
+    cursor: pointer; flex-shrink: 0;
+    padding: 4px; border-radius: 4px;
+    transition: color 0.15s;
+  }
+  .cypher-drip-btn:hover { color: var(--text-2); }
+  .cypher-send-btn {
+    background: var(--accent); color: #000;
+    border: 2px solid transparent;
+    width: 26px; height: 26px; border-radius: 6px;
+    font-size: 16px; font-weight: 700;
+    cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.15s;
+  }
+  .cypher-send-btn:hover { opacity: 0.8; }
+  .cypher-drip-picker {
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 10px; max-height: 180px; overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .cypher-drip-picker.hidden { display: none; }
+  .cypher-drip-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 4px;
+  }
+  .cypher-drip-tile {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 2px;
+    padding: 6px 2px; border-radius: 8px;
+    cursor: pointer; background: transparent; border: none;
+    color: var(--text-2); transition: background 0.12s;
+    font-size: 12px;
+  }
+  .cypher-drip-tile:hover { background: var(--surface-2); }
+  .cypher-drip-tile .drip-icon { font-size: 20px; }
+  .cypher-drip-tile .drip-label { font-size: 9px; color: var(--text-3); }
 
   /* ── Chat message identity ─────────────────────────────── */
   .chat-msg-row {
@@ -509,11 +581,22 @@
 
   /* ── Wrapped results view ───────────────────────────────── */
   .wrapped-view {
-    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    flex: 1; overflow-y: auto;
   }
-  .wrapped-header {
-    flex-shrink: 0; overflow-y: auto;
+  .wrapped-topbar {
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
   }
+  .wrapped-back-btn {
+    padding: 5px 12px; border-radius: 6px;
+    font-size: 12px; font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-2);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .wrapped-back-btn:hover { border-color: var(--accent); color: var(--accent); }
   .wrapped-frame {
     max-width: 880px; margin: 0 auto; padding: 24px;
   }
@@ -523,15 +606,6 @@
     background-size: cover; background-position: center;
   }
   .wrapped-banner:empty { display: none; }
-  .wrapped-back-row { margin-bottom: 16px; }
-  .wrapped-back-btn {
-    padding: 5px 12px; border-radius: 6px;
-    font-size: 12px; font-weight: 600;
-    border: 1px solid var(--border);
-    background: var(--surface-2); color: var(--text-2);
-    cursor: pointer; transition: all 0.15s;
-  }
-  .wrapped-back-btn:hover { border-color: var(--accent); color: var(--accent); }
   .wrapped-head {
     padding: 0 0 16px; border-bottom: 1px solid var(--border);
   }
@@ -620,51 +694,111 @@
   }
   .wrapped-clone-copy:hover { border-color: var(--accent); color: var(--accent); }
 
-  /* ── Wrapped output (file tree + Monaco viewer) ─────── */
-  .wrapped-output {
-    display: flex; flex: 1; min-height: 0;
-    border-top: 1px solid var(--border);
+  /* ── GitHub-style file table ──────────────────────────── */
+  .wrapped-file-table {
+    border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; margin-top: 24px;
   }
-  .wrapped-output-sidebar {
-    width: 220px; min-width: 160px;
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column;
-    overflow: hidden;
+  .wrapped-file-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; cursor: pointer;
+    transition: background 0.1s;
   }
-  .wrapped-sidebar-header {
-    padding: 8px 12px;
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--text-3);
+  .wrapped-file-row:last-child { border-bottom: none; }
+  .wrapped-file-row:hover { background: var(--surface-2); }
+  .wrapped-file-row.active { background: var(--active-bg, var(--surface-2)); }
+  .wrapped-file-icon {
+    width: 16px; text-align: center; flex-shrink: 0;
+    font-size: 12px; color: var(--text-3);
+  }
+  .wrapped-file-icon.dir { color: var(--accent); }
+  .wrapped-file-name {
+    flex: 1; color: var(--text);
+    font-family: var(--font-mono); font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wrapped-file-name.dir { font-weight: 600; }
+  .wrapped-file-breadcrumb {
+    display: flex; align-items: center; gap: 4px;
+    padding: 8px 16px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
-  }
-  .wrapped-file-tree {
-    flex: 1; overflow-y: auto; padding: 4px;
     font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-3);
   }
-  .wrapped-output-main {
-    flex: 1; display: flex; flex-direction: column;
-    overflow: hidden; min-width: 0;
+  .wrapped-file-breadcrumb a {
+    color: var(--accent); text-decoration: none; cursor: pointer;
   }
-  .wrapped-viewer-tabs {
-    display: flex; gap: 0;
+  .wrapped-file-breadcrumb a:hover { text-decoration: underline; }
+
+  /* ── File content viewer (inline) ─────────────────────── */
+  .wrapped-file-content {
+    border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; margin-top: 16px;
+  }
+  .wrapped-file-content:empty { display: none; }
+  .wrapped-file-content-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    overflow-x: auto;
-    flex-shrink: 0;
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-2);
   }
-  .wrapped-viewer-empty {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--text-3); font-size: 13px;
+  .wrapped-file-content-body {
+    padding: 16px;
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+    color: var(--text); overflow-x: auto;
+    background: var(--bg);
+    max-height: 600px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-word;
   }
-  #wrapped-monaco-container { flex: 1; overflow: hidden; }
-  #wrapped-media-viewer {
-    flex: 1; overflow: auto; padding: 20px;
-    display: none; align-items: center; justify-content: center;
+  .wrapped-file-content-body img { max-width: 100%; border-radius: 8px; }
+
+  /* ── README section ───────────────────────────────────── */
+  .wrapped-readme {
+    border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; margin-top: 16px;
   }
-  #wrapped-media-viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; }
-  #wrapped-media-viewer audio { width: 80%; }
-  #wrapped-media-viewer video { max-width: 100%; max-height: 100%; border-radius: 8px; }
+  .wrapped-readme:empty { display: none; }
+  .wrapped-readme-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 600; color: var(--text);
+  }
+  .wrapped-readme-content {
+    padding: 24px 32px;
+    line-height: 1.7; font-size: 14px; color: var(--text);
+  }
+  .wrapped-readme-content h1 { font-size: 22px; font-weight: 800; margin: 0 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .wrapped-readme-content h2 { font-size: 17px; font-weight: 700; margin: 20px 0 8px; }
+  .wrapped-readme-content h3 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; }
+  .wrapped-readme-content p { margin: 8px 0; }
+  .wrapped-readme-content ul, .wrapped-readme-content ol { margin: 8px 0; padding-left: 24px; }
+  .wrapped-readme-content li { margin: 4px 0; }
+  .wrapped-readme-content code {
+    font-family: var(--font-mono); font-size: 13px;
+    background: var(--surface-2); padding: 1px 5px; border-radius: 3px;
+  }
+  .wrapped-readme-content pre {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px; overflow-x: auto;
+    margin: 12px 0; font-size: 13px; line-height: 1.5;
+  }
+  .wrapped-readme-content pre code { background: none; padding: 0; }
+  .wrapped-readme-content blockquote {
+    border-left: 3px solid var(--accent); padding: 4px 16px;
+    margin: 8px 0; color: var(--text-2);
+    background: var(--surface); border-radius: 0 6px 6px 0;
+  }
+  .wrapped-readme-content a { color: var(--accent); text-decoration: none; }
+  .wrapped-readme-content a:hover { text-decoration: underline; }
+  .wrapped-readme-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .wrapped-readme-content img { max-width: 100%; border-radius: 8px; margin: 8px 0; }
 
   /* ── Card detail modal ─────────────────────────────────── */
   .card-modal-overlay {
@@ -884,15 +1018,35 @@
 
   <div class="vsplit" id="vsplit-left"></div>
 
-  <!-- Center column: Board + Files tabs -->
+  <!-- Center column: Feed + Board + Files tabs -->
   <div class="col col-center" id="col-center">
     <div class="center-tabs">
-      <button class="center-tab active" data-ctab="board">Board</button>
+      <button class="center-tab active" data-ctab="feed">Feed</button>
+      <button class="center-tab" data-ctab="board">Board</button>
       <button class="center-tab" data-ctab="files">Files</button>
     </div>
 
+    <!-- Feed view (default) -->
+    <div class="center-pane" id="center-feed">
+      <div class="feed-toolbar">
+        <div class="feed-controls">
+          <button class="feed-ctrl-btn" id="feed-pause" title="Pause feed">&#9646;&#9646;</button>
+          <select class="feed-filter" id="feed-filter">
+            <option value="all">All</option>
+            <option value="status">Status</option>
+            <option value="broadcast">Broadcast</option>
+            <option value="board">Board</option>
+          </select>
+        </div>
+      </div>
+      <div class="feed-spinner" id="feed-spinner"></div>
+      <div class="feed-list" id="feed-list">
+        <div class="feed-empty" id="feed-empty">No activity yet</div>
+      </div>
+    </div>
+
     <!-- Board view -->
-    <div class="center-pane" id="center-board">
+    <div class="center-pane hidden" id="center-board">
       <div class="board-view" id="board-view">
         <div class="board-column">
           <div class="board-col-header">Backlog <span class="count" id="board-count-backlog">0</span></div>
@@ -924,34 +1078,19 @@
 
   <div class="vsplit" id="vsplit-right"></div>
 
-  <!-- Right column: feed + chat -->
+  <!-- Right column: chat -->
   <div class="col col-right" id="col-right">
-    <div class="pane pane-top" id="pane-feed">
-      <div class="pane-header">
-        Feed
-        <div class="feed-controls">
-          <button class="feed-ctrl-btn" id="feed-pause" title="Pause feed">&#9646;&#9646;</button>
-          <select class="feed-filter" id="feed-filter">
-            <option value="all">All</option>
-            <option value="status">Status</option>
-            <option value="broadcast">Broadcast</option>
-            <option value="board">Board</option>
-          </select>
-        </div>
-      </div>
-      <div class="feed-list" id="feed-list">
-        <div class="feed-empty" id="feed-empty">No activity yet</div>
-      </div>
+    <div class="pane-header">Chat</div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="cypher-input-wrap">
+      <textarea id="chat-input" rows="1" placeholder=".yo ..."></textarea>
     </div>
-    <div class="hsplit" id="hsplit-right"></div>
-    <div class="pane pane-bottom" id="pane-chat">
-      <div class="pane-header">Chat</div>
-      <div class="chat-messages" id="chat-messages"></div>
-      <div class="chat-input-area">
-        <input type="text" class="chat-input" id="chat-input" placeholder="Message..." />
-        <button class="chat-send-btn" id="chat-send">Send</button>
-      </div>
+    <div class="cypher-input-controls">
+      <button class="cypher-drip-btn" id="cypher-drip-btn" title="Drips">&#x2728;</button>
+      <div style="flex:1;"></div>
+      <button class="cypher-send-btn" id="chat-send">&#x2191;</button>
     </div>
+    <div class="cypher-drip-picker hidden" id="cypher-drip-picker"></div>
   </div>
 
 </div>
@@ -977,33 +1116,22 @@
 
 <!-- Wrapped results (shown after cypher closes) -->
 <div class="wrapped-view hidden" id="wrapped-view">
-  <div class="wrapped-header">
-    <div class="wrapped-frame">
-      <div class="wrapped-banner" id="wrapped-banner"></div>
-      <div class="wrapped-back-row">
-        <button class="wrapped-back-btn" id="wrapped-back-btn">&larr; Back</button>
-      </div>
-      <div class="wrapped-head">
+  <div class="wrapped-frame">
+    <div style="margin-bottom:12px;">
+      <button class="wrapped-back-btn" id="wrapped-back-btn">&larr; Back</button>
+    </div>
+    <div class="wrapped-banner" id="wrapped-banner"></div>
+    <div class="wrapped-head">
         <h1 id="wrapped-title"></h1>
         <p class="wrapped-goal" id="wrapped-goal"></p>
         <div class="wrapped-meta-row" id="wrapped-meta-row"></div>
         <div class="wrapped-agents-row" id="wrapped-agents-row"></div>
         <div class="wrapped-repo" id="wrapped-repo"></div>
       </div>
+      <div class="wrapped-file-table" id="wrapped-file-table"></div>
+      <div class="wrapped-file-content" id="wrapped-file-content"></div>
+      <div class="wrapped-readme" id="wrapped-readme"></div>
     </div>
-  </div>
-  <div class="wrapped-output">
-    <div class="wrapped-output-sidebar" id="wrapped-output-sidebar">
-      <div class="wrapped-sidebar-header">Files</div>
-      <div class="wrapped-file-tree" id="wrapped-file-tree"></div>
-    </div>
-    <div class="wrapped-output-main" id="wrapped-output-main">
-      <div class="wrapped-viewer-tabs" id="wrapped-viewer-tabs"></div>
-      <div class="wrapped-viewer-empty" id="wrapped-viewer-empty">Select a file to view</div>
-      <div id="wrapped-monaco-container"></div>
-      <div id="wrapped-media-viewer"></div>
-    </div>
-  </div>
 </div>
 
 <script src="monaco/loader.js"></script>

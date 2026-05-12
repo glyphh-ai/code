@@ -155,6 +155,43 @@ function languageFromExt(ext: string): string {
 function isMediaFile(ext: string): boolean {
   return ["png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "wav", "ogg", "mp4", "webm"].includes(ext);
 }
+function inlineMarkdown(text: string): string {
+  let s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  return s;
+}
+
+function renderMarkdown(md: string): string {
+  const lines = md.split("\n");
+  let html = "";
+  let inCode = false;
+  let inList = false;
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      if (inCode) { html += "</code></pre>"; inCode = false; }
+      else { if (inList) { html += "</ul>"; inList = false; } html += "<pre><code>"; inCode = true; }
+      continue;
+    }
+    if (inCode) { html += escapeHtml(line) + "\n"; continue; }
+    const t = line.trim();
+    if (!t) { if (inList) { html += "</ul>"; inList = false; } continue; }
+    if (t.startsWith("### ")) { if (inList) { html += "</ul>"; inList = false; } html += `<h3>${inlineMarkdown(t.slice(4))}</h3>`; continue; }
+    if (t.startsWith("## ")) { if (inList) { html += "</ul>"; inList = false; } html += `<h2>${inlineMarkdown(t.slice(3))}</h2>`; continue; }
+    if (t.startsWith("# ")) { if (inList) { html += "</ul>"; inList = false; } html += `<h1>${inlineMarkdown(t.slice(2))}</h1>`; continue; }
+    if (/^---+$/.test(t)) { if (inList) { html += "</ul>"; inList = false; } html += "<hr>"; continue; }
+    if (t.startsWith("> ")) { if (inList) { html += "</ul>"; inList = false; } html += `<blockquote>${inlineMarkdown(t.slice(2))}</blockquote>`; continue; }
+    if (/^[*\-] /.test(t)) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inlineMarkdown(t.slice(2))}</li>`; continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    html += `<p>${inlineMarkdown(t)}</p>`;
+  }
+  if (inCode) html += "</code></pre>";
+  if (inList) html += "</ul>";
+  return html;
+}
+
 function relativeTime(ts: number): string {
   const diff = Math.floor((Date.now() - ts) / 1000);
   if (diff < 10) return "now";
@@ -172,9 +209,8 @@ function initSplitters(): void {
   // Right vsplit: drag resizes col-right (inverted — drag right = narrower)
   setupVSplit("vsplit-right", "col-right", true);
 
-  // Horizontal splitters (within columns)
+  // Horizontal splitter (left column: files / jammers)
   setupHSplit("hsplit-left", "pane-files", "pane-jammers", "col-left");
-  setupHSplit("hsplit-right", "pane-feed", "pane-chat", "col-right");
 
   // Double-click to toggle collapse
   $("vsplit-right").addEventListener("dblclick", () => {
@@ -269,21 +305,15 @@ function triggerEditorResize(): void {
 }
 
 // ── Center tab switching ──────────────────────────────
-let activeCenterTab: "board" | "files" = "board";
+let activeCenterTab: "feed" | "board" | "files" = "feed";
 
-function switchCenterTab(tab: "board" | "files"): void {
+function switchCenterTab(tab: "feed" | "board" | "files"): void {
   activeCenterTab = tab;
-  const boardPane = $("center-board");
-  const filesPane = $("center-files");
-
-  if (tab === "board") {
-    boardPane.classList.remove("hidden");
-    filesPane.classList.add("hidden");
-  } else {
-    boardPane.classList.add("hidden");
-    filesPane.classList.remove("hidden");
-    triggerEditorResize();
+  for (const p of ["feed", "board", "files"]) {
+    const el = document.getElementById(`center-${p}`);
+    if (el) el.classList.toggle("hidden", p !== tab);
   }
+  if (tab === "files") triggerEditorResize();
 
   document.querySelectorAll(".center-tab").forEach((btn) => {
     btn.classList.toggle("active", (btn as HTMLElement).dataset.ctab === tab);
@@ -588,6 +618,19 @@ function updateTokenScore(): void {
   } else {
     el.innerHTML = "";
   }
+  updateFeedSpinner();
+}
+
+function updateFeedSpinner(): void {
+  const spinner = document.getElementById("feed-spinner");
+  if (!spinner) return;
+  const running = jammers.filter(j => j.status === "running" || j.status === "starting");
+  if (running.length > 0) {
+    const names = running.map(j => j.name || j.agent_local_id).join(", ");
+    spinner.innerHTML = `<span class="feed-spinner-dot"></span>${escapeHtml(names)} working...`;
+  } else {
+    spinner.innerHTML = "";
+  }
 }
 
 // Debounced status update — batch rapid status changes into a single render
@@ -782,6 +825,16 @@ function addFeedEntry(entry: FeedEntry): void {
   }
 }
 
+function feedKindLabel(kind: string): { label: string; cls: string } {
+  switch (kind) {
+    case "agent_thinking": return { label: "thinking", cls: "kind-thinking" };
+    case "agent_tool_use": return { label: "tool", cls: "kind-tool" };
+    case "agent_result": return { label: "done", cls: "kind-result" };
+    case "agent_error": return { label: "error", cls: "kind-error" };
+    default: return { label: kind, cls: "kind-default" };
+  }
+}
+
 function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
   const list = $("feed-list");
   const empty = document.getElementById("feed-empty");
@@ -798,12 +851,13 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
 
   const fullBody = escapeHtml(entry.body);
   const truncated = entry.body.length > 200;
+  const { label, cls } = feedKindLabel(entry.kind);
 
   el.innerHTML = `
     <div class="feed-item-header">
       <div class="feed-item-avatar">${avatarHtml}</div>
       <span class="feed-item-name">${escapeHtml(entry.from)}</span>
-      <span class="feed-item-kind">${escapeHtml(entry.kind)}</span>
+      <span class="feed-item-kind ${cls}">${escapeHtml(label)}</span>
       <span class="feed-item-time">${relativeTime(entry.ts)}</span>
     </div>
     <div class="feed-item-body">${fullBody}</div>
@@ -894,10 +948,11 @@ function fireDripThrottled(recipe: string): void {
 }
 
 function sendChat(): void {
-  const input = $("chat-input") as HTMLInputElement;
+  const input = $("chat-input") as HTMLTextAreaElement;
   const text = input.value.trim();
   if (!text || !cypherId) return;
   input.value = "";
+  input.style.height = "40px";
 
   // Detect .drip command
   if (text.startsWith(".drip ") || text === ".drip") {
@@ -1075,180 +1130,132 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
     } catch { /* no project */ }
   }
 
-  // Output section — file tree + Monaco viewer (same as live view)
-  const wrappedFileTree = $("wrapped-file-tree");
-  const wrappedTabs = $("wrapped-viewer-tabs");
-  const wrappedEmpty = $("wrapped-viewer-empty");
-  const wrappedMonaco = $("wrapped-monaco-container");
-  const wrappedMedia = $("wrapped-media-viewer");
+  // GitHub-style file table + inline README
+  const fileTableEl = $("wrapped-file-table");
+  const fileContentEl = $("wrapped-file-content");
+  const readmeEl = $("wrapped-readme");
+  fileTableEl.innerHTML = "";
+  fileContentEl.innerHTML = "";
+  readmeEl.innerHTML = "";
 
-  let wrappedEditor: any = null;
-  let wrappedOpenTabs: { path: string; name: string }[] = [];
-  let wrappedActiveFile: string | null = null;
+  async function renderFileTable(dirPath: string): Promise<void> {
+    fileTableEl.innerHTML = "";
+    fileContentEl.innerHTML = "";
 
-  async function initWrappedEditor(): Promise<void> {
-    await ensureMonaco();
-    const monaco = (window as any).monaco;
-    if (wrappedEditor) return;
-    wrappedEditor = monaco.editor.create(wrappedMonaco, {
-      value: "",
-      language: "plaintext",
-      theme: "vs-dark",
-      fontSize: 13,
-      fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
-      minimap: { enabled: false },
-      wordWrap: "on",
-      automaticLayout: true,
-      readOnly: true,
-      padding: { top: 12 },
-      smoothScrolling: true,
-      scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
-      renderLineHighlight: "none",
-      lineNumbers: "on",
-    });
-  }
+    let entries: Array<{ name: string; isDir: boolean }> = [];
+    try { entries = await api.listDir(dirPath); } catch { return; }
 
-  function renderWrappedTabs(): void {
-    wrappedTabs.innerHTML = "";
-    for (const tab of wrappedOpenTabs) {
-      const el = document.createElement("div");
-      el.className = `viewer-tab${tab.path === wrappedActiveFile ? " active" : ""}`;
-      el.innerHTML = `${escapeHtml(tab.name)}<span class="tab-close">✕</span>`;
-      el.addEventListener("click", () => wrappedOpenFile(tab.path, tab.name));
-      el.querySelector(".tab-close")!.addEventListener("click", (e) => {
-        e.stopPropagation();
-        wrappedOpenTabs = wrappedOpenTabs.filter(t => t.path !== tab.path);
-        if (wrappedActiveFile === tab.path) {
-          if (wrappedOpenTabs.length > 0) {
-            const last = wrappedOpenTabs[wrappedOpenTabs.length - 1];
-            wrappedOpenFile(last.path, last.name);
-          } else {
-            wrappedActiveFile = null;
-            wrappedMonaco.style.display = "none";
-            wrappedMedia.style.display = "none";
-            wrappedEmpty.classList.remove("hidden");
-            renderWrappedTabs();
-            renderWrappedTree();
-          }
-        } else {
-          renderWrappedTabs();
-        }
-      });
-      wrappedTabs.appendChild(el);
-    }
-  }
+    if (workspacePath && dirPath !== workspacePath) {
+      const bc = document.createElement("div");
+      bc.className = "wrapped-file-breadcrumb";
+      const rootLink = document.createElement("a");
+      rootLink.textContent = "root";
+      rootLink.addEventListener("click", () => renderFileTable(workspacePath!));
+      bc.appendChild(rootLink);
 
-  async function wrappedOpenFile(filePath: string, name: string): Promise<void> {
-    wrappedActiveFile = filePath;
-    if (!wrappedOpenTabs.find(t => t.path === filePath)) {
-      wrappedOpenTabs.push({ path: filePath, name });
-    }
-    renderWrappedTabs();
-    renderWrappedTree();
-
-    const ext = fileExtension(name);
-    if (isMediaFile(ext)) {
-      wrappedMonaco.style.display = "none";
-      wrappedMedia.style.display = "flex";
-      wrappedEmpty.classList.add("hidden");
-      const { content, binary } = await api.readFile(filePath);
-      if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
-        const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
-        wrappedMedia.innerHTML = `<img src="${src}" />`;
-      } else if (ext === "svg") {
-        wrappedMedia.innerHTML = binary ? "" : content;
-      } else if (["mp3", "wav", "ogg"].includes(ext)) {
-        const src = binary ? `data:audio/${ext};base64,${content}` : "";
-        wrappedMedia.innerHTML = `<audio controls src="${src}"></audio>`;
-      } else if (["mp4", "webm"].includes(ext)) {
-        const src = binary ? `data:video/${ext};base64,${content}` : "";
-        wrappedMedia.innerHTML = `<video controls src="${src}"></video>`;
+      const relative = dirPath.slice(workspacePath.length + 1);
+      const parts = relative.split("/");
+      let cumPath = workspacePath;
+      for (const part of parts) {
+        cumPath += "/" + part;
+        bc.appendChild(document.createTextNode(" / "));
+        const link = document.createElement("a");
+        link.textContent = part;
+        const navPath = cumPath;
+        link.addEventListener("click", () => renderFileTable(navPath));
+        bc.appendChild(link);
       }
-    } else {
-      wrappedMedia.style.display = "none";
-      wrappedMonaco.style.display = "block";
-      wrappedEmpty.classList.add("hidden");
-      await initWrappedEditor();
-      const { content } = await api.readFile(filePath);
-      const monaco = (window as any).monaco;
-      const lang = languageFromExt(ext);
-      const model = monaco.editor.createModel(content, lang);
-      wrappedEditor.setModel(model);
+      fileTableEl.appendChild(bc);
+
+      const backRow = document.createElement("div");
+      backRow.className = "wrapped-file-row";
+      backRow.innerHTML = `<span class="wrapped-file-icon">..</span><span class="wrapped-file-name dir">..</span>`;
+      const parentDir = dirPath.slice(0, dirPath.lastIndexOf("/")) || workspacePath;
+      backRow.addEventListener("click", () => renderFileTable(parentDir));
+      fileTableEl.appendChild(backRow);
     }
-  }
 
-  // Build and render file tree
-  let wrappedTree: FileNode[] = [];
+    const dirs = entries.filter(e => e.isDir).sort((a, b) => a.name.localeCompare(b.name));
+    const files = entries.filter(e => !e.isDir).sort((a, b) => a.name.localeCompare(b.name));
 
-  function renderWrappedTree(): void {
-    wrappedFileTree.innerHTML = "";
-    renderWrappedNodes(wrappedTree, 0);
-  }
+    for (const entry of [...dirs, ...files]) {
+      const row = document.createElement("div");
+      row.className = "wrapped-file-row";
+      const iconCls = entry.isDir ? " dir" : "";
+      const icon = entry.isDir ? "▸" : "·";
+      const nameCls = entry.isDir ? " dir" : "";
+      row.innerHTML = `<span class="wrapped-file-icon${iconCls}">${icon}</span><span class="wrapped-file-name${nameCls}">${escapeHtml(entry.name)}</span>`;
 
-  function renderWrappedNodes(nodes: FileNode[], depth: number): void {
-    for (const node of nodes) {
-      const item = document.createElement("div");
-      const isActive = !node.isDir && node.path === wrappedActiveFile;
-      item.className = `tree-item${node.isDir ? " dir" : ""}${isActive ? " active" : ""}`;
-      item.style.paddingLeft = `${8 + depth * 14}px`;
-      const icon = node.isDir ? (node.expanded ? "▾" : "▸") : "·";
-      item.innerHTML = `<span class="tree-icon">${icon}</span> ${escapeHtml(node.name)}`;
-
-      if (!node.isDir) {
-        item.style.cursor = "pointer";
-        item.addEventListener("click", () => wrappedOpenFile(node.path, node.name));
-        item.addEventListener("dblclick", () => api.openInVSCode(node.path));
+      if (entry.isDir) {
+        row.addEventListener("click", () => renderFileTable(dirPath + "/" + entry.name));
       } else {
-        item.style.cursor = "pointer";
-        item.addEventListener("click", async () => {
-          node.expanded = !node.expanded;
-          if (node.expanded && !node.children) {
-            node.children = await loadFileTree(node.path, (node.depth ?? depth) + 1);
-          }
-          renderWrappedTree();
+        const filePath = dirPath + "/" + entry.name;
+        row.addEventListener("click", () => {
+          fileTableEl.querySelectorAll(".wrapped-file-row.active").forEach(r => r.classList.remove("active"));
+          row.classList.add("active");
+          showInlineFile(filePath, entry.name);
         });
+        row.addEventListener("dblclick", () => api.openInVSCode(dirPath + "/" + entry.name));
       }
+      fileTableEl.appendChild(row);
+    }
+  }
 
-      wrappedFileTree.appendChild(item);
-      if (node.isDir && node.expanded && node.children) {
-        renderWrappedNodes(node.children, depth + 1);
+  async function showInlineFile(filePath: string, name: string): Promise<void> {
+    const ext = fileExtension(name);
+    try {
+      if (isMediaFile(ext)) {
+        const { content, binary } = await api.readFile(filePath);
+        let media = "";
+        if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+          const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
+          media = `<img src="${src}" />`;
+        } else if (ext === "svg") {
+          media = binary ? "" : content;
+        } else if (["mp3", "wav", "ogg"].includes(ext)) {
+          const src = binary ? `data:audio/${ext};base64,${content}` : "";
+          media = `<audio controls src="${src}"></audio>`;
+        } else if (["mp4", "webm"].includes(ext)) {
+          const src = binary ? `data:video/${ext};base64,${content}` : "";
+          media = `<video controls src="${src}"></video>`;
+        }
+        fileContentEl.innerHTML = `<div class="wrapped-file-content-header">${escapeHtml(name)}</div><div class="wrapped-file-content-body">${media}</div>`;
+      } else {
+        const { content } = await api.readFile(filePath);
+        fileContentEl.innerHTML = `<div class="wrapped-file-content-header">${escapeHtml(name)}</div><div class="wrapped-file-content-body">${escapeHtml(content)}</div>`;
       }
+    } catch {
+      fileContentEl.innerHTML = `<div class="wrapped-file-content-header">${escapeHtml(name)}</div><div class="wrapped-file-content-body" style="color:var(--text-3)">Failed to load file</div>`;
     }
   }
 
   if (workspacePath) {
-    try {
-      wrappedTree = await loadFileTree(workspacePath);
-      for (const node of wrappedTree) {
-        if (node.isDir) {
-          node.children = await loadFileTree(node.path, 1);
-          node.expanded = true;
-        }
-      }
-      renderWrappedTree();
-    } catch { /* no workspace */ }
+    try { await renderFileTable(workspacePath); } catch { /* no workspace */ }
 
-    // Auto-open README.md: project root first, then leader's sandbox as fallback
-    let readmePath: string | null = null;
+    // Find and render README.md inline below the file table
+    let readmeContent: string | null = null;
+    let readmeSource = "README.md";
     try {
-      const rootReadme = workspacePath + "/README.md";
-      const result = await api.readFile(rootReadme);
-      if (result?.content && !result.binary) readmePath = rootReadme;
+      const result = await api.readFile(workspacePath + "/README.md");
+      if (result?.content && !result.binary) readmeContent = result.content;
     } catch { /* no root readme */ }
 
-    if (!readmePath) {
+    if (!readmeContent) {
       const leaderJammer = allJammers.find(j => j.position === "leader");
       if (leaderJammer) {
         try {
           const leaderReadme = workspacePath + "/" + leaderJammer.agent_local_id + "/README.md";
           const result = await api.readFile(leaderReadme);
-          if (result?.content && !result.binary) readmePath = leaderReadme;
+          if (result?.content && !result.binary) {
+            readmeContent = result.content;
+            readmeSource = leaderJammer.agent_local_id + "/README.md";
+          }
         } catch { /* no leader readme */ }
       }
     }
 
-    if (readmePath) {
-      await wrappedOpenFile(readmePath, "README.md");
+    if (readmeContent) {
+      readmeEl.innerHTML = `<div class="wrapped-readme-header">${escapeHtml(readmeSource)}</div><div class="wrapped-readme-content">${renderMarkdown(readmeContent)}</div>`;
     }
   }
 }
@@ -1337,6 +1344,10 @@ async function init(): Promise<void> {
       await showWrappedResults(cypher, allJammers);
       return;
     }
+
+    // Ensure workspace is visible (may have been hidden by a previous wrapped view)
+    $("workspace").classList.remove("hidden");
+    $("wrapped-view").classList.add("hidden");
 
     // Only show close button for owner of a live cypher
     if (isOwner && cypher?.status === "live") {
@@ -1519,10 +1530,10 @@ function cleanup(): void {
 function boot(): void {
   initSplitters();
 
-  // Center tab switching (Board / Files)
+  // Center tab switching (Feed / Board / Files)
   document.querySelectorAll(".center-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const tab = (btn as HTMLElement).dataset.ctab as "board" | "files";
+      const tab = (btn as HTMLElement).dataset.ctab as "feed" | "board" | "files";
       if (tab) switchCenterTab(tab);
     });
   });
@@ -1580,8 +1591,45 @@ function boot(): void {
   });
 
   $("chat-send").addEventListener("click", sendChat);
-  $("chat-input").addEventListener("keydown", (e) => {
-    if ((e as KeyboardEvent).key === "Enter") sendChat();
+  const chatTextarea = $("chat-input") as HTMLTextAreaElement;
+  chatTextarea.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter" && !(e as KeyboardEvent).shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  chatTextarea.addEventListener("input", () => {
+    chatTextarea.style.height = "40px";
+    chatTextarea.style.height = Math.min(chatTextarea.scrollHeight, 160) + "px";
+  });
+
+  // Drip picker
+  const DRIP_RECIPES = [
+    { icon: "🎆", label: "fireworks", recipe: "fireworks" },
+    { icon: "🔥", label: "fire", recipe: "fire" },
+    { icon: "❄️", label: "snow", recipe: "snow" },
+    { icon: "🌧️", label: "rain", recipe: "rain" },
+    { icon: "✨", label: "sparkle", recipe: "sparkle" },
+    { icon: "🎉", label: "confetti", recipe: "confetti" },
+    { icon: "💫", label: "stars", recipe: "stars" },
+    { icon: "🌊", label: "wave", recipe: "wave" },
+  ];
+  const dripPicker = $("cypher-drip-picker");
+  dripPicker.innerHTML = `<div class="cypher-drip-grid">${DRIP_RECIPES.map(d =>
+    `<button class="cypher-drip-tile" data-recipe="${d.recipe}"><span class="drip-icon">${d.icon}</span><span class="drip-label">${d.label}</span></button>`
+  ).join("")}</div>`;
+  dripPicker.querySelectorAll(".cypher-drip-tile").forEach(tile => {
+    tile.addEventListener("click", () => {
+      const recipe = (tile as HTMLElement).dataset.recipe || "fireworks";
+      dripPicker.classList.add("hidden");
+      if (!cypherId) return;
+      addDripMessage(myHandle || "You", recipe, true);
+      fireDripThrottled(recipe);
+      api.cypherPostEvent(cypherId, "drip", { recipe, sender: myHandle || "unknown" });
+    });
+  });
+  $("cypher-drip-btn").addEventListener("click", () => {
+    dripPicker.classList.toggle("hidden");
   });
 
   api.onContextReady(() => {
@@ -1595,6 +1643,10 @@ function boot(): void {
     activeFile = null;
     jammerPage = 0;
     if (monacoEditor) monacoEditor.setModel(null);
+    // Reset view visibility — wrapped view may have been shown for previous cypher
+    $("workspace").classList.remove("hidden");
+    $("wrapped-view").classList.add("hidden");
+    $("btn-close-cypher").classList.remove("hidden");
     $("file-tree").innerHTML = "";
     $("jammer-list").innerHTML = "";
     $("feed-list").innerHTML = `<div class="feed-empty" id="feed-empty">No activity yet</div>`;
@@ -1603,7 +1655,7 @@ function boot(): void {
     $("monaco-container").style.display = "none";
     $("media-viewer").style.display = "none";
     $("viewer-empty").classList.remove("hidden");
-    switchCenterTab("board");
+    switchCenterTab("feed");
     initRunning = false;
     void init();
   });
