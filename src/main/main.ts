@@ -3773,10 +3773,14 @@ async function boot() {
     }
 
     let projectSlug: string | null = null;
-    const projR = await serverGetAuthed<{ project?: { slug: string; gh_project_url: string | null } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
-    if (projR?.project) {
-      projectSlug = projR.project.slug;
-      console.log("[cypher-session] existing project:", projectSlug);
+    try {
+      const projR = await serverGetAuthed<{ project?: { slug: string; gh_project_url: string | null } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+      if (projR?.project) {
+        projectSlug = projR.project.slug;
+        console.log("[cypher-session] existing project:", projectSlug);
+      }
+    } catch {
+      // 404 is expected for new cyphers — no project linked yet, will create below
     }
 
     if (!projectSlug) {
@@ -4042,20 +4046,26 @@ async function boot() {
     mcpExpose?.setHierarchyContext(hierarchyMap);
     cypherBus.setHierarchyContext(hierarchyMap);
 
-    // Wire project board context — GitHub project is required
-    const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
-    if (!projR?.project?.slug) {
+    // Wire project board context — GitHub project is required (created by activateCypherSession)
+    let projSlug: string | null = null;
+    try {
+      const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+      projSlug = projR?.project?.slug ?? null;
+    } catch {
+      // 404 means no project linked
+    }
+    if (!projSlug) {
       console.error("[spawn-jammers] BLOCKED: no GitHub project for cypher", cypId);
-      return { ok: false, error: "No GitHub project linked to this cypher" };
+      return { ok: false, error: "No GitHub project linked to this cypher. Re-activate the cypher session first." };
     }
     if (mcpExpose) {
       mcpExpose.setProjectContext({
-        projectRef: projR.project.slug,
+        projectRef: projSlug,
         serverGet: serverGetAuthed,
         serverPost: serverPostAuthed,
       });
     }
-    console.log(`[spawn-jammers] project board wired: ${projR.project.slug}`);
+    console.log(`[spawn-jammers] project board wired: ${projSlug}`);
 
     const mcpUrl = mcpExpose?.isRunning ? `http://127.0.0.1:${mcpExpose.getPort()}/mcp` : null;
     let mcpToken: string | undefined;
