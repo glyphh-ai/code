@@ -31,7 +31,7 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 // THE-PIVOT-GITHUB Phase 1 scaffolding (gh-pivot branch). Drop session is
 // scoped — independent rotation/revocation from the main yo session.
-import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus, getDropAccessToken } from "./drop-auth";
+import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus } from "./drop-auth";
 import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
@@ -4276,7 +4276,13 @@ async function boot() {
       console.error("[spawn-jammers] BLOCKED: no project/repo for cypher", cypId, "slug:", projSlug, "repos:", linkedRepos.length);
       return { ok: false, error: "No GitHub project with a linked repo. Re-activate the cypher session first." };
     }
-    const ghToken = getDropAccessToken();
+    let ghToken: string | null = null;
+    try {
+      const ghTokR = await serverGetAuthed<{ token: string }>("/api/me/gh-token");
+      ghToken = ghTokR?.token ?? null;
+    } catch {
+      console.warn("[spawn-jammers] could not fetch GitHub token — gh_* tools will be unavailable");
+    }
     if (mcpExpose) {
       mcpExpose.setProjectContext({
         projectRef: projSlug,

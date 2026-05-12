@@ -2,9 +2,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 // ── Config ────────────────────────────────────────────
-const GRID = 6;
-const TINY = 0.09;
-const GAP = 0.24;
+const GRID = 8;
+const TINY = 0.03;
+const GAP = 0.14;
 const ORBIT_R = 16;
 const GH_R = 2.8;
 const GH_N = 280;

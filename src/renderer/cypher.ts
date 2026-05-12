@@ -1519,6 +1519,17 @@ function subscribeEvents(): void {
   });
 
   fileTreeRefreshTimer = setInterval(async () => {
+    if (!workspacePath && cypherId) {
+      workspacePath = await api.getCypherWorkspacePath(cypherId);
+      if (workspacePath) {
+        fileTree = await loadFileTree(workspacePath);
+        for (const node of fileTree) {
+          if (node.isDir) { node.children = await loadFileTree(node.path, 1); node.expanded = true; }
+        }
+        renderFileTree();
+        return;
+      }
+    }
     if (!workspacePath) return;
     try {
       const prevPaths = new Set(flattenTree(fileTree).map(n => n.path));
