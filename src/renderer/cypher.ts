@@ -14,6 +14,7 @@ interface CypherAPI {
   cypherEventsList: (id: string, opts?: { since?: number; limit?: number }) => Promise<any>;
   cypherSpawnJammers: (id: string) => Promise<any>;
   cypherWrap: (id: string) => Promise<any>;
+  cypherCoverGet: (id: string) => Promise<{ ok: boolean; data_base64?: string; content_type?: string }>;
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
@@ -964,20 +965,63 @@ async function closeCypher(): Promise<void> {
     }
 
     const cypher = (result as any)?.cypher;
-    showWrappedResults(cypher, allJammers);
+    await showWrappedResults(cypher, allJammers);
   } catch {
     btn.textContent = "Close Cypher";
     btn.disabled = false;
   }
 }
 
-function showWrappedResults(cypher: any, allJammers: Jammer[]): void {
-  // Hide workspace, show wrapped view
+function renderMarkdown(md: string): string {
+  let html = escapeHtml(md);
+  // Code blocks (``` ... ```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre><code>${code}</code></pre>`);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Horizontal rules
+  html = html.replace(/^---+$/gm, '<hr>');
+  // Blockquotes
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  // Bold + italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  // Images
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
+  // Unordered lists
+  html = html.replace(/^([ \t]*)[-*] (.+)$/gm, '$1<li>$2</li>');
+  // Ordered lists
+  html = html.replace(/^([ \t]*)\d+\. (.+)$/gm, '$1<li>$2</li>');
+  // Group consecutive <li> into <ul>
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+  // Paragraphs (double newlines)
+  html = html.replace(/\n\n+/g, '</p><p>');
+  html = `<p>${html}</p>`;
+  // Clean up empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  html = html.replace(/<p>(<h[123]>)/g, '$1');
+  html = html.replace(/(<\/h[123]>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<pre>)/g, '$1');
+  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<ul>)/g, '$1');
+  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<blockquote>)/g, '$1');
+  html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<hr>)/g, '$1');
+  html = html.replace(/(<hr>)<\/p>/g, '$1');
+  return html;
+}
+
+async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<void> {
   $("workspace").classList.add("hidden");
   $("wrapped-view").classList.remove("hidden");
   $("btn-close-cypher").classList.add("hidden");
-
-  // Update status badge
   $("cypher-status-text").textContent = "wrapped";
   $("cypher-status").className = "topbar-status lobby";
 
@@ -985,99 +1029,164 @@ function showWrappedResults(cypher: any, allJammers: Jammer[]): void {
   const totalOut = allJammers.reduce((s, j) => s + j.output_tokens, 0);
   const totalTurns = allJammers.reduce((s, j) => s + j.turns, 0);
   const duration = cypher?.started_at && cypher?.ended_at
-    ? formatDuration(cypher.started_at, cypher.ended_at)
-    : "—";
+    ? formatDuration(cypher.started_at, cypher.ended_at) : "—";
 
-  // Sort jammers by total tokens desc
-  allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
+  // Hero — cover image + title
+  $("wrapped-hero-title").textContent = cypher?.title || "Cypher";
+  $("wrapped-hero-subtitle").textContent = `Session wrapped${duration !== "—" ? ` · ${duration}` : ""} · ${allJammers.length} jammers · ${formatTokens(totalIn + totalOut)} tokens`;
 
-  const container = $("wrapped-summary");
-  container.innerHTML = `
-    <div class="wrapped-header">
-      <h2>${escapeHtml(cypher?.title || "Cypher")}</h2>
-      <div class="wrapped-subtitle">Session wrapped${duration !== "—" ? ` after ${duration}` : ""}</div>
-    </div>
-
-    <div class="wrapped-stats">
-      <div class="wrapped-stat">
-        <div class="wrapped-stat-value">${allJammers.length}</div>
-        <div class="wrapped-stat-label">Jammers</div>
-      </div>
-      <div class="wrapped-stat">
-        <div class="wrapped-stat-value">${formatTokens(totalIn)}</div>
-        <div class="wrapped-stat-label">Input Tokens</div>
-      </div>
-      <div class="wrapped-stat">
-        <div class="wrapped-stat-value">${formatTokens(totalOut)}</div>
-        <div class="wrapped-stat-label">Output Tokens</div>
-      </div>
-      <div class="wrapped-stat">
-        <div class="wrapped-stat-value">${totalTurns}</div>
-        <div class="wrapped-stat-label">Turns</div>
-      </div>
-      <div class="wrapped-stat">
-        <div class="wrapped-stat-value">${duration}</div>
-        <div class="wrapped-stat-label">Duration</div>
-      </div>
-    </div>
-
-    <div class="wrapped-section-title">Agent Performance</div>
-    <table class="wrapped-agent-table">
-      <thead>
-        <tr>
-          <th>Agent</th>
-          <th>Role</th>
-          <th class="num">Input</th>
-          <th class="num">Output</th>
-          <th class="num">Turns</th>
-        </tr>
-      </thead>
-      <tbody id="wrapped-agents-body"></tbody>
-    </table>
-  `;
-
-  const tbody = document.getElementById("wrapped-agents-body")!;
-  for (const j of allJammers) {
-    const avatarHtml = j.avatar_url
-      ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
-      : identiconSvg(j.agent_local_id, 24);
-
-    const tr = document.createElement("tr");
-    tr.className = "wrapped-agent-row";
-    tr.innerHTML = `
-      <td>
-        <div class="wrapped-agent-cell">
-          <div class="wrapped-agent-avatar">${avatarHtml}</div>
-          <div>
-            <div class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</div>
-          </div>
-        </div>
-      </td>
-      <td><span class="wrapped-agent-role">${escapeHtml(j.position)}</span></td>
-      <td class="num">${formatTokens(j.input_tokens)}</td>
-      <td class="num">${formatTokens(j.output_tokens)}</td>
-      <td class="num">${j.turns}</td>
-    `;
-    tbody.appendChild(tr);
+  if (cypherId) {
+    try {
+      const cover = await api.cypherCoverGet(cypherId);
+      if (cover?.ok && cover.data_base64) {
+        const img = $("wrapped-cover") as HTMLImageElement;
+        img.src = `data:${cover.content_type || "image/png"};base64,${cover.data_base64}`;
+        img.classList.remove("hidden");
+      }
+    } catch { /* no cover */ }
   }
 
-  // Board summary
+  // Stats
+  $("wrapped-stats").innerHTML = [
+    { v: String(allJammers.length), l: "Jammers" },
+    { v: formatTokens(totalIn), l: "Input" },
+    { v: formatTokens(totalOut), l: "Output" },
+    { v: String(totalTurns), l: "Turns" },
+    { v: duration, l: "Duration" },
+  ].map(s => `<div class="wrapped-stat"><div class="wrapped-stat-value">${s.v}</div><div class="wrapped-stat-label">${s.l}</div></div>`).join("");
+
+  // Board summary — list all items with their final status
   if (boardItems.length > 0) {
-    const statusCounts: Record<string, number> = {};
-    for (const item of boardItems) {
-      statusCounts[item.status] = (statusCounts[item.status] || 0) + 1;
-    }
-    const boardSummary = document.createElement("div");
-    boardSummary.innerHTML = `<div class="wrapped-section-title">Board Summary</div>
-      <div class="wrapped-stats">
-        ${Object.entries(statusCounts).map(([status, count]) => `
-          <div class="wrapped-stat">
-            <div class="wrapped-stat-value">${count}</div>
-            <div class="wrapped-stat-label">${escapeHtml(status)}</div>
+    const statusClass = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+    $("wrapped-board-summary").innerHTML = `
+      <div class="wrapped-section-title">Board</div>
+      <div class="wrapped-board-items">
+        ${boardItems.map(item => `
+          <div class="wrapped-board-item">
+            <span class="wrapped-board-item-status ${statusClass(item.status)}">${escapeHtml(item.status)}</span>
+            <span class="wrapped-board-item-title">${escapeHtml(item.title)}</span>
+            ${item.assignee ? `<span class="wrapped-board-item-assignee">@${escapeHtml(item.assignee)}</span>` : ""}
           </div>
         `).join("")}
       </div>`;
-    container.appendChild(boardSummary);
+  }
+
+  // Agents — compact chips
+  allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
+  $("wrapped-agents-section").innerHTML = `
+    <div class="wrapped-section-title">Team</div>
+    <div class="wrapped-agents-grid">
+      ${allJammers.map(j => {
+        const av = j.avatar_url
+          ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
+          : identiconSvg(j.agent_local_id, 28);
+        return `
+          <div class="wrapped-agent-chip">
+            <div class="wrapped-agent-avatar">${av}</div>
+            <div>
+              <div class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</div>
+              <div class="wrapped-agent-role">${escapeHtml(j.position)}</div>
+              <div class="wrapped-agent-tokens">${formatTokens(j.input_tokens)} in / ${formatTokens(j.output_tokens)} out</div>
+            </div>
+          </div>`;
+      }).join("")}
+    </div>`;
+
+  // Output section — file tree + readme/viewer
+  const wrappedFileTree = $("wrapped-file-tree");
+  const readmeContent = $("wrapped-readme-content");
+  const fileViewer = $("wrapped-file-viewer");
+  const readmePane = $("wrapped-readme");
+  const filePathEl = $("wrapped-file-path");
+  const fileCodeEl = $("wrapped-file-code");
+
+  // Tab switching
+  document.querySelectorAll(".wrapped-output-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".wrapped-output-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = (btn as HTMLElement).dataset.wtab;
+      if (tab === "readme") {
+        readmePane.classList.remove("hidden");
+        fileViewer.classList.add("hidden");
+      } else {
+        readmePane.classList.add("hidden");
+        fileViewer.classList.remove("hidden");
+      }
+    });
+  });
+
+  // Load file tree
+  if (workspacePath) {
+    try {
+      const tree = await loadFileTree(workspacePath);
+      for (const node of tree) {
+        if (node.isDir) {
+          node.children = await loadFileTree(node.path, 1);
+          node.expanded = true;
+        }
+      }
+      let wrappedTree = tree;
+      const rebuildTree = () => {
+        wrappedFileTree.innerHTML = "";
+        renderWrappedNodes(wrappedTree, 0);
+      };
+      const renderWrappedNodes = (nodes: FileNode[], depth: number) => {
+        for (const node of nodes) {
+          const item = document.createElement("div");
+          item.className = `tree-item${node.isDir ? " dir" : ""}`;
+          item.style.paddingLeft = `${8 + depth * 14}px`;
+          const icon = node.isDir ? (node.expanded ? "▾" : "▸") : "·";
+          item.innerHTML = `<span class="tree-icon">${icon}</span> ${escapeHtml(node.name)}`;
+
+          if (!node.isDir) {
+            item.style.cursor = "pointer";
+            item.addEventListener("click", async () => {
+              try {
+                const result = await api.readFile(node.path);
+                filePathEl.textContent = node.path.replace(workspacePath + "/", "");
+                if (result.binary) {
+                  fileCodeEl.textContent = "(binary file)";
+                } else if (node.name.endsWith(".md")) {
+                  fileCodeEl.innerHTML = renderMarkdown(result.content);
+                } else {
+                  fileCodeEl.textContent = result.content;
+                }
+                readmePane.classList.add("hidden");
+                fileViewer.classList.remove("hidden");
+                document.querySelectorAll(".wrapped-output-tab").forEach(b => b.classList.remove("active"));
+                document.querySelector('.wrapped-output-tab[data-wtab="file"]')?.classList.add("active");
+              } catch { /* ignore */ }
+            });
+          } else {
+            item.style.cursor = "pointer";
+            item.addEventListener("click", async () => {
+              node.expanded = !node.expanded;
+              if (node.expanded && !node.children) {
+                node.children = await loadFileTree(node.path, (node.depth ?? depth) + 1);
+              }
+              rebuildTree();
+            });
+          }
+
+          wrappedFileTree.appendChild(item);
+          if (node.isDir && node.expanded && node.children) {
+            renderWrappedNodes(node.children, depth + 1);
+          }
+        }
+      };
+      rebuildTree();
+    } catch { /* no workspace */ }
+  }
+
+  // Load README.md
+  if (workspacePath) {
+    try {
+      const readmeResult = await api.readFile(workspacePath + "/README.md");
+      if (readmeResult?.content && !readmeResult.binary) {
+        readmeContent.innerHTML = renderMarkdown(readmeResult.content);
+      }
+    } catch { /* no readme */ }
   }
 }
 
@@ -1154,12 +1263,15 @@ async function init(): Promise<void> {
         }
         offset += 200;
       }
-      // Load board for summary
+      // Load board and workspace for summary
       try {
         const boardData = await api.projectBoard(cypherId);
         boardItems = boardData.items || [];
       } catch {}
-      showWrappedResults(cypher, allJammers);
+      try {
+        workspacePath = await api.getCypherWorkspacePath(cypherId);
+      } catch {}
+      await showWrappedResults(cypher, allJammers);
       return;
     }
 

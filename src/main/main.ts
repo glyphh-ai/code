@@ -4289,6 +4289,31 @@ async function boot() {
         console.warn(`[spawn-jammers] failed writing cypher.json for ${reg.id}:`, writeErr instanceof Error ? writeErr.message : writeErr);
       }
 
+      const readmePath = path.join(sandbox, "README.md");
+      if (!fs.existsSync(readmePath)) {
+        try {
+          const roster = assignments.map(a2 => `- **${a2.agent_local_id}** — ${a2.position}${a2.area ? ` (${a2.area})` : ""}`).join("\n");
+          fs.writeFileSync(readmePath, [
+            `# ${mf.title}`,
+            ``,
+            `> ${mf.goal || ""}`,
+            ``,
+            `## Status`,
+            ``,
+            `In progress.`,
+            ``,
+            `## Team`,
+            ``,
+            roster,
+            ``,
+            `## Output`,
+            ``,
+            `_This section will be updated by the leader when the cypher wraps._`,
+            ``,
+          ].join("\n"));
+        } catch { /* best-effort */ }
+      }
+
       let promptAddition = "";
       if (setupSteps.length > 0) {
         const result = await runWorkPackage(setupSteps, sandbox);
@@ -4345,15 +4370,19 @@ async function boot() {
           ? [
               `As ${a.position}, you MUST:`,
               `1. Read ./cypher.json for the goal and roster`,
-              `2. Use board_list to check existing kanban items`,
-              `3. Use board_add_item to create work items on the kanban for each task`,
-              `4. Use board_assign to assign items to agents, then use assign_task to notify them`,
-              `5. Use board_update_status to move items through: Lobby → Backlog → InProgress → Review → Done`,
-              `6. Use assign_task to delegate work to your direct reports: ${reportsStr}`,
-              `7. Monitor progress via report_status events from your reports`,
-              `8. Use report_status to post your own updates`,
+              `2. Write an initial README.md in the workspace root with the project title, goal, and approach`,
+              `3. Use board_list to check existing kanban items`,
+              `4. Use board_add_item to create work items on the kanban for each task`,
+              `5. Use board_assign to assign items to agents, then use assign_task to notify them`,
+              `6. Use board_update_status to move items through: Lobby → Backlog → InProgress → Review → Done`,
+              `7. Use assign_task to delegate work to your direct reports: ${reportsStr}`,
+              `8. Monitor progress via report_status events from your reports`,
+              `9. Use report_status to post your own updates`,
+              `10. Use project_comment to post progress updates on GitHub issues as work progresses`,
+              `11. When all tasks are complete, update README.md with a final summary: what was built, how to use it, and what's left`,
               `Workers activate ONLY when you assign them a task — they are idle until then.`,
               `IMPORTANT: Every task MUST be tracked on the kanban board. Use board_add_item before assign_task.`,
+              `IMPORTANT: README.md is the primary output artifact. Keep it updated throughout the session.`,
             ].join("\n")
           : [
               `As a worker, you MUST:`,
