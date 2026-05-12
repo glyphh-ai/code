@@ -984,6 +984,7 @@
   <div class="col col-center" id="col-center">
     <div class="center-tabs">
       <button class="center-tab active" data-ctab="cypher">Cypher</button>
+      <button class="center-tab" data-ctab="workflow">Workflow</button>
       <button class="center-tab" data-ctab="board">Board</button>
       <button class="center-tab" data-ctab="files">Files</button>
     </div>
@@ -991,6 +992,11 @@
     <!-- Cypher 3D visualization (default) -->
     <div class="center-pane" id="center-cypher">
       <div id="cypher-viz-container"></div>
+    </div>
+
+    <!-- Workflow view -->
+    <div class="center-pane hidden" id="center-workflow">
+      <div id="workflow-container" style="width:100%;height:100%;background:#0a0a14;"></div>
     </div>
 
     <!-- Board view -->

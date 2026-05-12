@@ -7,6 +7,7 @@
 
 import { identiconSvg } from "./identicon";
 import { CypherViz } from "./cypher-viz";
+import { CypherWorkflow } from "./cypher-workflow";
 
 interface CypherAPI {
   authMe: () => Promise<{ id?: string; email?: string; handle?: string }>;
@@ -129,6 +130,7 @@ let jammerSearchQuery = "";
 let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
 let cypherViz: CypherViz | null = null;
+let cypherWorkflow: CypherWorkflow | null = null;
 
 let unsubEvents: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
@@ -311,12 +313,12 @@ function triggerEditorResize(): void {
 }
 
 // ── Center tab switching ──────────────────────────────
-type CenterTab = "cypher" | "board" | "files";
+type CenterTab = "cypher" | "workflow" | "board" | "files";
 let activeCenterTab: CenterTab = "cypher";
 
 function switchCenterTab(tab: CenterTab): void {
   activeCenterTab = tab;
-  for (const p of ["cypher", "board", "files"]) {
+  for (const p of ["cypher", "workflow", "board", "files"]) {
     const el = document.getElementById(`center-${p}`);
     if (el) el.classList.toggle("hidden", p !== tab);
   }
@@ -338,6 +340,15 @@ function switchCenterTab(tab: CenterTab): void {
     cypherViz.resize();
   } else {
     cypherViz?.stop();
+  }
+
+  if (tab === "workflow") {
+    if (!cypherWorkflow) {
+      cypherWorkflow = new CypherWorkflow();
+      cypherWorkflow.init($("workflow-container"));
+    }
+    syncWorkflow();
+    cypherWorkflow.resize();
   }
 
   if (tab === "files") triggerEditorResize();
@@ -682,6 +693,20 @@ function syncViz(): void {
   );
 }
 
+function syncWorkflow(): void {
+  if (!cypherWorkflow) return;
+  cypherWorkflow.setJammers(
+    jammers.map((j) => ({
+      id: j.agent_local_id,
+      name: j.name || j.agent_local_id,
+      position: j.position,
+      status: j.status,
+      parentId: (j as any).parentId || null,
+    })),
+  );
+  cypherWorkflow.setIssues(boardItems);
+}
+
 function updateTokenScore(): void {
   const totalIn = jammers.reduce((s, j) => s + j.input_tokens, 0);
   const totalOut = jammers.reduce((s, j) => s + j.output_tokens, 0);
@@ -901,6 +926,7 @@ function addFeedEntry(entry: FeedEntry): void {
     renderFeedItem(entry, true);
   }
   cypherViz?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
+  cypherWorkflow?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
 }
 
 function feedKindLabel(kind: string): { label: string; cls: string } {
@@ -1514,6 +1540,7 @@ function subscribeEvents(): void {
       jammer.status = status as Jammer["status"];
       scheduleJammerRender();
       cypherViz?.updateStatus(agentName, status);
+      cypherWorkflow?.updateStatus(agentName, status);
     }
   });
 
@@ -1642,6 +1669,7 @@ function subscribeEvents(): void {
       if (changed) {
         boardItems = newItems;
         renderBoard();
+        syncWorkflow();
       }
     } catch { /* project may not exist yet */ }
   }, 5000);
@@ -1737,6 +1765,7 @@ function boot(): void {
     jammerPage = 0;
     if (monacoEditor) monacoEditor.setModel(null);
     if (cypherViz) { cypherViz.dispose(); cypherViz = null; }
+    if (cypherWorkflow) { cypherWorkflow.dispose(); cypherWorkflow = null; }
     // Reset view visibility — wrapped view may have been shown for previous cypher
     $("workspace").classList.remove("hidden");
     $("wrapped-view").classList.add("hidden");
