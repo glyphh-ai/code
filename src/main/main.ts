@@ -3421,19 +3421,35 @@ async function boot() {
     catch (err) { return { ok: false, error: err instanceof Error ? err.message : "decline failed" }; }
   });
   ipcMain.handle("cypher-wrap", async (_e, id: string) => {
-    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/wrap`, {}); }
-    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "wrap failed" }; }
+    try {
+      const result = await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/wrap`, {});
+      if (cypherPanelContext?.cypherId === id) {
+        cypherPanelContext = null;
+        setPreference("cypherPanelContext", null);
+        const { setCurrentCypher } = await import("./current-cypher");
+        setCurrentCypher(null);
+      }
+      return result;
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "wrap failed" }; }
   });
   ipcMain.handle("cypher-cancel", async (_e, id: string) => {
-    try { return await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/cancel`, {}); }
-    catch (err) { return { ok: false, error: err instanceof Error ? err.message : "cancel failed" }; }
+    try {
+      const result = await serverPostAuthed(`/api/cyphers/${encodeURIComponent(id)}/cancel`, {});
+      if (cypherPanelContext?.cypherId === id) {
+        cypherPanelContext = null;
+        setPreference("cypherPanelContext", null);
+        const { setCurrentCypher } = await import("./current-cypher");
+        setCurrentCypher(null);
+      }
+      return result;
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "cancel failed" }; }
   });
   ipcMain.handle("cypher-delete", async (_e, id: string) => {
     try {
       const token = (await import("./auth")).getAuthToken();
       if (!token) return { ok: false, error: "Not authenticated" };
       const { net } = await import("electron");
-      return await new Promise((resolve, reject) => {
+      const result = await new Promise((resolve, reject) => {
         const req = net.request({
           url: `${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/cyphers/${encodeURIComponent(id)}`,
           method: "DELETE",
@@ -3447,6 +3463,13 @@ async function boot() {
         req.on("error", reject);
         req.end();
       });
+      if (cypherPanelContext?.cypherId === id) {
+        cypherPanelContext = null;
+        setPreference("cypherPanelContext", null);
+        const { setCurrentCypher } = await import("./current-cypher");
+        setCurrentCypher(null);
+      }
+      return result;
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "delete failed" }; }
   });
   ipcMain.handle("cypher-discover", async (_e, opts?: { status?: string; type?: string; limit?: number; offset?: number }) => {
