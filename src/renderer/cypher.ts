@@ -972,52 +972,6 @@ async function closeCypher(): Promise<void> {
   }
 }
 
-function renderMarkdown(md: string): string {
-  let html = escapeHtml(md);
-  // Code blocks (``` ... ```)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre><code>${code}</code></pre>`);
-  // Headers
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  // Horizontal rules
-  html = html.replace(/^---+$/gm, '<hr>');
-  // Blockquotes
-  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  // Bold + italic
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/_(.+?)_/g, '<em>$1</em>');
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-  // Images
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
-  // Unordered lists
-  html = html.replace(/^([ \t]*)[-*] (.+)$/gm, '$1<li>$2</li>');
-  // Ordered lists
-  html = html.replace(/^([ \t]*)\d+\. (.+)$/gm, '$1<li>$2</li>');
-  // Group consecutive <li> into <ul>
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-  // Paragraphs (double newlines)
-  html = html.replace(/\n\n+/g, '</p><p>');
-  html = `<p>${html}</p>`;
-  // Clean up empty paragraphs
-  html = html.replace(/<p>\s*<\/p>/g, '');
-  html = html.replace(/<p>(<h[123]>)/g, '$1');
-  html = html.replace(/(<\/h[123]>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<pre>)/g, '$1');
-  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<ul>)/g, '$1');
-  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<blockquote>)/g, '$1');
-  html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<hr>)/g, '$1');
-  html = html.replace(/(<hr>)<\/p>/g, '$1');
-  return html;
-}
-
 async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<void> {
   $("workspace").classList.add("hidden");
   $("wrapped-view").classList.remove("hidden");
@@ -1076,112 +1030,181 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
       }).join("")}
     </div>`;
 
-  // Output section — file tree + readme/viewer
+  // Output section — file tree + Monaco viewer (same as live view)
   const wrappedFileTree = $("wrapped-file-tree");
-  const readmeContent = $("wrapped-readme-content");
-  const fileViewer = $("wrapped-file-viewer");
-  const readmePane = $("wrapped-readme");
-  const filePathEl = $("wrapped-file-path");
-  const fileCodeEl = $("wrapped-file-code");
+  const wrappedTabs = $("wrapped-viewer-tabs");
+  const wrappedEmpty = $("wrapped-viewer-empty");
+  const wrappedMonaco = $("wrapped-monaco-container");
+  const wrappedMedia = $("wrapped-media-viewer");
 
-  // Tab switching
-  document.querySelectorAll(".wrapped-output-tab").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".wrapped-output-tab").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      const tab = (btn as HTMLElement).dataset.wtab;
-      if (tab === "readme") {
-        readmePane.classList.remove("hidden");
-        fileViewer.classList.add("hidden");
-      } else {
-        readmePane.classList.add("hidden");
-        fileViewer.classList.remove("hidden");
-      }
+  let wrappedEditor: any = null;
+  let wrappedOpenTabs: { path: string; name: string }[] = [];
+  let wrappedActiveFile: string | null = null;
+
+  async function initWrappedEditor(): Promise<void> {
+    await ensureMonaco();
+    const monaco = (window as any).monaco;
+    if (wrappedEditor) return;
+    wrappedEditor = monaco.editor.create(wrappedMonaco, {
+      value: "",
+      language: "plaintext",
+      theme: "vs-dark",
+      fontSize: 13,
+      fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+      minimap: { enabled: false },
+      wordWrap: "on",
+      automaticLayout: true,
+      readOnly: true,
+      padding: { top: 12 },
+      smoothScrolling: true,
+      scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+      renderLineHighlight: "none",
+      lineNumbers: "on",
     });
-  });
+  }
 
-  // Load file tree
+  function renderWrappedTabs(): void {
+    wrappedTabs.innerHTML = "";
+    for (const tab of wrappedOpenTabs) {
+      const el = document.createElement("div");
+      el.className = `viewer-tab${tab.path === wrappedActiveFile ? " active" : ""}`;
+      el.innerHTML = `${escapeHtml(tab.name)}<span class="tab-close">✕</span>`;
+      el.addEventListener("click", () => wrappedOpenFile(tab.path, tab.name));
+      el.querySelector(".tab-close")!.addEventListener("click", (e) => {
+        e.stopPropagation();
+        wrappedOpenTabs = wrappedOpenTabs.filter(t => t.path !== tab.path);
+        if (wrappedActiveFile === tab.path) {
+          if (wrappedOpenTabs.length > 0) {
+            const last = wrappedOpenTabs[wrappedOpenTabs.length - 1];
+            wrappedOpenFile(last.path, last.name);
+          } else {
+            wrappedActiveFile = null;
+            wrappedMonaco.style.display = "none";
+            wrappedMedia.style.display = "none";
+            wrappedEmpty.classList.remove("hidden");
+            renderWrappedTabs();
+            renderWrappedTree();
+          }
+        } else {
+          renderWrappedTabs();
+        }
+      });
+      wrappedTabs.appendChild(el);
+    }
+  }
+
+  async function wrappedOpenFile(filePath: string, name: string): Promise<void> {
+    wrappedActiveFile = filePath;
+    if (!wrappedOpenTabs.find(t => t.path === filePath)) {
+      wrappedOpenTabs.push({ path: filePath, name });
+    }
+    renderWrappedTabs();
+    renderWrappedTree();
+
+    const ext = fileExtension(name);
+    if (isMediaFile(ext)) {
+      wrappedMonaco.style.display = "none";
+      wrappedMedia.style.display = "flex";
+      wrappedEmpty.classList.add("hidden");
+      const { content, binary } = await api.readFile(filePath);
+      if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+        const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
+        wrappedMedia.innerHTML = `<img src="${src}" />`;
+      } else if (ext === "svg") {
+        wrappedMedia.innerHTML = binary ? "" : content;
+      } else if (["mp3", "wav", "ogg"].includes(ext)) {
+        const src = binary ? `data:audio/${ext};base64,${content}` : "";
+        wrappedMedia.innerHTML = `<audio controls src="${src}"></audio>`;
+      } else if (["mp4", "webm"].includes(ext)) {
+        const src = binary ? `data:video/${ext};base64,${content}` : "";
+        wrappedMedia.innerHTML = `<video controls src="${src}"></video>`;
+      }
+    } else {
+      wrappedMedia.style.display = "none";
+      wrappedMonaco.style.display = "block";
+      wrappedEmpty.classList.add("hidden");
+      await initWrappedEditor();
+      const { content } = await api.readFile(filePath);
+      const monaco = (window as any).monaco;
+      const lang = languageFromExt(ext);
+      const model = monaco.editor.createModel(content, lang);
+      wrappedEditor.setModel(model);
+    }
+  }
+
+  // Build and render file tree
+  let wrappedTree: FileNode[] = [];
+
+  function renderWrappedTree(): void {
+    wrappedFileTree.innerHTML = "";
+    renderWrappedNodes(wrappedTree, 0);
+  }
+
+  function renderWrappedNodes(nodes: FileNode[], depth: number): void {
+    for (const node of nodes) {
+      const item = document.createElement("div");
+      const isActive = !node.isDir && node.path === wrappedActiveFile;
+      item.className = `tree-item${node.isDir ? " dir" : ""}${isActive ? " active" : ""}`;
+      item.style.paddingLeft = `${8 + depth * 14}px`;
+      const icon = node.isDir ? (node.expanded ? "▾" : "▸") : "·";
+      item.innerHTML = `<span class="tree-icon">${icon}</span> ${escapeHtml(node.name)}`;
+
+      if (!node.isDir) {
+        item.style.cursor = "pointer";
+        item.addEventListener("click", () => wrappedOpenFile(node.path, node.name));
+        item.addEventListener("dblclick", () => api.openInVSCode(node.path));
+      } else {
+        item.style.cursor = "pointer";
+        item.addEventListener("click", async () => {
+          node.expanded = !node.expanded;
+          if (node.expanded && !node.children) {
+            node.children = await loadFileTree(node.path, (node.depth ?? depth) + 1);
+          }
+          renderWrappedTree();
+        });
+      }
+
+      wrappedFileTree.appendChild(item);
+      if (node.isDir && node.expanded && node.children) {
+        renderWrappedNodes(node.children, depth + 1);
+      }
+    }
+  }
+
   if (workspacePath) {
     try {
-      const tree = await loadFileTree(workspacePath);
-      for (const node of tree) {
+      wrappedTree = await loadFileTree(workspacePath);
+      for (const node of wrappedTree) {
         if (node.isDir) {
           node.children = await loadFileTree(node.path, 1);
           node.expanded = true;
         }
       }
-      let wrappedTree = tree;
-      const rebuildTree = () => {
-        wrappedFileTree.innerHTML = "";
-        renderWrappedNodes(wrappedTree, 0);
-      };
-      const renderWrappedNodes = (nodes: FileNode[], depth: number) => {
-        for (const node of nodes) {
-          const item = document.createElement("div");
-          item.className = `tree-item${node.isDir ? " dir" : ""}`;
-          item.style.paddingLeft = `${8 + depth * 14}px`;
-          const icon = node.isDir ? (node.expanded ? "▾" : "▸") : "·";
-          item.innerHTML = `<span class="tree-icon">${icon}</span> ${escapeHtml(node.name)}`;
-
-          if (!node.isDir) {
-            item.style.cursor = "pointer";
-            item.addEventListener("click", async () => {
-              try {
-                const result = await api.readFile(node.path);
-                filePathEl.textContent = node.path.replace(workspacePath + "/", "");
-                if (result.binary) {
-                  fileCodeEl.textContent = "(binary file)";
-                } else if (node.name.endsWith(".md")) {
-                  fileCodeEl.innerHTML = renderMarkdown(result.content);
-                } else {
-                  fileCodeEl.textContent = result.content;
-                }
-                readmePane.classList.add("hidden");
-                fileViewer.classList.remove("hidden");
-                document.querySelectorAll(".wrapped-output-tab").forEach(b => b.classList.remove("active"));
-                document.querySelector('.wrapped-output-tab[data-wtab="file"]')?.classList.add("active");
-              } catch { /* ignore */ }
-            });
-          } else {
-            item.style.cursor = "pointer";
-            item.addEventListener("click", async () => {
-              node.expanded = !node.expanded;
-              if (node.expanded && !node.children) {
-                node.children = await loadFileTree(node.path, (node.depth ?? depth) + 1);
-              }
-              rebuildTree();
-            });
-          }
-
-          wrappedFileTree.appendChild(item);
-          if (node.isDir && node.expanded && node.children) {
-            renderWrappedNodes(node.children, depth + 1);
-          }
-        }
-      };
-      rebuildTree();
-
-      // Auto-highlight README.md in the tree
-      const readmeNode = wrappedTree.find(n => n.name.toLowerCase() === "readme.md");
-      if (readmeNode) {
-        const items = wrappedFileTree.querySelectorAll(".tree-item");
-        items.forEach(el => {
-          if (el.textContent?.trim().endsWith("README.md") || el.textContent?.trim().endsWith("readme.md")) {
-            (el as HTMLElement).classList.add("active");
-          }
-        });
-      }
+      renderWrappedTree();
     } catch { /* no workspace */ }
-  }
 
-  // Load README.md
-  if (workspacePath) {
+    // Auto-open README.md: project root first, then leader's sandbox as fallback
+    let readmePath: string | null = null;
     try {
-      const readmeResult = await api.readFile(workspacePath + "/README.md");
-      if (readmeResult?.content && !readmeResult.binary) {
-        readmeContent.innerHTML = renderMarkdown(readmeResult.content);
+      const rootReadme = workspacePath + "/README.md";
+      const result = await api.readFile(rootReadme);
+      if (result?.content && !result.binary) readmePath = rootReadme;
+    } catch { /* no root readme */ }
+
+    if (!readmePath) {
+      const leaderJammer = allJammers.find(j => j.position === "leader");
+      if (leaderJammer) {
+        try {
+          const leaderReadme = workspacePath + "/" + leaderJammer.agent_local_id + "/README.md";
+          const result = await api.readFile(leaderReadme);
+          if (result?.content && !result.binary) readmePath = leaderReadme;
+        } catch { /* no leader readme */ }
       }
-    } catch { /* no readme */ }
+    }
+
+    if (readmePath) {
+      await wrappedOpenFile(readmePath, "README.md");
+    }
   }
 }
 
