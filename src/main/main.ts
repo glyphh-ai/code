@@ -3785,17 +3785,28 @@ async function boot() {
 
     if (!projectSlug) {
       console.log("[cypher-session] creating GitHub project for cypher", cypId, "owner:", ownerLogin, "installationId:", installationId);
-      const projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
-        "/api/projects",
-        {
-          goal: cy?.goal || cy?.title || "Cypher project",
-          description: cy?.title || cy?.goal || "",
-          owner_kind: inst?.account_kind || "user",
-          owner_login: ownerLogin,
-          installation_id: installationId,
-          cypher_id: cypId,
-        },
-      );
+      let projCreate: { project?: { slug: string }; slug?: string; error?: string } | null = null;
+      try {
+        projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
+          "/api/projects",
+          {
+            goal: cy?.goal || cy?.title || "Cypher project",
+            description: cy?.title || cy?.goal || "",
+            owner_kind: inst?.account_kind || "user",
+            owner_login: ownerLogin,
+            installation_id: installationId,
+            cypher_id: cypId,
+          },
+        );
+      } catch (err) {
+        const msg = `GitHub project creation failed: ${err instanceof Error ? err.message : err}`;
+        console.error("[cypher-session] BLOCKED:", msg);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+          mainWindow.webContents.send("yo-panel-done", msg);
+        }
+        return;
+      }
       projectSlug = projCreate?.slug || projCreate?.project?.slug || null;
       if (!projectSlug) {
         const msg = `Failed to create GitHub project: ${projCreate?.error || "unknown error"}`;
@@ -3808,8 +3819,18 @@ async function boot() {
       }
       console.log("[cypher-session] project created:", projectSlug);
 
-      const repoResult = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
-      console.log("[cypher-session] repo ensured:", JSON.stringify(repoResult));
+      try {
+        const repoResult = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
+        console.log("[cypher-session] repo ensured:", JSON.stringify(repoResult));
+      } catch (err) {
+        const msg = `GitHub repo creation failed: ${err instanceof Error ? err.message : err}`;
+        console.error("[cypher-session] BLOCKED:", msg);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+          mainWindow.webContents.send("yo-panel-done", msg);
+        }
+        return;
+      }
     }
 
     // 3. Ensure draft assignments exist — run draft if missing
@@ -3833,32 +3854,42 @@ async function boot() {
     }
 
     // 4. Seed board if empty — must happen BEFORE spawning agents
-    let boardItems: unknown[] = [];
     try {
-      const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
-      boardItems = boardR?.items ?? [];
-    } catch {
-      // Board fetch can fail if project has no gh_project_id yet
-    }
-    if (boardItems.length === 0 && cy?.goal) {
-      const assignmentIds = activeJammers.map((j: any) => j.agent_local_id);
-      const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignmentIds[0];
-      const workers = assignmentIds.filter((a: string) => a !== leader);
-
-      const items = [
-        { title: `Decompose goal: ${(cy.goal || "").slice(0, 60)}`, assignee: leader },
-        { title: "Set up project scaffolding", assignee: workers[0] || leader },
-        { title: "Implement core feature", assignee: workers[0] || leader },
-        ...(workers.length > 1 ? [{ title: "Implement secondary feature", assignee: workers[1] }] : []),
-        { title: "Integration and testing", assignee: leader },
-      ];
-      for (const item of items) {
-        await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/items`, {
-          title: item.title,
-          assignee: item.assignee,
-        });
+      let boardItems: unknown[] = [];
+      try {
+        const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
+        boardItems = boardR?.items ?? [];
+      } catch {
+        // 404/500 on fetch — board might not be set up yet
       }
-      console.log("[cypher-session] Seeded", items.length, "board items for project", projectSlug);
+      if (boardItems.length === 0 && cy?.goal) {
+        const assignmentIds = activeJammers.map((j: any) => j.agent_local_id);
+        const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignmentIds[0];
+        const workers = assignmentIds.filter((a: string) => a !== leader);
+
+        const items = [
+          { title: `Decompose goal: ${(cy.goal || "").slice(0, 60)}`, assignee: leader },
+          { title: "Set up project scaffolding", assignee: workers[0] || leader },
+          { title: "Implement core feature", assignee: workers[0] || leader },
+          ...(workers.length > 1 ? [{ title: "Implement secondary feature", assignee: workers[1] }] : []),
+          { title: "Integration and testing", assignee: leader },
+        ];
+        for (const item of items) {
+          await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/items`, {
+            title: item.title,
+            assignee: item.assignee,
+          });
+        }
+        console.log("[cypher-session] Seeded", items.length, "board items for project", projectSlug);
+      }
+    } catch (err) {
+      const msg = `Board seeding failed: ${err instanceof Error ? err.message : err}`;
+      console.error("[cypher-session] BLOCKED:", msg);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+        mainWindow.webContents.send("yo-panel-done", msg);
+      }
+      return;
     }
 
     // 5. Spawn local jammer agents — AFTER all GitHub setup is complete
@@ -3925,7 +3956,17 @@ async function boot() {
 
     // Deterministic setup — no inference needed
     if (isOwner) {
-      await activateCypherSession(cypherId);
+      try {
+        await activateCypherSession(cypherId);
+      } catch (err) {
+        const msg = `Cypher activation failed: ${err instanceof Error ? err.message : err}`;
+        console.error("[cypher-panel-activate]", msg);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+          mainWindow.webContents.send("yo-panel-done", msg);
+        }
+        return { ok: false, error: msg };
+      }
     }
 
     return { ok: true };
