@@ -995,7 +995,9 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
         banner.style.backgroundImage = `url(data:${cover.content_type || "image/png"};base64,${cover.data_base64})`;
       } else {
         const title = cypher?.title || cypher?.slug || "";
-        const h = Array.from(title).reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0) >>> 0;
+        let h = 0;
+        for (let i = 0; i < title.length; i++) h = ((h << 5) - h + title.charCodeAt(i)) | 0;
+        h = h >>> 0;
         const h1 = h % 360;
         const h2 = (h * 7 + 137) % 360;
         banner.style.backgroundImage = `linear-gradient(135deg, hsl(${h1},80%,40%) 0%, hsl(${h2},70%,25%) 100%)`;
