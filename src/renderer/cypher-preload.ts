@@ -38,6 +38,7 @@ interface CypherPanelAPI {
   // Thread persistence
   loadAgentThread: (cypherId: string, agentName: string) => Promise<Array<{ ts: number; kind: string; content: string }>>;
   listAgentThreads: (cypherId: string) => Promise<string[]>;
+  loadFeed: (cypherId: string, limit?: number) => Promise<Array<{ ts: number; from: string; kind: string; body: string; tags?: string[] }>>;
 
   // File system (host/jammer — local files)
   listDir: (dirPath: string) => Promise<Array<{ name: string; isDir: boolean }>>;
@@ -111,6 +112,7 @@ const api: CypherPanelAPI = {
 
   loadAgentThread: (cypherId: string, agentName: string) => ipcRenderer.invoke("cypher-thread-load-agent", cypherId, agentName),
   listAgentThreads: (cypherId: string) => ipcRenderer.invoke("cypher-thread-list-agents", cypherId),
+  loadFeed: (cypherId, limit) => ipcRenderer.invoke("cypher-feed-load", cypherId, limit),
 
   listDir: (dirPath) => ipcRenderer.invoke("cypher-list-dir", dirPath),
   readFile: (filePath) => ipcRenderer.invoke("cypher-read-file", filePath),

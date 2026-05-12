@@ -603,7 +603,7 @@ async function boot() {
     eventLog,
   );
 
-  // Forward jammer bus events to the cypher panel feed
+  // Forward jammer bus events to the cypher panel feed + persist locally
   cypherBus.onPost((_wsSlug, event) => {
     const payload = {
       from: event.from,
@@ -615,6 +615,12 @@ async function boot() {
     const cypherView = panelManager.getView("cypher");
     if (cypherView && !cypherView.webContents.isDestroyed()) {
       cypherView.webContents.send("jammer-activity", payload);
+    }
+    // Persist to local feed file so history survives refresh
+    const { getCurrentCypher } = require("./current-cypher") as { getCurrentCypher: () => string | null };
+    const cyId = getCurrentCypher();
+    if (cyId) {
+      threadStore.appendFeed(cyId, payload);
     }
   });
 
@@ -3769,16 +3775,34 @@ async function boot() {
     const activeJammers = (jData?.jammers || []).filter((j: any) => !j.left_at);
 
     // 2. GitHub project + repo are REQUIRED. No GitHub = no cypher.
-    const ghStatus = getDropAuthStatus();
-    const ownerLogin = ghStatus?.github?.gh_login;
+    let ghStatus = getDropAuthStatus();
+    let ownerLogin = ghStatus?.github?.gh_login;
     if (!ownerLogin) {
-      const msg = "GitHub login required. Connect GitHub in the Drop before starting a cypher.";
-      console.error("[cypher-session] BLOCKED:", msg);
+      console.log("[cypher-session] No GitHub login — triggering OAuth flow…");
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
-        mainWindow.webContents.send("yo-panel-done", msg);
+        mainWindow.webContents.send("yo-panel-token", "🔑 GitHub sign-in required — opening OAuth…\n");
       }
-      return;
+      const authResult = await signInWithGitHub();
+      if (!authResult.ok) {
+        const msg = `GitHub sign-in failed: ${authResult.error}`;
+        console.error("[cypher-session] BLOCKED:", msg);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+          mainWindow.webContents.send("yo-panel-done", msg);
+        }
+        return;
+      }
+      ghStatus = getDropAuthStatus();
+      ownerLogin = ghStatus?.github?.gh_login;
+      if (!ownerLogin) {
+        const msg = "GitHub login required but OAuth did not return a login.";
+        console.error("[cypher-session] BLOCKED:", msg);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+          mainWindow.webContents.send("yo-panel-done", msg);
+        }
+        return;
+      }
     }
 
     const instResult = await dropApi.installationsList();
@@ -3822,13 +3846,55 @@ async function boot() {
           },
         );
       } catch (err) {
-        const msg = `GitHub project creation failed: ${err instanceof Error ? err.message : err}`;
-        console.error("[cypher-session] BLOCKED:", msg);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
-          mainWindow.webContents.send("yo-panel-done", msg);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const isTokenError = /401|403|token|oauth|unauthorized|re-auth|expired/i.test(errMsg);
+        if (isTokenError) {
+          console.log("[cypher-session] Token error detected, triggering GitHub OAuth re-auth…");
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("yo-panel-token", "🔑 GitHub token expired — re-authenticating…\n");
+          }
+          const authResult = await signInWithGitHub();
+          if (authResult.ok) {
+            console.log("[cypher-session] Re-auth succeeded, retrying project creation…");
+            try {
+              projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
+                "/api/projects",
+                {
+                  goal: cy?.goal || cy?.title || "Cypher project",
+                  description: cy?.title || cy?.goal || "",
+                  owner_kind: inst?.account_kind || "user",
+                  owner_login: ownerLogin,
+                  installation_id: installationId,
+                  cypher_id: cypId,
+                },
+              );
+            } catch (retryErr) {
+              const msg = `GitHub project creation failed after re-auth: ${retryErr instanceof Error ? retryErr.message : retryErr}`;
+              console.error("[cypher-session] BLOCKED:", msg);
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+                mainWindow.webContents.send("yo-panel-done", msg);
+              }
+              return;
+            }
+          } else {
+            const msg = `GitHub project creation failed (auth failed: ${authResult.error}): ${errMsg}`;
+            console.error("[cypher-session] BLOCKED:", msg);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+              mainWindow.webContents.send("yo-panel-done", msg);
+            }
+            return;
+          }
+        } else {
+          const msg = `GitHub project creation failed: ${errMsg}`;
+          console.error("[cypher-session] BLOCKED:", msg);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+            mainWindow.webContents.send("yo-panel-done", msg);
+          }
+          return;
         }
-        return;
       }
       projectSlug = projCreate?.slug || projCreate?.project?.slug || null;
       if (!projectSlug) {
@@ -3846,13 +3912,46 @@ async function boot() {
         const repoResult = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/ensure-repo`, {});
         console.log("[cypher-session] repo ensured:", JSON.stringify(repoResult));
       } catch (err) {
-        const msg = `GitHub repo creation failed: ${err instanceof Error ? err.message : err}`;
-        console.error("[cypher-session] BLOCKED:", msg);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
-          mainWindow.webContents.send("yo-panel-done", msg);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const isTokenError = /401|403|token|oauth|unauthorized|re-auth|expired/i.test(errMsg);
+        if (isTokenError) {
+          console.log("[cypher-session] Token error on repo creation, triggering GitHub OAuth re-auth…");
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("yo-panel-token", "🔑 GitHub token expired — re-authenticating…\n");
+          }
+          const authResult = await signInWithGitHub();
+          if (authResult.ok) {
+            console.log("[cypher-session] Re-auth succeeded, retrying repo creation…");
+            try {
+              const repoRetry = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug!)}/ensure-repo`, {});
+              console.log("[cypher-session] repo ensured (retry):", JSON.stringify(repoRetry));
+            } catch (retryErr) {
+              const msg = `GitHub repo creation failed after re-auth: ${retryErr instanceof Error ? retryErr.message : retryErr}`;
+              console.error("[cypher-session] BLOCKED:", msg);
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+                mainWindow.webContents.send("yo-panel-done", msg);
+              }
+              return;
+            }
+          } else {
+            const msg = `GitHub repo creation failed (auth failed: ${authResult.error}): ${errMsg}`;
+            console.error("[cypher-session] BLOCKED:", msg);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+              mainWindow.webContents.send("yo-panel-done", msg);
+            }
+            return;
+          }
+        } else {
+          const msg = `GitHub repo creation failed: ${errMsg}`;
+          console.error("[cypher-session] BLOCKED:", msg);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+            mainWindow.webContents.send("yo-panel-done", msg);
+          }
+          return;
         }
-        return;
       }
     }
 
@@ -4015,6 +4114,10 @@ async function boot() {
     return threadStore.loadAgent(cypherId, agentName);
   });
 
+  ipcMain.handle("cypher-feed-load", (_e, cypherId: string, limit?: number) => {
+    return threadStore.loadFeed(cypherId, limit ?? 200);
+  });
+
   ipcMain.handle("cypher-thread-list-agents", (_e, cypherId: string) => {
     return threadStore.listAgentThreads(cypherId);
   });
@@ -4116,17 +4219,19 @@ async function boot() {
     mcpExpose?.setHierarchyContext(hierarchyMap);
     cypherBus.setHierarchyContext(hierarchyMap);
 
-    // Wire project board context — GitHub project is required (created by activateCypherSession)
+    // Wire project board context — project with a linked repo is required
     let projSlug: string | null = null;
+    let linkedRepos: string[] = [];
     try {
-      const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
+      const projR = await serverGetAuthed<{ project?: { slug: string }; linked_repos?: string[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}`);
       projSlug = projR?.project?.slug ?? null;
+      linkedRepos = projR?.linked_repos ?? [];
     } catch {
       // 404 means no project linked
     }
-    if (!projSlug) {
-      console.error("[spawn-jammers] BLOCKED: no GitHub project for cypher", cypId);
-      return { ok: false, error: "No GitHub project linked to this cypher. Re-activate the cypher session first." };
+    if (!projSlug || linkedRepos.length === 0) {
+      console.error("[spawn-jammers] BLOCKED: no project/repo for cypher", cypId, "slug:", projSlug, "repos:", linkedRepos.length);
+      return { ok: false, error: "No GitHub project with a linked repo. Re-activate the cypher session first." };
     }
     if (mcpExpose) {
       mcpExpose.setProjectContext({

@@ -84,3 +84,35 @@ export function listAgentThreads(cypherId: string): string[] {
     .filter((f) => f.endsWith(".jsonl"))
     .map((f) => f.replace(/\.jsonl$/, ""));
 }
+
+// ── Feed persistence ─────────────────────────────────────────────────
+
+export interface FeedEntry {
+  ts: number;
+  from: string;
+  kind: string;
+  body: string;
+  tags?: string[];
+}
+
+function feedFile(cypherId: string): string {
+  return path.join(CYPHERS_DIR, cypherId, "feed.jsonl");
+}
+
+export function appendFeed(cypherId: string, entry: FeedEntry): void {
+  const fp = feedFile(cypherId);
+  ensureDir(fp);
+  fs.appendFileSync(fp, JSON.stringify(entry) + "\n");
+}
+
+export function loadFeed(cypherId: string, limit = 200): FeedEntry[] {
+  const fp = feedFile(cypherId);
+  if (!fs.existsSync(fp)) return [];
+  const lines = fs.readFileSync(fp, "utf-8").split("\n").filter(Boolean);
+  const entries: FeedEntry[] = [];
+  const start = Math.max(0, lines.length - limit);
+  for (let i = start; i < lines.length; i++) {
+    try { entries.push(JSON.parse(lines[i])); } catch { /* skip corrupt */ }
+  }
+  return entries;
+}

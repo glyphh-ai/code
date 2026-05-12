@@ -42,11 +42,27 @@
     50% { opacity: 0.4; transform: scale(0.7); }
   }
   .topbar-tokens {
-    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
-    padding: 2px 8px; border-radius: 4px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Press Start 2P', 'SF Mono', monospace;
+    padding: 4px 14px; border-radius: 6px;
     background: var(--surface-2); border: 1px solid var(--border);
   }
   .topbar-tokens:empty { display: none; }
+  .token-in {
+    font-size: 16px; font-weight: 800; color: #4caf50;
+    letter-spacing: 0.04em;
+  }
+  .token-out {
+    font-size: 16px; font-weight: 800; color: #ff9800;
+    letter-spacing: 0.04em;
+  }
+  .token-label {
+    font-size: 8px; font-weight: 700; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .token-sep {
+    font-size: 12px; color: var(--text-3); opacity: 0.4;
+  }
   .topbar-spacer { flex: 1; }
   .topbar-btn {
     padding: 5px 12px; border-radius: 6px;
@@ -182,13 +198,34 @@
     font-size: 10px; color: var(--text-3);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .jammer-controls {
+    display: flex; align-items: center; gap: 2px;
+    opacity: 0; transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+  .jammer-row:hover .jammer-controls { opacity: 1; }
+  .jammer-stop-btn, .jammer-msg-btn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid transparent; border-radius: 4px;
+    background: transparent; color: var(--text-3);
+    cursor: pointer; font-size: 10px;
+    transition: all 0.12s; padding: 0;
+  }
+  .jammer-stop-btn:hover { background: rgba(244,68,68,0.15); color: #f44; border-color: rgba(244,68,68,0.3); }
+  .jammer-msg-btn:hover { background: var(--surface-3); color: var(--text); border-color: var(--border); }
+  .jammer-tokens {
+    font-family: 'Press Start 2P', 'SF Mono', monospace;
+    font-size: 9px; font-weight: 800; color: var(--accent);
+    letter-spacing: 0.02em;
+  }
   .jammer-status-dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   }
   .jammer-status-dot.idle { background: var(--text-3); }
-  .jammer-status-dot.running { background: #ffb400; }
+  .jammer-status-dot.running { background: #ffb400; animation: pulse-anim 2s ease-in-out infinite; }
   .jammer-status-dot.waiting { background: #4caf50; }
-  .jammer-status-dot.starting { background: #ffb400; }
+  .jammer-status-dot.starting { background: #ffb400; animation: pulse-anim 1s ease-in-out infinite; }
   .jammer-status-dot.error { background: #f44; }
 
   .jammer-empty, .feed-empty {

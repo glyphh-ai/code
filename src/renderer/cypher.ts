@@ -18,6 +18,8 @@ interface CypherAPI {
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
   onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => () => void;
+  agentStop: (agentName: string) => void;
+  agentSend: (agentName: string, message: string) => void;
   dripsPreview: (recipe: string) => Promise<string>;
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
@@ -29,6 +31,7 @@ interface CypherAPI {
   projectBoard: (cypherId: string) => Promise<{ items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }> }>;
   onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
   openInVSCode: (filePath: string) => void;
+  loadFeed: (cypherId: string, limit?: number) => Promise<Array<{ ts: number; from: string; kind: string; body: string; tags?: string[] }>>;
   onContextReady: (cb: () => void) => () => void;
 }
 
@@ -368,6 +371,7 @@ async function openFile(filePath: string, name: string): Promise<void> {
   }
   renderTabs();
   renderFileTree();
+  if (activeCenterTab !== "files") switchCenterTab("files");
 
   const ext = fileExtension(name);
   if (isMediaFile(ext)) {
@@ -490,15 +494,34 @@ function renderJammers(): void {
       ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
       : identiconSvg(j.agent_local_id, 24);
     const totalTok = j.input_tokens + j.output_tokens;
-    const tokenStr = totalTok > 0 ? `${formatTokens(totalTok)} tok · ${j.turns} turns` : "";
+    const tokenStr = totalTok > 0 ? `<span class="jammer-tokens">${formatTokens(totalTok)}</span> · ${j.turns} turns` : "";
     row.innerHTML = `
       <div class="jammer-avatar">${avatarHtml}</div>
       <div class="jammer-info">
         <div class="jammer-name">${escapeHtml(j.name || j.agent_local_id)}</div>
         <div class="jammer-role">${escapeHtml(j.position)}${tokenStr ? ` · ${tokenStr}` : ""}</div>
       </div>
+      <div class="jammer-controls">
+        <button class="jammer-msg-btn" title="Send message">💬</button>
+        <button class="jammer-stop-btn" title="Stop jammer">■</button>
+      </div>
       <div class="jammer-status-dot ${j.status}"></div>
     `;
+    const stopBtn = row.querySelector(".jammer-stop-btn")!;
+    stopBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      api.agentStop(j.agent_local_id);
+      j.status = "idle";
+      scheduleJammerRender();
+    });
+    const msgBtn = row.querySelector(".jammer-msg-btn")!;
+    msgBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const input = prompt(`Message to ${j.name || j.agent_local_id}:`);
+      if (input?.trim()) {
+        api.agentSend(j.agent_local_id, input.trim());
+      }
+    });
     container.appendChild(row);
   }
 
@@ -520,9 +543,9 @@ function updateTokenScore(): void {
   const totalOut = jammers.reduce((s, j) => s + j.output_tokens, 0);
   const el = $("cypher-tokens");
   if (totalIn + totalOut > 0) {
-    el.textContent = `${formatTokens(totalIn)} in / ${formatTokens(totalOut)} out`;
+    el.innerHTML = `<span class="token-in">${formatTokens(totalIn)}</span><span class="token-label">IN</span><span class="token-sep">/</span><span class="token-out">${formatTokens(totalOut)}</span><span class="token-label">OUT</span>`;
   } else {
-    el.textContent = "";
+    el.innerHTML = "";
   }
 }
 
@@ -1014,32 +1037,20 @@ async function init(): Promise<void> {
       }
     } catch { /* workspace IPC may not be ready */ }
 
-    // Load historical feed events
+    // Load persisted feed from local file (survives refresh)
     try {
-      const evData = await api.cypherEventsList(cypherId, { limit: 200 }) as {
-        events?: Array<{ kind: string; by_agent_id?: string | null; payload?: Record<string, unknown>; created_at: string }>;
-      };
-      if (evData?.events) {
-        const feedKinds = new Set(["text", "tool_use", "tool_result", "status", "board", "chat", "drip", "usage"]);
-        for (const ev of evData.events) {
-          if (!feedKinds.has(ev.kind)) continue;
-          const from = ev.by_agent_id || "system";
-          const body = typeof ev.payload?.text === "string"
-            ? ev.payload.text as string
-            : typeof ev.payload?.description === "string"
-              ? ev.payload.description as string
-              : JSON.stringify(ev.payload || {}).slice(0, 300);
-          feedItems.push({
-            from,
-            kind: ev.kind,
-            body,
-            ts: new Date(ev.created_at).getTime(),
-          });
-        }
-        if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
-        rebuildFeed();
+      const entries = await api.loadFeed(cypherId, 200);
+      for (const entry of entries) {
+        feedItems.push({
+          from: entry.from,
+          kind: entry.kind,
+          body: entry.body,
+          ts: entry.ts,
+        });
       }
-    } catch { /* events IPC may not be ready */ }
+      if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
+      rebuildFeed();
+    } catch { /* feed IPC may not be ready */ }
 
     subscribeEvents();
   } finally {
@@ -1124,19 +1135,26 @@ function subscribeEvents(): void {
 
   fileTreeRefreshTimer = setInterval(async () => {
     if (!workspacePath) return;
-    const anyRunning = jammers.some((j) => j.status === "running" || j.status === "starting");
-    if (!anyRunning) return;
     try {
+      const prevPaths = new Set(flattenTree(fileTree).map(n => n.path));
+      const expanded = new Set(flattenTree(fileTree).filter(n => n.isDir && n.expanded).map(n => n.path));
       fileTree = await loadFileTree(workspacePath);
       for (const node of fileTree) {
         if (node.isDir) {
           node.children = await loadFileTree(node.path, 1);
-          node.expanded = true;
+          node.expanded = expanded.has(node.path) || !prevPaths.has(node.path);
+          if (node.children) {
+            for (const child of node.children) {
+              if (child.isDir) {
+                child.expanded = expanded.has(child.path);
+              }
+            }
+          }
         }
       }
       renderFileTree();
     } catch { /* workspace may not exist yet */ }
-  }, 5000);
+  }, 3000);
 }
 
 function cleanup(): void {
