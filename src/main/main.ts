@@ -3832,20 +3832,18 @@ async function boot() {
       }
     }
 
-    // 4. Spawn local jammer agents
-    if (stageWc && !stageWc.isDestroyed()) {
-      const spawnResult = await spawnCypherJammers(cypId, stageWc);
-      if (spawnResult.spawned === 0 && activeJammers.length > 0) {
-        console.warn("[cypher-session] 0 jammers spawned despite", activeJammers.length, "active.", spawnResult);
-      }
+    // 4. Seed board if empty — must happen BEFORE spawning agents
+    let boardItems: unknown[] = [];
+    try {
+      const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
+      boardItems = boardR?.items ?? [];
+    } catch {
+      // Board fetch can fail if project has no gh_project_id yet
     }
-
-    // 5. Seed board if empty
-    const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
-    if (!boardR?.items?.length && cy?.goal) {
-      const assignments = activeJammers.map((j: any) => j.agent_local_id);
-      const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignments[0];
-      const workers = assignments.filter((a: string) => a !== leader);
+    if (boardItems.length === 0 && cy?.goal) {
+      const assignmentIds = activeJammers.map((j: any) => j.agent_local_id);
+      const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignmentIds[0];
+      const workers = assignmentIds.filter((a: string) => a !== leader);
 
       const items = [
         { title: `Decompose goal: ${(cy.goal || "").slice(0, 60)}`, assignee: leader },
@@ -3861,6 +3859,14 @@ async function boot() {
         });
       }
       console.log("[cypher-session] Seeded", items.length, "board items for project", projectSlug);
+    }
+
+    // 5. Spawn local jammer agents — AFTER all GitHub setup is complete
+    if (stageWc && !stageWc.isDestroyed()) {
+      const spawnResult = await spawnCypherJammers(cypId, stageWc);
+      if (spawnResult.spawned === 0 && activeJammers.length > 0) {
+        console.warn("[cypher-session] 0 jammers spawned despite", activeJammers.length, "active.", spawnResult);
+      }
     }
 
     // 6. Send status summary to yo panel
