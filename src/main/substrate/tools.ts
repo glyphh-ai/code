@@ -114,6 +114,8 @@ export interface SubstrateToolDeps {
     updateItemStatus: (projectRef: string, itemId: string, status: string) => Promise<string>;
     /** Assign an item to a jammer. */
     assignItem: (projectRef: string, itemId: string, assigneeAgentId: string) => Promise<string>;
+    /** Post a comment on an issue/item. */
+    commentOnItem: (projectRef: string, itemId: string, body: string) => Promise<string>;
   };
   council?: {
     getCurrent: () => string | null;
@@ -1661,6 +1663,27 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const ref = await deps.project.getForCypher(cypherId);
       if (!ref) return "No project exists.";
       return deps.project.assignItem(ref, String(input.item_id), String(input.agent_id));
+    },
+  },
+  {
+    name: "project_comment",
+    namespace: "yo",
+    description: "Post a comment on a project item (GitHub issue). Use to log progress, ask questions, or document decisions on a task.",
+    input_schema: {
+      type: "object",
+      properties: {
+        item_id: { type: "string", description: "The item/issue ID or number" },
+        body: { type: "string", description: "Comment body (markdown supported)" },
+      },
+      required: ["item_id", "body"],
+    },
+    run: async (input) => {
+      if (!deps.project || !deps.cypher) return "Project tools not wired.";
+      const cypherId = deps.cypher.getCurrent();
+      if (!cypherId) return "No cypher is active.";
+      const ref = await deps.project.getForCypher(cypherId);
+      if (!ref) return "No project exists.";
+      return deps.project.commentOnItem(ref, String(input.item_id), String(input.body));
     },
   },
 

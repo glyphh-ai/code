@@ -29,6 +29,27 @@ interface CypherAPI {
   readFile: (filePath: string) => Promise<{ content: string; binary: boolean }>;
   getCypherWorkspacePath: (cypherId: string) => Promise<string | null>;
   projectBoard: (cypherId: string) => Promise<{ items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }> }>;
+  itemDetail: (cypherId: string, itemId: string) => Promise<{
+    number: number;
+    title: string;
+    body: string | null;
+    status: string | null;
+    assignees: string[];
+    url: string;
+    state: string;
+    labels: string[];
+    created_at: string;
+    updated_at: string;
+    closed_at: string | null;
+    comments: Array<{
+      id: number;
+      user: string;
+      avatar_url: string;
+      body: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+  } | null>;
   onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
   openInVSCode: (filePath: string) => void;
   loadFeed: (cypherId: string, limit?: number) => Promise<Array<{ ts: number; from: string; kind: string; body: string; tags?: string[] }>>;
@@ -106,6 +127,7 @@ let unsubStatus: (() => void) | null = null;
 let unsubItemUpdate: (() => void) | null = null;
 let unsubActivity: (() => void) | null = null;
 let fileTreeRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let boardRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let initRunning = false;
 
 // ── Helpers ────────────────────────────────────────────
@@ -517,10 +539,27 @@ function renderJammers(): void {
     const msgBtn = row.querySelector(".jammer-msg-btn")!;
     msgBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const input = prompt(`Message to ${j.name || j.agent_local_id}:`);
-      if (input?.trim()) {
-        api.agentSend(j.agent_local_id, input.trim());
-      }
+      if (row.querySelector(".jammer-msg-input")) return;
+      const inputRow = document.createElement("div");
+      inputRow.className = "jammer-msg-input-row";
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.className = "jammer-msg-input";
+      inp.placeholder = `Message ${j.name || j.agent_local_id}...`;
+      const send = () => {
+        if (inp.value.trim()) {
+          api.agentSend(j.agent_local_id, inp.value.trim());
+        }
+        inputRow.remove();
+      };
+      inp.addEventListener("keydown", (ke) => {
+        if (ke.key === "Enter") send();
+        if (ke.key === "Escape") inputRow.remove();
+      });
+      inp.addEventListener("blur", () => setTimeout(() => inputRow.remove(), 150));
+      inputRow.appendChild(inp);
+      row.appendChild(inputRow);
+      inp.focus();
     });
     container.appendChild(row);
   }
@@ -596,15 +635,132 @@ function renderBoard(): void {
 
         const card = document.createElement("div");
         card.className = "board-card";
+        card.style.cursor = "pointer";
         card.innerHTML = `
           <div class="board-card-title">${escapeHtml(item.title)}</div>
           <div class="board-card-meta">${avatarWrap}${assigneeHtml}${prHtml}</div>
         `;
+        card.addEventListener("click", () => openCardModal(item.id));
         container.appendChild(card);
       }
     }
     if (count) count.textContent = String(items.length);
   }
+}
+
+// ── Card detail modal ─────────────────────────────────
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60_000) return "just now";
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+}
+
+function simpleMarkdown(text: string): string {
+  let s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return s;
+}
+
+function statusLabelColor(label: string): string {
+  const map: Record<string, string> = {
+    "status:lobby": "#c5def5", "status:backlog": "#d4c5f9",
+    "status:in-progress": "#fbca04", "status:review": "#f9d0c4", "status:done": "#0e8a16",
+  };
+  return map[label] || "#999";
+}
+
+async function openCardModal(itemId: string): Promise<void> {
+  const overlay = $("card-modal-overlay");
+  const loading = $("card-modal-loading");
+  const commentsEl = $("card-modal-comments");
+  const titleEl = $("card-modal-title");
+  const numberEl = $("card-modal-number");
+  const metaEl = $("card-modal-meta");
+  const bodyEl = $("card-modal-body");
+  const countEl = $("card-modal-comment-count");
+
+  titleEl.textContent = "";
+  numberEl.textContent = "";
+  metaEl.innerHTML = "";
+  bodyEl.innerHTML = "";
+  commentsEl.innerHTML = "";
+  countEl.textContent = "0";
+  loading.classList.remove("hidden");
+  overlay.classList.remove("hidden");
+
+  if (!cypherId) { overlay.classList.add("hidden"); return; }
+
+  const detail = await api.itemDetail(cypherId, itemId);
+  loading.classList.add("hidden");
+
+  if (!detail) {
+    commentsEl.innerHTML = '<div class="card-modal-no-comments">Failed to load issue detail</div>';
+    return;
+  }
+
+  numberEl.textContent = `#${detail.number}`;
+  titleEl.textContent = detail.title;
+
+  let metaHtml = "";
+  const stateClass = detail.state === "open" ? "status-open" : "status-closed";
+  metaHtml += `<span class="card-modal-badge ${stateClass}">${detail.state === "open" ? "Open" : "Closed"}</span>`;
+
+  for (const label of detail.labels) {
+    const color = statusLabelColor(label);
+    metaHtml += `<span class="card-modal-badge label" style="border-color:${color}; color:${color}">${escapeHtml(label)}</span>`;
+  }
+
+  for (const a of detail.assignees) {
+    metaHtml += `<span class="card-modal-assignee">@${escapeHtml(a)}</span>`;
+  }
+
+  metaHtml += `<span class="card-modal-date">created ${formatDate(detail.created_at)}</span>`;
+  if (detail.closed_at) {
+    metaHtml += `<span class="card-modal-date">closed ${formatDate(detail.closed_at)}</span>`;
+  }
+
+  metaHtml += `<a class="card-modal-link" href="${escapeHtml(detail.url)}" target="_blank">View on GitHub</a>`;
+
+  metaEl.innerHTML = metaHtml;
+
+  if (detail.body?.trim()) {
+    bodyEl.innerHTML = simpleMarkdown(detail.body);
+  }
+
+  countEl.textContent = String(detail.comments.length);
+
+  if (detail.comments.length === 0) {
+    commentsEl.innerHTML = '<div class="card-modal-no-comments">No comments yet</div>';
+  } else {
+    let html = "";
+    for (const c of detail.comments) {
+      const avatarImg = c.avatar_url
+        ? `<img src="${escapeHtml(c.avatar_url)}" alt="" />`
+        : identiconSvg(c.user, 28);
+      html += `
+        <div class="card-modal-comment">
+          <div class="card-modal-comment-avatar">${avatarImg}</div>
+          <div class="card-modal-comment-content">
+            <div class="card-modal-comment-header">
+              <span class="card-modal-comment-user">${escapeHtml(c.user)}</span>
+              <span class="card-modal-comment-time">${formatDate(c.created_at)}</span>
+            </div>
+            <div class="card-modal-comment-body">${simpleMarkdown(c.body)}</div>
+          </div>
+        </div>`;
+    }
+    commentsEl.innerHTML = html;
+  }
+}
+
+function closeCardModal(): void {
+  $("card-modal-overlay").classList.add("hidden");
 }
 
 // ── Feed (right top) ──────────────────────────────────
@@ -1155,6 +1311,20 @@ function subscribeEvents(): void {
       renderFileTree();
     } catch { /* workspace may not exist yet */ }
   }, 3000);
+
+  boardRefreshTimer = setInterval(async () => {
+    if (!cypherId) return;
+    try {
+      const boardData = await api.projectBoard(cypherId);
+      const newItems = boardData.items || [];
+      const changed = newItems.length !== boardItems.length ||
+        newItems.some((n, i) => n.id !== boardItems[i]?.id || n.status !== boardItems[i]?.status || n.assignee !== boardItems[i]?.assignee);
+      if (changed) {
+        boardItems = newItems;
+        renderBoard();
+      }
+    } catch { /* project may not exist yet */ }
+  }, 5000);
 }
 
 function cleanup(): void {
@@ -1167,6 +1337,7 @@ function cleanup(): void {
   unsubItemUpdate = null;
   unsubActivity = null;
   if (fileTreeRefreshTimer) { clearInterval(fileTreeRefreshTimer); fileTreeRefreshTimer = null; }
+  if (boardRefreshTimer) { clearInterval(boardRefreshTimer); boardRefreshTimer = null; }
 }
 
 // ── Boot ───────────────────────────────────────────────
@@ -1209,6 +1380,16 @@ function boot(): void {
   $("feed-filter").addEventListener("change", (e) => {
     feedFilter = (e.target as HTMLSelectElement).value;
     rebuildFeed();
+  });
+
+  $("card-modal-close").addEventListener("click", closeCardModal);
+  $("card-modal-overlay").addEventListener("click", (e) => {
+    if (e.target === $("card-modal-overlay")) closeCardModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("card-modal-overlay").classList.contains("hidden")) {
+      closeCardModal();
+    }
   });
 
   $("btn-close-cypher").addEventListener("click", () => {

@@ -227,6 +227,16 @@
   .jammer-status-dot.waiting { background: #4caf50; }
   .jammer-status-dot.starting { background: #ffb400; animation: pulse-anim 1s ease-in-out infinite; }
   .jammer-status-dot.error { background: #f44; }
+  .jammer-msg-input-row {
+    width: 100%; margin-top: 4px;
+  }
+  .jammer-msg-input {
+    width: 100%; box-sizing: border-box;
+    padding: 4px 8px; border-radius: 4px;
+    font-size: 11px; border: 1px solid var(--accent);
+    background: var(--surface-2); color: var(--text);
+    outline: none; font-family: inherit;
+  }
 
   .jammer-empty, .feed-empty {
     font-size: 11px; color: var(--text-3); padding: 20px 0; text-align: center;
@@ -568,6 +578,173 @@
   .wrapped-agent-name { font-weight: 600; }
   .wrapped-agent-role { font-size: 10px; color: var(--text-3); }
 
+  /* ── Card detail modal ─────────────────────────────────── */
+  .card-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    animation: modal-fade-in 0.15s ease;
+  }
+  @keyframes modal-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .card-modal {
+    width: 640px; max-width: 90vw;
+    max-height: 85vh;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    animation: modal-slide-in 0.2s ease;
+  }
+  @keyframes modal-slide-in {
+    from { transform: translateY(12px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .card-modal-header {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 20px 20px 12px;
+    flex-shrink: 0;
+  }
+  .card-modal-number {
+    font-size: 13px; font-weight: 700; color: var(--text-3);
+    font-family: var(--font-mono);
+    flex-shrink: 0; padding-top: 2px;
+  }
+  .card-modal-title {
+    font-size: 16px; font-weight: 700; color: var(--text);
+    line-height: 1.3; flex: 1; min-width: 0;
+    word-break: break-word;
+  }
+  .card-modal-close {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; border-radius: 6px;
+    background: transparent; color: var(--text-3);
+    cursor: pointer; font-size: 18px; line-height: 1;
+    flex-shrink: 0; transition: all 0.12s;
+  }
+  .card-modal-close:hover { background: var(--surface-2); color: var(--text); }
+  .card-modal-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 0 20px 14px;
+    flex-shrink: 0;
+  }
+  .card-modal-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .card-modal-badge.status-open { color: #4caf50; border-color: rgba(76,175,80,0.3); }
+  .card-modal-badge.status-closed { color: #f44; border-color: rgba(244,68,68,0.3); }
+  .card-modal-badge.label {
+    font-size: 10px; padding: 2px 8px;
+  }
+  .card-modal-assignee {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--text-2);
+  }
+  .card-modal-assignee-avatar {
+    width: 16px; height: 16px; border-radius: 4px;
+    background: var(--surface-3); overflow: hidden;
+  }
+  .card-modal-assignee-avatar img {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  .card-modal-date {
+    font-size: 11px; color: var(--text-3); font-family: var(--font-mono);
+    margin-left: auto;
+  }
+  .card-modal-body {
+    padding: 0 20px 14px;
+    font-size: 13px; color: var(--text-2); line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 200px; overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .card-modal-body:empty { display: none; }
+  .card-modal-body code {
+    font-family: var(--font-mono); font-size: 12px;
+    background: var(--surface-2); padding: 1px 4px; border-radius: 3px;
+  }
+  .card-modal-body pre {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; overflow-x: auto;
+    font-size: 12px; line-height: 1.5;
+  }
+  .card-modal-body pre code { background: none; padding: 0; }
+  .card-modal-divider {
+    height: 1px; background: var(--border); margin: 0 20px;
+    flex-shrink: 0;
+  }
+  .card-modal-comments-header {
+    padding: 12px 20px 8px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-3);
+    display: flex; align-items: center; gap: 8px;
+    flex-shrink: 0;
+  }
+  .card-modal-comments-header .count {
+    background: var(--surface-3); border-radius: 8px;
+    padding: 1px 6px; font-size: 10px; color: var(--text-2);
+  }
+  .card-modal-comments {
+    flex: 1; overflow-y: auto;
+    padding: 0 20px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+    min-height: 0;
+  }
+  .card-modal-comment {
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .card-modal-comment-avatar {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--surface-3); overflow: hidden;
+    flex-shrink: 0;
+  }
+  .card-modal-comment-avatar img {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  .card-modal-comment-content { flex: 1; min-width: 0; }
+  .card-modal-comment-header {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 3px;
+  }
+  .card-modal-comment-user {
+    font-size: 12px; font-weight: 600; color: var(--text);
+  }
+  .card-modal-comment-time {
+    font-size: 10px; color: var(--text-3); font-family: var(--font-mono);
+  }
+  .card-modal-comment-body {
+    font-size: 12px; color: var(--text-2); line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .card-modal-comment-body code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--surface-2); padding: 1px 4px; border-radius: 3px;
+  }
+  .card-modal-no-comments {
+    font-size: 12px; color: var(--text-3); text-align: center;
+    padding: 20px 0;
+  }
+  .card-modal-loading {
+    font-size: 12px; color: var(--text-3); text-align: center;
+    padding: 40px 0;
+  }
+  .card-modal-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--accent); text-decoration: none;
+    padding: 3px 10px; border-radius: 999px;
+    border: 1px solid rgba(var(--accent-rgb, 100,200,255), 0.3);
+  }
+  .card-modal-link:hover { text-decoration: underline; }
+
   /* ── Utilities ─────────────────────────────────────────── */
   .hidden { display: none !important; }
 
@@ -689,6 +866,25 @@
     </div>
   </div>
 
+</div>
+
+<!-- Card detail modal -->
+<div class="card-modal-overlay hidden" id="card-modal-overlay">
+  <div class="card-modal" id="card-modal">
+    <div class="card-modal-header">
+      <div class="card-modal-number" id="card-modal-number"></div>
+      <div class="card-modal-title" id="card-modal-title"></div>
+      <button class="card-modal-close" id="card-modal-close">&times;</button>
+    </div>
+    <div class="card-modal-meta" id="card-modal-meta"></div>
+    <div class="card-modal-body" id="card-modal-body"></div>
+    <div class="card-modal-divider"></div>
+    <div class="card-modal-comments-header">
+      Comments <span class="count" id="card-modal-comment-count">0</span>
+    </div>
+    <div class="card-modal-comments" id="card-modal-comments"></div>
+    <div class="card-modal-loading hidden" id="card-modal-loading">Loading...</div>
+  </div>
 </div>
 
 <!-- Wrapped results (shown after cypher closes) -->

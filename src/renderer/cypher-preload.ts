@@ -49,6 +49,27 @@ interface CypherPanelAPI {
   projectBoard: (cypherId: string) => Promise<{
     items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }>;
   }>;
+  itemDetail: (cypherId: string, itemId: string) => Promise<{
+    number: number;
+    title: string;
+    body: string | null;
+    status: string | null;
+    assignees: string[];
+    url: string;
+    state: string;
+    labels: string[];
+    created_at: string;
+    updated_at: string;
+    closed_at: string | null;
+    comments: Array<{
+      id: number;
+      user: string;
+      avatar_url: string;
+      body: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+  } | null>;
   onProjectItemUpdate: (cb: (item: { id: string; title?: string; status?: string; assignee?: string }) => void) => () => void;
 
   // Open in VS Code
@@ -119,6 +140,7 @@ const api: CypherPanelAPI = {
   getCypherWorkspacePath: (cypherId) => ipcRenderer.invoke("cypher-workspace-path", cypherId),
 
   projectBoard: (cypherId) => ipcRenderer.invoke("cypher-project-board", cypherId),
+  itemDetail: (cypherId, itemId) => ipcRenderer.invoke("cypher-item-detail", cypherId, itemId),
   onProjectItemUpdate: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, item: { id: string; title: string; status: string; assignee?: string }) =>
       cb(item);

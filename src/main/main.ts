@@ -1415,6 +1415,14 @@ async function boot() {
           return `Assign failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       },
+      commentOnItem: async (projectRef: string, itemId: string, body: string) => {
+        try {
+          const r = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/comment`, { body }) as any;
+          return r?.url ? `Comment posted: ${r.url}` : "Comment posted.";
+        } catch (err) {
+          return `Comment failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
     },
     council: {
       getCurrent: () => {
@@ -2223,6 +2231,16 @@ async function boot() {
         );
         return { items: (r as any)?.items || [] };
       } catch { return { items: [] }; }
+    });
+  }
+  if (!ipcMain.listenerCount("cypher-item-detail")) {
+    ipcMain.handle("cypher-item-detail", async (_e, cypherId: string, itemId: string) => {
+      try {
+        const projR = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypherId)}`);
+        const slug = projR?.project?.slug;
+        if (!slug) return null;
+        return await serverGetAuthed(`/api/projects/${encodeURIComponent(slug)}/items/${encodeURIComponent(itemId)}/detail`);
+      } catch { return null; }
     });
   }
   if (!ipcMain.listenerCount("cypher-open-vscode")) {
@@ -3843,6 +3861,7 @@ async function boot() {
             owner_login: ownerLogin,
             installation_id: installationId,
             cypher_id: cypId,
+            repo_name: cy?.title || cy?.goal || undefined,
           },
         );
       } catch (err) {
@@ -3866,6 +3885,7 @@ async function boot() {
                   owner_login: ownerLogin,
                   installation_id: installationId,
                   cypher_id: cypId,
+                  repo_name: cy?.title || cy?.goal || undefined,
                 },
               );
             } catch (retryErr) {
