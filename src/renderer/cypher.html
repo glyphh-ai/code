@@ -970,7 +970,7 @@
   /* ── Cypher 3D viz container ────────────────────────────── */
   #cypher-viz-container {
     flex: 1; position: relative; overflow: hidden;
-    background: radial-gradient(ellipse at center, rgba(15,20,35,0.95) 0%, rgba(5,8,18,0.98) 100%);
+    background: #000;
   }
   #cypher-viz-container canvas {
     display: block; width: 100%; height: 100%;
@@ -979,15 +979,15 @@
   /* ── Viz overlay: labels ───────────────────────────────── */
   .cviz-label {
     position: absolute;
-    font-size: 9px; font-weight: 600;
-    color: rgba(150, 170, 200, 0.5);
+    font-size: 13px; font-weight: 700;
+    color: rgba(180, 200, 230, 0.7);
     font-family: var(--font-mono);
     text-align: center;
     white-space: nowrap;
     pointer-events: none;
     transform: translateX(-50%);
-    letter-spacing: 0.03em;
-    text-shadow: 0 0 8px rgba(0,0,0,0.8);
+    letter-spacing: 0.04em;
+    text-shadow: 0 0 10px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.7);
   }
 
   /* ── Viz overlay: dialogs ──────────────────────────────── */

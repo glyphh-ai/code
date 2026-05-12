@@ -19,7 +19,7 @@ interface CypherAPI {
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
-  onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => () => void;
+  onJammerActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => () => void;
   agentStop: (agentName: string) => void;
   agentSend: (agentName: string, message: string) => void;
   dripsPreview: (recipe: string) => Promise<string>;
@@ -111,6 +111,7 @@ let boardItems: BoardItem[] = [];
 
 interface FeedEntry {
   from: string;
+  to?: string;
   kind: string;
   body: string;
   ts: number;
@@ -859,7 +860,7 @@ function addFeedEntry(entry: FeedEntry): void {
   if (!feedPaused && matchesFeedFilter(entry)) {
     renderFeedItem(entry, true);
   }
-  cypherViz?.onFeedEvent(entry.from, entry.kind, entry.body);
+  cypherViz?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
 }
 
 function feedKindLabel(kind: string): { label: string; cls: string } {
@@ -1512,6 +1513,7 @@ function subscribeEvents(): void {
     if (!event.body?.trim()) return;
     addFeedEntry({
       from: event.from,
+      to: event.to,
       kind: event.kind,
       body: event.body,
       ts: event.ts || Date.now(),

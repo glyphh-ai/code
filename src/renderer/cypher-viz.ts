@@ -103,6 +103,9 @@ export class CypherViz {
   private pulses: Pulse[] = [];
   private pulseGeo = new THREE.SphereGeometry(0.18, 8, 8);
 
+  // Edge glows (temporary bright overlays on active edges)
+  private edgeGlows: { line: THREE.Line; brightness: number }[] = [];
+
   // Overlays (labels + dialogs)
   private overlayContainer: HTMLDivElement | null = null;
   private labels = new Map<string, HTMLDivElement>();
@@ -248,12 +251,17 @@ export class CypherViz {
       status === "running" || status === "starting" ? 1 : 0;
   }
 
-  onFeedEvent(from: string, kind: string, body: string): void {
+  onFeedEvent(from: string, kind: string, body: string, to?: string): void {
     const node = this.nodes.get(from);
     if (!node) return;
 
-    // Pulse from jammer toward github center
-    this.addPulse(node.worldPos, new THREE.Vector3(0, 0, 0), node.color);
+    // Determine target: another jammer, or GitHub center
+    const toNode = to ? this.nodes.get(to) : null;
+    const targetPos = toNode ? toNode.worldPos : new THREE.Vector3(0, 0, 0);
+
+    // Light up the edge and send a pulse along it
+    this.lightEdge(node.worldPos, targetPos, node.color);
+    this.addPulse(node.worldPos, targetPos, node.color);
 
     // Show dialog near the jammer
     this.showDialog(from, node.name || from, kind, body);
@@ -311,6 +319,13 @@ export class CypherViz {
       (p.mesh.material as THREE.Material).dispose();
     }
     this.pulses.length = 0;
+
+    // Dispose edge glows
+    for (const g of this.edgeGlows) {
+      g.line.geometry.dispose();
+      (g.line.material as THREE.Material).dispose();
+    }
+    this.edgeGlows.length = 0;
 
     // Dispose overlays
     for (const dlg of this.dialogs.values()) {
@@ -497,6 +512,22 @@ export class CypherViz {
     this.pulses.push({ mesh, from: from.clone(), to: to.clone(), t: 0 });
   }
 
+  // ── Private: Edge glows ────────────────────────────────
+
+  private lightEdge(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color): void {
+    const geo = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
+    const mat = new THREE.LineBasicMaterial({
+      color: color.clone().lerp(new THREE.Color(0xffffff), 0.5),
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const line = new THREE.Line(geo, mat);
+    this.scene.add(line);
+    this.edgeGlows.push({ line, brightness: 1 });
+  }
+
   // ── Private: Overlays (labels + dialogs) ─────────────
 
   private createLabel(id: string, name: string): void {
@@ -582,12 +613,12 @@ export class CypherViz {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
 
-    // Labels (below each jammer)
+    // Labels (just below each jammer cluster)
     for (const [id, el] of this.labels) {
       const node = this.nodes.get(id);
       if (!node) continue;
       this._v3.copy(node.worldPos);
-      this._v3.y -= 1.6;
+      this._v3.y -= 0.75;
       this._v3.project(this.camera);
       if (this._v3.z > 1) {
         el.style.display = "none";
@@ -643,6 +674,20 @@ export class CypherViz {
         node.mesh.rotation.y = Math.sin(t * 0.3 + hashVal(node.id)) * 0.03;
         node.mesh.rotation.x =
           Math.cos(t * 0.2 + hashVal(node.id) * 2) * 0.02;
+      }
+    }
+
+    // Animate edge glows (fade out)
+    for (let i = this.edgeGlows.length - 1; i >= 0; i--) {
+      const glow = this.edgeGlows[i];
+      glow.brightness -= dt * 0.4;
+      if (glow.brightness <= 0) {
+        this.scene.remove(glow.line);
+        glow.line.geometry.dispose();
+        (glow.line.material as THREE.Material).dispose();
+        this.edgeGlows.splice(i, 1);
+      } else {
+        (glow.line.material as THREE.LineBasicMaterial).opacity = glow.brightness * 0.9;
       }
     }
 

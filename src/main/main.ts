@@ -607,6 +607,7 @@ async function boot() {
   cypherBus.onPost((_wsSlug, event) => {
     const payload = {
       from: event.from,
+      to: event.to,
       kind: event.kind,
       body: event.body,
       tags: event.tags,
