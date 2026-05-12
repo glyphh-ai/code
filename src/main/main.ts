@@ -2224,6 +2224,16 @@ async function boot() {
       } catch { return { content: "", binary: false }; }
     });
   }
+  if (!ipcMain.listenerCount("cypher-gh-tree")) {
+    ipcMain.handle("cypher-gh-tree", async () => {
+      return mcpExpose?.getRepoTree() ?? null;
+    });
+  }
+  if (!ipcMain.listenerCount("cypher-gh-file")) {
+    ipcMain.handle("cypher-gh-file", async (_e, filePath: string) => {
+      return mcpExpose?.getRepoFile(filePath) ?? null;
+    });
+  }
   if (!ipcMain.listenerCount("cypher-project-info")) {
     ipcMain.handle("cypher-project-info", async (_e, cypherId: string) => {
       try {
@@ -4412,20 +4422,21 @@ async function boot() {
               `### Phase 2: Plan & Delegate`,
               `6. Decompose the goal into discrete tasks`,
               `7. Use gh_create_issue for each task with clear title, acceptance criteria, and implementation notes`,
-              `8. Use assign_task to delegate to your direct reports: ${reportsStr}`,
+              `8. Use gh_set_issue_status to move each issue to "backlog" after creation`,
+              `9. Use assign_task to delegate to your direct reports: ${reportsStr}`,
               `   Include the issue number in the task body so workers know which issue to update`,
               ``,
               `### Phase 3: Monitor & Review`,
-              `9. Monitor progress via report_status events and gh_get_issue comments`,
-              `10. Use gh_list_prs to check for incoming pull requests`,
-              `11. Use gh_get_pr_diff to review changes, then gh_review_pr to approve or request changes`,
-              `12. Use gh_merge_pr to merge approved PRs`,
-              `13. Use gh_close_issue when verified complete`,
+              `10. Monitor progress via report_status events and gh_get_issue comments`,
+              `11. Use gh_list_prs to check for incoming pull requests`,
+              `12. Use gh_get_pr_diff to review changes, then gh_review_pr to approve or request changes`,
+              `13. Use gh_set_issue_status to move issues to "review" when PRs arrive, "done" when merged`,
+              `14. Use gh_merge_pr to merge approved PRs`,
               ``,
               `### Phase 4: Wrap Up`,
-              `14. Run \`git pull\` to get all merged work`,
-              `15. Update README.md with final summary: what was built, how to use it, what's left`,
-              `16. Commit and push the final README`,
+              `15. Run \`git pull\` to get all merged work`,
+              `16. Update README.md with final summary: what was built, how to use it, what's left`,
+              `17. Commit and push the final README`,
               ``,
               `Workers activate ONLY when you assign them a task — they are idle until then.`,
               `IMPORTANT: Every task MUST have a GitHub issue. Create the issue before assigning work.`,
@@ -4442,19 +4453,21 @@ async function boot() {
               `4. Create a feature branch: \`git checkout -b <descriptive-branch-name>\``,
               ``,
               `### Phase 2: Execute`,
-              `5. Execute the assigned task, committing progress incrementally`,
-              `6. Use gh_comment_issue to post progress notes and implementation details on your assigned issue`,
-              `7. Use report_status to update your leader on progress`,
+              `5. Use gh_set_issue_status to move your assigned issue to "in-progress"`,
+              `6. Execute the assigned task, committing progress incrementally`,
+              `7. Use gh_comment_issue to post progress notes and implementation details on your assigned issue`,
+              `8. Use report_status to update your leader on progress`,
               ``,
               `### Phase 3: Submit`,
-              `8. Push your branch: \`git push origin <branch-name>\``,
-              `9. Use gh_open_pr to create a pull request referencing the issue (e.g. "Closes #N")`,
-              `10. Use report_status to notify your leader the PR is ready for review`,
+              `9. Push your branch: \`git push origin <branch-name>\``,
+              `10. Use gh_open_pr to create a pull request referencing the issue (e.g. "Closes #N")`,
+              `11. Use gh_set_issue_status to move the issue to "review"`,
+              `12. Use report_status to notify your leader the PR is ready for review`,
               ``,
               `### Phase 4: Iterate`,
-              `11. Address review feedback by pushing additional commits to your branch`,
-              `12. Use gh_comment_issue to document changes made during review`,
-              `13. Use complete_task when your PR is approved and merged`,
+              `13. Address review feedback by pushing additional commits to your branch`,
+              `14. Use gh_comment_issue to document changes made during review`,
+              `15. Use complete_task when your PR is approved and merged`,
               ``,
               `Do NOT start work on anything other than your assigned task.`,
               `IMPORTANT: All work must be on a feature branch — never commit directly to the default branch.`,
@@ -4465,6 +4478,7 @@ async function boot() {
         `- Work assignments flow through the chain of command (assign_task / accept_task / complete_task)`,
         `- Use get_hierarchy to check your position and reports at any time`,
         `- Use GitHub issues for task tracking and as-built documentation (gh_create_issue, gh_comment_issue, gh_get_issue)`,
+        `- Use gh_set_issue_status to move issues through the board: backlog → in-progress → review → done`,
         `- Use pull requests for code review (gh_open_pr, gh_get_pr_diff, gh_review_pr, gh_merge_pr)`,
         `- Read ./cypher.json for the cypher goal, roster, and context`,
         reg.systemPrompt ? `\n## CUSTOM INSTRUCTIONS\n${reg.systemPrompt}` : "",

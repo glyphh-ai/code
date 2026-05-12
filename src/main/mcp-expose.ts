@@ -121,6 +121,37 @@ export class McpExpose {
     return res.data;
   }
 
+  async getRepoTree(): Promise<{ path: string; type: string; size?: number }[] | null> {
+    if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return null;
+    const [owner, repo] = this.projectContext.repoFullName.split("/");
+    try {
+      const info = await this.ghApi<{ default_branch: string }>("GET", `/repos/${owner}/${repo}`);
+      const tree = await this.ghApi<{ tree: { path: string; type: string; size?: number }[] }>(
+        "GET", `/repos/${owner}/${repo}/git/trees/${info.default_branch}?recursive=1`,
+      );
+      return tree.tree;
+    } catch {
+      return null;
+    }
+  }
+
+  async getRepoFile(filePath: string): Promise<{ content: string; binary: boolean } | null> {
+    if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return null;
+    const [owner, repo] = this.projectContext.repoFullName.split("/");
+    try {
+      const data = await this.ghApi<{ content: string; encoding: string; size: number }>(
+        "GET", `/repos/${owner}/${repo}/contents/${filePath}`,
+      );
+      if (data.encoding === "base64") {
+        const decoded = Buffer.from(data.content, "base64").toString("utf-8");
+        return { content: decoded, binary: false };
+      }
+      return { content: data.content, binary: false };
+    } catch {
+      return null;
+    }
+  }
+
   get isRunning(): boolean {
     return this.server?.listening ?? false;
   }
@@ -901,10 +932,50 @@ export class McpExpose {
         const issueNum = Number(args.number);
         if (!issueNum) return reply("number is required", true);
         try {
+          const current = await this.ghApi<{ labels: Array<{ name: string }> }>(
+            "GET", `/repos/${owner}/${repo}/issues/${issueNum}`,
+          );
+          const labels = current.labels
+            .map(l => l.name)
+            .filter(n => !n.startsWith("status:"));
+          labels.push("status:done");
           const data = await this.ghApi<{ number: number; html_url: string }>(
-            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, { state: "closed" },
+            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, { state: "closed", labels },
           );
           return replyJson({ number: data.number, url: data.html_url, closed: true });
+        } catch (e) {
+          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
+        }
+      }
+
+      case "gh_set_issue_status": {
+        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
+        const [owner, repo] = this.projectContext.repoFullName.split("/");
+        const issueNum = Number(args.number);
+        const newStatus = String(args.status || "").toLowerCase();
+        const validStatuses: Record<string, string> = {
+          backlog: "status:backlog",
+          "in-progress": "status:in-progress",
+          "in_progress": "status:in-progress",
+          review: "status:review",
+          done: "status:done",
+        };
+        if (!issueNum) return reply("number is required", true);
+        if (!validStatuses[newStatus]) return reply(`Invalid status. Use: backlog, in-progress, review, done`, true);
+        try {
+          const current = await this.ghApi<{ labels: Array<{ name: string }> }>(
+            "GET", `/repos/${owner}/${repo}/issues/${issueNum}`,
+          );
+          const labels = current.labels
+            .map(l => l.name)
+            .filter(n => !n.startsWith("status:"));
+          labels.push(validStatuses[newStatus]);
+          const payload: Record<string, unknown> = { labels };
+          if (newStatus === "done") payload.state = "closed";
+          const data = await this.ghApi<{ number: number; html_url: string; state: string }>(
+            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, payload,
+          );
+          return replyJson({ number: data.number, url: data.html_url, status: newStatus });
         } catch (e) {
           return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
         }
@@ -1301,6 +1372,18 @@ export class McpExpose {
               state: { type: "string", enum: ["open", "closed"] },
             },
             required: ["number"],
+          },
+        },
+        {
+          name: "gh_set_issue_status",
+          description: "Move a GitHub issue to a new board status. Updates the status label. Use this to move issues between: backlog, in-progress, review, done.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              number: { type: "number", description: "Issue number" },
+              status: { type: "string", enum: ["backlog", "in-progress", "review", "done"], description: "Target status" },
+            },
+            required: ["number", "status"],
           },
         },
         {

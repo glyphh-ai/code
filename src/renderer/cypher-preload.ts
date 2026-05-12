@@ -45,6 +45,10 @@ interface CypherPanelAPI {
   readFile: (filePath: string) => Promise<{ content: string; binary: boolean }>;
   getCypherWorkspacePath: (cypherId: string) => Promise<string | null>;
 
+  // GitHub repo files
+  ghTree: () => Promise<Array<{ path: string; type: string; size?: number }> | null>;
+  ghFile: (filePath: string) => Promise<{ content: string; binary: boolean } | null>;
+
   // Project info (repo URL, linked repos)
   projectInfo: (cypherId: string) => Promise<{
     gh_project_url: string | null;
@@ -145,6 +149,9 @@ const api: CypherPanelAPI = {
   readFile: (filePath) => ipcRenderer.invoke("cypher-read-file", filePath),
   getCypherWorkspacePath: (cypherId) => ipcRenderer.invoke("cypher-workspace-path", cypherId),
 
+  ghTree: () => ipcRenderer.invoke("cypher-gh-tree"),
+  ghFile: (filePath) => ipcRenderer.invoke("cypher-gh-file", filePath),
+
   projectInfo: (cypherId) => ipcRenderer.invoke("cypher-project-info", cypherId),
   projectBoard: (cypherId) => ipcRenderer.invoke("cypher-project-board", cypherId),
   itemDetail: (cypherId, itemId) => ipcRenderer.invoke("cypher-item-detail", cypherId, itemId),
@@ -160,7 +167,7 @@ const api: CypherPanelAPI = {
   dripsPreview: (recipe) => ipcRenderer.invoke("drips-preview", recipe) as Promise<string>,
 
   onJammerActivity: (cb) => {
-    const handler = (_e: Electron.IpcRendererEvent, event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) =>
+    const handler = (_e: Electron.IpcRendererEvent, event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number }) =>
       cb(event);
     ipcRenderer.on("jammer-activity", handler);
     return () => { ipcRenderer.removeListener("jammer-activity", handler); };

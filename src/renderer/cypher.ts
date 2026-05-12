@@ -57,6 +57,8 @@ interface CypherAPI {
   openInVSCode: (filePath: string) => void;
   loadFeed: (cypherId: string, limit?: number) => Promise<Array<{ ts: number; from: string; kind: string; body: string; tags?: string[] }>>;
   onContextReady: (cb: () => void) => () => void;
+  ghTree: () => Promise<Array<{ path: string; type: string; size?: number }> | null>;
+  ghFile: (filePath: string) => Promise<{ content: string; binary: boolean } | null>;
 }
 
 const api = (window as any).cypher as CypherAPI;
@@ -66,6 +68,7 @@ let cypherId: string | null = null;
 let isOwner = false;
 let myHandle: string | null = null;
 let workspacePath: string | null = null;
+let ghMode = false;
 
 interface Jammer {
   agent_local_id: string;
@@ -308,12 +311,12 @@ function triggerEditorResize(): void {
 }
 
 // ── Center tab switching ──────────────────────────────
-type CenterTab = "cypher" | "feed" | "board" | "files";
+type CenterTab = "cypher" | "board" | "files";
 let activeCenterTab: CenterTab = "cypher";
 
 function switchCenterTab(tab: CenterTab): void {
   activeCenterTab = tab;
-  for (const p of ["cypher", "feed", "board", "files"]) {
+  for (const p of ["cypher", "board", "files"]) {
     const el = document.getElementById(`center-${p}`);
     if (el) el.classList.toggle("hidden", p !== tab);
   }
@@ -392,9 +395,35 @@ async function loadFileTree(dirPath: string, depth: number = 0): Promise<FileNod
   }));
 }
 
+function buildGhFileTree(entries: { path: string; type: string; size?: number }[]): FileNode[] {
+  const root: FileNode[] = [];
+  const dirMap = new Map<string, FileNode>();
+  const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path));
+  for (const entry of sorted) {
+    const parts = entry.path.split("/");
+    const name = parts[parts.length - 1];
+    const parentPath = parts.slice(0, -1).join("/");
+    const isDir = entry.type === "tree";
+    const node: FileNode = {
+      name, path: entry.path, isDir,
+      depth: parts.length - 1,
+      expanded: parts.length <= 2,
+      children: isDir ? [] : undefined,
+    };
+    if (isDir) dirMap.set(entry.path, node);
+    if (parentPath === "") {
+      root.push(node);
+    } else {
+      const parent = dirMap.get(parentPath);
+      if (parent?.children) parent.children.push(node);
+    }
+  }
+  return root;
+}
+
 async function expandNode(node: FileNode): Promise<void> {
   if (!node.isDir) return;
-  if (!node.children) {
+  if (!node.children && !ghMode) {
     node.children = await loadFileTree(node.path, node.depth + 1);
   }
   node.expanded = !node.expanded;
@@ -452,12 +481,19 @@ async function openFile(filePath: string, name: string): Promise<void> {
   if (activeCenterTab !== "files") switchCenterTab("files");
 
   const ext = fileExtension(name);
+  const readFileFn = async (p: string) => {
+    if (ghMode) {
+      const r = await api.ghFile(p);
+      return r ?? { content: "", binary: false };
+    }
+    return api.readFile(p);
+  };
   if (isMediaFile(ext)) {
     $("monaco-container").style.display = "none";
     const viewer = $("media-viewer");
     viewer.style.display = "flex";
     $("viewer-empty").classList.add("hidden");
-    const { content, binary } = await api.readFile(filePath);
+    const { content, binary } = await readFileFn(filePath);
     if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
       viewer.innerHTML = `<img src="${src}" />`;
@@ -475,7 +511,7 @@ async function openFile(filePath: string, name: string): Promise<void> {
     $("monaco-container").style.display = "block";
     $("viewer-empty").classList.add("hidden");
     await initEditor();
-    const { content } = await api.readFile(filePath);
+    const { content } = await readFileFn(filePath);
     const monaco = (window as any).monaco;
     const lang = languageFromExt(ext);
     const model = monaco.editor.createModel(content, lang);
@@ -686,8 +722,12 @@ function renderBoard(): void {
   const columns: Record<string, BoardItem[]> = {
     Backlog: [], InProgress: [], Review: [], Done: [],
   };
+  const statusMap: Record<string, string> = {
+    Lobby: "Backlog", Backlog: "Backlog", InProgress: "InProgress",
+    Review: "Review", Done: "Done",
+  };
   for (const item of boardItems) {
-    const col = columns[item.status] || columns.Backlog;
+    const col = columns[statusMap[item.status] || "Backlog"];
     col.push(item);
   }
 
@@ -930,81 +970,6 @@ function rebuildFeed(): void {
   }
 }
 
-// ── Chat (right bottom) ──────────────────────────────
-let lastDripTs = 0;
-const DRIP_THROTTLE_MS = 3000;
-
-function senderAvatar(sender: string): string {
-  const jammer = jammers.find((j) => j.agent_local_id === sender || j.name === sender);
-  if (jammer?.avatar_url) return `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`;
-  return identiconSvg(sender, 22);
-}
-
-function addChatMessage(sender: string, body: string, mine: boolean): void {
-  const container = $("chat-messages");
-  const row = document.createElement("div");
-  row.className = `chat-msg-row ${mine ? "mine" : "theirs"}`;
-
-  const avatarHtml = `<div class="chat-msg-avatar">${senderAvatar(sender)}</div>`;
-  const senderLine = !mine ? `<div class="chat-msg-sender">${escapeHtml(sender)}</div>` : "";
-  const bodyHtml = `<div class="chat-msg-body">${escapeHtml(body)}</div>`;
-
-  row.innerHTML = `
-    ${avatarHtml}
-    <div class="chat-msg-bubble">
-      ${senderLine}${bodyHtml}
-    </div>
-  `;
-  container.appendChild(row);
-  container.scrollTop = container.scrollHeight;
-}
-
-function addDripMessage(sender: string, recipe: string, mine: boolean): void {
-  const container = $("chat-messages");
-  const row = document.createElement("div");
-  row.className = `chat-msg-row ${mine ? "mine" : "theirs"}`;
-
-  const avatarHtml = `<div class="chat-msg-avatar">${senderAvatar(sender)}</div>`;
-  const senderLine = !mine ? `<div class="chat-msg-sender">${escapeHtml(sender)}</div>` : "";
-
-  row.innerHTML = `
-    ${avatarHtml}
-    <div class="chat-msg-bubble">
-      ${senderLine}
-      <span class="chat-msg-drip">${escapeHtml(recipe)}</span>
-    </div>
-  `;
-  container.appendChild(row);
-  container.scrollTop = container.scrollHeight;
-}
-
-function fireDripThrottled(recipe: string): void {
-  const now = Date.now();
-  if (now - lastDripTs < DRIP_THROTTLE_MS) return;
-  lastDripTs = now;
-  api.dripsPreview(recipe);
-}
-
-function sendChat(): void {
-  const input = $("chat-input") as HTMLTextAreaElement;
-  const text = input.value.trim();
-  if (!text || !cypherId) return;
-  input.value = "";
-  input.style.height = "40px";
-
-  // Detect .drip command
-  if (text.startsWith(".drip ") || text === ".drip") {
-    const recipe = text.slice(5).trim() || "fireworks";
-    addDripMessage(myHandle || "You", recipe, true);
-    fireDripThrottled(recipe);
-    api.cypherPostEvent(cypherId, "drip", { recipe, sender: myHandle || "unknown" });
-    return;
-  }
-
-  addChatMessage(myHandle || "You", text, true);
-  api.cypherPostEvent(cypherId, "chat", { message: text, sender: myHandle || "unknown" });
-}
-
 // ── Close Cypher + Wrapped Results ────────────────────
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -1176,6 +1141,89 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
   fileContentEl.innerHTML = "";
   readmeEl.innerHTML = "";
 
+  let wrappedGhMode = false;
+  let wrappedGhTree: FileNode[] = [];
+
+  const ghEntries = await api.ghTree();
+  if (ghEntries && ghEntries.length > 0) {
+    wrappedGhMode = true;
+    wrappedGhTree = buildGhFileTree(ghEntries);
+  }
+
+  async function readWrappedFile(filePath: string): Promise<{ content: string; binary: boolean }> {
+    if (wrappedGhMode) {
+      const r = await api.ghFile(filePath);
+      return r ?? { content: "", binary: false };
+    }
+    return api.readFile(filePath);
+  }
+
+  function renderGhDir(dirPath: string): void {
+    fileTableEl.innerHTML = "";
+    fileContentEl.innerHTML = "";
+
+    let nodes = wrappedGhTree;
+    if (dirPath) {
+      const parts = dirPath.split("/");
+      for (const part of parts) {
+        const found = nodes.find(n => n.name === part && n.isDir);
+        if (found?.children) { nodes = found.children; } else { return; }
+      }
+    }
+
+    if (dirPath) {
+      const bc = document.createElement("div");
+      bc.className = "wrapped-file-breadcrumb";
+      const rootLink = document.createElement("a");
+      rootLink.textContent = "root";
+      rootLink.addEventListener("click", () => renderGhDir(""));
+      bc.appendChild(rootLink);
+
+      const parts = dirPath.split("/");
+      let cumPath = "";
+      for (const part of parts) {
+        cumPath = cumPath ? cumPath + "/" + part : part;
+        bc.appendChild(document.createTextNode(" / "));
+        const link = document.createElement("a");
+        link.textContent = part;
+        const navPath = cumPath;
+        link.addEventListener("click", () => renderGhDir(navPath));
+        bc.appendChild(link);
+      }
+      fileTableEl.appendChild(bc);
+
+      const backRow = document.createElement("div");
+      backRow.className = "wrapped-file-row";
+      backRow.innerHTML = `<span class="wrapped-file-icon">..</span><span class="wrapped-file-name dir">..</span>`;
+      const parentDir = dirPath.includes("/") ? dirPath.slice(0, dirPath.lastIndexOf("/")) : "";
+      backRow.addEventListener("click", () => renderGhDir(parentDir));
+      fileTableEl.appendChild(backRow);
+    }
+
+    const dirs = nodes.filter(n => n.isDir).sort((a, b) => a.name.localeCompare(b.name));
+    const files = nodes.filter(n => !n.isDir).sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const node of [...dirs, ...files]) {
+      const row = document.createElement("div");
+      row.className = "wrapped-file-row";
+      const iconCls = node.isDir ? " dir" : "";
+      const icon = node.isDir ? "▸" : "·";
+      const nameCls = node.isDir ? " dir" : "";
+      row.innerHTML = `<span class="wrapped-file-icon${iconCls}">${icon}</span><span class="wrapped-file-name${nameCls}">${escapeHtml(node.name)}</span>`;
+
+      if (node.isDir) {
+        row.addEventListener("click", () => renderGhDir(node.path));
+      } else {
+        row.addEventListener("click", () => {
+          fileTableEl.querySelectorAll(".wrapped-file-row.active").forEach(r => r.classList.remove("active"));
+          row.classList.add("active");
+          showInlineFile(node.path, node.name);
+        });
+      }
+      fileTableEl.appendChild(row);
+    }
+  }
+
   async function renderFileTable(dirPath: string): Promise<void> {
     fileTableEl.innerHTML = "";
     fileContentEl.innerHTML = "";
@@ -1243,7 +1291,7 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
     const ext = fileExtension(name);
     try {
       if (isMediaFile(ext)) {
-        const { content, binary } = await api.readFile(filePath);
+        const { content, binary } = await readWrappedFile(filePath);
         let media = "";
         if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
           const src = binary ? `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${content}` : "";
@@ -1259,7 +1307,7 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
         }
         fileContentEl.innerHTML = `<div class="wrapped-file-content-header">${escapeHtml(name)}</div><div class="wrapped-file-content-body">${media}</div>`;
       } else {
-        const { content } = await api.readFile(filePath);
+        const { content } = await readWrappedFile(filePath);
         fileContentEl.innerHTML = `<div class="wrapped-file-content-header">${escapeHtml(name)}</div><div class="wrapped-file-content-body">${escapeHtml(content)}</div>`;
       }
     } catch {
@@ -1267,10 +1315,17 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
     }
   }
 
-  if (workspacePath) {
+  if (wrappedGhMode) {
+    renderGhDir("");
+    try {
+      const readme = await api.ghFile("README.md");
+      if (readme?.content) {
+        readmeEl.innerHTML = `<div class="wrapped-readme-header">README.md</div><div class="wrapped-readme-content">${renderMarkdown(readme.content)}</div>`;
+      }
+    } catch { /* no readme */ }
+  } else if (workspacePath) {
     try { await renderFileTable(workspacePath); } catch { /* no workspace */ }
 
-    // Find and render README.md inline below the file table
     let readmeContent: string | null = null;
     let readmeSource = "README.md";
     try {
@@ -1404,16 +1459,23 @@ async function init(): Promise<void> {
     } catch { /* no project yet */ }
 
     try {
-      workspacePath = await api.getCypherWorkspacePath(cypherId);
-      if (workspacePath) {
-        fileTree = await loadFileTree(workspacePath);
-        for (const node of fileTree) {
-          if (node.isDir) {
-            node.children = await loadFileTree(node.path, 1);
-            node.expanded = true;
-          }
-        }
+      const ghEntries = await api.ghTree();
+      if (ghEntries && ghEntries.length > 0) {
+        ghMode = true;
+        fileTree = buildGhFileTree(ghEntries);
         renderFileTree();
+      } else {
+        workspacePath = await api.getCypherWorkspacePath(cypherId);
+        if (workspacePath) {
+          fileTree = await loadFileTree(workspacePath);
+          for (const node of fileTree) {
+            if (node.isDir) {
+              node.children = await loadFileTree(node.path, 1);
+              node.expanded = true;
+            }
+          }
+          renderFileTree();
+        }
       }
     } catch { /* workspace IPC may not be ready */ }
 
@@ -1466,19 +1528,6 @@ function subscribeEvents(): void {
       initRunning = false;
       void init();
       return;
-    } else if (kind === "chat") {
-      const sender = (payload as any).sender || (payload as any).from || "unknown";
-      const msg = (payload as any).message || "";
-      if (msg && sender !== myHandle) {
-        addChatMessage(sender, msg, false);
-      }
-    } else if (kind === "drip") {
-      const sender = (payload as any).sender || "unknown";
-      const recipe = (payload as any).recipe || "fireworks";
-      if (sender !== myHandle) {
-        addDripMessage(sender, recipe, false);
-        fireDripThrottled(recipe);
-      }
     }
   });
 
@@ -1521,6 +1570,35 @@ function subscribeEvents(): void {
   });
 
   fileTreeRefreshTimer = setInterval(async () => {
+    if (ghMode) {
+      try {
+        const ghEntries = await api.ghTree();
+        if (ghEntries && ghEntries.length > 0) {
+          const expanded = new Set(flattenTree(fileTree).filter(n => n.isDir && n.expanded).map(n => n.path));
+          fileTree = buildGhFileTree(ghEntries);
+          for (const node of flattenTree(fileTree)) {
+            if (node.isDir && expanded.has(node.path)) node.expanded = true;
+          }
+          renderFileTree();
+        }
+      } catch { /* gh tree not ready */ }
+      return;
+    }
+    if (cypherId) {
+      try {
+        const ghEntries = await api.ghTree();
+        if (ghEntries && ghEntries.length > 0) {
+          ghMode = true;
+          const expanded = new Set(flattenTree(fileTree).filter(n => n.isDir && n.expanded).map(n => n.path));
+          fileTree = buildGhFileTree(ghEntries);
+          for (const node of flattenTree(fileTree)) {
+            if (node.isDir && expanded.has(node.path)) node.expanded = true;
+          }
+          renderFileTree();
+          return;
+        }
+      } catch { /* gh tree not ready yet */ }
+    }
     if (!workspacePath && cypherId) {
       workspacePath = await api.getCypherWorkspacePath(cypherId);
       if (workspacePath) {
@@ -1552,7 +1630,7 @@ function subscribeEvents(): void {
       }
       renderFileTree();
     } catch { /* workspace may not exist yet */ }
-  }, 3000);
+  }, 5000);
 
   boardRefreshTimer = setInterval(async () => {
     if (!cypherId) return;
@@ -1646,53 +1724,12 @@ function boot(): void {
     api.leaveCypher();
   });
 
-  $("chat-send").addEventListener("click", sendChat);
-  const chatTextarea = $("chat-input") as HTMLTextAreaElement;
-  chatTextarea.addEventListener("keydown", (e) => {
-    if ((e as KeyboardEvent).key === "Enter" && !(e as KeyboardEvent).shiftKey) {
-      e.preventDefault();
-      sendChat();
-    }
-  });
-  chatTextarea.addEventListener("input", () => {
-    chatTextarea.style.height = "40px";
-    chatTextarea.style.height = Math.min(chatTextarea.scrollHeight, 160) + "px";
-  });
-
-  // Drip picker
-  const DRIP_RECIPES = [
-    { icon: "🎆", label: "fireworks", recipe: "fireworks" },
-    { icon: "🔥", label: "fire", recipe: "fire" },
-    { icon: "❄️", label: "snow", recipe: "snow" },
-    { icon: "🌧️", label: "rain", recipe: "rain" },
-    { icon: "✨", label: "sparkle", recipe: "sparkle" },
-    { icon: "🎉", label: "confetti", recipe: "confetti" },
-    { icon: "💫", label: "stars", recipe: "stars" },
-    { icon: "🌊", label: "wave", recipe: "wave" },
-  ];
-  const dripPicker = $("cypher-drip-picker");
-  dripPicker.innerHTML = `<div class="cypher-drip-grid">${DRIP_RECIPES.map(d =>
-    `<button class="cypher-drip-tile" data-recipe="${d.recipe}"><span class="drip-icon">${d.icon}</span><span class="drip-label">${d.label}</span></button>`
-  ).join("")}</div>`;
-  dripPicker.querySelectorAll(".cypher-drip-tile").forEach(tile => {
-    tile.addEventListener("click", () => {
-      const recipe = (tile as HTMLElement).dataset.recipe || "fireworks";
-      dripPicker.classList.add("hidden");
-      if (!cypherId) return;
-      addDripMessage(myHandle || "You", recipe, true);
-      fireDripThrottled(recipe);
-      api.cypherPostEvent(cypherId, "drip", { recipe, sender: myHandle || "unknown" });
-    });
-  });
-  $("cypher-drip-btn").addEventListener("click", () => {
-    dripPicker.classList.toggle("hidden");
-  });
-
   api.onContextReady(() => {
     cleanup();
     cypherId = null;
     jammers = [];
     fileTree = [];
+    ghMode = false;
     boardItems = [];
     feedItems.length = 0;
     openTabs = [];
@@ -1707,7 +1744,6 @@ function boot(): void {
     $("file-tree").innerHTML = "";
     $("jammer-list").innerHTML = "";
     $("feed-list").innerHTML = `<div class="feed-empty" id="feed-empty">No activity yet</div>`;
-    $("chat-messages").innerHTML = "";
     $("viewer-tabs").innerHTML = "";
     $("monaco-container").style.display = "none";
     $("media-viewer").style.display = "none";

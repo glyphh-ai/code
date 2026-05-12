@@ -11,6 +11,8 @@ const GH_N = 280;
 const PULSE_SPEED = 12;
 const DIALOG_MS = 6000;
 const LEADER_POSITIONS = new Set(["leader", "lieutenant", "sub-lead"]);
+const LEADER_COLOR = new THREE.Color(0xa855f7);
+const WORKER_COLOR = new THREE.Color(0x22c55e);
 
 // ── Types ─────────────────────────────────────────────
 export interface VizJammer {
@@ -31,6 +33,7 @@ interface JNode {
   parentId: string | null;
   amplitude: number;
   targetAmplitude: number;
+  heat: number;
 }
 
 interface Pulse {
@@ -96,7 +99,7 @@ export class CypherViz {
   private hierMaterial = new THREE.MeshBasicMaterial({
     color: 0x00ffaa,
     transparent: true,
-    opacity: 0.35,
+    opacity: 0.45,
   });
 
   // Pulses
@@ -151,11 +154,11 @@ export class CypherViz {
     this.controls.target.set(0, 0, 0);
 
     // Lights
-    this.scene.add(new THREE.AmbientLight(0x303050, 0.8));
-    const point = new THREE.PointLight(0x6688ff, 2.5, 80);
+    this.scene.add(new THREE.AmbientLight(0x404060, 1.2));
+    const point = new THREE.PointLight(0x6688ff, 3.0, 100);
     point.position.set(0, 0, 0);
     this.scene.add(point);
-    this.scene.add(new THREE.HemisphereLight(0x4466cc, 0x001122, 0.5));
+    this.scene.add(new THREE.HemisphereLight(0x5577dd, 0x001122, 0.7));
 
     // GitHub center sphere
     this.buildGitHub();
@@ -213,7 +216,7 @@ export class CypherViz {
         existing.mesh.position.copy(positions[i]);
         this.updateLabel(j.id, j.name || j.id);
       } else {
-        const color = hashColor(j.id);
+        const color = LEADER_POSITIONS.has(j.position) ? LEADER_COLOR.clone() : WORKER_COLOR.clone();
         const mesh = this.buildJammerMesh(color);
         mesh.position.copy(positions[i]);
         this.scene.add(mesh);
@@ -229,6 +232,7 @@ export class CypherViz {
           amplitude: 0,
           targetAmplitude:
             j.status === "running" || j.status === "starting" ? 1 : 0,
+          heat: 0,
         });
 
         this.createLabel(j.id, j.name || j.id);
@@ -255,9 +259,12 @@ export class CypherViz {
     const node = this.nodes.get(from);
     if (!node) return;
 
+    node.heat = Math.min(node.heat + 0.35, 1);
+
     // Determine target: another jammer, or GitHub center
     const toNode = to ? this.nodes.get(to) : null;
     const targetPos = toNode ? toNode.worldPos : new THREE.Vector3(0, 0, 0);
+    if (toNode) toNode.heat = Math.min(toNode.heat + 0.15, 1);
 
     // Light up the edge and send a pulse along it
     this.lightEdge(node.worldPos, targetPos, node.color);
@@ -349,13 +356,13 @@ export class CypherViz {
   // ── Private: Scene building ───────────────────────────
 
   private buildGitHub(): void {
-    const geo = new THREE.BoxGeometry(TINY * 1.3, TINY * 1.3, TINY * 1.3);
+    const geo = new THREE.BoxGeometry(TINY * 1.6, TINY * 1.6, TINY * 1.6);
     const mat = new THREE.MeshPhongMaterial({
-      color: 0xeeeeff,
-      emissive: 0x4488ff,
-      emissiveIntensity: 0.5,
+      color: 0xddeeff,
+      emissive: 0x6699ff,
+      emissiveIntensity: 0.8,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
     });
     this.ghMesh = new THREE.InstancedMesh(geo, mat, GH_N);
     const pts = fibSphere(GH_N, GH_R);
@@ -372,9 +379,9 @@ export class CypherViz {
     const mat = new THREE.MeshPhongMaterial({
       color,
       emissive: color,
-      emissiveIntensity: 0.3,
+      emissiveIntensity: 0.6,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.92,
     });
     const n = GRID ** 3;
     const mesh = new THREE.InstancedMesh(geo, mat, n);
@@ -441,9 +448,9 @@ export class CypherViz {
       this.pairEdges = new THREE.LineSegments(
         geo,
         new THREE.LineBasicMaterial({
-          color: 0x3355aa,
+          color: 0x4466aa,
           transparent: true,
-          opacity: 0.06,
+          opacity: 0.15,
         }),
       );
       this.scene.add(this.pairEdges);
@@ -463,9 +470,9 @@ export class CypherViz {
       this.ghEdges = new THREE.LineSegments(
         geo,
         new THREE.LineBasicMaterial({
-          color: 0x4488ff,
+          color: 0x5599ff,
           transparent: true,
-          opacity: 0.12,
+          opacity: 0.25,
         }),
       );
       this.scene.add(this.ghEdges);
@@ -500,10 +507,9 @@ export class CypherViz {
     color: THREE.Color,
   ): void {
     const mat = new THREE.MeshBasicMaterial({
-      color: color.clone().lerp(new THREE.Color(0xffffff), 0.5),
+      color: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.7,
       depthWrite: false,
     });
     const mesh = new THREE.Mesh(this.pulseGeo, mat);
@@ -517,10 +523,9 @@ export class CypherViz {
   private lightEdge(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color): void {
     const geo = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
     const mat = new THREE.LineBasicMaterial({
-      color: color.clone().lerp(new THREE.Color(0xffffff), 0.5),
+      color: color.clone().lerp(new THREE.Color(0xffffff), 0.25),
       transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.6,
       depthWrite: false,
     });
     const line = new THREE.Line(geo, mat);
@@ -665,6 +670,14 @@ export class CypherViz {
 
     // Animate jammer cubes
     for (const node of this.nodes.values()) {
+      // Decay heat over time
+      node.heat = Math.max(node.heat - dt * 0.08, 0);
+
+      // Drive emissive intensity + opacity from heat
+      const mat = node.mesh.material as THREE.MeshPhongMaterial;
+      mat.emissiveIntensity = 0.25 + node.heat * 0.75;
+      mat.opacity = 0.5 + node.heat * 0.45;
+
       // Smooth amplitude transition
       node.amplitude += (node.targetAmplitude - node.amplitude) * 0.04;
       if (node.amplitude > 0.005) {
@@ -687,7 +700,7 @@ export class CypherViz {
         (glow.line.material as THREE.Material).dispose();
         this.edgeGlows.splice(i, 1);
       } else {
-        (glow.line.material as THREE.LineBasicMaterial).opacity = glow.brightness * 0.9;
+        (glow.line.material as THREE.LineBasicMaterial).opacity = glow.brightness * 0.6;
       }
     }
 
