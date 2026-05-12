@@ -45,6 +45,12 @@ interface CypherPanelAPI {
   readFile: (filePath: string) => Promise<{ content: string; binary: boolean }>;
   getCypherWorkspacePath: (cypherId: string) => Promise<string | null>;
 
+  // Project info (repo URL, linked repos)
+  projectInfo: (cypherId: string) => Promise<{
+    gh_project_url: string | null;
+    linked_repos: string[];
+  } | null>;
+
   // Project board
   projectBoard: (cypherId: string) => Promise<{
     items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }>;
@@ -139,6 +145,7 @@ const api: CypherPanelAPI = {
   readFile: (filePath) => ipcRenderer.invoke("cypher-read-file", filePath),
   getCypherWorkspacePath: (cypherId) => ipcRenderer.invoke("cypher-workspace-path", cypherId),
 
+  projectInfo: (cypherId) => ipcRenderer.invoke("cypher-project-info", cypherId),
   projectBoard: (cypherId) => ipcRenderer.invoke("cypher-project-board", cypherId),
   itemDetail: (cypherId, itemId) => ipcRenderer.invoke("cypher-item-detail", cypherId, itemId),
   onProjectItemUpdate: (cb) => {

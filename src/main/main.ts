@@ -2223,6 +2223,19 @@ async function boot() {
       } catch { return { content: "", binary: false }; }
     });
   }
+  if (!ipcMain.listenerCount("cypher-project-info")) {
+    ipcMain.handle("cypher-project-info", async (_e, cypherId: string) => {
+      try {
+        const r = await serverGetAuthed<{ project?: { gh_project_url?: string }; linked_repos?: string[] }>(
+          `/api/projects/by-cypher/${encodeURIComponent(cypherId)}`,
+        );
+        return {
+          gh_project_url: (r as any)?.project?.gh_project_url || null,
+          linked_repos: (r as any)?.linked_repos || [],
+        };
+      } catch { return null; }
+    });
+  }
   if (!ipcMain.listenerCount("cypher-project-board")) {
     ipcMain.handle("cypher-project-board", async (_e, cypherId: string) => {
       try {

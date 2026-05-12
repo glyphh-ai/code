@@ -29,6 +29,7 @@ interface CypherAPI {
   listDir: (dirPath: string) => Promise<Array<{ name: string; isDir: boolean }>>;
   readFile: (filePath: string) => Promise<{ content: string; binary: boolean }>;
   getCypherWorkspacePath: (cypherId: string) => Promise<string | null>;
+  projectInfo: (cypherId: string) => Promise<{ gh_project_url: string | null; linked_repos: string[] } | null>;
   projectBoard: (cypherId: string) => Promise<{ items: Array<{ id: string; title: string; status: string; assignee?: string; pr_url?: string | null }> }>;
   itemDetail: (cypherId: string, itemId: string) => Promise<{
     number: number;
@@ -985,50 +986,89 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
   const duration = cypher?.started_at && cypher?.ended_at
     ? formatDuration(cypher.started_at, cypher.ended_at) : "—";
 
-  // Hero — cover image + title
-  $("wrapped-hero-title").textContent = cypher?.title || "Cypher";
-  $("wrapped-hero-subtitle").textContent = `Session wrapped${duration !== "—" ? ` · ${duration}` : ""} · ${allJammers.length} jammers · ${formatTokens(totalIn + totalOut)} tokens`;
-
+  // Banner image
   if (cypherId) {
     try {
       const cover = await api.cypherCoverGet(cypherId);
       if (cover?.ok && cover.data_base64) {
-        const img = $("wrapped-cover") as HTMLImageElement;
-        img.src = `data:${cover.content_type || "image/png"};base64,${cover.data_base64}`;
-        img.classList.remove("hidden");
+        $("wrapped-banner").style.backgroundImage = `url(data:${cover.content_type || "image/png"};base64,${cover.data_base64})`;
       }
     } catch { /* no cover */ }
   }
 
-  // Stats
-  $("wrapped-stats").innerHTML = [
-    { v: String(allJammers.length), l: "Jammers" },
+  // Title + goal (lobby style)
+  $("wrapped-title").textContent = cypher?.title || "Cypher";
+  $("wrapped-goal").textContent = cypher?.goal || "";
+
+  // Meta pills
+  $("wrapped-meta-row").innerHTML = `
+    <span class="wrapped-meta-pill status">Wrapped</span>
+    <span class="wrapped-meta-pill">${allJammers.length} jammers</span>
+    <span class="wrapped-meta-pill">${formatTokens(totalIn + totalOut)} tokens</span>
+    ${duration !== "—" ? `<span class="wrapped-meta-pill">${duration}</span>` : ""}
+  `;
+
+  // Stats row (compact)
+  $("wrapped-stat-row").innerHTML = [
     { v: formatTokens(totalIn), l: "Input" },
     { v: formatTokens(totalOut), l: "Output" },
     { v: String(totalTurns), l: "Turns" },
     { v: duration, l: "Duration" },
   ].map(s => `<div class="wrapped-stat"><div class="wrapped-stat-value">${s.v}</div><div class="wrapped-stat-label">${s.l}</div></div>`).join("");
 
-  // Agents — compact chips
+  // Agents — inline chips
   allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
-  $("wrapped-agents-section").innerHTML = `
-    <div class="wrapped-section-title">Team</div>
-    <div class="wrapped-agents-grid">
-      ${allJammers.map(j => {
-        const av = j.avatar_url
-          ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
-          : identiconSvg(j.agent_local_id, 28);
-        return `
-          <div class="wrapped-agent-chip">
-            <div class="wrapped-agent-avatar">${av}</div>
-            <div>
-              <div class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</div>
-              <div class="wrapped-agent-role">${escapeHtml(j.position)}</div>
-              <div class="wrapped-agent-tokens">${formatTokens(j.input_tokens)} in / ${formatTokens(j.output_tokens)} out</div>
-            </div>
-          </div>`;
-      }).join("")}
-    </div>`;
+  $("wrapped-agents-row").innerHTML = allJammers.map(j => {
+    const av = j.avatar_url
+      ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
+      : identiconSvg(j.agent_local_id, 20);
+    return `
+      <div class="wrapped-agent-chip">
+        <div class="wrapped-agent-avatar">${av}</div>
+        <span class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</span>
+        <span class="wrapped-agent-tokens">${formatTokens(j.input_tokens + j.output_tokens)}</span>
+      </div>`;
+  }).join("");
+
+  // Repo clone section
+  if (cypherId) {
+    try {
+      const info = await api.projectInfo(cypherId);
+      if (info && info.linked_repos.length > 0) {
+        const repoFullName = info.linked_repos[0];
+        const httpsUrl = `https://github.com/${repoFullName}.git`;
+        const sshUrl = `git@github.com:${repoFullName}.git`;
+        const ghCliUrl = `gh repo clone ${repoFullName}`;
+        const repoEl = $("wrapped-repo");
+        repoEl.innerHTML = `
+          <span class="wrapped-repo-label">Clone</span>
+          <div class="wrapped-clone-tabs">
+            <button class="wrapped-clone-tab active" data-clone="https">HTTPS</button>
+            <button class="wrapped-clone-tab" data-clone="ssh">SSH</button>
+            <button class="wrapped-clone-tab" data-clone="cli">GitHub CLI</button>
+          </div>
+          <input class="wrapped-clone-url" id="wrapped-clone-url" value="${escapeHtml(httpsUrl)}" readonly />
+          <button class="wrapped-clone-copy" id="wrapped-clone-copy">Copy</button>
+        `;
+        const urls: Record<string, string> = { https: httpsUrl, ssh: sshUrl, cli: ghCliUrl };
+        repoEl.querySelectorAll(".wrapped-clone-tab").forEach(btn => {
+          btn.addEventListener("click", () => {
+            repoEl.querySelectorAll(".wrapped-clone-tab").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const key = (btn as HTMLElement).dataset.clone || "https";
+            (document.getElementById("wrapped-clone-url") as HTMLInputElement).value = urls[key] || httpsUrl;
+          });
+        });
+        document.getElementById("wrapped-clone-copy")?.addEventListener("click", () => {
+          const urlInput = document.getElementById("wrapped-clone-url") as HTMLInputElement;
+          navigator.clipboard.writeText(urlInput.value);
+          const copyBtn = document.getElementById("wrapped-clone-copy")!;
+          copyBtn.textContent = "Copied!";
+          setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+        });
+      }
+    } catch { /* no project */ }
+  }
 
   // Output section — file tree + Monaco viewer (same as live view)
   const wrappedFileTree = $("wrapped-file-tree");
