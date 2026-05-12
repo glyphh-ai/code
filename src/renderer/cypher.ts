@@ -986,35 +986,38 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
   const duration = cypher?.started_at && cypher?.ended_at
     ? formatDuration(cypher.started_at, cypher.ended_at) : "—";
 
-  // Banner image
+  // Banner image (same approach as lobby)
+  const banner = $("wrapped-banner");
   if (cypherId) {
     try {
       const cover = await api.cypherCoverGet(cypherId);
       if (cover?.ok && cover.data_base64) {
-        $("wrapped-banner").style.backgroundImage = `url(data:${cover.content_type || "image/png"};base64,${cover.data_base64})`;
+        banner.style.backgroundImage = `url(data:${cover.content_type || "image/png"};base64,${cover.data_base64})`;
+      } else {
+        const title = cypher?.title || cypher?.slug || "";
+        const h = Array.from(title).reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0) >>> 0;
+        const h1 = h % 360;
+        const h2 = (h * 7 + 137) % 360;
+        banner.style.backgroundImage = `linear-gradient(135deg, hsl(${h1},80%,40%) 0%, hsl(${h2},70%,25%) 100%)`;
       }
-    } catch { /* no cover */ }
+      banner.innerHTML = "&nbsp;";
+    } catch {
+      banner.innerHTML = "&nbsp;";
+    }
   }
 
   // Title + goal (lobby style)
   $("wrapped-title").textContent = cypher?.title || "Cypher";
-  $("wrapped-goal").textContent = cypher?.goal || "";
+  $("wrapped-goal").textContent = cypher?.goal || cypher?.description || "";
 
-  // Meta pills
+  // Meta pills (same style as lobby)
   $("wrapped-meta-row").innerHTML = `
     <span class="wrapped-meta-pill status">Wrapped</span>
-    <span class="wrapped-meta-pill">${allJammers.length} jammers</span>
-    <span class="wrapped-meta-pill">${formatTokens(totalIn + totalOut)} tokens</span>
+    <span class="wrapped-meta-pill">${allJammers.length} jammer${allJammers.length === 1 ? "" : "s"}</span>
+    <span class="wrapped-meta-pill">${formatTokens(totalIn)} in / ${formatTokens(totalOut)} out</span>
+    <span class="wrapped-meta-pill">${String(totalTurns)} turns</span>
     ${duration !== "—" ? `<span class="wrapped-meta-pill">${duration}</span>` : ""}
   `;
-
-  // Stats row (compact)
-  $("wrapped-stat-row").innerHTML = [
-    { v: formatTokens(totalIn), l: "Input" },
-    { v: formatTokens(totalOut), l: "Output" },
-    { v: String(totalTurns), l: "Turns" },
-    { v: duration, l: "Duration" },
-  ].map(s => `<div class="wrapped-stat"><div class="wrapped-stat-value">${s.v}</div><div class="wrapped-stat-label">${s.l}</div></div>`).join("");
 
   // Agents — inline chips
   allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
