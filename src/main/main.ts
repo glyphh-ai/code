@@ -628,6 +628,24 @@ async function boot() {
       threadStore.appendFeed(cyId, payload);
     }
 
+    // Detect leader completion (no parent) — prompt mistro to wrap
+    if (event.kind === "complete_task") {
+      const hier = cypherBus.getHierarchyContext();
+      if (hier) {
+        const sender = hier.get(event.from);
+        if (sender && !sender.parentAgentId) {
+          const cypherView = panelManager.getView("cypher");
+          if (cypherView && !cypherView.webContents.isDestroyed()) {
+            cypherView.webContents.send("cypher-leader-done", {
+              agentId: event.from,
+              agentName: sender.agentId,
+              body: event.body,
+            });
+          }
+        }
+      }
+    }
+
     // Handle preview_url — create a browser panel for the jammer's URL
     if (event.kind === "preview_url" && event.meta?.url && mainWindow && !mainWindow.isDestroyed()) {
       const url = String(event.meta.url);
@@ -4444,6 +4462,13 @@ async function boot() {
         `- Work in your sandbox: ${sandbox}`,
         `- Git clone/push/pull to the linked GitHub repo is permitted`,
         `- If something fails 3 times, stop and report it`,
+        ``,
+        `## EFFICIENCY`,
+        `- You have a LIMITED budget. Ship working code fast — do NOT over-iterate or polish.`,
+        `- Write a file ONCE. Do not rewrite the same file more than 2-3 times total.`,
+        `- If something works, MOVE ON. Perfect is the enemy of done.`,
+        `- Aim to complete your task in under 15 tool calls. If you've used 20+, wrap up immediately.`,
+        `- When you finish, call complete_task right away. Do not review, refactor, or beautify.`,
         guardrailLines.length > 0 ? `\n## RESOURCE LIMITS\n${guardrailLines.join("\n")}` : "",
         ``,
         `## HIERARCHY`,
@@ -5386,6 +5411,13 @@ function cleanupAll() {
   cleanupAuthTimers();
   cleanupCapabilities();
   stopCypherRuntime();
+  try {
+    setPreference("cypherPanelContext", null);
+    const tabs = getPreference<string[]>("openTabs", []);
+    if (tabs.includes("cypher")) {
+      setPreference("openTabs", tabs.filter((t: string) => t !== "cypher"));
+    }
+  } catch {}
   voiceRelay?.stop();
   cloudSyncInstance?.stop();
   cloudSyncInstance = null;

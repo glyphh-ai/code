@@ -162,7 +162,7 @@ export class AgentRunner {
       executable: "node" as const,
       executableArgs: [],
       model: config.model || "claude-sonnet-4-6",
-      maxTurns: 200,
+      maxTurns: 25,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       allowedTools: [
@@ -312,6 +312,30 @@ export class AgentRunner {
           instance.tokens.output += outTok;
           instance.costUsd += msg.total_cost_usd || 0;
           instance.turns += msg.num_turns || 0;
+
+          if (instance.config.cypherId && instance.turns > 0) {
+            const t = instance.turns;
+            const flags = instance as any;
+            if (t >= 10 && !flags._nudge1) {
+              flags._nudge1 = true;
+              this.queueMessage(instance,
+                `[SYSTEM] You have used ${t} turns. Start wrapping up — finish what you're working on, ` +
+                `commit, and call complete_task. Do not start new files or refactor.`
+              );
+            } else if (t >= 15 && !flags._nudge2) {
+              flags._nudge2 = true;
+              this.queueMessage(instance,
+                `[SYSTEM] ${t} turns used — budget almost gone. Stop iterating. Commit what you have ` +
+                `RIGHT NOW and call complete_task. No more edits.`
+              );
+            } else if (t >= 20 && !flags._nudge3) {
+              flags._nudge3 = true;
+              this.queueMessage(instance,
+                `[SYSTEM] FINAL WARNING: ${t} turns. You will be shut down in 5 turns. ` +
+                `Commit immediately and call complete_task or your work may be lost.`
+              );
+            }
+          }
 
           if (instance.config.cypherId && (inTok || outTok) && this.usagePoster) {
             this.usagePoster(instance.config.cypherId, instance.name, inTok, outTok);

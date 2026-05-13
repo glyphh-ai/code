@@ -74,11 +74,62 @@
   }
   .topbar-btn:hover { border-color: var(--accent); color: var(--accent); }
   .topbar-btn.danger:hover { border-color: #f44; color: #f44; }
+  .topbar-repo {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-family: var(--font-mono);
+  }
+  .topbar-repo:empty, .topbar-repo.hidden { display: none; }
+  .topbar-repo-link {
+    color: var(--accent); text-decoration: none;
+    font-weight: 600; white-space: nowrap;
+  }
+  .topbar-repo-link:hover { text-decoration: underline; }
+  .topbar-repo-clone {
+    display: inline-flex; align-items: center; gap: 0;
+    border: 1px solid var(--border); border-radius: 5px; overflow: hidden;
+  }
+  .topbar-repo-url {
+    padding: 2px 8px; font-size: 10px; font-family: var(--font-mono);
+    color: var(--text-2); background: var(--surface-2);
+    border: none; outline: none; width: 180px;
+  }
+  .topbar-repo-copy {
+    padding: 2px 8px; font-size: 10px; font-weight: 600;
+    border: none; border-left: 1px solid var(--border);
+    background: var(--surface); color: var(--text-3);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .topbar-repo-copy:hover { color: var(--accent); }
+
+  /* ── Cypher banner ────────────────────────────────────── */
+  .cypher-banner {
+    position: relative; width: 100%;
+    height: 120px; flex-shrink: 0;
+    background-size: cover; background-position: center;
+    border-bottom: 1px solid var(--border);
+    transition: height 0.3s ease;
+    overflow: hidden;
+  }
+  .cypher-banner.collapsed { height: 0; border-bottom: none; }
+  .cypher-banner.hidden { display: none; }
+  .cypher-banner-toggle {
+    position: absolute; bottom: 4px; right: 12px;
+    width: 24px; height: 18px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text-3);
+    font-size: 9px; cursor: pointer; opacity: 0.6;
+    transition: opacity 0.15s;
+    z-index: 1;
+  }
+  .cypher-banner-toggle:hover { opacity: 1; }
+  .cypher-banner.collapsed .cypher-banner-toggle {
+    bottom: auto; top: 0; border-radius: 0 0 4px 4px;
+  }
 
   /* ── Workspace (3-column layout) ──────────────────────── */
   .workspace {
     display: flex;
-    height: calc(100vh - 42px);
+    flex: 1; min-height: 0;
     overflow: hidden;
   }
 
@@ -149,19 +200,27 @@
   .pane-search:focus { border-color: var(--accent); }
 
   .file-tree {
-    flex: 1; overflow-y: auto; padding: 0 4px 8px;
-    font-family: var(--font-mono); font-size: 12px;
+    flex: 1; overflow-y: auto; padding: 2px 4px 8px;
+    font-family: var(--font-mono); font-size: 11px;
   }
   .tree-item {
     display: flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 4px;
-    cursor: default; color: var(--text-2);
+    padding: 3px 8px; border-radius: 4px;
+    cursor: pointer; color: var(--text-2);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background 0.1s;
   }
   .tree-item:hover { background: var(--surface-2); color: var(--text); }
-  .tree-item.active { background: var(--accent-glow); color: var(--text); }
+  .tree-item.active {
+    background: var(--accent-glow); color: var(--accent);
+    font-weight: 600;
+  }
   .tree-item.dir { color: var(--text); font-weight: 600; }
-  .tree-icon { width: 14px; text-align: center; flex-shrink: 0; font-size: 10px; }
+  .tree-icon {
+    width: 14px; text-align: center; flex-shrink: 0;
+    font-size: 10px; color: var(--text-3);
+  }
+  .tree-item.dir .tree-icon { color: var(--accent); }
   .tree-indent { display: inline-block; }
 
   /* ── Jammers pane (left bottom) ───────────────────────── */
@@ -173,6 +232,19 @@
     outline: none; font-family: inherit;
   }
   .jammer-search:focus { border-color: var(--accent); }
+  .jammer-bulk-controls {
+    display: flex; gap: 4px; padding: 2px 8px 4px;
+    flex-shrink: 0;
+  }
+  .jammer-bulk-btn {
+    flex: 1; padding: 3px 0; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-3);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .jammer-bulk-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .jammer-bulk-btn.danger:hover { border-color: #f44; color: #f44; }
   .jammer-list {
     flex: 1; overflow-y: auto; padding: 4px;
   }
@@ -228,16 +300,99 @@
   .jammer-status-dot.waiting { background: #4caf50; }
   .jammer-status-dot.starting { background: #ffb400; animation: pulse-anim 1s ease-in-out infinite; }
   .jammer-status-dot.error { background: #f44; }
-  .jammer-msg-input-row {
-    width: 100%; margin-top: 4px;
+  /* Jammer message modal */
+  .jammer-modal-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
   }
-  .jammer-msg-input {
-    width: 100%; box-sizing: border-box;
-    padding: 4px 8px; border-radius: 4px;
-    font-size: 11px; border: 1px solid var(--accent);
+  .jammer-modal-overlay.hidden { display: none; }
+  .jammer-modal {
+    width: 380px; max-width: 90vw;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .jammer-modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .jammer-modal-title {
+    font-size: 12px; font-weight: 700; color: var(--text);
+  }
+  .jammer-modal-close {
+    width: 22px; height: 22px; border: none; background: none;
+    color: var(--text-3); font-size: 16px; cursor: pointer;
+    border-radius: 4px; display: flex; align-items: center; justify-content: center;
+  }
+  .jammer-modal-close:hover { background: var(--surface-3); color: var(--text); }
+  .jammer-modal-input {
+    margin: 12px 14px 8px; padding: 8px 10px;
+    border-radius: 6px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--text);
-    outline: none; font-family: inherit;
+    font-size: 12px; font-family: inherit;
+    resize: vertical; outline: none;
   }
+  .jammer-modal-input:focus { border-color: var(--accent); }
+  .jammer-modal-foot {
+    display: flex; justify-content: flex-end;
+    padding: 0 14px 12px;
+  }
+  .jammer-modal-send {
+    padding: 5px 16px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+    border: 1px solid var(--accent);
+    background: var(--accent-glow); color: var(--accent);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .jammer-modal-send:hover { background: var(--accent); color: var(--bg); }
+
+  /* Leader-done wrap banner */
+  .wrap-banner {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 90;
+    background: var(--surface);
+    border-top: 2px solid var(--accent);
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.25);
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 14px;
+    animation: wrap-slide-up 0.3s ease-out;
+  }
+  .wrap-banner.hidden { display: none; }
+  @keyframes wrap-slide-up {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .wrap-banner-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+    flex-shrink: 0;
+  }
+  .wrap-banner-text {
+    flex: 1; min-width: 0;
+    font-size: 12px; color: var(--text);
+  }
+  .wrap-banner-text strong { color: var(--accent); }
+  .wrap-banner-body {
+    font-size: 11px; color: var(--text-3);
+    margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wrap-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .wrap-banner-btn {
+    padding: 5px 16px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+    cursor: pointer; transition: all 0.12s;
+    border: 1px solid var(--border);
+    background: none; color: var(--text-3);
+  }
+  .wrap-banner-btn:hover { border-color: var(--text-2); color: var(--text); }
+  .wrap-banner-btn.primary {
+    border-color: var(--accent);
+    background: var(--accent-glow); color: var(--accent);
+  }
+  .wrap-banner-btn.primary:hover { background: var(--accent); color: var(--bg); }
 
   .jammer-empty, .feed-empty {
     font-size: 11px; color: var(--text-3); padding: 20px 0; text-align: center;
@@ -910,198 +1065,138 @@
   }
   .card-modal-link:hover { text-decoration: underline; }
 
-  /* ── Cypher 3D viz container ────────────────────────────── */
-  #cypher-viz-container {
-    flex: 1; position: relative; overflow: hidden;
-    background: #000;
-  }
-  #cypher-viz-container canvas {
-    display: block; width: 100%; height: 100%;
-  }
-
-  /* ── Viz overlay: labels ───────────────────────────────── */
-  .cviz-label {
-    position: absolute;
-    font-size: 13px; font-weight: 700;
-    color: rgba(180, 200, 230, 0.7);
-    font-family: var(--font-mono);
-    text-align: center;
-    white-space: nowrap;
-    pointer-events: none;
-    transform: translateX(-50%);
-    letter-spacing: 0.04em;
-    text-shadow: 0 0 10px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.7);
-  }
-
-  /* ── Viz overlay: dialogs ──────────────────────────────── */
-  .cviz-dialog {
-    position: absolute;
-    background: rgba(8, 12, 22, 0.92);
-    border: 1px solid rgba(100, 200, 255, 0.15);
-    border-radius: 8px;
-    padding: 8px 12px;
-    max-width: 240px;
-    font-size: 11px;
-    color: #99aabb;
-    transform: scale(0);
-    opacity: 0;
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
-    pointer-events: none;
-    transform-origin: bottom center;
-    z-index: 10;
-    backdrop-filter: blur(6px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 15px rgba(60,120,200,0.08);
-  }
-  .cviz-dlg-header {
-    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
-  }
-  .cviz-dlg-name {
-    font-size: 10px; font-weight: 700;
-    color: var(--accent, #4af);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .cviz-dlg-kind {
-    font-size: 9px; font-family: var(--font-mono);
-    padding: 1px 5px; border-radius: 3px;
-    margin-left: auto;
-  }
-  .cviz-dlg-kind.kthink { color: var(--accent, #4af); background: rgba(100,200,255,0.1); }
-  .cviz-dlg-kind.ktool { color: #ffb400; background: rgba(255,180,0,0.1); }
-  .cviz-dlg-kind.kresult { color: #4caf50; background: rgba(76,175,80,0.1); }
-  .cviz-dlg-kind.kerror { color: #f44; background: rgba(244,68,68,0.1); }
-  .cviz-dlg-body {
-    color: #7788aa;
-    line-height: 1.4;
-    word-break: break-word;
-    max-height: 80px;
-    overflow: hidden;
-  }
-
   /* ── Cards view ────────────────────────────────────────── */
   #cards-container {
     position: relative;
     width: 100%; height: 100%;
-    overflow: hidden;
+    overflow-y: auto;
     background: var(--bg);
   }
 
-  /* Background layer — all inactive cards in a grid */
+  /* Background grid — all agents as small cards, flows naturally */
   .cards-bg {
-    position: absolute; inset: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 10px;
-    padding: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    padding: 10px;
     align-content: start;
-    overflow-y: auto;
+    min-height: 100%;
     transition: opacity 0.4s ease, filter 0.4s ease;
   }
   .cards-bg.has-active {
-    opacity: 0.25;
-    filter: blur(2px) brightness(0.6);
+    opacity: 0.2;
+    filter: blur(1.5px) saturate(0.4);
     pointer-events: none;
   }
 
-  /* Individual card (inactive state) */
+  /* Small card (background) */
   .cards-agent {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px;
-    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.35s ease,
-                border-color 0.35s ease;
+    border-radius: 8px;
+    padding: 10px 12px;
     cursor: default;
-    position: relative;
   }
-  .cards-agent:hover {
-    border-color: rgba(255,255,255,0.1);
-  }
+  .cards-agent:hover { border-color: var(--border-2); }
   .cards-agent-head {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
   }
   .cards-agent-avatar {
-    width: 32px; height: 32px; border-radius: 8px;
+    width: 26px; height: 26px; border-radius: 6px;
     background: var(--surface-3); overflow: hidden; flex-shrink: 0;
   }
   .cards-agent-avatar img, .cards-agent-avatar svg {
     width: 100%; height: 100%; display: block; object-fit: cover;
   }
   .cards-agent-name {
-    font-size: 13px; font-weight: 600; color: var(--text);
+    font-size: 12px; font-weight: 600; color: var(--text);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .cards-agent-role {
-    font-size: 10px; color: var(--text-3);
-    text-transform: capitalize;
+    font-size: 10px; color: var(--text-3); text-transform: capitalize;
   }
+  .cards-agent-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    margin-left: auto; flex-shrink: 0;
+  }
+  .cards-agent-dot.idle { background: var(--text-faint); }
+  .cards-agent-dot.running { background: #ffb400; box-shadow: 0 0 6px rgba(255,180,0,0.4); animation: pulse-anim 2s ease-in-out infinite; }
+  .cards-agent-dot.waiting { background: #4caf50; }
+  .cards-agent-dot.starting { background: #ffb400; animation: pulse-anim 1s ease-in-out infinite; }
+  .cards-agent-dot.error { background: #f44; }
   .cards-agent-status {
     display: flex; align-items: center; gap: 5px;
     font-size: 10px; color: var(--text-3);
     border-top: 1px solid var(--border);
-    padding-top: 8px; margin-top: 4px;
+    padding-top: 6px; margin-top: 6px;
   }
-  .cards-agent-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .cards-agent-dot.idle { background: var(--text-3); }
-  .cards-agent-dot.running { background: #ffb400; box-shadow: 0 0 8px rgba(255,180,0,0.5); animation: pulse-anim 2s ease-in-out infinite; }
-  .cards-agent-dot.waiting { background: #4caf50; }
-  .cards-agent-dot.starting { background: #ffb400; animation: pulse-anim 1s ease-in-out infinite; }
-  .cards-agent-dot.error { background: #f44; }
 
-  /* Foreground overlay — active cards in a responsive grid */
+  /* Foreground — active cards as larger feed panels */
   .cards-fg {
-    position: absolute; inset: 0;
+    position: sticky; top: 0;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 10px;
-    padding: 12px;
+    padding: 10px;
     align-content: start;
-    overflow-y: auto;
     pointer-events: none;
     z-index: 2;
+    margin-top: -100%;
+    min-height: 100%;
   }
-  .cards-fg:empty { display: none; }
-  .cards-fg.multi {
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  }
+  .cards-fg:empty { display: none; margin-top: 0; }
 
-  /* Active card — elevated, shows live feed */
+  /* Active card — scales up with a simple enter/leave animation */
   .cards-active {
-    background: rgba(14, 14, 28, 0.97);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
     padding: 0;
     pointer-events: auto;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
-    animation: card-enter 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 0 1px var(--accent),
+                0 4px 20px rgba(0,0,0,0.12);
     display: flex; flex-direction: column;
-    max-height: calc(100vh - 120px);
+    height: 360px;
     overflow: hidden;
   }
-  @keyframes card-enter {
-    from { opacity: 0; transform: scale(0.92) translateY(8px); }
-    to   { opacity: 1; transform: scale(1) translateY(0); }
+  .cards-active.pinned {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(100,200,255,0.08);
   }
+  .cards-active.pinned .cards-active-head::after {
+    content: "📌";
+    font-size: 10px; margin-left: 6px;
+  }
+  .cards-active.entering {
+    animation: card-zoom-up 0.35s cubic-bezier(0.34, 1.4, 0.64, 1) forwards;
+  }
+  .cards-active.leaving {
+    animation: card-zoom-down 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  @keyframes card-zoom-up {
+    from { transform: scale(0.92); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+  @keyframes card-zoom-down {
+    from { transform: scale(1); opacity: 1; }
+    to   { transform: scale(0.92); opacity: 0; }
+  }
+
   .cards-active-head {
     display: flex; align-items: center; gap: 10px;
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .cards-active-avatar {
-    width: 28px; height: 28px; border-radius: 7px;
+    width: 26px; height: 26px; border-radius: 6px;
     background: var(--surface-3); overflow: hidden; flex-shrink: 0;
   }
   .cards-active-avatar img, .cards-active-avatar svg {
     width: 100%; height: 100%; display: block; object-fit: cover;
   }
   .cards-active-name {
-    font-size: 13px; font-weight: 700; color: var(--text);
+    font-size: 12px; font-weight: 700; color: var(--text);
   }
   .cards-active-role {
     font-size: 10px; color: var(--accent); font-weight: 500;
@@ -1111,33 +1206,59 @@
     width: 8px; height: 8px; border-radius: 50%;
     margin-left: auto; flex-shrink: 0;
     background: #ffb400;
-    box-shadow: 0 0 10px rgba(255,180,0,0.5);
+    box-shadow: 0 0 8px rgba(255,180,0,0.4);
     animation: pulse-anim 2s ease-in-out infinite;
   }
 
   /* Per-agent feed inside active card */
   .cards-active-feed {
     flex: 1; overflow-y: auto;
-    padding: 8px 12px;
+    padding: 6px 12px;
     font-size: 11px; color: var(--text-2);
-    line-height: 1.5;
+    line-height: 1.45;
   }
   .cards-feed-entry {
-    padding: 4px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
-    white-space: pre-wrap; word-break: break-word;
+    display: flex; gap: 0; padding: 0;
+    position: relative; min-height: 28px;
   }
-  .cards-feed-entry:last-child { border-bottom: none; }
-  .cards-feed-kind {
-    font-size: 9px; font-family: var(--font-mono);
-    color: var(--text-3); margin-right: 6px;
-    padding: 1px 4px; border-radius: 2px;
-    background: rgba(255,255,255,0.04);
+  .cards-feed-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    flex-shrink: 0; margin-top: 5px; margin-left: 1px;
+    position: relative; z-index: 1;
+  }
+  .cards-feed-entry:not(:last-child) .cards-feed-dot::after {
+    content: ""; position: absolute;
+    left: 3px; top: 7px; width: 1px;
+    height: calc(100% + 8px);
+    background: var(--border);
+  }
+  .cards-feed-content {
+    flex: 1; min-width: 0; padding: 0 0 6px 8px;
+  }
+  .cards-feed-head {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .cards-feed-label {
+    font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .cards-feed-toolname {
+    font-size: 10px; font-weight: 400; font-family: var(--font-mono);
+    color: var(--text-2); text-transform: none; letter-spacing: 0;
   }
   .cards-feed-time {
-    font-size: 9px; color: var(--text-3);
-    font-family: var(--font-mono);
-    float: right;
+    font-size: 9px; color: var(--text-faint);
+    font-family: var(--font-mono); margin-left: auto;
+  }
+  .cards-feed-body {
+    font-size: 11px; color: var(--text-2); line-height: 1.4;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 2.8em; overflow: hidden;
+    margin-top: 1px; cursor: pointer;
+    transition: max-height 0.2s ease;
+  }
+  .cards-feed-body.expanded {
+    max-height: none;
   }
 
   /* ── Utilities ─────────────────────────────────────────── */
@@ -1160,8 +1281,14 @@
   </span>
   <span class="topbar-tokens" id="cypher-tokens" title="Total tokens (in / out)"></span>
   <span class="topbar-spacer"></span>
+  <span class="topbar-repo hidden" id="topbar-repo"></span>
   <button class="topbar-btn danger" id="btn-close-cypher" title="Wrap cypher and show results">Close Cypher</button>
   <button class="topbar-btn" id="btn-leave" title="Leave cypher">Leave</button>
+</div>
+
+<!-- Collapsible cypher banner -->
+<div class="cypher-banner hidden" id="cypher-banner">
+  <button class="cypher-banner-toggle" id="cypher-banner-toggle" title="Collapse banner">&#x25B2;</button>
 </div>
 
 <!-- 3-column workspace -->
@@ -1180,6 +1307,10 @@
         Jammers <span class="count" id="jammer-count">0</span>
       </div>
       <input type="text" class="jammer-search" id="jammer-search" placeholder="Search jammers..." />
+      <div class="jammer-bulk-controls" id="jammer-bulk-controls">
+        <button class="jammer-bulk-btn" id="jammer-start-all" title="Start all jammers">▶ Start All</button>
+        <button class="jammer-bulk-btn danger" id="jammer-stop-all" title="Stop all jammers">■ Stop All</button>
+      </div>
       <div class="jammer-list" id="jammer-list"></div>
       <div class="jammer-page-controls hidden" id="jammer-page-controls">
         <button class="jammer-page-btn" id="jammer-prev" disabled>&laquo;</button>
@@ -1195,24 +1326,12 @@
   <div class="col col-center" id="col-center">
     <div class="center-tabs">
       <button class="center-tab active" data-ctab="cypher">Cypher</button>
-      <button class="center-tab" data-ctab="cards">Cards</button>
-      <button class="center-tab" data-ctab="hierarchy">Hierarchy</button>
       <button class="center-tab" data-ctab="files">Files</button>
     </div>
 
-    <!-- Cypher 3D visualization (default) -->
+    <!-- Cypher — dynamic agent cards (default) -->
     <div class="center-pane" id="center-cypher">
-      <div id="cypher-viz-container"></div>
-    </div>
-
-    <!-- Cards view — dynamic agent cards -->
-    <div class="center-pane hidden" id="center-cards">
       <div id="cards-container"></div>
-    </div>
-
-    <!-- Hierarchy view -->
-    <div class="center-pane hidden" id="center-hierarchy">
-      <div id="hierarchy-container" style="width:100%;height:100%;background:#0a0a14;"></div>
     </div>
 
     <!-- Files view -->
@@ -1265,6 +1384,33 @@
       <div class="wrapped-file-content" id="wrapped-file-content"></div>
       <div class="wrapped-readme" id="wrapped-readme"></div>
     </div>
+</div>
+
+<!-- Leader-done wrap banner -->
+<div class="wrap-banner hidden" id="wrap-banner">
+  <div class="wrap-banner-dot"></div>
+  <div class="wrap-banner-text">
+    <div><strong id="wrap-banner-agent">Leader</strong> reports the cypher is complete.</div>
+    <div class="wrap-banner-body" id="wrap-banner-body"></div>
+  </div>
+  <div class="wrap-banner-actions">
+    <button class="wrap-banner-btn" id="wrap-banner-dismiss">Dismiss</button>
+    <button class="wrap-banner-btn primary" id="wrap-banner-approve">Wrap Cypher</button>
+  </div>
+</div>
+
+<!-- Jammer message modal -->
+<div class="jammer-modal-overlay hidden" id="jammer-modal-overlay">
+  <div class="jammer-modal">
+    <div class="jammer-modal-head">
+      <span class="jammer-modal-title" id="jammer-modal-title">Message</span>
+      <button class="jammer-modal-close" id="jammer-modal-close">&times;</button>
+    </div>
+    <textarea class="jammer-modal-input" id="jammer-modal-input" rows="4" placeholder="Type a message..."></textarea>
+    <div class="jammer-modal-foot">
+      <button class="jammer-modal-send" id="jammer-modal-send">Send</button>
+    </div>
+  </div>
 </div>
 
 <script src="monaco/loader.js"></script>

@@ -76,6 +76,10 @@ export class CypherBus {
     this.hierarchyContext = ctx;
   }
 
+  getHierarchyContext(): Map<string, HierarchyEntry> | null {
+    return this.hierarchyContext;
+  }
+
   onPost(cb: BusObserver): () => void {
     this.observers.push(cb);
     return () => { this.observers = this.observers.filter((o) => o !== cb); };

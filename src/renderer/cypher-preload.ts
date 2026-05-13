@@ -88,6 +88,12 @@ interface CypherPanelAPI {
   // Jammer activity feed (from CypherBus)
   onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
 
+  // Leader completion — prompt mistro to wrap
+  onLeaderDone: (cb: (info: { agentId: string; agentName: string; body: string }) => void) => () => void;
+
+  // Open external URL in default browser
+  openExternal: (url: string) => void;
+
   // Jammer preview navigation
   openJammerPreview: (agentId: string, url: string) => void;
 
@@ -166,6 +172,15 @@ const api: CypherPanelAPI = {
   },
 
   openInVSCode: (filePath) => ipcRenderer.send("cypher-open-vscode", filePath),
+
+  onLeaderDone: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, info: { agentId: string; agentName: string; body: string }) =>
+      cb(info);
+    ipcRenderer.on("cypher-leader-done", handler);
+    return () => { ipcRenderer.removeListener("cypher-leader-done", handler); };
+  },
+
+  openExternal: (url) => ipcRenderer.send("open-external", url),
 
   openJammerPreview: (agentId, url) => ipcRenderer.send("cypher-open-jammer-preview", agentId, url),
 

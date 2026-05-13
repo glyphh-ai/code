@@ -6,8 +6,6 @@
  */
 
 import { identiconSvg } from "./identicon";
-import { CypherViz } from "./cypher-viz";
-import { CypherWorkflow } from "./cypher-workflow";
 import { CypherCards } from "./cypher-cards";
 
 interface CypherAPI {
@@ -22,6 +20,7 @@ interface CypherAPI {
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
   onJammerActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
+  agentStart: (agentName: string) => void;
   agentStop: (agentName: string) => void;
   agentSend: (agentName: string, message: string) => void;
   dripsPreview: (recipe: string) => Promise<string>;
@@ -57,6 +56,8 @@ interface CypherAPI {
   } | null>;
   onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
   openInVSCode: (filePath: string) => void;
+  onLeaderDone: (cb: (info: { agentId: string; agentName: string; body: string }) => void) => () => void;
+  openExternal: (url: string) => void;
   openJammerPreview: (agentId: string, url: string) => void;
   loadFeed: (cypherId: string, limit?: number) => Promise<Array<{ ts: number; from: string; kind: string; body: string; tags?: string[] }>>;
   onContextReady: (cb: () => void) => () => void;
@@ -125,13 +126,12 @@ let jammerSearchQuery = "";
 
 let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
-let cypherViz: CypherViz | null = null;
-let cypherWorkflow: CypherWorkflow | null = null;
 let cypherCards: CypherCards | null = null;
 
 let unsubEvents: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
 let unsubActivity: (() => void) | null = null;
+let unsubLeaderDone: (() => void) | null = null;
 let fileTreeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let initRunning = false;
 
@@ -308,51 +308,22 @@ function triggerEditorResize(): void {
 }
 
 // ── Center tab switching ──────────────────────────────
-type CenterTab = "cypher" | "cards" | "hierarchy" | "files";
+type CenterTab = "cypher" | "files";
 let activeCenterTab: CenterTab = "cypher";
 
 function switchCenterTab(tab: CenterTab): void {
   activeCenterTab = tab;
-  for (const p of ["cypher", "cards", "hierarchy", "files"]) {
+  for (const p of ["cypher", "files"]) {
     const el = document.getElementById(`center-${p}`);
     if (el) el.classList.toggle("hidden", p !== tab);
   }
 
   if (tab === "cypher") {
-    if (!cypherViz) {
-      cypherViz = new CypherViz();
-      cypherViz.init($("cypher-viz-container"));
-      cypherViz.setJammers(
-        jammers.map((j) => ({
-          id: j.agent_local_id,
-          name: j.name || j.agent_local_id,
-          position: j.position,
-          status: j.status,
-          parentId: j.parentId,
-        })),
-      );
-    }
-    cypherViz.start();
-    cypherViz.resize();
-  } else {
-    cypherViz?.stop();
-  }
-
-  if (tab === "cards") {
     if (!cypherCards) {
       cypherCards = new CypherCards();
       cypherCards.init($("cards-container"));
     }
     syncCards();
-  }
-
-  if (tab === "hierarchy") {
-    if (!cypherWorkflow) {
-      cypherWorkflow = new CypherWorkflow();
-      cypherWorkflow.init($("hierarchy-container"));
-    }
-    syncWorkflow();
-    cypherWorkflow.resize();
   }
 
   if (tab === "files") triggerEditorResize();
@@ -683,27 +654,7 @@ function renderJammers(): void {
     const msgBtn = row.querySelector(".jammer-msg-btn")!;
     msgBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (row.querySelector(".jammer-msg-input")) return;
-      const inputRow = document.createElement("div");
-      inputRow.className = "jammer-msg-input-row";
-      const inp = document.createElement("input");
-      inp.type = "text";
-      inp.className = "jammer-msg-input";
-      inp.placeholder = `Message ${j.name || j.agent_local_id}...`;
-      const send = () => {
-        if (inp.value.trim()) {
-          api.agentSend(j.agent_local_id, inp.value.trim());
-        }
-        inputRow.remove();
-      };
-      inp.addEventListener("keydown", (ke) => {
-        if (ke.key === "Enter") send();
-        if (ke.key === "Escape") inputRow.remove();
-      });
-      inp.addEventListener("blur", () => setTimeout(() => inputRow.remove(), 150));
-      inputRow.appendChild(inp);
-      row.appendChild(inputRow);
-      inp.focus();
+      openJammerModal(j.agent_local_id, j.name || j.agent_local_id);
     });
     container.appendChild(row);
   }
@@ -719,34 +670,7 @@ function renderJammers(): void {
   }
 
   updateTokenScore();
-  syncViz();
   syncCards();
-}
-
-function syncViz(): void {
-  if (!cypherViz) return;
-  cypherViz.setJammers(
-    jammers.map((j) => ({
-      id: j.agent_local_id,
-      name: j.name || j.agent_local_id,
-      position: j.position,
-      status: j.status,
-      parentId: j.parentId,
-    })),
-  );
-}
-
-function syncWorkflow(): void {
-  if (!cypherWorkflow) return;
-  cypherWorkflow.setJammers(
-    jammers.map((j) => ({
-      id: j.agent_local_id,
-      name: j.name || j.agent_local_id,
-      position: j.position,
-      status: j.status,
-      parentId: j.parentId,
-    })),
-  );
 }
 
 function syncCards(): void {
@@ -760,6 +684,46 @@ function syncCards(): void {
       avatarUrl: j.avatar_url,
     })),
   );
+}
+
+function openJammerModal(agentId: string, name: string): void {
+  const overlay = $("jammer-modal-overlay");
+  const input = $("jammer-modal-input") as HTMLTextAreaElement;
+  const title = $("jammer-modal-title");
+
+  title.textContent = `Message ${name}`;
+  input.value = "";
+  overlay.classList.remove("hidden");
+  input.focus();
+
+  const close = () => overlay.classList.add("hidden");
+  const send = () => {
+    const msg = input.value.trim();
+    if (msg) api.agentSend(agentId, msg);
+    close();
+  };
+
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { close(); cleanup(); }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { send(); cleanup(); }
+  };
+  const onOverlayClick = (e: MouseEvent) => {
+    if (e.target === overlay) { close(); cleanup(); }
+  };
+  const onClose = () => { close(); cleanup(); };
+  const onSend = () => { send(); cleanup(); };
+
+  const cleanup = () => {
+    document.removeEventListener("keydown", onKey);
+    overlay.removeEventListener("click", onOverlayClick);
+    $("jammer-modal-close").removeEventListener("click", onClose);
+    $("jammer-modal-send").removeEventListener("click", onSend);
+  };
+
+  document.addEventListener("keydown", onKey);
+  overlay.addEventListener("click", onOverlayClick);
+  $("jammer-modal-close").addEventListener("click", onClose);
+  $("jammer-modal-send").addEventListener("click", onSend);
 }
 
 function updateTokenScore(): void {
@@ -811,9 +775,7 @@ function addFeedEntry(entry: FeedEntry): void {
   if (!feedPaused && matchesFeedFilter(entry)) {
     renderFeedItem(entry, true);
   }
-  cypherViz?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
-  cypherWorkflow?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
-  cypherCards?.onFeedEvent(entry.from, entry.kind, entry.body);
+  cypherCards?.onFeedEvent(entry.from, entry.kind, entry.body, entry.meta);
 }
 
 function feedKindLabel(kind: string): { label: string; cls: string } {
@@ -1356,6 +1318,30 @@ async function init(): Promise<void> {
       $("cypher-status").className = `topbar-status ${cypher.status === "live" ? "live" : "lobby"}`;
     }
 
+    // Load banner image
+    if (cypherId) {
+      const banner = $("cypher-banner");
+      try {
+        const cover = await api.cypherCoverGet(cypherId);
+        if (cover?.ok && cover.data_base64) {
+          banner.style.backgroundImage = `url(data:${cover.content_type || "image/png"};base64,${cover.data_base64})`;
+        } else {
+          const title = cypher?.title || cypher?.slug || "";
+          let h = 0;
+          for (let i = 0; i < title.length; i++) h = ((h << 5) - h + title.charCodeAt(i)) | 0;
+          h = h >>> 0;
+          const h1 = h % 360;
+          const h2 = (h * 7 + 137) % 360;
+          banner.style.backgroundImage = `linear-gradient(135deg, hsl(${h1},80%,40%) 0%, hsl(${h2},70%,25%) 100%)`;
+        }
+        banner.classList.remove("hidden");
+      } catch { /* no cover */ }
+      $("cypher-banner-toggle").addEventListener("click", () => {
+        const collapsed = banner.classList.toggle("collapsed");
+        $("cypher-banner-toggle").innerHTML = collapsed ? "&#x25BC;" : "&#x25B2;";
+      });
+    }
+
     // If already wrapped, show results view
     if (cypher?.status === "wrapped") {
       // Load all jammers for summary
@@ -1432,6 +1418,35 @@ async function init(): Promise<void> {
       }
     } catch { /* workspace IPC may not be ready */ }
 
+    // Populate topbar repo link
+    try {
+      const info = await api.projectInfo(cypherId);
+      if (info && info.linked_repos.length > 0) {
+        const repoFullName = info.linked_repos[0];
+        const httpsUrl = `https://github.com/${repoFullName}.git`;
+        const repoEl = $("topbar-repo");
+        repoEl.classList.remove("hidden");
+        repoEl.innerHTML = `
+          <a class="topbar-repo-link" href="#" title="Open on GitHub">${escapeHtml(repoFullName)}</a>
+          <span class="topbar-repo-clone">
+            <input class="topbar-repo-url" value="${escapeHtml(httpsUrl)}" readonly />
+            <button class="topbar-repo-copy">Copy</button>
+          </span>
+        `;
+        repoEl.querySelector(".topbar-repo-link")?.addEventListener("click", (e) => {
+          e.preventDefault();
+          api.openExternal(`https://github.com/${repoFullName}`);
+        });
+        repoEl.querySelector(".topbar-repo-copy")?.addEventListener("click", () => {
+          const urlInput = repoEl.querySelector(".topbar-repo-url") as HTMLInputElement;
+          navigator.clipboard.writeText(urlInput.value);
+          const btn = repoEl.querySelector(".topbar-repo-copy")!;
+          btn.textContent = "Copied!";
+          setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+        });
+      }
+    } catch { /* no project info */ }
+
     // Load persisted feed from local file (survives refresh)
     try {
       const entries = await api.loadFeed(cypherId, 200);
@@ -1466,8 +1481,6 @@ function subscribeEvents(): void {
     if (jammer) {
       jammer.status = status as Jammer["status"];
       scheduleJammerRender();
-      cypherViz?.updateStatus(agentName, status);
-      cypherWorkflow?.updateStatus(agentName, status);
       cypherCards?.updateStatus(agentName, status);
     }
   });
@@ -1499,6 +1512,17 @@ function subscribeEvents(): void {
     });
   });
 
+  unsubLeaderDone = api.onLeaderDone((info) => {
+    if (!cypherId || !isOwner) return;
+    const banner = $("wrap-banner");
+    const agentEl = $("wrap-banner-agent");
+    const bodyEl = $("wrap-banner-body");
+    const name = jammers.find((j) => j.agent_local_id === info.agentId)?.name || info.agentName;
+    agentEl.textContent = name;
+    bodyEl.textContent = info.body || "";
+    banner.classList.remove("hidden");
+  });
+
   fileTreeRefreshTimer = setInterval(async () => {
     if (!cypherId) return;
     try {
@@ -1527,9 +1551,22 @@ function subscribeEvents(): void {
       }
 
       if (ghChildren.length > 0 || sandboxChildren.length > 0) {
-        fileTree = buildCombinedTree(ghChildren, sandboxChildren, expanded);
-        restoreExpanded(fileTree, expanded);
+        const newTree = buildCombinedTree(ghChildren, sandboxChildren, expanded);
+        restoreExpanded(newTree, expanded);
+        const flatPaths = (nodes: FileNode[]): string[] => {
+          const out: string[] = [];
+          const walk = (ns: FileNode[]) => { for (const n of ns) { out.push(n.path); if (n.children) walk(n.children); } };
+          walk(nodes);
+          return out.sort();
+        };
+        const oldKey = flatPaths(fileTree).join("\n");
+        const newKey = flatPaths(newTree).join("\n");
+        if (newKey === oldKey) return;
+        fileTree = newTree;
+        const treeEl = $("file-tree");
+        const scrollTop = treeEl.scrollTop;
         renderFileTree();
+        treeEl.scrollTop = scrollTop;
       }
     } catch { /* not ready yet */ }
   }, 5000);
@@ -1540,9 +1577,11 @@ function cleanup(): void {
   unsubEvents?.();
   unsubStatus?.();
   unsubActivity?.();
+  unsubLeaderDone?.();
   unsubEvents = null;
   unsubStatus = null;
   unsubActivity = null;
+  unsubLeaderDone = null;
   if (fileTreeRefreshTimer) { clearInterval(fileTreeRefreshTimer); fileTreeRefreshTimer = null; }
 }
 
@@ -1567,6 +1606,21 @@ function boot(): void {
     renderJammers();
   });
 
+  $("jammer-stop-all").addEventListener("click", () => {
+    for (const j of jammers) {
+      if (j.status === "running" || j.status === "starting") {
+        api.agentStop(j.agent_local_id);
+        j.status = "idle";
+      }
+    }
+    scheduleJammerRender();
+  });
+  $("jammer-start-all").addEventListener("click", () => {
+    for (const j of jammers) {
+      if (j.status === "idle") api.agentStart(j.agent_local_id);
+    }
+  });
+
   $("jammer-prev").addEventListener("click", () => {
     if (jammerPage > 0) void fetchJammerPage(jammerPage - 1);
   });
@@ -1586,6 +1640,14 @@ function boot(): void {
   $("feed-filter").addEventListener("change", (e) => {
     feedFilter = (e.target as HTMLSelectElement).value;
     rebuildFeed();
+  });
+
+  $("wrap-banner-dismiss").addEventListener("click", () => {
+    $("wrap-banner").classList.add("hidden");
+  });
+  $("wrap-banner-approve").addEventListener("click", () => {
+    $("wrap-banner").classList.add("hidden");
+    void closeCypher();
   });
 
   $("wrapped-back-btn").addEventListener("click", () => {
@@ -1611,12 +1673,11 @@ function boot(): void {
     activeFile = null;
     jammerPage = 0;
     if (monacoEditor) monacoEditor.setModel(null);
-    if (cypherViz) { cypherViz.dispose(); cypherViz = null; }
-    if (cypherWorkflow) { cypherWorkflow.dispose(); cypherWorkflow = null; }
     if (cypherCards) { cypherCards.dispose(); cypherCards = null; }
     // Reset view visibility — wrapped view may have been shown for previous cypher
     $("workspace").classList.remove("hidden");
     $("wrapped-view").classList.add("hidden");
+    $("wrap-banner").classList.add("hidden");
     $("btn-close-cypher").classList.remove("hidden");
     $("file-tree").innerHTML = "";
     $("jammer-list").innerHTML = "";
