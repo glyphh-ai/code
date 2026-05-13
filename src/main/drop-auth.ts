@@ -33,6 +33,38 @@ import { BrowserWindow, safeStorage } from "electron";
 const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
 const SESSION_PATH = path.join(os.homedir(), "yo", ".session.drop");
 
+// ── Fallback encryption when safeStorage is unavailable ─────────────────
+// Derives a 256-bit AES key from machine-bound values (hostname, homedir,
+// platform, arch). Not as strong as OS Keychain but prevents casual reads.
+// Works identically on macOS and Windows.
+
+const FALLBACK_SALT = "yo-drop-session-v1";
+
+function getFallbackKey(): Buffer {
+  const material = [os.hostname(), os.homedir(), os.platform(), os.arch()].join("|");
+  return crypto.scryptSync(material, FALLBACK_SALT, 32);
+}
+
+function fallbackEncrypt(plaintext: string): Buffer {
+  const key = getFallbackKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf-8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  // Format: [iv 12B][tag 16B][ciphertext]
+  return Buffer.concat([iv, tag, encrypted]);
+}
+
+function fallbackDecrypt(data: Buffer): string {
+  const key = getFallbackKey();
+  const iv = data.subarray(0, 12);
+  const tag = data.subarray(12, 28);
+  const ciphertext = data.subarray(28);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf-8");
+}
+
 export interface DropSession {
   accessToken: string;
   refreshToken: string;
@@ -67,9 +99,14 @@ function readSession(): DropSession | null {
   if (cached) return cached;
   try {
     if (!fs.existsSync(SESSION_PATH)) return null;
-    const enc = fs.readFileSync(SESSION_PATH);
-    if (!safeStorage.isEncryptionAvailable()) return null;
-    const json = safeStorage.decryptString(enc);
+    const raw = fs.readFileSync(SESSION_PATH);
+    let json: string;
+    if (safeStorage.isEncryptionAvailable()) {
+      try { json = safeStorage.decryptString(raw); }
+      catch { json = fallbackDecrypt(raw); }
+    } else {
+      json = fallbackDecrypt(raw);
+    }
     const parsed = JSON.parse(json) as DropSession;
     cached = parsed;
     return parsed;
@@ -80,10 +117,14 @@ function readSession(): DropSession | null {
 
 function writeSession(s: DropSession): void {
   fs.mkdirSync(path.dirname(SESSION_PATH), { recursive: true });
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("safeStorage encryption not available — cannot persist Drop session");
+  const json = JSON.stringify(s);
+  let enc: Buffer;
+  if (safeStorage.isEncryptionAvailable()) {
+    enc = safeStorage.encryptString(json);
+  } else {
+    console.warn("[drop-auth] safeStorage unavailable — using machine-derived AES fallback");
+    enc = fallbackEncrypt(json);
   }
-  const enc = safeStorage.encryptString(JSON.stringify(s));
   fs.writeFileSync(SESSION_PATH, enc, { mode: 0o600 });
   cached = s;
   scheduleRefresh(s);

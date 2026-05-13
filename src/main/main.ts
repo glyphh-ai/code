@@ -2538,6 +2538,7 @@ async function boot() {
   });
   ipcMain.handle("check-for-updates", async () => {
     try {
+      autoUpdater.autoDownload = true;
       const result = await autoUpdater.checkForUpdates();
       return result?.updateInfo?.version || null;
     } catch { return null; }

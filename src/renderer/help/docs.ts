@@ -78,7 +78,7 @@ async function loadAbout() {
       updateBtn.textContent = "Checking...";
       const ver = await window.yo.checkForUpdates();
       if (ver) {
-        updateBtn.textContent = `v${ver} available`;
+        updateBtn.textContent = `Downloading v${ver}...`;
       } else {
         updateBtn.textContent = "You're up to date";
         setTimeout(() => {
@@ -98,7 +98,7 @@ async function loadAbout() {
   window.yo.onUpdateStatus((info) => {
     if (info.status === "available" && updateBtn) {
       updateBtn.disabled = true;
-      updateBtn.textContent = `v${info.version} available`;
+      updateBtn.textContent = `Downloading v${info.version}...`;
     }
     if (info.status === "downloading" && progressWrap && progressFill && progressText) {
       progressWrap.classList.remove("hidden");
