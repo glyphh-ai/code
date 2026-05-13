@@ -754,53 +754,6 @@ export class McpExpose {
         return replyJson({ ok: true, requested_by: agent, reviewer: caller.parentAgentId });
       }
 
-      // ── Project board tools (cypher mode only) ────────────
-      case "board_list": {
-        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
-        const ref = encodeURIComponent(this.projectContext.projectRef);
-        const data = await this.projectContext.serverGet<{ items?: unknown[] }>(`/api/projects/${ref}/board`);
-        if (!data) return reply("Failed to fetch board", true);
-        return replyJson(data);
-      }
-
-      case "board_add_item": {
-        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
-        const title = String(args.title || "").trim();
-        if (!title) return reply("title is required", true);
-        const ref = encodeURIComponent(this.projectContext.projectRef);
-        const body: Record<string, unknown> = { title };
-        if (args.body) body.body = String(args.body);
-        if (args.assignee) body.assignee_agent_id = String(args.assignee);
-        const data = await this.projectContext.serverPost(`/api/projects/${ref}/items`, body);
-        if (!data) return reply("Failed to create item", true);
-        return replyJson(data);
-      }
-
-      case "board_update_status": {
-        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
-        const itemId = String(args.item_id || "").trim();
-        const status = String(args.status || "").trim();
-        if (!itemId) return reply("item_id is required", true);
-        if (!status) return reply("status is required", true);
-        const validStatuses = ["Lobby", "Backlog", "InProgress", "Review", "Done"];
-        if (!validStatuses.includes(status)) return reply(`Invalid status. Must be one of: ${validStatuses.join(", ")}`, true);
-        const ref = encodeURIComponent(this.projectContext.projectRef);
-        const data = await this.projectContext.serverPost(`/api/projects/${ref}/items/${encodeURIComponent(itemId)}/status`, { status });
-        if (!data) return reply("Failed to update status", true);
-        return replyJson(data);
-      }
-
-      case "board_assign": {
-        if (!this.projectContext) return reply("No project context (not in cypher mode)", true);
-        const itemId2 = String(args.item_id || "").trim();
-        if (!itemId2) return reply("item_id is required", true);
-        const agentId = args.agent_id != null ? String(args.agent_id).trim() : null;
-        const ref = encodeURIComponent(this.projectContext.projectRef);
-        const data = await this.projectContext.serverPost(`/api/projects/${ref}/items/${encodeURIComponent(itemId2)}/assign`, { agent_id: agentId });
-        if (!data) return reply("Failed to assign item", true);
-        return replyJson(data);
-      }
-
       // ── GitHub tools (cypher mode only) ───────────────────
       case "gh_repo_info": {
         if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) {
@@ -818,164 +771,6 @@ export class McpExpose {
             html_url: data.html_url,
             clone_url: `https://x-access-token:${this.projectContext.ghToken}@github.com/${owner}/${repo}.git`,
           });
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_create_issue": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const agent = ctx?.agent || ".yo";
-        if (!this.isLeaderRole(agent)) return reply("Only leaders/lieutenants/sub-leads can create issues", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const title = String(args.title || "").trim();
-        if (!title) return reply("title is required", true);
-        try {
-          const payload: Record<string, unknown> = { title };
-          if (args.body) payload.body = String(args.body);
-          if (args.labels) payload.labels = args.labels;
-          if (args.assignees) payload.assignees = args.assignees;
-          const data = await this.ghApi<{ number: number; html_url: string }>(
-            "POST", `/repos/${owner}/${repo}/issues`, payload,
-          );
-          return replyJson({ number: data.number, url: data.html_url });
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_get_issue": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const issueNum = Number(args.number);
-        if (!issueNum) return reply("number is required", true);
-        try {
-          const [issue, comments] = await Promise.all([
-            this.ghApi<{ number: number; title: string; body: string | null; state: string; labels: { name: string }[]; assignees: { login: string }[]; html_url: string }>(
-              "GET", `/repos/${owner}/${repo}/issues/${issueNum}`,
-            ),
-            this.ghApi<{ user: { login: string }; body: string; created_at: string }[]>(
-              "GET", `/repos/${owner}/${repo}/issues/${issueNum}/comments`,
-            ),
-          ]);
-          return replyJson({
-            number: issue.number, title: issue.title, body: issue.body,
-            state: issue.state, labels: issue.labels.map(l => l.name),
-            assignees: issue.assignees.map(a => a.login), url: issue.html_url,
-            comments: comments.map(c => ({ author: c.user.login, body: c.body, created_at: c.created_at })),
-          });
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_list_issues": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const state = String(args.state || "open");
-        try {
-          const issues = await this.ghApi<{ number: number; title: string; state: string; assignees: { login: string }[]; labels: { name: string }[] }[]>(
-            "GET", `/repos/${owner}/${repo}/issues?state=${encodeURIComponent(state)}&per_page=50`,
-          );
-          return replyJson(issues.map(i => ({
-            number: i.number, title: i.title, state: i.state,
-            assignees: i.assignees.map(a => a.login), labels: i.labels.map(l => l.name),
-          })));
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_comment_issue": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const issueNum = Number(args.number);
-        const commentBody = String(args.body || "").trim();
-        if (!issueNum) return reply("number is required", true);
-        if (!commentBody) return reply("body is required", true);
-        try {
-          const data = await this.ghApi<{ id: number; html_url: string }>(
-            "POST", `/repos/${owner}/${repo}/issues/${issueNum}/comments`, { body: commentBody },
-          );
-          return replyJson({ id: data.id, url: data.html_url });
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_update_issue": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const issueNum = Number(args.number);
-        if (!issueNum) return reply("number is required", true);
-        try {
-          const payload: Record<string, unknown> = {};
-          if (args.title) payload.title = String(args.title);
-          if (args.body) payload.body = String(args.body);
-          if (args.labels) payload.labels = args.labels;
-          if (args.assignees) payload.assignees = args.assignees;
-          if (args.state) payload.state = String(args.state);
-          const data = await this.ghApi<{ number: number; html_url: string }>(
-            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, payload,
-          );
-          return replyJson({ number: data.number, url: data.html_url });
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_close_issue": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const agent = ctx?.agent || ".yo";
-        if (!this.isLeaderRole(agent)) return reply("Only leaders can close issues", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const issueNum = Number(args.number);
-        if (!issueNum) return reply("number is required", true);
-        try {
-          const current = await this.ghApi<{ labels: Array<{ name: string }> }>(
-            "GET", `/repos/${owner}/${repo}/issues/${issueNum}`,
-          );
-          const labels = current.labels
-            .map(l => l.name)
-            .filter(n => !n.startsWith("status:"));
-          labels.push("status:done");
-          const data = await this.ghApi<{ number: number; html_url: string }>(
-            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, { state: "closed", labels },
-          );
-          return replyJson({ number: data.number, url: data.html_url, closed: true });
-        } catch (e) {
-          return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
-        }
-      }
-
-      case "gh_set_issue_status": {
-        if (!this.projectContext?.ghToken || !this.projectContext.repoFullName) return reply("No GitHub context", true);
-        const [owner, repo] = this.projectContext.repoFullName.split("/");
-        const issueNum = Number(args.number);
-        const newStatus = String(args.status || "").toLowerCase();
-        const validStatuses: Record<string, string> = {
-          backlog: "status:backlog",
-          "in-progress": "status:in-progress",
-          "in_progress": "status:in-progress",
-          review: "status:review",
-          done: "status:done",
-        };
-        if (!issueNum) return reply("number is required", true);
-        if (!validStatuses[newStatus]) return reply(`Invalid status. Use: backlog, in-progress, review, done`, true);
-        try {
-          const current = await this.ghApi<{ labels: Array<{ name: string }> }>(
-            "GET", `/repos/${owner}/${repo}/issues/${issueNum}`,
-          );
-          const labels = current.labels
-            .map(l => l.name)
-            .filter(n => !n.startsWith("status:"));
-          labels.push(validStatuses[newStatus]);
-          const payload: Record<string, unknown> = { labels };
-          if (newStatus === "done") payload.state = "closed";
-          const data = await this.ghApi<{ number: number; html_url: string; state: string }>(
-            "PATCH", `/repos/${owner}/${repo}/issues/${issueNum}`, payload,
-          );
-          return replyJson({ number: data.number, url: data.html_url, status: newStatus });
         } catch (e) {
           return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
         }
@@ -1072,6 +867,45 @@ export class McpExpose {
         } catch (e) {
           return reply(`GitHub API error: ${e instanceof Error ? e.message : e}`, true);
         }
+      }
+
+      // ── Testing / presentation tools (cypher mode only) ──
+      case "preview_url": {
+        if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+        const agent = ctx?.agent || ".yo";
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const url = String(args.url || "").trim();
+        if (!url) return reply("url is required", true);
+        try { new URL(url); } catch { return reply(`Invalid URL: ${url}`, true); }
+        const title = String(args.title || "").trim() || `Preview by ${agent}`;
+        if (this.bus) {
+          await this.bus.post(wsSlug, {
+            from: agent,
+            kind: "preview_url",
+            body: title,
+            meta: { url, title },
+          });
+        }
+        return replyJson({ ok: true, url, title, message: `Preview panel opened for ${url}` });
+      }
+
+      case "show_output": {
+        if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
+        const agent = ctx?.agent || ".yo";
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const content = String(args.content || "").trim();
+        if (!content) return reply("content is required", true);
+        const title = String(args.title || "").trim() || "Output";
+        const format = String(args.format || "plain");
+        if (this.bus) {
+          await this.bus.post(wsSlug, {
+            from: agent,
+            kind: "show_output",
+            body: content,
+            meta: { title, format },
+          });
+        }
+        return replyJson({ ok: true, title, length: content.length });
       }
 
       default:
@@ -1256,51 +1090,29 @@ export class McpExpose {
             required: ["body"],
           },
         },
-      );
-    }
-
-    if (this.projectContext) {
-      tools.push(
         {
-          name: "board_list",
-          description: "List all items on the project kanban board with their status and assignees.",
-          inputSchema: { type: "object", properties: {} },
-        },
-        {
-          name: "board_add_item",
-          description: "Create a new work item on the project kanban board.",
+          name: "preview_url",
+          description: "Open a URL in a browser panel visible to the user. Use this to showcase web UIs you've built (e.g. after starting a dev server). The panel supports localhost with automatic retry while the server starts.",
           inputSchema: {
             type: "object",
             properties: {
-              title: { type: "string", description: "Item title" },
-              body: { type: "string", description: "Item description/details" },
-              assignee: { type: "string", description: "Agent ID to assign to (optional)" },
+              url: { type: "string", description: "URL to preview (e.g. http://localhost:3000)" },
+              title: { type: "string", description: "Panel title (default: 'Preview by <agent>')" },
             },
-            required: ["title"],
+            required: ["url"],
           },
         },
         {
-          name: "board_update_status",
-          description: "Move a board item to a different status column. Valid statuses: Lobby, Backlog, InProgress, Review, Done.",
+          name: "show_output",
+          description: "Display formatted output in the cypher feed, visible to the user and all agents. Use this to present command output, test results, build logs, or any text the team should see.",
           inputSchema: {
             type: "object",
             properties: {
-              item_id: { type: "string", description: "Item ID from board_list" },
-              status: { type: "string", enum: ["Lobby", "Backlog", "InProgress", "Review", "Done"] },
+              content: { type: "string", description: "The output text to display" },
+              title: { type: "string", description: "Title/label for the output block (default: 'Output')" },
+              format: { type: "string", enum: ["plain", "ansi", "json", "markdown"], description: "Content format hint (default: plain)" },
             },
-            required: ["item_id", "status"],
-          },
-        },
-        {
-          name: "board_assign",
-          description: "Assign a board item to an agent, or unassign by passing null.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              item_id: { type: "string", description: "Item ID from board_list" },
-              agent_id: { type: ["string", "null"], description: "Agent ID to assign, or null to unassign" },
-            },
-            required: ["item_id"],
+            required: ["content"],
           },
         },
       );
@@ -1312,88 +1124,6 @@ export class McpExpose {
           name: "gh_repo_info",
           description: "Get repository info including the authenticated clone URL, default branch, and description.",
           inputSchema: { type: "object", properties: {} },
-        },
-        {
-          name: "gh_create_issue",
-          description: "Create a GitHub issue with title, body, labels, and assignees. Leaders/sub-leads only.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              title: { type: "string", description: "Issue title" },
-              body: { type: "string", description: "Issue body (markdown)" },
-              labels: { type: "array", items: { type: "string" }, description: "Labels to apply" },
-              assignees: { type: "array", items: { type: "string" }, description: "GitHub usernames to assign" },
-            },
-            required: ["title"],
-          },
-        },
-        {
-          name: "gh_get_issue",
-          description: "Get a GitHub issue with all comments.",
-          inputSchema: {
-            type: "object",
-            properties: { number: { type: "number", description: "Issue number" } },
-            required: ["number"],
-          },
-        },
-        {
-          name: "gh_list_issues",
-          description: "List GitHub issues. Returns number, title, state, assignees, and labels.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              state: { type: "string", enum: ["open", "closed", "all"], description: "Filter by state (default: open)" },
-            },
-          },
-        },
-        {
-          name: "gh_comment_issue",
-          description: "Add a comment to a GitHub issue. Use for progress notes, decisions, and as-built documentation.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              number: { type: "number", description: "Issue number" },
-              body: { type: "string", description: "Comment body (markdown)" },
-            },
-            required: ["number", "body"],
-          },
-        },
-        {
-          name: "gh_update_issue",
-          description: "Update a GitHub issue's title, body, labels, assignees, or state.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              number: { type: "number", description: "Issue number" },
-              title: { type: "string" },
-              body: { type: "string" },
-              labels: { type: "array", items: { type: "string" } },
-              assignees: { type: "array", items: { type: "string" } },
-              state: { type: "string", enum: ["open", "closed"] },
-            },
-            required: ["number"],
-          },
-        },
-        {
-          name: "gh_set_issue_status",
-          description: "Move a GitHub issue to a new board status. Updates the status label. Use this to move issues between: backlog, in-progress, review, done.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              number: { type: "number", description: "Issue number" },
-              status: { type: "string", enum: ["backlog", "in-progress", "review", "done"], description: "Target status" },
-            },
-            required: ["number", "status"],
-          },
-        },
-        {
-          name: "gh_close_issue",
-          description: "Close a GitHub issue. Leaders only.",
-          inputSchema: {
-            type: "object",
-            properties: { number: { type: "number", description: "Issue number" } },
-            required: ["number"],
-          },
         },
         {
           name: "gh_open_pr",
@@ -1475,7 +1205,7 @@ function mergeTags(userTags: string[], ctx: CallContext): string[] {
   return Array.from(merged);
 }
 
-function ghRequest(
+export function ghRequest(
   method: string,
   apiPath: string,
   token: string,

@@ -5,14 +5,16 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 const GRID = 8;
 const TINY = 0.03;
 const GAP = 0.14;
-const ORBIT_R = 16;
-const GH_R = 2.8;
-const GH_N = 280;
-const PULSE_SPEED = 12;
+const GH_R = 1.2;
+const GH_N = 120;
 const DIALOG_MS = 6000;
 const LEADER_POSITIONS = new Set(["leader", "lieutenant", "sub-lead"]);
 const LEADER_COLOR = new THREE.Color(0xa855f7);
 const WORKER_COLOR = new THREE.Color(0x22c55e);
+
+// Hierarchy orbit radii
+const LEADER_ORBIT = 20;
+const CHILD_ORBIT = 10;
 
 // ── Types ─────────────────────────────────────────────
 export interface VizJammer {
@@ -36,25 +38,12 @@ interface JNode {
   heat: number;
 }
 
-interface Pulse {
-  mesh: THREE.Mesh;
-  from: THREE.Vector3;
-  to: THREE.Vector3;
-  t: number;
-}
-
 interface DialogEntry {
   el: HTMLDivElement;
   timer: number;
 }
 
 // ── Helpers ───────────────────────────────────────────
-function hashColor(s: string): THREE.Color {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return new THREE.Color().setHSL(((h >>> 0) % 360) / 360, 0.7, 0.55);
-}
-
 function fibSphere(n: number, r: number): THREE.Vector3[] {
   const pts: THREE.Vector3[] = [];
   const golden = (1 + Math.sqrt(5)) / 2;
@@ -92,22 +81,13 @@ export class CypherViz {
   private ghGroup = new THREE.Group();
   private ghMesh: THREE.InstancedMesh | null = null;
 
-  // Edges
-  private pairEdges: THREE.LineSegments | null = null;
-  private ghEdges: THREE.LineSegments | null = null;
-  private hierMeshes: THREE.Mesh[] = [];
-  private hierMaterial = new THREE.MeshBasicMaterial({
-    color: 0x00ffaa,
-    transparent: true,
-    opacity: 0.45,
-  });
+  // Edges: hierarchy (parent→child), hub (jammer→github), peer (jammer→jammer)
+  private ghLines = new Map<string, THREE.Line>();
+  private hierLines = new Map<string, THREE.Line>();
+  private peerLines = new Map<string, THREE.Line>();
 
-  // Pulses
-  private pulses: Pulse[] = [];
-  private pulseGeo = new THREE.SphereGeometry(0.18, 8, 8);
-
-  // Edge glows (temporary bright overlays on active edges)
-  private edgeGlows: { line: THREE.Line; brightness: number }[] = [];
+  // Which target each jammer is currently communicating with
+  private activeTarget = new Map<string, string>();
 
   // Overlays (labels + dialogs)
   private overlayContainer: HTMLDivElement | null = null;
@@ -120,10 +100,7 @@ export class CypherViz {
   private _v3b = new THREE.Vector3();
   private _q0 = new THREE.Quaternion();
 
-  // Track jammer set for edge rebuild
   private lastIdKey = "";
-
-  // Resize observer
   private resizeObs: ResizeObserver | null = null;
 
   // ── Public API ────────────────────────────────────────
@@ -133,17 +110,14 @@ export class CypherViz {
     const w = container.clientWidth || 800;
     const h = container.clientHeight || 600;
 
-    // Camera
     this.camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 200);
     this.camera.position.set(0, 14, 30);
 
-    // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h);
     container.appendChild(this.renderer.domElement);
 
-    // Controls
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
@@ -153,25 +127,21 @@ export class CypherViz {
     this.controls.autoRotateSpeed = 0.4;
     this.controls.target.set(0, 0, 0);
 
-    // Lights
     this.scene.add(new THREE.AmbientLight(0x404060, 1.2));
     const point = new THREE.PointLight(0x6688ff, 3.0, 100);
     point.position.set(0, 0, 0);
     this.scene.add(point);
     this.scene.add(new THREE.HemisphereLight(0x5577dd, 0x001122, 0.7));
 
-    // GitHub center sphere
     this.buildGitHub();
     this.scene.add(this.ghGroup);
 
-    // Overlay container for labels + dialogs
     this.overlayContainer = document.createElement("div");
     this.overlayContainer.style.cssText =
       "position:absolute;inset:0;pointer-events:none;overflow:hidden;";
     container.style.position = "relative";
     container.appendChild(this.overlayContainer);
 
-    // Auto-resize
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(container);
   }
@@ -179,7 +149,6 @@ export class CypherViz {
   setJammers(jammers: VizJammer[]): void {
     const incomingIds = new Set(jammers.map((j) => j.id));
 
-    // Remove stale nodes
     for (const [id, node] of this.nodes) {
       if (!incomingIds.has(id)) {
         this.scene.remove(node.mesh);
@@ -190,41 +159,73 @@ export class CypherViz {
       }
     }
 
-    // Compute layout positions for all jammers
-    const count = jammers.length || 1;
-    const positions = jammers.map((j, i) => {
-      const isLeader = LEADER_POSITIONS.has(j.position);
-      const r = isLeader ? ORBIT_R * 0.58 : ORBIT_R;
-      const y = isLeader ? 3 : -0.5;
-      const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-      return new THREE.Vector3(
-        Math.cos(angle) * r,
-        y + Math.sin(i * 1.7) * 1.2,
-        Math.sin(angle) * r,
+    // Build hierarchy: parentId → children
+    const childMap = new Map<string, VizJammer[]>();
+    const roots: VizJammer[] = [];
+    for (const j of jammers) {
+      if (j.parentId && jammers.some((p) => p.id === j.parentId)) {
+        const siblings = childMap.get(j.parentId) || [];
+        siblings.push(j);
+        childMap.set(j.parentId, siblings);
+      } else {
+        roots.push(j);
+      }
+    }
+
+    // Recursive orbital positioning: children orbit their parent
+    const positions = new Map<string, THREE.Vector3>();
+    const placeCluster = (
+      id: string,
+      center: THREE.Vector3,
+      radius: number,
+      angleOffset: number,
+      count: number,
+      index: number,
+    ) => {
+      const angle = count === 1
+        ? angleOffset
+        : angleOffset + (index / count) * Math.PI * 2;
+      const pos = new THREE.Vector3(
+        center.x + Math.cos(angle) * radius,
+        0,
+        center.z + Math.sin(angle) * radius,
       );
-    });
+      positions.set(id, pos);
+
+      const children = childMap.get(id) || [];
+      for (let i = 0; i < children.length; i++) {
+        placeCluster(children[i].id, pos, CHILD_ORBIT, angle, children.length, i);
+      }
+    };
+
+    const hub = new THREE.Vector3(0, 0, 0);
+    for (let i = 0; i < roots.length; i++) {
+      placeCluster(roots[i].id, hub, LEADER_ORBIT, 0, roots.length, i);
+    }
 
     // Add or update nodes
-    jammers.forEach((j, i) => {
+    for (const j of jammers) {
+      const pos = positions.get(j.id) || new THREE.Vector3(0, 0, 0);
       const existing = this.nodes.get(j.id);
       if (existing) {
         existing.status = j.status;
         existing.name = j.name;
+        existing.parentId = j.parentId || null;
         existing.targetAmplitude =
           j.status === "running" || j.status === "starting" ? 1 : 0;
-        existing.worldPos.copy(positions[i]);
-        existing.mesh.position.copy(positions[i]);
+        existing.worldPos.copy(pos);
+        existing.mesh.position.copy(pos);
         this.updateLabel(j.id, j.name || j.id);
       } else {
         const color = LEADER_POSITIONS.has(j.position) ? LEADER_COLOR.clone() : WORKER_COLOR.clone();
         const mesh = this.buildJammerMesh(color);
-        mesh.position.copy(positions[i]);
+        mesh.position.copy(pos);
         this.scene.add(mesh);
 
         this.nodes.set(j.id, {
           id: j.id,
           name: j.name,
-          worldPos: positions[i].clone(),
+          worldPos: pos.clone(),
           mesh,
           status: j.status,
           color,
@@ -237,9 +238,8 @@ export class CypherViz {
 
         this.createLabel(j.id, j.name || j.id);
       }
-    });
+    }
 
-    // Rebuild edges only when the set changes
     const idKey = [...incomingIds].sort().join(",");
     if (idKey !== this.lastIdKey) {
       this.lastIdKey = idKey;
@@ -261,16 +261,14 @@ export class CypherViz {
 
     node.heat = Math.min(node.heat + 0.35, 1);
 
-    // Determine target: another jammer, or GitHub center
     const toNode = to ? this.nodes.get(to) : null;
-    const targetPos = toNode ? toNode.worldPos : new THREE.Vector3(0, 0, 0);
-    if (toNode) toNode.heat = Math.min(toNode.heat + 0.15, 1);
+    const targetId = toNode ? to! : "hub";
+    if (toNode) {
+      toNode.heat = Math.min(toNode.heat + 0.15, 1);
+      this.ensurePeerLine(from, to!);
+    }
 
-    // Light up the edge and send a pulse along it
-    this.lightEdge(node.worldPos, targetPos, node.color);
-    this.addPulse(node.worldPos, targetPos, node.color);
-
-    // Show dialog near the jammer
+    this.activeTarget.set(from, targetId);
     this.showDialog(from, node.name || from, kind, body);
   }
 
@@ -304,37 +302,21 @@ export class CypherViz {
     this.resizeObs?.disconnect();
     this.resizeObs = null;
 
-    // Dispose nodes
     for (const node of this.nodes.values()) {
       node.mesh.geometry.dispose();
       (node.mesh.material as THREE.Material).dispose();
     }
     this.nodes.clear();
 
-    // Dispose github
     if (this.ghMesh) {
       this.ghMesh.geometry.dispose();
       (this.ghMesh.material as THREE.Material).dispose();
     }
 
-    // Dispose edges
     this.clearEdges();
+    this.activeTarget.clear();
+    this.peerLines.clear();
 
-    // Dispose pulses
-    for (const p of this.pulses) {
-      p.mesh.geometry.dispose();
-      (p.mesh.material as THREE.Material).dispose();
-    }
-    this.pulses.length = 0;
-
-    // Dispose edge glows
-    for (const g of this.edgeGlows) {
-      g.line.geometry.dispose();
-      (g.line.material as THREE.Material).dispose();
-    }
-    this.edgeGlows.length = 0;
-
-    // Dispose overlays
     for (const dlg of this.dialogs.values()) {
       clearTimeout(dlg.timer);
       dlg.el.remove();
@@ -403,134 +385,138 @@ export class CypherViz {
     return mesh;
   }
 
+  // ── Private: Edge management ──────────────────────────
+
   private clearEdges(): void {
-    if (this.pairEdges) {
-      this.scene.remove(this.pairEdges);
-      this.pairEdges.geometry.dispose();
-      (this.pairEdges.material as THREE.Material).dispose();
-      this.pairEdges = null;
+    for (const line of this.ghLines.values()) {
+      this.scene.remove(line);
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
     }
-    if (this.ghEdges) {
-      this.scene.remove(this.ghEdges);
-      this.ghEdges.geometry.dispose();
-      (this.ghEdges.material as THREE.Material).dispose();
-      this.ghEdges = null;
+    this.ghLines.clear();
+
+    for (const line of this.hierLines.values()) {
+      this.scene.remove(line);
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
     }
-    for (const m of this.hierMeshes) {
-      this.scene.remove(m);
-      m.geometry.dispose();
+    this.hierLines.clear();
+
+    for (const line of this.peerLines.values()) {
+      this.scene.remove(line);
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
     }
-    this.hierMeshes = [];
+    this.peerLines.clear();
   }
 
   private buildEdges(): void {
     this.clearEdges();
+    if (this.nodes.size === 0) return;
 
-    const ids = [...this.nodes.keys()];
-    const n = ids.length;
-    if (n === 0) return;
-
-    // All-pairs edges (very dim)
-    const pairs: number[] = [];
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const a = this.nodes.get(ids[i])!.worldPos;
-        const b = this.nodes.get(ids[j])!.worldPos;
-        pairs.push(a.x, a.y, a.z, b.x, b.y, b.z);
-      }
-    }
-    if (pairs.length > 0) {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute(pairs, 3),
-      );
-      this.pairEdges = new THREE.LineSegments(
-        geo,
-        new THREE.LineBasicMaterial({
-          color: 0x4466aa,
-          transparent: true,
-          opacity: 0.15,
-        }),
-      );
-      this.scene.add(this.pairEdges);
-    }
-
-    // GitHub-to-jammer edges (slightly brighter)
-    const ghPairs: number[] = [];
+    // Hub lines (jammer → github center)
     for (const nd of this.nodes.values()) {
-      ghPairs.push(0, 0, 0, nd.worldPos.x, nd.worldPos.y, nd.worldPos.z);
-    }
-    if (ghPairs.length > 0) {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute(ghPairs, 3),
-      );
-      this.ghEdges = new THREE.LineSegments(
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0), nd.worldPos.clone(),
+      ]);
+      const line = new THREE.Line(
         geo,
         new THREE.LineBasicMaterial({
           color: 0x5599ff,
           transparent: true,
-          opacity: 0.25,
+          opacity: 0.08,
         }),
       );
-      this.scene.add(this.ghEdges);
+      this.scene.add(line);
+      this.ghLines.set(nd.id, line);
     }
 
-    // Hierarchy edges (thicker cylinders)
+    // Hierarchy lines (child → parent)
     for (const nd of this.nodes.values()) {
       if (!nd.parentId) continue;
       const parent = this.nodes.get(nd.parentId);
       if (!parent) continue;
-
-      const dir = this._v3.subVectors(parent.worldPos, nd.worldPos);
-      const len = dir.length();
-      if (len < 0.1) continue;
-
-      const geo = new THREE.CylinderGeometry(0.045, 0.045, len, 4, 1);
-      geo.translate(0, len / 2, 0);
-      geo.rotateX(Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, this.hierMaterial);
-      mesh.position.copy(nd.worldPos);
-      mesh.lookAt(parent.worldPos);
-      this.scene.add(mesh);
-      this.hierMeshes.push(mesh);
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        nd.worldPos.clone(), parent.worldPos.clone(),
+      ]);
+      const line = new THREE.Line(
+        geo,
+        new THREE.LineBasicMaterial({
+          color: 0xa855f7,
+          transparent: true,
+          opacity: 0.2,
+        }),
+      );
+      this.scene.add(line);
+      this.hierLines.set(`${nd.id}:${nd.parentId}`, line);
     }
   }
 
-  // ── Private: Pulses ───────────────────────────────────
-
-  private addPulse(
-    from: THREE.Vector3,
-    to: THREE.Vector3,
-    color: THREE.Color,
-  ): void {
-    const mat = new THREE.MeshBasicMaterial({
-      color: color.clone().lerp(new THREE.Color(0xffffff), 0.3),
-      transparent: true,
-      opacity: 0.7,
-      depthWrite: false,
-    });
-    const mesh = new THREE.Mesh(this.pulseGeo, mat);
-    mesh.position.copy(from);
-    this.scene.add(mesh);
-    this.pulses.push({ mesh, from: from.clone(), to: to.clone(), t: 0 });
+  private peerKey(a: string, b: string): string {
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
   }
 
-  // ── Private: Edge glows ────────────────────────────────
+  private ensurePeerLine(a: string, b: string): void {
+    const key = this.peerKey(a, b);
+    if (this.peerLines.has(key)) return;
+    const nA = this.nodes.get(a);
+    const nB = this.nodes.get(b);
+    if (!nA || !nB) return;
 
-  private lightEdge(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color): void {
-    const geo = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
-    const mat = new THREE.LineBasicMaterial({
-      color: color.clone().lerp(new THREE.Color(0xffffff), 0.25),
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false,
-    });
-    const line = new THREE.Line(geo, mat);
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      nA.worldPos.clone(), nB.worldPos.clone(),
+    ]);
+    const line = new THREE.Line(
+      geo,
+      new THREE.LineBasicMaterial({
+        color: 0x22c55e,
+        transparent: true,
+        opacity: 0,
+      }),
+    );
     this.scene.add(line);
-    this.edgeGlows.push({ line, brightness: 1 });
+    this.peerLines.set(key, line);
+  }
+
+  private updateEdgeVisuals(): void {
+    // Hub lines: bright when jammer is targeting hub, invisible otherwise
+    for (const [id, line] of this.ghLines) {
+      const isActive = this.activeTarget.get(id) === "hub";
+      (line.material as THREE.LineBasicMaterial).opacity = isActive ? 0.5 : 0.03;
+    }
+
+    // Hierarchy lines: bright when either end is targeting the other
+    for (const [key, line] of this.hierLines) {
+      const sep = key.indexOf(":");
+      const childId = key.slice(0, sep);
+      const parentId = key.slice(sep + 1);
+      const cActive = this.activeTarget.get(childId);
+      const pActive = this.activeTarget.get(parentId);
+      const isActive = cActive === parentId || pActive === childId;
+      (line.material as THREE.LineBasicMaterial).opacity = isActive ? 0.7 : 0.12;
+    }
+
+    // Peer lines: green, only visible during active communication
+    for (const [key, line] of this.peerLines) {
+      const sep = key.indexOf("|");
+      const idA = key.slice(0, sep);
+      const idB = key.slice(sep + 1);
+      const aTarget = this.activeTarget.get(idA);
+      const bTarget = this.activeTarget.get(idB);
+      const isActive = aTarget === idB || bTarget === idA;
+      const mat = line.material as THREE.LineBasicMaterial;
+      mat.opacity = isActive ? 0.6 : Math.max(mat.opacity - 0.02, 0);
+
+      // Update geometry in case nodes moved
+      const nA = this.nodes.get(idA);
+      const nB = this.nodes.get(idB);
+      if (nA && nB) {
+        const pos = line.geometry.attributes.position as THREE.BufferAttribute;
+        pos.setXYZ(0, nA.worldPos.x, nA.worldPos.y, nA.worldPos.z);
+        pos.setXYZ(1, nB.worldPos.x, nB.worldPos.y, nB.worldPos.z);
+        pos.needsUpdate = true;
+      }
+    }
   }
 
   // ── Private: Overlays (labels + dialogs) ─────────────
@@ -607,6 +593,7 @@ export class CypherViz {
     if (!dlg) return;
     dlg.el.style.transform = "scale(0)";
     dlg.el.style.opacity = "0";
+    this.activeTarget.delete(jid);
     setTimeout(() => {
       dlg.el.remove();
       this.dialogs.delete(jid);
@@ -618,7 +605,6 @@ export class CypherViz {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
 
-    // Labels (just below each jammer cluster)
     for (const [id, el] of this.labels) {
       const node = this.nodes.get(id);
       if (!node) continue;
@@ -634,7 +620,6 @@ export class CypherViz {
       el.style.top = `${(-this._v3.y * 0.5 + 0.5) * h}px`;
     }
 
-    // Dialogs (above each jammer)
     for (const [jid, dlg] of this.dialogs) {
       const node = this.nodes.get(jid);
       if (!node) continue;
@@ -670,59 +655,23 @@ export class CypherViz {
 
     // Animate jammer cubes
     for (const node of this.nodes.values()) {
-      // Decay heat over time
       node.heat = Math.max(node.heat - dt * 0.08, 0);
 
-      // Drive emissive intensity + opacity from heat
       const mat = node.mesh.material as THREE.MeshPhongMaterial;
       mat.emissiveIntensity = 0.25 + node.heat * 0.75;
       mat.opacity = 0.5 + node.heat * 0.45;
 
-      // Smooth amplitude transition
       node.amplitude += (node.targetAmplitude - node.amplitude) * 0.04;
       if (node.amplitude > 0.005) {
         this.animateWorking(node, t, node.amplitude);
       } else {
-        // Subtle idle rotation
         node.mesh.rotation.y = Math.sin(t * 0.3 + hashVal(node.id)) * 0.03;
         node.mesh.rotation.x =
           Math.cos(t * 0.2 + hashVal(node.id) * 2) * 0.02;
       }
     }
 
-    // Animate edge glows (fade out)
-    for (let i = this.edgeGlows.length - 1; i >= 0; i--) {
-      const glow = this.edgeGlows[i];
-      glow.brightness -= dt * 0.4;
-      if (glow.brightness <= 0) {
-        this.scene.remove(glow.line);
-        glow.line.geometry.dispose();
-        (glow.line.material as THREE.Material).dispose();
-        this.edgeGlows.splice(i, 1);
-      } else {
-        (glow.line.material as THREE.LineBasicMaterial).opacity = glow.brightness * 0.6;
-      }
-    }
-
-    // Animate pulses
-    for (let i = this.pulses.length - 1; i >= 0; i--) {
-      const p = this.pulses[i];
-      const dist = p.from.distanceTo(p.to);
-      p.t += (dt * PULSE_SPEED) / Math.max(dist, 1);
-      if (p.t >= 1) {
-        this.scene.remove(p.mesh);
-        (p.mesh.material as THREE.Material).dispose();
-        this.pulses.splice(i, 1);
-      } else {
-        p.mesh.position.lerpVectors(p.from, p.to, p.t);
-        const fade = p.t < 0.1 ? p.t / 0.1 : p.t > 0.8 ? (1 - p.t) / 0.2 : 1;
-        (p.mesh.material as THREE.MeshBasicMaterial).opacity = fade * 0.85;
-        const pScale = 0.6 + fade * 0.4;
-        p.mesh.scale.setScalar(pScale);
-      }
-    }
-
-    // Update overlay positions
+    this.updateEdgeVisuals();
     this.updateOverlays();
 
     this.renderer.render(this.scene, this.camera);
@@ -745,10 +694,8 @@ export class CypherViz {
           const ny = cy * norm;
           const nz = cz * norm;
 
-          // Wave: cubes breathe outward
           const wave =
             Math.sin(t * 3 + idOffset - dist * 3.5) * 0.07 * amp;
-          // Spiral layer twist
           const spiral =
             Math.sin(t * 1.8 + idOffset + cy * 5) * 0.025 * amp;
 
@@ -756,7 +703,6 @@ export class CypherViz {
           const py = cy + ny * wave;
           const pz = cz + nz * wave - spiral;
 
-          // Scale modulation
           const s =
             1 + Math.sin(t * 4 + idOffset + x * 0.6 + y * 0.8 + z * 0.4) * 0.18 * amp;
 
@@ -771,7 +717,6 @@ export class CypherViz {
     }
     node.mesh.instanceMatrix.needsUpdate = true;
 
-    // Whole-cluster rotation when working
     node.mesh.rotation.y += 0.003 * amp;
   }
 }

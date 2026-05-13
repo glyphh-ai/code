@@ -74,7 +74,7 @@ import { CaptureStore } from "./capture-store";
 import { YoAgent } from "./yo-agent";
 import { ActionGrabber } from "./action-grabber";
 import { AgentRunner, AgentConfig } from "./agent-runner";
-import { McpExpose } from "./mcp-expose";
+import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
@@ -603,6 +603,9 @@ async function boot() {
     eventLog,
   );
 
+  // Track jammer preview panels so we can clean them up on cypher wrap/leave
+  const jammerPreviewPanels = new Set<string>();
+
   // Forward jammer bus events to the cypher panel feed + persist locally
   cypherBus.onPost((_wsSlug, event) => {
     const payload = {
@@ -612,6 +615,7 @@ async function boot() {
       body: event.body,
       tags: event.tags,
       ts: Date.now(),
+      meta: event.meta,
     };
     const cypherView = panelManager.getView("cypher");
     if (cypherView && !cypherView.webContents.isDestroyed()) {
@@ -622,6 +626,19 @@ async function boot() {
     const cyId = getCurrentCypher();
     if (cyId) {
       threadStore.appendFeed(cyId, payload);
+    }
+
+    // Handle preview_url — create a browser panel for the jammer's URL
+    if (event.kind === "preview_url" && event.meta?.url && mainWindow && !mainWindow.isDestroyed()) {
+      const url = String(event.meta.url);
+      const panelId = `jammer-preview-${event.from}`;
+      const title = String(event.meta.title || `Preview: ${event.from}`);
+      console.log(`[jammer-preview] opening panel="${panelId}" url="${url}" title="${title}"`);
+      if (!panelManager.hasPanel(panelId)) {
+        panelManager.addPanel(panelId, url);
+      }
+      panelManager.switchTo(panelId, mainWindow);
+      jammerPreviewPanels.add(panelId);
     }
   });
 
@@ -2273,6 +2290,17 @@ async function boot() {
       exec(`code "${filePath}"`);
     });
   }
+  if (!ipcMain.listenerCount("cypher-open-jammer-preview")) {
+    ipcMain.on("cypher-open-jammer-preview", (_e, agentId: string, url: string) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const panelId = `jammer-preview-${agentId}`;
+      if (!panelManager.hasPanel(panelId)) {
+        panelManager.addPanel(panelId, url);
+      }
+      panelManager.switchTo(panelId, mainWindow);
+      jammerPreviewPanels.add(panelId);
+    });
+  }
   if (!ipcMain.listenerCount("get-preference")) {
     ipcMain.handle("get-preference", (_e, key: string, defaultVal: unknown) => {
       return getPreference(key, defaultVal);
@@ -3477,6 +3505,13 @@ async function boot() {
         const { setCurrentCypher } = await import("./current-cypher");
         setCurrentCypher(null);
       }
+      // Close jammer preview panels
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        for (const pid of jammerPreviewPanels) {
+          panelManager.closePanel(pid, mainWindow, "cypher");
+        }
+      }
+      jammerPreviewPanels.clear();
       return result;
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "wrap failed" }; }
   });
@@ -3516,6 +3551,17 @@ async function boot() {
         setPreference("cypherPanelContext", null);
         const { setCurrentCypher } = await import("./current-cypher");
         setCurrentCypher(null);
+      }
+      // Clean up local cypher data (thread logs, feed, jammer sandboxes)
+      const localDirs = [
+        path.join(os.homedir(), "yo", "cyphers", id),
+        path.join(os.homedir(), ".yo", "cyphers", id),
+      ];
+      for (const dir of localDirs) {
+        fs.rm(dir, { recursive: true, force: true }, (err) => {
+          if (err) console.warn(`[cypher-delete] failed to remove ${dir}:`, err.message);
+          else console.log(`[cypher-delete] cleaned up ${dir}`);
+        });
       }
       return result;
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "delete failed" }; }
@@ -4025,46 +4071,7 @@ async function boot() {
       }
     }
 
-    // 4. Seed board if empty — must happen BEFORE spawning agents
-    try {
-      let boardItems: unknown[] = [];
-      try {
-        const boardR = await serverGetAuthed<{ items?: unknown[] }>(`/api/projects/by-cypher/${encodeURIComponent(cypId)}?with=items`);
-        boardItems = boardR?.items ?? [];
-      } catch {
-        // 404/500 on fetch — board might not be set up yet
-      }
-      if (boardItems.length === 0 && cy?.goal) {
-        const assignmentIds = activeJammers.map((j: any) => j.agent_local_id);
-        const leader = activeJammers.find((j: any) => j.position === "leader")?.agent_local_id || assignmentIds[0];
-        const workers = assignmentIds.filter((a: string) => a !== leader);
-
-        const items = [
-          { title: `Decompose goal: ${(cy.goal || "").slice(0, 60)}`, assignee: leader },
-          { title: "Set up project scaffolding", assignee: workers[0] || leader },
-          { title: "Implement core feature", assignee: workers[0] || leader },
-          ...(workers.length > 1 ? [{ title: "Implement secondary feature", assignee: workers[1] }] : []),
-          { title: "Integration and testing", assignee: leader },
-        ];
-        for (const item of items) {
-          await serverPostAuthed(`/api/projects/${encodeURIComponent(projectSlug)}/items`, {
-            title: item.title,
-            assignee: item.assignee,
-          });
-        }
-        console.log("[cypher-session] Seeded", items.length, "board items for project", projectSlug);
-      }
-    } catch (err) {
-      const msg = `Board seeding failed: ${err instanceof Error ? err.message : err}`;
-      console.error("[cypher-session] BLOCKED:", msg);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
-        mainWindow.webContents.send("yo-panel-done", msg);
-      }
-      return;
-    }
-
-    // 5. Spawn local jammer agents — AFTER all GitHub setup is complete
+    // 4. Spawn local jammer agents — AFTER all GitHub setup is complete
     let spawned = 0;
     if (stageWc && !stageWc.isDestroyed()) {
       const spawnResult = await spawnCypherJammers(cypId, stageWc);
@@ -4155,6 +4162,14 @@ async function boot() {
     setPreference("agentMode", "default");
     mainWindow?.webContents.send("agent-mode-changed", "standard");
     yoInterceptor.setAgentMode("default");
+
+    // Close all jammer preview panels
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      for (const pid of jammerPreviewPanels) {
+        panelManager.closePanel(pid, mainWindow);
+      }
+    }
+    jammerPreviewPanels.clear();
 
     // Remove cypher from open tabs and switch to drop
     const idx = openTabs.indexOf("cypher");
@@ -4363,16 +4378,47 @@ async function boot() {
       }
 
       const priorThread = threadStore.loadAgent(cypId, reg.id);
+      const isResume = priorThread.length > 0;
       let stateContext = "";
-      if (priorThread.length > 0) {
-        const recent = priorThread.slice(-15);
-        stateContext = [
-          `\n--- PRIOR SESSION STATE ---`,
-          `You were previously active in this cypher. Your recent activity:`,
-          ...recent.map((e) => e.kind === "tool" ? `[tool] ${e.content.slice(0, 100)}` : e.content.slice(0, 150)),
-          `Resume from where you left off. Do not repeat completed work.`,
+      if (isResume) {
+        const stateLines: string[] = [`\n--- CURRENT PROJECT STATE ---`];
+
+        // Fetch live board (GitHub issues) so leader knows what exists
+        if (ghToken && linkedRepos.length > 0) {
+          try {
+            const [owner, repo] = linkedRepos[0].split("/");
+            const res = await ghRequest("GET", `/repos/${owner}/${repo}/issues?state=all&per_page=50`, ghToken, "application/vnd.github+json");
+            if (res.status >= 200 && res.status < 300) {
+              const issues = JSON.parse(res.data) as { number: number; title: string; state: string; labels: { name: string }[]; assignees: { login: string }[] }[];
+              if (issues.length > 0) {
+                stateLines.push(`\n## Board Issues`);
+                for (const iss of issues) {
+                  const statusLabel = iss.labels.find(l => l.name.startsWith("status:"))?.name.replace("status:", "") || iss.state;
+                  const assignee = iss.assignees.map(a => a.login).join(", ") || "unassigned";
+                  stateLines.push(`  #${iss.number} [${statusLabel}] "${iss.title}" — ${assignee}`);
+                }
+              }
+            }
+          } catch { /* gh fetch failed, continue without */ }
+        }
+
+        // Recent feed activity
+        const feed = threadStore.loadFeed(cypId, 30);
+        if (feed.length > 0) {
+          stateLines.push(`\n## Recent Activity`);
+          for (const f of feed.slice(-20)) {
+            const body = f.body.length > 120 ? f.body.slice(0, 117) + "..." : f.body;
+            stateLines.push(`  [${f.from}] ${f.kind}: ${body}`);
+          }
+        }
+
+        stateLines.push(
+          `\n## Instructions`,
+          `You were previously active. The session was interrupted (client restart).`,
+          `Assess the activity above. Pick up where things left off — continue coding, assign remaining work, or wrap up if done.`,
           `--- END STATE ---\n`,
-        ].join("\n");
+        );
+        stateContext = stateLines.join("\n");
       }
 
       const role = reg.role || a.position;
@@ -4412,13 +4458,13 @@ async function boot() {
               `1. Clone the repo: gh_repo_info → \`git clone <url> . && git pull\``,
               `2. Read ./cypher.json for goal and roster`,
               `3. Create README.md with project plan, commit and push`,
-              `4. Create a few GitHub issues for the key tasks (gh_create_issue)`,
-              `5. Assign tasks to your reports: ${reportsStr} (use assign_task, include issue # in body)`,
-              `6. Monitor progress — pull periodically, review what workers pushed`,
-              `7. When all work is done, update README.md with final summary, commit and push`,
+              `4. Assign tasks to your reports: ${reportsStr} (use assign_task — describe the task clearly)`,
+              `5. Monitor progress — pull periodically, review what workers pushed`,
+              `6. When all work is done, update README.md with final summary, commit and push`,
               ``,
               `Everyone commits directly to the default branch. Keep it simple.`,
               `Workers activate when you assign them a task — they are idle until then.`,
+              `Do NOT create GitHub issues or manage a task board — just assign work directly and ship code.`,
             ].join("\n")
           : [
               `As a worker:`,
@@ -4426,18 +4472,16 @@ async function boot() {
               `2. Clone the repo: gh_repo_info → \`git clone <url> .\``,
               `3. Do the work, commit often with clear messages`,
               `4. Push to the default branch: \`git pull && git push\``,
-              `5. Move your issue to done: gh_set_issue_status`,
-              `6. Use complete_task when finished`,
+              `5. Use complete_task when finished`,
               ``,
               `If push fails due to conflicts, pull and resolve, then push again.`,
-              `Stay focused on your assigned task.`,
+              `Stay focused on your assigned task. Ship code, not tickets.`,
             ].join("\n"),
         ``,
         `## COMMUNICATION`,
         `- Use assign_task / accept_task / complete_task for work coordination`,
-        `- Use gh_comment_issue for progress notes on your issue`,
-        `- Use gh_set_issue_status to move issues: backlog → in-progress → done`,
         `- Use post_to to message other agents directly`,
+        `- Use report_status to update your leader on progress or blockers`,
         `- Read ./cypher.json for the cypher goal, roster, and context`,
         reg.systemPrompt ? `\n## CUSTOM INSTRUCTIONS\n${reg.systemPrompt}` : "",
       ].filter(Boolean).join("\n");
@@ -4447,13 +4491,15 @@ async function boot() {
         `Position: ${a.position}.${a.area ? ` Area: ${a.area}` : ""}`,
         a.contract ? `Contract: ${a.contract}` : "",
         stateContext,
-        stateContext
-          ? `Check your prior state above and resume.`
+        isResume
+          ? isLeader
+            ? `Review the project state above. Clone the repo and pull latest. Check what's done vs in-progress. Continue from where things left off.`
+            : `You were previously working on a task. Clone the repo, pull latest, and continue from where you left off.`
           : isLeader
             ? `Read ./cypher.json for context, then decompose the goal and assign tasks to your reports using assign_task.`
             : `You have been assigned a task. Use accept_task, then execute it.`,
         promptAddition,
-      ].filter(Boolean).join(" ");
+      ].filter(Boolean).join("\n");
 
       const config: import("./agent-runner").AgentConfig = {
         name: reg.id,

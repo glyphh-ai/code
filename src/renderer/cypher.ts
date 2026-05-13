@@ -8,6 +8,7 @@
 import { identiconSvg } from "./identicon";
 import { CypherViz } from "./cypher-viz";
 import { CypherWorkflow } from "./cypher-workflow";
+import { CypherCards } from "./cypher-cards";
 
 interface CypherAPI {
   authMe: () => Promise<{ id?: string; email?: string; handle?: string }>;
@@ -20,7 +21,7 @@ interface CypherAPI {
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
-  onJammerActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => () => void;
+  onJammerActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
   agentStop: (agentName: string) => void;
   agentSend: (agentName: string, message: string) => void;
   dripsPreview: (recipe: string) => Promise<string>;
@@ -56,6 +57,7 @@ interface CypherAPI {
   } | null>;
   onProjectItemUpdate: (cb: (item: { id: string; title: string; status: string; assignee?: string }) => void) => () => void;
   openInVSCode: (filePath: string) => void;
+  openJammerPreview: (agentId: string, url: string) => void;
   loadFeed: (cypherId: string, limit?: number) => Promise<Array<{ ts: number; from: string; kind: string; body: string; tags?: string[] }>>;
   onContextReady: (cb: () => void) => () => void;
   ghTree: () => Promise<Array<{ path: string; type: string; size?: number }> | null>;
@@ -76,6 +78,7 @@ interface Jammer {
   name: string | null;
   avatar_url: string | null;
   position: string;
+  parentId: string | null;
   status: "idle" | "running" | "waiting" | "starting" | "error";
   input_tokens: number;
   output_tokens: number;
@@ -83,7 +86,7 @@ interface Jammer {
 }
 let jammers: Jammer[] = [];
 let jammerTotal = 0;
-const JAMMERS_PER_PAGE = 50;
+const JAMMERS_PER_PAGE = 12;
 let jammerPage = 0;
 let jammerLoading = false;
 
@@ -104,14 +107,6 @@ interface OpenTab {
 }
 let openTabs: OpenTab[] = [];
 
-interface BoardItem {
-  id: string;
-  title: string;
-  status: string;
-  assignee?: string;
-  pr_url?: string | null;
-}
-let boardItems: BoardItem[] = [];
 
 interface FeedEntry {
   from: string;
@@ -120,6 +115,7 @@ interface FeedEntry {
   body: string;
   ts: number;
   avatar_url?: string | null;
+  meta?: Record<string, unknown>;
 }
 const feedItems: FeedEntry[] = [];
 const MAX_FEED_ITEMS = 200;
@@ -131,13 +127,12 @@ let monacoEditor: any = null;
 let monacoReady: Promise<void> | null = null;
 let cypherViz: CypherViz | null = null;
 let cypherWorkflow: CypherWorkflow | null = null;
+let cypherCards: CypherCards | null = null;
 
 let unsubEvents: (() => void) | null = null;
 let unsubStatus: (() => void) | null = null;
-let unsubItemUpdate: (() => void) | null = null;
 let unsubActivity: (() => void) | null = null;
 let fileTreeRefreshTimer: ReturnType<typeof setInterval> | null = null;
-let boardRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let initRunning = false;
 
 // ── Helpers ────────────────────────────────────────────
@@ -313,12 +308,12 @@ function triggerEditorResize(): void {
 }
 
 // ── Center tab switching ──────────────────────────────
-type CenterTab = "cypher" | "workflow" | "board" | "files";
+type CenterTab = "cypher" | "cards" | "hierarchy" | "files";
 let activeCenterTab: CenterTab = "cypher";
 
 function switchCenterTab(tab: CenterTab): void {
   activeCenterTab = tab;
-  for (const p of ["cypher", "workflow", "board", "files"]) {
+  for (const p of ["cypher", "cards", "hierarchy", "files"]) {
     const el = document.getElementById(`center-${p}`);
     if (el) el.classList.toggle("hidden", p !== tab);
   }
@@ -333,6 +328,7 @@ function switchCenterTab(tab: CenterTab): void {
           name: j.name || j.agent_local_id,
           position: j.position,
           status: j.status,
+          parentId: j.parentId,
         })),
       );
     }
@@ -342,10 +338,18 @@ function switchCenterTab(tab: CenterTab): void {
     cypherViz?.stop();
   }
 
-  if (tab === "workflow") {
+  if (tab === "cards") {
+    if (!cypherCards) {
+      cypherCards = new CypherCards();
+      cypherCards.init($("cards-container"));
+    }
+    syncCards();
+  }
+
+  if (tab === "hierarchy") {
     if (!cypherWorkflow) {
       cypherWorkflow = new CypherWorkflow();
-      cypherWorkflow.init($("workflow-container"));
+      cypherWorkflow.init($("hierarchy-container"));
     }
     syncWorkflow();
     cypherWorkflow.resize();
@@ -406,6 +410,8 @@ async function loadFileTree(dirPath: string, depth: number = 0): Promise<FileNod
   }));
 }
 
+const GH_PREFIX = "gh://";
+
 function buildGhFileTree(entries: { path: string; type: string; size?: number }[]): FileNode[] {
   const root: FileNode[] = [];
   const dirMap = new Map<string, FileNode>();
@@ -416,9 +422,9 @@ function buildGhFileTree(entries: { path: string; type: string; size?: number }[
     const parentPath = parts.slice(0, -1).join("/");
     const isDir = entry.type === "tree";
     const node: FileNode = {
-      name, path: entry.path, isDir,
-      depth: parts.length - 1,
-      expanded: parts.length <= 2,
+      name, path: GH_PREFIX + entry.path, isDir,
+      depth: parts.length,
+      expanded: false,
       children: isDir ? [] : undefined,
     };
     if (isDir) dirMap.set(entry.path, node);
@@ -432,9 +438,43 @@ function buildGhFileTree(entries: { path: string; type: string; size?: number }[
   return root;
 }
 
+function buildCombinedTree(
+  ghChildren: FileNode[],
+  sandboxChildren: FileNode[],
+  expandedPaths?: Set<string>,
+): FileNode[] {
+  const tree: FileNode[] = [];
+  const isFirst = !expandedPaths;
+  if (ghChildren.length > 0) {
+    tree.push({
+      name: "Project", path: GH_PREFIX, isDir: true,
+      children: ghChildren,
+      expanded: isFirst ? true : expandedPaths!.has(GH_PREFIX),
+      depth: 0,
+    });
+  }
+  if (sandboxChildren.length > 0) {
+    const sp = workspacePath || "sandboxes";
+    tree.push({
+      name: "Sandboxes", path: sp, isDir: true,
+      children: sandboxChildren,
+      expanded: isFirst ? false : expandedPaths!.has(sp),
+      depth: 0,
+    });
+  }
+  return tree;
+}
+
+function restoreExpanded(nodes: FileNode[], paths: Set<string>): void {
+  for (const n of nodes) {
+    if (n.isDir && paths.has(n.path)) n.expanded = true;
+    if (n.children) restoreExpanded(n.children, paths);
+  }
+}
+
 async function expandNode(node: FileNode): Promise<void> {
   if (!node.isDir) return;
-  if (!node.children && !ghMode) {
+  if (!node.children && !node.path.startsWith(GH_PREFIX)) {
     node.children = await loadFileTree(node.path, node.depth + 1);
   }
   node.expanded = !node.expanded;
@@ -475,7 +515,7 @@ function renderFileTree(filter?: string): void {
       }
     });
     el.addEventListener("dblclick", () => {
-      if (!node.isDir) api.openInVSCode(node.path);
+      if (!node.isDir && !node.path.startsWith(GH_PREFIX)) api.openInVSCode(node.path);
     });
     container.appendChild(el);
   }
@@ -493,8 +533,8 @@ async function openFile(filePath: string, name: string): Promise<void> {
 
   const ext = fileExtension(name);
   const readFileFn = async (p: string) => {
-    if (ghMode) {
-      const r = await api.ghFile(p);
+    if (p.startsWith(GH_PREFIX)) {
+      const r = await api.ghFile(p.slice(GH_PREFIX.length));
       return r ?? { content: "", binary: false };
     }
     return api.readFile(p);
@@ -579,7 +619,8 @@ async function fetchJammerPage(page: number): Promise<void> {
         agent_local_id: j.agent_local_id,
         name: j.name || null,
         avatar_url: j.avatar_url || null,
-        position: j.role || "jammer",
+        position: j.position || j.role || "jammer",
+        parentId: j.parent_agent_id || null,
         status: "idle" as const,
         input_tokens: Number(j.input_tokens) || 0,
         output_tokens: Number(j.output_tokens) || 0,
@@ -679,6 +720,7 @@ function renderJammers(): void {
 
   updateTokenScore();
   syncViz();
+  syncCards();
 }
 
 function syncViz(): void {
@@ -689,6 +731,7 @@ function syncViz(): void {
       name: j.name || j.agent_local_id,
       position: j.position,
       status: j.status,
+      parentId: j.parentId,
     })),
   );
 }
@@ -701,10 +744,22 @@ function syncWorkflow(): void {
       name: j.name || j.agent_local_id,
       position: j.position,
       status: j.status,
-      parentId: (j as any).parentId || null,
+      parentId: j.parentId,
     })),
   );
-  cypherWorkflow.setIssues(boardItems);
+}
+
+function syncCards(): void {
+  if (!cypherCards) return;
+  cypherCards.setJammers(
+    jammers.map((j) => ({
+      id: j.agent_local_id,
+      name: j.name || j.agent_local_id,
+      position: j.position,
+      status: j.status,
+      avatarUrl: j.avatar_url,
+    })),
+  );
 }
 
 function updateTokenScore(): void {
@@ -742,180 +797,11 @@ function scheduleJammerRender(): void {
   });
 }
 
-// ── Board (center, kanban) ─────────────────────────────
-function renderBoard(): void {
-  const columns: Record<string, BoardItem[]> = {
-    Backlog: [], InProgress: [], Review: [], Done: [],
-  };
-  const statusMap: Record<string, string> = {
-    Lobby: "Backlog", Backlog: "Backlog", InProgress: "InProgress",
-    Review: "Review", Done: "Done",
-  };
-  for (const item of boardItems) {
-    const col = columns[statusMap[item.status] || "Backlog"];
-    col.push(item);
-  }
-
-  for (const [status, items] of Object.entries(columns)) {
-    const key = status === "InProgress" ? "active" : status.toLowerCase();
-    const container = document.getElementById(`board-${key}`);
-    const count = document.getElementById(`board-count-${key}`);
-    if (container) {
-      container.innerHTML = "";
-      if (items.length === 0) {
-        container.innerHTML = `<div class="board-empty">No items</div>`;
-      }
-      for (const item of items) {
-        const jammer = item.assignee ? jammers.find((j) => j.agent_local_id === item.assignee) : null;
-        const avatarHtml = jammer?.avatar_url
-          ? `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`
-          : item.assignee
-            ? identiconSvg(item.assignee, 16)
-            : "";
-        const avatarWrap = avatarHtml ? `<div class="board-card-avatar">${avatarHtml}</div>` : "";
-        const assigneeHtml = item.assignee
-          ? `<span class="board-card-assignee">@${escapeHtml(item.assignee)}</span>`
-          : "";
-        const prHtml = item.pr_url
-          ? `<a class="board-card-pr" href="${escapeHtml(item.pr_url)}" title="View PR">PR</a>`
-          : "";
-
-        const card = document.createElement("div");
-        card.className = "board-card";
-        card.style.cursor = "pointer";
-        card.innerHTML = `
-          <div class="board-card-title">${escapeHtml(item.title)}</div>
-          <div class="board-card-meta">${avatarWrap}${assigneeHtml}${prHtml}</div>
-        `;
-        card.addEventListener("click", () => openCardModal(item.id));
-        container.appendChild(card);
-      }
-    }
-    if (count) count.textContent = String(items.length);
-  }
-}
-
-// ── Card detail modal ─────────────────────────────────
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return "just now";
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
-}
-
-function simpleMarkdown(text: string): string {
-  let s = escapeHtml(text);
-  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  return s;
-}
-
-function statusLabelColor(label: string): string {
-  const map: Record<string, string> = {
-    "status:lobby": "#c5def5", "status:backlog": "#d4c5f9",
-    "status:in-progress": "#fbca04", "status:review": "#f9d0c4", "status:done": "#0e8a16",
-  };
-  return map[label] || "#999";
-}
-
-async function openCardModal(itemId: string): Promise<void> {
-  const overlay = $("card-modal-overlay");
-  const loading = $("card-modal-loading");
-  const commentsEl = $("card-modal-comments");
-  const titleEl = $("card-modal-title");
-  const numberEl = $("card-modal-number");
-  const metaEl = $("card-modal-meta");
-  const bodyEl = $("card-modal-body");
-  const countEl = $("card-modal-comment-count");
-
-  titleEl.textContent = "";
-  numberEl.textContent = "";
-  metaEl.innerHTML = "";
-  bodyEl.innerHTML = "";
-  commentsEl.innerHTML = "";
-  countEl.textContent = "0";
-  loading.classList.remove("hidden");
-  overlay.classList.remove("hidden");
-
-  if (!cypherId) { overlay.classList.add("hidden"); return; }
-
-  const detail = await api.itemDetail(cypherId, itemId);
-  loading.classList.add("hidden");
-
-  if (!detail) {
-    commentsEl.innerHTML = '<div class="card-modal-no-comments">Failed to load issue detail</div>';
-    return;
-  }
-
-  numberEl.textContent = `#${detail.number}`;
-  titleEl.textContent = detail.title;
-
-  let metaHtml = "";
-  const stateClass = detail.state === "open" ? "status-open" : "status-closed";
-  metaHtml += `<span class="card-modal-badge ${stateClass}">${detail.state === "open" ? "Open" : "Closed"}</span>`;
-
-  for (const label of detail.labels) {
-    const color = statusLabelColor(label);
-    metaHtml += `<span class="card-modal-badge label" style="border-color:${color}; color:${color}">${escapeHtml(label)}</span>`;
-  }
-
-  for (const a of detail.assignees) {
-    metaHtml += `<span class="card-modal-assignee">@${escapeHtml(a)}</span>`;
-  }
-
-  metaHtml += `<span class="card-modal-date">created ${formatDate(detail.created_at)}</span>`;
-  if (detail.closed_at) {
-    metaHtml += `<span class="card-modal-date">closed ${formatDate(detail.closed_at)}</span>`;
-  }
-
-  metaHtml += `<a class="card-modal-link" href="${escapeHtml(detail.url)}" target="_blank">View on GitHub</a>`;
-
-  metaEl.innerHTML = metaHtml;
-
-  if (detail.body?.trim()) {
-    bodyEl.innerHTML = simpleMarkdown(detail.body);
-  }
-
-  countEl.textContent = String(detail.comments.length);
-
-  if (detail.comments.length === 0) {
-    commentsEl.innerHTML = '<div class="card-modal-no-comments">No comments yet</div>';
-  } else {
-    let html = "";
-    for (const c of detail.comments) {
-      const avatarImg = c.avatar_url
-        ? `<img src="${escapeHtml(c.avatar_url)}" alt="" />`
-        : identiconSvg(c.user, 28);
-      html += `
-        <div class="card-modal-comment">
-          <div class="card-modal-comment-avatar">${avatarImg}</div>
-          <div class="card-modal-comment-content">
-            <div class="card-modal-comment-header">
-              <span class="card-modal-comment-user">${escapeHtml(c.user)}</span>
-              <span class="card-modal-comment-time">${formatDate(c.created_at)}</span>
-            </div>
-            <div class="card-modal-comment-body">${simpleMarkdown(c.body)}</div>
-          </div>
-        </div>`;
-    }
-    commentsEl.innerHTML = html;
-  }
-}
-
-function closeCardModal(): void {
-  $("card-modal-overlay").classList.add("hidden");
-}
-
 // ── Feed (right top) ──────────────────────────────────
 function matchesFeedFilter(entry: FeedEntry): boolean {
   if (feedFilter === "all") return true;
-  if (feedFilter === "board") return entry.kind === "board";
   if (feedFilter === "status") return entry.kind === "status";
-  if (feedFilter === "broadcast") return entry.kind !== "board" && entry.kind !== "status";
+  if (feedFilter === "broadcast") return entry.kind !== "status";
   return true;
 }
 
@@ -927,6 +813,7 @@ function addFeedEntry(entry: FeedEntry): void {
   }
   cypherViz?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
   cypherWorkflow?.onFeedEvent(entry.from, entry.kind, entry.body, entry.to);
+  cypherCards?.onFeedEvent(entry.from, entry.kind, entry.body);
 }
 
 function feedKindLabel(kind: string): { label: string; cls: string } {
@@ -935,6 +822,8 @@ function feedKindLabel(kind: string): { label: string; cls: string } {
     case "agent_tool_use": return { label: "tool", cls: "kind-tool" };
     case "agent_result": return { label: "done", cls: "kind-result" };
     case "agent_error": return { label: "error", cls: "kind-error" };
+    case "preview_url": return { label: "preview", cls: "kind-preview" };
+    case "show_output": return { label: "output", cls: "kind-output" };
     default: return { label: kind, cls: "kind-default" };
   }
 }
@@ -953,9 +842,38 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
     ? `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`
     : identiconSvg(entry.from, 18);
 
-  const fullBody = escapeHtml(entry.body);
-  const truncated = entry.body.length > 200;
   const { label, cls } = feedKindLabel(entry.kind);
+
+  let bodyHtml: string;
+  if (entry.kind === "show_output") {
+    const title = entry.meta?.title ? escapeHtml(String(entry.meta.title)) : "Output";
+    const truncated = entry.body.length > 600;
+    const visibleBody = truncated ? entry.body.slice(0, 600) : entry.body;
+    bodyHtml = `
+      <div class="feed-output-title">${title}</div>
+      <pre class="feed-output-code">${escapeHtml(visibleBody)}${truncated ? "\n..." : ""}</pre>
+      ${truncated ? `<div class="feed-item-expand">show full output</div>` : ""}
+    `;
+  } else if (entry.kind === "preview_url") {
+    const url = entry.meta?.url ? String(entry.meta.url) : "";
+    const title = entry.meta?.title ? escapeHtml(String(entry.meta.title)) : escapeHtml(entry.body);
+    bodyHtml = `
+      <div class="feed-preview-card">
+        <span class="feed-preview-icon">&#x1F310;</span>
+        <div class="feed-preview-info">
+          <div class="feed-preview-title">${title}</div>
+          <div class="feed-preview-url">${escapeHtml(url)}</div>
+        </div>
+      </div>
+    `;
+  } else {
+    const fullBody = escapeHtml(entry.body);
+    const truncated = entry.body.length > 200;
+    bodyHtml = `
+      <div class="feed-item-body">${fullBody}</div>
+      ${truncated ? `<div class="feed-item-expand">show more</div>` : ""}
+    `;
+  }
 
   el.innerHTML = `
     <div class="feed-item-header">
@@ -964,14 +882,23 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
       <span class="feed-item-kind ${cls}">${escapeHtml(label)}</span>
       <span class="feed-item-time">${relativeTime(entry.ts)}</span>
     </div>
-    <div class="feed-item-body">${fullBody}</div>
-    ${truncated ? `<div class="feed-item-expand">show more</div>` : ""}
+    ${bodyHtml}
   `;
+
+  if (entry.kind === "preview_url" && entry.meta?.url) {
+    const card = el.querySelector(".feed-preview-card");
+    card?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      api.openJammerPreview(entry.from, String(entry.meta!.url));
+    });
+  }
 
   el.addEventListener("click", () => {
     const isExpanded = el.classList.toggle("expanded");
     const expandLabel = el.querySelector(".feed-item-expand");
-    if (expandLabel) expandLabel.textContent = isExpanded ? "show less" : "show more";
+    if (expandLabel) expandLabel.textContent = isExpanded
+      ? (entry.kind === "show_output" ? "collapse" : "show less")
+      : (entry.kind === "show_output" ? "show full output" : "show more");
   });
 
   if (prepend) {
@@ -1039,7 +966,8 @@ async function closeCypher(): Promise<void> {
           agent_local_id: j.agent_local_id,
           name: j.name || null,
           avatar_url: j.avatar_url || null,
-          position: j.role || "jammer",
+          position: j.position || j.role || "jammer",
+          parentId: j.parent_agent_id || null,
           status: "idle",
           input_tokens: Number(j.input_tokens) || 0,
           output_tokens: Number(j.output_tokens) || 0,
@@ -1443,7 +1371,8 @@ async function init(): Promise<void> {
             agent_local_id: j.agent_local_id,
             name: j.name || null,
             avatar_url: j.avatar_url || null,
-            position: j.role || "jammer",
+            position: j.position || j.role || "jammer",
+            parentId: j.parent_agent_id || null,
             status: "idle",
             input_tokens: Number(j.input_tokens) || 0,
             output_tokens: Number(j.output_tokens) || 0,
@@ -1452,11 +1381,6 @@ async function init(): Promise<void> {
         }
         offset += 200;
       }
-      // Load board and workspace for summary
-      try {
-        const boardData = await api.projectBoard(cypherId);
-        boardItems = boardData.items || [];
-      } catch {}
       try {
         workspacePath = await api.getCypherWorkspacePath(cypherId);
       } catch {}
@@ -1468,6 +1392,16 @@ async function init(): Promise<void> {
     $("workspace").classList.remove("hidden");
     $("wrapped-view").classList.add("hidden");
 
+    // Add starting message to feed
+    if (cypher?.status === "live" && feedItems.length === 0) {
+      addFeedEntry({
+        from: "yo",
+        kind: "status",
+        body: `Starting cypher "${cypher.title || "Untitled"}"...`,
+        ts: Date.now(),
+      });
+    }
+
     // Only show close button for owner of a live cypher
     if (isOwner && cypher?.status === "live") {
       $("btn-close-cypher").classList.remove("hidden");
@@ -1477,31 +1411,24 @@ async function init(): Promise<void> {
 
     await fetchJammerPage(0);
 
-    // Load project board
     try {
-      const boardData = await api.projectBoard(cypherId);
-      boardItems = boardData.items || [];
-      renderBoard();
-    } catch { /* no project yet */ }
-
-    try {
-      const ghEntries = await api.ghTree();
-      if (ghEntries && ghEntries.length > 0) {
-        ghMode = true;
-        fileTree = buildGhFileTree(ghEntries);
-        renderFileTree();
-      } else {
-        workspacePath = await api.getCypherWorkspacePath(cypherId);
-        if (workspacePath) {
-          fileTree = await loadFileTree(workspacePath);
-          for (const node of fileTree) {
-            if (node.isDir) {
-              node.children = await loadFileTree(node.path, 1);
-              node.expanded = true;
-            }
-          }
-          renderFileTree();
+      const [ghEntries, wsPath] = await Promise.all([
+        api.ghTree().catch(() => null),
+        api.getCypherWorkspacePath(cypherId).catch(() => null),
+      ]);
+      const ghChildren = ghEntries && ghEntries.length > 0 ? buildGhFileTree(ghEntries) : [];
+      if (ghChildren.length > 0) ghMode = true;
+      workspacePath = wsPath;
+      let sandboxChildren: FileNode[] = [];
+      if (workspacePath) {
+        sandboxChildren = await loadFileTree(workspacePath);
+        for (const node of sandboxChildren) {
+          if (node.isDir) { node.children = await loadFileTree(node.path, 1); node.expanded = false; }
         }
+      }
+      if (ghChildren.length > 0 || sandboxChildren.length > 0) {
+        fileTree = buildCombinedTree(ghChildren, sandboxChildren);
+        renderFileTree();
       }
     } catch { /* workspace IPC may not be ready */ }
 
@@ -1541,6 +1468,7 @@ function subscribeEvents(): void {
       scheduleJammerRender();
       cypherViz?.updateStatus(agentName, status);
       cypherWorkflow?.updateStatus(agentName, status);
+      cypherCards?.updateStatus(agentName, status);
     }
   });
 
@@ -1558,32 +1486,6 @@ function subscribeEvents(): void {
     }
   });
 
-  unsubItemUpdate = api.onProjectItemUpdate((item) => {
-    // Update board state
-    const existing = boardItems.find((i) => i.id === item.id);
-    if (existing) {
-      if (item.title) existing.title = item.title;
-      if (item.status) existing.status = item.status;
-      if (item.assignee !== undefined) existing.assignee = item.assignee;
-    } else {
-      boardItems.push({
-        id: item.id,
-        title: item.title || "Untitled",
-        status: item.status || "Backlog",
-        assignee: item.assignee,
-      });
-    }
-    renderBoard();
-
-    // Add to feed
-    addFeedEntry({
-      from: item.assignee || "system",
-      kind: "board",
-      body: `${item.title} → ${item.status}`,
-      ts: Date.now(),
-    });
-  });
-
   unsubActivity = api.onJammerActivity((event) => {
     if (!event.from || event.from === "orchestrator" || event.from === "unknown") return;
     if (!event.body?.trim()) return;
@@ -1593,106 +1495,62 @@ function subscribeEvents(): void {
       kind: event.kind,
       body: event.body,
       ts: event.ts || Date.now(),
+      meta: event.meta,
     });
   });
 
   fileTreeRefreshTimer = setInterval(async () => {
-    if (ghMode) {
-      try {
-        const ghEntries = await api.ghTree();
-        if (ghEntries && ghEntries.length > 0) {
-          const expanded = new Set(flattenTree(fileTree).filter(n => n.isDir && n.expanded).map(n => n.path));
-          fileTree = buildGhFileTree(ghEntries);
-          for (const node of flattenTree(fileTree)) {
-            if (node.isDir && expanded.has(node.path)) node.expanded = true;
-          }
-          renderFileTree();
-        }
-      } catch { /* gh tree not ready */ }
-      return;
-    }
-    if (cypherId) {
-      try {
-        const ghEntries = await api.ghTree();
-        if (ghEntries && ghEntries.length > 0) {
-          ghMode = true;
-          const expanded = new Set(flattenTree(fileTree).filter(n => n.isDir && n.expanded).map(n => n.path));
-          fileTree = buildGhFileTree(ghEntries);
-          for (const node of flattenTree(fileTree)) {
-            if (node.isDir && expanded.has(node.path)) node.expanded = true;
-          }
-          renderFileTree();
-          return;
-        }
-      } catch { /* gh tree not ready yet */ }
-    }
-    if (!workspacePath && cypherId) {
-      workspacePath = await api.getCypherWorkspacePath(cypherId);
-      if (workspacePath) {
-        fileTree = await loadFileTree(workspacePath);
-        for (const node of fileTree) {
-          if (node.isDir) { node.children = await loadFileTree(node.path, 1); node.expanded = true; }
-        }
-        renderFileTree();
-        return;
-      }
-    }
-    if (!workspacePath) return;
-    try {
-      const prevPaths = new Set(flattenTree(fileTree).map(n => n.path));
-      const expanded = new Set(flattenTree(fileTree).filter(n => n.isDir && n.expanded).map(n => n.path));
-      fileTree = await loadFileTree(workspacePath);
-      for (const node of fileTree) {
-        if (node.isDir) {
-          node.children = await loadFileTree(node.path, 1);
-          node.expanded = expanded.has(node.path) || !prevPaths.has(node.path);
-          if (node.children) {
-            for (const child of node.children) {
-              if (child.isDir) {
-                child.expanded = expanded.has(child.path);
-              }
-            }
-          }
-        }
-      }
-      renderFileTree();
-    } catch { /* workspace may not exist yet */ }
-  }, 5000);
-
-  boardRefreshTimer = setInterval(async () => {
     if (!cypherId) return;
     try {
-      const boardData = await api.projectBoard(cypherId);
-      const newItems = boardData.items || [];
-      const changed = newItems.length !== boardItems.length ||
-        newItems.some((n, i) => n.id !== boardItems[i]?.id || n.status !== boardItems[i]?.status || n.assignee !== boardItems[i]?.assignee);
-      if (changed) {
-        boardItems = newItems;
-        renderBoard();
-        syncWorkflow();
+      const allNodes: FileNode[] = [];
+      const collectAll = (nodes: FileNode[]) => {
+        for (const n of nodes) { allNodes.push(n); if (n.children) collectAll(n.children); }
+      };
+      collectAll(fileTree);
+      const expanded = new Set(allNodes.filter(n => n.isDir && n.expanded).map(n => n.path));
+
+      const [ghEntries, wsPath] = await Promise.all([
+        api.ghTree().catch(() => null),
+        workspacePath ? Promise.resolve(workspacePath) : api.getCypherWorkspacePath(cypherId).catch(() => null),
+      ]);
+
+      const ghChildren = ghEntries && ghEntries.length > 0 ? buildGhFileTree(ghEntries) : [];
+      if (ghChildren.length > 0) ghMode = true;
+      if (wsPath) workspacePath = wsPath;
+
+      let sandboxChildren: FileNode[] = [];
+      if (workspacePath) {
+        sandboxChildren = await loadFileTree(workspacePath);
+        for (const node of sandboxChildren) {
+          if (node.isDir) { node.children = await loadFileTree(node.path, 1); }
+        }
       }
-    } catch { /* project may not exist yet */ }
+
+      if (ghChildren.length > 0 || sandboxChildren.length > 0) {
+        fileTree = buildCombinedTree(ghChildren, sandboxChildren, expanded);
+        restoreExpanded(fileTree, expanded);
+        renderFileTree();
+      }
+    } catch { /* not ready yet */ }
   }, 5000);
+
 }
 
 function cleanup(): void {
   unsubEvents?.();
   unsubStatus?.();
-  unsubItemUpdate?.();
   unsubActivity?.();
   unsubEvents = null;
   unsubStatus = null;
-  unsubItemUpdate = null;
   unsubActivity = null;
   if (fileTreeRefreshTimer) { clearInterval(fileTreeRefreshTimer); fileTreeRefreshTimer = null; }
-  if (boardRefreshTimer) { clearInterval(boardRefreshTimer); boardRefreshTimer = null; }
 }
 
 // ── Boot ───────────────────────────────────────────────
 function boot(): void {
   initSplitters();
 
-  // Center tab switching (Cypher / Feed / Board / Files)
+  // Center tab switching
   document.querySelectorAll(".center-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tab = (btn as HTMLElement).dataset.ctab as CenterTab;
@@ -1734,16 +1592,6 @@ function boot(): void {
     api.leaveCypher();
   });
 
-  $("card-modal-close").addEventListener("click", closeCardModal);
-  $("card-modal-overlay").addEventListener("click", (e) => {
-    if (e.target === $("card-modal-overlay")) closeCardModal();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("card-modal-overlay").classList.contains("hidden")) {
-      closeCardModal();
-    }
-  });
-
   $("btn-close-cypher").addEventListener("click", () => {
     void closeCypher();
   });
@@ -1758,7 +1606,6 @@ function boot(): void {
     jammers = [];
     fileTree = [];
     ghMode = false;
-    boardItems = [];
     feedItems.length = 0;
     openTabs = [];
     activeFile = null;
@@ -1766,6 +1613,7 @@ function boot(): void {
     if (monacoEditor) monacoEditor.setModel(null);
     if (cypherViz) { cypherViz.dispose(); cypherViz = null; }
     if (cypherWorkflow) { cypherWorkflow.dispose(); cypherWorkflow = null; }
+    if (cypherCards) { cypherCards.dispose(); cypherCards = null; }
     // Reset view visibility — wrapped view may have been shown for previous cypher
     $("workspace").classList.remove("hidden");
     $("wrapped-view").classList.add("hidden");
