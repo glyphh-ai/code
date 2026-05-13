@@ -1759,17 +1759,11 @@ async function openYoPanel(query: string) {
     yoControlsInited = true;
     initYoControls();
   }
-  // Personalize title with user's first name
-  const titleEl = document.querySelector(".yo-panel-title");
-  if (titleEl) {
-    const account = await window.yo.getAccountInfo();
-    if (account?.firstName) {
-      titleEl.innerHTML = `<span class="yo-dot">.</span>Yo <span class="yo-dot">.</span>Sup ${account.firstName}`;
-    }
-  }
-  const savedWidth = await window.yo.yoPanelGetWidth();
-  yoPanel.style.width = `${savedWidth}px`;
-  document.body.style.setProperty("--right-inset", `${savedWidth}px`);
+
+  // Show panel immediately with a default width — never block on async
+  const defaultWidth = 380;
+  yoPanel.style.width = `${defaultWidth}px`;
+  document.body.style.setProperty("--right-inset", `${defaultWidth}px`);
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
@@ -1789,6 +1783,23 @@ async function openYoPanel(query: string) {
   autoGrowYoInput();
   // Focus after slide animation; re-render grid handles (available width changed)
   setTimeout(() => { yoPanelInput.focus(); yoPanelInput.select(); renderGridHandles(); }, 220);
+
+  // Async personalization — runs after panel is already visible
+  try {
+    const [account, savedWidth] = await Promise.all([
+      window.yo.getAccountInfo(),
+      window.yo.yoPanelGetWidth(),
+    ]);
+    if (savedWidth && savedWidth !== defaultWidth) {
+      yoPanel.style.width = `${savedWidth}px`;
+      document.body.style.setProperty("--right-inset", `${savedWidth}px`);
+      window.yo.yoPanelResize(savedWidth);
+    }
+    const titleEl = document.querySelector(".yo-panel-title");
+    if (titleEl && account?.firstName) {
+      titleEl.innerHTML = `<span class="yo-dot">.</span>Yo <span class="yo-dot">.</span>Sup ${account.firstName}`;
+    }
+  } catch { /* panel is already open — personalization is best-effort */ }
 }
 
 function closeYoPanel() {
