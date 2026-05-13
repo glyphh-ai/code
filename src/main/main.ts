@@ -35,7 +35,7 @@ import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus } from "
 import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler, setEventObserver } from "./cypher-runtime";
+import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler, setEventObserver, postCypherEvent } from "./cypher-runtime";
 import { adapterDispatcher } from "./provider-adapters/registry";
 import { CypherBus } from "./cypher-bus";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
@@ -2218,6 +2218,27 @@ async function boot() {
     if (cypherView) {
       cypherView.webContents.send("cypher-event", cypherId, kind, payload);
     }
+
+    // Route inbound chat messages to yo panel
+    if (kind === "chat" && mainWindow && !mainWindow.isDestroyed()) {
+      const p = payload as Record<string, unknown>;
+      // Skip echo of our own chat messages (already shown locally)
+      const account = getAccountInfo();
+      if (account && p.sender_name === account.firstName) return;
+      mainWindow.webContents.send("yo-panel-chat-msg", {
+        from: p.sender_name || p.by_user_id || "someone",
+        body: typeof p.text === "string" ? p.text : "",
+        ts: Date.now(),
+        isLocal: false,
+      });
+    }
+
+    // Route inbound drip effects to yo panel
+    if (kind === "drip" && mainWindow && !mainWindow.isDestroyed()) {
+      const p = payload as Record<string, unknown>;
+      const recipe = typeof p.recipe === "string" ? p.recipe : "fireworks";
+      mainWindow.webContents.send("yo-panel-drip-effect", recipe);
+    }
   });
 
   if (isAuthenticated()) startCypherRuntime();
@@ -2617,6 +2638,69 @@ async function boot() {
         }
         return;
       }
+
+      // Cypher chat commands — only active during cypher mode
+      if (yoAgent.isCypherMode() && firstWord && ["chat", "to", "leaders", "all", "workers"].includes(firstWord)) {
+        const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
+        const cyId = getCy();
+        if (!cyId) { mainWindow?.webContents.send("yo-panel-error", "No active cypher"); return; }
+        const account = getAccountInfo();
+        const senderName = account?.firstName || "mistro";
+        const rest = trimmed.slice(1 + firstWord.length).trim();
+
+        if (firstWord === "chat") {
+          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .chat <message>"); return; }
+          postCypherEvent(cyId, "chat", { text: rest, sender_name: senderName }, "user");
+          mainWindow?.webContents.send("yo-panel-chat-msg", { from: senderName, body: rest, ts: Date.now(), isLocal: true });
+          mainWindow?.webContents.send("yo-panel-done", "");
+          return;
+        }
+
+        const wsSlug = workspaceManager.getActiveSlug();
+        const hier = cypherBus.getHierarchyContext();
+
+        if (firstWord === "to") {
+          const parts = rest.split(/\s+/);
+          const targetId = parts[0];
+          const msg = parts.slice(1).join(" ");
+          if (!targetId || !msg) { mainWindow?.webContents.send("yo-panel-error", "Usage: .to <agent_id> <message>"); return; }
+          cypherBus.post(wsSlug, { from: "user", to: targetId, kind: "post_to", body: msg });
+          mainWindow?.webContents.send("yo-panel-done", `Sent to ${targetId}`);
+          return;
+        }
+
+        if (firstWord === "leaders" && hier) {
+          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .leaders <message>"); return; }
+          for (const [id, entry] of hier) {
+            if (!entry.parentAgentId) {
+              cypherBus.post(wsSlug, { from: "user", to: id, kind: "post_to", body: rest });
+            }
+          }
+          mainWindow?.webContents.send("yo-panel-done", "Sent to leaders");
+          return;
+        }
+
+        if (firstWord === "workers" && hier) {
+          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .workers <message>"); return; }
+          for (const [id, entry] of hier) {
+            if (entry.parentAgentId) {
+              cypherBus.post(wsSlug, { from: "user", to: id, kind: "post_to", body: rest });
+            }
+          }
+          mainWindow?.webContents.send("yo-panel-done", "Sent to workers");
+          return;
+        }
+
+        if (firstWord === "all") {
+          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .all <message>"); return; }
+          cypherBus.post(wsSlug, { from: "user", kind: "post", body: rest, tags: ["broadcast"] });
+          mainWindow?.webContents.send("yo-panel-done", "Broadcast sent");
+          return;
+        }
+
+        mainWindow?.webContents.send("yo-panel-done", "");
+        return;
+      }
     }
 
     const wc = mainWindow?.webContents;
@@ -2662,6 +2746,11 @@ async function boot() {
   });
 
   ipcMain.on("yo-panel-dismiss", () => {
+    if (yoAgent.isCypherMode()) {
+      // Silently keep the panel open — re-open if somehow closed
+      mainWindow?.webContents.send("yo-panel-open", "");
+      return;
+    }
     yoAgent.clear();
     mainWindow?.webContents.send("yo-panel-close");
     panelManager.setRightInset(0);

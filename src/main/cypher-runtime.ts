@@ -437,6 +437,14 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
     return;
   }
 
+  // ── Chat and drip events → observer ──
+  if (kind === "chat" || kind === "drip") {
+    if (eventObserver) {
+      eventObserver(sub.cypherId, kind, payload.payload);
+    }
+    return;
+  }
+
   // ── Visibility events → observer ──
   if (kind === "agent_thinking" || kind === "agent_tool_use" || kind === "agent_tool_result") {
     if (eventObserver) {

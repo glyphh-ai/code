@@ -306,6 +306,15 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("jammer-activity", (_e, event) => cb(event));
   },
 
+  // Cypher chat messages (observer/mistro chat layer)
+  onYoPanelChatMsg: (cb: (msg: { from: string; body: string; ts: number; isLocal: boolean }) => void) => {
+    ipcRenderer.on("yo-panel-chat-msg", (_e, msg) => cb(msg));
+  },
+  // Cypher drip effects from other observers
+  onYoPanelDripEffect: (cb: (recipe: string) => void) => {
+    ipcRenderer.on("yo-panel-drip-effect", (_e, recipe) => cb(recipe));
+  },
+
   // Yo chat history
   yoChatsList: () => ipcRenderer.invoke("yo-chats-list") as Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>,
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>,

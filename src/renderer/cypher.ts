@@ -840,7 +840,7 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
   el.innerHTML = `
     <div class="feed-item-header">
       <div class="feed-item-avatar">${avatarHtml}</div>
-      <span class="feed-item-name">${escapeHtml(entry.from)}</span>
+      <span class="feed-item-name">${escapeHtml(jammer?.name || entry.from)}</span>
       <span class="feed-item-kind ${cls}">${escapeHtml(label)}</span>
       <span class="feed-item-time">${relativeTime(entry.ts)}</span>
     </div>
@@ -1318,8 +1318,8 @@ async function init(): Promise<void> {
       $("cypher-status").className = `topbar-status ${cypher.status === "live" ? "live" : "lobby"}`;
     }
 
-    // Load banner image
-    if (cypherId) {
+    // Load banner image — only for live cyphers
+    if (cypherId && cypher?.status === "live") {
       const banner = $("cypher-banner");
       try {
         const cover = await api.cypherCoverGet(cypherId);

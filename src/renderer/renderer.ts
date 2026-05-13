@@ -219,6 +219,9 @@ declare global {
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
       onYoPanelCouncilReady: (cb: (info: { name: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => void) => void;
+      // Cypher chat layer
+      onYoPanelChatMsg: (cb: (msg: { from: string; body: string; ts: number; isLocal: boolean }) => void) => void;
+      onYoPanelDripEffect: (cb: (recipe: string) => void) => void;
       // Yo panel resize
       yoPanelResize: (width: number) => void;
       yoPanelWidthSave: (width: number) => void;
@@ -1734,6 +1737,10 @@ window.yo.onAgentModeChanged?.((mode: string) => {
     setPermValue(mode);
   }
   applyModeColor();
+  // Force yo panel open when entering cypher mode
+  if (mode === "cypher" && !isYoPanelOpen()) {
+    openYoPanel("");
+  }
 });
 
 async function initYoControls() {
@@ -1810,6 +1817,22 @@ function addYoUserMessage(text: string) {
   const el = document.createElement("div");
   el.className = "yo-msg yo-msg-user";
   el.textContent = text;
+  yoPanelMessages.appendChild(el);
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+function addYoChatMessage(msg: { from: string; body: string; ts: number; isLocal: boolean }) {
+  const el = document.createElement("div");
+  el.className = msg.isLocal ? "yo-msg yo-msg-chat yo-msg-chat-local" : "yo-msg yo-msg-chat";
+  const d = new Date(msg.ts);
+  const time = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  el.innerHTML = `
+    <div class="yo-chat-header">
+      <span class="yo-chat-sender">${msg.from}</span>
+      <span class="yo-chat-time">${time}</span>
+    </div>
+    <div class="yo-chat-body">${msg.body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+  `;
   yoPanelMessages.appendChild(el);
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
@@ -2477,6 +2500,12 @@ window.yo.onYoPanelToolProgress((id, status) => updateToolProgress(id, status));
 window.yo.onYoPanelDone((fullText) => finalizeYoMessage(fullText));
 window.yo.onYoPanelError((err) => showYoError(err));
 window.yo.onYoPanelClose(() => closeYoPanel());
+window.yo.onYoPanelChatMsg((msg) => {
+  if (isYoPanelOpen()) addYoChatMessage(msg);
+});
+window.yo.onYoPanelDripEffect((recipe) => {
+  window.yo.dripsPreview(recipe);
+});
 window.yo.onYoPanelCouncilReady((info) => {
   hideYoWelcome();
   const el = document.createElement("div");

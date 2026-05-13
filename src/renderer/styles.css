@@ -5220,6 +5220,29 @@ select.settings-input {
   padding: 6px 12px;
 }
 
+.yo-msg-chat {
+  align-self: flex-start;
+  background: rgba(168, 85, 247, 0.08);
+  border-left: 3px solid #A855F7;
+  border-radius: 4px 12px 12px 4px;
+  padding: 8px 12px;
+  max-width: 90%;
+}
+.yo-chat-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; color: var(--text-3); margin-bottom: 3px;
+}
+.yo-chat-sender { font-weight: 700; color: #A855F7; }
+.yo-chat-time { opacity: 0.6; }
+.yo-chat-body { font-size: 12px; color: var(--text); line-height: 1.4; }
+.yo-msg-chat-local {
+  align-self: flex-end;
+  border-left: none;
+  border-right: 3px solid var(--accent);
+  border-radius: 12px 4px 4px 12px;
+}
+.yo-msg-chat-local .yo-chat-sender { color: var(--accent); }
+
 /* ── Activity timeline (result items with connecting line) ── */
 
 .yo-ag-timeline {
