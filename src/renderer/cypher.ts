@@ -1508,6 +1508,8 @@ function subscribeEvents(): void {
     if (!event.body?.trim()) return;
     const ts = event.ts || Date.now();
     if (ts <= feedLoadedUpTo) return;
+    const prev = feedItems[0];
+    if (prev && prev.from === event.from && prev.kind === event.kind && prev.body === event.body) return;
     addFeedEntry({
       from: event.from,
       to: event.to,
