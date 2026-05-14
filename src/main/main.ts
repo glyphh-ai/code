@@ -31,7 +31,7 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 // THE-PIVOT-GITHUB Phase 1 scaffolding (gh-pivot branch). Drop session is
 // scoped — independent rotation/revocation from the main yo session.
-import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus } from "./drop-auth";
+import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus, getDropAccessToken } from "./drop-auth";
 import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
@@ -3935,8 +3935,19 @@ async function boot() {
   ipcMain.handle("auth-me", async () => {
     try {
       return await serverGetAuthed<{ id: string; email: string; role: string }>("/api/auth/me");
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : "auth lookup failed" };
+    } catch {
+      // Yo auth session missing — try the Drop session (GitHub OAuth users)
+      const dropToken = getDropAccessToken();
+      if (!dropToken) return { error: "not authenticated" };
+      try {
+        const r = await fetch(`${process.env.YO_AUTH_SERVER || "https://api.yosup.dev"}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${dropToken}` },
+        });
+        if (r.ok) return await r.json();
+        return { error: `auth lookup failed (${r.status})` };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : "auth lookup failed" };
+      }
     }
   });
 
@@ -4249,19 +4260,17 @@ async function boot() {
       openYoPanel("");
     }
 
-    // Deterministic setup — no inference needed
-    if (isOwner) {
-      try {
-        await activateCypherSession(cypherId);
-      } catch (err) {
-        const msg = `Cypher activation failed: ${err instanceof Error ? err.message : err}`;
-        console.error("[cypher-panel-activate]", msg);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
-          mainWindow.webContents.send("yo-panel-done", msg);
-        }
-        return { ok: false, error: msg };
+    // Deterministic setup — server validates ownership for destructive ops
+    try {
+      await activateCypherSession(cypherId);
+    } catch (err) {
+      const msg = `Cypher activation failed: ${err instanceof Error ? err.message : err}`;
+      console.error("[cypher-panel-activate]", msg);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("yo-panel-token", `❌ ${msg}\n`);
+        mainWindow.webContents.send("yo-panel-done", msg);
       }
+      return { ok: false, error: msg };
     }
 
     return { ok: true };

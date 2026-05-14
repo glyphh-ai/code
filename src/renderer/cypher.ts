@@ -902,7 +902,7 @@ function formatDuration(startedAt: string, endedAt: string): string {
 }
 
 async function closeCypher(): Promise<void> {
-  if (!cypherId || !isOwner) return;
+  if (!cypherId) return;
   const btn = $("btn-close-cypher") as HTMLButtonElement;
   btn.disabled = true;
   btn.textContent = "Closing...";
