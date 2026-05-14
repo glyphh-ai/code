@@ -4020,6 +4020,10 @@ async function boot() {
       }
       return;
     }
+    // Use the installation's account as the repo owner — not the user's personal
+    // login. When the App is installed on an org, repos go under the org.
+    const repoOwnerLogin = inst.account_login || ownerLogin;
+    const repoOwnerKind = inst.account_kind || "user";
 
     let projectSlug: string | null = null;
     try {
@@ -4033,7 +4037,7 @@ async function boot() {
     }
 
     if (!projectSlug) {
-      console.log("[cypher-session] creating GitHub project for cypher", cypId, "owner:", ownerLogin, "installationId:", installationId);
+      console.log("[cypher-session] creating GitHub project for cypher", cypId, "owner:", repoOwnerLogin, "(", repoOwnerKind, ") installationId:", installationId);
       let projCreate: { project?: { slug: string }; slug?: string; error?: string } | null = null;
       try {
         projCreate = await serverPostAuthed<{ project?: { slug: string }; slug?: string; error?: string }>(
@@ -4041,8 +4045,8 @@ async function boot() {
           {
             goal: cy?.goal || cy?.title || "Cypher project",
             description: cy?.title || cy?.goal || "",
-            owner_kind: inst?.account_kind || "user",
-            owner_login: ownerLogin,
+            owner_kind: repoOwnerKind,
+            owner_login: repoOwnerLogin,
             installation_id: installationId,
             cypher_id: cypId,
             repo_name: cy?.title || cy?.goal || undefined,
@@ -4065,8 +4069,8 @@ async function boot() {
                 {
                   goal: cy?.goal || cy?.title || "Cypher project",
                   description: cy?.title || cy?.goal || "",
-                  owner_kind: inst?.account_kind || "user",
-                  owner_login: ownerLogin,
+                  owner_kind: repoOwnerKind,
+                  owner_login: repoOwnerLogin,
                   installation_id: installationId,
                   cypher_id: cypId,
                   repo_name: cy?.title || cy?.goal || undefined,
