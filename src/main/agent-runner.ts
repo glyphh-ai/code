@@ -39,6 +39,8 @@ function findNodePath(): string {
 
 export interface AgentConfig {
   name: string;
+  displayName?: string;
+  avatarUrl?: string;
   role: string;
   cwd: string;
   prompt?: string;
@@ -65,6 +67,7 @@ interface AgentInstance {
   busUnsubscribe: (() => void) | null;
   wcRef: WeakRef<WebContents>;
   config: AgentConfig;
+  lastBusKey: string | null;
 }
 
 export type UsagePoster = (cypherId: string, agentId: string, inputTokens: number, outputTokens: number) => void;
@@ -241,6 +244,7 @@ export class AgentRunner {
       busUnsubscribe: null,
       wcRef: new WeakRef(wc),
       config,
+      lastBusKey: null,
     };
     this.agents.set(key, instance);
 
@@ -617,27 +621,37 @@ export class AgentRunner {
     if (!this.bus) return;
     const ws = instance.config.workspace;
     const from = instance.name;
+    const baseMeta: Record<string, unknown> = {
+      agent_id: from,
+      display_name: instance.config.displayName || null,
+      avatar_url: instance.config.avatarUrl || null,
+    };
 
     if (msg.type === "assistant") {
       const content = msg.message?.content || [];
       for (const block of content) {
         if (block.type === "text" && block.text) {
+          const key = `thinking:${block.text.slice(0, 500)}`;
+          if (key === instance.lastBusKey) continue;
+          instance.lastBusKey = key;
           this.bus.post(ws, {
             from,
             kind: "agent_thinking",
             body: block.text.slice(0, 500),
-            meta: { agent_id: from },
+            meta: { ...baseMeta },
           }).catch(() => {});
         } else if (block.type === "tool_use") {
+          instance.lastBusKey = null;
           this.bus.post(ws, {
             from,
             kind: "agent_tool_use",
             body: this.summarizeToolInput(block.name, block.input),
-            meta: { agent_id: from, tool_name: block.name, tool_id: block.id },
+            meta: { ...baseMeta, tool_name: block.name, tool_id: block.id },
           }).catch(() => {});
         }
       }
     } else if (msg.type === "result") {
+      const displayName = instance.config.displayName || from;
       const body = msg.is_error
         ? `Error: ${(msg.result || "unknown error").slice(0, 300)}`
         : `Completed turn (${msg.num_turns || 0} turns, ${msg.usage?.input_tokens || 0}+${msg.usage?.output_tokens || 0} tok)`;
@@ -645,14 +659,15 @@ export class AgentRunner {
         from,
         kind: msg.is_error ? "agent_error" : "agent_result",
         body,
-        meta: { agent_id: from },
+        meta: { ...baseMeta },
       }).catch(() => {});
     } else if (msg.type === "system" && msg.subtype === "status") {
+      const displayName = instance.config.displayName || from;
       this.bus.post(ws, {
         from,
         kind: "status",
-        body: `${from}: ${msg.status || msg.subtype}`,
-        meta: { agent_id: from },
+        body: `${displayName}: ${msg.status || msg.subtype}`,
+        meta: { ...baseMeta },
       }).catch(() => {});
     }
   }

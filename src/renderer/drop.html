@@ -1713,15 +1713,21 @@
 
             <label class="form-label">Repository</label>
             <select id="cw-repo-select" class="form-input">
-              <option value="">— select or create new —</option>
+              <option value="">— select a repo —</option>
             </select>
 
             <label class="form-toggle" style="margin-top:10px;">
               <input type="checkbox" id="cw-repo-create-new" />
-              <span>Create a new private repo</span>
+              <span>Create a new repo</span>
             </label>
 
-            <input id="cw-repo-new-name" class="form-input mono hidden" placeholder="my-cypher-repo" spellcheck="false" style="margin-left:24px;" />
+            <div id="cw-repo-new-fields" class="hidden" style="margin-left:24px; display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+              <input id="cw-repo-new-name" class="form-input mono" placeholder="my-cypher-repo" spellcheck="false" />
+              <label class="form-toggle">
+                <input type="checkbox" id="cw-repo-private" checked />
+                <span>Private</span>
+              </label>
+            </div>
           </div>
         </div>
 

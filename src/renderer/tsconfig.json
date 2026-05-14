@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "sourceMap": true
   },
-  "include": ["renderer.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "drop.ts", "drop-gh-landing.ts", "drop-pickers.ts", "council.ts", "cypher.ts", "cypher-viz.ts", "cypher-workflow.tsx"]
+  "include": ["renderer.ts", "downloads-ui.ts", "boot-gate-ui.ts", "drip-ui.ts", "voice-ui.ts", "tab-bar-ui.ts", "grid-ui.ts", "yo-panel-ui.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "drop.ts", "drop-gh-landing.ts", "drop-pickers.ts", "council.ts", "cypher.ts", "cypher-viz.ts", "cypher-workflow.tsx"]
 }

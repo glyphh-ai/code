@@ -134,6 +134,7 @@ let unsubActivity: (() => void) | null = null;
 let unsubLeaderDone: (() => void) | null = null;
 let fileTreeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let initRunning = false;
+let feedLoadedUpTo = 0;
 
 // ── Helpers ────────────────────────────────────────────
 function $(id: string): HTMLElement { return document.getElementById(id)!; }
@@ -800,9 +801,11 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
   el.dataset.kind = entry.kind;
 
   const jammer = jammers.find((j) => j.agent_local_id === entry.from);
-  const avatarHtml = jammer?.avatar_url
-    ? `<img src="${escapeHtml(jammer.avatar_url)}" alt="" />`
+  const avatarSrc = (entry.meta?.avatar_url as string) || jammer?.avatar_url;
+  const avatarHtml = avatarSrc
+    ? `<img src="${escapeHtml(avatarSrc)}" alt="" class="feed-avatar-img" />`
     : identiconSvg(entry.from, 18);
+  const displayName = (entry.meta?.display_name as string) || jammer?.name || entry.from;
 
   const { label, cls } = feedKindLabel(entry.kind);
 
@@ -840,7 +843,7 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
   el.innerHTML = `
     <div class="feed-item-header">
       <div class="feed-item-avatar">${avatarHtml}</div>
-      <span class="feed-item-name">${escapeHtml(jammer?.name || entry.from)}</span>
+      <span class="feed-item-name">${escapeHtml(displayName)}</span>
       <span class="feed-item-kind ${cls}">${escapeHtml(label)}</span>
       <span class="feed-item-time">${relativeTime(entry.ts)}</span>
     </div>
@@ -1457,6 +1460,7 @@ async function init(): Promise<void> {
           body: entry.body,
           ts: entry.ts,
         });
+        if (entry.ts > feedLoadedUpTo) feedLoadedUpTo = entry.ts;
       }
       if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
       rebuildFeed();
@@ -1502,12 +1506,14 @@ function subscribeEvents(): void {
   unsubActivity = api.onJammerActivity((event) => {
     if (!event.from || event.from === "orchestrator" || event.from === "unknown") return;
     if (!event.body?.trim()) return;
+    const ts = event.ts || Date.now();
+    if (ts <= feedLoadedUpTo) return;
     addFeedEntry({
       from: event.from,
       to: event.to,
       kind: event.kind,
       body: event.body,
-      ts: event.ts || Date.now(),
+      ts,
       meta: event.meta,
     });
   });
@@ -1662,19 +1668,23 @@ function boot(): void {
     api.leaveCypher();
   });
 
-  api.onContextReady(() => {
+  api.onContextReady(async () => {
+    const incoming = await api.getCypherContext().catch(() => null);
+    if (incoming?.cypherId && incoming.cypherId === cypherId && !initRunning) {
+      return;
+    }
     cleanup();
     cypherId = null;
     jammers = [];
     fileTree = [];
     ghMode = false;
     feedItems.length = 0;
+    feedLoadedUpTo = 0;
     openTabs = [];
     activeFile = null;
     jammerPage = 0;
     if (monacoEditor) monacoEditor.setModel(null);
     if (cypherCards) { cypherCards.dispose(); cypherCards = null; }
-    // Reset view visibility — wrapped view may have been shown for previous cypher
     $("workspace").classList.remove("hidden");
     $("wrapped-view").classList.add("hidden");
     $("wrap-banner").classList.add("hidden");

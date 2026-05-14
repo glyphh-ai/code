@@ -29,6 +29,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { BrowserWindow, safeStorage } from "electron";
+import { getHeartbeatInfo } from "./auth";
 
 const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
 const SESSION_PATH = path.join(os.homedir(), "yo", ".session.drop");
@@ -169,7 +170,12 @@ export function signOutDrop(): void {
  */
 export async function signInWithGitHub(): Promise<{ ok: true; status: DropAuthStatus } | { ok: false; error: string; status?: number }> {
   // 1. Get authorize URL from yo-server
-  const startRes = await fetch(`${AUTH_SERVER}/api/auth/github/start?flow=electron-drop`, {
+  // Bind to the platform user so the GH token is stored under the same user ID
+  const platformUserId = getHeartbeatInfo()?.user?.id;
+  console.log("[drop-auth] signInWithGitHub bind_user_id:", platformUserId ?? "(heartbeat not available)");
+  const qs = new URLSearchParams({ flow: "electron-drop" });
+  if (platformUserId) qs.set("bind_user_id", platformUserId);
+  const startRes = await fetch(`${AUTH_SERVER}/api/auth/github/start?${qs}`, {
     method: "GET",
   });
   if (!startRes.ok) {

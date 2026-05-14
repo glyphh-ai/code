@@ -1238,6 +1238,7 @@ const wizard = {
   selectedRepoFullName: null as string | null,
   autoCreateRepo: false,
   newRepoName: "",
+  repoPrivate: true,
 };
 
 function setWizardStep(n: WizardStep): void {
@@ -1451,12 +1452,16 @@ function wireRepoStepEvents(): void {
   $("cw-repo-create-new").addEventListener("change", () => {
     const checked = ($("cw-repo-create-new") as HTMLInputElement).checked;
     wizard.autoCreateRepo = checked;
-    $("cw-repo-new-name").classList.toggle("hidden", !checked);
+    $("cw-repo-new-fields").classList.toggle("hidden", !checked);
     ($("cw-repo-select") as HTMLSelectElement).disabled = checked;
   });
 
   ($("cw-repo-new-name") as HTMLInputElement).addEventListener("input", () => {
     wizard.newRepoName = ($("cw-repo-new-name") as HTMLInputElement).value.trim();
+  });
+
+  ($("cw-repo-private") as HTMLInputElement).addEventListener("change", () => {
+    wizard.repoPrivate = ($("cw-repo-private") as HTMLInputElement).checked;
   });
 
   ($("cw-repo-select") as HTMLSelectElement).addEventListener("change", () => {
@@ -1598,13 +1603,30 @@ function closeWizard(): void {
 
 async function publishCypherFromWizard(): Promise<void> {
   clearWizardError();
+  const btn = $("cw-publish") as HTMLButtonElement;
+  btn.disabled = true;
+  btn.textContent = "Dropping...";
+  const resetBtn = () => { btn.disabled = false; btn.textContent = "Drop it"; };
   const title = $i("cw-title").value.trim();
-  if (!title) { showWizardError("Title is required"); setWizardStep(1); return; }
+  if (!title) { showWizardError("Title is required"); setWizardStep(1); resetBtn(); return; }
   const goal = $t("cw-goal").value.trim() || undefined;
   const maxJammersRaw = $i("cw-max-jammers").value.trim();
   const max_jammers = maxJammersRaw ? Math.max(1, Number(maxJammersRaw)) : undefined;
   const lobbyDurRaw = $s("cw-lobby-duration").value;
   const lobby_duration_seconds = lobbyDurRaw === "" ? null : Number(lobbyDurRaw);
+
+  if (!wizard.installationId) {
+    showWizardError("A GitHub repo is required — connect GitHub on the Project Board step");
+    setWizardStep(4);
+    resetBtn();
+    return;
+  }
+  if (!wizard.autoCreateRepo && !wizard.selectedRepoFullName) {
+    showWizardError("Select a repo or choose to create a new one");
+    setWizardStep(4);
+    resetBtn();
+    return;
+  }
 
   const setup_steps = buildSetupSteps();
 
@@ -1619,6 +1641,7 @@ async function publishCypherFromWizard(): Promise<void> {
   }) as { ok?: boolean; cypher?: Cypher; error?: string };
   if (!cr.ok || !cr.cypher) {
     showWizardError(cr.error || "Create failed");
+    resetBtn();
     return;
   }
   const cypherId = cr.cypher.id;
@@ -1629,6 +1652,7 @@ async function publishCypherFromWizard(): Promise<void> {
     if (!upR?.ok) {
       console.error("[drop] cover upload failed:", upR?.error || upR);
       showWizardError(`Cover upload failed: ${upR?.error || "unknown error"}`);
+      resetBtn();
       return;
     }
   }
@@ -1647,11 +1671,13 @@ async function publishCypherFromWizard(): Promise<void> {
       repo_full_name: wizard.autoCreateRepo ? null : wizard.selectedRepoFullName,
       auto_create_repo: wizard.autoCreateRepo,
       repo_name: wizard.autoCreateRepo ? wizard.newRepoName : undefined,
+      repo_private: wizard.autoCreateRepo ? wizard.repoPrivate : undefined,
     };
   }
   const pub = await drop.cypherPublish(cypherId, publishOpts) as { ok?: boolean; cypher?: Cypher; error?: string };
   if (!pub.ok || !pub.cypher) {
     showWizardError(pub.error || "Publish failed");
+    resetBtn();
     return;
   }
 
@@ -2015,14 +2041,21 @@ function startLobbyTimer(): void {
 
 async function lobbyStartNow(): Promise<void> {
   if (!lobbyState.cypherId) return;
-  const r = await drop.cypherStart(lobbyState.cypherId) as { ok?: boolean; cypher?: Cypher; error?: string };
+  const cypherId = lobbyState.cypherId;
+  const title = lobbyState.cypher?.title;
+  // Stop SSE + polling BEFORE the start call so the cypher_started event
+  // doesn't race us into a duplicate enterWorkspace / activateCypherPanel.
+  if (lobbyState.unsubscribeEvents) { lobbyState.unsubscribeEvents(); lobbyState.unsubscribeEvents = null; }
+  if (lobbyState.pollHandle) { clearInterval(lobbyState.pollHandle); lobbyState.pollHandle = null; }
+  if (lobbyState.timerHandle) { clearInterval(lobbyState.timerHandle); lobbyState.timerHandle = null; }
+  const r = await drop.cypherStart(cypherId) as { ok?: boolean; cypher?: Cypher; error?: string };
   if (!r.ok) {
     alert(r.error || "Start failed");
+    startLobbyPolling();
     return;
   }
-  if (r.cypher) lobbyState.cypher = r.cypher;
-  renderLobby();
-  void activateCypherPanel(lobbyState.cypherId, true, lobbyState.cypher?.title);
+  exitLobby();
+  void activateCypherPanel(cypherId, true, title);
 }
 
 async function activateCypherPanel(cypherId: string, isOwner: boolean, title?: string): Promise<void> {

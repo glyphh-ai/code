@@ -1,0 +1,338 @@
+import { ipcMain } from "electron";
+import type { BrowserWindow } from "electron";
+import type { PanelManager } from "./panel-manager";
+import type { LayoutManager } from "./layout-manager";
+import type { AppConnector } from "./app-connector";
+import type { YoAgent } from "./yo-agent";
+import type { YoInterceptor } from "./yo-interceptor";
+import type { AgentRunner } from "./agent-runner";
+
+interface TabIpcDeps {
+  panelManager: PanelManager;
+  layoutManager: LayoutManager;
+  appConnector: AppConnector;
+  yoAgent: YoAgent;
+  yoInterceptor: YoInterceptor;
+  agentRunner: AgentRunner;
+  getMainWindow: () => BrowserWindow | null;
+  openTabs: string[];
+  tabBrowserCounter: { value: number };
+  panelInstanceCounter: { value: number };
+  panelNavWc: Record<string, Electron.WebContents>;
+  cypherPanelContext: { get: () => { cypherId: string; isOwner: boolean; title?: string } | null };
+  resolveAppId: (panelId: string | null | undefined) => string;
+  resolveBrowserHome: () => string;
+  browserHtmlUrl: (initialUrl?: string) => string;
+  ensureTab: (id: string | null | undefined) => void;
+  persistTabs: () => void;
+  sendSplitState: () => void;
+  sendTabState: () => void;
+  openYoPanel: (query: string, sourcePanelId?: string) => void;
+  createPanelForApp: (instanceId: string, app: { id: string; url?: string; forceWeb?: boolean }) => void;
+  setPreference: (key: string, value: unknown) => void;
+  getPreference: <T>(key: string, fallback: T) => T;
+  URL_BAR_HEIGHT: number;
+}
+
+export function registerTabIpc(deps: TabIpcDeps): void {
+  const {
+    panelManager, layoutManager, appConnector,
+    yoAgent, yoInterceptor, agentRunner,
+    getMainWindow, openTabs, tabBrowserCounter, panelInstanceCounter,
+    panelNavWc, cypherPanelContext,
+    resolveAppId, resolveBrowserHome, browserHtmlUrl,
+    ensureTab, persistTabs, sendSplitState, sendTabState,
+    openYoPanel, createPanelForApp,
+    setPreference, getPreference, URL_BAR_HEIGHT,
+  } = deps;
+
+  // ── Tab handlers ──────────────────────────────────────────
+
+  ipcMain.on("tab-switch", (_e, id: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    if (id === "__layout__") {
+      // Clicking the layout tab restores the grid (from active or suspended)
+      if (!layoutManager.hasSplit) {
+        layoutManager.resumeSplit(mainWindow);
+      } else {
+        layoutManager.restoreSplit(mainWindow);
+      }
+      const gridInfo = layoutManager.getGridInfo();
+      if (gridInfo) {
+        setPreference("lastView", {
+          type: "grid-full",
+          grid: { name: "", version: 2, cols: gridInfo.cols, rows: gridInfo.rows, colWidths: gridInfo.colWidths, rowHeights: gridInfo.rowHeights, cells: gridInfo.cells },
+        });
+        setPreference("suspendedLayout", null);
+      }
+    } else {
+      // Suspend grid so the layout tab persists
+      layoutManager.suspendSplit();
+      panelManager.switchTo(id, mainWindow);
+      setPreference("lastView", { type: "panel", id });
+
+      // Activate/deactivate cypher mode when switching to/from cypher tab
+      if (id === "cypher" && cypherPanelContext.get()?.cypherId) {
+        if (!yoAgent.isCypherMode()) {
+          yoAgent.setCypherMode(true);
+          yoAgent.setMode("acceptEdits");
+          setPreference("agentMode", "cypher");
+          mainWindow.webContents.send("agent-mode-changed", "cypher");
+          yoInterceptor.setAgentMode("cypher");
+        }
+        // Always open yo panel when switching to cypher tab
+        openYoPanel("");
+        // Re-bind agents to current panel (may have been recreated)
+        const cypWc = panelManager.getView("cypher")?.webContents;
+        if (cypWc && !cypWc.isDestroyed()) {
+          agentRunner.rebindWebContents(cypWc);
+        }
+      } else if (id !== "cypher" && yoAgent.isCypherMode()) {
+        yoAgent.setCypherMode(false);
+        setPreference("agentMode", "default");
+        mainWindow.webContents.send("agent-mode-changed", "standard");
+        yoInterceptor.setAgentMode("default");
+      }
+      // Persist suspended grid for restart
+      const suspended = layoutManager.getSuspendedGridInfo();
+      if (suspended) {
+        setPreference("suspendedLayout", {
+          version: 2, name: suspended.name, cols: suspended.cols, rows: suspended.rows,
+          colWidths: suspended.colWidths, rowHeights: suspended.rowHeights, cells: suspended.cells,
+        });
+      }
+    }
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-reorder", (_e, newOrder: string[]) => {
+    // Filter to ids that actually exist in openTabs, always keeping home first
+    const existing = new Set(openTabs);
+    const sanitized = newOrder.filter((id) => existing.has(id) && id !== "__layout__");
+    // Preserve any open tabs the renderer didn't include (shouldn't happen, but safe)
+    for (const id of openTabs) {
+      if (!sanitized.includes(id)) sanitized.push(id);
+    }
+    // Home always first
+    const homeIdx = sanitized.indexOf("home");
+    if (homeIdx > 0) {
+      sanitized.splice(homeIdx, 1);
+      sanitized.unshift("home");
+    } else if (homeIdx < 0) {
+      sanitized.unshift("home");
+    }
+    openTabs.length = 0;
+    openTabs.push(...sanitized);
+    persistTabs();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-close", (_e, id: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+
+    // Home tab is pinned — cannot be closed
+    if (id === "home") return;
+
+    // Closing the layout tab clears the grid (active or suspended)
+    if (id === "__layout__") {
+      const gridInfo = layoutManager.getGridInfo() || layoutManager.getSuspendedGridInfo();
+      if (gridInfo) {
+        for (const panelId of gridInfo.panelIds) {
+          const idx = openTabs.indexOf(panelId);
+          if (idx >= 0) openTabs.splice(idx, 1);
+          panelManager.closePanel(panelId, mainWindow);
+        }
+      }
+      layoutManager.clearSplit();
+      layoutManager.clearSuspended();
+      setPreference("suspendedLayout", null);
+      // Switch to first remaining tab
+      if (openTabs.length > 0) {
+        panelManager.switchTo(openTabs[0], mainWindow);
+      }
+      persistTabs();
+      sendSplitState();
+      sendTabState();
+      return;
+    }
+
+    const idx = openTabs.indexOf(id);
+    if (idx < 0) return;
+    openTabs.splice(idx, 1);
+    persistTabs();
+    const nextId = openTabs[Math.min(idx, openTabs.length - 1)];
+    panelManager.closePanel(id, mainWindow, nextId);
+    // Clean up saved browser URL
+    if (resolveAppId(id) === "browser") {
+      const saved = getPreference<Record<string, string>>("browserTabUrls", {});
+      delete saved[id];
+      setPreference("browserTabUrls", saved);
+    }
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-new", () => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    tabBrowserCounter.value++;
+    const id = `browse-${tabBrowserCounter.value}`;
+    const homeUrl = resolveBrowserHome();
+    panelManager.addPanel(id, browserHtmlUrl(homeUrl), undefined, undefined, true);
+    panelManager.switchTo(id, mainWindow);
+    ensureTab(id);
+    sendSplitState();
+    sendTabState();
+  });
+
+  ipcMain.on("tab-new-app", (_e, appId: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    const app = appConnector.get(appId);
+    if (!app?.url) return;
+
+    layoutManager.suspendSplit();
+
+    if (appId === "home") {
+      if (!panelManager.hasPanel(appId)) createPanelForApp(appId, app);
+      panelManager.switchTo(appId, mainWindow);
+      ensureTab(appId);
+    } else {
+      const alreadyOpen = openTabs.some(t => t === appId || resolveAppId(t) === appId);
+      if (alreadyOpen) {
+        panelInstanceCounter.value++;
+        const instanceId = `${appId}-${panelInstanceCounter.value}`;
+        createPanelForApp(instanceId, app);
+        panelManager.switchTo(instanceId, mainWindow);
+        ensureTab(instanceId);
+      } else {
+        if (!panelManager.hasPanel(appId)) createPanelForApp(appId, app);
+        panelManager.switchTo(appId, mainWindow);
+        ensureTab(appId);
+      }
+    }
+    setPreference("lastView", { type: "panel", id: openTabs[openTabs.length - 1] });
+    sendSplitState();
+    sendTabState();
+  });
+
+  // ── URL bar handlers ──────────────────────────────────────
+
+  // Apply initial URL bar state
+  if (getPreference<boolean>("showUrlBar", true)) {
+    panelManager.setTopInset(URL_BAR_HEIGHT);
+  }
+
+  ipcMain.on("url-bar-navigate", (_e, url: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    const id = panelManager.activePanelId;
+    if (!id) return;
+
+    // Normalize: add protocol if missing, or search if not a URL
+    let target = url.trim();
+    if (target && !/^https?:\/\//i.test(target)) {
+      if (/^localhost(:\d+)?(\/|$)/i.test(target) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(target)) {
+        target = "http://" + target;
+      } else if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z]{2,})+/i.test(target)) {
+        target = "https://" + target;
+      } else {
+        target = "https://www.google.com/search?q=" + encodeURIComponent(target);
+      }
+    }
+
+    const isBrowser = resolveAppId(id) === "browser";
+    if (isBrowser) {
+      // Navigate the webview guest inside browser.html
+      const wc = panelManager.activeWebContents;
+      if (wc && !wc.isDestroyed()) {
+        wc.executeJavaScript(`(function(){
+          const wv = document.querySelector("webview");
+          if (wv) { wv.loadURL(${JSON.stringify(target)}); }
+          const bar = document.getElementById("url");
+          if (bar) bar.value = ${JSON.stringify(target)};
+        })()`).catch(() => {});
+      }
+    } else {
+      // Navigate the BrowserView directly
+      const wc = panelManager.activeWebContents;
+      if (wc && !wc.isDestroyed()) {
+        wc.loadURL(target).catch(() => {});
+      }
+    }
+  });
+
+  ipcMain.on("url-bar-back", () => {
+    const id = panelManager.activePanelId;
+    if (!id) return;
+    const nwc = panelNavWc[id];
+    if (nwc && !nwc.isDestroyed()) {
+      nwc.navigationHistory.goBack();
+    }
+  });
+
+  ipcMain.on("url-bar-forward", () => {
+    const id = panelManager.activePanelId;
+    if (!id) return;
+    const nwc = panelNavWc[id];
+    if (nwc && !nwc.isDestroyed()) {
+      nwc.navigationHistory.goForward();
+    }
+  });
+
+  ipcMain.on("url-bar-refresh", () => {
+    const id = panelManager.activePanelId;
+    if (!id) return;
+    const nwc = panelNavWc[id];
+    if (nwc && !nwc.isDestroyed()) {
+      nwc.reload();
+    }
+  });
+
+  // Per-panel nav (for cell URL bars in grid mode)
+  ipcMain.on("panel-nav-back", (_e, panelId: string) => {
+    const nwc = panelNavWc[panelId];
+    if (nwc && !nwc.isDestroyed()) nwc.navigationHistory.goBack();
+  });
+  ipcMain.on("panel-nav-forward", (_e, panelId: string) => {
+    const nwc = panelNavWc[panelId];
+    if (nwc && !nwc.isDestroyed()) nwc.navigationHistory.goForward();
+  });
+  ipcMain.on("panel-nav-refresh", (_e, panelId: string) => {
+    const nwc = panelNavWc[panelId];
+    if (nwc && !nwc.isDestroyed()) nwc.reload();
+  });
+  ipcMain.on("panel-nav-to", (_e, panelId: string, url: string) => {
+    let target = url.trim();
+    if (!target) return;
+    if (!/^https?:\/\//i.test(target)) target = "https://" + target;
+    const isBrowser = resolveAppId(panelId) === "browser";
+    const nwc = panelNavWc[panelId];
+    if (!nwc || nwc.isDestroyed()) return;
+    if (isBrowser) {
+      nwc.executeJavaScript(`(function(){
+        const wv = document.querySelector("webview");
+        if (wv) { wv.loadURL(${JSON.stringify(target)}); }
+        const bar = document.getElementById("url");
+        if (bar) bar.value = ${JSON.stringify(target)};
+      })()`).catch(() => {});
+    } else {
+      nwc.loadURL(target).catch(() => {});
+    }
+  });
+
+  ipcMain.on("url-bar-toggle", (_e, show: boolean) => {
+    const mainWindow = getMainWindow();
+    setPreference("showUrlBar", show);
+    const id = panelManager.activePanelId;
+    const isBrowser = id ? resolveAppId(id) === "browser" : false;
+    const showBar = show || isBrowser;
+    panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("url-bar-force", showBar);
+    }
+  });
+}
