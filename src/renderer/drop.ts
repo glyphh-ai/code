@@ -220,6 +220,22 @@ function closeConfirm(result: boolean): void {
   if (confirmResolve) { confirmResolve(result); confirmResolve = null; }
 }
 
+function showToast(msg: string, kind: "error" | "info" = "error"): void {
+  let container = document.getElementById("drop-toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "drop-toast-container";
+    container.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:400;display:flex;flex-direction:column;gap:8px;pointer-events:none;";
+    document.body.appendChild(container);
+  }
+  const el = document.createElement("div");
+  el.style.cssText = `background:var(--toast-bg);border:1px solid ${kind === "error" ? "var(--red, #e53935)" : "var(--accent)"};border-radius:10px;padding:10px 14px;min-width:240px;max-width:380px;box-shadow:0 4px 20px var(--shadow);animation:toast-in 0.25s ease-out;pointer-events:auto;cursor:pointer;font-size:13px;color:var(--text);`;
+  el.textContent = msg;
+  el.addEventListener("click", () => el.remove());
+  container.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.remove(); }, 4000);
+}
+
 // ─────────────────────────────────────────────────────
 // View router
 // ─────────────────────────────────────────────────────
@@ -315,7 +331,7 @@ function cypherCard(c: Cypher): HTMLElement {
       });
       if (!confirmed) return;
       const r = await drop.cypherCancel(c.id) as { ok?: boolean; error?: string };
-      if (!r.ok) { alert(r.error || "Cancel failed"); return; }
+      if (!r.ok) { showToast(r.error || "Cancel failed"); return; }
       void loadMine();
       void loadFeatured();
       void loadDirectory();
@@ -333,7 +349,7 @@ function cypherCard(c: Cypher): HTMLElement {
       });
       if (!confirmed) return;
       const r = await drop.cypherDelete(c.id) as { ok?: boolean; error?: string };
-      if (!r.ok) { alert(r.error || "Delete failed"); return; }
+      if (!r.ok) { showToast(r.error || "Delete failed"); return; }
       void loadMine();
       void loadFeatured();
       void loadDirectory();
@@ -1873,7 +1889,7 @@ function renderLobby(): void {
         card.querySelector(".jammer-remove-btn")!.addEventListener("click", async (e) => {
           e.stopPropagation();
           const r = await drop.cypherLeave(lobbyState.cypherId!, j.agent_local_id) as { ok?: boolean; error?: string };
-          if (!r.ok) { alert(r.error || "Remove failed"); return; }
+          if (!r.ok) { showToast(r.error || "Remove failed"); return; }
           const jR = await drop.cypherJammers(lobbyState.cypherId!) as { jammers?: Jammer[]; error?: string };
           if (jR && Array.isArray(jR.jammers)) lobbyState.jammers = jR.jammers;
           renderLobby();
@@ -2050,7 +2066,7 @@ async function lobbyStartNow(): Promise<void> {
   if (lobbyState.timerHandle) { clearInterval(lobbyState.timerHandle); lobbyState.timerHandle = null; }
   const r = await drop.cypherStart(cypherId) as { ok?: boolean; cypher?: Cypher; error?: string };
   if (!r.ok) {
-    alert(r.error || "Start failed");
+    showToast(r.error || "Start failed");
     startLobbyPolling();
     return;
   }
@@ -2072,7 +2088,7 @@ async function lobbyCancel(): Promise<void> {
   });
   if (!confirmed) return;
   const r = await drop.cypherCancel(lobbyState.cypherId) as { ok?: boolean; error?: string };
-  if (!r.ok) { alert(r.error || "Cancel failed"); return; }
+  if (!r.ok) { showToast(r.error || "Cancel failed"); return; }
   exitLobby();
 }
 
@@ -2622,7 +2638,7 @@ async function workspaceWrap(): Promise<void> {
   });
   if (!confirmed) return;
   const r = await drop.cypherWrap(wsState.cypherId) as { ok?: boolean; error?: string };
-  if (!r.ok) { alert(r.error || "Wrap failed"); return; }
+  if (!r.ok) { showToast(r.error || "Wrap failed"); return; }
   exitWorkspace();
 }
 
@@ -2870,7 +2886,7 @@ function init(): void {
   $("lobby-redraft").addEventListener("click", async () => {
     if (!lobbyState.cypherId) return;
     const r = await drop.cypherRedraft(lobbyState.cypherId) as { ok?: boolean; draft_round?: number; assignments?: AssignmentRow[]; error?: string };
-    if (!r.ok) { alert(r.error || "Redraft failed"); return; }
+    if (!r.ok) { showToast(r.error || "Redraft failed"); return; }
     if (Array.isArray(r.assignments)) {
       lobbyState.draft = {
         cypher_id: lobbyState.cypherId,
