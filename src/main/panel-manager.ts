@@ -768,6 +768,11 @@ export class PanelManager {
       offset,
       220,
       () => {
+        // Recompute bounds — rightInset may have changed during animation
+        // (e.g. yo panel opened while slide was running)
+        const [cw, ch] = parent.getContentSize();
+        const cy = 38 + this._topInset;
+        view.setBounds({ x: 0, y: cy, width: cw - this._rightInset, height: ch - cy });
         view.setAutoResize({ width: true, height: true });
         view.webContents.focus();
         this.onReady?.(id, view.webContents);
