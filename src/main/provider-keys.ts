@@ -17,7 +17,34 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import crypto from "crypto";
 import { safeStorage } from "electron";
+
+const FALLBACK_SALT = "yo-provider-keys-v1";
+
+function getFallbackKey(): Buffer {
+  const material = [os.hostname(), os.homedir(), os.platform(), os.arch()].join("|");
+  return crypto.scryptSync(material, FALLBACK_SALT, 32);
+}
+
+function fallbackEncrypt(plaintext: string): Buffer {
+  const key = getFallbackKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf-8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]);
+}
+
+function fallbackDecrypt(data: Buffer): string {
+  const key = getFallbackKey();
+  const iv = data.subarray(0, 12);
+  const tag = data.subarray(12, 28);
+  const ciphertext = data.subarray(28);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf-8");
+}
 
 export type ProviderId = "anthropic" | "openai" | "google" | "xai" | "perplexity";
 
@@ -71,10 +98,13 @@ export function setKey(provider: ProviderId, plaintextKey: string): void {
   if (!isValidProvider(provider)) throw new Error(`unknown provider: ${provider}`);
   const trimmed = plaintextKey.trim();
   if (!trimmed) throw new Error("key cannot be empty");
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("OS keychain unavailable — cannot store provider keys securely");
+  let encrypted: string;
+  if (safeStorage.isEncryptionAvailable()) {
+    encrypted = safeStorage.encryptString(trimmed).toString("base64");
+  } else {
+    console.warn("[provider-keys] safeStorage unavailable — using machine-derived AES fallback");
+    encrypted = fallbackEncrypt(trimmed).toString("base64");
   }
-  const encrypted = safeStorage.encryptString(trimmed).toString("base64");
   const store = readStore();
   store[provider] = {
     encryptedKey: encrypted,
@@ -89,7 +119,12 @@ export function getKey(provider: ProviderId): string | null {
   const entry = readStore()[provider];
   if (!entry) return null;
   try {
-    return safeStorage.decryptString(Buffer.from(entry.encryptedKey, "base64"));
+    const buf = Buffer.from(entry.encryptedKey, "base64");
+    if (safeStorage.isEncryptionAvailable()) {
+      try { return safeStorage.decryptString(buf); }
+      catch { return fallbackDecrypt(buf); }
+    }
+    return fallbackDecrypt(buf);
   } catch {
     return null;
   }

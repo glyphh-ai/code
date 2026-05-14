@@ -1764,6 +1764,7 @@ async function openYoPanel(query: string) {
   const defaultWidth = 380;
   yoPanel.style.width = `${defaultWidth}px`;
   document.body.style.setProperty("--right-inset", `${defaultWidth}px`);
+  window.yo.yoPanelResize(defaultWidth);
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
