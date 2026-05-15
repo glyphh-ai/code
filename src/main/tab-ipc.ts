@@ -219,6 +219,48 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     sendTabState();
   });
 
+  // Browser tab → "Create App": open Home and route it to the New App form
+  // with the URL prefilled. The Home renderer (onOpenNewApp) handles the rest.
+  ipcMain.on("create-app-from-tab", (_e, tabId: string, url: string, name: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    const homeApp = appConnector.get("home");
+    if (homeApp && !panelManager.hasPanel("home")) createPanelForApp("home", homeApp);
+    panelManager.switchTo("home", mainWindow);
+    ensureTab("home");
+    sendSplitState();
+    sendTabState();
+    panelManager.getView("home")?.webContents.send("open-new-app", { url, name, tabId });
+  });
+
+  // Convert a browser tab into a freshly-created app: open the app as a tab,
+  // then close the originating browser tab.
+  ipcMain.on("convert-tab-to-app", (_e, tabId: string, appId: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    const app = appConnector.get(appId);
+    if (!app?.url) return;
+    if (!panelManager.hasPanel(appId)) createPanelForApp(appId, app);
+    ensureTab(appId);
+    panelManager.switchTo(appId, mainWindow);
+    if (tabId && tabId !== "home" && tabId !== appId) {
+      const idx = openTabs.indexOf(tabId);
+      if (idx >= 0) {
+        openTabs.splice(idx, 1);
+        panelManager.closePanel(tabId, mainWindow, appId);
+        if (resolveAppId(tabId) === "browser") {
+          const saved = getPreference<Record<string, string>>("browserTabUrls", {});
+          delete saved[tabId];
+          setPreference("browserTabUrls", saved);
+        }
+      }
+    }
+    setPreference("lastView", { type: "panel", id: appId });
+    persistTabs();
+    sendSplitState();
+    sendTabState();
+  });
+
   // ── URL bar handlers ──────────────────────────────────────
 
   // Apply initial URL bar state

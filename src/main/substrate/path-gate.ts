@@ -21,9 +21,33 @@
 
 import os from "os";
 import path from "path";
+import fs from "fs";
 
 const HOME = os.homedir();
 const YO_ROOT = path.join(HOME, ".yo");
+
+/**
+ * Resolve an absolute path through any symlinks. The target may not exist yet
+ * (e.g. a Write creating a new file), so we realpath the longest *existing*
+ * ancestor and re-append the non-existent tail. This is what defeats
+ * symlink-traversal escapes — `path.normalize` alone follows the textual path
+ * and would happily accept `<sandbox>/link/passwd` where `link → /etc`.
+ */
+function realResolve(abs: string): string {
+  let cur = path.normalize(abs);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync(cur);
+      return tail.length ? path.join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) return path.normalize(abs); // hit root — nothing resolved
+      tail.push(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
 
 // Common keys used by tool calls that carry filesystem paths.
 // We check every value at these keys; missing / non-string keys are skipped.
@@ -54,26 +78,29 @@ function checkAbs(abs: string, boundary: string): string | null {
  * `~/.yo/`.
  */
 export function checkToolCall(input: Record<string, unknown>, opts: PathGateOptions = {}): string | null {
-  const boundary = opts.cypherSandbox ?? YO_ROOT;
+  // Resolve the boundary itself through symlinks so a symlinked sandbox/HOME
+  // doesn't make every legitimate path look "outside".
+  const boundary = realResolve(opts.cypherSandbox ?? YO_ROOT);
   const baseDir = opts.cypherSandbox ?? process.cwd();
 
   for (const key of PATH_KEYS) {
     const v = input[key];
     if (typeof v !== "string" || v.length === 0) continue;
-    const resolved = path.isAbsolute(v) ? path.normalize(v) : path.resolve(baseDir, v);
-    const err = checkAbs(resolved, boundary);
+    const abs = path.isAbsolute(v) ? v : path.resolve(baseDir, v);
+    const err = checkAbs(realResolve(abs), boundary);
     if (err) return err;
   }
 
-  // Heuristic check for `command`/`cmd` strings (e.g. Bash). Block direct
-  // references to absolute paths that escape; ignore everything else.
-  // Conservative: a string mentioning `~/path` or `/etc` is suspect.
+  // Heuristic check for `command`/`cmd` strings (e.g. Bash). Shell strings
+  // can't be fully parsed, so this stays conservative but catches the common
+  // escapes: absolute/`~` path tokens AND `cd` into an absolute/`~` dir.
   const cmd = (input.command ?? input.cmd) as unknown;
   if (typeof cmd === "string") {
     const tokens = cmd.match(/(?:~\/|\/)[^\s'"]+/g) ?? [];
-    for (const t of tokens) {
-      const resolved = t.startsWith("~/") ? path.join(HOME, t.slice(2)) : path.normalize(t);
-      const err = checkAbs(resolved, boundary);
+    const cdTargets = [...cmd.matchAll(/\bcd\s+(['"]?)((?:~|\/)[^\s'"]*)\1/g)].map((m) => m[2]);
+    for (const t of [...tokens, ...cdTargets]) {
+      const abs = t.startsWith("~") ? path.join(HOME, t.slice(1)) : path.normalize(t);
+      const err = checkAbs(realResolve(abs), boundary);
       if (err) return `${err} (in command "${cmd.slice(0, 80)}")`;
     }
   }

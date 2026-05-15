@@ -232,6 +232,36 @@ body {
   color: var(--accent);
 }
 
+.splash-update {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.splash-update-label {
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.splash-update-bar {
+  width: 200px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.splash-update-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
 @keyframes splash-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -5326,6 +5356,18 @@ select.settings-input {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* File-path subtitle that opens the file in the .Yo Editor on click */
+.yo-result-subtitle.yo-file-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: color 0.12s, text-decoration-color 0.12s;
+}
+.yo-result-subtitle.yo-file-link:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
 }
 
 .yo-result-block.yo-has-detail { cursor: pointer; }

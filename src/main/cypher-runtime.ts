@@ -22,6 +22,7 @@
 
 import { net } from "electron";
 import { isAuthenticated, serverGetAuthed, serverPostAuthed, getAuthToken, AUTH_SERVER } from "./auth";
+import { guardPrompt } from "./firewall";
 
 // ── Types ──────────────────────���────────────────────────────
 
@@ -364,6 +365,13 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
   if (kind === "prompt") {
     if (!promptHandler) return;
     const promptText = typeof payload.payload?.text === "string" ? payload.payload.text : "";
+    // Prompt-injection firewall: this is untrusted cross-machine input from
+    // another jammer. Hard-block before it ever reaches a local agent.
+    const guard = guardPrompt(promptText, `cypher-prompt cypher=${sub.cypherId} from=${payload.by_agent_id ?? "?"}`);
+    if (!guard.allowed) {
+      console.warn(`[cypher-runtime] dropped prompt event ${payload.id}: ${guard.reason}`);
+      return;
+    }
     // Pick the first registered agent to respond (deterministic; for multi-agent
     // cyphers with external prompts, the dispatcher picks by capability)
     const respondAs = Array.from(sub.agentLocalIds)[0];
@@ -422,6 +430,12 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
   if (kind === "agent_message" || kind === "post_to" || kind === "post") {
     const toAgent = typeof payload.payload?.to === "string" ? payload.payload.to : null;
     const body = typeof payload.payload?.text === "string" ? payload.payload.text : "";
+    // Firewall untrusted cross-machine messages before they reach an agent.
+    const guard = guardPrompt(body, `cypher-${kind} cypher=${sub.cypherId} from=${payload.by_agent_id ?? "?"}`);
+    if (!guard.allowed) {
+      console.warn(`[cypher-runtime] dropped ${kind} event ${payload.id}: ${guard.reason}`);
+      return;
+    }
     if (toAgent && sub.agentLocalIds.has(toAgent) && agentMessageHandler) {
       agentMessageHandler(sub.cypherId, toAgent, payload.by_agent_id, body, kind, payload.payload);
     }

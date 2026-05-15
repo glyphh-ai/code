@@ -64,6 +64,28 @@ import { EventLog } from "./event-log";
 // WorkspaceMcpServer removed — workspace tools merged into McpExpose
 import { InboxRouter } from "./inbox-router";
 import { autoUpdater } from "electron-updater";
+
+/** If a tool call touches a file, return its absolute path (else null). */
+function fileFromToolCall(name: string, input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  if (!/(read|edit|write|create)/i.test(name)) return null;
+  const o = input as Record<string, unknown>;
+  const raw = (o.file_path ?? o.path ?? o.filename ?? o.file) as unknown;
+  if (typeof raw !== "string" || !raw) return null;
+  return path.isAbsolute(raw) ? raw : path.join(os.homedir(), "yo", raw);
+}
+
+/** True if semver `latest` is strictly newer than `current` (major.minor.patch). */
+function isNewerVersion(latest: string, current: string): boolean {
+  const parse = (v: string) => v.split(/[.+-]/).map((n) => parseInt(n, 10) || 0);
+  const a = parse(latest);
+  const b = parse(current);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
+}
 import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
@@ -76,6 +98,7 @@ import { ActionGrabber } from "./action-grabber";
 import { AgentRunner, AgentConfig } from "./agent-runner";
 import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
+import { registerFilesIpc } from "./files-ipc";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
@@ -927,6 +950,8 @@ async function boot() {
   const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "cypher.html")}`;
   const cypherPreload = path.join(__dirname, "cypher-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
+  const filesHtml = `file://${path.join(__dirname, "..", "renderer", "files.html")}`;
+  const filesPreload = path.join(__dirname, "files-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
@@ -943,6 +968,8 @@ async function boot() {
       panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
+    } else if (app.url === "yo://files") {
+      panelManager.addPanel(app.id, filesHtml, filesPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -1239,8 +1266,23 @@ async function boot() {
 
   // Restore panels from last view (or default to claude)
   function restorePanels() {
-    const lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
-    const savedTabs = getPreference<string[]>("openTabs", []);
+    let lastView = getPreference<{ type: string; id?: string; panels?: string[]; name?: string; rows?: string[][]; grid?: import("./layout-manager").GridLayout }>("lastView", null!);
+    // Cypher tabs are live sessions, not apps — they never survive a restart.
+    // Drop them from the restored tab strip, and if the persisted view itself
+    // involved a cypher, land the user on The Drop instead.
+    const savedTabs = getPreference<string[]>("openTabs", []).filter(
+      (id) => resolveAppId(id) !== "cypher",
+    );
+    if (lastView) {
+      const viewPanelIds: string[] = [];
+      if (lastView.id) viewPanelIds.push(lastView.id);
+      if (lastView.panels) viewPanelIds.push(...lastView.panels);
+      if (lastView.rows) lastView.rows.forEach((r) => viewPanelIds.push(...r));
+      if (lastView.grid?.cells) viewPanelIds.push(...lastView.grid.cells.map((c) => c.panelId));
+      if (viewPanelIds.some((id) => resolveAppId(id) === "cypher")) {
+        lastView = { type: "panel", id: "drop" };
+      }
+    }
 
     // Re-register instance panels from saved tabs/view so they exist for restore
     const allPanelIds: string[] = [...savedTabs];
@@ -1382,6 +1424,8 @@ async function boot() {
       panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
+    } else if (app.url === "yo://files") {
+      panelManager.addPanel(instanceId, filesHtml, filesPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
@@ -1744,6 +1788,9 @@ async function boot() {
     // Route inbound drip effects to yo panel
     if (kind === "drip" && mainWindow && !mainWindow.isDestroyed()) {
       const p = payload as Record<string, unknown>;
+      // Skip echo of our own drip (already played locally when sent)
+      const account = getAccountInfo();
+      if (account && p.sender_name === account.firstName) return;
       const recipe = typeof p.recipe === "string" ? p.recipe : "fireworks";
       mainWindow.webContents.send("yo-panel-drip-effect", recipe);
     }
@@ -1788,6 +1835,9 @@ async function boot() {
       } catch { return { content: "", binary: false }; }
     });
   }
+  // .Yo Editor app (yo://files) — folder explorer + Monaco + read-only git.
+  if (!ipcMain.listenerCount("files:pick-folder")) registerFilesIpc();
+
   if (!ipcMain.listenerCount("cypher-gh-tree")) {
     ipcMain.handle("cypher-gh-tree", async () => {
       return mcpExpose?.getRepoTree() ?? null;
@@ -1924,6 +1974,11 @@ async function boot() {
     });
   });
 
+  autoUpdater.on("update-not-available", () => {
+    // Lets the boot-gate stop holding the splash — nothing to wait for.
+    mainWindow?.webContents.send("update-status", { status: "none" });
+  });
+
   autoUpdater.on("error", (err: Error) => {
     console.error("[auto-update] error:", err.message);
     mainWindow?.webContents.send("update-status", {
@@ -1933,11 +1988,16 @@ async function boot() {
   });
 
   if (autoUpdateEnabled) {
-    // Delay first check so it doesn't compete with boot
+    // Check early (small settle delay only) so that if an update is available
+    // its download is surfaced on the splash — the boot-gate holds the loading
+    // screen and shows a progress bar while an update is in flight.
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch(() => {});
-    }, 10_000);
+    }, 800);
     setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
+  } else {
+    // Auto-update off — tell the splash there's nothing to wait for.
+    mainWindow?.webContents.send("update-status", { status: "none" });
   }
 
   // ── Hot config sync (non-blocking, then periodic) ─
@@ -2029,10 +2089,16 @@ async function boot() {
     autoUpdater.quitAndInstall(false, true);
   });
   ipcMain.handle("check-for-updates", async () => {
+    // `checkForUpdates()` always resolves with the feed's *latest* version —
+    // even when it equals the version we're running. Returning that blindly
+    // makes the UI show "Downloading v<current>…" forever (nothing actually
+    // downloads). Only report a version that is genuinely newer.
     try {
       autoUpdater.autoDownload = true;
       const result = await autoUpdater.checkForUpdates();
-      return result?.updateInfo?.version || null;
+      const latest = result?.updateInfo?.version;
+      if (latest && isNewerVersion(latest, app.getVersion())) return latest;
+      return null;
     } catch { return null; }
   });
 
@@ -2110,6 +2176,19 @@ async function boot() {
       if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
+          // In a cypher, broadcast drips so every jammer's window plays the
+          // effect too. The local effect already fired via execCommand above;
+          // the inbound `drip` event (handled in setEventObserver) skips our
+          // own echo by sender_name.
+          if (firstWord === "drip" && yoAgent.isCypherMode()) {
+            const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
+            const cyId = getCy();
+            if (cyId) {
+              const account = getAccountInfo();
+              const recipe = trimmed.slice(1 + firstWord.length).trim() || "fireworks";
+              postCypherEvent(cyId, "drip", { recipe, sender_name: account?.firstName || "mistro" }, "user");
+            }
+          }
           mainWindow?.webContents.send("yo-panel-done", result || "done.");
         } catch (err: any) {
           mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
@@ -2195,6 +2274,11 @@ async function boot() {
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
+        // If the .Yo Editor is open, mirror the file the agent is touching.
+        const fp = fileFromToolCall(name, input);
+        if (fp && openTabs.some((t) => resolveAppId(t) === "files")) {
+          panelManager.getView("files")?.webContents.send("files:external-open", fp);
+        }
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
@@ -2211,6 +2295,19 @@ async function boot() {
 
   ipcMain.on("yo-panel-stop", () => {
     yoAgent.abort();
+  });
+
+  // Open a file in the .Yo Editor (from a clickable file link in the yo panel).
+  ipcMain.on("open-in-editor", (_e, filePath: string) => {
+    if (!mainWindow || typeof filePath !== "string" || !filePath) return;
+    const resolved = path.isAbsolute(filePath) ? filePath : path.join(os.homedir(), "yo", filePath);
+    const filesApp = appConnector.get("files");
+    if (filesApp && !panelManager.hasPanel("files")) createPanelForApp("files", filesApp);
+    ensureTab("files");
+    panelManager.switchTo("files", mainWindow);
+    sendSplitState();
+    sendTabState();
+    panelManager.getView("files")?.webContents.send("files:external-open", resolved);
   });
 
   // Renderer-initiated panel open (Cmd+> or .yo command)
@@ -2418,6 +2515,11 @@ async function boot() {
     getCypherPanelContext: () => cypherPanelContext,
     setCypherPanelContext: (ctx) => { cypherPanelContext = ctx; setPreference("cypherPanelContext", ctx); },
     setPreference,
+    bindWorkspaceToCypher: (cypherId) => {
+      const wsSlug = workspaceManager.getActive().slug;
+      const map = getPreference<Record<string, string>>("workspaceCypher", {});
+      setPreference("workspaceCypher", { ...map, [wsSlug]: cypherId });
+    },
     getMainWindow: () => mainWindow,
     panelManager,
     jammerPreviewPanels,
@@ -2507,6 +2609,7 @@ async function boot() {
       workspace: wsSlug,
       cypherId,
       model: agent.model_name,
+      guardrails: agent.guardrails,
     };
   }
 

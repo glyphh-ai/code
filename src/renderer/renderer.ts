@@ -118,6 +118,10 @@ declare global {
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
       onExecCommandFromPalette: (callback: (cmd: string) => void) => void;
+      createAppFromTab: (tabId: string, url: string, name: string) => void;
+      onOpenNewApp: (callback: (data: { url?: string; name?: string; tabId?: string }) => void) => void;
+      convertTabToApp: (tabId: string, appId: string) => void;
+      openInEditor: (filePath: string) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
         cols: number;

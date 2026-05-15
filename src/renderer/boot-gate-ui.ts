@@ -35,6 +35,18 @@ let bootData: BootData | null = null;
 let tutorialShowing = false;
 let ccModalShowing = false;
 
+// ── Update gate ─────────────────────────────────────────────────────────────
+// Hold the splash while an update downloads so the user is never dropped into
+// the app mid-update. Released once the download finishes (or on error/cap).
+type UpdateVerdict = "pending" | "clear" | "downloading" | "done";
+const UPDATE_VERDICT_GRACE_MS = 4000;     // max wait for the update check to report in
+const UPDATE_DOWNLOAD_CAP_MS = 120_000;   // max time to hold the splash for a download
+let updateVerdict: UpdateVerdict = "pending";
+let dismissRequested = false;
+let splashRemoved = false;
+let pendingGraceTimer: ReturnType<typeof setTimeout> | null = null;
+let downloadCapTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** Expose read-only accessors so renderer can check state if needed. */
 export function isBooted(): boolean { return booted; }
 export function isTutorialShowing(): boolean { return tutorialShowing; }
@@ -206,23 +218,65 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
 
 // ── Splash dismiss ──────────────────────────────────────────────────────────
 
-function dismissSplash(cb: BootGateCallbacks): void {
-  if (!booted) return;
-  const elapsed = Date.now() - splashShownAt;
-  const remaining = Math.max(0, SPLASH_MIN_MS - elapsed);
-  setTimeout(() => {
-    // Show panels first (behind splash z-index:9999) so they're ready when splash fades
-    // BUT not if tutorial or CC bootstrap modal is showing — BrowserViews paint over HTML overlays
-    if (!tutorialShowing && !ccModalShowing) cb.showPanels();
-    const splash = document.getElementById("splash");
-    if (splash) {
-      splash.classList.add("fade-out");
-      setTimeout(() => splash.remove(), 600);
-    }
-  }, remaining);
+/** Paint the update progress bar onto the splash. */
+function setSplashUpdate(percent: number, label: string): void {
+  const wrap = document.getElementById("splash-update");
+  const fill = document.getElementById("splash-update-fill");
+  const lbl = document.getElementById("splash-update-label");
+  const status = document.getElementById("splash-status");
+  if (wrap) wrap.classList.remove("hidden");
+  if (status) status.classList.add("hidden");
+  if (fill) fill.style.width = `${Math.max(0, Math.min(100, Math.round(percent)))}%`;
+  if (lbl && label) lbl.textContent = label;
+}
+
+/** Actually fade out and remove the splash. Idempotent. */
+function finishSplash(cb: BootGateCallbacks): void {
+  if (splashRemoved) return;
+  splashRemoved = true;
+  if (pendingGraceTimer) { clearTimeout(pendingGraceTimer); pendingGraceTimer = null; }
+  if (downloadCapTimer) { clearTimeout(downloadCapTimer); downloadCapTimer = null; }
+  // Show panels first (behind splash z-index:9999) so they're ready when splash fades.
+  // BUT not if tutorial or CC bootstrap modal is showing — BrowserViews paint over HTML overlays.
+  if (!tutorialShowing && !ccModalShowing) cb.showPanels();
+  const splash = document.getElementById("splash");
+  if (splash) {
+    splash.classList.add("fade-out");
+    setTimeout(() => splash.remove(), 600);
+  }
   if (bootData?.needsOnboarding) {
     cb.showOnboarding(!bootData.authenticated);
   }
+}
+
+/**
+ * Decide whether the splash can come down yet. Boot must be ready AND no
+ * update may be in flight. While an update is downloading the splash is held
+ * (the update-status handler re-calls this once the download resolves); while
+ * the update check verdict is still pending we wait out a short grace period.
+ */
+function scheduleSplashFinish(cb: BootGateCallbacks): void {
+  if (splashRemoved || !dismissRequested) return;
+  if (updateVerdict === "downloading") return; // held — released by onUpdateStatus
+  if (updateVerdict === "pending") {
+    if (!pendingGraceTimer) {
+      pendingGraceTimer = setTimeout(() => {
+        pendingGraceTimer = null;
+        if (updateVerdict === "pending") updateVerdict = "clear";
+        scheduleSplashFinish(cb);
+      }, UPDATE_VERDICT_GRACE_MS);
+    }
+    return;
+  }
+  // verdict is "clear" or "done" — dismiss after the minimum splash time.
+  const elapsed = Date.now() - splashShownAt;
+  setTimeout(() => finishSplash(cb), Math.max(0, SPLASH_MIN_MS - elapsed));
+}
+
+function dismissSplash(cb: BootGateCallbacks): void {
+  if (!booted || dismissRequested) return;
+  dismissRequested = true;
+  scheduleSplashFinish(cb);
 }
 
 // ── Public init ─────────────────────────────────────────────────────────────
@@ -239,6 +293,40 @@ export function initBootGate(cb: BootGateCallbacks): void {
       el.textContent = msg;
       if (msg === "ready") el.classList.add("done");
       else el.classList.remove("done");
+    }
+  });
+
+  // Update gate — surface a progress bar on the splash and hold it while an
+  // update downloads. Wired before onBoot so events that arrive early count.
+  window.yo.onUpdateStatus((info) => {
+    if (info.status === "available" || info.status === "downloading") {
+      updateVerdict = "downloading";
+      if (pendingGraceTimer) { clearTimeout(pendingGraceTimer); pendingGraceTimer = null; }
+      const pct = info.percent ?? 0;
+      setSplashUpdate(
+        pct,
+        info.status === "available"
+          ? `Downloading update${info.version ? ` v${info.version}` : ""}…`
+          : `Downloading update… ${Math.round(pct)}%`,
+      );
+      // Never trap the user on the splash if a download stalls.
+      if (!downloadCapTimer) {
+        downloadCapTimer = setTimeout(() => {
+          downloadCapTimer = null;
+          if (updateVerdict === "downloading") updateVerdict = "done";
+          scheduleSplashFinish(cb);
+        }, UPDATE_DOWNLOAD_CAP_MS);
+      }
+    } else if (info.status === "ready") {
+      updateVerdict = "done";
+      setSplashUpdate(100, "Update ready");
+      scheduleSplashFinish(cb);
+    } else if (info.status === "error") {
+      if (updateVerdict !== "done") updateVerdict = "clear";
+      scheduleSplashFinish(cb);
+    } else if (info.status === "none") {
+      if (updateVerdict === "pending") updateVerdict = "clear";
+      scheduleSplashFinish(cb);
     }
   });
 

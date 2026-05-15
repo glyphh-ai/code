@@ -7,6 +7,20 @@ import { paginate, renderPaginationBar, confirmAction, clearInvalid, closeHelp }
 
 let layoutsPage = 0;
 let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: number; row?: number; colSpan?: number; rowSpan?: number }> }> = [];
+// Map of app id → display name, so the grid builder labels cells with the
+// app's name rather than its raw id.
+let appNameById: Record<string, string> = {};
+async function ensureAppNames(): Promise<void> {
+  try {
+    const apps = await window.yo.appsList();
+    const next: Record<string, string> = {};
+    for (const a of apps) next[a.id] = a.name;
+    appNameById = next;
+  } catch { /* keep whatever we have */ }
+}
+function panelLabel(panelId: string): string {
+  return appNameById[panelId] || appNameById[panelId.replace(/-\d+$/, "")] || panelId;
+}
 const layoutsList = document.getElementById("layouts-list")!;
 const layoutEditor = document.getElementById("layout-editor")!;
 const layoutsToolbar = document.getElementById("layouts-toolbar")!;
@@ -129,10 +143,9 @@ function renderGridPreview() {
       const cls = ["grid-cell"];
       if (cell.panelId) cls.push("assigned");
       if (i === builderSelected) cls.push("selected");
-      let label = cell.panelId || "\u2014";
+      let label = cell.panelId ? panelLabel(cell.panelId) : "\u2014";
       if (cell.panelId?.startsWith("agent:")) label = cell.panelId.slice(6);
       else if (cell.panelId === "agents-tabbed") label = "Agents (tabbed)";
-      else if (cell.panelId === "vscode") label = "VS Code";
       return `<div class="${cls.join(" ")}" data-index="${i}"
         style="grid-column: ${cell.col + 1} / span ${cell.colSpan}; grid-row: ${cell.row + 1} / span ${cell.rowSpan}">
         ${label}
@@ -228,6 +241,7 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
 async function loadLayouts() {
   layoutEditor.classList.add("hidden");
   layoutFormError.classList.add("hidden");
+  await ensureAppNames();
   allLayouts = await window.yo.layoutsList();
 
   document.getElementById("layouts-limit-msg")!.classList.add("hidden");
@@ -396,6 +410,7 @@ async function deleteLayout() {
 export { loadLayouts };
 
 export function initLayoutsEvents() {
+  void ensureAppNames();
   document.getElementById("layout-new-btn")!.addEventListener("click", newLayout);
   document.getElementById("layout-save-btn")!.addEventListener("click", saveLayout);
   document.getElementById("layout-cancel-btn")!.addEventListener("click", cancelLayout);

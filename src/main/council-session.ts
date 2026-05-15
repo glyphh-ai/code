@@ -21,6 +21,7 @@
 import crypto from "crypto";
 import type { WebContents } from "electron";
 import { runByokStream } from "./provider-adapters/byok-client";
+import { guardPrompt } from "./firewall";
 import type {
   AdapterMessage, AdapterTurnRequest, AdapterTurnSink, LLMProvider,
 } from "./provider-adapters/agent-adapter";
@@ -186,6 +187,8 @@ export function listCouncilTranscript(councilId: string): Array<{ round: number;
 export function interjectCouncil(councilId: string, text: string): { ok: boolean; error?: string } {
   const s = sessions.get(councilId);
   if (!s) return { ok: false, error: "council not found" };
+  const guard = guardPrompt(text, "council-interject");
+  if (!guard.allowed) return { ok: false, error: `Blocked by prompt-injection firewall: ${guard.reason}` };
   s.pendingModerator.push(text);
   emit(s, { kind: "moderator", text });
   return { ok: true };

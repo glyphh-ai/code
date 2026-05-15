@@ -133,6 +133,17 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("exec-command-from-palette", (_e, cmd: string) => callback(cmd));
   },
 
+  // "Create App" from a browser tab → opens Home → Apps → New App prefilled.
+  createAppFromTab: (tabId: string, url: string, name: string) =>
+    ipcRenderer.send("create-app-from-tab", tabId, url, name),
+  onOpenNewApp: (callback: (data: { url?: string; name?: string; tabId?: string }) => void) => {
+    ipcRenderer.on("open-new-app", (_e, data) => callback(data));
+  },
+  convertTabToApp: (tabId: string, appId: string) =>
+    ipcRenderer.send("convert-tab-to-app", tabId, appId),
+  // Open a file in the .Yo Editor panel (from a file link in the yo panel).
+  openInEditor: (filePath: string) => ipcRenderer.send("open-in-editor", filePath),
+
   // Apps CRUD
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{
     id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;

@@ -1090,6 +1090,35 @@ export function scanForInjection(text: string): FirewallResult {
   };
 }
 
+export interface GuardResult {
+  /** false ⇒ caller must NOT forward this text to a model. */
+  allowed: boolean;
+  reason?: string;
+}
+
+/**
+ * Firewall gate for any text on its way to an LLM/agent.
+ *
+ * Policy: hard-block on `scanForInjection().blocked`; `borderline` is allowed
+ * but logged. `context` is a short tag (e.g. "cypher-prompt", "yo-agent") used
+ * only for log attribution. This is the single chokepoint every prompt entry
+ * point should call before handing text to a model.
+ */
+export function guardPrompt(text: string, context: string): GuardResult {
+  const verdict = scanForInjection(text);
+  if (verdict.blocked) {
+    console.warn(`[firewall] BLOCKED ${context}: ${verdict.reason ?? "prompt injection detected"}`);
+    return { allowed: false, reason: verdict.reason ?? "prompt injection detected" };
+  }
+  if (verdict.borderline) {
+    console.warn(
+      `[firewall] borderline ${context}: ` +
+      `obfuscation=${verdict.obfuscation ?? "?"} family=${verdict.family ?? "?"} intent=${verdict.intent ?? "?"}`,
+    );
+  }
+  return { allowed: true };
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Layer 2 — LLM judge (uses user's configured model)

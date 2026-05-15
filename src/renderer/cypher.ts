@@ -463,6 +463,22 @@ function flattenTree(nodes: FileNode[]): FileNode[] {
   return out;
 }
 
+// ── File-tree icons (shared by the live tree + wrapped file table) ──────────
+const TREE_CHEV = `<svg viewBox="0 0 8 8"><path d="M2.5 1l3.5 3-3.5 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const TREE_FOLDER = `<svg viewBox="0 0 16 16"><path d="M1.5 3.6a1 1 0 011-1h3.3l1.3 1.5h5.4a1 1 0 011 1v6.3a1 1 0 01-1 1h-11a1 1 0 01-1-1v-7.8z" fill="#5b8fd9"/></svg>`;
+function treeFileIcon(name: string): string {
+  const ext = name.toLowerCase().split(".").pop() || "";
+  let c = "#7d818c";
+  if (/^(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|h|cpp|rb|php|swift|kt)$/.test(ext)) c = "#4fc1ff";
+  else if (/^(json|ya?ml|toml|ini|env|lock)$/.test(ext)) c = "#cf9c4a";
+  else if (/^(md|markdown|txt|rst)$/.test(ext)) c = "#9aa4ad";
+  else if (/^(html?|xml|svg|vue|svelte)$/.test(ext)) c = "#e4774d";
+  else if (/^(css|s[ca]ss|less)$/.test(ext)) c = "#56b6c2";
+  else if (/^(png|jpe?g|gif|webp|ico|bmp)$/.test(ext)) c = "#c178dd";
+  else if (/^(sh|bash|zsh)$/.test(ext)) c = "#3fb950";
+  return `<svg viewBox="0 0 16 16"><path d="M3.5 1.6h5.4L13 5.6v8.8a.5.5 0 01-.5.5h-9a.5.5 0 01-.5-.5V2.1a.5.5 0 01.5-.5z" fill="${c}" opacity="0.92"/><path d="M8.9 1.6v3.5a.5.5 0 00.5.5H13z" fill="rgba(0,0,0,0.32)"/></svg>`;
+}
+
 function renderFileTree(filter?: string): void {
   const container = $("file-tree");
   container.innerHTML = "";
@@ -475,9 +491,12 @@ function renderFileTree(filter?: string): void {
     }
     const el = document.createElement("div");
     el.className = `tree-item${node.path === activeFile ? " active" : ""}${node.isDir ? " dir" : ""}`;
-    const indent = node.depth * 12;
-    const icon = node.isDir ? (node.expanded ? "▾" : "▸") : "·";
-    el.innerHTML = `<span class="tree-indent" style="width:${indent}px"></span><span class="tree-icon">${icon}</span>${escapeHtml(node.name)}`;
+    const indent = node.depth * 13;
+    const chev = node.isDir
+      ? `<span class="tree-chev${node.expanded ? " open" : ""}">${TREE_CHEV}</span>`
+      : `<span class="tree-chev"></span>`;
+    const icon = node.isDir ? TREE_FOLDER : treeFileIcon(node.name);
+    el.innerHTML = `<span class="tree-indent" style="width:${indent}px"></span>${chev}<span class="tree-icon">${icon}</span><span class="tree-name">${escapeHtml(node.name)}</span>`;
     el.addEventListener("click", async () => {
       if (node.isDir) {
         await expandNode(node);
@@ -1126,7 +1145,7 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
       const row = document.createElement("div");
       row.className = "wrapped-file-row";
       const iconCls = node.isDir ? " dir" : "";
-      const icon = node.isDir ? "▸" : "·";
+      const icon = node.isDir ? TREE_FOLDER : treeFileIcon(node.name);
       const nameCls = node.isDir ? " dir" : "";
       row.innerHTML = `<span class="wrapped-file-icon${iconCls}">${icon}</span><span class="wrapped-file-name${nameCls}">${escapeHtml(node.name)}</span>`;
 
@@ -1187,7 +1206,7 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
       const row = document.createElement("div");
       row.className = "wrapped-file-row";
       const iconCls = entry.isDir ? " dir" : "";
-      const icon = entry.isDir ? "▸" : "·";
+      const icon = entry.isDir ? TREE_FOLDER : treeFileIcon(entry.name);
       const nameCls = entry.isDir ? " dir" : "";
       row.innerHTML = `<span class="wrapped-file-icon${iconCls}">${icon}</span><span class="wrapped-file-name${nameCls}">${escapeHtml(entry.name)}</span>`;
 

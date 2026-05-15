@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>.Yo Editor</title>
+  <link rel="stylesheet" href="monaco/editor/editor.main.css">
+  <style>
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0c0c0e;
+      --bg-2: #141417;
+      --bg-3: #1b1b1f;
+      --border: rgba(255,255,255,0.07);
+      --text: #d6d6da;
+      --text-dim: #8a8a92;
+      --text-faint: #5c5c64;
+      --hover: rgba(255,255,255,0.04);
+      --editor-bg: #1e1e1e;
+    }
+    [data-theme="light"] {
+      color-scheme: light;
+      --bg: #ffffff;
+      --bg-2: #f6f6f7;
+      --bg-3: #ececef;
+      --border: rgba(0,0,0,0.09);
+      --text: #1f2430;
+      --text-dim: #5c6270;
+      --text-faint: #9aa0ac;
+      --hover: rgba(0,0,0,0.04);
+      --editor-bg: #fffffe;
+    }
+    :root {
+      --accent: #25c75e;
+      --st-added: #3fb950;
+      --st-modified: #d29922;
+      --st-deleted: #f85149;
+      --st-untracked: #58a6ff;
+      --st-renamed: #a371f7;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 13px; user-select: none;
+    }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: rgba(127,127,127,0.28); border-radius: 4px; }
+    *::-webkit-scrollbar-thumb:hover { background: rgba(37,199,94,0.5); }
+
+    .fx-app { display: flex; width: 100%; height: 100%; }
+
+    /* ── Left column ───────────────────────────── */
+    .fx-left { width: 300px; min-width: 220px; display: flex; flex-direction: column;
+      background: var(--bg-2); border-right: 1px solid var(--border); }
+    .fx-pane { display: flex; flex-direction: column; min-height: 0; }
+    .fx-files { flex: 1 1 58%; }
+    .fx-changes { flex: 1 1 42%; border-top: 1px solid var(--border); }
+
+    .fx-pane-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 10px; flex-shrink: 0;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.6px;
+      text-transform: uppercase; color: var(--text-dim);
+    }
+    .fx-pane-head .fx-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fx-btn {
+      background: var(--bg-3); border: 1px solid var(--border); color: var(--text-dim);
+      border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer;
+      font-family: inherit; letter-spacing: 0.3px; transition: all 0.12s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .fx-btn:hover { color: var(--text); border-color: rgba(37,199,94,0.5); }
+    /* The .Yo mark shown in place of "Open Folder" once a folder is loaded */
+    .fx-btn.fx-yomark { font-weight: 700; letter-spacing: 0; padding: 4px 10px;
+      text-transform: none; font-size: 12px; }
+    .fx-btn.fx-yomark .dot { color: var(--accent); }
+
+    .fx-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 0 10px; }
+
+    /* ── Tree rows (file tree + git tree) ── */
+    .fx-row {
+      display: flex; align-items: center; gap: 5px;
+      padding: 3px 10px 3px 8px; cursor: pointer; white-space: nowrap;
+      color: var(--text-dim); position: relative; height: 24px;
+    }
+    .fx-row:hover { background: var(--hover); color: var(--text); }
+    .fx-row.active { background: rgba(37,199,94,0.13); color: var(--text); }
+    .fx-row.active::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 2px; background: var(--accent);
+    }
+    .fx-chev { width: 12px; height: 12px; flex-shrink: 0; display: flex;
+      align-items: center; justify-content: center; transition: transform 0.12s; opacity: 0.7; }
+    .fx-row.open > .fx-chev { transform: rotate(90deg); }
+    .fx-chev svg { width: 8px; height: 8px; }
+    .fx-ico { width: 15px; height: 15px; flex-shrink: 0; display: flex;
+      align-items: center; justify-content: center; }
+    .fx-ico svg { width: 14px; height: 14px; }
+    .fx-name { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .fx-row.is-dir > .fx-name { color: var(--text); }
+
+    .fx-badge {
+      width: 15px; text-align: center; font-size: 10px; font-weight: 700;
+      flex-shrink: 0; border-radius: 3px;
+    }
+    .st-added    { color: var(--st-added); }
+    .st-modified { color: var(--st-modified); }
+    .st-deleted  { color: var(--st-deleted); }
+    .st-untracked{ color: var(--st-untracked); }
+    .st-renamed  { color: var(--st-renamed); }
+    .fx-dim { color: var(--text-faint); }
+
+    .fx-seg { display: flex; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden; }
+    .fx-seg button {
+      background: transparent; border: 0; color: var(--text-faint);
+      font-size: 10px; padding: 3px 8px; cursor: pointer; font-family: inherit;
+      letter-spacing: 0.3px; transition: all 0.12s;
+    }
+    .fx-seg button.on { background: var(--bg-3); color: var(--accent); }
+    /* Column resize handle */
+    .fx-resize {
+      width: 5px; flex-shrink: 0; cursor: col-resize;
+      background: transparent; transition: background 0.12s;
+    }
+    .fx-resize:hover, .fx-resize.dragging { background: var(--accent); }
+
+    /* Changes panel — per-repo folder header + flat changed-file rows */
+    .fx-repo-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px 3px; font-size: 11px; font-weight: 700; color: var(--text);
+    }
+    .fx-repo-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fx-repo-branch {
+      flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+      font-size: 10px; font-weight: 600; color: var(--text-faint); overflow: hidden;
+    }
+    .fx-repo-branch svg { width: 11px; height: 11px; opacity: 0.7; flex-shrink: 0; }
+    .fx-repo-branch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .fx-change-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 0 10px 0 14px; height: 24px; cursor: pointer;
+      color: var(--text-dim); position: relative;
+    }
+    .fx-change-row:hover { background: var(--hover); }
+    .fx-change-row.active { background: rgba(37,199,94,0.13); }
+    .fx-change-row.active::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 2px; background: var(--accent);
+    }
+    .fx-change-name {
+      flex: 0 1 auto; font-weight: 600; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .fx-change-path {
+      flex: 1 1 auto; min-width: 0; text-align: right;
+      color: var(--text-faint); font-size: 11px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .fx-empty-msg { padding: 14px 12px; color: var(--text-faint); font-size: 12px;
+      line-height: 1.5; }
+
+    /* ── Right column (editor) ─────────────────── */
+    .fx-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    /* Editor tab strip */
+    .fx-tabs {
+      display: flex; align-items: stretch; flex-shrink: 0;
+      height: 36px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+      overflow-x: auto; overflow-y: hidden;
+    }
+    .fx-tabs::-webkit-scrollbar { height: 0; }
+    .fx-tab {
+      display: flex; align-items: center; gap: 6px;
+      padding: 0 10px; cursor: pointer; flex-shrink: 0;
+      border-right: 1px solid var(--border); color: var(--text-dim);
+      font-size: 12px; max-width: 200px; position: relative;
+    }
+    .fx-tab:hover { background: var(--hover); color: var(--text); }
+    .fx-tab.active { background: var(--editor-bg); color: var(--text); }
+    .fx-tab.active::after {
+      content: ""; position: absolute; left: 0; right: 0; top: 0;
+      height: 2px; background: var(--accent);
+    }
+    .fx-tab .fx-ico svg { width: 13px; height: 13px; }
+    .fx-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fx-tab-mode {
+      font-size: 9px; padding: 1px 5px; border-radius: 3px;
+      background: var(--bg-3); color: var(--text-faint); letter-spacing: 0.3px;
+    }
+    .fx-tab-close {
+      width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-faint); font-size: 14px; line-height: 1;
+    }
+    .fx-tab-close:hover { background: var(--border); color: var(--text); }
+
+    #editor-host { flex: 1; position: relative; background: var(--editor-bg); }
+    #mono-edit, #mono-diff { position: absolute; inset: 0; }
+    #mono-diff { display: none; }
+
+    .fx-center {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: var(--bg); color: var(--text-faint); text-align: center;
+    }
+    .fx-watermark {
+      font-size: 168px; font-weight: 800; letter-spacing: -4px;
+      color: var(--text); opacity: 0.05; user-select: none; line-height: 1;
+    }
+    .fx-watermark b { color: var(--accent); font-weight: 800; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="fx-app">
+    <div class="fx-left">
+      <div class="fx-pane fx-files">
+        <div class="fx-pane-head">
+          <span class="fx-title" id="root-name">No folder</span>
+          <button class="fx-btn" id="open-folder">Open Folder</button>
+        </div>
+        <div class="fx-scroll" id="file-tree"></div>
+      </div>
+      <div class="fx-pane fx-changes">
+        <div class="fx-pane-head">
+          <span class="fx-title">Changes</span>
+          <div class="fx-seg" id="git-mode">
+            <button data-mode="working" class="on">Working</button>
+            <button data-mode="main">vs main</button>
+          </div>
+        </div>
+        <div class="fx-scroll" id="git-tree"></div>
+      </div>
+    </div>
+    <div class="fx-resize" id="resize"></div>
+    <div class="fx-main">
+      <div class="fx-tabs" id="tabs"></div>
+      <div id="editor-host">
+        <div id="mono-edit"></div>
+        <div id="mono-diff"></div>
+        <div class="fx-center" id="empty">
+          <div class="fx-watermark">.<b>Yo</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="monaco/loader.js"></script>
+  <script src="files.js"></script>
+</body>
+</html>

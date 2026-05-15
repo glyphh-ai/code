@@ -490,6 +490,15 @@ function startToolRow(id: string, name: string, input: unknown) {
     const sub = document.createElement("span");
     sub.className = "yo-result-subtitle";
     sub.textContent = subtitleText;
+    // For file tools, make the path a link that opens it in the .Yo Editor.
+    if (/(read|edit|write|create)/i.test(name)) {
+      sub.classList.add("yo-file-link");
+      sub.title = "Open in .Yo Editor";
+      sub.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.yo.openInEditor(subtitleText);
+      });
+    }
     headings.appendChild(sub);
   }
   header.appendChild(headings);

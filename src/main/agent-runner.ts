@@ -21,6 +21,7 @@ import os from "os";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import type { CypherBus } from "./cypher-bus";
 import * as threadStore from "./cypher-thread-store";
+import { guardPrompt } from "./firewall";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -50,6 +51,8 @@ export interface AgentConfig {
   mcpServers?: Record<string, any>;
   permissionMode?: string;
   cypherId?: string;
+  /** Resource limits from the jammer's config — enforced at runtime. */
+  guardrails?: import("./agent-store").Guardrails;
 }
 
 interface AgentInstance {
@@ -65,6 +68,7 @@ interface AgentInstance {
   turns: number;
   inboxWatcher: fs.FSWatcher | null;
   busUnsubscribe: (() => void) | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
   wcRef: WeakRef<WebContents>;
   config: AgentConfig;
   lastBusKey: string | null;
@@ -165,7 +169,7 @@ export class AgentRunner {
       executable: "node" as const,
       executableArgs: [],
       model: config.model || "claude-sonnet-4-6",
-      maxTurns: 25,
+      maxTurns: config.guardrails?.max_turns ?? 25,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       allowedTools: [
@@ -242,6 +246,7 @@ export class AgentRunner {
       turns: 0,
       inboxWatcher: null,
       busUnsubscribe: null,
+      idleTimer: null,
       wcRef: new WeakRef(wc),
       config,
       lastBusKey: null,
@@ -280,6 +285,24 @@ export class AgentRunner {
     const wc = instance.wcRef.deref();
     if (!wc || wc.isDestroyed()) return;
 
+    // Prompt-injection firewall — single chokepoint for every turn input
+    // (start briefing and all follow-ups: bus messages, inbox updates).
+    const guard = guardPrompt(prompt, `agent ${instance.name}`);
+    if (!guard.allowed) {
+      console.warn(`[agent-runner] ${instance.name}: turn input blocked by firewall: ${guard.reason}`);
+      instance.status = "waiting";
+      this.armIdleTimer(instance);
+      if (!wc.isDestroyed()) {
+        wc.send("cw:agent:status", instance.name, "waiting");
+        wc.send("cw:agent:message", instance.name, {
+          type: "error",
+          text: `Message blocked by prompt-injection firewall: ${guard.reason}`,
+        });
+      }
+      return;
+    }
+
+    if (instance.idleTimer) { clearTimeout(instance.idleTimer); instance.idleTimer = null; }
     instance.status = "running";
     wc.send("cw:agent:status", instance.name, "running");
 
@@ -344,6 +367,25 @@ export class AgentRunner {
           if (instance.config.cypherId && (inTok || outTok) && this.usagePoster) {
             this.usagePoster(instance.config.cypherId, instance.name, inTok, outTok);
           }
+
+          // Hard-enforce the jammer's resource guardrails (the prompt-level
+          // "Max turns / token budget" lines are advisory; this is the wall).
+          const gr = instance.config.guardrails;
+          if (gr) {
+            const totalTok = instance.tokens.input + instance.tokens.output;
+            let stopReason: string | null = null;
+            if (gr.max_turns && instance.turns >= gr.max_turns) {
+              stopReason = `max_turns (${gr.max_turns}) reached`;
+            } else if (gr.max_tokens_per_session && totalTok >= gr.max_tokens_per_session) {
+              stopReason = `token budget (${gr.max_tokens_per_session}) exhausted`;
+            }
+            if (stopReason) {
+              console.warn(`[agent-runner] ${instance.name}: ${stopReason} — stopping agent`);
+              const wcId = instance.wcRef.deref()?.id;
+              if (wcId != null) this.stopAgent(wcId, instance.name);
+              return;
+            }
+          }
         }
 
         const serialized = this.serializeMessage(msg);
@@ -364,6 +406,7 @@ export class AgentRunner {
 
       instance.activeQuery = null;
       instance.status = "waiting";
+      this.armIdleTimer(instance);
 
       const wcAfter = instance.wcRef.deref();
       if (wcAfter && !wcAfter.isDestroyed()) {
@@ -435,6 +478,23 @@ export class AgentRunner {
     }
   }
 
+  /**
+   * Arm the jammer's idle auto-stop. Called when the agent finishes a turn
+   * and goes to "waiting"; cleared when the next turn starts. If no input
+   * arrives within `auto_stop_idle_seconds`, the agent is stopped.
+   */
+  private armIdleTimer(instance: AgentInstance): void {
+    if (instance.idleTimer) { clearTimeout(instance.idleTimer); instance.idleTimer = null; }
+    const secs = instance.config.guardrails?.auto_stop_idle_seconds;
+    if (!secs || secs <= 0) return;
+    const wcId = instance.wcRef.deref()?.id;
+    if (wcId == null) return;
+    instance.idleTimer = setTimeout(() => {
+      console.warn(`[agent-runner] ${instance.name}: idle ${secs}s — auto-stopping`);
+      this.stopAgent(wcId, instance.name);
+    }, secs * 1000);
+  }
+
   stopAgent(wcId: number, agentName: string): void {
     const key = this.key(wcId, agentName);
     const instance = this.agents.get(key);
@@ -442,6 +502,7 @@ export class AgentRunner {
       instance.activeQuery?.close?.();
       instance.inboxWatcher?.close();
       instance.busUnsubscribe?.();
+      if (instance.idleTimer) clearTimeout(instance.idleTimer);
       instance.activeQuery = null;
       this.agents.delete(key);
     }
@@ -453,6 +514,7 @@ export class AgentRunner {
         instance.activeQuery?.close?.();
         instance.inboxWatcher?.close();
         instance.busUnsubscribe?.();
+        if (instance.idleTimer) clearTimeout(instance.idleTimer);
         this.agents.delete(key);
       }
     }

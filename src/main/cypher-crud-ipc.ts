@@ -23,6 +23,13 @@ export interface CypherCrudDeps {
   getCypherPanelContext: () => { cypherId: string } | null;
   setCypherPanelContext: (ctx: { cypherId: string; isOwner: boolean; title?: string } | null) => void;
   setPreference: (key: string, val: unknown) => void;
+  /**
+   * Bind the active workspace to a cypher (writes the `workspaceCypher` pref
+   * map). This binding is what `CypherBus.getCypherForWorkspace` and
+   * `buildAgentConfig` read — without it, outbound bus events are dropped and
+   * agents fall back to the file inbox instead of the cypher bus.
+   */
+  bindWorkspaceToCypher: (cypherId: string) => void;
   getMainWindow: () => import("electron").BrowserWindow | null;
   panelManager: {
     closePanel: (id: string, parent: import("electron").BrowserWindow, fallback: string) => void;
@@ -60,6 +67,7 @@ export async function registerCypherCrudIpc(deps: CypherCrudDeps): Promise<void>
     getCypherPanelContext,
     setCypherPanelContext,
     setPreference,
+    bindWorkspaceToCypher,
     getMainWindow,
     panelManager,
     jammerPreviewPanels,
@@ -242,8 +250,14 @@ export async function registerCypherCrudIpc(deps: CypherCrudDeps): Promise<void>
         `/api/cyphers/${encodeURIComponent(id)}/join`,
         { agent_local_id, role, invite_token },
       );
-      // If join succeeded and we're not just observing, subscribe to the SSE event stream.
-      if (r.ok && role !== "observer") subscribeCypher(id, agent_local_id);
+      // If join succeeded and we're not just observing, subscribe to the SSE
+      // event stream AND bind the workspace to this cypher. The binding is
+      // required for the outbound bus (CypherBus.post) and for agents to start
+      // on the bus rather than the file inbox — see buildAgentConfig.
+      if (r.ok && role !== "observer") {
+        subscribeCypher(id, agent_local_id);
+        bindWorkspaceToCypher(id);
+      }
       return r;
     } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "join failed" }; }
   });
@@ -491,6 +505,9 @@ export async function registerCypherCrudIpc(deps: CypherCrudDeps): Promise<void>
 
       setCypherPanelContext({ cypherId, isOwner, title: title || undefined });
       setCurrentCypher(cypherId);
+      // Bind the active workspace to this cypher so the bus routes outbound
+      // events to the server (idempotent with the bind done at join time).
+      bindWorkspaceToCypher(cypherId);
 
       const mainWindow = getMainWindow();
       if (mainWindow) panelManager.switchTo("cypher", mainWindow);

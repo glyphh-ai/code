@@ -2,6 +2,11 @@
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
+// The .Yo brand badge (from yo-web/public/favicon.svg) — used as the app icon
+// for the .Yo Editor (yo://files) in the tab bar and the "+" new-tab menu.
+const YO_BADGE = `<svg viewBox="0 0 32 32" width="14" height="14" style="border-radius:3px;display:block;"><rect width="32" height="32" rx="6" fill="#0a0a0a"/><text x="1" y="25" font-family="system-ui,-apple-system,sans-serif" font-weight="700" font-size="18" fill="#25C75E">.</text><text x="7" y="25" font-family="system-ui,-apple-system,sans-serif" font-weight="700" font-size="18" fill="#ffffff">Yo</text></svg>`;
+const isFilesApp = (id: string) => id === "files" || id.startsWith("files-");
+
 /**
  * Callbacks that the tab bar needs from the rest of renderer.ts
  * to implement auto mode switching when the active tab changes.
@@ -41,7 +46,7 @@ export function initTabBar(deps: TabBarDeps): {
     }
   }
 
-  function openTabContextMenu(x: number, y: number, url: string, tabName: string) {
+  function openTabContextMenu(x: number, y: number, tabId: string, url: string, tabName: string) {
     closeTabCtxMenu();
     closeTabNewMenu();
     window.yo.panelsHide();
@@ -49,13 +54,24 @@ export function initTabBar(deps: TabBarDeps): {
     const menu = document.createElement("div");
     menu.className = "tab-new-menu tab-ctx-menu";
 
+    let host = "";
+    try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
+    const baseName = (tabName && tabName.trim()) || host || "App";
+
+    // "Create App" — opens Home → Apps → New App with the URL prefilled so
+    // the user can review/edit before adding. On save, this tab converts to it.
+    const createBtn = document.createElement("button");
+    createBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>Create App</span>`;
+    createBtn.addEventListener("click", () => {
+      closeTabCtxMenu();
+      window.yo.createAppFromTab(tabId, url, baseName);
+    });
+    menu.appendChild(createBtn);
+
     const addBtn = document.createElement("button");
     addBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg><span>Add as app</span>`;
     addBtn.addEventListener("click", async () => {
       closeTabCtxMenu();
-      let host = "";
-      try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
-      const baseName = (tabName && tabName.trim()) || host || "App";
       const id = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `app-${Date.now()}`;
       const result = await window.yo.appsAdd(id, baseName, url);
       if (result && typeof result === "object" && "error" in result) {
@@ -119,6 +135,11 @@ export function initTabBar(deps: TabBarDeps): {
           stack.appendChild(img);
         }
         el.appendChild(stack);
+      } else if (isFilesApp(tab.id)) {
+        const icon = document.createElement("span");
+        icon.className = "tab-home-icon";
+        icon.innerHTML = YO_BADGE;
+        el.appendChild(icon);
       } else {
         const favicon = document.createElement("img");
         favicon.className = "tab-favicon";
@@ -161,7 +182,7 @@ export function initTabBar(deps: TabBarDeps): {
         el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          openTabContextMenu(e.clientX, e.clientY, tab.url!, tab.name);
+          openTabContextMenu(e.clientX, e.clientY, tab.id, tab.url!, tab.name);
         });
       }
 
@@ -285,7 +306,9 @@ export function initTabBar(deps: TabBarDeps): {
       const btn = document.createElement("button");
       btn.dataset.name = app.name.toLowerCase();
       let iconHtml = "";
-      if (app.url!.startsWith("yo://")) {
+      if (isFilesApp(app.id)) {
+        iconHtml = YO_BADGE;
+      } else if (app.url!.startsWith("yo://")) {
         iconHtml = `<span class="tab-new-menu-initial">${app.name.charAt(0).toUpperCase()}</span>`;
       } else {
         try {

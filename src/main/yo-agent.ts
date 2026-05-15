@@ -14,6 +14,7 @@ import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import { promptLog } from "./prompt-log";
+import { guardPrompt } from "./firewall";
 import { execSync } from "child_process";
 import { LLMConfig } from "./llm-config";
 
@@ -207,6 +208,13 @@ export class YoAgent {
     const balance = usageQueue.lastBalance;
     if (balance !== null && balance <= 0) {
       cb.onError("You're out of yos. Top up your balance to continue using the agent.");
+      return;
+    }
+
+    // Prompt-injection firewall.
+    const guard = guardPrompt(message, "yo-agent");
+    if (!guard.allowed) {
+      cb.onError(`Message blocked by prompt-injection firewall: ${guard.reason}`);
       return;
     }
 

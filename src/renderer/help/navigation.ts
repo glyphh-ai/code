@@ -7,7 +7,7 @@ import { loadDashboard, initDashboardEvents, closeDashPromptDetail } from "./das
 import { closeDataDetail } from "./data-store.js";
 import { loadLayouts, initLayoutsEvents } from "./layouts.js";
 import { loadSkills, initSkillsEvents } from "./skills.js";
-import { loadApps, initApps } from "./apps.js";
+import { loadApps, initApps, openNewAppForm } from "./apps.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
 import { loadDocs, loadSupport, loadAbout } from "./docs.js";
@@ -43,6 +43,13 @@ export function openSettings(sub?: string) {
 
 export function isHelpOpen(): boolean {
   return !overlay.classList.contains("hidden");
+}
+
+/** Deep-link: open the Apps section and the New App form, prefilled. */
+export function openNewAppDeepLink(data: { url?: string; name?: string; tabId?: string }): void {
+  switchToSection("apps");
+  loadApps();
+  openNewAppForm(data.url || "", data.name || "", data.tabId ?? null);
 }
 
 // ── Navigation ───────────────────────────────────────────

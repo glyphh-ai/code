@@ -945,6 +945,30 @@ function reloadPanelApps(apps: Array<PanelApp>) {
     }));
 }
 
+// When a browser tab is "Create App"'d, the originating tab id is stashed here
+// so the save handler can convert that tab into the new app.
+let pendingOriginTab: string | null = null;
+
+/**
+ * Open the New App form, prefilled. Used by the browser-tab "Create App"
+ * deep-link. Reuses the standard "Add App" open flow, then fills the fields.
+ */
+export function openNewAppForm(url = "", name = "", tabId: string | null = null): void {
+  pendingOriginTab = tabId;
+  document.getElementById("apps-add-app")?.click(); // opens + clears the form
+  const nameInput = document.getElementById("app-add-name") as HTMLInputElement | null;
+  const slugInput = document.getElementById("app-add-slug") as HTMLInputElement | null;
+  const urlInput = document.getElementById("app-add-url") as HTMLInputElement | null;
+  if (!nameInput || !urlInput) return;
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
+  const finalName = name || host || "";
+  nameInput.value = finalName;
+  if (slugInput) slugInput.value = finalName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  urlInput.value = url;
+  nameInput.focus();
+}
+
 function initApps() {
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addSlugInput = document.getElementById("app-add-slug") as HTMLInputElement;
@@ -1095,6 +1119,8 @@ function initApps() {
     await window.yo.appsAdd(id, name, url);
     if (addForceWeb.checked) await window.yo.appsUpdateForceWeb(id, true);
     if (addDoNotRecord.checked) await window.yo.appsUpdateDoNotRecord(id, true);
+    // If this app was created from a browser tab, convert that tab into it.
+    if (pendingOriginTab) { window.yo.convertTabToApp(pendingOriginTab, id); pendingOriginTab = null; }
     appAddForm.classList.add("hidden");
     const apps = await window.yo.appsList();
     reloadPanelApps(apps);
@@ -1106,9 +1132,12 @@ function initApps() {
   // App detail back button
   document.getElementById("app-detail-close")!.addEventListener("click", () => closeAppDetail());
 
+  // Panel tab: "Pick Element" — start the element picker on the app preview.
+  document.getElementById("app-pick-btn")?.addEventListener("click", () => { void pickElement(); });
+
   // App add form cancel
-  document.getElementById("app-add-cancel")!.addEventListener("click", () => loadApps());
-  document.getElementById("app-add-cancel-btn")!.addEventListener("click", () => loadApps());
+  document.getElementById("app-add-cancel")!.addEventListener("click", () => { pendingOriginTab = null; loadApps(); });
+  document.getElementById("app-add-cancel-btn")!.addEventListener("click", () => { pendingOriginTab = null; loadApps(); });
 
   policySelect.addEventListener("change", updatePolicyUI);
 

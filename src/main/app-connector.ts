@@ -194,6 +194,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
+  { id: "files", name: ".Yo Editor", url: "yo://files", capturePolicy: NO_CAPTURE },
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "browser", name: "Browser", url: "yo://browser" },
   { id: "context", name: "Context", url: "yo://context", capturePolicy: NO_CAPTURE },
