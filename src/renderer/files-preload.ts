@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("files", {
     ipcRenderer.invoke("files:list-dir", dirPath) as Promise<Array<{ name: string; isDir: boolean }>>,
   readFile: (filePath: string) =>
     ipcRenderer.invoke("files:read-file", filePath) as Promise<{ content: string; binary: boolean; error?: boolean }>,
+  saveFile: (filePath: string, content: string) =>
+    ipcRenderer.invoke("files:save-file", filePath, content) as Promise<{ ok: boolean; error?: string }>,
   gitInfo: (root: string) =>
     ipcRenderer.invoke("files:git-info", root) as Promise<{ isRepo: boolean; branch?: string; defaultBranch?: string }>,
   gitRepos: (root: string) =>

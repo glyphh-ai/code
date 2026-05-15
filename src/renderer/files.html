@@ -129,9 +129,17 @@
 
     /* Changes panel — per-repo folder header + flat changed-file rows */
     .fx-repo-head {
-      display: flex; align-items: center; gap: 8px;
+      display: flex; align-items: center; gap: 6px; cursor: pointer;
       padding: 7px 10px 3px; font-size: 11px; font-weight: 700; color: var(--text);
     }
+    .fx-repo-head:hover { background: var(--hover); }
+    .fx-repo-chev {
+      width: 12px; height: 12px; flex-shrink: 0; display: flex;
+      align-items: center; justify-content: center;
+      opacity: 0.6; transition: transform 0.12s;
+    }
+    .fx-repo-head.open .fx-repo-chev { transform: rotate(90deg); }
+    .fx-repo-chev svg { width: 8px; height: 8px; }
     .fx-repo-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fx-repo-branch {
       flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 4px;
@@ -213,6 +221,47 @@
       color: var(--text); opacity: 0.05; user-select: none; line-height: 1;
     }
     .fx-watermark b { color: var(--accent); font-weight: 800; }
+    /* Dirty tab + tab context menu */
+    .fx-tab.dirty .fx-tab-name { font-style: italic; }
+    .fx-tab-close.fx-dirty { color: var(--accent); font-size: 11px; }
+    .fx-ctx-menu {
+      position: fixed; z-index: 1000; min-width: 150px;
+      background: var(--bg-3); border: 1px solid var(--border);
+      border-radius: 8px; padding: 4px; box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+    }
+    .fx-ctx-item {
+      padding: 6px 12px; border-radius: 5px; cursor: pointer;
+      font-size: 12px; color: var(--text-dim);
+    }
+    .fx-ctx-item:hover { background: var(--hover); color: var(--text); }
+
+    /* Save-before-closing modal */
+    .fx-modal-overlay {
+      position: fixed; inset: 0; z-index: 2000;
+      background: rgba(0,0,0,0.5);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .fx-modal {
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; width: 360px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }
+    .fx-modal-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .fx-modal-body { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin-bottom: 16px; }
+    .fx-modal-files { color: var(--text); font-weight: 600; }
+    .fx-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .fx-modal-btn {
+      background: var(--bg-3); border: 1px solid var(--border); color: var(--text-dim);
+      border-radius: 7px; padding: 6px 14px; font-size: 12px; cursor: pointer;
+      font-family: inherit;
+    }
+    .fx-modal-btn:hover { color: var(--text); }
+    .fx-modal-btn.primary {
+      background: var(--accent); color: #06210f;
+      border-color: var(--accent); font-weight: 600;
+    }
+    .fx-modal-btn.primary:hover { filter: brightness(1.08); }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -246,6 +295,17 @@
         <div class="fx-center" id="empty">
           <div class="fx-watermark">.<b>Yo</b></div>
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="fx-modal-overlay hidden" id="save-modal">
+    <div class="fx-modal">
+      <div class="fx-modal-title">Save before closing?</div>
+      <div class="fx-modal-body" id="save-modal-body"></div>
+      <div class="fx-modal-actions">
+        <button class="fx-modal-btn" id="save-modal-cancel">Cancel</button>
+        <button class="fx-modal-btn" id="save-modal-discard">Don't Save</button>
+        <button class="fx-modal-btn primary" id="save-modal-save">Save</button>
       </div>
     </div>
   </div>

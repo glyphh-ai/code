@@ -110,6 +110,15 @@ export function registerFilesIpc(): void {
     } catch { return { content: "", binary: false, error: true }; }
   });
 
+  ipcMain.handle("files:save-file", (_e, filePath: string, content: string) => {
+    try {
+      fs.writeFileSync(filePath, content, "utf-8");
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "save failed" };
+    }
+  });
+
   // ── Git (read-only) ──────────────────────────────────────
   ipcMain.handle("files:git-info", async (_e, root: string) => {
     const inside = await gitSafe(root, ["rev-parse", "--is-inside-work-tree"]);

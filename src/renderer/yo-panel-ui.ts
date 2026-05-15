@@ -97,6 +97,8 @@ let yoTurnFullText = "";
 let yoLastUserText = "";
 let yoToolsUsed = false;
 let yoThinking = false;
+// Messages typed while the agent is busy — sent one by one as turns finish.
+let pendingYoMessages: string[] = [];
 
 let yoSpinnerInterval: ReturnType<typeof setInterval> | null = null;
 let yoSpinnerEl: HTMLElement | null = null;
@@ -149,8 +151,8 @@ function setYoThinking(thinking: boolean) {
   yoThinking = thinking;
   yoPanelSendBtn.textContent = thinking ? "■" : "↑";
   yoPanelSendBtn.classList.toggle("yo-stop", thinking);
-  yoPanelInput.disabled = thinking;
-  yoPanelInput.classList.toggle("yo-input-disabled", thinking);
+  // Input stays enabled while the agent works — messages queue (drained as
+  // each turn finishes), so the user is never blocked from typing.
 }
 
 // ── Helpers: welcome screen ────────────────────────────────────────────────
@@ -807,6 +809,7 @@ function attachCopyHandlers(container: HTMLElement) {
 function showYoError(err: string) {
   clearYoStatus();
   setYoThinking(false);
+  pendingYoMessages = [];
   finishTimeline();
   if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
   yoLastAssistantText = "";
@@ -831,7 +834,6 @@ function autoGrowYoInput() {
 }
 
 function sendYoPanelMessage() {
-  if (yoThinking) return;
   const text = yoPanelInput.value.trim();
   if (!text) return;
 
@@ -839,6 +841,17 @@ function sendYoPanelMessage() {
     yoPanelInput.value = "";
     autoGrowYoInput();
     yoPanelMicBtn.click();
+    return;
+  }
+
+  // Agent busy → queue the message; it shows immediately and is sent when the
+  // current turn finishes (see drainPendingYoMessages).
+  if (yoThinking) {
+    hideYoWelcome();
+    yoPanelInput.value = "";
+    autoGrowYoInput();
+    addYoUserMessage(text);
+    pendingYoMessages.push(text);
     return;
   }
 
@@ -860,6 +873,23 @@ function sendYoPanelMessage() {
   showYoStatus("");
   setYoThinking(true);
   window.yo.yoPanelSend(text);
+}
+
+/** Send the next queued message, if any, once a turn finishes. */
+function drainPendingYoMessages() {
+  if (pendingYoMessages.length === 0) return;
+  const next = pendingYoMessages.shift()!;
+  closeOpenTextBlock();
+  yoToolsUsed = false;
+  yoTimelineEl = null;
+  yoTodoEl = null;
+  yoSpinnerEl = null;
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  yoLastUserText = next;
+  showYoStatus("");
+  setYoThinking(true);
+  window.yo.yoPanelSend(next);
 }
 
 // ── Helpers: voice tones ───────────────────────────────────────────────────
@@ -1178,7 +1208,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelToolUse((id, name, input) => showYoToolUse(id, name, input));
   window.yo.onYoPanelToolResult((id, detail) => showYoToolResult(id, detail));
   window.yo.onYoPanelToolProgress((id, status) => updateToolProgress(id, status));
-  window.yo.onYoPanelDone((fullText) => finalizeYoMessage(fullText));
+  window.yo.onYoPanelDone((fullText) => { finalizeYoMessage(fullText); drainPendingYoMessages(); });
   window.yo.onYoPanelError((err) => showYoError(err));
   window.yo.onYoPanelClose(() => closeYoPanel());
   window.yo.onYoPanelChatMsg((msg) => {
@@ -1210,6 +1240,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       clearYoStatus();
       finishTimeline();
       setYoThinking(false);
+      pendingYoMessages = [];
       const quip = STOP_QUIPS[Math.floor(Math.random() * STOP_QUIPS.length)];
       const stopEl = document.createElement("div");
       stopEl.className = "yo-msg yo-msg-stopped";

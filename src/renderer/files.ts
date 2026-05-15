@@ -10,6 +10,7 @@ const filesApi = w.files as {
   pickFolder: () => Promise<string | null>;
   listDir: (p: string) => Promise<Array<{ name: string; isDir: boolean }>>;
   readFile: (p: string) => Promise<{ content: string; binary: boolean; error?: boolean }>;
+  saveFile: (p: string, content: string) => Promise<{ ok: boolean; error?: string }>;
   gitInfo: (root: string) => Promise<{ isRepo: boolean; branch?: string; defaultBranch?: string }>;
   gitRepos: (root: string) => Promise<Array<{ name: string; path: string; branch: string }>>;
   gitChanges: (root: string, mode: GitMode) => Promise<Array<{ path: string; status: string }>>;
@@ -32,6 +33,7 @@ interface Tab {
   repo?: string;          // diff tabs only — the repo root path
   model?: any;            // file tab — ITextModel
   diffModels?: { original: any; modified: any };
+  dirty?: boolean;        // file tab — has unsaved edits
 }
 
 // ── State ───────────────────────────────────────────────────
@@ -142,20 +144,63 @@ function renderTabs(): void {
   host.innerHTML = "";
   for (const tab of tabs) {
     const el = document.createElement("div");
-    el.className = "fx-tab" + (tab.key === activeKey ? " active" : "");
+    el.className = "fx-tab" + (tab.key === activeKey ? " active" : "") + (tab.dirty ? " dirty" : "");
+    const closer = tab.dirty
+      ? `<span class="fx-tab-close fx-dirty" title="Unsaved changes — click to close">&#9679;</span>`
+      : `<span class="fx-tab-close" title="Close">&times;</span>`;
     el.innerHTML =
       `<span class="fx-ico">${fileIcon(tab.name)}</span>` +
       `<span class="fx-tab-name">${esc(tab.name)}</span>` +
       (tab.kind === "diff"
         ? `<span class="fx-tab-mode">${tab.mode === "main" ? "vs main" : "diff"}</span>` : "") +
-      `<span class="fx-tab-close" title="Close">&times;</span>`;
+      closer;
     el.addEventListener("click", () => void activateTab(tab.key));
     el.querySelector(".fx-tab-close")!.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      closeTab(tab.key);
+      void closeTab(tab.key);
+    });
+    el.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      openTabMenu(ev.clientX, ev.clientY, tab.key);
     });
     host.appendChild(el);
   }
+}
+
+// ── Tab right-click menu ────────────────────────────────────
+let tabMenuEl: HTMLElement | null = null;
+function closeTabMenu(): void {
+  if (tabMenuEl) { tabMenuEl.remove(); tabMenuEl = null; }
+}
+function openTabMenu(x: number, y: number, key: string): void {
+  closeTabMenu();
+  const menu = document.createElement("div");
+  menu.className = "fx-ctx-menu";
+  const items: Array<[string, () => void]> = [
+    ["Close", () => void closeTab(key)],
+    ["Close Others", () => void closeMany(tabs.filter((t) => t.key !== key).map((t) => t.key))],
+    ["Close All", () => void closeMany(tabs.map((t) => t.key))],
+  ];
+  for (const [label, action] of items) {
+    const it = document.createElement("div");
+    it.className = "fx-ctx-item";
+    it.textContent = label;
+    it.addEventListener("click", () => { closeTabMenu(); action(); });
+    menu.appendChild(it);
+  }
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+  tabMenuEl = menu;
+  setTimeout(() => {
+    const onAway = (e: MouseEvent) => {
+      if (tabMenuEl && !tabMenuEl.contains(e.target as Node)) {
+        closeTabMenu();
+        document.removeEventListener("mousedown", onAway);
+      }
+    };
+    document.addEventListener("mousedown", onAway);
+  }, 0);
 }
 
 async function activateTab(key: string): Promise<void> {
@@ -166,9 +211,15 @@ async function activateTab(key: string): Promise<void> {
   if (tab.kind === "file") {
     if (!tab.model) {
       const r = await filesApi.readFile(tab.path);
-      tab.model = r.binary
-        ? monaco.editor.createModel(`// ${tab.name}\n// Binary file — cannot display.`, "plaintext")
-        : monaco.editor.createModel(r.content, langFor(tab.name));
+      if (r.binary) {
+        tab.model = monaco.editor.createModel(`// ${tab.name}\n// Binary file — cannot display.`, "plaintext");
+      } else {
+        tab.model = monaco.editor.createModel(r.content, langFor(tab.name));
+        // Mark the tab dirty on the first edit.
+        tab.model.onDidChangeContent(() => {
+          if (!tab.dirty) { tab.dirty = true; renderTabs(); }
+        });
+      }
     }
     ensureEditor().setModel(tab.model);
     showPane("edit");
@@ -187,7 +238,7 @@ async function activateTab(key: string): Promise<void> {
   }
 }
 
-function closeTab(key: string): void {
+function doCloseTab(key: string): void {
   const idx = tabs.findIndex((t) => t.key === key);
   if (idx === -1) return;
   const [tab] = tabs.splice(idx, 1);
@@ -200,6 +251,76 @@ function closeTab(key: string): void {
   } else {
     renderTabs();
   }
+}
+
+/** Write a file tab to disk. Returns false on failure. */
+async function saveTab(tab: Tab): Promise<boolean> {
+  if (tab.kind !== "file" || !tab.model) return true;
+  const r = await filesApi.saveFile(tab.path, tab.model.getValue());
+  if (r.ok) { tab.dirty = false; renderTabs(); return true; }
+  return false;
+}
+async function saveActiveTab(): Promise<void> {
+  const tab = tabs.find((t) => t.key === activeKey);
+  if (tab && tab.kind === "file" && tab.dirty) await saveTab(tab);
+}
+
+/** Close one tab, prompting to save if it has unsaved changes. */
+async function closeTab(key: string): Promise<void> {
+  const tab = tabs.find((t) => t.key === key);
+  if (tab && tab.kind === "file" && tab.dirty) {
+    const choice = await confirmSave([tab]);
+    if (choice === "cancel") return;
+    if (choice === "save" && !(await saveTab(tab))) return;
+  }
+  doCloseTab(key);
+}
+
+/** Close a set of tabs, prompting once for any unsaved files among them. */
+async function closeMany(keys: string[]): Promise<void> {
+  const targets = keys
+    .map((k) => tabs.find((t) => t.key === k))
+    .filter((t): t is Tab => !!t);
+  const dirty = targets.filter((t) => t.kind === "file" && t.dirty);
+  if (dirty.length > 0) {
+    const choice = await confirmSave(dirty);
+    if (choice === "cancel") return;
+    if (choice === "save") {
+      for (const t of dirty) { if (!(await saveTab(t))) return; }
+    }
+  }
+  for (const t of targets) doCloseTab(t.key);
+}
+
+/** The save-before-closing modal. Handles one or many unsaved files. */
+function confirmSave(dirty: Tab[]): Promise<"save" | "discard" | "cancel"> {
+  return new Promise((resolve) => {
+    const overlay = $("save-modal");
+    const body = $("save-modal-body");
+    const saveBtn = $("save-modal-save");
+    if (dirty.length === 1) {
+      body.textContent = `"${dirty[0].name}" has unsaved changes.`;
+      saveBtn.textContent = "Save";
+    } else {
+      body.innerHTML = `${dirty.length} files have unsaved changes:<br>` +
+        `<span class="fx-modal-files">${dirty.map((t) => esc(t.name)).join(", ")}</span>`;
+      saveBtn.textContent = "Save All";
+    }
+    overlay.classList.remove("hidden");
+    const finish = (r: "save" | "discard" | "cancel") => {
+      overlay.classList.add("hidden");
+      saveBtn.removeEventListener("click", onSave);
+      $("save-modal-discard").removeEventListener("click", onDiscard);
+      $("save-modal-cancel").removeEventListener("click", onCancel);
+      resolve(r);
+    };
+    const onSave = () => finish("save");
+    const onDiscard = () => finish("discard");
+    const onCancel = () => finish("cancel");
+    saveBtn.addEventListener("click", onSave);
+    $("save-modal-discard").addEventListener("click", onDiscard);
+    $("save-modal-cancel").addEventListener("click", onCancel);
+  });
 }
 
 function openFileTab(abs: string, name: string): void {
@@ -285,13 +406,21 @@ async function loadGit(): Promise<void> {
   }
   host.innerHTML = "";
   for (const repo of repos) {
-    // Folder header: <folder-name> ............ <branch>
+    // Collapsible folder header: <chevron> <folder-name> ...... <branch>
     const head = document.createElement("div");
-    head.className = "fx-repo-head";
+    head.className = "fx-repo-head open";
     head.innerHTML =
+      `<span class="fx-repo-chev">${CHEVRON}</span>` +
       `<span class="fx-repo-name">${esc(repo.name)}</span>` +
       `<span class="fx-repo-branch">${BRANCH}<span>${esc(repo.branch)}</span></span>`;
     host.appendChild(head);
+    const body = document.createElement("div");
+    body.className = "fx-repo-body";
+    host.appendChild(body);
+    head.addEventListener("click", () => {
+      const open = head.classList.toggle("open");
+      body.style.display = open ? "" : "none";
+    });
 
     const changes = await filesApi.gitChanges(repo.path, gitMode);
     if (changes.length === 0) {
@@ -299,7 +428,7 @@ async function loadGit(): Promise<void> {
       e.className = "fx-empty-msg";
       e.style.padding = "1px 10px 8px 14px";
       e.textContent = gitMode === "main" ? "No changes vs default branch." : "Working tree clean.";
-      host.appendChild(e);
+      body.appendChild(e);
       continue;
     }
     // Flat list of changed files only: <file BOLD>  <dir path, right-justified>
@@ -321,7 +450,7 @@ async function loadGit(): Promise<void> {
         activeGitRow = row;
         openDiffTab(repo.path, ch.path, fileName);
       });
-      host.appendChild(row);
+      body.appendChild(row);
     }
   }
 }
@@ -370,6 +499,13 @@ function wireResize(): void {
 
 function wire(): void {
   wireResize();
+  // Cmd/Ctrl+S saves the active file tab.
+  window.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      void saveActiveTab();
+    }
+  });
   $("open-folder").addEventListener("click", () => void openFolder());
   $("git-mode").querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => {
