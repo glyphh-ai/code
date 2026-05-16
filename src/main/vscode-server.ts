@@ -19,6 +19,10 @@ const DATA_DIR = `${os.homedir()}/yo/vscode`;
  *  matches Desktop VS Code's `~/Library/Application Support/Code/User/`. */
 const USER_DIR = path.join(DATA_DIR, "data", "User");
 
+/** Extensions directory for the embedded editor. We pre-seed the Yo Bridge
+ *  companion extension here; user-installed extensions also land here. */
+const EXTENSIONS_DIR = path.join(DATA_DIR, "extensions");
+
 /** Per-platform path to the user's Desktop VS Code User dir. We copy from
  *  here into the code-server data dir so the in-app editor feels like the
  *  user's editor on first launch (Phase 5 — see MULTI-AGENT-PLAN §3.8). */
@@ -107,6 +111,13 @@ export class VSCodeServer {
       // data dir so the embedded editor inherits their preferences on first
       // launch. Only runs once per machine (skipped if files already exist).
       VSCodeServer.seedUserConfig();
+      // The embedded editor only ever opens the user's own working directory,
+      // on the user's own machine — the Workspace Trust prompt is pure
+      // friction here, so disable it. Idempotent; runs every start.
+      VSCodeServer.ensureTrustDisabled();
+      // Drop the Yo Bridge companion extension into the extensions dir so the
+      // .Yo main process can open files in this editor without a reload.
+      VSCodeServer.seedBridgeExtension();
 
       const args = [
         "serve-web",
@@ -218,6 +229,78 @@ export class VSCodeServer {
       } catch (err) {
         console.warn(`[vscode-server] failed to seed ${name}:`, (err as Error).message);
       }
+    }
+  }
+
+  /** Copy the Yo Bridge companion extension into the embedded editor's
+   *  extensions dir and register it in `extensions.json` (the manifest VS
+   *  Code scans on startup). Idempotent — refreshes on every start so the
+   *  bundled version always wins. Best-effort; never throws. */
+  static seedBridgeExtension(): void {
+    try {
+      const src = path.join(__dirname, "vscode-bridge");
+      if (!fs.existsSync(src)) return;
+
+      const folderName = "glyphh.yo-bridge-1.0.0";
+      const dst = path.join(EXTENSIONS_DIR, folderName);
+      fs.mkdirSync(dst, { recursive: true });
+      for (const name of fs.readdirSync(src)) {
+        fs.copyFileSync(path.join(src, name), path.join(dst, name));
+      }
+
+      // Register in extensions.json so VS Code loads it on startup.
+      const manifestPath = path.join(EXTENSIONS_DIR, "extensions.json");
+      let list: any[] = [];
+      try { list = JSON.parse(fs.readFileSync(manifestPath, "utf-8")); } catch { /* none yet */ }
+      if (!Array.isArray(list)) list = [];
+      list = list.filter((e) => e?.identifier?.id !== "glyphh.yo-bridge");
+      list.push({
+        identifier: { id: "glyphh.yo-bridge" },
+        version: "1.0.0",
+        location: {
+          $mid: 1,
+          fsPath: dst,
+          external: `file://${dst}`,
+          path: dst,
+          scheme: "file",
+        },
+        relativeLocation: folderName,
+        metadata: {
+          isApplicationScoped: true,
+          isBuiltin: true,
+          installedTimestamp: Date.now(),
+          pinned: true,
+          source: "vsix",
+        },
+      });
+      fs.writeFileSync(manifestPath, JSON.stringify(list, null, 2), "utf-8");
+      console.log("[vscode-server] seeded Yo Bridge extension");
+    } catch (err) {
+      console.warn("[vscode-server] failed to seed bridge extension:", (err as Error).message);
+    }
+  }
+
+  /** Ensure the embedded editor opens folders trusted (no trust prompt) by
+   *  merging `security.workspace.trust.enabled: false` into its settings.json.
+   *  Best-effort and idempotent — never throws, never clobbers other keys. */
+  static ensureTrustDisabled(): void {
+    const file = path.join(USER_DIR, "settings.json");
+    try {
+      fs.mkdirSync(USER_DIR, { recursive: true });
+      let raw = "";
+      try { raw = fs.readFileSync(file, "utf-8"); } catch { /* no file yet */ }
+      // Strip // and /* */ comments so a JSONC settings.json still parses.
+      const stripped = raw
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
+      let settings: Record<string, unknown> = {};
+      if (stripped.trim()) settings = JSON.parse(stripped);
+      if (settings["security.workspace.trust.enabled"] === false) return; // already set
+      settings["security.workspace.trust.enabled"] = false;
+      fs.writeFileSync(file, JSON.stringify(settings, null, 2), "utf-8");
+      console.log("[vscode-server] disabled Workspace Trust prompt");
+    } catch (err) {
+      console.warn("[vscode-server] could not disable Workspace Trust:", (err as Error).message);
     }
   }
 }

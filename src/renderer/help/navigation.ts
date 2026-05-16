@@ -135,6 +135,38 @@ export function loadActiveSection() {
   else if (sec === "about") loadAbout();
 }
 
+/**
+ * Navigate to a section (and optional sub-panel). Driven by the app's
+ * left-rail nav — the in-page `#help-nav` sidebar is hidden, but its buttons
+ * stay in the DOM so `switchToSection` / `loadActiveSection` keep working.
+ */
+export function gotoSection(section: string, sub?: string): void {
+  collapseAllDropdowns();
+  navSubItems.forEach((s) => s.classList.remove("active"));
+  switchToSection(section);
+  if (sub) {
+    document
+      .querySelector(`.help-nav-sub-item[data-section="${section}"][data-sub="${sub}"]`)
+      ?.classList.add("active");
+  }
+  if (section === "docs") {
+    loadDocs();
+    if (sub) showDocPanel(sub);
+  } else if (section === "settings") {
+    loadSettings();
+    if (sub) {
+      const navBtns = document.querySelectorAll<HTMLButtonElement>(
+        ".help-section[data-section='settings'] .settings-nav-item");
+      const panels = document.querySelectorAll<HTMLDivElement>(
+        ".help-section[data-section='settings'] .settings-panel");
+      navBtns.forEach((n) => n.classList.toggle("active", n.dataset.sub === sub));
+      panels.forEach((p) => p.classList.toggle("active", p.dataset.sub === sub));
+    }
+  } else {
+    loadActiveSection();
+  }
+}
+
 // ── Docs inner sub-navigation ────────────────────────────
 
 const docsSubNav = document.querySelectorAll<HTMLButtonElement>(".docs-nav .settings-nav-item");

@@ -189,7 +189,7 @@ const VSCODE_GRAB_SCRIPT = `
 // are kept on disk for now as a reference to mine richer streaming UI from.
 const NO_CAPTURE: CapturePolicy = { type: "manual" };
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
-  { id: "home", name: "Home", url: "yo://home", capturePolicy: NO_CAPTURE },
+  { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE },
   { id: "drop", name: "The Drop", url: "yo://drop" },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },

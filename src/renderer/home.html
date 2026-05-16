@@ -12,6 +12,9 @@
     /* Force overlay to fill the page and override any .hidden from help.ts */
     #help-overlay { position: absolute !important; inset: 0 !important; display: block !important; background: var(--bg); }
     #help-layout { position: absolute; inset: 0; }
+    /* The nav lives in the app's left rail now — keep it in the DOM (its
+       buttons still drive section switching) but hide the sidebar. */
+    #help-nav { display: none !important; }
   </style>
   <!-- Chart.js must load BEFORE Monaco's AMD loader, otherwise Chart's UMD wrapper
        registers as an AMD module instead of attaching to window.Chart. -->

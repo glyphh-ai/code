@@ -144,6 +144,13 @@ contextBridge.exposeInMainWorld("yo", {
   // Open a file in the .Yo Editor panel (from a file link in the yo panel).
   openInEditor: (filePath: string) => ipcRenderer.send("open-in-editor", filePath),
 
+  // Working directory — the single project folder the app is focused on.
+  getWorkingDir: () => ipcRenderer.invoke("working-dir:get") as Promise<string | null>,
+  pickWorkingDir: () => ipcRenderer.invoke("working-dir:pick") as Promise<string | null>,
+  onWorkingDirChanged: (callback: (dir: string | null) => void) => {
+    ipcRenderer.on("working-dir-changed", (_e, dir) => callback(dir));
+  },
+
   // Apps CRUD
   appsList: () => ipcRenderer.invoke("apps-list") as Promise<Array<{
     id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;
@@ -370,6 +377,30 @@ contextBridge.exposeInMainWorld("yo", {
   yoPanelResize: (width: number) => ipcRenderer.send("yo-panel-resize", width),
   yoPanelWidthSave: (width: number) => ipcRenderer.send("yo-panel-width-save", width),
   yoPanelGetWidth: () => ipcRenderer.invoke("yo-panel-get-width") as Promise<number>,
+
+  // Files left rail — explorer scoped to the working directory
+  filesRailResize: (width: number) => ipcRenderer.send("files-rail-resize", width),
+  filesRailWidthSave: (width: number) => ipcRenderer.send("files-rail-width-save", width),
+  filesRailGetWidth: () => ipcRenderer.invoke("files-rail-get-width") as Promise<number>,
+  listDir: (dirPath: string) =>
+    ipcRenderer.invoke("files:list-dir", dirPath) as Promise<Array<{ name: string; isDir: boolean }>>,
+  createFile: (filePath: string) =>
+    ipcRenderer.invoke("files:create-file", filePath) as Promise<{ ok: boolean; error?: string }>,
+  mkdir: (dirPath: string) =>
+    ipcRenderer.invoke("files:mkdir", dirPath) as Promise<{ ok: boolean; error?: string }>,
+  deleteEntry: (targetPath: string) =>
+    ipcRenderer.invoke("files:delete", targetPath) as Promise<{ ok: boolean; error?: string }>,
+  // Route a file to the app that handles its type (editor / browser / VS Code).
+  openFile: (filePath: string) => ipcRenderer.send("file-open", filePath),
+  // Open the Settings (home) panel at a section — driven by the left-rail nav.
+  openHomeSection: (section: string, sub?: string) =>
+    ipcRenderer.send("open-home-section", section, sub),
+  // Home page listens for this to navigate to a section.
+  onGotoSection: (cb: (section: string, sub?: string) => void) => {
+    ipcRenderer.on("home:goto-section", (_e, section: string, sub?: string) => cb(section, sub));
+  },
+  getPendingSection: () =>
+    ipcRenderer.invoke("home:get-pending-section") as Promise<{ section: string; sub?: string } | null>,
 
   // Connectors (Pipedream OAuth)
   connectorsGetApps: (search?: string, offset?: number) => ipcRenderer.invoke("connectors-get-apps", search, offset) as Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string }>; hasMore: boolean }>,

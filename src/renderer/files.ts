@@ -19,6 +19,9 @@ const filesApi = w.files as {
   onThemeChanged: (cb: (theme: string) => void) => void;
   getLastFolder: () => Promise<string | null>;
   setLastFolder: (p: string) => void;
+  getWorkingDir: () => Promise<string | null>;
+  pickWorkingDir: () => Promise<string | null>;
+  onWorkingDirChanged: (cb: (dir: string | null) => void) => void;
   onExternalOpenFile: (cb: (filePath: string) => void) => void;
 };
 
@@ -242,6 +245,13 @@ function doCloseTab(key: string): void {
   const idx = tabs.findIndex((t) => t.key === key);
   if (idx === -1) return;
   const [tab] = tabs.splice(idx, 1);
+  // Detach models from their editors before disposing — disposing a model
+  // still referenced by the (diff) editor throws "TextModel got disposed
+  // before DiffEditorWidget model got reset".
+  if (activeKey === key) {
+    try { editor?.setModel(null); } catch { /* ignore */ }
+    try { diffEditor?.setModel(null); } catch { /* ignore */ }
+  }
   try { tab.model?.dispose(); } catch { /* ignore */ }
   try { tab.diffModels?.original.dispose(); tab.diffModels?.modified.dispose(); } catch { /* ignore */ }
   if (activeKey === key) {
@@ -457,8 +467,8 @@ async function loadGit(): Promise<void> {
 
 // ── Folder open flow ────────────────────────────────────────
 async function setRoot(p: string): Promise<void> {
+  if (rootPath === p) return;
   rootPath = p;
-  filesApi.setLastFolder(p);
   $("root-name").textContent = p.split("/").filter(Boolean).pop() || p;
   $("root-name").setAttribute("title", p);
   // Replace the "Open Folder" button with the theme-aware .Yo mark.
@@ -469,8 +479,9 @@ async function setRoot(p: string): Promise<void> {
   await Promise.all([renderFileTree(), loadGit()]);
 }
 async function openFolder(): Promise<void> {
-  const p = await filesApi.pickFolder();
-  if (p) await setRoot(p);
+  // Switching the editor's folder switches the app-wide working directory;
+  // the working-dir-changed broadcast drives setRoot.
+  await filesApi.pickWorkingDir();
 }
 
 // ── Wire up ─────────────────────────────────────────────────
@@ -529,10 +540,11 @@ async function main(): Promise<void> {
   filesApi.onExternalOpenFile((p) => {
     openFileTab(p, p.split("/").filter(Boolean).pop() || p);
   });
-  // Restore the last opened folder — no file picker on launch.
+  // The .Yo Editor follows the app-wide working directory.
+  filesApi.onWorkingDirChanged((dir) => { if (dir) void setRoot(dir); });
   try {
-    const last = await filesApi.getLastFolder();
-    if (last) await setRoot(last);
+    const wd = await filesApi.getWorkingDir();
+    if (wd) await setRoot(wd);
   } catch { /* ignore */ }
 }
 

@@ -11,6 +11,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { getPreference, setPreference } from "./preferences";
 
 const execFileP = promisify(execFile);
@@ -116,6 +117,44 @@ export function registerFilesIpc(): void {
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "save failed" };
+    }
+  });
+
+  // Create a new empty file — fails if something already exists at the path.
+  ipcMain.handle("files:create-file", (_e, filePath: string) => {
+    try {
+      if (fs.existsSync(filePath)) return { ok: false, error: "Already exists" };
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, "", { encoding: "utf-8", flag: "wx" });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "create failed" };
+    }
+  });
+
+  // Create a new directory.
+  ipcMain.handle("files:mkdir", (_e, dirPath: string) => {
+    try {
+      if (fs.existsSync(dirPath)) return { ok: false, error: "Already exists" };
+      fs.mkdirSync(dirPath, { recursive: true });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "mkdir failed" };
+    }
+  });
+
+  // Delete a file or folder (recursive). Refuses obviously dangerous targets.
+  ipcMain.handle("files:delete", (_e, targetPath: string) => {
+    try {
+      if (!targetPath || typeof targetPath !== "string") return { ok: false, error: "Invalid path" };
+      const resolved = path.resolve(targetPath);
+      if (resolved === path.parse(resolved).root || resolved === os.homedir()) {
+        return { ok: false, error: "Refused to delete a protected path" };
+      }
+      fs.rmSync(resolved, { recursive: true, force: true });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "delete failed" };
     }
   });
 

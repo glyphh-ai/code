@@ -2,6 +2,7 @@ appId: dev.yosup.client
 productName: Yo
 copyright: Copyright © 2026 Glyphh AI
 
+
 mac:
   category: public.app-category.developer-tools
   # Build both Apple Silicon (arm64) and Intel (x64) so users on

@@ -115,14 +115,6 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     for (const id of openTabs) {
       if (!sanitized.includes(id)) sanitized.push(id);
     }
-    // Home always first
-    const homeIdx = sanitized.indexOf("home");
-    if (homeIdx > 0) {
-      sanitized.splice(homeIdx, 1);
-      sanitized.unshift("home");
-    } else if (homeIdx < 0) {
-      sanitized.unshift("home");
-    }
     openTabs.length = 0;
     openTabs.push(...sanitized);
     persistTabs();
@@ -132,9 +124,6 @@ export function registerTabIpc(deps: TabIpcDeps): void {
   ipcMain.on("tab-close", (_e, id: string) => {
     const mainWindow = getMainWindow();
     if (!mainWindow) return;
-
-    // Home tab is pinned — cannot be closed
-    if (id === "home") return;
 
     // Closing the layout tab clears the grid (active or suspended)
     if (id === "__layout__") {

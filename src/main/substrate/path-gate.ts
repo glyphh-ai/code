@@ -57,16 +57,27 @@ const PATH_KEYS = [
 ];
 
 export interface PathGateOptions {
-  /** When set, narrows the boundary further to this absolute path. */
+  /**
+   * When set, narrows the boundary to this absolute path ONLY (cypher
+   * sandbox). `extraRoots` is deliberately ignored in this mode — an
+   * untrusted jammer must never reach the user's working directory.
+   */
   cypherSandbox?: string;
+  /**
+   * Extra absolute roots allowed in addition to `~/.yo/` (solo mode only).
+   * The yo agent's working directory is passed here so the user's own
+   * trusted agent can operate on the project folder it was pointed at.
+   */
+  extraRoots?: string[];
 }
 
-/** Check a single resolved absolute path. Returns null if OK, error string otherwise. */
-function checkAbs(abs: string, boundary: string): string | null {
-  const root = boundary.endsWith(path.sep) ? boundary : boundary + path.sep;
-  if (abs === boundary) return null;
-  if (abs.startsWith(root)) return null;
-  return `path-gate: ${abs} is outside ${boundary}`;
+/** Check a resolved absolute path against a set of allowed roots. Returns null if inside any. */
+function checkAbs(abs: string, boundaries: string[]): string | null {
+  for (const boundary of boundaries) {
+    const root = boundary.endsWith(path.sep) ? boundary : boundary + path.sep;
+    if (abs === boundary || abs.startsWith(root)) return null;
+  }
+  return `path-gate: ${abs} is outside ${boundaries.join(" / ")}`;
 }
 
 /**
@@ -78,16 +89,19 @@ function checkAbs(abs: string, boundary: string): string | null {
  * `~/.yo/`.
  */
 export function checkToolCall(input: Record<string, unknown>, opts: PathGateOptions = {}): string | null {
-  // Resolve the boundary itself through symlinks so a symlinked sandbox/HOME
-  // doesn't make every legitimate path look "outside".
-  const boundary = realResolve(opts.cypherSandbox ?? YO_ROOT);
+  // Resolve every boundary through symlinks so a symlinked sandbox/HOME
+  // doesn't make legitimate paths look "outside". In cypher mode the sandbox
+  // is the sole boundary; in solo mode it's ~/.yo/ plus any extra roots.
+  const boundaries = opts.cypherSandbox
+    ? [realResolve(opts.cypherSandbox)]
+    : [YO_ROOT, ...(opts.extraRoots ?? [])].filter(Boolean).map(realResolve);
   const baseDir = opts.cypherSandbox ?? process.cwd();
 
   for (const key of PATH_KEYS) {
     const v = input[key];
     if (typeof v !== "string" || v.length === 0) continue;
     const abs = path.isAbsolute(v) ? v : path.resolve(baseDir, v);
-    const err = checkAbs(realResolve(abs), boundary);
+    const err = checkAbs(realResolve(abs), boundaries);
     if (err) return err;
   }
 
@@ -100,7 +114,7 @@ export function checkToolCall(input: Record<string, unknown>, opts: PathGateOpti
     const cdTargets = [...cmd.matchAll(/\bcd\s+(['"]?)((?:~|\/)[^\s'"]*)\1/g)].map((m) => m[2]);
     for (const t of [...tokens, ...cdTargets]) {
       const abs = t.startsWith("~") ? path.join(HOME, t.slice(1)) : path.normalize(t);
-      const err = checkAbs(realResolve(abs), boundary);
+      const err = checkAbs(realResolve(abs), boundaries);
       if (err) return `${err} (in command "${cmd.slice(0, 80)}")`;
     }
   }

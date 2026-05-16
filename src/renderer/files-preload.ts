@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld("files", {
   },
   getLastFolder: () => ipcRenderer.invoke("files:last-folder") as Promise<string | null>,
   setLastFolder: (p: string) => ipcRenderer.send("files:set-last-folder", p),
+  // The app-wide working directory — the .Yo Editor follows it.
+  getWorkingDir: () => ipcRenderer.invoke("working-dir:get") as Promise<string | null>,
+  pickWorkingDir: () => ipcRenderer.invoke("working-dir:pick") as Promise<string | null>,
+  onWorkingDirChanged: (cb: (dir: string | null) => void) => {
+    ipcRenderer.on("working-dir-changed", (_e, dir: string | null) => cb(dir));
+  },
   // Fired by the .yo agent when it reads/edits a file — mirror it into a tab.
   onExternalOpenFile: (cb: (filePath: string) => void) => {
     ipcRenderer.on("files:external-open", (_e, filePath: string) => cb(filePath));

@@ -58,6 +58,7 @@ import { VoiceRelay } from "./voice-relay";
 import { smartGrab } from "./smart-grab";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { VSCodeServer } from "./vscode-server";
+import { openInVscode } from "./vscode-bridge";
 import { resolveShellPath } from "./shell-path";
 import { WorkspaceManager } from "./workspace-manager";
 import { EventLog } from "./event-log";
@@ -99,6 +100,7 @@ import { AgentRunner, AgentConfig } from "./agent-runner";
 import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { registerFilesIpc } from "./files-ipc";
+import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
@@ -953,8 +955,11 @@ async function boot() {
   const filesHtml = `file://${path.join(__dirname, "..", "renderer", "files.html")}`;
   const filesPreload = path.join(__dirname, "files-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
-  const enableVscode = getPreference("enableVscodeServer", false);
   vscodeServer = new VSCodeServer();
+  // VS Code server defaults ON when a `code` binary is found on this machine,
+  // OFF otherwise. An explicit user preference always wins over the default.
+  const vscodePref = getPreference<boolean | undefined>("enableVscodeServer", undefined);
+  const enableVscode = vscodePref ?? vscodeServer.available;
   for (const app of appConnector.list()) {
     if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
@@ -1023,8 +1028,8 @@ async function boot() {
 
   // Start VS Code server in the background if enabled and CLI is available
   if (enableVscode && vscodeServer.available) {
-    const lastFolder = getPreference<string>("vscodeLastFolder", "");
-    vscodeServer.start(lastFolder || undefined).catch((err) => {
+    // The embedded editor opens the app-wide working directory.
+    vscodeServer.start(getWorkingDirectory()).catch((err) => {
       console.log("[vscode-server] failed to start:", err.message);
     });
   }
@@ -1500,14 +1505,8 @@ async function boot() {
       if (!openTabs[i] || openTabs.indexOf(openTabs[i]) !== i) openTabs.splice(i, 1);
     }
 
-    // Ensure "home" is always the leftmost tab
-    if (!openTabs.includes("home")) {
-      openTabs.unshift("home");
-    } else if (openTabs[0] !== "home") {
-      const idx = openTabs.indexOf("home");
-      openTabs.splice(idx, 1);
-      openTabs.unshift("home");
-    }
+    // "home" (Settings) is an on-demand, closable tab — opened only when the
+    // user picks a section from the left-rail Settings menu. Not forced here.
 
     const urlForTab = (id: string): string | undefined => {
       const isBrowser = resolveAppId(id) === "browser";
@@ -1521,18 +1520,16 @@ async function boot() {
       const layoutTabId = "__layout__";
       const gridSet = new Set(layoutInfo.panelIds);
       tabs = [
-        ...(openTabs.includes("home") ? [{ id: "home", name: "Home", favicon: "", pinned: true }] : []),
         { id: layoutTabId, name: layoutName, layoutFavicons },
-        ...openTabs.filter((id) => id !== "home" && !gridSet.has(id)).map((id) => ({
+        ...openTabs.filter((id) => !gridSet.has(id)).map((id) => ({
           id, name: getTabName(id), favicon: panelFavicons[id] || "", url: urlForTab(id),
         })),
       ];
     } else {
       tabs = openTabs.map((id) => ({
         id,
-        name: id === "home" ? "Home" : getTabName(id),
+        name: getTabName(id),
         favicon: panelFavicons[id] || "",
-        pinned: id === "home",
         url: urlForTab(id),
       }));
     }
@@ -1837,6 +1834,18 @@ async function boot() {
   }
   // .Yo Editor app (yo://files) — folder explorer + Monaco + read-only git.
   if (!ipcMain.listenerCount("files:pick-folder")) registerFilesIpc();
+
+  // Working directory — the single project folder the app is focused on.
+  if (!ipcMain.listenerCount("working-dir:get")) {
+    registerWorkingDirectoryIpc({
+      getMainWindow: () => mainWindow,
+      broadcastToPanels: (ch, ...args) => {
+        for (const wc of panelManager.getAllWebContents()) {
+          try { wc.send(ch, ...args); } catch { /* ignore */ }
+        }
+      },
+    });
+  }
 
   if (!ipcMain.listenerCount("cypher-gh-tree")) {
     ipcMain.handle("cypher-gh-tree", async () => {
@@ -2274,11 +2283,10 @@ async function boot() {
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
-        // If the .Yo Editor is open, mirror the file the agent is touching.
+        // Reveal the file the agent is touching: VS Code first (via the Yo
+        // Bridge extension — no reload), Monaco .Yo Editor as the fallback.
         const fp = fileFromToolCall(name, input);
-        if (fp && openTabs.some((t) => resolveAppId(t) === "files")) {
-          panelManager.getView("files")?.webContents.send("files:external-open", fp);
-        }
+        if (fp) revealFileInEditor(fp);
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
@@ -2297,6 +2305,23 @@ async function boot() {
     yoAgent.abort();
   });
 
+  // Reveal a file in the active editor surface — used to mirror the agent's
+  // file activity. VS Code first (once its panel exists, via the Yo Bridge
+  // extension — no reload); otherwise the Monaco .Yo Editor if it's open.
+  // Non-intrusive: never creates or switches a panel.
+  function revealFileInEditor(fp: string): void {
+    const monacoMirror = () => {
+      if (openTabs.some((t) => resolveAppId(t) === "files")) {
+        panelManager.getView("files")?.webContents.send("files:external-open", fp);
+      }
+    };
+    if (enableVscode && vscodeServer.available && panelManager.hasPanel("vscode")) {
+      void openInVscode(fp).then((ok) => { if (!ok) monacoMirror(); });
+      return;
+    }
+    monacoMirror();
+  }
+
   // Open a file in the .Yo Editor (from a clickable file link in the yo panel).
   ipcMain.on("open-in-editor", (_e, filePath: string) => {
     if (!mainWindow || typeof filePath !== "string" || !filePath) return;
@@ -2309,6 +2334,75 @@ async function boot() {
     sendTabState();
     panelManager.getView("files")?.webContents.send("files:external-open", resolved);
   });
+
+  // File-open router — the files left rail (or anything else) emits a path;
+  // route it to the app that handles its type. Code/text → VS Code when the
+  // server is enabled, else the Monaco .Yo Editor. PDFs / images / media →
+  // a browser tab. Everything else → the .Yo Editor.
+  const BROWSER_EXTS = new Set([
+    "pdf", "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico",
+    "mp4", "webm", "mov", "mp3", "wav", "htm", "html",
+  ]);
+  ipcMain.on("file-open", (_e, filePath: string) => {
+    if (!mainWindow || typeof filePath !== "string" || !filePath) return;
+    const resolved = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(getWorkingDirectory(), filePath);
+    const ext = path.extname(resolved).slice(1).toLowerCase();
+
+    // Media → a fresh browser tab.
+    if (BROWSER_EXTS.has(ext)) {
+      tabBrowserCounter++;
+      const id = `browse-${tabBrowserCounter}`;
+      panelManager.addPanel(id, browserHtmlUrl(`file://${resolved}`), undefined, undefined, true);
+      panelManager.switchTo(id, mainWindow);
+      ensureTab(id);
+      sendSplitState();
+      sendTabState();
+      return;
+    }
+
+    // Code/text → VS Code panel when the server is enabled and available.
+    if (enableVscode && vscodeServer.available) {
+      const vscodeApp = appConnector.get("vscode");
+      if (vscodeApp) {
+        if (!panelManager.hasPanel("vscode")) createPanelForApp("vscode", vscodeApp);
+        ensureTab("vscode");
+        panelManager.switchTo("vscode", mainWindow);
+        sendSplitState();
+        sendTabState();
+        // Open the exact file via the Yo Bridge extension (no reload).
+        void openInVscode(resolved);
+        return;
+      }
+    }
+
+    // Fallback → the Monaco .Yo Editor.
+    const filesApp = appConnector.get("files");
+    if (filesApp && !panelManager.hasPanel("files")) createPanelForApp("files", filesApp);
+    ensureTab("files");
+    panelManager.switchTo("files", mainWindow);
+    sendSplitState();
+    sendTabState();
+    panelManager.getView("files")?.webContents.send("files:external-open", resolved);
+  });
+
+  // Left-rail nav → open the Settings (home) panel at a given section.
+  // `pendingHomeSection` covers the cold-start race: the home page grabs it
+  // on load via `home:get-pending-section`; the live event handles the rest.
+  let pendingHomeSection: { section: string; sub?: string } | null = null;
+  ipcMain.on("open-home-section", (_e, section: string, sub?: string) => {
+    if (!mainWindow || typeof section !== "string") return;
+    pendingHomeSection = { section, sub };
+    const homeApp = appConnector.get("home");
+    if (homeApp && !panelManager.hasPanel("home")) createPanelForApp("home", homeApp);
+    ensureTab("home");
+    panelManager.switchTo("home", mainWindow);
+    sendSplitState();
+    sendTabState();
+    panelManager.getView("home")?.webContents.send("home:goto-section", section, sub);
+  });
+  ipcMain.handle("home:get-pending-section", () => pendingHomeSection);
 
   // Renderer-initiated panel open (Cmd+> or .yo command)
   ipcMain.on("yo-panel-open-from-renderer", (_e, query: string) => {
@@ -2340,6 +2434,17 @@ async function boot() {
   });
   ipcMain.handle("yo-panel-get-width", () => {
     return getPreference<number>("yoPanelWidth", 380);
+  });
+
+  // IPC: Files left rail resize + width persistence
+  ipcMain.on("files-rail-resize", (_e, width: number) => {
+    panelManager.setLeftInset(width);
+  });
+  ipcMain.on("files-rail-width-save", (_e, width: number) => {
+    setPreference("filesRailWidth", width);
+  });
+  ipcMain.handle("files-rail-get-width", () => {
+    return getPreference<number>("filesRailWidth", 240);
   });
 
   // IPC: Agent mode + guardrails

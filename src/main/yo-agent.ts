@@ -13,6 +13,7 @@ import os from "os";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
+import { getWorkingDirectory } from "./working-directory";
 import { promptLog } from "./prompt-log";
 import { guardPrompt } from "./firewall";
 import { execSync } from "child_process";
@@ -269,7 +270,8 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
-      ...asarSafeQueryOptions(),
+      // The .yo agent runs in the app-wide working directory.
+      ...asarSafeQueryOptions(getWorkingDirectory() ?? undefined),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {

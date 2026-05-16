@@ -122,6 +122,9 @@ declare global {
       onOpenNewApp: (callback: (data: { url?: string; name?: string; tabId?: string }) => void) => void;
       convertTabToApp: (tabId: string, appId: string) => void;
       openInEditor: (filePath: string) => void;
+      getWorkingDir: () => Promise<string | null>;
+      pickWorkingDir: () => Promise<string | null>;
+      onWorkingDirChanged: (callback: (dir: string | null) => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];
         cols: number;
@@ -236,6 +239,18 @@ declare global {
       yoPanelResize: (width: number) => void;
       yoPanelWidthSave: (width: number) => void;
       yoPanelGetWidth: () => Promise<number>;
+      // Files left rail
+      filesRailResize: (width: number) => void;
+      filesRailWidthSave: (width: number) => void;
+      filesRailGetWidth: () => Promise<number>;
+      listDir: (dirPath: string) => Promise<Array<{ name: string; isDir: boolean }>>;
+      openFile: (filePath: string) => void;
+      createFile: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+      mkdir: (dirPath: string) => Promise<{ ok: boolean; error?: string }>;
+      deleteEntry: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
+      openHomeSection: (section: string, sub?: string) => void;
+      onGotoSection: (cb: (section: string, sub?: string) => void) => void;
+      getPendingSection: () => Promise<{ section: string; sub?: string } | null>;
       // Yo chat history
       yoChatsList: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
       yoChatsLoad: (id: string) => Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>;
@@ -555,6 +570,348 @@ const gridApi = initGrid({
 
 // -- Downloads dropdown (extracted to downloads-ui.ts) --
 initDownloads();
+
+// -- Files left rail (explorer scoped to the working directory + app nav) --
+{
+  const rail = document.getElementById("files-rail")!;
+  const railToggle = document.getElementById("files-rail-toggle")!;
+  const railTree = document.getElementById("files-rail-tree")!;
+  const railTitle = document.getElementById("files-rail-title")!;
+  const railName = document.getElementById("files-rail-name")!;
+  const railRefresh = document.getElementById("files-rail-refresh")!;
+  const railNewFile = document.getElementById("files-rail-newfile")!;
+  const railNewFolder = document.getElementById("files-rail-newfolder")!;
+  const railResize = document.getElementById("files-rail-resize")!;
+  const railCtx = document.getElementById("files-rail-ctx")!;
+  const railConfirm = document.getElementById("rail-confirm")!;
+  const railConfirmMsg = document.getElementById("rail-confirm-msg")!;
+  const railConfirmOk = document.getElementById("rail-confirm-ok")!;
+  const railConfirmCancel = document.getElementById("rail-confirm-cancel")!;
+
+  let railRoot: string | null = null;
+  let railWidth = 240;
+  let activePath: string | null = null;
+
+  type Node = {
+    name: string; path: string; isDir: boolean; depth: number;
+    expanded: boolean; loaded: boolean; children: Node[];
+  };
+  let tree: Node[] = [];
+  let pendingCreate: { kind: "file" | "folder"; parentPath: string } | null = null;
+  let ctxTarget: { path: string; isDir: boolean; name: string } | null = null;
+  let confirmResolve: ((v: boolean) => void) | null = null;
+
+  const caretSvg = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+  const fileIcon = `<svg class="files-rail-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+
+  const setInset = (px: number) => {
+    document.body.style.setProperty("--left-inset", `${px}px`);
+    window.yo.filesRailResize(px);
+  };
+
+  function flatten(nodes: Node[], out: Node[]) {
+    for (const n of nodes) {
+      out.push(n);
+      if (n.isDir && n.expanded) flatten(n.children, out);
+    }
+  }
+
+  function findNode(nodes: Node[], p: string): Node | null {
+    for (const n of nodes) {
+      if (n.path === p) return n;
+      if (n.isDir && n.children.length) {
+        const hit = findNode(n.children, p);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+
+  function render() {
+    const rows: Node[] = [];
+    flatten(tree, rows);
+    railTree.innerHTML = "";
+    if (rows.length === 0 && !pendingCreate) {
+      railTree.innerHTML = `<div class="files-rail-empty">${railRoot ? "Empty folder." : "No working directory set."}</div>`;
+      return;
+    }
+    // Index at which to splice the inline create-input row.
+    let createAt = -1;
+    let createDepth = 0;
+    if (pendingCreate) {
+      if (pendingCreate.parentPath === railRoot) {
+        createAt = 0;
+      } else {
+        const idx = rows.findIndex((r) => r.path === pendingCreate!.parentPath);
+        createAt = idx >= 0 ? idx + 1 : 0;
+        createDepth = idx >= 0 ? rows[idx].depth + 1 : 0;
+      }
+    }
+    rows.forEach((n, i) => {
+      if (i === createAt) railTree.appendChild(buildCreateRow(createDepth));
+      const row = document.createElement("div");
+      row.className = "files-rail-row" + (n.path === activePath ? " active" : "");
+      row.style.paddingLeft = `${6 + n.depth * 12}px`;
+      const caretCls = "files-rail-caret" + (n.isDir ? (n.expanded ? " open" : "") : " leaf");
+      row.innerHTML =
+        `<span class="${caretCls}">${caretSvg}</span>` +
+        (n.isDir ? "" : fileIcon) +
+        `<span class="files-rail-name"></span>`;
+      (row.querySelector(".files-rail-name") as HTMLElement).textContent = n.name;
+      row.addEventListener("click", () => { void onRowClick(n); });
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        ctxTarget = { path: n.path, isDir: n.isDir, name: n.name };
+        // New File / New Folder apply only to folders; Delete applies to both.
+        railCtx.querySelectorAll<HTMLElement>(
+          "[data-act='newfile'],[data-act='newfolder'],.files-rail-ctx-sep",
+        ).forEach((el) => { el.style.display = n.isDir ? "" : "none"; });
+        // Keep the menu inside the rail — BrowserView panels render above any
+        // main-window HTML, so a menu spilling past the rail would be hidden.
+        railCtx.classList.remove("hidden");
+        const cw = railCtx.offsetWidth || 140;
+        const ch = railCtx.offsetHeight || 110;
+        railCtx.style.left = `${Math.max(4, Math.min(e.clientX, railWidth - cw - 4))}px`;
+        railCtx.style.top = `${Math.max(4, Math.min(e.clientY, window.innerHeight - ch - 4))}px`;
+      });
+      railTree.appendChild(row);
+    });
+    if (createAt >= rows.length) railTree.appendChild(buildCreateRow(createDepth));
+  }
+
+  function buildCreateRow(depth: number): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "files-rail-row";
+    row.style.paddingLeft = `${6 + depth * 12}px`;
+    row.innerHTML = `<span class="files-rail-caret leaf">${caretSvg}</span>` +
+      (pendingCreate?.kind === "file" ? fileIcon : "");
+    const input = document.createElement("input");
+    input.className = "files-rail-input";
+    input.placeholder = pendingCreate?.kind === "folder" ? "folder name" : "file name";
+    row.appendChild(input);
+    setTimeout(() => input.focus(), 0);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const name = input.value.trim();
+        const pc = pendingCreate;
+        pendingCreate = null;
+        if (pc && name) void commitCreate(pc, name);
+        else render();
+      } else if (e.key === "Escape") {
+        pendingCreate = null;
+        render();
+      }
+    });
+    input.addEventListener("blur", () => {
+      if (pendingCreate) { pendingCreate = null; render(); }
+    });
+    return row;
+  }
+
+  async function commitCreate(pc: { kind: "file" | "folder"; parentPath: string }, name: string) {
+    const full = `${pc.parentPath}/${name}`;
+    const res = pc.kind === "folder"
+      ? await window.yo.mkdir(full)
+      : await window.yo.createFile(full);
+    if (pc.parentPath === railRoot) {
+      await loadRoot();
+    } else {
+      const node = findNode(tree, pc.parentPath);
+      if (node) { node.loaded = false; await loadChildren(node); node.expanded = true; }
+      render();
+    }
+    if (res.ok && pc.kind === "file") {
+      activePath = full;
+      render();
+      window.yo.openFile(full);
+    }
+  }
+
+  async function startCreate(kind: "file" | "folder", parentPath: string) {
+    if (parentPath !== railRoot) {
+      const node = findNode(tree, parentPath);
+      if (node && node.isDir) {
+        if (!node.loaded) await loadChildren(node);
+        node.expanded = true;
+      }
+    }
+    pendingCreate = { kind, parentPath };
+    render();
+  }
+
+  async function loadChildren(n: Node) {
+    try {
+      const entries = await window.yo.listDir(n.path);
+      entries.sort((a, b) =>
+        a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1);
+      n.children = entries
+        .filter((e) => !e.name.startsWith("."))
+        .map((e) => ({
+          name: e.name, path: `${n.path}/${e.name}`, isDir: e.isDir,
+          depth: n.depth + 1, expanded: false, loaded: false, children: [],
+        }));
+    } catch {
+      n.children = [];
+    }
+    n.loaded = true;
+  }
+
+  async function onRowClick(n: Node) {
+    if (n.isDir) {
+      n.expanded = !n.expanded;
+      if (n.expanded && !n.loaded) await loadChildren(n);
+      render();
+    } else {
+      activePath = n.path;
+      render();
+      window.yo.openFile(n.path);
+    }
+  }
+
+  async function loadRoot() {
+    if (!railRoot) { tree = []; render(); return; }
+    railName.textContent = railRoot.split("/").filter(Boolean).pop() || railRoot;
+    railTitle.title = `Working folder: ${railRoot} — click to change`;
+    const rootNode: Node = {
+      name: "", path: railRoot, isDir: true, depth: -1,
+      expanded: true, loaded: false, children: [],
+    };
+    await loadChildren(rootNode);
+    tree = rootNode.children;
+    render();
+  }
+
+  function applyOpen(open: boolean) {
+    railToggle.classList.toggle("active", open);
+    if (open) {
+      rail.classList.remove("hidden");
+      void rail.offsetHeight;
+      rail.classList.add("open");
+      setInset(railWidth);
+    } else {
+      rail.classList.remove("open");
+      setInset(0);
+      setTimeout(() => rail.classList.add("hidden"), 200);
+    }
+    try { localStorage.setItem("filesRailOpen", open ? "1" : "0"); } catch {}
+  }
+
+  railToggle.addEventListener("click", () => applyOpen(!rail.classList.contains("open")));
+  railRefresh.addEventListener("click", () => { void loadRoot(); });
+  railTitle.addEventListener("click", () => { void window.yo.pickWorkingDir(); });
+  railNewFile.addEventListener("click", () => { if (railRoot) void startCreate("file", railRoot); });
+  railNewFolder.addEventListener("click", () => { if (railRoot) void startCreate("folder", railRoot); });
+
+  // -- Confirm modal --
+  function showConfirm(message: string): Promise<boolean> {
+    railConfirmMsg.textContent = message;
+    // BrowserView panels render above main-window HTML, so a centered modal
+    // would be hidden behind them — drop the panels to a freeze-frame while
+    // the modal is up (also dims the background, like a scrim).
+    window.yo.panelsHide();
+    railConfirm.classList.remove("hidden");
+    return new Promise((resolve) => { confirmResolve = resolve; });
+  }
+  function closeConfirm(v: boolean): void {
+    railConfirm.classList.add("hidden");
+    window.yo.panelsShow();
+    if (confirmResolve) { confirmResolve(v); confirmResolve = null; }
+  }
+  railConfirmOk.addEventListener("click", () => closeConfirm(true));
+  railConfirmCancel.addEventListener("click", () => closeConfirm(false));
+  railConfirm.addEventListener("click", (e) => {
+    if (e.target === railConfirm) closeConfirm(false);
+  });
+
+  async function deleteTarget(target: { path: string; isDir: boolean; name: string }) {
+    const ok = await showConfirm(
+      `Delete ${target.isDir ? "folder" : "file"} “${target.name}”?` +
+      (target.isDir ? " Everything inside it will be removed." : ""),
+    );
+    if (!ok) return;
+    const res = await window.yo.deleteEntry(target.path);
+    if (!res.ok) return;
+    if (activePath === target.path ||
+        (target.isDir && activePath?.startsWith(`${target.path}/`))) {
+      activePath = null;
+    }
+    const parent = target.path.slice(0, target.path.lastIndexOf("/"));
+    if (!parent || parent === railRoot) {
+      await loadRoot();
+    } else {
+      const node = findNode(tree, parent);
+      if (node) { node.loaded = false; await loadChildren(node); node.expanded = true; }
+      render();
+    }
+  }
+
+  // -- Right-click context menu --
+  railCtx.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = ctxTarget;
+      railCtx.classList.add("hidden");
+      if (!target) return;
+      const act = btn.dataset.act;
+      if (act === "delete") void deleteTarget(target);
+      else void startCreate(act === "newfolder" ? "folder" : "file", target.path);
+    });
+  });
+  document.addEventListener("click", (e) => {
+    if (!railCtx.contains(e.target as HTMLElement)) railCtx.classList.add("hidden");
+  });
+
+  // -- Bottom nav: app sections + Settings dropdown + Platform + Sign Out --
+  rail.querySelectorAll<HTMLElement>(".files-rail-navitem[data-section]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      window.yo.openHomeSection(btn.dataset.section!, btn.dataset.sub);
+    });
+  });
+  document.getElementById("files-rail-platform")!.addEventListener("click", () => {
+    void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
+  });
+  document.getElementById("files-rail-logout")!.addEventListener("click", () => {
+    void window.yo.logout();
+  });
+
+  // -- Resize handle --
+  let dragging = false;
+  railResize.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    dragging = true;
+    railResize.classList.add("dragging");
+    rail.style.transition = "none";
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    railWidth = Math.max(160, Math.min(window.innerWidth * 0.4, e.clientX));
+    rail.style.width = `${railWidth}px`;
+    setInset(railWidth);
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    railResize.classList.remove("dragging");
+    rail.style.transition = "";
+    window.yo.filesRailWidthSave(railWidth);
+  });
+
+  window.yo.onWorkingDirChanged((dir) => {
+    railRoot = dir;
+    activePath = null;
+    void loadRoot();
+  });
+
+  void (async () => {
+    railWidth = await window.yo.filesRailGetWidth().catch(() => 240);
+    rail.style.width = `${railWidth}px`;
+    railRoot = await window.yo.getWorkingDir().catch(() => null);
+    await loadRoot();
+    let savedOpen: string | null = null;
+    try { savedOpen = localStorage.getItem("filesRailOpen"); } catch { /* ignore */ }
+    applyOpen(savedOpen !== "0"); // default open
+  })();
+}
 
 // -- Update bar --
 

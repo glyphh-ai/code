@@ -16,6 +16,7 @@ import path from "path";
 import os from "os";
 import { execSync } from "child_process";
 import { webSearch, fetchPage } from "../web-search";
+import { getWorkingDirectory } from "../working-directory";
 
 // Privileged accessors injected by main.ts. Substrate tools use these;
 // user-skill ctx never sees them.
@@ -1046,8 +1047,12 @@ const BUILTIN_TOOLS: ToolDef[] = [
         const destructive = new Set(["push", "reset", "clean", "checkout", "rebase", "merge", "commit", "stash", "rm", "mv"]);
         if (subCmd && destructive.has(subCmd)) return `Destructive git command not allowed: git ${subCmd}`;
       }
-      let cwd = (input.cwd as string) || os.homedir();
-      if (!path.isAbsolute(cwd)) cwd = path.join(os.homedir(), cwd);
+      // Default to the app-wide working directory so the yo agent's shell
+      // commands run where the .Yo Editor / cypher repo lives — falling back
+      // to ~ only when no working directory is set.
+      const base = getWorkingDirectory() || os.homedir();
+      let cwd = (input.cwd as string) || base;
+      if (!path.isAbsolute(cwd)) cwd = path.join(base, cwd);
       try {
         const output = execSync(command, {
           cwd, timeout: 30_000, maxBuffer: 512 * 1024,
@@ -1954,9 +1959,12 @@ export async function executeTool(name: string, input: Record<string, unknown>):
   // explicitly exempt (bus tools, semantic search, etc.).
   if (!PATH_GATE_EXEMPT.has(name)) {
     const { checkToolCall } = await import("./path-gate.js");
-    const violation = checkToolCall(input);
+    // The solo yo agent may also operate on the app-wide working directory —
+    // that's the folder the user pointed it at (.Yo Editor / project repo).
+    const wd = getWorkingDirectory();
+    const violation = checkToolCall(input, wd ? { extraRoots: [wd] } : {});
     if (violation) {
-      return `Refused: ${violation}. Tools may only operate on paths inside ~/.yo/.`;
+      return `Refused: ${violation}.`;
     }
   }
 

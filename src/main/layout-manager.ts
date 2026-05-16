@@ -378,7 +378,8 @@ export class LayoutManager {
 
     const cell = grid.cells[cellIdx];
     const [rawW, h] = win.getContentSize();
-    const w = rawW - this.panelManager.rightInset;
+    const left = this.panelManager.leftInset;
+    const w = rawW - this.panelManager.rightInset - left;
     const contentHeight = h - this.gridTop;
 
     // Cumulative column / row positions (fractions → pixels)
@@ -388,8 +389,8 @@ export class LayoutManager {
     for (const rh of grid.rowHeights) cumRow.push(cumRow[cumRow.length - 1] + rh);
 
     const halfGap = Math.floor(SPLIT_GAP / 2);
-    let x = Math.floor(cumCol[cell.col] * w);
-    let cellW = Math.floor(cumCol[cell.col + cell.colSpan] * w) - x;
+    let x = left + Math.floor(cumCol[cell.col] * w);
+    let cellW = Math.floor(cumCol[cell.col + cell.colSpan] * w) - Math.floor(cumCol[cell.col] * w);
     let y = Math.floor(cumRow[cell.row] * contentHeight);
     let cellH = Math.floor(cumRow[cell.row + cell.rowSpan] * contentHeight) - y;
 
@@ -466,7 +467,8 @@ export class LayoutManager {
     if (!grid) return;
 
     const [rawW, h] = win.getContentSize();
-    const w = rawW - this.panelManager.rightInset;
+    const left = this.panelManager.leftInset;
+    const w = rawW - this.panelManager.rightInset - left;
     const contentHeight = h - this.gridTop;
 
     // Capture old views for animation
@@ -505,8 +507,8 @@ export class LayoutManager {
       if (!firstView) firstView = view;
 
       // Raw pixel bounds from grid fractions
-      let x = Math.floor(cumCol[cell.col] * w);
-      let cellW = Math.floor(cumCol[cell.col + cell.colSpan] * w) - x;
+      let x = left + Math.floor(cumCol[cell.col] * w);
+      let cellW = Math.floor(cumCol[cell.col + cell.colSpan] * w) - Math.floor(cumCol[cell.col] * w);
       let y = Math.floor(cumRow[cell.row] * contentHeight);
       let cellH = Math.floor(cumRow[cell.row + cell.rowSpan] * contentHeight) - y;
 

@@ -21,7 +21,6 @@ import os from "os";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import type { CypherBus } from "./cypher-bus";
 import * as threadStore from "./cypher-thread-store";
-import { guardPrompt } from "./firewall";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -284,23 +283,6 @@ export class AgentRunner {
 
     const wc = instance.wcRef.deref();
     if (!wc || wc.isDestroyed()) return;
-
-    // Prompt-injection firewall — single chokepoint for every turn input
-    // (start briefing and all follow-ups: bus messages, inbox updates).
-    const guard = guardPrompt(prompt, `agent ${instance.name}`);
-    if (!guard.allowed) {
-      console.warn(`[agent-runner] ${instance.name}: turn input blocked by firewall: ${guard.reason}`);
-      instance.status = "waiting";
-      this.armIdleTimer(instance);
-      if (!wc.isDestroyed()) {
-        wc.send("cw:agent:status", instance.name, "waiting");
-        wc.send("cw:agent:message", instance.name, {
-          type: "error",
-          text: `Message blocked by prompt-injection firewall: ${guard.reason}`,
-        });
-      }
-      return;
-    }
 
     if (instance.idleTimer) { clearTimeout(instance.idleTimer); instance.idleTimer = null; }
     instance.status = "running";

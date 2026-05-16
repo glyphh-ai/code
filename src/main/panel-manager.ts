@@ -84,6 +84,7 @@ export class PanelManager {
   private _animating = false;
   private onZoomChange: ((factor: number) => void) | null = null;
   private _rightInset = 0;
+  private _leftInset = 0;
   private _topInset = 0;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
@@ -741,7 +742,7 @@ export class PanelManager {
 
     const [w, h] = parent.getContentSize();
     const yTop = 38 + this._topInset;
-    const finalBounds = { x: 0, y: yTop, width: w - this._rightInset, height: h - yTop };
+    const finalBounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
 
     // No animation if same panel, hidden, or already animating
     if (oldId === id || this._hidden || this._animating) {
@@ -772,7 +773,7 @@ export class PanelManager {
         // (e.g. yo panel opened while slide was running)
         const [cw, ch] = parent.getContentSize();
         const cy = 38 + this._topInset;
-        view.setBounds({ x: 0, y: cy, width: cw - this._rightInset, height: ch - cy });
+        view.setBounds({ x: this._leftInset, y: cy, width: cw - this._rightInset - this._leftInset, height: ch - cy });
         view.setAutoResize({ width: true, height: true });
         view.webContents.focus();
         this.onReady?.(id, view.webContents);
@@ -806,14 +807,15 @@ export class PanelManager {
       // Ease-out cubic
       const ease = 1 - Math.pow(1 - t, 3);
 
-      // Slide old views out
+      // Slide old views out — but when the left rail is open, never let a
+      // view slide past the rail's right edge, so the sliding panel doesn't
+      // sweep across and cover the rail (BrowserViews paint above it).
       for (const { view, bounds } of oldViews) {
         if (newSet.has(view)) continue;
         try {
-          view.setBounds({
-            ...bounds,
-            x: Math.round(bounds.x - offset * ease),
-          });
+          let nx = Math.round(bounds.x - offset * ease);
+          if (this._leftInset > 0) nx = Math.max(nx, this._leftInset);
+          view.setBounds({ ...bounds, x: nx });
         } catch { /* view may have been destroyed */ }
       }
 
@@ -870,6 +872,9 @@ export class PanelManager {
   /** Right inset (px) — used by yo panel to narrow BrowserViews */
   get rightInset(): number { return this._rightInset; }
 
+  /** Left inset (px) — used by the files left rail to narrow BrowserViews */
+  get leftInset(): number { return this._leftInset; }
+
   /** Top inset (px) — used by URL bar to push BrowserViews down */
   get topInset(): number { return this._topInset; }
 
@@ -882,12 +887,18 @@ export class PanelManager {
     this.onInsetChange?.();
   }
 
+  setLeftInset(px: number): void {
+    if (px === this._leftInset) return;
+    this._leftInset = px;
+    this.onInsetChange?.();
+  }
+
   /** Resize all visible BrowserViews to reflect current insets */
   resizeViews(parent: BrowserWindow): void {
     if (parent.isDestroyed() || this._hidden) return;
     const [w, h] = parent.getContentSize();
     const yTop = 38 + this._topInset;
-    const bounds = { x: 0, y: yTop, width: w - this._rightInset, height: h - yTop };
+    const bounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
     for (const bv of parent.getBrowserViews()) {
       bv.setBounds(bounds);
       bv.setAutoResize({ width: true, height: true });
