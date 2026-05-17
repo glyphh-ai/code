@@ -647,29 +647,12 @@ async function boot() {
   // Track jammer preview panels so we can clean them up on cypher wrap/leave
   const jammerPreviewPanels = new Set<string>();
 
-  // Forward jammer bus events to the cypher panel feed + persist locally
+  // React to local bus events. NOTE: this no longer renders the cypher feed
+  // or persists it — the feed is single-sourced from the SSE stream (see
+  // setEventObserver). A local agent's post round-trips through the server
+  // and renders once, from there, keyed by `seq`. This callback only handles
+  // local side-effects: leader-completion detection and preview panels.
   cypherBus.onPost((_wsSlug, event) => {
-    const { getCurrentCypher } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-    const cyId = getCurrentCypher();
-    const payload = {
-      cypherId: cyId ?? undefined,
-      from: event.from,
-      to: event.to,
-      kind: event.kind,
-      body: event.body,
-      tags: event.tags,
-      ts: Date.now(),
-      meta: event.meta,
-    };
-    const cypherView = panelManager.getView("cypher");
-    if (cypherView && !cypherView.webContents.isDestroyed()) {
-      cypherView.webContents.send("jammer-activity", payload);
-    }
-    // Persist to local feed file so history survives refresh
-    if (cyId) {
-      threadStore.appendFeed(cyId, payload);
-    }
-
     // Detect leader completion (no parent) — prompt mistro to wrap
     if (event.kind === "complete_task") {
       const hier = cypherBus.getHierarchyContext();
@@ -1776,7 +1759,7 @@ async function boot() {
   // would otherwise spawn an overlay window per drip and flood the UI.
   const DRIP_MIN_INTERVAL_MS = 1500;
   let lastDripRenderAt = 0;
-  setEventObserver((cypherId, kind, payload, byAgentId) => {
+  setEventObserver((cypherId, kind, payload, byAgentId, seq, isOwn) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("cypher-event", cypherId, kind, payload);
     }
@@ -1786,17 +1769,16 @@ async function boot() {
       cypherView.webContents.send("cypher-event", cypherId, kind, payload);
     }
 
-    // Inbound remote-agent activity → the cypher feed, via the same
-    // `jammer-activity` channel local agent activity uses. Many-to-many:
-    // every jammer's client renders every other jammer's activity. The
-    // `cypherId` tag lets the renderer drop events for a different cypher —
-    // replacing the old getCurrentCypher() gate, which broke the feed for
-    // anyone (a jammer who joined before the leader, the owner viewing)
-    // whose current-cypher wasn't yet set.
+    // Cypher feed — SINGLE SOURCE. Every feed item is rendered here, from the
+    // SSE stream, tagged with the server `seq`. Local echoes no longer render
+    // (cypherBus.onPost / the .chat handler stopped sending jammer-activity),
+    // so an event renders exactly once and the renderer dedups on `seq`. This
+    // is what permanently kills the duplicate-render bug.
     if (!CYPHER_FEED_EXCLUDE.has(kind)) {
       const p = payload as Record<string, unknown>;
       const activity = {
         cypherId,
+        seq,
         from: byAgentId || (typeof p.agent_id === "string" ? p.agent_id : "unknown"),
         to: typeof p.to === "string" ? p.to : undefined,
         kind,
@@ -1828,13 +1810,14 @@ async function boot() {
     }
 
     // Inbound chat → the cypher feed (the shared room), NOT the private yo
-    // panel. Our own chat was already rendered into the feed when we sent it.
+    // panel. Rendered from the SSE stream like every other feed item — our
+    // own chat included (it round-trips and lands here ~1s later). One
+    // source, deduped on `seq`.
     if (kind === "chat") {
       const p = payload as Record<string, unknown>;
-      const account = getAccountInfo();
-      if (account && p.sender_name === account.firstName) return;
       const chatActivity = {
         cypherId,
+        seq,
         from: String(p.sender_name || p.by_user_id || "someone"),
         kind: "chat",
         body: redactSecrets(typeof p.text === "string" ? p.text : ""),
@@ -1848,12 +1831,10 @@ async function boot() {
 
     // Inbound drip effect — play it as a window-level overlay (via the drip
     // manager) so it's visible above whatever panel the user is on: the yo
-    // panel OR the cypher panel BrowserView. The old path sent it into the
-    // main renderer's DOM, where it was hidden behind the cypher panel — so
-    // drips never showed for anyone watching the cypher. Our own drip is
-    // echo-skipped upstream (by_user_id) — only other people's drips reach
-    // here. Rate-limited so a burst can't flood the UI with overlays.
-    if (kind === "drip") {
+    // panel OR the cypher panel BrowserView. `!isOwn` skips our own drip —
+    // it already played locally on send (execCommand); only other people's
+    // drips play from the stream. Rate-limited so a burst can't flood the UI.
+    if (kind === "drip" && !isOwn) {
       const now = Date.now();
       if (now - lastDripRenderAt >= DRIP_MIN_INTERVAL_MS) {
         lastDripRenderAt = now;
@@ -2337,13 +2318,10 @@ async function boot() {
 
         if (firstWord === "chat") {
           if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .chat <message>"); return; }
+          // Chat renders in the cypher feed from the SSE stream — the single
+          // source. It lands ~1s later via the round-trip; no local echo,
+          // so no double-render.
           postCypherEvent(cyId, "chat", { text: rest, sender_name: senderName }, "user");
-          // Chat lands in the cypher feed (the shared room), not the private
-          // yo panel. Render our own message immediately; the SSE echo is
-          // skipped by sender_name so it doesn't double up.
-          const chatActivity = { cypherId: cyId, from: senderName, kind: "chat", body: rest, ts: Date.now() };
-          panelManager.getView("cypher")?.webContents.send("jammer-activity", chatActivity);
-          threadStore.appendFeed(cyId, chatActivity);
           mainWindow?.webContents.send("yo-panel-done", "");
           return;
         }

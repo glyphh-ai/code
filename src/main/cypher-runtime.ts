@@ -57,12 +57,20 @@ export type AgentMessageHandler = (
   meta?: Record<string, unknown>,
 ) => void;
 
-/** Observer for visibility events (agent_thinking, agent_tool_use, agent_tool_result). */
+/**
+ * Observer for cypher feed events. The feed renders ONLY from this stream —
+ * `seq` is the server-assigned monotonic id (unique → the renderer dedups on
+ * it); `isOwn` is true when this client originated the event (lets the
+ * observer suppress re-playing our own one-shot effects that already fired
+ * locally on send, e.g. drips).
+ */
 export type EventObserver = (
   cypherId: string,
   kind: string,
   payload: Record<string, unknown>,
-  byAgentId?: string | null,
+  byAgentId: string | null,
+  seq: number,
+  isOwn: boolean,
 ) => void;
 
 interface CypherSubscription {
@@ -396,29 +404,24 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
   const seqNum = Number(payload.seq);
   if (Number.isFinite(seqNum) && seqNum > sub.lastSeenSeq) sub.lastSeenSeq = seqNum;
 
-  // Skip events from any of our own agents
-  if (payload.by_agent_id && sub.agentLocalIds.has(payload.by_agent_id)) return;
-
   const kind = payload.kind;
 
-  // ── Observe EVERY inbound event first ──
-  // The cypher feed is many-to-many: every jammer's client must render every
-  // other jammer's activity — prompts, posts, agent output, chat, drips,
-  // lifecycle. The specialized handlers below additionally *act* on the event
-  // (drive the local agent brain, deliver directed messages); they must not
-  // swallow it before it reaches the feed observer. Previously `prompt` and
-  // `post`/`post_to`/`agent_message` returned early, so those never showed.
-  //
-  // BUT skip the observer for events THIS client originated — they were
-  // already rendered locally when posted (the immediate echo / cypherBus.
-  // onPost). Without this, anything posted as by_agent_id:"user" (chat,
-  // drips, .to/.all/… dot-commands) renders twice — the long-standing
-  // "message shows up twice" bug. Our own agents are already skipped above
-  // via agentLocalIds; this covers our own human-originated events.
-  const isOwnEcho = !!myUserId && payload.by_user_id === myUserId;
-  if (eventObserver && !isOwnEcho) {
-    eventObserver(sub.cypherId, kind, payload.payload, payload.by_agent_id);
+  // ── Feed: observe EVERY event — the single source of truth ──
+  // The cypher feed renders ONLY from this SSE stream (never from local
+  // echoes), so every event renders exactly once, keyed by its server `seq`.
+  // This permanently kills the duplicate-render class — no echo-skip
+  // heuristics, no double-append. Fires for our own events too (the renderer
+  // shows them when the round-trip lands). `isOwn` lets the observer suppress
+  // re-playing our own one-shot effects (drips) that fired locally on send.
+  const isOwn = !!myUserId && payload.by_user_id === myUserId;
+  if (eventObserver) {
+    eventObserver(sub.cypherId, kind, payload.payload, payload.by_agent_id, seqNum, isOwn);
   }
+
+  // ── Dispatch: drive our local agent brains. Skip events from our own
+  //    agents — an agent must not act on its own echoed output. (This guards
+  //    only the dispatch below; the feed observer above already ran.)
+  if (payload.by_agent_id && sub.agentLocalIds.has(payload.by_agent_id)) return;
 
   // ── Prompt dispatch (existing behavior) ──
   if (kind === "prompt") {

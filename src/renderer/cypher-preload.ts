@@ -86,7 +86,7 @@ interface CypherPanelAPI {
   openInVSCode: (filePath: string) => void;
 
   // Jammer activity feed (from CypherBus)
-  onJammerActivity: (cb: (event: { cypherId?: string; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
+  onJammerActivity: (cb: (event: { cypherId?: string; seq?: number; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
 
   // Leader completion — prompt mistro to wrap
   onLeaderDone: (cb: (info: { agentId: string; agentName: string; body: string }) => void) => () => void;
@@ -187,7 +187,7 @@ const api: CypherPanelAPI = {
   dripsPreview: (recipe) => ipcRenderer.invoke("drips-preview", recipe) as Promise<string>,
 
   onJammerActivity: (cb) => {
-    const handler = (_e: Electron.IpcRendererEvent, event: { cypherId?: string; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) =>
+    const handler = (_e: Electron.IpcRendererEvent, event: { cypherId?: string; seq?: number; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) =>
       cb(event);
     ipcRenderer.on("jammer-activity", handler);
     return () => { ipcRenderer.removeListener("jammer-activity", handler); };

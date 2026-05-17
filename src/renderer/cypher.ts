@@ -19,7 +19,7 @@ interface CypherAPI {
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
-  onJammerActivity: (cb: (event: { cypherId?: string; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
+  onJammerActivity: (cb: (event: { cypherId?: string; seq?: number; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
   agentStart: (agentName: string) => void;
   agentStop: (agentName: string) => void;
   agentSend: (agentName: string, message: string) => void;
@@ -1469,7 +1469,11 @@ async function init(): Promise<void> {
       }
     } catch { /* no project info */ }
 
-    // Load persisted feed from local file (survives refresh)
+    // Load persisted feed from local file (survives refresh). Clear first so
+    // a re-init (e.g. on cypher_wrapped) can't double the list.
+    feedItems.length = 0;
+    feedLoadedUpTo = 0;
+    seenFeedSeqs.clear();
     try {
       const entries = await api.loadFeed(cypherId, 200);
       for (const entry of entries) {
@@ -1480,6 +1484,8 @@ async function init(): Promise<void> {
           ts: entry.ts,
         });
         if (entry.ts > feedLoadedUpTo) feedLoadedUpTo = entry.ts;
+        const eseq = (entry as { seq?: number }).seq;
+        if (typeof eseq === "number") seenFeedSeqs.add(eseq);
       }
       if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
       rebuildFeed();
@@ -1495,6 +1501,11 @@ async function init(): Promise<void> {
     initRunning = false;
   }
 }
+
+// Server `seq`s already rendered into the feed — the feed is single-sourced
+// from the SSE stream, and this makes a duplicate render structurally
+// impossible even across a reconnect replay.
+const seenFeedSeqs = new Set<number>();
 
 function subscribeEvents(): void {
   cleanup();
@@ -1523,15 +1534,18 @@ function subscribeEvents(): void {
   });
 
   unsubActivity = api.onJammerActivity((event) => {
-    // Drop activity tagged for a different cypher (each event now carries its
-    // cypherId; untagged events fall through for backwards-compat).
+    // Drop activity tagged for a different cypher.
     if (event.cypherId && event.cypherId !== cypherId) return;
+    // Dedup on the server `seq` — the feed is single-sourced from the SSE
+    // stream, so seeing a seq twice means a replay; render it once.
+    if (typeof event.seq === "number" && Number.isFinite(event.seq)) {
+      if (seenFeedSeqs.has(event.seq)) return;
+      seenFeedSeqs.add(event.seq);
+      if (seenFeedSeqs.size > 4000) seenFeedSeqs.clear();
+    }
     if (!event.from || event.from === "orchestrator" || event.from === "unknown") return;
     if (!event.body?.trim()) return;
     const ts = event.ts || Date.now();
-    if (ts <= feedLoadedUpTo) return;
-    const prev = feedItems[0];
-    if (prev && prev.from === event.from && prev.kind === event.kind && prev.body === event.body) return;
     addFeedEntry({
       from: event.from,
       to: event.to,
