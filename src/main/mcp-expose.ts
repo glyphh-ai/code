@@ -1039,6 +1039,41 @@ export class McpExpose {
         }
       }
 
+      case "create_cypher": {
+        const title = String(args.title || "").trim();
+        const goal = String(args.goal || "").trim();
+        if (!title) return reply("title is required", true);
+        if (!goal) return reply("goal is required", true);
+        const typeArg = String(args.type || "open");
+        const type = ["open", "bounty", "coop", "sponsored"].includes(typeArg) ? typeArg : "open";
+        try {
+          const { serverPostAuthed } = await import("./auth");
+          // The server screens the goal (cypher-policy.validateGoal) and
+          // throws on a policy violation — surfaced here as the tool error.
+          const res = await serverPostAuthed<{ ok: boolean; cypher?: { id: string; slug: string; title: string }; error?: string }>(
+            "/api/cyphers",
+            {
+              title,
+              goal,
+              type,
+              ...(args.description ? { description: String(args.description) } : {}),
+            },
+          );
+          if (!res.ok || !res.cypher) {
+            return reply(`create_cypher failed: ${res.error || "unknown error"}`, true);
+          }
+          return replyJson({
+            ok: true,
+            id: res.cypher.id,
+            slug: res.cypher.slug,
+            title: res.cypher.title,
+            note: `Cypher "${res.cypher.title}" created — jammers can now join it.`,
+          });
+        } catch (err) {
+          return reply(`create_cypher failed: ${err instanceof Error ? err.message : String(err)}`, true);
+        }
+      }
+
       default:
         return { jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown tool: ${params.name}` } };
     }
@@ -1109,6 +1144,22 @@ export class McpExpose {
             cwd: { type: "string", description: "Optional working directory (defaults to the active workspace)" },
           },
           required: ["jammer", "task"],
+        },
+      },
+      {
+        name: "create_cypher",
+        description: "Create a new cypher — a shared multi-agent session pointed at a goal. "
+          + "Returns the cypher id and slug so jammers can join. Use this when the user wants "
+          + "to kick off a collaborative swarm on an objective.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Short cypher title" },
+            goal: { type: "string", description: "The objective — what the swarm should accomplish" },
+            type: { type: "string", enum: ["open", "bounty", "coop", "sponsored"], description: "Cypher type (default: open)" },
+            description: { type: "string", description: "Optional longer description" },
+          },
+          required: ["title", "goal"],
         },
       },
     ];
