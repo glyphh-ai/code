@@ -246,9 +246,16 @@ export async function registerCypherCrudIpc(deps: CypherCrudDeps): Promise<void>
   });
   ipcMain.handle("cypher-join", async (_e, id: string, agent_local_id: string, role?: string, invite_token?: string) => {
     try {
+      // Carry the agent's display name so the cypher feed/cards can show a
+      // name instead of the raw id (cypher_jammers stores it as display_name).
+      let display_name: string | undefined;
+      try {
+        const { getAgent } = await import("./stores/agent-store-db");
+        display_name = getAgent(agent_local_id)?.name || undefined;
+      } catch { /* registry lookup is best-effort */ }
       const r = await serverPostAuthed<{ ok: boolean; cypher?: { id: string }; error?: string }>(
         `/api/cyphers/${encodeURIComponent(id)}/join`,
-        { agent_local_id, role, invite_token },
+        { agent_local_id, role, invite_token, display_name },
       );
       // If join succeeded and we're not just observing, subscribe to the SSE
       // event stream AND bind the workspace to this cypher. The binding is

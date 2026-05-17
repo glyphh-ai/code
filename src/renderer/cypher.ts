@@ -596,28 +596,28 @@ function closeTab(filePath: string): void {
 }
 
 // ── Jammers (left bottom, server-paginated) ────────────
-async function fetchJammerPage(page: number): Promise<void> {
+async function fetchJammerPage(_page?: number): Promise<void> {
   if (!cypherId || jammerLoading) return;
   jammerLoading = true;
   try {
-    const offset = page * JAMMERS_PER_PAGE;
-    const data = await api.cypherJammers(cypherId, { limit: JAMMERS_PER_PAGE, offset });
+    // Fetch the WHOLE roster, not a page — the cypher cards view must show
+    // every agent (the spectacle is the whole swarm). The server caps at 200.
+    const data = await api.cypherJammers(cypherId, { limit: 200, offset: 0 });
     const raw = (data as any)?.jammers || [];
-    jammerTotal = (data as any)?.total ?? raw.length;
-    jammers = raw
-      .filter((j: any) => !j.left_at)
-      .map((j: any) => ({
-        agent_local_id: j.agent_local_id,
-        name: j.name || null,
-        avatar_url: j.avatar_url || null,
-        position: j.position || j.role || "jammer",
-        parentId: j.parent_agent_id || null,
-        status: "idle" as const,
-        input_tokens: Number(j.input_tokens) || 0,
-        output_tokens: Number(j.output_tokens) || 0,
-        turns: Number(j.turns) || 0,
-      }));
-    jammerPage = page;
+    const active = raw.filter((j: any) => !j.left_at);
+    jammerTotal = active.length;
+    jammers = active.map((j: any) => ({
+      agent_local_id: j.agent_local_id,
+      name: j.name || null,
+      avatar_url: j.avatar_url || null,
+      position: j.position || j.role || "jammer",
+      parentId: j.parent_agent_id || null,
+      status: "idle" as const,
+      input_tokens: Number(j.input_tokens) || 0,
+      output_tokens: Number(j.output_tokens) || 0,
+      turns: Number(j.turns) || 0,
+    }));
+    jammerPage = 0;
     renderJammers();
   } finally {
     jammerLoading = false;
@@ -679,15 +679,9 @@ function renderJammers(): void {
     container.appendChild(row);
   }
 
-  const totalPages = Math.max(1, Math.ceil(jammerTotal / JAMMERS_PER_PAGE));
-  if (totalPages > 1) {
-    controls.classList.remove("hidden");
-    ($("jammer-prev") as HTMLButtonElement).disabled = jammerPage === 0;
-    ($("jammer-next") as HTMLButtonElement).disabled = jammerPage >= totalPages - 1;
-    $("jammer-page-info").textContent = `${jammerPage + 1} / ${totalPages}`;
-  } else {
-    controls.classList.add("hidden");
-  }
+  // The whole roster is loaded — the list scrolls, no pagination, and the
+  // cards view gets every agent.
+  controls.classList.add("hidden");
 
   updateTokenScore();
   syncCards();

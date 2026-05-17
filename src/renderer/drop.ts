@@ -1948,6 +1948,17 @@ function subscribeLobbyEvents(): void {
   if (lobbyState.unsubscribeEvents) lobbyState.unsubscribeEvents();
   lobbyState.unsubscribeEvents = drop.onCypherEvent((cypherId, kind) => {
     if (cypherId !== lobbyState.cypherId) return;
+    // Cypher went live → take this participant straight into the real cypher
+    // panel — the same view the owner gets on start. Previously a lobby
+    // refresh only swapped the in-Drop "workspace" view, so remote folks were
+    // left behind in The Drop instead of entering the cypher.
+    if (kind === "cypher_started") {
+      const id = lobbyState.cypherId;
+      const title = lobbyState.cypher?.title;
+      exitLobby();
+      if (id) void activateCypherPanel(id, false, title);
+      return;
+    }
     if (LOBBY_REFRESH_KINDS.has(kind) && lobbyState.pollHandle) {
       // Trigger an out-of-band refresh; the existing tick reads cypher + jammers
       // + draft and re-renders. We simulate the tick by calling the same fetcher.
@@ -2211,6 +2222,7 @@ function renderJoinList(filter?: string): void {
   for (const a of candidates) {
     const card = document.createElement("div");
     card.className = "seed-card" + (joinSelectedIds.has(a.id) ? " selected" : "");
+    card.dataset.id = a.id;
     const avatarHtml = a.avatar_url
       ? `<img src="${escapeHtml(a.avatar_url)}" alt="" />`
       : identiconSvg(a.id, 36);
@@ -2882,6 +2894,20 @@ function init(): void {
   $("join-confirm").addEventListener("click", () => { void joinSelectedJammers(); });
   $i("join-search").addEventListener("input", () => {
     renderJoinList($i("join-search").value.trim() || undefined);
+  });
+  // Select-all / deselect-all operate on the jammers currently shown (so they
+  // respect the active search filter).
+  $("join-select-all").addEventListener("click", () => {
+    $("join-pick-list").querySelectorAll<HTMLElement>(".seed-card").forEach((c) => {
+      if (c.dataset.id) joinSelectedIds.add(c.dataset.id);
+    });
+    renderJoinList($i("join-search").value.trim() || undefined);
+    updateJoinCount();
+  });
+  $("join-deselect-all").addEventListener("click", () => {
+    joinSelectedIds.clear();
+    renderJoinList($i("join-search").value.trim() || undefined);
+    updateJoinCount();
   });
   $("lobby-redraft").addEventListener("click", async () => {
     if (!lobbyState.cypherId) return;
