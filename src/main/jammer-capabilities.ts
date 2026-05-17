@@ -105,5 +105,8 @@ export function capabilityBriefing(caps: JammerCapabilities): string {
     + "Do NOT run `git push`, `git remote`, or `gh auth` — they will fail and waste your turns. "
     + "Edit files in your working directory normally. When your task is complete, call the "
     + "`submit_work` tool with a short summary — the cypher collects your changes and the "
-    + "maestro integrates and pushes them.";
+    + "maestro integrates and pushes them. "
+    + "IMPORTANT: if you are LEADING this cypher, the missing git does NOT block you — keep "
+    + "orchestrating: decompose the goal and assign tasks to your reports right now. Do not "
+    + "stall on the git situation; task assignment, coordination, and submit_work all work fine.";
 }

@@ -655,7 +655,7 @@ function renderJammers(): void {
     row.innerHTML = `
       <div class="jammer-avatar">${avatarHtml}</div>
       <div class="jammer-info">
-        <div class="jammer-name">${escapeHtml(j.name || j.agent_local_id)}</div>
+        <div class="jammer-name">${escapeHtml(j.agent_local_id)}</div>
         <div class="jammer-role">${escapeHtml(j.position)}${tokenStr ? ` · ${tokenStr}` : ""}</div>
       </div>
       <div class="jammer-controls">
@@ -674,7 +674,7 @@ function renderJammers(): void {
     const msgBtn = row.querySelector(".jammer-msg-btn")!;
     msgBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      openJammerModal(j.agent_local_id, j.name || j.agent_local_id);
+      openJammerModal(j.agent_local_id, j.agent_local_id);
     });
     container.appendChild(row);
   }
@@ -757,7 +757,7 @@ function updateFeedSpinner(): void {
   if (!spinner) return;
   const running = jammers.filter(j => j.status === "running" || j.status === "starting");
   if (running.length > 0) {
-    const names = running.map(j => j.name || j.agent_local_id).join(", ");
+    const names = running.map(j => j.agent_local_id).join(", ");
     spinner.innerHTML = `<span class="feed-spinner-dot"></span>${escapeHtml(names)} working...`;
   } else {
     spinner.innerHTML = "";
@@ -818,7 +818,9 @@ function renderFeedItem(entry: FeedEntry, prepend: boolean): void {
   const avatarHtml = avatarSrc
     ? `<img src="${escapeHtml(avatarSrc)}" alt="" class="feed-avatar-img" />`
     : identiconSvg(entry.from, 18);
-  const displayName = (entry.meta?.display_name as string) || jammer?.name || entry.from;
+  // Jammers are identified by their id everywhere — the feed shows `from`
+  // (the agent id, or a human's name for chat). No separate display name.
+  const displayName = entry.from;
 
   const { label, cls } = feedKindLabel(entry.kind);
 
@@ -982,7 +984,7 @@ function renderWrappedAgents(): void {
     return `
       <div class="wrapped-agent-chip">
         <div class="wrapped-agent-avatar">${av}</div>
-        <span class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</span>
+        <span class="wrapped-agent-name">${escapeHtml(j.agent_local_id)}</span>
         <span class="wrapped-agent-tokens">${formatTokens(j.input_tokens + j.output_tokens)}</span>
       </div>`;
   }).join("");
@@ -1581,7 +1583,7 @@ function subscribeEvents(): void {
     const banner = $("wrap-banner");
     const agentEl = $("wrap-banner-agent");
     const bodyEl = $("wrap-banner-body");
-    const name = jammers.find((j) => j.agent_local_id === info.agentId)?.name || info.agentName;
+    const name = info.agentId || info.agentName;
     agentEl.textContent = name;
     bodyEl.textContent = info.body || "";
     banner.classList.remove("hidden");

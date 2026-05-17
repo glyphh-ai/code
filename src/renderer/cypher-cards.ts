@@ -185,7 +185,7 @@ export class CypherCards {
         <div class="cards-agent-head">
           <div class="cards-agent-avatar">${avatar}</div>
           <div style="min-width:0;flex:1">
-            <div class="cards-agent-name">${esc(j.name || j.id)}</div>
+            <div class="cards-agent-name">${esc(j.id)}</div>
             <div class="cards-agent-role">${esc(j.position)}</div>
           </div>
           <div class="cards-agent-dot ${j.status}"></div>
@@ -217,7 +217,7 @@ export class CypherCards {
     if (!this.fgGrid || this.fgCards.has(id)) return;
 
     const j = this.jammers.find((x) => x.id === id);
-    const name = j?.name || id;
+    const name = id; // jammers are identified by their globally-unique id
     const position = j?.position || "agent";
     const avatarUrl = j?.avatarUrl;
 

@@ -518,6 +518,22 @@ export class McpExpose {
 
       // ── Workspace tools ────────────────────────────────────
       case "team_status": {
+        // In a cypher, the team IS the cypher's jammer roster — not the
+        // workspace's registered agents (which is typically empty here, so
+        // the old behavior returned `agents: []` and the orchestrator was
+        // blind to its own swarm). The hierarchy context is that roster.
+        if (this.hierarchyContext && this.hierarchyContext.size > 0) {
+          return replyJson({
+            cypher: true,
+            jammers: [...this.hierarchyContext.values()].map((e) => ({
+              agent: e.agentId,
+              position: e.position,
+              reports_to: e.parentAgentId,
+              reports: e.reports,
+              area: e.area,
+            })),
+          });
+        }
         if (!this.workspaceManager || !this.eventLog) return reply("Workspace backend not available.", true);
         const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
         const ws = this.workspaceManager.get(wsSlug);
@@ -538,16 +554,23 @@ export class McpExpose {
         if (!this.eventLog) return reply("Workspace backend not available.", true);
         const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
         const filter = (args.filter as Record<string, unknown>) || args;
+        // In a cypher, default to recent activity when no explicit `since` is
+        // given — the workspace event log accumulates across cyphers, so an
+        // unfiltered read drowns the orchestrator in stale events from
+        // previous cyphers (the "why am I seeing the old cypher" problem).
+        const since = typeof filter.since === "number"
+          ? filter.since
+          : (this.hierarchyContext ? Date.now() - 45 * 60_000 : undefined);
         const events = this.eventLog.read(wsSlug, {
           tags: asStringArray(filter.tags),
           from: asStringArray(filter.from),
           to: typeof filter.to === "string" ? filter.to : undefined,
-          since: typeof filter.since === "number" ? filter.since : undefined,
+          since,
           until: typeof filter.until === "number" ? filter.until : undefined,
           kinds: asStringArray(filter.kinds) as YoEvent["kind"][] | undefined,
           limit: typeof filter.limit === "number" ? filter.limit : undefined,
         });
-        return replyJson({ count: events.length, events });
+        return replyJson({ count: events.length, events, scoped: since ? "recent" : "all" });
       }
 
       case "read_agent": {
@@ -1000,43 +1023,63 @@ export class McpExpose {
         const cwd = String(args.cwd || "").trim()
           || this.workspaceManager?.getActive()?.rootDir
           || process.cwd();
-        try {
-          const { getShellPath } = await import("./shell-path");
-          const { asarSafeQueryOptions } = await import("./sdk-llm");
-          const dynImport = new Function("s", "return import(s)") as (s: string) => Promise<any>;
-          const sdk = await dynImport("@anthropic-ai/claude-agent-sdk");
-          const options: Record<string, unknown> = {
-            ...asarSafeQueryOptions(cwd),
-            model: jammer.model_name || "claude-sonnet-4-6",
-            maxTurns: jammer.guardrails?.max_turns ?? 25,
-            permissionMode: "bypassPermissions",
-            allowedTools: ["Bash", "Read", "Edit", "Write", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite"],
-            systemPrompt: jammer.systemPrompt || `You are ${jammer.name}, a ${jammer.role || "helper"} agent.`,
-            env: {
-              ...process.env,
-              PATH: getShellPath(),
-              YO_AGENT_NAME: jammer.id,
-              YO_AGENT_ROLE: jammer.role || "agent",
-            },
-          };
-          let fullText = "";
-          let resultText = "";
-          for await (const msg of sdk.query({ prompt: task, options })) {
-            if (msg.type === "assistant" && Array.isArray(msg.message?.content)) {
-              for (const block of msg.message.content) {
-                if (block.type === "text" && block.text) fullText += block.text;
-              }
-            } else if (msg.type === "result") {
-              if (typeof msg.result === "string") resultText = msg.result;
-              if (msg.subtype && msg.subtype !== "success") {
-                fullText += `\n[${jammer.id}: run ended — ${msg.subtype}]`;
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        // NON-BLOCKING: an MCP tool call cannot block for the minutes a real
+        // agent run takes — it would (and did) exceed the tool-call timeout.
+        // Kick the run off in the background and return immediately; the
+        // jammer's progress + result post to the feed via the bus.
+        const runJammerBg = async (): Promise<void> => {
+          try {
+            const { getShellPath } = await import("./shell-path");
+            const { asarSafeQueryOptions } = await import("./sdk-llm");
+            const dynImport = new Function("s", "return import(s)") as (s: string) => Promise<any>;
+            const sdk = await dynImport("@anthropic-ai/claude-agent-sdk");
+            const options: Record<string, unknown> = {
+              ...asarSafeQueryOptions(cwd),
+              model: jammer.model_name || "claude-sonnet-4-6",
+              maxTurns: jammer.guardrails?.max_turns ?? 25,
+              permissionMode: "bypassPermissions",
+              allowedTools: ["Bash", "Read", "Edit", "Write", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite"],
+              systemPrompt: jammer.systemPrompt || `You are ${jammer.name}, a ${jammer.role || "helper"} agent.`,
+              env: {
+                ...process.env,
+                PATH: getShellPath(),
+                YO_AGENT_NAME: jammer.id,
+                YO_AGENT_ROLE: jammer.role || "agent",
+              },
+            };
+            let fullText = "";
+            let resultText = "";
+            let subtype = "success";
+            for await (const msg of sdk.query({ prompt: task, options })) {
+              if (msg.type === "assistant" && Array.isArray(msg.message?.content)) {
+                for (const block of msg.message.content) {
+                  if (block.type === "text" && block.text) fullText += block.text;
+                }
+              } else if (msg.type === "result") {
+                if (typeof msg.result === "string") resultText = msg.result;
+                if (msg.subtype) subtype = msg.subtype;
               }
             }
+            const output = (fullText.trim() || resultText.trim() || "(no output)").slice(0, 4000);
+            this.bus?.post(wsSlug, {
+              from: jammerId,
+              kind: subtype === "success" ? "agent_result" : "agent_error",
+              body: output,
+            }).catch(() => {});
+          } catch (err) {
+            this.bus?.post(wsSlug, {
+              from: jammerId,
+              kind: "agent_error",
+              body: `run failed: ${err instanceof Error ? err.message : String(err)}`,
+            }).catch(() => {});
           }
-          return reply(fullText.trim() || resultText.trim() || "(jammer produced no output)");
-        } catch (err) {
-          return reply(`run_jammer failed: ${err instanceof Error ? err.message : String(err)}`, true);
-        }
+        };
+        void runJammerBg();
+        return replyJson({
+          ok: true,
+          note: `Jammer "${jammerId}" started on the task — it runs in the background; its progress and result appear in the cypher feed. This call returns immediately (a jammer run is too long to block on).`,
+        });
       }
 
       case "create_cypher": {

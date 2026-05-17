@@ -148,7 +148,10 @@ jobs:
 
   mirror-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [release]
+    # Depend only on the builds — NOT the `release` job. A flaky failure
+    # creating the (cosmetic) yo-client draft release must not block
+    # publishing to the actual update feed.
+    needs: [build-mac, build-win]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -161,12 +164,30 @@ jobs:
           GH_TOKEN: ${{ secrets.CLIENT_RELEASE_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          gh release create "$TAG" \
-            --repo glyphh-ai/yo-releases \
-            --title "$TAG" \
-            --notes "Yo desktop app $TAG" \
-            artifacts/yo-mac/*.dmg \
-            artifacts/yo-mac/*.zip \
-            artifacts/yo-mac/latest-mac.yml \
-            artifacts/yo-win/*.exe \
-            artifacts/yo-win/latest.yml
+          # Retry — GitHub's release API is intermittently flaky; a single
+          # 5xx must not fail the whole release.
+          for attempt in 1 2 3 4; do
+            if gh release create "$TAG" \
+                --repo glyphh-ai/yo-releases \
+                --title "$TAG" \
+                --notes "Yo desktop app $TAG" \
+                artifacts/yo-mac/*.dmg \
+                artifacts/yo-mac/*.zip \
+                artifacts/yo-mac/latest-mac.yml \
+                artifacts/yo-win/*.exe \
+                artifacts/yo-win/latest.yml; then
+              echo "Published $TAG to yo-releases (attempt $attempt)"
+              exit 0
+            fi
+            # If the release already exists (a re-run), upload the assets to it.
+            if gh release view "$TAG" --repo glyphh-ai/yo-releases >/dev/null 2>&1; then
+              gh release upload "$TAG" --repo glyphh-ai/yo-releases --clobber \
+                artifacts/yo-mac/*.dmg artifacts/yo-mac/*.zip artifacts/yo-mac/latest-mac.yml \
+                artifacts/yo-win/*.exe artifacts/yo-win/latest.yml \
+                && { echo "Uploaded assets to existing $TAG"; exit 0; }
+            fi
+            echo "Publish attempt $attempt failed; retrying in $((attempt * 15))s..."
+            sleep $((attempt * 15))
+          done
+          echo "::error::Failed to publish $TAG to yo-releases after 4 attempts"
+          exit 1

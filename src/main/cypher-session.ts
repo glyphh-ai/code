@@ -363,24 +363,29 @@ export function createCypherSession(deps: CypherSessionDeps) {
         isLeader
           ? [
               `As ${a.position}:`,
-              `1. Clone the repo: gh_repo_info → \`git clone <url> . && git pull\``,
-              `2. Read ./cypher.json for goal and roster`,
-              `3. Create README.md with project plan, commit and push`,
-              `4. Assign tasks to your reports: ${reportsStr} (use assign_task — describe the task clearly)`,
-              `5. Monitor progress — pull periodically, review what workers pushed`,
-              `6. When all work is done, update README.md with final summary, commit and push`,
+              `1. Read ./cypher.json for the goal and roster.`,
+              `2. IMMEDIATELY decompose the goal and assign a concrete task to EACH of`,
+              `   your reports: ${reportsStr} — use assign_task, describe each task clearly.`,
+              `   Do this FIRST. Your workers are waiting on you for direction.`,
+              `3. If GitHub is set up, clone the repo (gh_repo_info → git clone) and write a`,
+              `   README.md project plan. If git is NOT available, SKIP this — it does not`,
+              `   block you, and it does not block assigning tasks.`,
+              `4. Monitor progress — review what workers report; reassign or unblock as needed.`,
+              `5. When the work is done, summarize the result (README or show_output).`,
               ``,
-              `Everyone commits directly to the default branch. Keep it simple.`,
-              `Workers activate when you assign them a task — they are idle until then.`,
-              `Do NOT create GitHub issues or manage a task board — just assign work directly and ship code.`,
+              `Your #1 job is to KEEP THE SWARM MOVING. Assign work fast; never stall on`,
+              `tooling (git, auth). Workers come online shortly after the cypher starts —`,
+              `give them tasks. Don't create GitHub issues or a task board — assign directly.`,
             ].join("\n")
           : [
               `As a worker:`,
-              `1. Accept your task (accept_task)`,
-              `2. Clone the repo: gh_repo_info → \`git clone <url> .\``,
-              `3. Do the work, commit often with clear messages`,
-              `4. Push to the default branch: \`git pull && git push\``,
-              `5. Use complete_task when finished`,
+              `1. Accept your task (accept_task). If you haven't been assigned one yet,`,
+              `   read ./cypher.json and wait briefly — your leader will assign via the bus.`,
+              `2. If GitHub is set up, clone the repo (gh_repo_info → git clone).`,
+              `3. Do the work, commit often with clear messages.`,
+              `4. If you can push: \`git pull && git push\`. If you CANNOT push (no git/auth),`,
+              `   call submit_work when done — the maestro integrates your changes.`,
+              `5. Use complete_task when finished.`,
               ``,
               `If push fails due to conflicts, pull and resolve, then push again.`,
               `Stay focused on your assigned task. Ship code, not tickets.`,
@@ -468,30 +473,53 @@ export function createCypherSession(deps: CypherSessionDeps) {
 
     if (pendingWorkers.size > 0) {
       console.log(`[spawn-jammers] ${pendingWorkers.size} workers pending activation: ${[...pendingWorkers.keys()].join(", ")}`);
+
+      const activateWorker = (a: typeof mine[0], briefing: string): void => {
+        if (!pendingWorkers.has(a.agent_local_id)) return; // already activated
+        pendingWorkers.delete(a.agent_local_id);
+        spawned++;
+        void buildJammerConfig(a, briefing).then((built) => {
+          if (!built) return;
+          agentRunner.startAgent(wc, built.config).catch((startErr) => {
+            console.error(`[spawn-jammers] start failed for ${a.agent_local_id}:`, startErr instanceof Error ? startErr.message : startErr);
+          });
+        });
+      };
+
+      // A worker assigned a task before the auto-start timer fires gets the
+      // task in its opening briefing.
       const unsub = cypherBus.onPost((_ws, event) => {
         if (event.kind !== "assign_task" || !event.to) return;
         const pending = pendingWorkers.get(event.to);
         if (!pending) return;
-        pendingWorkers.delete(event.to);
         console.log(`[spawn-jammers] activating worker "${event.to}" on assign_task from ${event.from}`);
-
-        const taskBriefing = [
+        activateWorker(pending, [
           `You are jammer "${event.to}" in cypher ${cypId}.`,
           `Position: ${pending.position}.${pending.area ? ` Area: ${pending.area}` : ""}`,
           `You have been assigned a task by ${event.from}: ${event.body}`,
           `Use accept_task to acknowledge, then execute the task in your sandbox.`,
-        ].join(" ");
-
-        buildJammerConfig(pending, taskBriefing).then((built) => {
-          if (!built) return;
-          agentRunner.startAgent(wc, built.config).catch((startErr) => {
-            console.error(`[spawn-jammers] start failed for ${event.to}:`, startErr instanceof Error ? startErr.message : startErr);
-          });
-          spawned++;
-        });
-
+        ].join(" "));
         if (pendingWorkers.size === 0) unsub();
       });
+
+      // Auto-start any still-idle workers after a short grace period — they
+      // must not wait forever for a leader's assign_task (a stalled leader
+      // would otherwise leave the whole swarm dark). They come up, register
+      // on the bus, and pick up their assignment live when it arrives.
+      setTimeout(() => {
+        if (pendingWorkers.size === 0) return;
+        console.log(`[spawn-jammers] auto-starting ${pendingWorkers.size} idle worker(s): ${[...pendingWorkers.keys()].join(", ")}`);
+        for (const a of [...pendingWorkers.values()]) {
+          activateWorker(a, [
+            `You are jammer "${a.agent_local_id}" in cypher ${cypId}.`,
+            `Position: ${a.position}.${a.area ? ` Area: ${a.area}` : ""}`,
+            `Read ./cypher.json for the goal and roster. Your leader will assign you a`,
+            `task via the bus — when it arrives, accept_task and execute it. If you`,
+            `already see clear work in your area, start on it now.`,
+          ].join(" "));
+        }
+        unsub();
+      }, 25_000);
     }
 
     return { ok: true, spawned, skipped };

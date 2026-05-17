@@ -133,8 +133,12 @@ export class AgentRunner {
   async startAgent(wc: WebContents, config: AgentConfig): Promise<void> {
     const key = this.key(wc.id, config.name);
     const existing = this.agents.get(key);
-    if (existing && (existing.status === "running" || existing.status === "starting")) {
-      console.log(`[agent-runner] "${config.name}" already running, skipping`);
+    // Skip if the agent is already live in ANY active state — including
+    // "waiting" (a finished turn, still alive for follow-ups). Restarting a
+    // live agent re-runs the capability probe and re-posts its status event,
+    // which reads as a duplicate in the feed.
+    if (existing && (existing.status === "running" || existing.status === "starting" || existing.status === "waiting")) {
+      console.log(`[agent-runner] "${config.name}" already live (${existing.status}), skipping start`);
       return;
     }
     this.stopAgent(wc.id, config.name);
