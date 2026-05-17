@@ -108,6 +108,8 @@ let promptHandler: PromptHandler | null = null;
 let agentMessageHandler: AgentMessageHandler | null = null;
 let eventObserver: EventObserver | null = null;
 let stopped = false;
+/** This client's own platform user id — used to echo-skip our own events. */
+let myUserId: string | null = null;
 
 const RECONNECT_BACKOFF_MS = [500, 2_000, 5_000, 5_000, 5_000] as const;
 
@@ -213,6 +215,15 @@ export async function postCypherEvent(
 export function startCypherRuntime(): void {
   if (!stopped && subscriptions.size > 0) return;
   stopped = false;
+  // Cache our own user id so handleFrame can echo-skip events this client
+  // originated (chat, drips, dot-commands all post as by_agent_id:"user" —
+  // not in agentLocalIds — so without this they render twice: once on the
+  // immediate local echo, once on the SSE round-trip).
+  if (isAuthenticated()) {
+    void serverGetAuthed<{ user: { id: string } }>(`/api/heartbeat`)
+      .then((r) => { myUserId = r.user?.id ?? null; })
+      .catch(() => { /* best-effort */ });
+  }
   // Hydrate subscriptions from server: any live cypher I've joined as a non-observer.
   void hydrateSubscriptions();
   console.log("[cypher-runtime] started");
@@ -397,7 +408,15 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
   // (drive the local agent brain, deliver directed messages); they must not
   // swallow it before it reaches the feed observer. Previously `prompt` and
   // `post`/`post_to`/`agent_message` returned early, so those never showed.
-  if (eventObserver) {
+  //
+  // BUT skip the observer for events THIS client originated — they were
+  // already rendered locally when posted (the immediate echo / cypherBus.
+  // onPost). Without this, anything posted as by_agent_id:"user" (chat,
+  // drips, .to/.all/… dot-commands) renders twice — the long-standing
+  // "message shows up twice" bug. Our own agents are already skipped above
+  // via agentLocalIds; this covers our own human-originated events.
+  const isOwnEcho = !!myUserId && payload.by_user_id === myUserId;
+  if (eventObserver && !isOwnEcho) {
     eventObserver(sub.cypherId, kind, payload.payload, payload.by_agent_id);
   }
 

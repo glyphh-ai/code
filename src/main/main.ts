@@ -1772,6 +1772,10 @@ async function boot() {
     "chat", "drip", "usage", "prompt",
     "cypher_started", "cypher_wrapped",
   ]);
+  // Rate-limit inbound drip rendering — a burst of drips from many agents
+  // would otherwise spawn an overlay window per drip and flood the UI.
+  const DRIP_MIN_INTERVAL_MS = 1500;
+  let lastDripRenderAt = 0;
   setEventObserver((cypherId, kind, payload, byAgentId) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("cypher-event", cypherId, kind, payload);
@@ -1842,14 +1846,21 @@ async function boot() {
       threadStore.appendFeed(cypherId, chatActivity);
     }
 
-    // Route inbound drip effects to yo panel
-    if (kind === "drip" && mainWindow && !mainWindow.isDestroyed()) {
-      const p = payload as Record<string, unknown>;
-      // Skip echo of our own drip (already played locally when sent)
-      const account = getAccountInfo();
-      if (account && p.sender_name === account.firstName) return;
-      const recipe = typeof p.recipe === "string" ? p.recipe : "fireworks";
-      mainWindow.webContents.send("yo-panel-drip-effect", recipe);
+    // Inbound drip effect — play it as a window-level overlay (via the drip
+    // manager) so it's visible above whatever panel the user is on: the yo
+    // panel OR the cypher panel BrowserView. The old path sent it into the
+    // main renderer's DOM, where it was hidden behind the cypher panel — so
+    // drips never showed for anyone watching the cypher. Our own drip is
+    // echo-skipped upstream (by_user_id) — only other people's drips reach
+    // here. Rate-limited so a burst can't flood the UI with overlays.
+    if (kind === "drip") {
+      const now = Date.now();
+      if (now - lastDripRenderAt >= DRIP_MIN_INTERVAL_MS) {
+        lastDripRenderAt = now;
+        const p = payload as Record<string, unknown>;
+        const recipe = typeof p.recipe === "string" ? p.recipe : "fireworks";
+        try { dripManager?.execute([recipe]); } catch { /* ignore */ }
+      }
     }
   });
 

@@ -161,6 +161,37 @@ export function signOutDrop(): void {
 }
 
 /**
+ * fetch() that transparently retries transient gateway failures — 502/503/504
+ * and network errors — with backoff. yo-server can briefly 503 (a cold start,
+ * a dyno hiccup) and serve an HTML "Application Error" page; without this the
+ * user just sees the failure and has to click sign-in again.
+ *
+ * Only gateway-level 5xx are retried: a 502/503/504 means the request never
+ * reached the app, so retrying the (single-use) OAuth code is safe. App-level
+ * 4xx/500 responses are returned as-is — those are real errors.
+ */
+async function fetchResilient(url: string, init?: RequestInit): Promise<Response> {
+  const delays = [800, 2000, 5000];   // 4 attempts total
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (res.ok || ![502, 503, 504].includes(res.status) || attempt === delays.length) {
+        return res;
+      }
+      try { await res.body?.cancel(); } catch { /* ignore */ }
+      console.warn(`[drop-auth] ${url} → ${res.status}, retrying (attempt ${attempt + 1})`);
+    } catch (err) {
+      lastErr = err;
+      if (attempt === delays.length) throw err;
+      console.warn(`[drop-auth] ${url} network error, retrying (attempt ${attempt + 1})`);
+    }
+    await new Promise((r) => setTimeout(r, delays[attempt]));
+  }
+  throw lastErr ?? new Error("fetchResilient: exhausted retries");
+}
+
+/**
  * Open the GH OAuth flow in a child BrowserWindow scoped to the drop-session
  * partition. Resolves with the parsed { code, state } once the callback
  * lands, then exchanges with yo-server.
@@ -168,14 +199,32 @@ export function signOutDrop(): void {
  * Rejects if the user closes the window, the server is unreachable, or the
  * exchange returns non-2xx (including 501 stub).
  */
+let signInInFlight = false;
+
 export async function signInWithGitHub(): Promise<{ ok: true; status: DropAuthStatus } | { ok: false; error: string; status?: number }> {
+  // Guard against a second sign-in flow starting while one is mid-exchange
+  // (e.g. the user clicking the button again after a transient error) —
+  // concurrent OAuth windows + a shared activeOAuthWindow handle is a
+  // recipe for bad state.
+  if (signInInFlight) {
+    return { ok: false, error: "Sign-in is already in progress." };
+  }
+  signInInFlight = true;
+  try {
+    return await doSignInWithGitHub();
+  } finally {
+    signInInFlight = false;
+  }
+}
+
+async function doSignInWithGitHub(): Promise<{ ok: true; status: DropAuthStatus } | { ok: false; error: string; status?: number }> {
   // 1. Get authorize URL from yo-server
   // Bind to the platform user so the GH token is stored under the same user ID
   const platformUserId = getHeartbeatInfo()?.user?.id;
   console.log("[drop-auth] signInWithGitHub bind_user_id:", platformUserId ?? "(heartbeat not available)");
   const qs = new URLSearchParams({ flow: "electron-drop" });
   if (platformUserId) qs.set("bind_user_id", platformUserId);
-  const startRes = await fetch(`${AUTH_SERVER}/api/auth/github/start?${qs}`, {
+  const startRes = await fetchResilient(`${AUTH_SERVER}/api/auth/github/start?${qs}`, {
     method: "GET",
   });
   if (!startRes.ok) {
@@ -195,7 +244,7 @@ export async function signInWithGitHub(): Promise<{ ok: true; status: DropAuthSt
   if (state !== startBody.state) return { ok: false, error: "state mismatch — possible CSRF" };
 
   // 3. Exchange with yo-server
-  const exchangeRes = await fetch(`${AUTH_SERVER}/api/auth/github/exchange`, {
+  const exchangeRes = await fetchResilient(`${AUTH_SERVER}/api/auth/github/exchange`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code, state }),
