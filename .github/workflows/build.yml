@@ -111,10 +111,11 @@ jobs:
           $hash = [System.Convert]::ToBase64String($sha.ComputeHash($stream))
           $stream.Close()
           $size = (Get-Item $exe).Length
-          $yml = Get-Content release/latest.yml -Raw
+          $ymlPath = (Resolve-Path release/latest.yml).Path
+          $yml = Get-Content $ymlPath -Raw
           $yml = $yml -replace 'sha512: .*', "sha512: $hash"
           $yml = $yml -replace 'size: .*', "size: $size"
-          Set-Content -NoNewline release/latest.yml $yml
+          [System.IO.File]::WriteAllText($ymlPath, $yml)
           Write-Host "Patched latest.yml: size=$size sha512=$hash"
 
       - name: Upload Windows artifacts
