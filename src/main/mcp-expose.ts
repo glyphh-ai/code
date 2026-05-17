@@ -943,6 +943,99 @@ export class McpExpose {
         return replyJson({ ok: true, title, length: content.length });
       }
 
+      // ── Jammer tools — create & run reusable sub-agents on the fly ──
+      case "create_jammer": {
+        const name = String(args.name || "").trim();
+        const role = String(args.role || "").trim();
+        const instructions = String(args.instructions || "").trim();
+        if (!name || !role || !instructions) {
+          return reply("name, role, and instructions are required", true);
+        }
+        const { listAgents, saveAgent } = await import("./stores/agent-store-db");
+        // Slugify the name into an id, uniquified against the existing library.
+        const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "jammer";
+        const taken = new Set(listAgents().map((a) => a.id));
+        let jid = base;
+        for (let n = 2; taken.has(jid); n++) jid = `${base}-${n}`;
+        const maxTurns = typeof args.max_turns === "number" ? args.max_turns : undefined;
+        try {
+          const saved = saveAgent({
+            id: jid,
+            name,
+            type: "local",
+            role,
+            systemPrompt: instructions,
+            ...(args.model ? { model_name: String(args.model) } : {}),
+            ...(maxTurns ? { guardrails: { max_turns: maxTurns } } : {}),
+          } as Parameters<typeof saveAgent>[0]);
+          return replyJson({
+            ok: true, id: saved.id, name: saved.name, role: saved.role,
+            note: `Jammer "${saved.name}" saved to the global library. Run it any time with run_jammer (id: ${saved.id}).`,
+          });
+        } catch (err) {
+          return reply(`create_jammer failed: ${err instanceof Error ? err.message : String(err)}`, true);
+        }
+      }
+
+      case "list_jammers": {
+        const { listAgents } = await import("./stores/agent-store-db");
+        const jammers = listAgents().map((a) => ({
+          id: a.id, name: a.name, role: a.role || "agent", model: a.model_name || "default",
+        }));
+        return replyJson({ jammers, count: jammers.length });
+      }
+
+      case "run_jammer": {
+        const jammerId = String(args.jammer || "").trim();
+        const task = String(args.task || "").trim();
+        if (!jammerId || !task) return reply("jammer and task are required", true);
+        const { getAgent } = await import("./stores/agent-store-db");
+        const jammer = getAgent(jammerId);
+        if (!jammer) {
+          return reply(`Jammer "${jammerId}" not found — use list_jammers to see the library.`, true);
+        }
+        const cwd = String(args.cwd || "").trim()
+          || this.workspaceManager?.getActive()?.rootDir
+          || process.cwd();
+        try {
+          const { getShellPath } = await import("./shell-path");
+          const { asarSafeQueryOptions } = await import("./sdk-llm");
+          const dynImport = new Function("s", "return import(s)") as (s: string) => Promise<any>;
+          const sdk = await dynImport("@anthropic-ai/claude-agent-sdk");
+          const options: Record<string, unknown> = {
+            ...asarSafeQueryOptions(cwd),
+            model: jammer.model_name || "claude-sonnet-4-6",
+            maxTurns: jammer.guardrails?.max_turns ?? 25,
+            permissionMode: "bypassPermissions",
+            allowedTools: ["Bash", "Read", "Edit", "Write", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite"],
+            systemPrompt: jammer.systemPrompt || `You are ${jammer.name}, a ${jammer.role || "helper"} agent.`,
+            env: {
+              ...process.env,
+              PATH: getShellPath(),
+              YO_AGENT_NAME: jammer.id,
+              YO_AGENT_ROLE: jammer.role || "agent",
+            },
+          };
+          let fullText = "";
+          let resultText = "";
+          for await (const msg of sdk.query({ prompt: task, options })) {
+            if (msg.type === "assistant" && Array.isArray(msg.message?.content)) {
+              for (const block of msg.message.content) {
+                if (block.type === "text" && block.text) fullText += block.text;
+              }
+            } else if (msg.type === "result") {
+              if (typeof msg.result === "string") resultText = msg.result;
+              if (msg.subtype && msg.subtype !== "success") {
+                fullText += `\n[${jammer.id}: run ended — ${msg.subtype}]`;
+              }
+            }
+          }
+          return reply(fullText.trim() || resultText.trim() || "(jammer produced no output)");
+        } catch (err) {
+          return reply(`run_jammer failed: ${err instanceof Error ? err.message : String(err)}`, true);
+        }
+      }
+
       default:
         return { jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown tool: ${params.name}` } };
     }
@@ -974,6 +1067,45 @@ export class McpExpose {
             content: { type: "string", description: "The content to store" },
           },
           required: ["name", "content"],
+        },
+      },
+      {
+        name: "create_jammer",
+        description: "Create a reusable jammer (a named sub-agent) in the user's global jammer "
+          + "library. Once created it persists and can be run any time via run_jammer, or "
+          + "brought into a cypher. Use this when the user asks for a specialized agent — "
+          + "a reviewer, a frontend specialist, a test-writer, etc.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Display name, e.g. 'Code Reviewer'" },
+            role: { type: "string", description: "Short role label, e.g. 'reviewer', 'frontend'" },
+            instructions: { type: "string", description: "The jammer's system prompt — who it is, how it works, what it's good at" },
+            model: { type: "string", description: "Optional model id (default: claude-sonnet-4-6)" },
+            max_turns: { type: "number", description: "Optional per-run turn budget (default 25)" },
+          },
+          required: ["name", "role", "instructions"],
+        },
+      },
+      {
+        name: "list_jammers",
+        description: "List the jammers in the user's global jammer library — their ids, names, and roles.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "run_jammer",
+        description: "Run a jammer one-shot on a task and return its result. Blocks until the "
+          + "jammer finishes. Use this to delegate work to a specialized jammer — the yo agent "
+          + "orchestrates, the jammer does the focused task. The jammer can read/write files and "
+          + "run commands in the working directory.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            jammer: { type: "string", description: "The jammer's id (from list_jammers)" },
+            task: { type: "string", description: "The task for the jammer to carry out" },
+            cwd: { type: "string", description: "Optional working directory (defaults to the active workspace)" },
+          },
+          required: ["jammer", "task"],
         },
       },
     ];
