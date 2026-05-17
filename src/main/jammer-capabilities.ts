@@ -1,0 +1,83 @@
+/**
+ * jammer-capabilities — probe a jammer's machine for VCS capability at
+ * jam-start, so "this jammer has no git" becomes a non-event instead of an
+ * agent burning turns on `gh auth` and dying on an unknown error.
+ *
+ * A remote jammer's machine may have no git, git but no GitHub auth, or a
+ * fully wired setup. We detect which, provision credentials when we can
+ * (`gh auth setup-git` wires an already-authenticated gh into git), and
+ * hand the agent a briefing line telling it exactly what it may do.
+ *
+ * A jammer that cannot push is not stuck — it submits a work package via the
+ * `submit_work` tool and the maestro integrates it. Git is an optimization,
+ * never a requirement.
+ */
+
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { getShellPath } from "./shell-path";
+
+const execFileAsync = promisify(execFile);
+
+export interface JammerCapabilities {
+  /** `git` binary is on PATH. */
+  hasGit: boolean;
+  /** `gh` (GitHub CLI) binary is on PATH. */
+  hasGh: boolean;
+  /** `gh` is logged in to a GitHub account. */
+  ghAuthed: boolean;
+  /** The jammer can push to GitHub directly (git present + gh authenticated). */
+  canPush: boolean;
+}
+
+/** Run a command non-interactively; resolve true on exit 0, false otherwise. */
+async function probe(cmd: string, args: string[], cwd?: string): Promise<boolean> {
+  try {
+    await execFileAsync(cmd, args, {
+      cwd,
+      timeout: 8000,
+      env: {
+        ...process.env,
+        PATH: getShellPath(),
+        GIT_TERMINAL_PROMPT: "0",   // never block on a credential prompt
+        GH_PROMPT_DISABLED: "1",
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Probe the jammer's VCS capability. When git is present and gh is
+ * authenticated, also wires gh's token into git (`gh auth setup-git`) so
+ * `git push` works without prompts — provisioning from the runtime rather
+ * than asking the agent to do it.
+ */
+export async function probeJammerCapabilities(cwd: string): Promise<JammerCapabilities> {
+  const [hasGit, hasGh] = await Promise.all([
+    probe("git", ["--version"]),
+    probe("gh", ["--version"]),
+  ]);
+  const ghAuthed = hasGh ? await probe("gh", ["auth", "status"]) : false;
+  if (hasGit && ghAuthed) {
+    // Wire the authenticated gh token into git's credential helper.
+    await probe("gh", ["auth", "setup-git"], cwd);
+  }
+  return { hasGit, hasGh, ghAuthed, canPush: hasGit && ghAuthed };
+}
+
+/** A briefing line telling the agent exactly what it may do with VCS. */
+export function capabilityBriefing(caps: JammerCapabilities): string {
+  if (caps.canPush) {
+    return "GIT/GITHUB: This machine has git and an authenticated GitHub CLI — "
+      + "commit and push your work to the repo as normal.";
+  }
+  const why = !caps.hasGit ? "git is not installed" : "GitHub is not authenticated";
+  return `GIT/GITHUB: This machine CANNOT push to GitHub (${why}). `
+    + "Do NOT run `git push`, `git remote`, or `gh auth` — they will fail and waste your turns. "
+    + "Edit files in your working directory normally. When your task is complete, call the "
+    + "`submit_work` tool with a short summary — the cypher collects your changes and the "
+    + "maestro integrates and pushes them.";
+}

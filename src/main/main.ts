@@ -35,7 +35,7 @@ import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus, getDrop
 import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, setPromptHandler, setAgentMessageHandler, setEventObserver, postCypherEvent } from "./cypher-runtime";
+import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, unsubscribeCypherAgent, CYPHER_VIEWER_AGENT, CYPHER_MAESTRO_AGENT, setPromptHandler, setAgentMessageHandler, setEventObserver, postCypherEvent } from "./cypher-runtime";
 import { adapterDispatcher } from "./provider-adapters/registry";
 import { CypherBus } from "./cypher-bus";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
@@ -91,6 +91,7 @@ import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
 import { usageQueue } from "./usage-queue";
+import { redactSecrets, summarizeToolInput } from "./feed-sanitize";
 import { promptLog } from "./prompt-log";
 import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
@@ -648,7 +649,10 @@ async function boot() {
 
   // Forward jammer bus events to the cypher panel feed + persist locally
   cypherBus.onPost((_wsSlug, event) => {
+    const { getCurrentCypher } = require("./current-cypher") as { getCurrentCypher: () => string | null };
+    const cyId = getCurrentCypher();
     const payload = {
+      cypherId: cyId ?? undefined,
       from: event.from,
       to: event.to,
       kind: event.kind,
@@ -662,8 +666,6 @@ async function boot() {
       cypherView.webContents.send("jammer-activity", payload);
     }
     // Persist to local feed file so history survives refresh
-    const { getCurrentCypher } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-    const cyId = getCurrentCypher();
     if (cyId) {
       threadStore.appendFeed(cyId, payload);
     }
@@ -1763,10 +1765,12 @@ async function boot() {
   // can refresh in near-real-time without polling. Renderer filters by current
   // cypher and reacts on relevant kinds (cypher_started, cypher_wrapped,
   // jammer_join, jammer_leave, seat_open, post, post_to, etc.).
-  // Kinds that carry agent output and should appear in the cypher feed.
-  const CYPHER_FEED_KINDS = new Set([
-    "agent_thinking", "agent_tool_use", "agent_tool_result",
-    "agent_result", "agent_error", "status", "text",
+  // Kinds with dedicated handling — kept OUT of the generic feed render so
+  // they aren't shown twice or as noise: chat → yo panel, drip → effect,
+  // lifecycle → onCypherEvent in the panel, usage → dashboard, prompt → input.
+  const CYPHER_FEED_EXCLUDE = new Set([
+    "chat", "drip", "usage", "prompt",
+    "cypher_started", "cypher_wrapped",
   ]);
   setEventObserver((cypherId, kind, payload, byAgentId) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1779,38 +1783,63 @@ async function boot() {
     }
 
     // Inbound remote-agent activity → the cypher feed, via the same
-    // `jammer-activity` channel local agent activity uses. Without this a
-    // remote jammer's output never reached the panel on any client.
-    if (CYPHER_FEED_KINDS.has(kind)) {
+    // `jammer-activity` channel local agent activity uses. Many-to-many:
+    // every jammer's client renders every other jammer's activity. The
+    // `cypherId` tag lets the renderer drop events for a different cypher —
+    // replacing the old getCurrentCypher() gate, which broke the feed for
+    // anyone (a jammer who joined before the leader, the owner viewing)
+    // whose current-cypher wasn't yet set.
+    if (!CYPHER_FEED_EXCLUDE.has(kind)) {
       const p = payload as Record<string, unknown>;
       const activity = {
+        cypherId,
         from: byAgentId || (typeof p.agent_id === "string" ? p.agent_id : "unknown"),
         to: typeof p.to === "string" ? p.to : undefined,
         kind,
-        body: typeof p.text === "string" ? p.text : "",
+        // Defense-in-depth: activity is redacted at the source (postToBus /
+        // the maestro publish), but scrub again here in case an event came
+        // from an un-patched client.
+        body: redactSecrets(typeof p.text === "string" ? p.text : ""),
         tags: Array.isArray(p.tags) ? (p.tags as string[]) : undefined,
         ts: Date.now(),
         meta: p,
       };
-      const { getCurrentCypher } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-      if (cypherView && !cypherView.webContents.isDestroyed() && getCurrentCypher() === cypherId) {
+      if (cypherView && !cypherView.webContents.isDestroyed()) {
         cypherView.webContents.send("jammer-activity", activity);
       }
       threadStore.appendFeed(cypherId, activity);
     }
 
-    // Route inbound chat messages to yo panel
-    if (kind === "chat" && mainWindow && !mainWindow.isDestroyed()) {
+    // Remote jammer token usage → local dashboard count. Our own agents'
+    // usage events are echo-skipped upstream (their agent id is in this
+    // subscription's agentLocalIds) and recorded directly by agent-runner,
+    // so only remote jammers reach here — no double-count.
+    if (kind === "usage") {
       const p = payload as Record<string, unknown>;
-      // Skip echo of our own chat messages (already shown locally)
+      const inTok = Number(p.input_tokens) || 0;
+      const outTok = Number(p.output_tokens) || 0;
+      if (inTok || outTok) {
+        usageTracker.record(byAgentId || "jammer", { inputTokens: inTok, outputTokens: outTok });
+      }
+    }
+
+    // Inbound chat → the cypher feed (the shared room), NOT the private yo
+    // panel. Our own chat was already rendered into the feed when we sent it.
+    if (kind === "chat") {
+      const p = payload as Record<string, unknown>;
       const account = getAccountInfo();
       if (account && p.sender_name === account.firstName) return;
-      mainWindow.webContents.send("yo-panel-chat-msg", {
-        from: p.sender_name || p.by_user_id || "someone",
-        body: typeof p.text === "string" ? p.text : "",
+      const chatActivity = {
+        cypherId,
+        from: String(p.sender_name || p.by_user_id || "someone"),
+        kind: "chat",
+        body: redactSecrets(typeof p.text === "string" ? p.text : ""),
         ts: Date.now(),
-        isLocal: false,
-      });
+      };
+      if (cypherView && !cypherView.webContents.isDestroyed()) {
+        cypherView.webContents.send("jammer-activity", chatActivity);
+      }
+      threadStore.appendFeed(cypherId, chatActivity);
     }
 
     // Route inbound drip effects to yo panel
@@ -2298,7 +2327,12 @@ async function boot() {
         if (firstWord === "chat") {
           if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .chat <message>"); return; }
           postCypherEvent(cyId, "chat", { text: rest, sender_name: senderName }, "user");
-          mainWindow?.webContents.send("yo-panel-chat-msg", { from: senderName, body: rest, ts: Date.now(), isLocal: true });
+          // Chat lands in the cypher feed (the shared room), not the private
+          // yo panel. Render our own message immediately; the SSE echo is
+          // skipped by sender_name so it doesn't double up.
+          const chatActivity = { cypherId: cyId, from: senderName, kind: "chat", body: rest, ts: Date.now() };
+          panelManager.getView("cypher")?.webContents.send("jammer-activity", chatActivity);
+          threadStore.appendFeed(cyId, chatActivity);
           mainWindow?.webContents.send("yo-panel-done", "");
           return;
         }
@@ -2363,7 +2397,19 @@ async function boot() {
       },
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
-        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
+        if (activeCypherId) {
+          threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
+          // Three-layer model: the leader is a participant too. Publish the
+          // maestro's tool activity to the cypher feed (sanitized label only,
+          // never output) so jammers see how the DJ runs the cypher. Raw tool
+          // results stay in the private yo panel.
+          void cypherBus.post(workspaceManager.getActiveSlug(), {
+            from: CYPHER_MAESTRO_AGENT,
+            kind: "agent_tool_use",
+            body: summarizeToolInput(name, input),
+            meta: { tool_name: name },
+          });
+        }
         // Reveal the file the agent is touching: VS Code first (via the Yo
         // Bridge extension — no reload), Monaco .Yo Editor as the fallback.
         const fp = fileFromToolCall(name, input);
@@ -2371,12 +2417,25 @@ async function boot() {
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
+        // Tool RESULTS are the private layer — they may contain file contents
+        // or command output. They go to the local thread store only, never
+        // the shared feed.
         if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool-result", content: detail.slice(0, 500), toolId: id });
       },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
-        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "done", content: "" });
+        if (activeCypherId) {
+          threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "done", content: "" });
+          // Publish the maestro's turn narration to the feed (redacted, capped).
+          if (fullText && fullText.trim()) {
+            void cypherBus.post(workspaceManager.getActiveSlug(), {
+              from: CYPHER_MAESTRO_AGENT,
+              kind: "agent_thinking",
+              body: redactSecrets(fullText.slice(0, 500)),
+            });
+          }
+        }
       },
       onError: (err) => wc.send("yo-panel-error", err),
     });
@@ -2721,6 +2780,12 @@ async function boot() {
   });
 
   ipcMain.on("cypher-panel-leave", () => {
+    // Drop the viewer + maestro sentinels — closes the SSE stream if no local
+    // agents remain subscribed to this cypher.
+    if (cypherPanelContext?.cypherId) {
+      unsubscribeCypherAgent(cypherPanelContext.cypherId, CYPHER_VIEWER_AGENT);
+      unsubscribeCypherAgent(cypherPanelContext.cypherId, CYPHER_MAESTRO_AGENT);
+    }
     cypherPanelContext = null;
     setPreference("cypherPanelContext", null);
     yoAgent.setCypherMode(false);

@@ -258,22 +258,6 @@ function addYoUserMessage(text: string) {
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
 
-function addYoChatMessage(msg: { from: string; body: string; ts: number; isLocal: boolean }) {
-  const el = document.createElement("div");
-  el.className = msg.isLocal ? "yo-msg yo-msg-chat yo-msg-chat-local" : "yo-msg yo-msg-chat";
-  const d = new Date(msg.ts);
-  const time = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-  el.innerHTML = `
-    <div class="yo-chat-header">
-      <span class="yo-chat-sender">${msg.from}</span>
-      <span class="yo-chat-time">${time}</span>
-    </div>
-    <div class="yo-chat-body">${msg.body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
-  `;
-  yoPanelMessages.appendChild(el);
-  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
-}
-
 // ── Helpers: scroll ────────────────────────────────────────────────────────
 
 function yoScroll() {
@@ -1211,9 +1195,8 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelDone((fullText) => { finalizeYoMessage(fullText); drainPendingYoMessages(); });
   window.yo.onYoPanelError((err) => showYoError(err));
   window.yo.onYoPanelClose(() => closeYoPanel());
-  window.yo.onYoPanelChatMsg((msg) => {
-    if (isYoPanelOpen()) addYoChatMessage(msg);
-  });
+  // Cypher chat no longer renders in the private yo panel — it belongs in
+  // the shared cypher feed (three-layer model). See main.ts chat routing.
   window.yo.onYoPanelDripEffect((recipe) => {
     window.yo.dripsPreview(recipe);
   });

@@ -19,7 +19,7 @@ interface CypherAPI {
   cypherPostEvent: (id: string, kind: string, payload: Record<string, unknown>, jamId?: string, byAgentId?: string) => Promise<any>;
   onCypherEvent: (cb: (cypherId: string, kind: string, payload: Record<string, unknown>) => void) => () => void;
   onAgentStatus: (cb: (agentName: string, status: string) => void) => () => void;
-  onJammerActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
+  onJammerActivity: (cb: (event: { cypherId?: string; from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => () => void;
   agentStart: (agentName: string) => void;
   agentStop: (agentName: string) => void;
   agentSend: (agentName: string, message: string) => void;
@@ -1523,6 +1523,9 @@ function subscribeEvents(): void {
   });
 
   unsubActivity = api.onJammerActivity((event) => {
+    // Drop activity tagged for a different cypher (each event now carries its
+    // cypherId; untagged events fall through for backwards-compat).
+    if (event.cypherId && event.cypherId !== cypherId) return;
     if (!event.from || event.from === "orchestrator" || event.from === "unknown") return;
     if (!event.body?.trim()) return;
     const ts = event.ts || Date.now();

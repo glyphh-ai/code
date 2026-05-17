@@ -21,6 +21,9 @@ import os from "os";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import type { CypherBus } from "./cypher-bus";
 import * as threadStore from "./cypher-thread-store";
+import { usageTracker } from "./usage-tracker";
+import { probeJammerCapabilities, capabilityBriefing, type JammerCapabilities } from "./jammer-capabilities";
+import { redactSecrets, summarizeToolInput } from "./feed-sanitize";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -71,6 +74,8 @@ interface AgentInstance {
   wcRef: WeakRef<WebContents>;
   config: AgentConfig;
   lastBusKey: string | null;
+  /** VCS capability of this jammer's machine, probed at start. */
+  capabilities: JammerCapabilities | null;
 }
 
 export type UsagePoster = (cypherId: string, agentId: string, inputTokens: number, outputTokens: number) => void;
@@ -249,6 +254,7 @@ export class AgentRunner {
       wcRef: new WeakRef(wc),
       config,
       lastBusKey: null,
+      capabilities: null,
     };
     this.agents.set(key, instance);
 
@@ -269,7 +275,33 @@ export class AgentRunner {
     }
 
     console.log(`[agent-runner] starting "${config.name}" cwd=${config.cwd}${config.cypherId ? ` cypher=${config.cypherId}` : ""}`);
-    await this.runQuery(instance, config.startPrompt, false);
+
+    // Probe the jammer's machine for VCS capability before its first turn,
+    // so the agent knows up front whether it can push or must hand work off
+    // via submit_work — instead of discovering it the hard way mid-run.
+    let startPrompt = config.startPrompt;
+    if (config.cypherId) {
+      try {
+        const caps = await probeJammerCapabilities(config.cwd);
+        instance.capabilities = caps;
+        startPrompt = `${capabilityBriefing(caps)}\n\n${startPrompt}`;
+        console.log(`[agent-runner] ${config.name} capabilities: git=${caps.hasGit} gh=${caps.ghAuthed} canPush=${caps.canPush}`);
+        // Surface capability to the cypher feed so the maestro sees it.
+        if (this.bus) {
+          void this.bus.post(config.workspace, {
+            from: config.name,
+            kind: "status",
+            body: caps.canPush
+              ? "git ready — can push to the repo directly"
+              : `cannot push from this machine (${!caps.hasGit ? "git missing" : "GitHub not authed"}) — will hand off via submit_work`,
+            tags: ["broadcast"],
+          });
+        }
+      } catch (err) {
+        console.warn(`[agent-runner] capability probe failed for "${config.name}":`, err instanceof Error ? err.message : err);
+      }
+    }
+    await this.runQuery(instance, startPrompt, false);
   }
 
   private async runFollowUp(instance: AgentInstance, message: string): Promise<void> {
@@ -348,6 +380,14 @@ export class AgentRunner {
 
           if (instance.config.cypherId && (inTok || outTok) && this.usagePoster) {
             this.usagePoster(instance.config.cypherId, instance.name, inTok, outTok);
+          }
+
+          // Record to the local usage tracker too — the dashboard token count
+          // reads usageTracker, and the cypher usagePoster path only writes to
+          // the server's cypher_events. Without this, jammer token/prompt
+          // usage never showed up on the user's dashboard.
+          if (inTok || outTok) {
+            usageTracker.record(instance.name, { inputTokens: inTok, outputTokens: outTok });
           }
 
           // Hard-enforce the jammer's resource guardrails (the prompt-level
@@ -552,7 +592,7 @@ export class AgentRunner {
             toolUses.push({
               id: block.id,
               name: block.name,
-              input: this.summarizeToolInput(block.name, block.input),
+              input: summarizeToolInput(block.name, block.input),
               rawInput: block.input,
             });
           }
@@ -618,28 +658,8 @@ export class AgentRunner {
     }
   }
 
-  private summarizeToolInput(toolName: string, input: any): string {
-    if (!input) return "";
-    switch (toolName) {
-      case "Read": return input.file_path || "";
-      case "Edit": return input.file_path || "";
-      case "Write": return input.file_path || "";
-      case "Bash":
-        return input.command ? (input.command.length > 80 ? input.command.slice(0, 80) + "…" : input.command) : "";
-      case "Grep": case "Glob":
-        return input.pattern || input.glob || "";
-      case "WebFetch": return input.url || "";
-      case "WebSearch": return input.query || "";
-      case "Agent": return input.description || input.prompt?.slice(0, 60) || "";
-      case "TodoWrite": return `${(input.todos || []).length} tasks`;
-      default:
-        if (input.body) return input.body.length > 80 ? input.body.slice(0, 80) + "…" : input.body;
-        if (input.command) return input.command.slice(0, 80);
-        if (input.query) return input.query.slice(0, 80);
-        if (input.path || input.file_path) return input.path || input.file_path;
-        return "";
-    }
-  }
+  // summarizeToolInput moved to feed-sanitize.ts (shared with the maestro
+  // publish path, and it now redacts secrets from the label too).
 
   private persistAgentEntry(cypherId: string, agentName: string, serialized: any): void {
     try {
@@ -681,7 +701,7 @@ export class AgentRunner {
           this.bus.post(ws, {
             from,
             kind: "agent_thinking",
-            body: block.text.slice(0, 500),
+            body: redactSecrets(block.text.slice(0, 500)),
             meta: { ...baseMeta },
           }).catch(() => {});
         } else if (block.type === "tool_use") {
@@ -689,7 +709,9 @@ export class AgentRunner {
           this.bus.post(ws, {
             from,
             kind: "agent_tool_use",
-            body: this.summarizeToolInput(block.name, block.input),
+            // summarizeToolInput returns a short label (path / truncated
+            // command) and redacts secrets — never file contents or output.
+            body: summarizeToolInput(block.name, block.input),
             meta: { ...baseMeta, tool_name: block.name, tool_id: block.id },
           }).catch(() => {});
         }
@@ -697,7 +719,7 @@ export class AgentRunner {
     } else if (msg.type === "result") {
       const displayName = instance.config.displayName || from;
       const body = msg.is_error
-        ? `Error: ${(msg.result || "unknown error").slice(0, 300)}`
+        ? `Error: ${redactSecrets(String(msg.result || "unknown error").slice(0, 300))}`
         : `Completed turn (${msg.num_turns || 0} turns, ${msg.usage?.input_tokens || 0}+${msg.usage?.output_tokens || 0} tok)`;
       this.bus.post(ws, {
         from,
@@ -710,7 +732,7 @@ export class AgentRunner {
       this.bus.post(ws, {
         from,
         kind: "status",
-        body: `${displayName}: ${msg.status || msg.subtype}`,
+        body: redactSecrets(`${displayName}: ${msg.status || msg.subtype}`),
         meta: { ...baseMeta },
       }).catch(() => {});
     }

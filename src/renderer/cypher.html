@@ -1138,9 +1138,14 @@
     padding-top: 6px; margin-top: 6px;
   }
 
-  /* Foreground — active cards as larger feed panels */
+  /* Foreground — active cards as larger feed panels.
+     Overlaid exactly on top of .cards-bg via absolute positioning. The old
+     `margin-top: -100%` hack resolved the percentage against the container
+     WIDTH, so on a narrow window it pulled up too little and the cards
+     started partway down the page. Absolute top:0 pins it to the top
+     regardless of window size. */
   .cards-fg {
-    position: sticky; top: 0;
+    position: absolute; top: 0; left: 0; right: 0;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 10px;
@@ -1148,10 +1153,9 @@
     align-content: start;
     pointer-events: none;
     z-index: 2;
-    margin-top: -100%;
     min-height: 100%;
   }
-  .cards-fg:empty { display: none; margin-top: 0; }
+  .cards-fg:empty { display: none; }
 
   /* Active card — scales up with a simple enter/leave animation */
   .cards-active {

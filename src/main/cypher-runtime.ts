@@ -67,8 +67,12 @@ export type EventObserver = (
 
 interface CypherSubscription {
   cypherId: string;
-  /** All local agent IDs participating in this cypher from this client. */
+  /** All local agent IDs participating in this cypher from this client.
+   *  Used to echo-skip our own events on the SSE stream. */
   agentLocalIds: Set<string>;
+  /** Subset of agentLocalIds that are real agents able to answer an inbound
+   *  `prompt` event. Excludes the viewer sentinel and the maestro id. */
+  responderIds: Set<string>;
   lastSeenSeq: number;
   /** Active SSE request, null when disconnected and waiting to reconnect. */
   request: Electron.ClientRequest | null;
@@ -81,6 +85,23 @@ interface CypherSubscription {
 }
 
 // ── State ───────────────────────────────────────────────────
+
+/**
+ * Sentinel agent id used to keep a cypher's SSE stream open for a viewer
+ * (the cypher panel) that has no local agent of its own — e.g. the cypher
+ * owner before they start any jammers, or a jammer who opened the panel
+ * before the leader. It never names a real agent, so it is excluded from
+ * prompt-response selection and never matches an inbound by_agent_id.
+ */
+export const CYPHER_VIEWER_AGENT = "__viewer__";
+
+/**
+ * Canonical id for the maestro's own published cypher activity. Registered on
+ * a subscription as a non-responder so the maestro's events are echo-skipped
+ * on its own client (already rendered locally) but it is never picked to
+ * answer an inbound prompt.
+ */
+export const CYPHER_MAESTRO_AGENT = "mistro";
 
 const subscriptions = new Map<string, CypherSubscription>();   // cypher_id → sub
 let promptHandler: PromptHandler | null = null;
@@ -112,15 +133,17 @@ export function setEventObserver(observer: EventObserver | null): void {
  * server and dispatches new `prompt` events to the registered handler under
  * the given agent identity.
  */
-export function subscribeCypher(cypherId: string, agentLocalId: string): void {
+export function subscribeCypher(cypherId: string, agentLocalId: string, responder = true): void {
   const existing = subscriptions.get(cypherId);
   if (existing) {
     existing.agentLocalIds.add(agentLocalId);
+    if (responder) existing.responderIds.add(agentLocalId);
     return;
   }
   const sub: CypherSubscription = {
     cypherId,
     agentLocalIds: new Set([agentLocalId]),
+    responderIds: new Set(responder ? [agentLocalId] : []),
     lastSeenSeq: 0,
     request: null,
     reconnectTimer: null,
@@ -131,9 +154,9 @@ export function subscribeCypher(cypherId: string, agentLocalId: string): void {
   if (!stopped && isAuthenticated()) connectSubscription(sub);
 }
 
-/** Add an agent to an existing cypher subscription (multi-agent per SSE stream). */
+/** Add a real agent to an existing cypher subscription (multi-agent per SSE stream). */
 export function subscribeCypherAgent(cypherId: string, agentLocalId: string): void {
-  subscribeCypher(cypherId, agentLocalId);
+  subscribeCypher(cypherId, agentLocalId, true);
 }
 
 /** Remove a single agent from a cypher subscription. Closes the stream if no agents remain. */
@@ -141,6 +164,7 @@ export function unsubscribeCypherAgent(cypherId: string, agentLocalId: string): 
   const sub = subscriptions.get(cypherId);
   if (!sub) return;
   sub.agentLocalIds.delete(agentLocalId);
+  sub.responderIds.delete(agentLocalId);
   if (sub.agentLocalIds.size === 0) {
     closeSubscription(sub);
     subscriptions.delete(cypherId);
@@ -208,7 +232,11 @@ async function hydrateSubscriptions(): Promise<void> {
   try {
     const r = await serverGetAuthed<{ cyphers: Array<{ id: string; status: string }> }>(`/api/cyphers/mine`);
     for (const c of r.cyphers) {
-      if (c.status !== "live") continue;
+      // Subscribe to any non-terminal cypher — not just "live". A jammer can
+      // join while the cypher is still in "lobby"/"draft" (before the leader
+      // starts it); restricting to "live" left those clients unsubscribed and
+      // their feed dark until a restart after the cypher went live.
+      if (c.status === "wrapped" || c.status === "cancelled" || c.status === "archived") continue;
       try {
         const j = await serverGetAuthed<{ jammers: Array<{ user_id: string; agent_local_id: string; left_at: string | null; role: string }> }>(
           `/api/cyphers/${encodeURIComponent(c.id)}/jammers`,
@@ -362,6 +390,17 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
 
   const kind = payload.kind;
 
+  // ── Observe EVERY inbound event first ──
+  // The cypher feed is many-to-many: every jammer's client must render every
+  // other jammer's activity — prompts, posts, agent output, chat, drips,
+  // lifecycle. The specialized handlers below additionally *act* on the event
+  // (drive the local agent brain, deliver directed messages); they must not
+  // swallow it before it reaches the feed observer. Previously `prompt` and
+  // `post`/`post_to`/`agent_message` returned early, so those never showed.
+  if (eventObserver) {
+    eventObserver(sub.cypherId, kind, payload.payload, payload.by_agent_id);
+  }
+
   // ── Prompt dispatch (existing behavior) ──
   if (kind === "prompt") {
     if (!promptHandler) return;
@@ -373,9 +412,10 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
       console.warn(`[cypher-runtime] dropped prompt event ${payload.id}: ${guard.reason}`);
       return;
     }
-    // Pick the first registered agent to respond (deterministic; for multi-agent
-    // cyphers with external prompts, the dispatcher picks by capability)
-    const respondAs = Array.from(sub.agentLocalIds)[0];
+    // Pick the first real agent to respond (deterministic; for multi-agent
+    // cyphers with external prompts, the dispatcher picks by capability).
+    // responderIds excludes the viewer sentinel and the maestro id.
+    const respondAs = Array.from(sub.responderIds)[0];
     if (!respondAs) return;
 
     let result: AgentTurnResult | null = null;
@@ -452,14 +492,6 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
     return;
   }
 
-  // ── Everything else → observer ──
-  // Agent activity (agent_thinking / agent_tool_use / agent_tool_result /
-  // agent_result / agent_error / status / text), chat, drip, and lifecycle
-  // events (cypher_started / cypher_wrapped / jammer_join …). Previously only
-  // four kinds were forwarded, so a remote jammer's results — and lifecycle
-  // updates — were silently dropped. by_agent_id is passed so the cypher feed
-  // can attribute remote-agent events.
-  if (eventObserver) {
-    eventObserver(sub.cypherId, kind, payload.payload, payload.by_agent_id);
-  }
+  // All other kinds were already surfaced to the observer at the top of this
+  // function — nothing more to do.
 }

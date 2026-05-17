@@ -714,6 +714,41 @@ export class McpExpose {
         return replyJson({ ok: true, completed_by: agent });
       }
 
+      case "submit_work": {
+        const agent = ctx?.agent || ".yo";
+        const wsSlug = ctx?.workspace || this.workspaceGetter?.() || "default";
+        const summary = String(args.summary || "").trim();
+        if (!summary) return reply("summary is required", true);
+        const ws = this.workspaceManager?.get(wsSlug);
+        if (!ws) return reply(`workspace "${wsSlug}" not found`, true);
+        try {
+          const { uploadWorkPackage } = await import("./work-package-uploader");
+          const result = await uploadWorkPackage(ws.rootDir, `${agent}-work`);
+          if (this.bus) {
+            await this.bus.post(wsSlug, {
+              from: agent,
+              kind: "work_package_submitted",
+              body: summary,
+              tags: ["broadcast"],
+              meta: {
+                work_package_id: result.id,
+                sha256: result.sha256,
+                files: result.fileCount,
+                size_bytes: result.sizeBytes,
+              },
+            });
+          }
+          return replyJson({
+            ok: true,
+            work_package_id: result.id,
+            files: result.fileCount,
+            note: "Work package submitted. The maestro will integrate and push it.",
+          });
+        } catch (err) {
+          return reply(`submit_work failed: ${err instanceof Error ? err.message : String(err)}`, true);
+        }
+      }
+
       case "report_status": {
         if (!this.hierarchyContext) return reply("No hierarchy context (not in cypher mode)", true);
         const agent = ctx?.agent || ".yo";
@@ -1063,6 +1098,20 @@ export class McpExpose {
             type: "object",
             properties: {
               summary: { type: "string", description: "Summary of what was accomplished" },
+            },
+            required: ["summary"],
+          },
+        },
+        {
+          name: "submit_work",
+          description: "Submit your completed work as a package for the cypher to integrate. "
+            + "Use this when you have finished but cannot push to GitHub directly (no git / no "
+            + "auth on this machine). Zips your working directory and hands it to the maestro, "
+            + "who reviews and pushes it. Call complete_task afterwards.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              summary: { type: "string", description: "Short summary of the work you completed" },
             },
             required: ["summary"],
           },

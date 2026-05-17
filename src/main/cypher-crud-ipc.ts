@@ -18,7 +18,7 @@ export interface CypherCrudDeps {
   serverPostAuthed: typeof import("./auth").serverPostAuthed;
   getAuthToken: () => string | null;
   getDropAccessToken: () => string | null;
-  subscribeCypher: (id: string, agentId: string) => void;
+  subscribeCypher: (id: string, agentId: string, responder?: boolean) => void;
   unsubscribeCypher: (id: string) => void;
   getCypherPanelContext: () => { cypherId: string } | null;
   setCypherPanelContext: (ctx: { cypherId: string; isOwner: boolean; title?: string } | null) => void;
@@ -508,6 +508,17 @@ export async function registerCypherCrudIpc(deps: CypherCrudDeps): Promise<void>
       // Bind the active workspace to this cypher so the bus routes outbound
       // events to the server (idempotent with the bind done at join time).
       bindWorkspaceToCypher(cypherId);
+      // Ensure a live SSE subscription for the feed, regardless of how the
+      // user reached this cypher. Owners never call cypher-join (only jammers
+      // do), and a jammer can open the panel before the leader exists — in
+      // both cases no subscription would exist and the feed would stay dark.
+      // The viewer sentinel keeps the stream open; real agents add their own
+      // ids when they register on the bus. The maestro id is registered too
+      // (non-responder) so the maestro's own published activity is echo-
+      // skipped on its client but never picked to answer a prompt.
+      const { CYPHER_VIEWER_AGENT, CYPHER_MAESTRO_AGENT } = await import("./cypher-runtime");
+      subscribeCypher(cypherId, CYPHER_VIEWER_AGENT, false);
+      subscribeCypher(cypherId, CYPHER_MAESTRO_AGENT, false);
 
       const mainWindow = getMainWindow();
       if (mainWindow) panelManager.switchTo("cypher", mainWindow);
