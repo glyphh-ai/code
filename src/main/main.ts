@@ -1763,7 +1763,12 @@ async function boot() {
   // can refresh in near-real-time without polling. Renderer filters by current
   // cypher and reacts on relevant kinds (cypher_started, cypher_wrapped,
   // jammer_join, jammer_leave, seat_open, post, post_to, etc.).
-  setEventObserver((cypherId, kind, payload) => {
+  // Kinds that carry agent output and should appear in the cypher feed.
+  const CYPHER_FEED_KINDS = new Set([
+    "agent_thinking", "agent_tool_use", "agent_tool_result",
+    "agent_result", "agent_error", "status", "text",
+  ]);
+  setEventObserver((cypherId, kind, payload, byAgentId) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("cypher-event", cypherId, kind, payload);
     }
@@ -1771,6 +1776,27 @@ async function boot() {
     const cypherView = panelManager.getView("cypher");
     if (cypherView) {
       cypherView.webContents.send("cypher-event", cypherId, kind, payload);
+    }
+
+    // Inbound remote-agent activity → the cypher feed, via the same
+    // `jammer-activity` channel local agent activity uses. Without this a
+    // remote jammer's output never reached the panel on any client.
+    if (CYPHER_FEED_KINDS.has(kind)) {
+      const p = payload as Record<string, unknown>;
+      const activity = {
+        from: byAgentId || (typeof p.agent_id === "string" ? p.agent_id : "unknown"),
+        to: typeof p.to === "string" ? p.to : undefined,
+        kind,
+        body: typeof p.text === "string" ? p.text : "",
+        tags: Array.isArray(p.tags) ? (p.tags as string[]) : undefined,
+        ts: Date.now(),
+        meta: p,
+      };
+      const { getCurrentCypher } = require("./current-cypher") as { getCurrentCypher: () => string | null };
+      if (cypherView && !cypherView.webContents.isDestroyed() && getCurrentCypher() === cypherId) {
+        cypherView.webContents.send("jammer-activity", activity);
+      }
+      threadStore.appendFeed(cypherId, activity);
     }
 
     // Route inbound chat messages to yo panel

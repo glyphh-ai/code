@@ -62,6 +62,7 @@ export type EventObserver = (
   cypherId: string,
   kind: string,
   payload: Record<string, unknown>,
+  byAgentId?: string | null,
 ) => void;
 
 interface CypherSubscription {
@@ -451,19 +452,14 @@ async function handleFrame(sub: CypherSubscription, frameText: string): Promise<
     return;
   }
 
-  // ── Chat and drip events → observer ──
-  if (kind === "chat" || kind === "drip") {
-    if (eventObserver) {
-      eventObserver(sub.cypherId, kind, payload.payload);
-    }
-    return;
-  }
-
-  // ── Visibility events → observer ──
-  if (kind === "agent_thinking" || kind === "agent_tool_use" || kind === "agent_tool_result") {
-    if (eventObserver) {
-      eventObserver(sub.cypherId, kind, payload.payload);
-    }
-    return;
+  // ── Everything else → observer ──
+  // Agent activity (agent_thinking / agent_tool_use / agent_tool_result /
+  // agent_result / agent_error / status / text), chat, drip, and lifecycle
+  // events (cypher_started / cypher_wrapped / jammer_join …). Previously only
+  // four kinds were forwarded, so a remote jammer's results — and lifecycle
+  // updates — were silently dropped. by_agent_id is passed so the cypher feed
+  // can attribute remote-agent events.
+  if (eventObserver) {
+    eventObserver(sub.cypherId, kind, payload.payload, payload.by_agent_id);
   }
 }
