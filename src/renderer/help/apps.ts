@@ -818,20 +818,30 @@ function getPreviewWebContentsId(): number | undefined {
 
 async function pickElement() {
   if (!currentAppId) return;
+  const pickLabel = document.getElementById("app-pick-label");
+  const setPickLabel = (txt: string) => { if (pickLabel) pickLabel.textContent = txt; };
   const wcId = getPreviewWebContentsId();
   if (!wcId) {
-    appConnectStatus.textContent = "Preview not loaded yet.";
+    setPickLabel("Preview not ready");
+    setTimeout(() => setPickLabel("Pick Element"), 2000);
     return;
   }
 
-  appConnectStatus.textContent = "Click an element in the preview...";
+  setPickLabel("Picking…");
 
-  const helpCloseBtn = document.getElementById("help-close") as HTMLButtonElement;
-  const detailCloseBtn = document.getElementById("app-detail-close") as HTMLButtonElement;
-  helpCloseBtn.disabled = true;
-  detailCloseBtn.disabled = true;
-  helpCloseBtn.style.opacity = "0.3";
-  detailCloseBtn.style.opacity = "0.3";
+  // Lock the close buttons while picking. Guard against any that no longer
+  // exist (#help-close is gone since Home became a panel, not an overlay) —
+  // touching a null element here used to throw and abort the whole picker.
+  const closeBtns = ["help-close", "app-detail-close"]
+    .map((id) => document.getElementById(id))
+    .filter((el): el is HTMLElement => el !== null);
+  const lockCloseBtns = (locked: boolean) => {
+    for (const el of closeBtns) {
+      (el as HTMLButtonElement).disabled = locked;
+      el.style.opacity = locked ? "0.3" : "";
+    }
+  };
+  lockCloseBtns(true);
 
   const picked = await new Promise<{
     selector: string; tag: string; text: string; isEditable: boolean; isClickable: boolean;
@@ -842,18 +852,13 @@ async function pickElement() {
     window.yo.startPicker(wcId);
   });
 
-  helpCloseBtn.disabled = false;
-  detailCloseBtn.disabled = false;
-  helpCloseBtn.style.opacity = "";
-  detailCloseBtn.style.opacity = "";
+  lockCloseBtns(false);
+  setPickLabel("Pick Element");
 
   if (!picked) {
-    appConnectStatus.textContent = "";
     appMapCommand.classList.add("hidden");
     return;
   }
-
-  appConnectStatus.textContent = "";
 
   const action = picked.isEditable ? "setValue" : picked.isClickable ? "click" : "extractText";
   const info = `<${picked.tag}>` +

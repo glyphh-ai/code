@@ -1064,6 +1064,41 @@ const BUILTIN_TOOLS: ToolDef[] = [
       }
     },
   },
+  {
+    name: "code_search",
+    namespace: "yo",
+    description:
+      "Semantic search over the working-directory codebase. Returns the most " +
+      "relevant code chunks (file:line ranges + snippets) for a natural-language " +
+      "or keyword query. Prefer this over grep/glob for finding where something " +
+      "is implemented — it returns just the relevant spans, not whole files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to find — natural language or keywords" },
+        limit: { type: "number", description: "Max results (default 8, max 20)" },
+      },
+      required: ["query"],
+    },
+    async run(input) {
+      const query = (input.query as string || "").trim();
+      if (!query) return "No query provided.";
+      const limit = typeof input.limit === "number"
+        ? Math.max(1, Math.min(20, Math.floor(input.limit)))
+        : 8;
+      try {
+        const { searchCode } = await import("../code-index/search.js");
+        const res = searchCode(query, getWorkingDirectory(), limit);
+        if (res.hits.length === 0) return "No matches found.";
+        const body = res.hits
+          .map((h) => `${h.file}:${h.startLine}-${h.endLine}\n${h.text}`)
+          .join("\n\n---\n\n");
+        return `${res.hits.length} matches:\n\n${body}`;
+      } catch (err) {
+        return `code_search error: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    },
+  },
   // ── Panel interaction tools ──────────────────────────────
   {
     name: "list_panels",

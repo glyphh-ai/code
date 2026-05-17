@@ -145,20 +145,21 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     return execCmd(wc, mapping);
   });
 
-  ipcMain.on("start-picker", (_e, wcId: number) => {
+  ipcMain.on("start-picker", (e, wcId: number) => {
     const { webContents } = require("electron") as typeof import("electron");
     const wc = webContents.fromId(wcId);
     if (!wc || wc.isDestroyed()) return;
-    wc.executeJavaScript(PICKER_SCRIPT).catch(() => {});
-    const mainWindow = getMainWindow();
-    const onConsole = (_ev: Electron.Event, _level: number, message: string) => {
-      if (!message.startsWith("__YO_PICK__:")) return;
-      try {
-        const result = JSON.parse(message.slice("__YO_PICK__:".length));
-        mainWindow?.webContents.send("picker-result", result);
-      } catch {}
-      wc.off("console-message", onConsole);
-    };
-    wc.on("console-message", onConsole);
+    // Reply to the renderer that asked — the Apps section runs inside the
+    // Home panel's own BrowserView, not the main window.
+    const sender = e.sender;
+    // PICKER_SCRIPT resolves a Promise with the pick (or null on cancel);
+    // executeJavaScript hands us that value directly — no console-message bridge.
+    wc.executeJavaScript(PICKER_SCRIPT, true)
+      .then((result) => {
+        if (!sender.isDestroyed()) sender.send("picker-result", result ?? null);
+      })
+      .catch(() => {
+        if (!sender.isDestroyed()) sender.send("picker-result", null);
+      });
   });
 }

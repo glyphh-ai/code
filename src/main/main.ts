@@ -100,6 +100,7 @@ import { AgentRunner, AgentConfig } from "./agent-runner";
 import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { registerFilesIpc } from "./files-ipc";
+import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { ConnectorManager } from "./connectors";
@@ -151,7 +152,10 @@ let skillScheduler: SkillScheduler | null = null;
 
 // ── DOM Picker script (injected into panel webContents) ─────
 const PICKER_SCRIPT = `(function(){
-  if(document.getElementById('__yo_picker__')) return;
+  if(document.getElementById('__yo_picker__')) return null;
+  return new Promise(function(resolve){
+  function cleanup(){overlay.remove();highlight.remove();label.remove();document.removeEventListener('keydown',esc);}
+  function esc(e){if(e.key==='Escape'){cleanup();resolve(null);}}
   const overlay=document.createElement('div');
   overlay.id='__yo_picker__';
   overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;cursor:crosshair;';
@@ -210,11 +214,12 @@ const PICKER_SCRIPT = `(function(){
     const txt=(current.textContent||'').trim().slice(0,80);
     const isEditable=tag==='input'||tag==='textarea'||current.isContentEditable||current.getAttribute('role')==='textbox';
     const isClickable=tag==='button'||tag==='a'||current.getAttribute('role')==='button'||current.onclick!=null||window.getComputedStyle(current).cursor==='pointer';
-    console.log('__YO_PICK__:'+JSON.stringify({selector:sel,tag:tag,text:txt,isEditable:isEditable,isClickable:isClickable}));
-    overlay.remove();highlight.remove();label.remove();
+    cleanup();
+    resolve({selector:sel,tag:tag,text:txt,isEditable:isEditable,isClickable:isClickable});
   });
-  overlay.addEventListener('contextmenu',function(e){e.preventDefault();overlay.remove();highlight.remove();label.remove();});
-  document.addEventListener('keydown',function esc(e){if(e.key==='Escape'){overlay.remove();highlight.remove();label.remove();document.removeEventListener('keydown',esc);}});
+  overlay.addEventListener('contextmenu',function(e){e.preventDefault();cleanup();resolve(null);});
+  document.addEventListener('keydown',esc);
+  });
 })()`;
 
 // Drip effects — extracted to drip-manager.ts
@@ -1835,6 +1840,11 @@ async function boot() {
   // .Yo Editor app (yo://files) — folder explorer + Monaco + read-only git.
   if (!ipcMain.listenerCount("files:pick-folder")) registerFilesIpc();
 
+  // Lexical code index — code_search over the working directory.
+  if (!ipcMain.listenerCount("code-index:status")) {
+    registerCodeIndexIpc({ getWorkingDir: getWorkingDirectory });
+  }
+
   // Working directory — the single project folder the app is focused on.
   if (!ipcMain.listenerCount("working-dir:get")) {
     registerWorkingDirectoryIpc({
@@ -1842,6 +1852,15 @@ async function boot() {
       broadcastToPanels: (ch, ...args) => {
         for (const wc of panelManager.getAllWebContents()) {
           try { wc.send(ch, ...args); } catch { /* ignore */ }
+        }
+      },
+      onWorkingDirChange: (dir) => {
+        // Re-point the running VS Code panel at the new folder.
+        if (enableVscode && vscodeServer.available) {
+          const v = panelManager.getView("vscode");
+          if (v && !v.webContents.isDestroyed()) {
+            v.webContents.loadURL(`${VSCodeServer.expectedUrl()}/?folder=${encodeURIComponent(dir)}`);
+          }
         }
       },
     });

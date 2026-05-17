@@ -16,6 +16,8 @@
     "build:cypher": "esbuild src/renderer/cypher.ts --bundle --outfile=dist/renderer/cypher.js --platform=browser --jsx=automatic && esbuild src/renderer/cypher-preload.ts --bundle --outfile=dist/main/cypher-preload.js --platform=node --external:electron && shx cp src/renderer/cypher.html dist/renderer/",
     "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
     "build:files": "esbuild src/renderer/files.ts --bundle --outfile=dist/renderer/files.js --platform=browser && esbuild src/renderer/files-preload.ts --bundle --outfile=dist/main/files-preload.js --platform=node --external:electron && shx cp src/renderer/files.html dist/renderer/",
+    "bench:code-index": "npm run build:main && node dist/main/code-index/benchmark.js",
+    "bench:code-index-ab": "npm run build:main && node dist/main/code-index/benchmark-ab.js",
     "start": "electron .",
     "postinstall": "electron-rebuild",
     "package:mac": "electron-builder --mac",

@@ -1,19 +1,26 @@
 /**
- * Yo Bridge — a minimal companion extension for the .Yo workspace.
+ * Yo Bridge — companion extension for the .Yo workspace.
  *
- * Runs a localhost HTTP listener so the .Yo main process can open a specific
- * file in this running editor instantly (vscode.window.showTextDocument) —
- * no page reload, no payload-URL navigation.
+ * Runs a localhost HTTP listener so the .Yo main process can open a file in
+ * this editor instantly (showTextDocument) — no page reload.
  *
- *   POST http://127.0.0.1:9438/open   { "path": "/abs/path/to/file" }
+ *   POST http://127.0.0.1:<port>/open   { "path": "/abs/path/to/file" }
  *
- * Plain JS, zero dependencies — it is copied verbatim into the code-server
- * extensions directory; there is no build step.
+ * VS Code keeps previous extension hosts alive through a long reconnection
+ * grace, and orphaned hosts can outlive a restarted server — so a *fixed*
+ * port conflicts. Instead each host binds an OS-assigned free port and writes
+ * it to ~/yo/.yo-bridge-port. The .Yo main process reads that file, so the
+ * most-recently-activated host (the live window) always wins. No conflicts.
+ *
+ * Plain JS, zero dependencies — copied verbatim into the extensions dir.
  */
 const vscode = require("vscode");
 const http = require("http");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
-const PORT = 9438;
+const PORT_FILE = path.join(os.homedir(), "yo", ".yo-bridge-port");
 
 function activate(context) {
   const server = http.createServer((req, res) => {
@@ -45,13 +52,28 @@ function activate(context) {
     });
   });
 
-  // EADDRINUSE simply means another editor window already holds the port —
-  // one listener is enough, so swallow it.
   server.on("error", (err) => {
     console.error("[yo-bridge]", (err && err.message) || err);
   });
-  server.listen(PORT, "127.0.0.1");
-  context.subscriptions.push({ dispose: () => server.close() });
+
+  server.on("listening", () => {
+    const addr = server.address();
+    const port = addr && typeof addr === "object" ? addr.port : 0;
+    try {
+      fs.mkdirSync(path.dirname(PORT_FILE), { recursive: true });
+      fs.writeFileSync(PORT_FILE, String(port), "utf-8");
+      console.log("[yo-bridge] listening on", port);
+    } catch (e) {
+      console.error("[yo-bridge] could not write port file:", (e && e.message) || e);
+    }
+  });
+
+  // Port 0 → the OS hands us a free port; no fixed-port conflicts.
+  server.listen(0, "127.0.0.1");
+
+  context.subscriptions.push({
+    dispose: () => { try { server.close(); } catch (_e) { /* ignore */ } },
+  });
 }
 
 function deactivate() {}

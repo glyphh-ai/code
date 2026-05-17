@@ -2,29 +2,48 @@
  * vscode-bridge — drive the embedded editor's Yo Bridge companion extension.
  *
  * The extension (see vscode-bridge/extension.js) runs a localhost HTTP
- * listener inside the running VS Code instance. Posting a file path to it
- * opens that file via `showTextDocument` — instantly, with no page reload.
+ * listener inside the running VS Code instance and writes its OS-assigned
+ * port to ~/yo/.yo-bridge-port. Posting a file path to that port opens the
+ * file via `showTextDocument` — instantly, with no page reload.
  */
+import fs from "fs";
+import os from "os";
+import path from "path";
 import http from "http";
 
-/** Port the Yo Bridge extension listens on (must match extension.js). */
-export const BRIDGE_PORT = 9438;
+/** The Yo Bridge extension writes its live port here (matches extension.js). */
+const PORT_FILE = path.join(os.homedir(), "yo", ".yo-bridge-port");
+
+/** The port the most-recently-activated VS Code extension host is listening on. */
+function readBridgePort(): number {
+  try {
+    const p = parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10);
+    return Number.isInteger(p) && p > 0 ? p : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Open a file in the running embedded VS Code. Resolves true on success.
  *
- * The extension host needs a moment to activate after the VS Code panel
- * first loads, so a few quick retries cover that startup window. Resolves
- * false (never rejects) when the editor isn't reachable.
+ * A cold VS Code panel takes several seconds to load its web UI, start the
+ * extension host, activate the Yo Bridge extension, and publish its port —
+ * so the retry window is generous (~30s). When VS Code is already warm the
+ * first attempt wins instantly. Resolves false (never rejects) when the
+ * editor isn't reachable. The port file is re-read every attempt, so a host
+ * that activates mid-retry is picked up.
  */
-export function openInVscode(filePath: string, attempts = 3): Promise<boolean> {
+export function openInVscode(filePath: string, attempts = 30): Promise<boolean> {
   return new Promise((resolve) => {
     const tryOnce = (left: number) => {
+      const port = readBridgePort();
+      if (!port) { retry(left); return; }
       const body = JSON.stringify({ path: filePath });
       const req = http.request(
         {
           host: "127.0.0.1",
-          port: BRIDGE_PORT,
+          port,
           path: "/open",
           method: "POST",
           headers: {
@@ -45,7 +64,7 @@ export function openInVscode(filePath: string, attempts = 3): Promise<boolean> {
     };
     const retry = (left: number) => {
       if (left <= 0) { resolve(false); return; }
-      setTimeout(() => tryOnce(left - 1), 600);
+      setTimeout(() => tryOnce(left - 1), 1000);
     };
     tryOnce(attempts);
   });

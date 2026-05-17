@@ -47,6 +47,16 @@ const CODE_PATHS = [
   "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders",
 ];
 
+/** Kill a detached child and its entire process group (negative PID). */
+function killProcessTree(p: ChildProcess, signal: NodeJS.Signals): void {
+  if (!p.pid) return;
+  try {
+    process.kill(-p.pid, signal);
+  } catch {
+    try { p.kill(signal); } catch { /* already gone */ }
+  }
+}
+
 export class VSCodeServer {
   private proc: ChildProcess | null = null;
   private _url: string | null = null;
@@ -104,6 +114,13 @@ export class VSCodeServer {
         }
       } catch { /* no process on port — expected */ }
 
+      // Kill orphaned serve-web trees for our data dir — descendants that
+      // outlived a previous run (they don't hold the port themselves, so the
+      // check above misses them; left unchecked they pile up and choke the OS).
+      try {
+        execSync(`pkill -9 -f ${JSON.stringify(DATA_DIR)}`, { stdio: "ignore" });
+      } catch { /* none to kill — expected */ }
+
       // Ensure data dirs exist for state persistence
       fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -137,6 +154,10 @@ export class VSCodeServer {
         stdio: ["ignore", "pipe", "pipe"],
         cwd: require("os").homedir(),
         env: envWithShellPath(),
+        // Own process group, so stop() can kill the whole tree — the
+        // `code serve-web` wrapper spawns code-server + server-main.js +
+        // extension hosts, and killing only the wrapper orphans the rest.
+        detached: true,
       });
 
       let resolved = false;
@@ -187,20 +208,17 @@ export class VSCodeServer {
     });
   }
 
-  /** Stop the server — SIGTERM first, SIGKILL after 3s if still alive */
+  /** Stop the server and its whole process tree — SIGTERM, then SIGKILL after 3s. */
   stop(): void {
     if (this.proc) {
       console.log("[vscode-server] stopping");
       const p = this.proc;
-      p.kill("SIGTERM");
-      // Force kill if SIGTERM doesn't work within 3 seconds
-      const forceKill = setTimeout(() => {
-        try { if (!p.killed) p.kill("SIGKILL"); } catch {}
-      }, 3000);
-      p.on("exit", () => clearTimeout(forceKill));
       this.proc = null;
       this._url = null;
       this.readyPromise = null;
+      killProcessTree(p, "SIGTERM");
+      const forceKill = setTimeout(() => killProcessTree(p, "SIGKILL"), 3000);
+      p.on("exit", () => clearTimeout(forceKill));
     }
   }
 

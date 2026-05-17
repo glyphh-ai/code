@@ -15,6 +15,7 @@ type Broadcast = (channel: string, ...args: unknown[]) => void;
 
 let getMainWindow: () => BrowserWindow | null = () => null;
 let broadcastToPanels: Broadcast = () => {};
+let onWorkingDirChange: (dir: string) => void = () => {};
 
 /** The default working directory — the user's ~/yo folder (always exists; the
  *  preferences file lives inside it). Used until the user picks another. */
@@ -33,14 +34,17 @@ export function setWorkingDirectory(dir: string | null): void {
   setPreference("workingDirectory", value);
   getMainWindow()?.webContents.send("working-dir-changed", value);
   broadcastToPanels("working-dir-changed", value);
+  onWorkingDirChange(getWorkingDirectory());
 }
 
 export function registerWorkingDirectoryIpc(deps: {
   getMainWindow: () => BrowserWindow | null;
   broadcastToPanels: Broadcast;
+  onWorkingDirChange?: (dir: string) => void;
 }): void {
   getMainWindow = deps.getMainWindow;
   broadcastToPanels = deps.broadcastToPanels;
+  if (deps.onWorkingDirChange) onWorkingDirChange = deps.onWorkingDirChange;
 
   ipcMain.handle("working-dir:get", () => getWorkingDirectory());
 
