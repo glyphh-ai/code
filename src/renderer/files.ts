@@ -23,9 +23,28 @@ const filesApi = w.files as {
   pickWorkingDir: () => Promise<string | null>;
   onWorkingDirChanged: (cb: (dir: string | null) => void) => void;
   onExternalOpenFile: (cb: (filePath: string) => void) => void;
+  openInApp: (p: string) => void;
 };
 
 type GitMode = "working" | "main";
+
+/** Extensions that are NOT editable text — route these to a browser tab via
+ *  the app's file-open router instead of opening them in Monaco. */
+const MEDIA_EXTS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "ico", "bmp",
+  "pdf", "mp4", "webm", "mov", "avi", "mkv", "mp3", "wav", "ogg", "flac",
+]);
+
+/** Open a file: media → browser tab (via the app router); everything else
+ *  → a Monaco editor tab. */
+function routeOpen(abs: string, name: string): void {
+  const ext = name.toLowerCase().split(".").pop() || "";
+  if (MEDIA_EXTS.has(ext)) {
+    filesApi.openInApp(abs);
+    return;
+  }
+  openFileTab(abs, name);
+}
 
 interface Tab {
   key: string;
@@ -387,7 +406,7 @@ async function buildDirChildren(dirPath: string, depth: number): Promise<HTMLEle
         if (activeFileRow) activeFileRow.classList.remove("active");
         row.classList.add("active");
         activeFileRow = row;
-        openFileTab(abs, e.name);
+        routeOpen(abs, e.name);
       });
     }
   }
@@ -554,7 +573,7 @@ async function main(): Promise<void> {
   await initMonaco();
   // The .yo agent can push files it's working on into the editor.
   filesApi.onExternalOpenFile((p) => {
-    openFileTab(p, p.split("/").filter(Boolean).pop() || p);
+    routeOpen(p, p.split("/").filter(Boolean).pop() || p);
   });
   // The .Yo Editor follows the app-wide working directory.
   filesApi.onWorkingDirChanged((dir) => { if (dir) void setRoot(dir); });

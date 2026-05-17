@@ -33,4 +33,8 @@ contextBridge.exposeInMainWorld("files", {
   onExternalOpenFile: (cb: (filePath: string) => void) => {
     ipcRenderer.on("files:external-open", (_e, filePath: string) => cb(filePath));
   },
+  // Hand a path to the app-wide file-open router (images/media/PDF → browser
+  // tab; code/text → editor). Used so the .Yo Editor doesn't try to open a
+  // .jpg as text in Monaco.
+  openInApp: (p: string) => ipcRenderer.send("file-open", p),
 });
