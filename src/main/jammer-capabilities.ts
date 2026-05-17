@@ -14,10 +14,7 @@
  */
 
 import { execFile } from "child_process";
-import { promisify } from "util";
 import { getShellPath } from "./shell-path";
-
-const execFileAsync = promisify(execFile);
 
 export interface JammerCapabilities {
   /** `git` binary is on PATH. */
@@ -30,23 +27,46 @@ export interface JammerCapabilities {
   canPush: boolean;
 }
 
-/** Run a command non-interactively; resolve true on exit 0, false otherwise. */
-async function probe(cmd: string, args: string[], cwd?: string): Promise<boolean> {
-  try {
-    await execFileAsync(cmd, args, {
-      cwd,
-      timeout: 8000,
-      env: {
-        ...process.env,
-        PATH: getShellPath(),
-        GIT_TERMINAL_PROMPT: "0",   // never block on a credential prompt
-        GH_PROMPT_DISABLED: "1",
-      },
-    });
-    return true;
-  } catch {
-    return false;
-  }
+/**
+ * Run a command non-interactively; resolve true on a clean exit-0.
+ *
+ * Hardened so it can NEVER hang the jammer's startup: a hard deadline
+ * force-kills the child and resolves false even if execFile's callback
+ * never fires — which happens on Windows when a killed process leaves a
+ * grandchild holding the stdio pipes open. The old version awaited a bare
+ * execFile and could hang `startAgent` forever.
+ */
+function probe(cmd: string, args: string[], cwd?: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (val: boolean) => { if (!settled) { settled = true; resolve(val); } };
+    let child: ReturnType<typeof execFile>;
+    try {
+      child = execFile(cmd, args, {
+        cwd,
+        timeout: 4000,
+        windowsHide: true,           // no console window flash on Windows
+        env: {
+          ...process.env,
+          PATH: getShellPath(),
+          GIT_TERMINAL_PROMPT: "0",  // never block on a credential prompt
+          GH_PROMPT_DISABLED: "1",
+          GH_NO_UPDATE_NOTIFIER: "1",
+        },
+      }, (err) => settle(!err));
+    } catch {
+      settle(false);
+      return;
+    }
+    // Hard deadline: guarantees the probe resolves even if execFile's
+    // callback never fires.
+    const deadline = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      settle(false);
+    }, 6000);
+    child.once("exit", () => clearTimeout(deadline));
+    child.once("error", () => { clearTimeout(deadline); settle(false); });
+  });
 }
 
 /**
@@ -56,14 +76,20 @@ async function probe(cmd: string, args: string[], cwd?: string): Promise<boolean
  * than asking the agent to do it.
  */
 export async function probeJammerCapabilities(cwd: string): Promise<JammerCapabilities> {
-  const [hasGit, hasGh] = await Promise.all([
-    probe("git", ["--version"]),
-    probe("gh", ["--version"]),
-  ]);
-  const ghAuthed = hasGh ? await probe("gh", ["auth", "status"]) : false;
-  if (hasGit && ghAuthed) {
-    // Wire the authenticated gh token into git's credential helper.
-    await probe("gh", ["auth", "setup-git"], cwd);
+  let hasGit = false, hasGh = false, ghAuthed = false;
+  try {
+    [hasGit, hasGh] = await Promise.all([
+      probe("git", ["--version"]),
+      probe("gh", ["--version"]),
+    ]);
+    if (hasGh) ghAuthed = await probe("gh", ["auth", "status"]);
+    if (hasGit && ghAuthed) {
+      // Wire the authenticated gh token into git's credential helper —
+      // fire-and-forget so it can never delay or hang jammer startup.
+      void probe("gh", ["auth", "setup-git"], cwd);
+    }
+  } catch {
+    /* probe() never rejects, but stay defensive */
   }
   return { hasGit, hasGh, ghAuthed, canPush: hasGit && ghAuthed };
 }

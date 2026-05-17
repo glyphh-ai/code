@@ -7,9 +7,17 @@
  * downloads the package via /api/work-packages/:id/download, reviews it, and
  * integrates it. A remote jammer therefore needs only a filesystem — git is
  * an optimization, never a requirement.
+ *
+ * IMPORTANT: this runs in the Electron MAIN process. The directory walk and
+ * file reads are async (fs.promises) so they yield to the event loop and
+ * never freeze the app UI, and the payload is hard-bounded (file count +
+ * total bytes) so the one unavoidable sync step — zip compression — stays
+ * small and quick. An earlier version walked + read + compressed synchronously
+ * and froze the whole app on any non-trivial project.
  */
 
 import fs from "fs";
+import fsp from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import AdmZip from "adm-zip";
@@ -22,34 +30,60 @@ const IGNORE_DIRS = new Set([
 ]);
 
 /** Skip individual files larger than this — a work package is a diff, not a release. */
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** Hard cap on the whole payload, so zip compression stays a quick step. */
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+/** Hard cap on file count. */
+const MAX_FILES = 1500;
 
 export interface UploadResult {
   id: string;
   sha256: string;
   sizeBytes: number;
   fileCount: number;
+  truncated: boolean;
 }
 
-function addDir(zip: AdmZip, dir: string, base: string, count: { n: number }): void {
+interface CollectedFile { rel: string; buf: Buffer; }
+
+interface Accumulator {
+  files: CollectedFile[];
+  bytes: number;
+  truncated: boolean;
+}
+
+/**
+ * Async, bounded directory walk. `Dirent.isDirectory()` is false for symlinks,
+ * so symlinked directories are never followed — no risk of an infinite loop.
+ */
+async function collect(dir: string, base: string, acc: Accumulator): Promise<void> {
+  if (acc.files.length >= MAX_FILES || acc.bytes >= MAX_TOTAL_BYTES) {
+    acc.truncated = true;
+    return;
+  }
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries = await fsp.readdir(dir, { withFileTypes: true });
   } catch {
     return;
   }
   for (const entry of entries) {
+    if (acc.files.length >= MAX_FILES || acc.bytes >= MAX_TOTAL_BYTES) {
+      acc.truncated = true;
+      return;
+    }
     if (IGNORE_DIRS.has(entry.name)) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      addDir(zip, full, base, count);
+      await collect(full, base, acc);
     } else if (entry.isFile()) {
       try {
-        if (fs.statSync(full).size > MAX_FILE_BYTES) continue;
-        const rel = path.relative(base, full);
-        const folder = path.dirname(rel);
-        zip.addLocalFile(full, folder === "." ? "" : folder);
-        count.n++;
+        const st = await fsp.stat(full);
+        if (st.size > MAX_FILE_BYTES) { acc.truncated = true; continue; }
+        if (acc.bytes + st.size > MAX_TOTAL_BYTES) { acc.truncated = true; continue; }
+        const buf = await fsp.readFile(full);
+        acc.files.push({ rel: path.relative(base, full), buf });
+        acc.bytes += st.size;
       } catch {
         /* skip unreadable file */
       }
@@ -66,11 +100,15 @@ export async function uploadWorkPackage(sandboxDir: string, label: string): Prom
   if (!fs.existsSync(sandboxDir)) {
     throw new Error(`sandbox directory not found: ${sandboxDir}`);
   }
-  const zip = new AdmZip();
-  const count = { n: 0 };
-  addDir(zip, sandboxDir, sandboxDir, count);
-  if (count.n === 0) throw new Error("nothing to submit — no files in the working directory");
+  const acc: Accumulator = { files: [], bytes: 0, truncated: false };
+  await collect(sandboxDir, sandboxDir, acc);
+  if (acc.files.length === 0) throw new Error("nothing to submit — no files in the working directory");
 
+  const zip = new AdmZip();
+  for (const f of acc.files) {
+    // adm-zip stores the in-memory buffer; entry paths use forward slashes.
+    zip.addFile(f.rel.split(path.sep).join("/"), f.buf);
+  }
   const bytes = zip.toBuffer();
   const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
   const filename = `${label.replace(/[^a-zA-Z0-9_-]/g, "_") || "work"}.zip`;
@@ -83,6 +121,7 @@ export async function uploadWorkPackage(sandboxDir: string, label: string): Prom
     id: res.work_package.id,
     sha256,
     sizeBytes: res.work_package.size_bytes,
-    fileCount: count.n,
+    fileCount: acc.files.length,
+    truncated: acc.truncated,
   };
 }

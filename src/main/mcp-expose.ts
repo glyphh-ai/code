@@ -742,7 +742,10 @@ export class McpExpose {
             ok: true,
             work_package_id: result.id,
             files: result.fileCount,
-            note: "Work package submitted. The maestro will integrate and push it.",
+            truncated: result.truncated,
+            note: result.truncated
+              ? "Work package submitted (capped at the size limit — some files were left out). The maestro will integrate and push it."
+              : "Work package submitted. The maestro will integrate and push it.",
           });
         } catch (err) {
           return reply(`submit_work failed: ${err instanceof Error ? err.message : String(err)}`, true);
