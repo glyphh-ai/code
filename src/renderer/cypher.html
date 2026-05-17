@@ -740,6 +740,17 @@
     display: flex; gap: 8px; flex-wrap: wrap;
     margin-top: 16px;
   }
+  .wrapped-agents-pager {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 10px; font-size: 12px; color: var(--text-3);
+  }
+  .wrapped-agents-pager.hidden { display: none; }
+  .wrapped-agents-pager button {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 3px 11px; cursor: pointer;
+  }
+  .wrapped-agents-pager button:hover:not(:disabled) { border-color: var(--accent); }
+  .wrapped-agents-pager button:disabled { opacity: 0.4; cursor: default; }
   .wrapped-agent-chip {
     display: flex; align-items: center; gap: 6px;
     padding: 6px 10px; border-radius: 8px;
@@ -1388,6 +1399,11 @@
         <p class="wrapped-goal" id="wrapped-goal"></p>
         <div class="wrapped-meta-row" id="wrapped-meta-row"></div>
         <div class="wrapped-agents-row" id="wrapped-agents-row"></div>
+        <div class="wrapped-agents-pager hidden" id="wrapped-agents-pager">
+          <button id="wrapped-agents-prev">&lsaquo; Prev</button>
+          <span id="wrapped-agents-page-info"></span>
+          <button id="wrapped-agents-next">Next &rsaquo;</button>
+        </div>
         <div class="wrapped-repo" id="wrapped-repo"></div>
       </div>
       <div class="wrapped-file-table" id="wrapped-file-table"></div>

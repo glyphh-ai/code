@@ -963,6 +963,40 @@ async function closeCypher(): Promise<void> {
   }
 }
 
+// ── Wrapped-results agent list (paginated) ──────────────────
+let wrappedJammers: Jammer[] = [];
+let wrappedAgentsPage = 0;
+const WRAPPED_AGENTS_PER_PAGE = 24;
+
+function renderWrappedAgents(): void {
+  const total = wrappedJammers.length;
+  const totalPages = Math.max(1, Math.ceil(total / WRAPPED_AGENTS_PER_PAGE));
+  if (wrappedAgentsPage > totalPages - 1) wrappedAgentsPage = totalPages - 1;
+  if (wrappedAgentsPage < 0) wrappedAgentsPage = 0;
+  const start = wrappedAgentsPage * WRAPPED_AGENTS_PER_PAGE;
+  const slice = wrappedJammers.slice(start, start + WRAPPED_AGENTS_PER_PAGE);
+  $("wrapped-agents-row").innerHTML = slice.map((j) => {
+    const av = j.avatar_url
+      ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
+      : identiconSvg(j.agent_local_id, 20);
+    return `
+      <div class="wrapped-agent-chip">
+        <div class="wrapped-agent-avatar">${av}</div>
+        <span class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</span>
+        <span class="wrapped-agent-tokens">${formatTokens(j.input_tokens + j.output_tokens)}</span>
+      </div>`;
+  }).join("");
+  const pager = $("wrapped-agents-pager");
+  if (totalPages > 1) {
+    pager.classList.remove("hidden");
+    ($("wrapped-agents-prev") as HTMLButtonElement).disabled = wrappedAgentsPage === 0;
+    ($("wrapped-agents-next") as HTMLButtonElement).disabled = wrappedAgentsPage >= totalPages - 1;
+    $("wrapped-agents-page-info").textContent = `${wrappedAgentsPage + 1} / ${totalPages} · ${total} jammers`;
+  } else {
+    pager.classList.add("hidden");
+  }
+}
+
 async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<void> {
   $("workspace").classList.add("hidden");
   $("wrapped-view").classList.remove("hidden");
@@ -1011,19 +1045,11 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
     ${duration !== "—" ? `<span class="wrapped-meta-pill">${duration}</span>` : ""}
   `;
 
-  // Agents — inline chips
+  // Agents — paginated chips, sorted by token contribution.
   allJammers.sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
-  $("wrapped-agents-row").innerHTML = allJammers.map(j => {
-    const av = j.avatar_url
-      ? `<img src="${escapeHtml(j.avatar_url)}" alt="" />`
-      : identiconSvg(j.agent_local_id, 20);
-    return `
-      <div class="wrapped-agent-chip">
-        <div class="wrapped-agent-avatar">${av}</div>
-        <span class="wrapped-agent-name">${escapeHtml(j.name || j.agent_local_id)}</span>
-        <span class="wrapped-agent-tokens">${formatTokens(j.input_tokens + j.output_tokens)}</span>
-      </div>`;
-  }).join("");
+  wrappedJammers = allJammers;
+  wrappedAgentsPage = 0;
+  renderWrappedAgents();
 
   // Repo clone section
   if (cypherId) {
@@ -1665,6 +1691,14 @@ function boot(): void {
   $("jammer-next").addEventListener("click", () => {
     const totalPages = Math.max(1, Math.ceil(jammerTotal / JAMMERS_PER_PAGE));
     if (jammerPage < totalPages - 1) void fetchJammerPage(jammerPage + 1);
+  });
+
+  // Wrapped-results agent list pagination.
+  $("wrapped-agents-prev").addEventListener("click", () => {
+    if (wrappedAgentsPage > 0) { wrappedAgentsPage--; renderWrappedAgents(); }
+  });
+  $("wrapped-agents-next").addEventListener("click", () => {
+    wrappedAgentsPage++; renderWrappedAgents();
   });
 
   $("feed-pause").addEventListener("click", () => {
