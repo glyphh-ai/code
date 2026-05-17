@@ -1835,10 +1835,15 @@ async function boot() {
     // it already played locally on send (execCommand); only other people's
     // drips play from the stream. Rate-limited so a burst can't flood the UI.
     if (kind === "drip" && !isOwn) {
+      const p = payload as Record<string, unknown>;
       const now = Date.now();
-      if (now - lastDripRenderAt >= DRIP_MIN_INTERVAL_MS) {
+      // Only play LIVE drips. The SSE stream replays a cypher's whole history
+      // on connect, so an old `drip` event would otherwise pop fireworks on
+      // app startup. A live drip is seconds old; a replayed one is not.
+      const dripTs = typeof p.ts === "number" ? p.ts : 0;
+      const isFresh = dripTs > 0 && now - dripTs < 60_000;
+      if (isFresh && now - lastDripRenderAt >= DRIP_MIN_INTERVAL_MS) {
         lastDripRenderAt = now;
-        const p = payload as Record<string, unknown>;
         const recipe = typeof p.recipe === "string" ? p.recipe : "fireworks";
         try { dripManager?.execute([recipe]); } catch { /* ignore */ }
       }
@@ -2297,7 +2302,7 @@ async function boot() {
             if (cyId) {
               const account = getAccountInfo();
               const recipe = trimmed.slice(1 + firstWord.length).trim() || "fireworks";
-              postCypherEvent(cyId, "drip", { recipe, sender_name: account?.firstName || "mistro" }, "user");
+              postCypherEvent(cyId, "drip", { recipe, sender_name: account?.firstName || "mistro", ts: Date.now() }, "user");
             }
           }
           mainWindow?.webContents.send("yo-panel-done", result || "done.");

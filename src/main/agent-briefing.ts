@@ -135,12 +135,15 @@ function escapeRegex(s: string): string {
 /** Ensure ${rootDir}/.mcp.json has a `yo-workspace` MCP server entry pointing
  *  at the local workspace MCP HTTP server. We merge into the existing JSON
  *  rather than overwrite — if the user has other MCP servers configured, they
- *  stay. The agent's per-call identity headers are written into env vars
- *  (claude code substitutes ${VAR} in headers); we set them at spawn time
- *  via YO_AGENT_NAME / YO_WORKSPACE so each agent identifies as itself.
+ *  stay.
  *
- *  Note: a single .mcp.json is shared across all agents in the workspace —
- *  identity comes from env vars expanded per-agent, not from the file. */
+ *  The identity headers are written as LITERALS. This file is read by the
+ *  workspace's orchestrator agent (the .yo agent); cypher jammers get their
+ *  own hardcoded headers when spawned (see cypher-session) and do not rely on
+ *  this file. The previous `${YO_AGENT_NAME}` / `${YO_WORKSPACE}` placeholders
+ *  assumed Claude Code would expand `${VAR}` from the reading agent's env —
+ *  when that didn't happen the literal string `${YO_WORKSPACE}` reached the
+ *  server and every workspace tool failed with "Unknown workspace". */
 export function ensureProjectMcpJson(workspace: Workspace, mcpUrl: string, bearerToken?: string): void {
   const file = path.join(workspace.rootDir, ".mcp.json");
   let parsed: Record<string, unknown> = {};
@@ -155,8 +158,8 @@ export function ensureProjectMcpJson(workspace: Workspace, mcpUrl: string, beare
   }
   const servers = (parsed.mcpServers as Record<string, unknown>) || {};
   const headers: Record<string, string> = {
-    "X-Yo-Agent": "${YO_AGENT_NAME}",
-    "X-Yo-Workspace": "${YO_WORKSPACE}",
+    "X-Yo-Agent": ".yo",
+    "X-Yo-Workspace": workspace.slug,
   };
   if (bearerToken) {
     headers["Authorization"] = `Bearer ${bearerToken}`;
