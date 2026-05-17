@@ -699,26 +699,70 @@ function rosterCard(a: Agent): HTMLElement {
   return el;
 }
 
+const AGENTS_PER_PAGE = 18;
+let agentsPage = 0;
+let agentsSearchQuery = "";
+
 async function loadAgents(): Promise<void> {
   const [r] = await Promise.all([
     drop.agentsList() as Promise<Agent[] | { error?: string }>,
     ensureAppsLoaded(),
   ]);
   agentsCache = Array.isArray(r) ? r : [];
+  agentsPage = 0;
+  renderAgentsPage();
+}
+
+/** Render the My Jammers roster — searched + paginated. */
+function renderAgentsPage(): void {
   const grid = $("agents-grid");
   const empty = $("agents-empty");
+  const pager = $("agents-pager");
   grid.innerHTML = "";
+
   if (agentsCache.length === 0) {
     empty.classList.remove("hidden");
+    empty.innerHTML = "No jammers yet. <strong>+ New Jammer</strong> to start your roster.";
     grid.style.display = "none";
+    pager.classList.add("hidden");
+    return;
+  }
+
+  const q = agentsSearchQuery.toLowerCase();
+  const filtered = q
+    ? agentsCache.filter((a) =>
+        a.id.toLowerCase().includes(q) ||
+        (a.name || "").toLowerCase().includes(q) ||
+        (a.role || "").toLowerCase().includes(q))
+    : agentsCache;
+
+  if (filtered.length === 0) {
+    empty.classList.remove("hidden");
+    empty.textContent = "No jammers match your search.";
+    grid.style.display = "none";
+    pager.classList.add("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  grid.style.display = "";
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / AGENTS_PER_PAGE));
+  if (agentsPage > totalPages - 1) agentsPage = totalPages - 1;
+  if (agentsPage < 0) agentsPage = 0;
+  const start = agentsPage * AGENTS_PER_PAGE;
+  filtered.slice(start, start + AGENTS_PER_PAGE).forEach((a, i) => {
+    const card = rosterCard(a);
+    card.style.animationDelay = `${Math.min(i, 12) * 0.03}s`;
+    grid.appendChild(card);
+  });
+
+  if (totalPages > 1) {
+    pager.classList.remove("hidden");
+    ($("agents-prev") as HTMLButtonElement).disabled = agentsPage === 0;
+    ($("agents-next") as HTMLButtonElement).disabled = agentsPage >= totalPages - 1;
+    $("agents-page-info").textContent = `${agentsPage + 1} / ${totalPages} · ${filtered.length} jammers`;
   } else {
-    empty.classList.add("hidden");
-    grid.style.display = "";
-    agentsCache.forEach((a, i) => {
-      const card = rosterCard(a);
-      card.style.animationDelay = `${Math.min(i, 12) * 0.03}s`;
-      grid.appendChild(card);
-    });
+    pager.classList.add("hidden");
   }
 }
 
@@ -2911,6 +2955,18 @@ function init(): void {
   $("join-confirm").addEventListener("click", () => { void joinSelectedJammers(); });
   $i("join-search").addEventListener("input", () => {
     renderJoinList($i("join-search").value.trim() || undefined);
+  });
+  // My Jammers roster — search + pagination.
+  $i("agents-search").addEventListener("input", () => {
+    agentsSearchQuery = $i("agents-search").value.trim();
+    agentsPage = 0;
+    renderAgentsPage();
+  });
+  $("agents-prev").addEventListener("click", () => {
+    if (agentsPage > 0) { agentsPage--; renderAgentsPage(); }
+  });
+  $("agents-next").addEventListener("click", () => {
+    agentsPage++; renderAgentsPage();
   });
   // Select-all / deselect-all operate on the jammers currently shown (so they
   // respect the active search filter).
