@@ -508,8 +508,24 @@ function wireResize(): void {
   });
 }
 
+// Collapsable file sidebar — the chosen state persists across sessions.
+function wireSidebarToggle(): void {
+  const app = document.querySelector(".fx-app") as HTMLElement | null;
+  const btn = document.getElementById("sidebar-toggle");
+  if (!app || !btn) return;
+  const KEY = "yoEditorSidebarCollapsed";
+  try {
+    if (localStorage.getItem(KEY) === "1") app.classList.add("sidebar-collapsed");
+  } catch { /* localStorage unavailable */ }
+  btn.addEventListener("click", () => {
+    const collapsed = app.classList.toggle("sidebar-collapsed");
+    try { localStorage.setItem(KEY, collapsed ? "1" : "0"); } catch { /* ignore */ }
+  });
+}
+
 function wire(): void {
   wireResize();
+  wireSidebarToggle();
   // Cmd/Ctrl+S saves the active file tab.
   window.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {

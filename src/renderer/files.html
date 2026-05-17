@@ -176,12 +176,27 @@
     .fx-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
     /* Editor tab strip */
-    .fx-tabs {
+    .fx-tabbar {
       display: flex; align-items: stretch; flex-shrink: 0;
       height: 36px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+    }
+    .fx-tabs {
+      display: flex; align-items: stretch; flex: 1; min-width: 0;
       overflow-x: auto; overflow-y: hidden;
     }
     .fx-tabs::-webkit-scrollbar { height: 0; }
+    /* Sidebar collapse toggle — lives at the left of the tab strip */
+    .fx-sidebar-toggle {
+      flex-shrink: 0; width: 38px;
+      background: transparent; border: none; border-right: 1px solid var(--border);
+      color: var(--text-dim); cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.12s, background 0.12s;
+    }
+    .fx-sidebar-toggle:hover { color: var(--accent); background: var(--hover); }
+    /* Collapsed state — hide the left column and its resize handle */
+    .fx-app.sidebar-collapsed .fx-left,
+    .fx-app.sidebar-collapsed .fx-resize { display: none; }
     .fx-tab {
       display: flex; align-items: center; gap: 6px;
       padding: 0 10px; cursor: pointer; flex-shrink: 0;
@@ -288,7 +303,10 @@
     </div>
     <div class="fx-resize" id="resize"></div>
     <div class="fx-main">
-      <div class="fx-tabs" id="tabs"></div>
+      <div class="fx-tabbar">
+        <button class="fx-sidebar-toggle" id="sidebar-toggle" title="Toggle file sidebar">&#9776;</button>
+        <div class="fx-tabs" id="tabs"></div>
+      </div>
       <div id="editor-host">
         <div id="mono-edit"></div>
         <div id="mono-diff"></div>
