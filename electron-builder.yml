@@ -31,6 +31,21 @@ win:
   icon: assets/icon.png
   artifactName: "Yo-Setup.${ext}"
 
+nsis:
+  # Assisted installer (NOT one-click). The default one-click installer
+  # installs silently and just launches the app — which reads as "it only
+  # opened the app, it never installed" and leaves users unable to find Yo
+  # afterwards. An assisted installer shows a real wizard: an install-location
+  # step, a progress page, and an "Installation Complete" finish page.
+  oneClick: false
+  perMachine: false              # per-user install — no admin prompt needed
+  allowElevation: true           # but allow opting into an all-users install
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Yo
+  runAfterFinish: true
+
 directories:
   output: release
   buildResources: assets
