@@ -1487,10 +1487,27 @@ function wireRepoStepEvents(): void {
   $("cw-repo-install-btn").addEventListener("click", async () => {
     const btn = $("cw-repo-install-btn") as HTMLButtonElement;
     btn.disabled = true;
-    btn.textContent = "Installing...";
-    await drop.ghAppInstall();
+    btn.textContent = "Installing…";
+    let res: { ok?: boolean; installed?: boolean; error?: string } = {};
+    try { res = (await drop.ghAppInstall()) as typeof res; } catch { /* handled below */ }
+
+    if (res.installed) {
+      // GitHub's API can lag a beat before the new installation is visible —
+      // poll loadRepoStep until the install prompt actually clears, so the
+      // button doesn't get stuck even though the app IS installed.
+      btn.textContent = "Verifying…";
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await loadRepoStep();
+        if ($("cw-repo-no-install").classList.contains("hidden")) return; // cleared — done
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+
+    // Not installed (window closed) or verification didn't land — reset so
+    // the user can retry, and surface any error.
     btn.disabled = false;
     btn.textContent = "Install yo-cypher on GitHub";
+    if (res.error) showToast(res.error);
     void loadRepoStep();
   });
 }

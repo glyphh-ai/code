@@ -1,6 +1,6 @@
 {
   "name": "yo",
-  "version": "3.0.13",
+  "version": "3.0.14",
   "description": "Yo. Sup. — Your AI workspace.",
   "main": "dist/main/main.js",
   "scripts": {

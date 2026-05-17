@@ -323,19 +323,35 @@ async function refreshOnce(): Promise<void> {
   const s = readSession();
   if (!s?.refreshToken) return;
   try {
-    const res = await fetch(`${AUTH_SERVER}/api/auth/refresh`, {
+    // Server refresh endpoint is /api/session/refresh — NOT /api/auth/refresh.
+    // The wrong path 404'd every time, so the token silently expired whenever
+    // The Drop sat idle past its lifetime.
+    const res = await fetch(`${AUTH_SERVER}/api/session/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: s.refreshToken }),
     });
-    if (!res.ok) return; // leave the existing token until manual sign-in
+    if (!res.ok) {
+      // 401 → the refresh token itself is dead; only a manual sign-in helps.
+      // Anything else (5xx, network) is transient — retry soon so one blip
+      // doesn't kill the refresh loop and let the token lapse.
+      if (res.status !== 401) scheduleRefreshRetry();
+      return;
+    }
     const next = await res.json() as Partial<DropSession>;
-    if (!next.accessToken || !next.expiresAt) return;
+    if (!next.accessToken || !next.expiresAt) { scheduleRefreshRetry(); return; }
     const merged: DropSession = { ...s, ...next } as DropSession;
     writeSession(merged);
+    scheduleRefresh(merged); // arm the next refresh
   } catch {
-    /* network blip — let next attempt try again */
+    scheduleRefreshRetry(); // network blip — try again, don't give up
   }
+}
+
+/** Re-arm a refresh after a transient failure so the loop never dies. */
+function scheduleRefreshRetry(): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { void refreshOnce(); }, 60_000);
 }
 
 /** Init at app boot. No-op if there's no existing session file. */
