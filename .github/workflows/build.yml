@@ -98,6 +98,25 @@ jobs:
       - name: Replace unsigned exe with signed
         run: Move-Item -Force release\signed\Yo-Setup.exe release\Yo-Setup.exe
 
+      # electron-builder generated latest.yml against the UNSIGNED exe.
+      # SSL.com signing changed the file's bytes, so latest.yml's sha512/size
+      # no longer match the published exe — every Windows auto-update would
+      # fail its integrity check. Recompute them against the signed exe.
+      - name: Refresh latest.yml hashes for signed exe
+        shell: pwsh
+        run: |
+          $exe = "release/Yo-Setup.exe"
+          $stream = [System.IO.File]::OpenRead($exe)
+          $sha = [System.Security.Cryptography.SHA512]::Create()
+          $hash = [System.Convert]::ToBase64String($sha.ComputeHash($stream))
+          $stream.Close()
+          $size = (Get-Item $exe).Length
+          $yml = Get-Content release/latest.yml -Raw
+          $yml = $yml -replace 'sha512: .*', "sha512: $hash"
+          $yml = $yml -replace 'size: .*', "size: $size"
+          Set-Content -NoNewline release/latest.yml $yml
+          Write-Host "Patched latest.yml: size=$size sha512=$hash"
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:

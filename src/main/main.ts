@@ -2007,6 +2007,25 @@ async function boot() {
   autoUpdater.autoInstallOnAppQuit = autoUpdateEnabled;
   autoUpdater.logger = null;
 
+  // macOS has no install-on-quit — electron-updater's MacUpdater extends
+  // AppUpdater, not BaseUpdater, so autoInstallOnAppQuit is a no-op there.
+  // A downloaded update only applies when quitAndInstall() runs. Without
+  // that the app re-downloads the same update every launch and never moves
+  // off the old version (the "stuck downloading" loop). We auto-install a
+  // downloaded update during boot, bounded to ONE attempt per version so a
+  // failing install can never loop forever.
+  const appStartedAt = Date.now();
+  const updateAttempt = getPreference<{ version: string; tried: boolean } | null>(
+    "pendingUpdateInstall",
+    null,
+  );
+  // If a prior attempt's version is now <= the running version, the update
+  // applied (or was surpassed) — clear the marker. If it's still newer the
+  // install failed; keep the marker so we don't re-attempt that exact version.
+  if (updateAttempt && !isNewerVersion(updateAttempt.version, app.getVersion())) {
+    setPreference("pendingUpdateInstall", null);
+  }
+
   autoUpdater.on("update-available", (info: { version: string }) => {
     mainWindow?.webContents.send("update-status", {
       status: "available",
@@ -2026,6 +2045,23 @@ async function boot() {
       status: "ready",
       version: info.version,
     });
+    if (!autoUpdateEnabled) return;
+    // Don't re-attempt the exact version whose install already failed —
+    // leave the in-app "restart to update" button as the manual fallback.
+    if (updateAttempt?.tried && updateAttempt.version === info.version) return;
+    // Only auto-restart while still near boot, so we don't yank the app out
+    // from under someone mid-session. Past the window, the manual button
+    // (and the next launch) still apply it.
+    if (Date.now() - appStartedAt > 10 * 60 * 1000) return;
+    setPreference("pendingUpdateInstall", { version: info.version, tried: true });
+    // Let the splash paint "Update ready" before we restart into the update.
+    setTimeout(() => {
+      try {
+        autoUpdater.quitAndInstall(true, true);
+      } catch (err) {
+        console.error("[auto-update] quitAndInstall failed:", err);
+      }
+    }, 1500);
   });
 
   autoUpdater.on("update-not-available", () => {
