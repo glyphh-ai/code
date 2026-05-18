@@ -423,6 +423,7 @@ export function createCypherSession(deps: CypherSessionDeps) {
         workspace: wsSlug,
         cypherId: cypId,
         model: reg.model_name,
+        modelProvider: reg.model_provider,
         guardrails: reg.guardrails,
         ...(mcpUrl && mcpToken ? {
           mcpServers: {

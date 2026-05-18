@@ -2883,6 +2883,7 @@ async function boot() {
       workspace: wsSlug,
       cypherId,
       model: agent.model_name,
+      modelProvider: agent.model_provider,
       guardrails: agent.guardrails,
     };
   }
