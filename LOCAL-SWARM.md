@@ -66,10 +66,47 @@ Surgically cut their wiring from `main.ts`. Drop `build:drop` from package.json.
 `cypher-bus.ts`: remove the SSE/server bridge; it becomes a pure in-process
 event bus. No `postCypherEvent`, no subscriptions.
 
-### Phase C — localize spawn
-`cypher-session.ts` → `spawnSwarm(goal, agents[])`: build `AgentConfig`s from
-the registry and start them on `AgentRunner`. Hierarchy comes from the draft
-skill, not a server matchmaker.
+### Phases C + E — the local swarm engine (one unit)
+
+C and E are bound: a localized `spawnSwarm` needs a *local* manifest, and the
+thing that produces it is the draft. Build them together.
+
+**The local manifest** (replaces the server-fetched cypher manifest):
+
+```ts
+interface SwarmManifest {
+  id: string;              // local swarm id (uuid)
+  title: string;
+  goal: string;
+  workspace: string;       // .yo workspace slug — agents share this cwd
+  agents: SwarmAssignment[];
+}
+interface SwarmAssignment {
+  agentId: string;         // registry agent id
+  position: string;        // "leader" | "worker"
+  area?: string;
+  contract?: string;
+  parentAgentId?: string | null;
+  reports?: string[];
+}
+```
+
+**Phase C — `spawnSwarm`** (`cypher-session.ts` → `swarm-session.ts`):
+`spawnSwarm(manifest: SwarmManifest, wc: WebContents)` —
+- build hierarchy context from `manifest.agents` → set on `McpExpose` + the bus;
+- per agent: `getAgent(agentId)` from the registry → build a `RunnerAgentConfig`
+  (cwd in the shared working dir, systemPrompt from registry + hierarchy,
+  model/provider/guardrails from registry, `mcpServers` → the local
+  yo-workspace MCP) → start;
+- leaders start immediately, workers deferred on `assign_task` (keep that logic);
+- **no server** — drop the manifest fetch, draft POST, projects, gh-token,
+  work-packages, repo-clone.
+
+**Phase E — draft skill + `create_swarm` tool:**
+- a bundled **draft skill**: input = goal + candidate agent roster; output = a
+  `SwarmManifest` (assigns leader + workers, areas). The yo agent delegates to it.
+- a **`create_swarm` tool**: `create_swarm(goal, agentIds[]|count)` → run the
+  draft skill → `spawnSwarm(manifest)` → open the swarm-view panel.
 
 ### Phase D — localize the swarm view
 The feed is already re-sourced (Phase B kept the `jammer-activity` IPC
@@ -79,10 +116,6 @@ contract). Remaining is the layout simplification:
 - Layout: agent cards on the left (with the activity popups); feed top-right;
   agent panel bottom-right.
 - Drop per-agent messaging — keep only **Start all** / **Stop all**.
-
-### Phase E — yo-agent swarm tool + draft skill
-A `create_swarm` tool the yo agent calls. A bundled **draft skill** that
-composes the hierarchy from a goal + an agent roster.
 
 ### Phase F — boot to the default app
 App no longer opens into The Drop; loads the default app (already wired —
