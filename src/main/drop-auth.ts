@@ -98,22 +98,36 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 function readSession(): DropSession | null {
   if (cached) return cached;
+  if (!fs.existsSync(SESSION_PATH)) return null;
+  let raw: Buffer;
   try {
-    if (!fs.existsSync(SESSION_PATH)) return null;
-    const raw = fs.readFileSync(SESSION_PATH);
-    let json: string;
-    if (safeStorage.isEncryptionAvailable()) {
-      try { json = safeStorage.decryptString(raw); }
-      catch { json = fallbackDecrypt(raw); }
-    } else {
-      json = fallbackDecrypt(raw);
-    }
-    const parsed = JSON.parse(json) as DropSession;
-    cached = parsed;
-    return parsed;
-  } catch {
+    raw = fs.readFileSync(SESSION_PATH);
+  } catch (err) {
+    console.warn("[drop-auth] session file unreadable:", err instanceof Error ? err.message : err);
     return null;
   }
+  // Try EVERY decryptor and use whichever yields valid JSON — do NOT branch on
+  // safeStorage.isEncryptionAvailable(). On a cold boot the macOS keychain may
+  // not be warm yet and that flag transiently reads false; branching on it
+  // then ran fallbackDecrypt against safeStorage-encrypted data, failed, and
+  // silently logged the user out — until they closed and reopened the app.
+  const attempts: Array<[string, () => string]> = [
+    ["safeStorage", () => safeStorage.decryptString(raw)],
+    ["fallback", () => fallbackDecrypt(raw)],
+  ];
+  for (const [label, decrypt] of attempts) {
+    try {
+      const parsed = JSON.parse(decrypt()) as DropSession;
+      if (parsed && typeof parsed.accessToken === "string") {
+        cached = parsed;
+        return parsed;
+      }
+    } catch {
+      /* try the next decryptor */
+    }
+  }
+  console.warn("[drop-auth] session file present but could not be decrypted by any method");
+  return null;
 }
 
 function writeSession(s: DropSession): void {
@@ -357,7 +371,20 @@ function scheduleRefreshRetry(): void {
 /** Init at app boot. No-op if there's no existing session file. */
 export function initDropAuth(): void {
   const s = readSession();
-  if (s) scheduleRefresh(s);
+  if (s) { scheduleRefresh(s); return; }
+
+  // No session in hand. If a file exists, safeStorage may simply not be warm
+  // yet on a cold boot (the Drop opens before the Keychain is ready). Retry a
+  // few times before giving up so we don't strand the user as "logged out".
+  if (!fs.existsSync(SESSION_PATH)) return;
+  let attempts = 0;
+  const retry = setInterval(() => {
+    attempts++;
+    cached = null; // force a fresh decrypt attempt
+    const late = readSession();
+    if (late) { clearInterval(retry); scheduleRefresh(late); return; }
+    if (attempts >= 5) clearInterval(retry);
+  }, 1000);
 }
 
 /** Best-effort dev/debug — show where the session file lives. */

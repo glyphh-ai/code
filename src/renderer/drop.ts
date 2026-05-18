@@ -2005,19 +2005,26 @@ const LOBBY_REFRESH_KINDS = new Set([
   "cypher_started", "cypher_wrapped", "jammer_join", "jammer_leave", "seat_open",
 ]);
 
+/**
+ * Cypher went live → take this lobby participant straight into the real
+ * cypher panel, the same view the owner gets on start. Used by every
+ * live-transition path (the SSE `cypher_started` event AND the polling
+ * fallback) so a missed SSE event can't strand a participant in The Drop.
+ */
+function enterLiveCypher(): void {
+  const id = lobbyState.cypherId;
+  const title = lobbyState.cypher?.title;
+  const owner = isHostOf(lobbyState.cypher);
+  exitLobby();
+  if (id) void activateCypherPanel(id, owner, title);
+}
+
 function subscribeLobbyEvents(): void {
   if (lobbyState.unsubscribeEvents) lobbyState.unsubscribeEvents();
   lobbyState.unsubscribeEvents = drop.onCypherEvent((cypherId, kind) => {
     if (cypherId !== lobbyState.cypherId) return;
-    // Cypher went live → take this participant straight into the real cypher
-    // panel — the same view the owner gets on start. Previously a lobby
-    // refresh only swapped the in-Drop "workspace" view, so remote folks were
-    // left behind in The Drop instead of entering the cypher.
     if (kind === "cypher_started") {
-      const id = lobbyState.cypherId;
-      const title = lobbyState.cypher?.title;
-      exitLobby();
-      if (id) void activateCypherPanel(id, false, title);
+      enterLiveCypher();
       return;
     }
     if (LOBBY_REFRESH_KINDS.has(kind) && lobbyState.pollHandle) {
@@ -2037,15 +2044,9 @@ async function refreshLobbyOnce(): Promise<void> {
   if (cR && "cypher" in cR && cR.cypher) {
     lobbyState.cypher = cR.cypher;
     if (cR.cypher.status === "live") {
-      const dR = await drop.cypherDraftGet(lobbyState.cypherId) as { ok?: boolean; draft_round?: number; assignments?: AssignmentRow[]; cypher_id?: string; error?: string };
-      if (dR && dR.ok && Array.isArray(dR.assignments)) {
-        lobbyState.draft = {
-          cypher_id: dR.cypher_id || lobbyState.cypherId,
-          draft_round: dR.draft_round ?? 0,
-          assignments: dR.assignments,
-        };
-      }
-      enterWorkspace(lobbyState.cypher, lobbyState.jammers, lobbyState.draft);
+      // Polling fallback for a missed `cypher_started` SSE event — route to
+      // the real cypher panel, not the stale in-Drop workspace view.
+      enterLiveCypher();
       return;
     }
   }
@@ -2073,18 +2074,10 @@ function startLobbyPolling(): void {
     if (jR && "jammers" in jR && Array.isArray(jR.jammers)) {
       lobbyState.jammers = jR.jammers;
     }
-    // Pull draft + auto-transition to Workspace once the cypher is live
+    // Auto-transition once the cypher is live. Polling fallback for a missed
+    // `cypher_started` SSE event — route into the real cypher panel.
     if (lobbyState.cypher && lobbyState.cypher.status === "live") {
-      const dR = await drop.cypherDraftGet(lobbyState.cypherId) as { ok?: boolean; draft_round?: number; assignments?: AssignmentRow[]; cypher_id?: string; error?: string };
-      if (dR && "ok" in dR && dR.ok && Array.isArray(dR.assignments)) {
-        lobbyState.draft = {
-          cypher_id: dR.cypher_id || lobbyState.cypherId,
-          draft_round: dR.draft_round ?? 0,
-          assignments: dR.assignments,
-        };
-      }
-      // Hand off to Workspace view
-      enterWorkspace(lobbyState.cypher, lobbyState.jammers, lobbyState.draft);
+      enterLiveCypher();
       return;
     }
     renderLobby();

@@ -952,11 +952,35 @@ updateDismiss.addEventListener("click", () => {
 initDrip();
 
 
+// -- First-run: auto-open the yo agent panel --
+// On the very first launch — after the splash, and after onboarding for a
+// brand-new user — drop the user straight into the yo agent so the assistant
+// is the first thing they reach for. Once-only, guarded by a preference.
+function maybeAutoOpenYoPanel(): void {
+  window.yo.getPreference("hasAutoOpenedYoPanel", false).then((opened) => {
+    if (opened) return;
+    window.yo.setPreference("hasAutoOpenedYoPanel", true);
+    setTimeout(() => {
+      if (!isYoPanelOpen()) {
+        window.yo.yoPanelOpen("");
+        openYoPanel("");
+      }
+    }, 1200);
+  });
+}
+
+// Brand-new user: fires once onboarding activation completes.
+window.addEventListener("yo-onboarding-done", () => {
+  setTimeout(maybeAutoOpenYoPanel, 800);
+});
+
 // -- Boot gate --
 
 initBootGate({
-  onBootReady: (_data) => {
-    // Additional post-boot setup can go here if needed
+  onBootReady: (data) => {
+    // Returning/authenticated user's first launch with this build — a
+    // brand-new user reaches this via the yo-onboarding-done path instead.
+    if (!data.needsOnboarding) maybeAutoOpenYoPanel();
   },
   showPanels: () => window.yo.panelsShow(),
   hidePanels: () => window.yo.panelsHide(),

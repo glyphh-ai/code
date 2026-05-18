@@ -1112,7 +1112,10 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
 
   async function readWrappedFile(filePath: string): Promise<{ content: string; binary: boolean }> {
     if (wrappedGhMode) {
-      const r = await api.ghFile(filePath);
+      // GitHub tree paths carry the `gh://` prefix so they're distinguishable
+      // from local paths in the file rows — the API wants the bare repo path.
+      const rel = filePath.startsWith(GH_PREFIX) ? filePath.slice(GH_PREFIX.length) : filePath;
+      const r = await api.ghFile(rel);
       return r ?? { content: "", binary: false };
     }
     return api.readFile(filePath);
@@ -1172,7 +1175,9 @@ async function showWrappedResults(cypher: any, allJammers: Jammer[]): Promise<vo
       row.innerHTML = `<span class="wrapped-file-icon${iconCls}">${icon}</span><span class="wrapped-file-name${nameCls}">${escapeHtml(node.name)}</span>`;
 
       if (node.isDir) {
-        row.addEventListener("click", () => renderGhDir(node.path));
+        // renderGhDir walks a bare repo-relative path; strip the `gh://` prefix
+        // that buildGhFileTree stamps onto every node so the walk can match.
+        row.addEventListener("click", () => renderGhDir(node.path.slice(GH_PREFIX.length)));
       } else {
         row.addEventListener("click", () => {
           fileTableEl.querySelectorAll(".wrapped-file-row.active").forEach(r => r.classList.remove("active"));
@@ -1496,9 +1501,25 @@ async function init(): Promise<void> {
     feedItems.length = 0;
     feedLoadedUpTo = 0;
     seenFeedSeqs.clear();
+    seenFeedKeys.clear();
     try {
       const entries = await api.loadFeed(cypherId, 200);
+      const seenLoadKeys = new Set<string>();
       for (const entry of entries) {
+        // Dedup persisted entries. An older build double-appended `chat`
+        // events to feed.jsonl (it ran both the generic feed branch and the
+        // chat branch), so the file itself can hold the same event twice —
+        // render each one once. Prefer the server `seq`; fall back to a
+        // content key for legacy rows written before `seq` was persisted.
+        const eseq = (entry as { seq?: number }).seq;
+        if (typeof eseq === "number" && Number.isFinite(eseq)) {
+          if (seenFeedSeqs.has(eseq)) continue;
+          seenFeedSeqs.add(eseq);
+        } else {
+          const key = `${entry.from}|${entry.kind}|${entry.ts}|${entry.body}`;
+          if (seenLoadKeys.has(key)) continue;
+          seenLoadKeys.add(key);
+        }
         feedItems.push({
           from: entry.from,
           kind: entry.kind,
@@ -1506,8 +1527,6 @@ async function init(): Promise<void> {
           ts: entry.ts,
         });
         if (entry.ts > feedLoadedUpTo) feedLoadedUpTo = entry.ts;
-        const eseq = (entry as { seq?: number }).seq;
-        if (typeof eseq === "number") seenFeedSeqs.add(eseq);
       }
       if (feedItems.length > MAX_FEED_ITEMS) feedItems.length = MAX_FEED_ITEMS;
       rebuildFeed();
@@ -1528,6 +1547,8 @@ async function init(): Promise<void> {
 // from the SSE stream, and this makes a duplicate render structurally
 // impossible even across a reconnect replay.
 const seenFeedSeqs = new Set<number>();
+// Fallback dedup key for events that arrive without a server `seq`.
+const seenFeedKeys = new Set<string>();
 
 function subscribeEvents(): void {
   cleanup();
@@ -1559,11 +1580,18 @@ function subscribeEvents(): void {
     // Drop activity tagged for a different cypher.
     if (event.cypherId && event.cypherId !== cypherId) return;
     // Dedup on the server `seq` — the feed is single-sourced from the SSE
-    // stream, so seeing a seq twice means a replay; render it once.
+    // stream, so seeing a seq twice means a replay; render it once. Events
+    // without a `seq` (older payloads) fall back to a content key so a
+    // double-delivered chat still renders once.
     if (typeof event.seq === "number" && Number.isFinite(event.seq)) {
       if (seenFeedSeqs.has(event.seq)) return;
       seenFeedSeqs.add(event.seq);
       if (seenFeedSeqs.size > 4000) seenFeedSeqs.clear();
+    } else {
+      const key = `${event.from}|${event.kind}|${event.ts}|${event.body}`;
+      if (seenFeedKeys.has(key)) return;
+      seenFeedKeys.add(key);
+      if (seenFeedKeys.size > 4000) seenFeedKeys.clear();
     }
     if (!event.from || event.from === "orchestrator" || event.from === "unknown") return;
     if (!event.body?.trim()) return;

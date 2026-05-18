@@ -93,6 +93,9 @@ export interface FeedEntry {
   kind: string;
   body: string;
   tags?: string[];
+  /** Server-assigned monotonic event id. Persisted so the renderer can dedup
+   *  loaded entries against the live SSE stream (and against itself). */
+  seq?: number;
 }
 
 function feedFile(cypherId: string): string {
