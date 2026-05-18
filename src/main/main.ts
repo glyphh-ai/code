@@ -2629,8 +2629,6 @@ async function boot() {
   });
 
   // ── Local swarm session (cypher-session.ts) ──────────────────────
-  // spawnSwarm is the local swarm engine; Phase E wires the create_swarm
-  // tool that builds a manifest and calls it.
   const { spawnSwarm } = createCypherSession({
     agentRunner,
     workspaceManager,
@@ -2638,7 +2636,17 @@ async function boot() {
     cypherBus,
     getAgent,
   });
-  void spawnSwarm; // wired by the create_swarm tool (Phase E)
+
+  // Wire the create_swarm tool: draft a manifest from the goal + roster,
+  // open the swarm panel, and spawn the agents locally.
+  mcpExpose!.setSwarmRunner(async (goal, agentIds) => {
+    const { draftSwarm } = await import("./swarm-draft");
+    const manifest = draftSwarm({ goal, workspace: workspaceManager.getActive().slug, agentIds });
+    if (mainWindow) panelManager.switchTo("cypher", mainWindow);
+    const wc = panelManager.getView("cypher")?.webContents;
+    if (!wc || wc.isDestroyed()) return { ok: false, error: "swarm panel unavailable" };
+    return spawnSwarm(manifest, wc);
+  });
 
   ipcMain.on("cypher-panel-leave", () => {
     cypherPanelContext = null;

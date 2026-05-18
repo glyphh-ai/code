@@ -72,6 +72,8 @@ export class McpExpose {
   private bus: CypherBus | null = null;
   private hierarchyContext: Map<string, HierarchyEntry> | null = null;
   private projectContext: ProjectContext | null = null;
+  /** Runs a local swarm — injected by main (draft → open panel → spawnSwarm). */
+  private swarmRunner: ((goal: string, agentIds: string[]) => Promise<{ ok: boolean; spawned?: number; error?: string }>) | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
@@ -79,6 +81,10 @@ export class McpExpose {
 
   setBus(bus: CypherBus): void {
     this.bus = bus;
+  }
+
+  setSwarmRunner(fn: (goal: string, agentIds: string[]) => Promise<{ ok: boolean; spawned?: number; error?: string }>): void {
+    this.swarmRunner = fn;
   }
 
   setHierarchyContext(ctx: Map<string, HierarchyEntry> | null): void {
@@ -1082,38 +1088,42 @@ export class McpExpose {
         });
       }
 
-      case "create_cypher": {
-        const title = String(args.title || "").trim();
+      case "create_swarm": {
         const goal = String(args.goal || "").trim();
-        if (!title) return reply("title is required", true);
         if (!goal) return reply("goal is required", true);
-        const typeArg = String(args.type || "open");
-        const type = ["open", "bounty", "coop", "sponsored"].includes(typeArg) ? typeArg : "open";
-        try {
-          const { serverPostAuthed } = await import("./auth");
-          // The server screens the goal (cypher-policy.validateGoal) and
-          // throws on a policy violation — surfaced here as the tool error.
-          const res = await serverPostAuthed<{ ok: boolean; cypher?: { id: string; slug: string; title: string }; error?: string }>(
-            "/api/cyphers",
-            {
-              title,
-              goal,
-              type,
-              ...(args.description ? { description: String(args.description) } : {}),
-            },
-          );
-          if (!res.ok || !res.cypher) {
-            return reply(`create_cypher failed: ${res.error || "unknown error"}`, true);
+        if (!this.swarmRunner) return reply("swarm runner not available", true);
+
+        const { listAgents } = await import("./stores/agent-store-db");
+        const library = listAgents();
+        if (library.length === 0) {
+          return reply("No agents in the library — create some in the Agents tab first.", true);
+        }
+
+        // Roster: explicit ids if given, else the first `size` library agents.
+        let agentIds: string[];
+        if (Array.isArray(args.jammers) && args.jammers.length > 0) {
+          agentIds = (args.jammers as unknown[]).map((j) => String(j)).filter(Boolean);
+          const missing = agentIds.filter((id) => !library.some((a) => a.id === id));
+          if (missing.length > 0) {
+            return reply(`Unknown agent id(s): ${missing.join(", ")} — use list_jammers.`, true);
           }
+        } else {
+          const size = Math.max(1, Math.min(library.length, Number(args.size) || 3));
+          agentIds = library.slice(0, size).map((a) => a.id);
+        }
+
+        try {
+          const res = await this.swarmRunner(goal, agentIds);
+          if (!res.ok) return reply(`create_swarm failed: ${res.error || "unknown error"}`, true);
           return replyJson({
             ok: true,
-            id: res.cypher.id,
-            slug: res.cypher.slug,
-            title: res.cypher.title,
-            note: `Cypher "${res.cypher.title}" created — jammers can now join it.`,
+            spawned: res.spawned ?? 0,
+            agents: agentIds,
+            note: `Swarm started with ${res.spawned ?? 0} agent(s): ${agentIds.join(", ")}. `
+              + `The leader assigns work over the bus; watch the swarm panel.`,
           });
         } catch (err) {
-          return reply(`create_cypher failed: ${err instanceof Error ? err.message : String(err)}`, true);
+          return reply(`create_swarm failed: ${err instanceof Error ? err.message : String(err)}`, true);
         }
       }
 
@@ -1190,19 +1200,19 @@ export class McpExpose {
         },
       },
       {
-        name: "create_cypher",
-        description: "Create a new cypher — a shared multi-agent session pointed at a goal. "
-          + "Returns the cypher id and slug so jammers can join. Use this when the user wants "
-          + "to kick off a collaborative swarm on an objective.",
+        name: "create_swarm",
+        description: "Spin up a local swarm of agents to work a goal together. The first "
+          + "agent leads — it decomposes the goal and assigns tasks to the rest over the bus. "
+          + "Pass specific jammer ids, or a size to take that many from the library. Agents "
+          + "run locally and coordinate in the swarm panel.",
         inputSchema: {
           type: "object",
           properties: {
-            title: { type: "string", description: "Short cypher title" },
             goal: { type: "string", description: "The objective — what the swarm should accomplish" },
-            type: { type: "string", enum: ["open", "bounty", "coop", "sponsored"], description: "Cypher type (default: open)" },
-            description: { type: "string", description: "Optional longer description" },
+            jammers: { type: "array", items: { type: "string" }, description: "Jammer ids (from list_jammers); first one leads" },
+            size: { type: "number", description: "If no jammers given, take this many from the library (default 3)" },
           },
-          required: ["title", "goal"],
+          required: ["goal"],
         },
       },
     ];
