@@ -118,7 +118,6 @@ async function openEditor(agent: AgentDef | null): Promise<void> {
   $a("agent-form-error").classList.add("hidden");
 
   $a<HTMLInputElement>("agent-name").value = current!.name || "";
-  $a<HTMLInputElement>("agent-slug").value = current!.id || "";
   $a<HTMLInputElement>("agent-role").value = current!.role || "";
   $a<HTMLTextAreaElement>("agent-prompt").value = current!.systemPrompt || "";
 
@@ -205,7 +204,7 @@ function showPicker(kind: "apps" | "skills"): void {
 
   const menu = document.createElement("div");
   menu.className = "skill-row-picker";
-  menu.style.cssText = "position:absolute;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px var(--shadow);max-height:200px;overflow-y:auto;width:240px;";
+  menu.style.cssText = "position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px var(--shadow);max-height:240px;overflow-y:auto;width:240px;";
   for (const opt of available) {
     const item = document.createElement("div");
     item.style.cssText = "padding:6px 12px;cursor:pointer;font-size:13px;";
@@ -220,9 +219,13 @@ function showPicker(kind: "apps" | "skills"): void {
     item.addEventListener("mouseleave", () => { item.style.background = ""; });
     menu.appendChild(item);
   }
+  // Position the menu right below the button (fixed → viewport coords, so
+  // it can't be clipped by the editor's scroll container).
   const btn = $a(`agent-${kind}-add`);
-  btn.style.position = "relative";
-  btn.parentElement!.appendChild(menu);
+  const rect = btn.getBoundingClientRect();
+  menu.style.left = `${rect.left}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+  document.body.appendChild(menu);
   const close = (e: MouseEvent) => {
     if (!menu.contains(e.target as Node) && e.target !== btn) { menu.remove(); document.removeEventListener("mousedown", close); }
   };
@@ -231,18 +234,27 @@ function showPicker(kind: "apps" | "skills"): void {
 
 // ── Save ────────────────────────────────────────────────────
 
+/** Derive a unique slug from a name — the slug is an internal id the user
+ *  never sees, so collisions are resolved silently with a numeric suffix. */
+async function uniqueSlug(name: string): Promise<string> {
+  const base = slugify(name).replace(/^[^a-z0-9]+/i, "") || "agent";
+  if (await window.yo.agentsIdAvailable(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const cand = `${base}-${n}`;
+    if (await window.yo.agentsIdAvailable(cand)) return cand;
+  }
+  return `${base}-${Date.now()}`;
+}
+
 async function saveAgent(): Promise<void> {
   if (!current) return;
   const err = $a("agent-form-error");
   const name = $a<HTMLInputElement>("agent-name").value.trim();
-  const slug = ($a<HTMLInputElement>("agent-slug").value.trim() || slugify(name));
   if (!name) { err.textContent = "Name is required."; err.classList.remove("hidden"); return; }
-  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(slug)) { err.textContent = "Slug must be letters, digits, _ or -."; err.classList.remove("hidden"); return; }
 
-  const idChanged = slug !== current.id;
-  if ((isNew || idChanged) && !(await window.yo.agentsIdAvailable(slug))) {
-    err.textContent = `Slug "${slug}" already exists.`; err.classList.remove("hidden"); return;
-  }
+  // The slug is auto-derived and hidden. New agents get a fresh unique slug;
+  // existing agents keep theirs (rename isn't exposed).
+  const slug = isNew ? await uniqueSlug(name) : current.id;
 
   const modelVal = $a<HTMLSelectElement>("agent-model").value;
   const [mProvider, mName] = modelVal ? modelVal.split("::") : [undefined, undefined];
@@ -268,7 +280,6 @@ async function saveAgent(): Promise<void> {
       auto_stop_idle_seconds: num("agent-guard-idle"),
     },
   };
-  if (!isNew && idChanged) await window.yo.agentsRemove(current.id);
   await window.yo.agentsSave(cfg);
   await loadAgents();
 }
