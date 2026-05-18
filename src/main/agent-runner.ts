@@ -1,10 +1,16 @@
 /**
- * AgentRunner — manages Claude Agent SDK instances for code workspace agents.
+ * AgentRunner — runs jammers and code-workspace agents through a pluggable
+ * agent-loop backend.
  *
- * Uses V1 query() with session resumption for persistent multi-turn agents.
+ * AgentRunner owns everything provider-agnostic: instance lifecycle, session
+ * resumption, follow-up message queueing, idle auto-stop, guardrail
+ * enforcement, cypher-bus visibility events, and thread persistence. The agent
+ * loop itself — the SDK/CLI that drives a turn — lives behind a JammerBackend
+ * (see ./jammer-backends). Phase 0 ships only ClaudeBackend; the seam lets
+ * later phases run a jammer on Codex or Gemini with no change here.
+ *
  * Initial query runs with a string prompt. Follow-up messages (broadcasts,
- * inbox updates) trigger new query() calls with resume: sessionId, continuing
- * the same conversation.
+ * inbox updates) resume the same session, continuing the conversation.
  *
  * Phase 3.5: agents communicate via the cypher bus (CypherBus). When a
  * workspace has a bound cypher, all inter-agent events flow through the SSE
@@ -13,58 +19,27 @@
  */
 
 import type { WebContents } from "electron";
-import { getShellPath } from "./shell-path";
-import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import os from "os";
-import { asarSafeQueryOptions } from "./sdk-llm";
 import type { CypherBus } from "./cypher-bus";
 import * as threadStore from "./cypher-thread-store";
 import { usageTracker } from "./usage-tracker";
 import { probeJammerCapabilities, capabilityBriefing, type JammerCapabilities } from "./jammer-capabilities";
 import { redactSecrets, summarizeToolInput } from "./feed-sanitize";
+import { selectBackend } from "./jammer-backends";
+import type { AgentConfig, JammerBackend, JammerEvent } from "./jammer-backends";
 
-const dynamicImport = new Function("specifier", "return import(specifier)") as
-  (specifier: string) => Promise<any>;
-
-function findNodePath(): string {
-  const shellPath = getShellPath();
-  try {
-    return execSync("which node", {
-      env: { ...process.env, PATH: shellPath },
-      encoding: "utf-8",
-    }).trim();
-  } catch {
-    return "node";
-  }
-}
-
-export interface AgentConfig {
-  name: string;
-  displayName?: string;
-  avatarUrl?: string;
-  role: string;
-  cwd: string;
-  prompt?: string;
-  startPrompt: string;
-  workspace: string;
-  model?: string;
-  mcpServers?: Record<string, any>;
-  permissionMode?: string;
-  cypherId?: string;
-  /** Resource limits from the jammer's config — enforced at runtime. */
-  guardrails?: import("./agent-store").Guardrails;
-}
+// AgentConfig moved to ./jammer-backends/types so backends can import it
+// without a cycle; re-exported here for existing importers.
+export type { AgentConfig } from "./jammer-backends";
 
 interface AgentInstance {
   name: string;
   status: "starting" | "running" | "waiting" | "error";
   sessionId: string | null;
   pendingMessages: string[];
-  baseOptions: Record<string, any>;
-  activeQuery: any;
-  seenUuids: Set<string>;
+  /** The agent-loop backend driving this jammer's turns. */
+  backend: JammerBackend;
   tokens: { input: number; output: number };
   costUsd: number;
   turns: number;
@@ -82,7 +57,6 @@ export type UsagePoster = (cypherId: string, agentId: string, inputTokens: numbe
 
 export class AgentRunner {
   private agents = new Map<string, AgentInstance>();
-  private sdk: any = null;
   private bus: CypherBus | null = null;
   private usagePoster: UsagePoster | null = null;
 
@@ -92,13 +66,6 @@ export class AgentRunner {
 
   setUsagePoster(fn: UsagePoster): void {
     this.usagePoster = fn;
-  }
-
-  private async ensureSDK(): Promise<any> {
-    if (!this.sdk) {
-      this.sdk = await dynamicImport("@anthropic-ai/claude-agent-sdk");
-    }
-    return this.sdk;
   }
 
   private key(wcId: number, agent: string): string {
@@ -143,102 +110,38 @@ export class AgentRunner {
     }
     this.stopAgent(wc.id, config.name);
 
-    // Pre-flight CC auth — if creds are missing, pop the in-app OAuth
-    // window and surface a clear status to the renderer instead of
-    // letting the SDK error out cryptically downstream.
-    {
-      const { ensureCcAuth } = await import("./cc-bootstrap");
-      // ensureCcAuth() pops the gating modal in the renderer if creds
-      // are missing; abort this call and let the modal block the user
-      // until creds land. No status/error needed here — the modal owns
-      // user-facing comms.
-      if (!ensureCcAuth()) return;
+    const backend = selectBackend(config);
+
+    // Pre-flight (e.g. Claude Code OAuth). ok:false aborts the start silently
+    // — the backend owns any user-facing prompt (the gating modal).
+    if (backend.preflight) {
+      try {
+        const pre = await backend.preflight();
+        if (!pre.ok) return;
+      } catch (err: any) {
+        if (!wc.isDestroyed()) {
+          wc.send("cw:agent:status", config.name, "error");
+          wc.send("cw:agent:message", config.name, {
+            type: "error",
+            text: `Agent pre-flight failed: ${err?.message || err}`,
+          });
+        }
+        return;
+      }
     }
 
-    let sdk: any;
+    // Initialize the backend (load SDK/CLI, build run options).
     try {
-      sdk = await this.ensureSDK();
+      await backend.init(config, { requestStop: () => this.stopAgent(wc.id, config.name) });
     } catch (err: any) {
       if (!wc.isDestroyed()) {
         wc.send("cw:agent:status", config.name, "error");
         wc.send("cw:agent:message", config.name, {
           type: "error",
-          text: `Failed to load Claude Agent SDK: ${err.message}`,
+          text: `Failed to initialize agent backend: ${err?.message || err}`,
         });
       }
       return;
-    }
-
-    const shellPath = getShellPath();
-    const agentCwd = config.cwd || os.homedir();
-
-    const baseOptions: Record<string, any> = {
-      ...asarSafeQueryOptions(agentCwd),
-      executable: "node" as const,
-      executableArgs: [],
-      model: config.model || "claude-sonnet-4-6",
-      maxTurns: config.guardrails?.max_turns ?? 25,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      allowedTools: [
-        "Bash", "Read", "Edit", "Write", "Grep", "Glob",
-        "WebFetch", "WebSearch", "Agent", "TodoWrite",
-      ],
-      // Phase 4 of THE-PIVOT-BYOK: SDK uses CC OAuth creds directly,
-      // not the proxy. ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY removed so
-      // the SDK auto-discovers ~/.claude/.credentials.json (the user's
-      // Claude Code subscription).
-      env: {
-        ...process.env,
-        PATH: shellPath,
-        YO_AGENT_NAME: config.name,
-        YO_AGENT_ROLE: config.role,
-        YO_WORKSPACE: config.workspace,
-        CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/2.5.0",
-      },
-    };
-
-    if (config.prompt) {
-      baseOptions.systemPrompt = config.prompt;
-    }
-    if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
-      baseOptions.mcpServers = config.mcpServers;
-    }
-
-    // Path-gate: in cypher mode, every tool call resolves through the
-    // jammer's sandbox. Anything escaping it is reported on the bus and
-    // denied. Three strikes ⇒ self-stop; server-side handler revokes the
-    // jammer's seat in cypher_jammers.
-    if (config.cypherId) {
-      const { checkToolCall } = await import("./substrate/path-gate");
-      const violationCounts = { count: 0 };
-      const cypherId = config.cypherId;
-      const agentLocalId = config.name;
-      baseOptions.canUseTool = async (toolName: string, input: Record<string, unknown>) => {
-        const violation = checkToolCall(input, { cypherSandbox: config.cwd });
-        if (!violation) return { behavior: "allow", updatedInput: input };
-
-        violationCounts.count += 1;
-        // Best-effort: post path_violation to the cypher bus
-        try {
-          const { postCypherEvent } = await import("./cypher-runtime");
-          await postCypherEvent(cypherId, "path_violation", {
-            agent_local_id: agentLocalId,
-            tool: toolName,
-            attempted: input,
-            sandbox: config.cwd,
-            details: violation,
-            strike: violationCounts.count,
-          }, agentLocalId);
-        } catch { /* best-effort — never block on reporting */ }
-
-        // Self-stop after three strikes
-        if (violationCounts.count >= 3) {
-          console.warn(`[agent-runner] ${agentLocalId} hit 3 path-gate strikes in cypher=${cypherId}; stopping`);
-          this.stopAgent(wc.id, agentLocalId);
-        }
-        return { behavior: "deny", message: `Path-gate violation: ${violation}` };
-      };
     }
 
     const instance: AgentInstance = {
@@ -246,9 +149,7 @@ export class AgentRunner {
       status: "starting",
       sessionId: null,
       pendingMessages: [],
-      baseOptions,
-      activeQuery: null,
-      seenUuids: new Set(),
+      backend,
       tokens: { input: 0, output: 0 },
       costUsd: 0,
       turns: 0,
@@ -314,9 +215,6 @@ export class AgentRunner {
   }
 
   private async runQuery(instance: AgentInstance, prompt: string, isResume: boolean): Promise<void> {
-    const sdk = this.sdk;
-    if (!sdk) return;
-
     const wc = instance.wcRef.deref();
     if (!wc || wc.isDestroyed()) return;
 
@@ -324,39 +222,26 @@ export class AgentRunner {
     instance.status = "running";
     wc.send("cw:agent:status", instance.name, "running");
 
-    const options = { ...instance.baseOptions };
-    if (isResume && instance.sessionId) {
-      options.resume = instance.sessionId;
-    }
-
     try {
-      const gen = sdk.query({ prompt, options });
-      instance.activeQuery = gen;
+      const turn = instance.backend.runTurn({
+        prompt,
+        resumeSessionId: isResume ? instance.sessionId : null,
+      });
 
-      for await (const msg of gen) {
+      for await (const event of turn) {
         const wcNow = instance.wcRef.deref();
         if (!wcNow || wcNow.isDestroyed()) break;
 
-        // Skip replayed messages from previous turns (resume dedup)
-        if (msg.isReplay) continue;
-        if (msg.uuid && msg.type !== "system") {
-          if (instance.seenUuids.has(msg.uuid)) continue;
-          instance.seenUuids.add(msg.uuid);
-        }
-
-        if (msg.type === "system") {
-          console.log(`[agent-runner] ${instance.name}: system/${msg.subtype}`);
-          if (msg.subtype === "init") {
-            instance.sessionId = msg.session_id || null;
-          }
-        } else if (msg.type === "result") {
-          const inTok = msg.usage?.input_tokens || 0;
-          const outTok = msg.usage?.output_tokens || 0;
-          console.log(`[agent-runner] ${instance.name}: result/${msg.subtype} error=${msg.is_error} in=${inTok} out=${outTok}`);
+        if (event.kind === "init") {
+          instance.sessionId = event.sessionId;
+        } else if (event.kind === "result") {
+          const inTok = event.inputTokens;
+          const outTok = event.outputTokens;
+          console.log(`[agent-runner] ${instance.name}: result/${event.subtype} error=${event.isError} in=${inTok} out=${outTok}`);
           instance.tokens.input += inTok;
           instance.tokens.output += outTok;
-          instance.costUsd += msg.total_cost_usd || 0;
-          instance.turns += msg.num_turns || 0;
+          instance.costUsd += event.costUsd;
+          instance.turns += event.numTurns;
 
           if (instance.config.cypherId && instance.turns > 0) {
             const t = instance.turns;
@@ -414,14 +299,14 @@ export class AgentRunner {
           }
         }
 
-        const serialized = this.serializeMessage(msg);
+        const serialized = serializeEvent(event);
         if (serialized) {
           wcNow.send("cw:agent:message", instance.name, serialized);
         }
 
         // Post visibility events to the cypher bus
         if (this.bus && instance.config.cypherId) {
-          this.postToBus(instance, msg);
+          this.postEventToBus(instance, event);
         }
 
         // Persist agent thread to local store
@@ -430,7 +315,6 @@ export class AgentRunner {
         }
       }
 
-      instance.activeQuery = null;
       instance.status = "waiting";
       this.armIdleTimer(instance);
 
@@ -439,7 +323,7 @@ export class AgentRunner {
         wcAfter.send("cw:agent:status", instance.name, "waiting");
       }
 
-      console.log(`[agent-runner] ${instance.name}: query complete, status=waiting`);
+      console.log(`[agent-runner] ${instance.name}: turn complete, status=waiting`);
 
       // Drain pending messages
       if (instance.pendingMessages.length > 0 && instance.sessionId) {
@@ -448,7 +332,6 @@ export class AgentRunner {
         this.runFollowUp(instance, next);
       }
     } catch (err: any) {
-      instance.activeQuery = null;
       console.error(`[agent-runner] ${instance.name}: error:`, err.message || err);
 
       const wcErr = instance.wcRef.deref();
@@ -525,11 +408,10 @@ export class AgentRunner {
     const key = this.key(wcId, agentName);
     const instance = this.agents.get(key);
     if (instance) {
-      instance.activeQuery?.close?.();
+      instance.backend.abort();
       instance.inboxWatcher?.close();
       instance.busUnsubscribe?.();
       if (instance.idleTimer) clearTimeout(instance.idleTimer);
-      instance.activeQuery = null;
       this.agents.delete(key);
     }
   }
@@ -537,7 +419,7 @@ export class AgentRunner {
   stopAll(wcId: number): void {
     for (const [key, instance] of this.agents) {
       if (key.startsWith(`${wcId}:`)) {
-        instance.activeQuery?.close?.();
+        instance.backend.abort();
         instance.inboxWatcher?.close();
         instance.busUnsubscribe?.();
         if (instance.idleTimer) clearTimeout(instance.idleTimer);
@@ -582,89 +464,6 @@ export class AgentRunner {
     return this.agents.get(this.key(wcId, agentName))?.tokens || { input: 0, output: 0 };
   }
 
-  private serializeMessage(msg: any): any {
-    switch (msg.type) {
-      case "assistant": {
-        const content = msg.message?.content || [];
-        const texts: string[] = [];
-        const toolUses: any[] = [];
-
-        for (const block of content) {
-          if (block.type === "text") {
-            texts.push(block.text);
-          } else if (block.type === "tool_use") {
-            toolUses.push({
-              id: block.id,
-              name: block.name,
-              input: summarizeToolInput(block.name, block.input),
-              rawInput: block.input,
-            });
-          }
-        }
-
-        return {
-          type: "assistant",
-          text: texts.join("\n"),
-          toolUses,
-          parentToolUseId: msg.parent_tool_use_id || null,
-        };
-      }
-
-      case "stream_event": {
-        const evt = msg.event;
-        if (!evt) return null;
-        if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-          return { type: "partial_text", text: evt.delta.text, index: evt.index };
-        }
-        if (evt.type === "content_block_start" && evt.content_block?.type === "tool_use") {
-          return { type: "tool_start", id: evt.content_block.id, name: evt.content_block.name };
-        }
-        return null;
-      }
-
-      case "result":
-        return {
-          type: "result",
-          subtype: msg.subtype,
-          result: msg.result || "",
-          usage: {
-            input: msg.usage?.input_tokens || 0,
-            output: msg.usage?.output_tokens || 0,
-          },
-          costUsd: msg.total_cost_usd || 0,
-          numTurns: msg.num_turns || 0,
-          durationMs: msg.duration_ms || 0,
-          isError: msg.is_error || false,
-        };
-
-      case "tool_progress":
-        return {
-          type: "tool_progress",
-          toolUseId: msg.tool_use_id,
-          toolName: msg.tool_name,
-          elapsed: msg.elapsed_time_seconds,
-        };
-
-      case "system":
-        if (msg.subtype === "init") {
-          return { type: "init", model: msg.model, tools: msg.tools, mcpServers: msg.mcp_servers };
-        }
-        if (msg.subtype === "status") {
-          return { type: "status", status: msg.status };
-        }
-        if (msg.subtype === "session_state_changed") {
-          return { type: "state", state: msg.state };
-        }
-        return null;
-
-      default:
-        return null;
-    }
-  }
-
-  // summarizeToolInput moved to feed-sanitize.ts (shared with the maestro
-  // publish path, and it now redacts secrets from the label too).
-
   private persistAgentEntry(cypherId: string, agentName: string, serialized: any): void {
     try {
       if (serialized.type === "assistant" && serialized.text) {
@@ -684,8 +483,8 @@ export class AgentRunner {
     } catch { /* best effort */ }
   }
 
-  /** Post agent events to the cypher bus for visibility + coordination. */
-  private postToBus(instance: AgentInstance, msg: any): void {
+  /** Post a normalized agent event to the cypher bus for visibility. */
+  private postEventToBus(instance: AgentInstance, event: JammerEvent): void {
     if (!this.bus) return;
     const ws = instance.config.workspace;
     const from = instance.name;
@@ -695,9 +494,8 @@ export class AgentRunner {
       avatar_url: instance.config.avatarUrl || null,
     };
 
-    if (msg.type === "assistant") {
-      const content = msg.message?.content || [];
-      for (const block of content) {
+    if (event.kind === "assistant") {
+      for (const block of event.blocks) {
         if (block.type === "text" && block.text) {
           const key = `thinking:${block.text.slice(0, 500)}`;
           if (key === instance.lastBusKey) continue;
@@ -720,25 +518,91 @@ export class AgentRunner {
           }).catch(() => {});
         }
       }
-    } else if (msg.type === "result") {
-      const displayName = instance.config.displayName || from;
-      const body = msg.is_error
-        ? `Error: ${redactSecrets(String(msg.result || "unknown error").slice(0, 300))}`
-        : `Completed turn (${msg.num_turns || 0} turns, ${msg.usage?.input_tokens || 0}+${msg.usage?.output_tokens || 0} tok)`;
+    } else if (event.kind === "result") {
+      const body = event.isError
+        ? `Error: ${redactSecrets(String(event.text || "unknown error").slice(0, 300))}`
+        : `Completed turn (${event.numTurns} turns, ${event.inputTokens}+${event.outputTokens} tok)`;
       this.bus.post(ws, {
         from,
-        kind: msg.is_error ? "agent_error" : "agent_result",
+        kind: event.isError ? "agent_error" : "agent_result",
         body,
         meta: { ...baseMeta },
       }).catch(() => {});
-    } else if (msg.type === "system" && msg.subtype === "status") {
+    } else if (event.kind === "status") {
       const displayName = instance.config.displayName || from;
       this.bus.post(ws, {
         from,
         kind: "status",
-        body: redactSecrets(`${displayName}: ${msg.status || msg.subtype}`),
+        body: redactSecrets(`${displayName}: ${event.status}`),
         meta: { ...baseMeta },
       }).catch(() => {});
     }
+  }
+}
+
+/** Translate a normalized JammerEvent into the `cw:agent:message` payload the
+ *  code-workspace renderer consumes. Returns null for events with no UI. */
+function serializeEvent(event: JammerEvent): any {
+  switch (event.kind) {
+    case "assistant": {
+      const texts: string[] = [];
+      const toolUses: any[] = [];
+      for (const block of event.blocks) {
+        if (block.type === "text") {
+          texts.push(block.text);
+        } else {
+          toolUses.push({
+            id: block.id,
+            name: block.name,
+            input: summarizeToolInput(block.name, block.input),
+            rawInput: block.input,
+          });
+        }
+      }
+      return {
+        type: "assistant",
+        text: texts.join("\n"),
+        toolUses,
+        parentToolUseId: event.parentToolUseId,
+      };
+    }
+
+    case "partial_text":
+      return { type: "partial_text", text: event.text, index: event.index };
+
+    case "tool_start":
+      return { type: "tool_start", id: event.id, name: event.name };
+
+    case "result":
+      return {
+        type: "result",
+        subtype: event.subtype,
+        result: event.text,
+        usage: { input: event.inputTokens, output: event.outputTokens },
+        costUsd: event.costUsd,
+        numTurns: event.numTurns,
+        durationMs: event.durationMs,
+        isError: event.isError,
+      };
+
+    case "tool_progress":
+      return {
+        type: "tool_progress",
+        toolUseId: event.toolUseId,
+        toolName: event.toolName,
+        elapsed: event.elapsed,
+      };
+
+    case "init":
+      return { type: "init", model: event.model, tools: event.tools, mcpServers: event.mcpServers };
+
+    case "status":
+      return { type: "status", status: event.status };
+
+    case "state":
+      return { type: "state", state: event.state };
+
+    default:
+      return null;
   }
 }
