@@ -34,18 +34,27 @@ let agentsCache: AgentDef[] = [];
 let agentsPage = 1;
 let current: AgentDef | null = null;     // agent being edited; null when not editing
 let isNew = false;
-let modelsCache: Array<{ provider: string; model: string; display_name: string }> = [];
 let appsCache: Array<{ id: string; name: string }> = [];
 let skillsCache: Array<{ name: string; description?: string }> = [];
+
+/**
+ * The agent loops a swarm agent can run on. An agent runs a *full agent loop*
+ * — Claude Code, Codex, or Gemini CLI — selected by `model_provider`. This is
+ * deliberately NOT the Council one-shot model catalog (window.yo.modelsList).
+ */
+const AGENT_LOOP_MODELS: Array<{ group: string; provider: string; model: string; label: string }> = [
+  { group: "Claude Code", provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { group: "Claude Code", provider: "anthropic", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  { group: "Claude Code", provider: "anthropic", model: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  { group: "Codex (OpenAI)", provider: "openai", model: "gpt-5-codex", label: "GPT-5 Codex" },
+  { group: "Gemini (Google)", provider: "google", model: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { group: "Gemini (Google)", provider: "google", model: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+];
 
 // ── List ────────────────────────────────────────────────────
 
 async function loadAgents(): Promise<void> {
   agentsCache = (await window.yo.agentsList() as AgentDef[]) || [];
-  if (modelsCache.length === 0) {
-    const mr = await window.yo.modelsList();
-    if (!("error" in mr)) modelsCache = mr.models;
-  }
   $a("agents-toolbar").classList.remove("hidden");
   $a("agents-list").classList.remove("hidden");
   $a("agent-editor").classList.add("hidden");
@@ -136,18 +145,18 @@ async function openEditor(agent: AgentDef | null): Promise<void> {
 function populateModelSelector(provider?: string, model?: string): void {
   const sel = $a<HTMLSelectElement>("agent-model");
   sel.innerHTML = `<option value="">Default (Claude Sonnet)</option>`;
-  const grouped = new Map<string, typeof modelsCache>();
-  for (const m of modelsCache) {
-    if (!grouped.has(m.provider)) grouped.set(m.provider, []);
-    grouped.get(m.provider)!.push(m);
+  const grouped = new Map<string, typeof AGENT_LOOP_MODELS>();
+  for (const m of AGENT_LOOP_MODELS) {
+    if (!grouped.has(m.group)) grouped.set(m.group, []);
+    grouped.get(m.group)!.push(m);
   }
-  for (const [prov, models] of grouped) {
+  for (const [label, models] of grouped) {
     const group = document.createElement("optgroup");
-    group.label = prov.charAt(0).toUpperCase() + prov.slice(1);
+    group.label = label;
     for (const m of models) {
       const opt = document.createElement("option");
       opt.value = `${m.provider}::${m.model}`;
-      opt.textContent = m.display_name;
+      opt.textContent = m.label;
       group.appendChild(opt);
     }
     sel.appendChild(group);
