@@ -38,9 +38,14 @@ let appsCache: Array<{ id: string; name: string }> = [];
 let skillsCache: Array<{ name: string; description?: string }> = [];
 
 /**
- * The agent loops a swarm agent can run on. An agent runs a *full agent loop*
- * — Claude Code, Codex, or Gemini CLI — selected by `model_provider`. This is
- * deliberately NOT the Council one-shot model catalog (window.yo.modelsList).
+ * Agent-loop models. An agent runs a *full agent loop* — Claude Code, Codex,
+ * or Gemini CLI — selected by `model_provider`. NOT the Council one-shot
+ * model catalog (window.yo.modelsList).
+ *
+ * Claude's list is the verified 4.x family. Codex / Gemini carry one sensible
+ * default each for now; when those backends land (JAMMER-BACKENDS Phase 2/3)
+ * this static list is replaced by querying each CLI for its real model list,
+ * so the dropdown is always accurate and never hand-maintained.
  */
 const AGENT_LOOP_MODELS: Array<{ group: string; provider: string; model: string; label: string }> = [
   { group: "Claude Code", provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
@@ -48,7 +53,6 @@ const AGENT_LOOP_MODELS: Array<{ group: string; provider: string; model: string;
   { group: "Claude Code", provider: "anthropic", model: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
   { group: "Codex (OpenAI)", provider: "openai", model: "gpt-5-codex", label: "GPT-5 Codex" },
   { group: "Gemini (Google)", provider: "google", model: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  { group: "Gemini (Google)", provider: "google", model: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
 ];
 
 // ── List ────────────────────────────────────────────────────

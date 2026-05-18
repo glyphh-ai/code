@@ -102,6 +102,10 @@ interface SwarmAssignment {
 - **no server** — drop the manifest fetch, draft POST, projects, gh-token,
   work-packages, repo-clone.
 
+When the Codex/Gemini backends land, the Agents-tab model dropdown stops
+using a hardcoded list and instead **queries each agent-loop CLI** for its
+supported models — the CLIs are the source of truth, so the list never rots.
+
 **Phase E — draft skill + `create_swarm` tool:**
 - a bundled **draft skill**: input = goal + candidate agent roster; output = a
   `SwarmManifest` (assigns leader + workers, areas). The yo agent delegates to it.
