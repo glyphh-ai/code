@@ -2628,24 +2628,17 @@ async function boot() {
     panelManager, getMainWindow: () => mainWindow, activeReminders,
   });
 
-  // ── Cypher session (extracted to cypher-session.ts) ──────────────
-  const { spawnCypherJammers } = createCypherSession({
-    getMainWebContents: () => mainWindow?.webContents ?? null,
-    panelManager,
+  // ── Local swarm session (cypher-session.ts) ──────────────────────
+  // spawnSwarm is the local swarm engine; Phase E wires the create_swarm
+  // tool that builds a manifest and calls it.
+  const { spawnSwarm } = createCypherSession({
     agentRunner,
     workspaceManager,
     mcpExpose: mcpExpose!,
     cypherBus,
-    threadStore,
-    serverGetAuthed,
-    serverPostAuthed,
-    listAgents,
     getAgent,
   });
-
-  ipcMain.handle("cypher-spawn-jammers", async (e, cypherId: string) => {
-    return spawnCypherJammers(cypherId, e.sender);
-  });
+  void spawnSwarm; // wired by the create_swarm tool (Phase E)
 
   ipcMain.on("cypher-panel-leave", () => {
     cypherPanelContext = null;
