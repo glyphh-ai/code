@@ -934,8 +934,6 @@ async function boot() {
   const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "cypher.html")}`;
   const cypherPreload = path.join(__dirname, "cypher-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
-  const filesHtml = `file://${path.join(__dirname, "..", "renderer", "files.html")}`;
-  const filesPreload = path.join(__dirname, "files-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   vscodeServer = new VSCodeServer();
   // VS Code server defaults ON when a `code` binary is found on this machine,
@@ -953,8 +951,6 @@ async function boot() {
       panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
-    } else if (app.url === "yo://files") {
-      panelManager.addPanel(app.id, filesHtml, filesPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -1403,8 +1399,6 @@ async function boot() {
       panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
-    } else if (app.url === "yo://files") {
-      panelManager.addPanel(instanceId, filesHtml, filesPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
