@@ -4953,13 +4953,16 @@ select.settings-input {
 
 /* Bottom nav — app sections + Settings + Platform + Sign Out */
 .files-rail-nav {
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding: 6px;
   gap: 1px;
-  border-top: 1px solid var(--border);
 }
+/* Pushes Platform + Sign Out to the bottom of the rail. */
+.files-rail-spacer { flex: 1 1 auto; min-height: 8px; }
 .files-rail-navitem {
   display: flex;
   align-items: center;

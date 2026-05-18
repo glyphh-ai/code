@@ -311,19 +311,9 @@
     <div class="files-rail-header">
       <button id="files-rail-title" class="files-rail-title" title="Pick the working folder">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <span id="files-rail-name">Files</span>
-      </button>
-      <button id="files-rail-newfile" class="files-rail-btn" title="New file">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="12" x2="12" y2="18"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-      </button>
-      <button id="files-rail-newfolder" class="files-rail-btn" title="New folder">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
-      </button>
-      <button id="files-rail-refresh" class="files-rail-btn" title="Refresh">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        <span id="files-rail-name">Pick a folder</span>
       </button>
     </div>
-    <div id="files-rail-tree" class="files-rail-tree"></div>
     <div id="files-rail-nav" class="files-rail-nav">
       <button class="files-rail-navitem" data-section="dashboard">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
@@ -365,6 +355,7 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
+      <div class="files-rail-spacer"></div>
       <button id="files-rail-platform" class="files-rail-navitem">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         <span>Platform</span>
@@ -375,23 +366,6 @@
       </button>
     </div>
     <div id="files-rail-resize" class="files-rail-resize"></div>
-  </div>
-  <div id="files-rail-ctx" class="files-rail-ctx hidden">
-    <button data-act="newfile">New File</button>
-    <button data-act="newfolder">New Folder</button>
-    <div class="files-rail-ctx-sep"></div>
-    <button data-act="delete" class="files-rail-ctx-danger">Delete</button>
-  </div>
-
-  <!-- Confirm modal for the files rail (delete, etc.) -->
-  <div id="rail-confirm" class="confirm-overlay hidden">
-    <div class="confirm-box">
-      <p id="rail-confirm-msg"></p>
-      <div class="confirm-actions">
-        <button id="rail-confirm-cancel" class="action-btn">Cancel</button>
-        <button id="rail-confirm-ok" class="action-btn confirm-danger-btn">Delete</button>
-      </div>
-    </div>
   </div>
 
   <div id="panel-container"></div>
