@@ -109,6 +109,7 @@ import { registerSkillsIpc } from "./skills-ipc";
 import { registerAppsIpc } from "./apps-ipc";
 import { registerCapturesIpc } from "./captures-ipc";
 import { registerMarketplaceIpc } from "./marketplace-ipc";
+import { registerHomeIpc } from "./home-ipc";
 import { registerTabIpc } from "./tab-ipc";
 import { buildSubstrateDeps } from "./substrate-deps";
 import { createCypherSession } from "./cypher-session";
@@ -2624,6 +2625,13 @@ async function boot() {
     listAgents, getAgent, saveAgent, removeAgent, idAvailable,
     pushAgentProfile, deleteAgentProfile,
     setOfferEnabled, getCapabilitiesStatus,
+  });
+
+  // Settings / home panel IPC — dashboard, MCP servers, connectors, prompts.
+  registerHomeIpc({
+    mcpExpose: mcpExpose!, mcpManager, connectorManager, canUseMcp,
+    usageTracker, promptLog, llmConfig,
+    panelManager, getMainWindow: () => mainWindow, activeReminders,
   });
 
   // ── Cypher session (extracted to cypher-session.ts) ──────────────

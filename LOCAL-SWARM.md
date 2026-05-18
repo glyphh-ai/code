@@ -95,6 +95,19 @@ Rename only: same agent registry (`agent-store-db`), same search / pagination /
 table+card views. This is the library the swarm tool (Phase E) pulls from.
 "Jammer" survives only as the word for an agent currently in a swarm.
 
+### Phase H — cull the in-house editor
+A home-grown editor is redundant with the VS Code integration and a
+maintenance sink. Remove:
+- **.Yo Editor** (`yo://files`) — `files.ts`, `files-preload.ts`, `files.html`,
+  `build:files`, the app-connector entry, panel wiring.
+- **The files left-rail** — the file tree + add-file / add-folder.
+
+Keep **Monaco** (`yo://monaco`) and **VS Code** (`yo://vscode`).
+
+Left-rail restructure: a **compact working-folder picker** stays pinned at the
+top (shows + sets the folder — the swarm's `cwd`); the menu items move up
+under it; platform + logout stay at the bottom.
+
 ---
 
 ## Open choices
