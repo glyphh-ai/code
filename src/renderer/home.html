@@ -1343,104 +1343,54 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
         <!-- Agents -->
         <div class="help-section" data-section="agents">
           <h2>Agents</h2>
-          <p class="section-desc">Your local agent library. Build agents here, then spin them into a swarm.</p>
-
+          <p class="section-desc">Your local agent library — the team a swarm draws from.</p>
           <div id="agents-toolbar" class="crud-toolbar">
             <input id="agent-search" type="text" class="crud-search" placeholder="Search agents..." spellcheck="false" autocomplete="off" />
-            <button id="agent-add-btn" class="action-btn primary">+ New</button>
+            <button id="agent-new-btn" class="action-btn primary">+ New</button>
           </div>
           <div id="agents-list" class="crud-cards"></div>
-
-          <div id="agent-add-form" class="crud-inline-form hidden">
+          <div id="agent-editor" class="crud-inline-form hidden">
             <div class="crud-inline-header">
-              <a class="crud-breadcrumb-back" id="agent-add-cancel">&larr; Agents</a>
-            </div>
-            <h3>New Agent</h3>
-            <label class="crud-field"><span>Name</span>
-              <input id="agent-add-name" type="text" placeholder="Researcher" /></label>
-            <label class="crud-field"><span>Slug</span>
-              <input id="agent-add-slug" type="text" placeholder="auto from name" /></label>
-            <label class="crud-field"><span>Type</span>
-              <select id="agent-add-type"><option value="local">Local</option><option value="remote">Remote</option></select></label>
-            <div id="agent-add-error" class="crud-error hidden"></div>
-            <div class="crud-form-actions">
-              <button id="agent-add-cancel-btn" class="action-btn">Cancel</button>
-              <button id="agent-add-save" class="action-btn primary">Create</button>
-            </div>
-          </div>
-
-          <div id="agent-detail" class="crud-inline-form hidden">
-            <div class="crud-inline-header">
-              <a class="crud-breadcrumb-back" id="agent-detail-close">&larr; Agents</a>
+              <a class="crud-breadcrumb-back" id="agent-back-link">&larr; Agents</a>
               <div class="crud-spacer"></div>
-              <span id="agent-detail-type-badge" class="agent-type-badge"></span>
             </div>
-            <h3 id="agent-detail-heading"></h3>
+            <div id="agent-form-error" class="crud-form-error hidden"></div>
 
-            <div class="app-detail-tabs">
-              <button class="app-detail-tab active" data-tab="general">General</button>
-              <button class="app-detail-tab" data-tab="guardrails">Guardrails</button>
-              <button class="app-detail-tab" data-tab="apps">Apps</button>
-              <button class="app-detail-tab" data-tab="skills">Skills</button>
-              <button class="app-detail-tab" data-tab="profile">Profile</button>
-              <button class="app-detail-tab" data-tab="remote">Remote</button>
-            </div>
+            <label class="settings-label">Name</label>
+            <input type="text" id="agent-name" class="settings-input" placeholder="Researcher" spellcheck="false" autocomplete="off" />
 
-            <div class="app-tab-left" data-tab="general">
-              <label class="crud-field"><span>Slug</span><input id="agent-detail-id" type="text" /></label>
-              <label class="crud-field"><span>Name</span><input id="agent-detail-name" type="text" /></label>
-              <label class="crud-field"><span>Role</span><input id="agent-detail-role" type="text" placeholder="e.g. Backend engineer" /></label>
-              <label class="crud-field"><span>Model</span><select id="agent-detail-model"></select></label>
-              <div id="agent-detail-model-cost" class="crud-hint"></div>
-              <label class="crud-field"><span>System prompt</span><textarea id="agent-detail-prompt" rows="6"></textarea></label>
-              <label class="crud-check"><input id="agent-detail-joinable" type="checkbox" /> Joinable to swarms</label>
-            </div>
+            <label class="settings-label">Slug</label>
+            <input type="text" id="agent-slug" class="settings-input" placeholder="auto from name" spellcheck="false" autocomplete="off" />
 
-            <div class="app-tab-left" data-tab="guardrails" style="display:none">
-              <label class="crud-field"><span>Max input tokens / turn</span><input id="agent-guard-per-turn" type="number" min="0" /></label>
-              <label class="crud-field"><span>Max tokens / session</span><input id="agent-guard-per-session" type="number" min="0" /></label>
-              <label class="crud-field"><span>Max turns</span><input id="agent-guard-per-day" type="number" min="0" /></label>
-              <label class="crud-field"><span>Auto-stop idle (seconds)</span><input id="agent-guard-max-idle" type="number" min="0" /></label>
-              <label class="crud-field"><span>Rate limit (rpm)</span><input id="agent-guard-max-concurrent" type="number" min="0" /></label>
-            </div>
+            <label class="settings-label">Role</label>
+            <input type="text" id="agent-role" class="settings-input" placeholder="e.g. Backend engineer" spellcheck="false" autocomplete="off" />
 
-            <div class="app-tab-left" data-tab="apps" style="display:none">
-              <div class="skill-row-list" id="agent-apps-list"></div>
-              <button id="agent-apps-add" class="action-btn">+ Add app</button>
+            <label class="settings-label">Model</label>
+            <select id="agent-model" class="settings-input" style="width:auto;"></select>
+
+            <label class="settings-label">System prompt</label>
+            <textarea id="agent-prompt" class="settings-input" rows="6" placeholder="Instructions for this agent..."></textarea>
+
+            <label class="settings-label" style="margin-top:8px;">Apps</label>
+            <div id="agent-apps-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+            <button id="agent-apps-add" class="action-btn" style="align-self:flex-start;margin-top:4px;">+ Add app</button>
+
+            <label class="settings-label" style="margin-top:8px;">Skills</label>
+            <div id="agent-skills-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+            <button id="agent-skills-add" class="action-btn" style="align-self:flex-start;margin-top:4px;">+ Add skill</button>
+
+            <label class="settings-label" style="margin-top:8px;">Guardrails</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <input type="number" id="agent-guard-turns" class="settings-input" min="0" placeholder="Max turns" style="width:140px;" />
+              <input type="number" id="agent-guard-tokens" class="settings-input" min="0" placeholder="Max tokens / session" style="width:180px;" />
+              <input type="number" id="agent-guard-idle" class="settings-input" min="0" placeholder="Idle stop (s)" style="width:140px;" />
             </div>
 
-            <div class="app-tab-left" data-tab="skills" style="display:none">
-              <div class="skill-row-list" id="agent-skills-list"></div>
-              <button id="agent-skills-add" class="action-btn">+ Add skill</button>
-            </div>
-
-            <div class="app-tab-left" data-tab="profile" style="display:none">
-              <div id="agent-profile-avatar-preview" class="agent-avatar-preview"></div>
-              <label class="crud-field"><span>Avatar URL</span><input id="agent-profile-avatar-url" type="text" /></label>
-              <label class="crud-field"><span>Bio</span><textarea id="agent-profile-bio" rows="3"></textarea></label>
-            </div>
-
-            <div class="app-tab-left" data-tab="remote" style="display:none">
-              <label class="crud-field"><span>Preferred tier</span>
-                <select id="agent-remote-pref-tier"><option value="any">Any</option><option value="premiere">Premiere</option><option value="standard">Standard</option><option value="low">Low</option></select></label>
-              <label class="crud-field"><span>Default idle (minutes)</span><input id="agent-remote-default-idle" type="number" min="1" value="30" /></label>
-              <div id="agent-active-reservation" class="agent-reservation hidden">
-                <span id="agent-active-meta"></span>
-                <button id="agent-release-btn" class="action-btn">Release</button>
-              </div>
-              <div class="crud-toolbar">
-                <input id="agent-remote-search" type="text" class="crud-search" placeholder="Search providers..." />
-                <button id="agent-remote-refresh" class="action-btn">Refresh</button>
-              </div>
-              <div id="agent-remote-empty" class="crud-empty hidden">No providers available.</div>
-              <div id="agent-remote-grid" class="connector-grid"></div>
-            </div>
-
-            <div class="crud-form-actions">
-              <button id="agent-detail-delete" class="action-btn danger">Delete</button>
-              <div class="crud-spacer"></div>
-              <button id="agent-detail-cancel" class="action-btn">Revert</button>
-              <button id="agent-detail-save" class="action-btn primary">Save</button>
+            <div class="settings-actions" style="margin-top:12px;">
+              <button id="agent-delete-btn" class="action-btn danger">Delete</button>
+              <div style="flex:1;"></div>
+              <button id="agent-cancel-btn" class="action-btn">Cancel</button>
+              <button id="agent-save-btn" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>
