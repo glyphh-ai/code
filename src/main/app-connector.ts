@@ -190,7 +190,6 @@ const VSCODE_GRAB_SCRIPT = `
 const NO_CAPTURE: CapturePolicy = { type: "manual" };
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE },
-  { id: "drop", name: "The Drop", url: "yo://drop" },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },

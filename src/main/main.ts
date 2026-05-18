@@ -29,10 +29,6 @@ import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
-// THE-PIVOT-GITHUB Phase 1 scaffolding (gh-pivot branch). Drop session is
-// scoped — independent rotation/revocation from the main yo session.
-import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus, getDropAccessToken } from "./drop-auth";
-import { dropApi } from "./drop-api";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
 import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, unsubscribeCypherAgent, CYPHER_VIEWER_AGENT, CYPHER_MAESTRO_AGENT, setPromptHandler, setAgentMessageHandler, setEventObserver, postCypherEvent } from "./cypher-runtime";
@@ -114,8 +110,6 @@ import { registerSkillsIpc } from "./skills-ipc";
 import { registerAppsIpc } from "./apps-ipc";
 import { registerCapturesIpc } from "./captures-ipc";
 import { registerMarketplaceIpc } from "./marketplace-ipc";
-import { registerCypherCrudIpc } from "./cypher-crud-ipc";
-import { registerDropIpc } from "./drop-ipc";
 import { registerTabIpc } from "./tab-ipc";
 import { buildSubstrateDeps } from "./substrate-deps";
 import { createCypherSession } from "./cypher-session";
@@ -935,8 +929,6 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const dropHtml = `file://${path.join(__dirname, "..", "renderer", "drop.html")}`;
-  const dropPreload = path.join(__dirname, "drop-preload.js");
   const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
   const councilPreload = path.join(__dirname, "council-preload.js");
   const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "cypher.html")}`;
@@ -957,8 +949,6 @@ async function boot() {
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://drop") {
-      panelManager.addPanel(app.id, dropHtml, dropPreload);
     } else if (app.url === "yo://council") {
       panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
@@ -1275,7 +1265,7 @@ async function boot() {
       if (lastView.rows) lastView.rows.forEach((r) => viewPanelIds.push(...r));
       if (lastView.grid?.cells) viewPanelIds.push(...lastView.grid.cells.map((c) => c.panelId));
       if (viewPanelIds.some((id) => resolveAppId(id) === "cypher")) {
-        lastView = { type: "panel", id: "drop" };
+        lastView = { type: "panel", id: "home" };
       }
     }
 
@@ -1344,13 +1334,9 @@ async function boot() {
         panelManager.switchTo(lastView.id, mainWindow);
       }
     } else if (mainWindow) {
-      const cyphersOn = process.env.YO_CYPHERS_ENABLED === "1" || process.env.YO_CYPHERS_ENABLED === "true";
-      if (cyphersOn) {
-        panelManager.switchTo("drop", mainWindow);
-      } else {
-        const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
-        panelManager.switchTo(firstApp?.id || "home", mainWindow);
-      }
+      // No persisted view — open the default app.
+      const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
+      panelManager.switchTo(firstApp?.id || "home", mainWindow);
     }
 
     // Restore all saved tabs (not just those in the current view).
@@ -1413,8 +1399,6 @@ async function boot() {
       panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://drop") {
-      panelManager.addPanel(instanceId, dropHtml, dropPreload);
     } else if (app.url === "yo://council") {
       panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
@@ -1611,7 +1595,7 @@ async function boot() {
     execCommand,
     serverGetAuthed,
     serverPostAuthed,
-    getDropAuthStatus,
+    getDropAuthStatus: () => null,
     fetchServerModels,
     setPreference,
     yoPanelWidth: () => getPreference("yoPanelWidth", 400),
@@ -1638,9 +1622,6 @@ async function boot() {
 
   // When a browser panel's webview guest attaches, focus it so clicks pass through
   panelManager.setOnPanelReady((id, wc) => {
-    if (id === "drop" && !wc.isDestroyed()) {
-      wc.send("drop-panel-shown");
-    }
     if (resolveAppId(id) === "browser") {
       const focusWebview = () => {
         if (wc.isDestroyed()) return;
@@ -1750,9 +1731,6 @@ async function boot() {
   // Initialize auth — restore session, schedule refresh, start heartbeat.
   // Hard 3s timeout so splash never hangs if server is unreachable.
   await Promise.race([initAuth(), new Promise((r) => setTimeout(r, 3000))]);
-  // THE-PIVOT-GITHUB: hydrate Drop session from disk + schedule refresh.
-  // No-op if .session.drop doesn't exist (most users today).
-  initDropAuth();
 
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
@@ -2753,15 +2731,8 @@ async function boot() {
     setOfferEnabled, getCapabilitiesStatus,
   });
 
-  registerDropIpc({
-    signInWithGitHub, signOutDrop, getDropAuthStatus, dropApi,
-    mcpExpose: mcpExpose!, mcpManager, connectorManager, canUseMcp,
-    usageTracker, promptLog, llmConfig,
-    panelManager, getMainWindow: () => mainWindow, activeReminders,
-  });
-
   // ── Cypher session (extracted to cypher-session.ts) ──────────────
-  const { activateCypherSession, spawnCypherJammers } = createCypherSession({
+  const { spawnCypherJammers } = createCypherSession({
     getMainWebContents: () => mainWindow?.webContents ?? null,
     panelManager,
     agentRunner,
@@ -2773,29 +2744,6 @@ async function boot() {
     serverPostAuthed,
     listAgents,
     getAgent,
-  });
-
-  registerCypherCrudIpc({
-    serverGetAuthed, serverPostAuthed,
-    getAuthToken,
-    getDropAccessToken,
-    subscribeCypher, unsubscribeCypher,
-    getCypherPanelContext: () => cypherPanelContext,
-    setCypherPanelContext: (ctx) => { cypherPanelContext = ctx; setPreference("cypherPanelContext", ctx); },
-    setPreference,
-    bindWorkspaceToCypher: (cypherId) => {
-      const wsSlug = workspaceManager.getActive().slug;
-      const map = getPreference<Record<string, string>>("workspaceCypher", {});
-      setPreference("workspaceCypher", { ...map, [wsSlug]: cypherId });
-    },
-    getMainWindow: () => mainWindow,
-    panelManager,
-    jammerPreviewPanels,
-    getProviderKey: (p) => providerKeysModule.getKey(p as any),
-    yoAgent,
-    yoInterceptor,
-    openYoPanel,
-    activateCypherSession,
   });
 
   ipcMain.handle("cypher-spawn-jammers", async (e, cypherId: string) => {
@@ -2823,7 +2771,7 @@ async function boot() {
     jammerPreviewPanels.clear();
     const idx = openTabs.indexOf("cypher");
     if (idx !== -1) { openTabs.splice(idx, 1); persistTabs(); }
-    if (mainWindow) panelManager.switchTo("drop", mainWindow);
+    if (mainWindow) panelManager.switchTo("home", mainWindow);
     sendTabState();
   });
 
