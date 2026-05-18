@@ -77,7 +77,13 @@ process.on("message", async (msg: any) => {
     try {
       await loadModel();
     } catch (err) {
-      send({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      const raw = err instanceof Error ? err.message : String(err);
+      // A missing native binding (no ONNX runtime build for this platform,
+      // e.g. macOS x64) is not recoverable — report it concisely instead of
+      // dumping the whole require stack, and exit cleanly.
+      const unavailable = /onnxruntime_binding|Cannot find module/.test(raw);
+      send({ type: "error", message: unavailable ? "no ONNX runtime binding for this platform" : raw });
+      if (unavailable) process.exit(0);
     }
   } else if (msg.type === "embed") {
     await embed(msg.id, msg.text);

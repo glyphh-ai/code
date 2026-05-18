@@ -71,8 +71,15 @@ export class Embedder {
               p.reject(new Error(msg.message));
             }
           } else {
-            this.sendStatus("error", "model unavailable — search disabled");
-            reject(new Error(msg.message));
+            // Fatal worker error (e.g. no ONNX runtime binding for this
+            // platform). Degrade to keyword search — don't restart, don't
+            // throw. resolve() so there's no unhandled rejection.
+            if (!this.crashed) {
+              this.crashed = true;
+              this.sendStatus("error", "semantic search unavailable — using keyword search");
+              console.warn(`[embedder] semantic search unavailable (${msg.message}) — using keyword search`);
+            }
+            resolve();
           }
         }
       });
@@ -91,10 +98,10 @@ export class Embedder {
           console.error(`[embedder] worker exited (code ${code}) — attempting restart`);
           this.loading = null;
           this.restartAfterDelay();
-        } else {
-          console.error(`[embedder] worker failed to start (code ${code})`);
+        } else if (!this.crashed) {
+          console.warn(`[embedder] worker unavailable (code ${code}) — using keyword search`);
           this.crashed = true;
-          this.sendStatus("error", "model unavailable — search disabled");
+          this.sendStatus("error", "semantic search unavailable — using keyword search");
         }
       });
 
