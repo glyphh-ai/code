@@ -283,7 +283,7 @@ function dismissSplash(cb: BootGateCallbacks): void {
 // ── Account lockout (trial expired / account disabled) ──────────────────────
 
 let accountLocked = false;
-let upgradeUrl = "https://platform.yosup.dev/billing";
+let upgradeUrl = "https://platform.yosup.dev/dashboard/billing";
 
 /** Raise the full-window lockout gate. The user keeps the titlebar (so they
  *  can quit) but everything else is sealed until the account is active. */

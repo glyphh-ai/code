@@ -1732,7 +1732,7 @@ async function boot() {
       if (mainWindow) panelManager.hideActive(mainWindow);
       mainWindow?.webContents.send("account-locked", {
         status: hb.status,
-        upgradeUrl: `${PLATFORM_URL}/billing`,
+        upgradeUrl: `${PLATFORM_URL}/dashboard/billing`,
       });
     } else {
       mainWindow?.webContents.send("account-unlocked");
