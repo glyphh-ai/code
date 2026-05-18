@@ -72,8 +72,13 @@ the registry and start them on `AgentRunner`. Hierarchy comes from the draft
 skill, not a server matchmaker.
 
 ### Phase D — localize the swarm view
-Rewire the cypher panel from `onCypherEvent`/SSE to the local bus. Keep the
-3-column layout (de-risk); it's the "see the bus chatter" surface.
+The feed is already re-sourced (Phase B kept the `jammer-activity` IPC
+contract). Remaining is the layout simplification:
+- Drop the files view + the files section from the cypher panel — files
+  already live in the app's left rail.
+- Layout: agent cards on the left (with the activity popups); feed top-right;
+  agent panel bottom-right.
+- Drop per-agent messaging — keep only **Start all** / **Stop all**.
 
 ### Phase E — yo-agent swarm tool + draft skill
 A `create_swarm` tool the yo agent calls. A bundled **draft skill** that
