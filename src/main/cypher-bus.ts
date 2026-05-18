@@ -1,36 +1,12 @@
 /**
- * CypherBus — canonical message bus bridging local event-log ↔ cypher SSE stream.
+ * CypherBus — in-process message bus for a local agent swarm.
  *
- * When a workspace has a bound cypher, posts go to both the server (via REST)
- * and the local event-log. When no cypher is bound, posts go to event-log only.
- * Inbound cypher events (agent_message, post_to) are dispatched to registered
- * per-agent handlers — replacing the file-based inbox as the primary path.
- *
- * ─── THE-PIVOT-GITHUB MIGRATION NOTES (Phases 5 + 6) ──────────────────────
- * This bus is on the deprecation list once GH Projects becomes the cypher
- * backend. Replacement mapping:
- *
- *   postCypherEvent / cypher-events SSE     → /api/projects/:ref/events/stream
- *                                              (webhook-driven, see
- *                                              project-routes.ts SSE stub)
- *   subscribeCypherAgent / per-agent inbox  → /api/me/assignments/stream
- *                                              (matchmaker-driven, see
- *                                              installation-routes.ts SSE stub)
- *   getCypherForWorkspace                   → drop session's bound project_id
- *                                              (resolved from
- *                                              ~/.yo/workspaces/<slug>/.project)
- *   dispatchInbound (in main.ts)            → daemon in agent-runner.ts that
- *                                              consumes /api/me/assignments/
- *                                              stream and routes to local
- *                                              jammer loadouts
- *
- * Plan: keep both running for one Drop release after the new SSE streams
- * land server-side, then delete this file once telemetry shows no traffic
- * on the old path. See Phase 6 in docs/THE-PIVOT-GITHUB.md.
- * ───────────────────────────────────────────────────────────────────────
+ * Agents post events here; the bus writes them to the local event-log,
+ * notifies observers (the swarm-view feed), and dispatches directed /
+ * broadcast messages to registered per-agent handlers. Entirely local —
+ * no server, no SSE.
  */
 
-import { postCypherEvent, subscribeCypherAgent, unsubscribeCypherAgent } from "./cypher-runtime";
 import type { EventLog, YoEvent } from "./event-log";
 import type { HierarchyEntry } from "./mcp-expose";
 
@@ -86,29 +62,17 @@ export class CypherBus {
   }
 
   /**
-   * Register an agent on the bus. If a cypher is bound to the workspace,
-   * subscribes the agent on the SSE stream. Returns an unsubscribe function.
+   * Register an agent on the bus so it receives directed / broadcast
+   * messages. Returns an unsubscribe function.
    */
   register(wsSlug: string, agentName: string, handler: BusMessageHandler): () => void {
     const key = `${wsSlug}:${agentName}`;
-    const cypherId = this.getCypherForWorkspace(wsSlug);
-
-    this.registrations.set(key, { wsSlug, agentName, cypherId, handler });
-
-    if (cypherId) {
-      subscribeCypherAgent(cypherId, agentName);
-    }
-
-    return () => {
-      this.registrations.delete(key);
-      if (cypherId) {
-        unsubscribeCypherAgent(cypherId, agentName);
-      }
-    };
+    this.registrations.set(key, { wsSlug, agentName, cypherId: null, handler });
+    return () => { this.registrations.delete(key); };
   }
 
   /**
-   * Post an event. Routes to the cypher (if bound) and always to local event-log.
+   * Post an event — writes to the local event-log and notifies observers.
    */
   async post(wsSlug: string, event: BusEvent): Promise<void> {
     // Validate task-kind events against hierarchy
@@ -136,23 +100,9 @@ export class CypherBus {
       refs: event.refs,
     });
 
-    // Notify observers (UI feed)
+    // Notify observers (the swarm-view feed)
     for (const obs of this.observers) {
       try { obs(wsSlug, event); } catch {}
-    }
-
-    // If workspace has a cypher, also post to the server
-    const cypherId = this.getCypherForWorkspace(wsSlug);
-    if (cypherId) {
-      const payload: Record<string, unknown> = { text: event.body };
-      if (event.to) payload.to = event.to;
-      if (event.tags?.length) payload.tags = event.tags;
-      if (event.refs?.length) payload.refs = event.refs;
-      if (event.meta) Object.assign(payload, event.meta);
-
-      await postCypherEvent(cypherId, event.kind, payload, event.from).catch((err) => {
-        console.warn(`[cypher-bus] failed to post to cypher ${cypherId}:`, err instanceof Error ? err.message : err);
-      });
     }
   }
 

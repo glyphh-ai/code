@@ -87,36 +87,21 @@ export class ClaudeBackend implements JammerBackend {
       baseOptions.mcpServers = config.mcpServers;
     }
 
-    // Path-gate: in cypher mode, every tool call resolves through the
-    // jammer's sandbox. Anything escaping it is reported on the bus and
-    // denied. Three strikes ⇒ self-stop; server-side handler revokes the
-    // jammer's seat in cypher_jammers.
+    // Path-gate: in swarm mode, every tool call resolves through the
+    // agent's sandbox. Anything escaping it is denied; three strikes ⇒
+    // self-stop.
     if (config.cypherId) {
       const { checkToolCall } = await import("../substrate/path-gate");
       const violationCounts = { count: 0 };
-      const cypherId = config.cypherId;
       const agentLocalId = config.name;
       baseOptions.canUseTool = async (toolName: string, input: Record<string, unknown>) => {
         const violation = checkToolCall(input, { cypherSandbox: config.cwd });
         if (!violation) return { behavior: "allow", updatedInput: input };
 
         violationCounts.count += 1;
-        // Best-effort: post path_violation to the cypher bus
-        try {
-          const { postCypherEvent } = await import("../cypher-runtime");
-          await postCypherEvent(cypherId, "path_violation", {
-            agent_local_id: agentLocalId,
-            tool: toolName,
-            attempted: input,
-            sandbox: config.cwd,
-            details: violation,
-            strike: violationCounts.count,
-          }, agentLocalId);
-        } catch { /* best-effort — never block on reporting */ }
-
-        // Self-stop after three strikes
+        // Self-stop after three sandbox-escape strikes.
         if (violationCounts.count >= 3) {
-          console.warn(`[claude-backend] ${agentLocalId} hit 3 path-gate strikes in cypher=${cypherId}; stopping`);
+          console.warn(`[claude-backend] ${agentLocalId} hit 3 path-gate strikes; stopping`);
           hooks.requestStop();
         }
         return { behavior: "deny", message: `Path-gate violation: ${violation}` };

@@ -31,8 +31,7 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-import { startCypherRuntime, stopCypherRuntime, subscribeCypher, unsubscribeCypher, unsubscribeCypherAgent, CYPHER_VIEWER_AGENT, CYPHER_MAESTRO_AGENT, setPromptHandler, setAgentMessageHandler, setEventObserver, postCypherEvent } from "./cypher-runtime";
-import { adapterDispatcher } from "./provider-adapters/registry";
+const CYPHER_MAESTRO_AGENT = "mistro";
 import { CypherBus } from "./cypher-bus";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
 import { pushAgentProfile, deleteAgentProfile, syncAllAgents } from "./agent-sync";
@@ -1735,129 +1734,36 @@ async function boot() {
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
 
-  // Wire the provider-adapter dispatcher as the cypher-runtime prompt handler.
-  // When a `prompt` event arrives on the SSE bus, the dispatcher resolves the
-  // jammer's provider/model from the local agent registry and routes the turn
-  // through the yo-server LLM proxy (which meters tokens and settles yos).
-  setPromptHandler(adapterDispatcher);
-
-  // Route inbound cypher messages to the bus for agent delivery
-  setAgentMessageHandler((_cypherId, toAgentId, fromAgentId, body, kind, _meta) => {
-    const wsSlug = workspaceManager.getActiveSlug();
-    cypherBus.dispatchInbound(toAgentId, wsSlug, {
-      from: fromAgentId ?? "unknown",
-      kind,
-      body,
-    });
-  });
-
-  // Forward all cypher SSE events to the renderer so The Drop's lobby/workspace
-  // can refresh in near-real-time without polling. Renderer filters by current
-  // cypher and reacts on relevant kinds (cypher_started, cypher_wrapped,
-  // jammer_join, jammer_leave, seat_open, post, post_to, etc.).
-  // Kinds with dedicated handling — kept OUT of the generic feed render so
-  // they aren't shown twice or as noise: chat → yo panel, drip → effect,
-  // lifecycle → onCypherEvent in the panel, usage → dashboard, prompt → input.
-  const CYPHER_FEED_EXCLUDE = new Set([
-    "chat", "drip", "usage", "prompt",
-    "cypher_started", "cypher_wrapped",
-  ]);
-  // Rate-limit inbound drip rendering — a burst of drips from many agents
-  // would otherwise spawn an overlay window per drip and flood the UI.
+  // Forward local swarm bus events to the swarm-view panel as `jammer-activity`.
+  // The bus is in-process — this is the single, immediate source for the feed
+  // and the agent cards (no server round-trip, no SSE replay, no duplicates).
   const DRIP_MIN_INTERVAL_MS = 1500;
   let lastDripRenderAt = 0;
-  setEventObserver((cypherId, kind, payload, byAgentId, seq, isOwn) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("cypher-event", cypherId, kind, payload);
-    }
-    // Also forward to the cypher panel (separate BrowserView with own webContents)
-    const cypherView = panelManager.getView("cypher");
-    if (cypherView) {
-      cypherView.webContents.send("cypher-event", cypherId, kind, payload);
-    }
-
-    // Cypher feed — SINGLE SOURCE. Every feed item is rendered here, from the
-    // SSE stream, tagged with the server `seq`. Local echoes no longer render
-    // (cypherBus.onPost / the .chat handler stopped sending jammer-activity),
-    // so an event renders exactly once and the renderer dedups on `seq`. This
-    // is what permanently kills the duplicate-render bug.
-    if (!CYPHER_FEED_EXCLUDE.has(kind)) {
-      const p = payload as Record<string, unknown>;
-      const activity = {
-        cypherId,
-        seq,
-        from: byAgentId || (typeof p.agent_id === "string" ? p.agent_id : "unknown"),
-        to: typeof p.to === "string" ? p.to : undefined,
-        kind,
-        // Defense-in-depth: activity is redacted at the source (postToBus /
-        // the maestro publish), but scrub again here in case an event came
-        // from an un-patched client.
-        body: redactSecrets(typeof p.text === "string" ? p.text : ""),
-        tags: Array.isArray(p.tags) ? (p.tags as string[]) : undefined,
-        ts: Date.now(),
-        meta: p,
-      };
-      if (cypherView && !cypherView.webContents.isDestroyed()) {
-        cypherView.webContents.send("jammer-activity", activity);
-      }
-      threadStore.appendFeed(cypherId, activity);
-    }
-
-    // Remote jammer token usage → local dashboard count. Our own agents'
-    // usage events are echo-skipped upstream (their agent id is in this
-    // subscription's agentLocalIds) and recorded directly by agent-runner,
-    // so only remote jammers reach here — no double-count.
-    if (kind === "usage") {
-      const p = payload as Record<string, unknown>;
-      const inTok = Number(p.input_tokens) || 0;
-      const outTok = Number(p.output_tokens) || 0;
-      if (inTok || outTok) {
-        usageTracker.record(byAgentId || "jammer", { inputTokens: inTok, outputTokens: outTok });
-      }
-    }
-
-    // Inbound chat → the cypher feed (the shared room), NOT the private yo
-    // panel. Rendered from the SSE stream like every other feed item — our
-    // own chat included (it round-trips and lands here ~1s later). One
-    // source, deduped on `seq`.
-    if (kind === "chat") {
-      const p = payload as Record<string, unknown>;
-      const chatActivity = {
-        cypherId,
-        seq,
-        from: String(p.sender_name || p.by_user_id || "someone"),
-        kind: "chat",
-        body: redactSecrets(typeof p.text === "string" ? p.text : ""),
-        ts: Date.now(),
-      };
-      if (cypherView && !cypherView.webContents.isDestroyed()) {
-        cypherView.webContents.send("jammer-activity", chatActivity);
-      }
-      threadStore.appendFeed(cypherId, chatActivity);
-    }
-
-    // Inbound drip effect — play it as a window-level overlay (via the drip
-    // manager) so it's visible above whatever panel the user is on: the yo
-    // panel OR the cypher panel BrowserView. `!isOwn` skips our own drip —
-    // it already played locally on send (execCommand); only other people's
-    // drips play from the stream. Rate-limited so a burst can't flood the UI.
-    if (kind === "drip" && !isOwn) {
-      const p = payload as Record<string, unknown>;
+  cypherBus.onPost((_wsSlug, event) => {
+    // Drip effects play as a window-level overlay, not a feed row.
+    if (event.kind === "drip") {
       const now = Date.now();
-      // Only play LIVE drips. The SSE stream replays a cypher's whole history
-      // on connect, so an old `drip` event would otherwise pop fireworks on
-      // app startup. A live drip is seconds old; a replayed one is not.
-      const dripTs = typeof p.ts === "number" ? p.ts : 0;
-      const isFresh = dripTs > 0 && now - dripTs < 60_000;
-      if (isFresh && now - lastDripRenderAt >= DRIP_MIN_INTERVAL_MS) {
+      if (now - lastDripRenderAt >= DRIP_MIN_INTERVAL_MS) {
         lastDripRenderAt = now;
-        const recipe = typeof p.recipe === "string" ? p.recipe : "fireworks";
+        const recipe = typeof event.meta?.recipe === "string" ? event.meta.recipe : "fireworks";
         try { dripManager?.execute([recipe]); } catch { /* ignore */ }
       }
+      return;
+    }
+    // Everything else → the swarm-view feed + agent cards.
+    const cypherView = panelManager.getView("cypher");
+    if (cypherView && !cypherView.webContents.isDestroyed()) {
+      cypherView.webContents.send("jammer-activity", {
+        from: event.from,
+        to: event.to,
+        kind: event.kind,
+        body: event.body,
+        tags: event.tags,
+        ts: Date.now(),
+        meta: event.meta,
+      });
     }
   });
-
-  if (isAuthenticated()) startCypherRuntime();
 
   // Sync all joinable agents to server on boot (fire-and-forget)
   if (isAuthenticated()) void syncAllAgents(listAgents());
@@ -2299,19 +2205,6 @@ async function boot() {
       if (firstWord && ["dip", "drip", "sup", "waz"].includes(firstWord)) {
         try {
           const result = await execCommand(trimmed.slice(1));
-          // In a cypher, broadcast drips so every jammer's window plays the
-          // effect too. The local effect already fired via execCommand above;
-          // the inbound `drip` event (handled in setEventObserver) skips our
-          // own echo by sender_name.
-          if (firstWord === "drip" && yoAgent.isCypherMode()) {
-            const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-            const cyId = getCy();
-            if (cyId) {
-              const account = getAccountInfo();
-              const recipe = trimmed.slice(1 + firstWord.length).trim() || "fireworks";
-              postCypherEvent(cyId, "drip", { recipe, sender_name: account?.firstName || "mistro", ts: Date.now() }, "user");
-            }
-          }
           mainWindow?.webContents.send("yo-panel-done", result || "done.");
         } catch (err: any) {
           mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
@@ -2330,10 +2223,12 @@ async function boot() {
 
         if (firstWord === "chat") {
           if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .chat <message>"); return; }
-          // Chat renders in the cypher feed from the SSE stream — the single
-          // source. It lands ~1s later via the round-trip; no local echo,
-          // so no double-render.
-          postCypherEvent(cyId, "chat", { text: rest, sender_name: senderName }, "user");
+          // Chat posts to the local bus → renders in the swarm-view feed.
+          void cypherBus.post(workspaceManager.getActiveSlug(), {
+            from: senderName,
+            kind: "chat",
+            body: rest,
+          });
           mainWindow?.webContents.send("yo-panel-done", "");
           return;
         }
@@ -2751,12 +2646,6 @@ async function boot() {
   });
 
   ipcMain.on("cypher-panel-leave", () => {
-    // Drop the viewer + maestro sentinels — closes the SSE stream if no local
-    // agents remain subscribed to this cypher.
-    if (cypherPanelContext?.cypherId) {
-      unsubscribeCypherAgent(cypherPanelContext.cypherId, CYPHER_VIEWER_AGENT);
-      unsubscribeCypherAgent(cypherPanelContext.cypherId, CYPHER_MAESTRO_AGENT);
-    }
     cypherPanelContext = null;
     setPreference("cypherPanelContext", null);
     yoAgent.setCypherMode(false);
@@ -3134,7 +3023,6 @@ function cleanupAll() {
   globalShortcut.unregisterAll();
   cleanupAuthTimers();
   cleanupCapabilities();
-  stopCypherRuntime();
   try {
     setPreference("cypherPanelContext", null);
     setPreference("agentMode", "default");
