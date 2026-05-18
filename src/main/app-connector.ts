@@ -296,6 +296,18 @@ export class AppConnector {
 
   /** Seed internal + default apps on first launch */
   private ensureDefaults(): void {
+    // Purge internal apps removed from the build (The Drop, .Yo Editor).
+    // They were persisted to ~/yo/apps/<id>.json on a prior launch, so
+    // dropping them from INTERNAL_APPS alone leaves them in the app list.
+    for (const staleId of ["drop", "files"]) {
+      const stale = this.apps.get(staleId);
+      if (stale && stale.url?.startsWith("yo://")) {
+        this.apps.delete(staleId);
+        try { fs.unlinkSync(path.join(this.appsDir, `${staleId}.json`)); } catch { /* ignore */ }
+        console.log(`[app-connector] purged removed internal app: ${staleId}`);
+      }
+    }
+
     for (const def of INTERNAL_APPS) {
       if (!this.apps.has(def.id)) {
         const app = this.add(def.id, def.name, def.url);
