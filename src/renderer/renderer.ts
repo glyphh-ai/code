@@ -114,6 +114,9 @@ declare global {
       onBoot: (callback: (data: { authenticated: boolean; status: string; tier?: string; needsOnboarding: boolean; hideWelcome?: boolean; theme?: string }) => void) => void;
       onThemeChanged: (callback: (theme: string) => void) => void;
       onShowOnboarding: (callback: () => void) => void;
+      onAccountLocked: (callback: (info: { status: string; upgradeUrl: string }) => void) => void;
+      onAccountUnlocked: (callback: () => void) => void;
+      recheckAccount: () => Promise<{ status: string }>;
       onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;

@@ -209,6 +209,13 @@ contextBridge.exposeInMainWorld("yo", {
   onShowOnboarding: (callback: () => void) => {
     ipcRenderer.on("show-onboarding", () => callback());
   },
+  onAccountLocked: (callback: (info: { status: string; upgradeUrl: string }) => void) => {
+    ipcRenderer.on("account-locked", (_event, info) => callback(info));
+  },
+  onAccountUnlocked: (callback: () => void) => {
+    ipcRenderer.on("account-unlocked", () => callback());
+  },
+  recheckAccount: () => ipcRenderer.invoke("recheck-account") as Promise<{ status: string }>,
   onSplashStatus: (callback: (msg: string) => void) => {
     ipcRenderer.on("splash-status", (_event, msg) => callback(msg));
   },

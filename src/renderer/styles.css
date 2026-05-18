@@ -481,6 +481,64 @@ body {
 .onboarding-register-btn:hover { border-color: var(--accent); color: var(--text); }
 .onboarding-register-btn:disabled { opacity: 0.5; cursor: default; }
 
+/* ── Lockout gate (trial expired / account disabled) ─────────── */
+
+/* Starts below the 38px titlebar so window controls stay clickable —
+   the user must always be able to quit, even while locked out. */
+#lockout-overlay {
+  position: fixed;
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#lockout-overlay.hidden { display: none !important; }
+
+#lockout-content {
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+  padding: 0 24px;
+}
+
+.lockout-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--white);
+  margin: 4px 0 10px;
+}
+
+.lockout-message {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+  margin: 0 0 24px;
+}
+
+#lockout-status {
+  margin-top: 12px;
+  font-size: 12px;
+  min-height: 18px;
+}
+
+.lockout-link {
+  margin-top: 18px;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.15s;
+}
+.lockout-link:hover { color: var(--text); }
+
 /* ── Window controls ─────────────────────────────────────── */
 
 #window-controls {

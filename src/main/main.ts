@@ -28,7 +28,7 @@ import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewrit
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
+import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 // THE-PIVOT-GITHUB Phase 1 scaffolding (gh-pivot branch). Drop session is
 // scoped — independent rotation/revocation from the main yo session.
 import { initDropAuth, signInWithGitHub, signOutDrop, getDropAuthStatus, getDropAccessToken } from "./drop-auth";
@@ -1716,6 +1716,35 @@ async function boot() {
     } catch {
       return false;
     }
+  });
+
+  // Account gate — the heartbeat is the authoritative 14-day-trial check.
+  // When it reports the trial expired (or the account disabled) we lock the
+  // user out of the workspace: hide the panels and raise the lockout overlay
+  // in the renderer. Registered BEFORE initAuth so the first heartbeat (fired
+  // fire-and-forget inside initAuth) can never slip past us.
+  let accountLocked = false;
+  setHeartbeatObserver((hb) => {
+    const locked = hb.status === "expired" || hb.status === "disabled";
+    if (locked === accountLocked) return;
+    accountLocked = locked;
+    if (locked) {
+      if (mainWindow) panelManager.hideActive(mainWindow);
+      mainWindow?.webContents.send("account-locked", {
+        status: hb.status,
+        upgradeUrl: `${PLATFORM_URL}/billing`,
+      });
+    } else {
+      mainWindow?.webContents.send("account-unlocked");
+    }
+  });
+
+  // Lockout overlay's "I've upgraded" button — force a fresh heartbeat. If the
+  // account is active again the observer above fires "account-unlocked"; the
+  // renderer also uses the returned status to message a still-expired account.
+  ipcMain.handle("recheck-account", async () => {
+    const hb = await refreshHeartbeat();
+    return { status: hb?.status ?? getAuthStatus().status };
   });
 
   // Initialize auth — restore session, schedule refresh, start heartbeat.

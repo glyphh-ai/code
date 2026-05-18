@@ -22,7 +22,7 @@ const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
 
 export const AUTH_SERVER =
   process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
-const PLATFORM_URL =
+export const PLATFORM_URL =
   process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";
 
 // ── Types ────────────────────────────────────────────────────
@@ -58,6 +58,7 @@ export interface HeartbeatResult {
 let currentSession: SessionData | null = null;
 let cachedAccount: AccountInfo | null = null;
 let cachedHeartbeat: HeartbeatResult | null = null;
+let heartbeatObserver: ((result: HeartbeatResult) => void) | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let authWindow: BrowserWindow | null = null;
@@ -364,10 +365,22 @@ async function fetchHeartbeat(): Promise<HeartbeatResult | null> {
   try {
     const result = await serverGetAuthed<HeartbeatResult>("/api/heartbeat");
     cachedHeartbeat = result;
+    // Notify the observer so the app can gate access when a trial ends or an
+    // account is disabled — the heartbeat is the authoritative trial check.
+    try { heartbeatObserver?.(result); } catch { /* observer must not break the poll */ }
     return result;
   } catch {
     return null;
   }
+}
+
+/**
+ * Register an observer notified on every heartbeat result. Used to lock the
+ * client out of the workspace the moment a trial expires (status "expired")
+ * or an account is disabled.
+ */
+export function setHeartbeatObserver(cb: ((result: HeartbeatResult) => void) | null): void {
+  heartbeatObserver = cb;
 }
 
 async function fetchAccountInfo(): Promise<AccountInfo | null> {

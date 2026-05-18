@@ -48,6 +48,24 @@
     </div>
   </div>
 
+  <!-- Trial-expired / account-locked gate -->
+  <div id="lockout-overlay" class="hidden">
+    <div id="lockout-content">
+      <h1 class="onboarding-title"><span class="onboarding-dot">.</span>Yo</h1>
+      <h2 id="lockout-title" class="lockout-title">Your free trial has ended</h2>
+      <p id="lockout-message" class="lockout-message">
+        Upgrade to keep using Yo. Your workspace, agents, and settings are all
+        saved — they'll be exactly where you left them.
+      </p>
+      <div class="onboarding-fields">
+        <button id="lockout-upgrade" class="onboarding-signin-btn">Upgrade now</button>
+        <button id="lockout-recheck" class="onboarding-register-btn">I've upgraded — refresh</button>
+      </div>
+      <div id="lockout-status"></div>
+      <button id="lockout-signout" class="lockout-link">Sign out</button>
+    </div>
+  </div>
+
   <div id="titlebar">
     <div id="window-controls">
       <button id="btn-close" class="wc wc-close"></button>

@@ -138,6 +138,7 @@ function showTutorial(cb: BootGateCallbacks): void {
 async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
   const modal = document.getElementById("cc-bootstrap-modal");
   if (!modal) return;
+  if (accountLocked) return; // a locked account sees nothing but the gate
   const status = await window.yo.ccStatus();
   if (status.found) return;
 
@@ -237,8 +238,8 @@ function finishSplash(cb: BootGateCallbacks): void {
   if (pendingGraceTimer) { clearTimeout(pendingGraceTimer); pendingGraceTimer = null; }
   if (downloadCapTimer) { clearTimeout(downloadCapTimer); downloadCapTimer = null; }
   // Show panels first (behind splash z-index:9999) so they're ready when splash fades.
-  // BUT not if tutorial or CC bootstrap modal is showing — BrowserViews paint over HTML overlays.
-  if (!tutorialShowing && !ccModalShowing) cb.showPanels();
+  // BUT not if tutorial / CC modal / lockout gate is up — BrowserViews paint over HTML overlays.
+  if (!tutorialShowing && !ccModalShowing && !accountLocked) cb.showPanels();
   const splash = document.getElementById("splash");
   if (splash) {
     splash.classList.add("fade-out");
@@ -277,6 +278,46 @@ function dismissSplash(cb: BootGateCallbacks): void {
   if (!booted || dismissRequested) return;
   dismissRequested = true;
   scheduleSplashFinish(cb);
+}
+
+// ── Account lockout (trial expired / account disabled) ──────────────────────
+
+let accountLocked = false;
+let upgradeUrl = "https://platform.yosup.dev/billing";
+
+/** Raise the full-window lockout gate. The user keeps the titlebar (so they
+ *  can quit) but everything else is sealed until the account is active. */
+function showLockout(cb: BootGateCallbacks, info?: { status?: string; upgradeUrl?: string }): void {
+  accountLocked = true;
+  if (info?.upgradeUrl) upgradeUrl = info.upgradeUrl;
+
+  // Seal the workspace: panels are native BrowserViews that paint over HTML,
+  // so they must be hidden for the overlay to actually cover anything.
+  cb.hidePanels();
+
+  // A locked account never sees onboarding or the tutorial.
+  document.getElementById("onboarding-overlay")?.classList.add("hidden");
+  document.getElementById("tutorial-overlay")?.classList.add("hidden");
+
+  const disabled = info?.status === "disabled";
+  const titleEl = document.getElementById("lockout-title");
+  const msgEl = document.getElementById("lockout-message");
+  if (titleEl) titleEl.textContent = disabled ? "Your account is inactive" : "Your free trial has ended";
+  if (msgEl) {
+    msgEl.textContent = disabled
+      ? "This account has been deactivated. Reactivate your plan to get back into your workspace — your data is safe."
+      : "Upgrade to keep using Yo. Your workspace, agents, and settings are all saved — they'll be exactly where you left them.";
+  }
+  const statusEl = document.getElementById("lockout-status");
+  if (statusEl) statusEl.textContent = "";
+  document.getElementById("lockout-overlay")?.classList.remove("hidden");
+}
+
+/** Account is active again — drop the gate and reveal the workspace. */
+function hideLockout(cb: BootGateCallbacks): void {
+  accountLocked = false;
+  document.getElementById("lockout-overlay")?.classList.add("hidden");
+  cb.showPanels();
 }
 
 // ── Public init ─────────────────────────────────────────────────────────────
@@ -338,6 +379,16 @@ export function initBootGate(cb: BootGateCallbacks): void {
     }
     dismissSplash(cb);
 
+    // Trial expired / account disabled → seal the workspace behind the lockout
+    // gate. No tutorial, no CC nudge — nothing until the account is active.
+    // (The heartbeat is usually still in flight at boot; the account-locked
+    // IPC below is the primary trigger — this catches an early heartbeat.)
+    if (data.authenticated && (data.status === "expired" || data.status === "disabled")) {
+      showLockout(cb, { status: data.status });
+      cb.onBootReady(data);
+      return;
+    }
+
     // Show tutorial on first launch (skip if going through onboarding — handled by yo-onboarding-done)
     if (!data.needsOnboarding) {
       window.yo.getPreference("hasSeenTutorial", false).then((seen) => {
@@ -353,6 +404,40 @@ export function initBootGate(cb: BootGateCallbacks): void {
     }
 
     cb.onBootReady(data);
+  });
+
+  // Account gate — fired by the main-process heartbeat observer the moment a
+  // trial expires (or the account is disabled / reactivated), at boot or live.
+  window.yo.onAccountLocked((info) => { showLockout(cb, info); });
+  window.yo.onAccountUnlocked(() => { if (accountLocked) hideLockout(cb); });
+
+  // Lockout overlay buttons.
+  document.getElementById("lockout-upgrade")?.addEventListener("click", () => {
+    window.yo.openExternal(upgradeUrl);
+  });
+  document.getElementById("lockout-recheck")?.addEventListener("click", () => {
+    const statusEl = document.getElementById("lockout-status");
+    const btn = document.getElementById("lockout-recheck") as HTMLButtonElement | null;
+    if (statusEl) { statusEl.textContent = "Checking…"; statusEl.className = ""; }
+    if (btn) btn.disabled = true;
+    void window.yo.recheckAccount().then((r) => {
+      if (btn) btn.disabled = false;
+      if (r.status === "active") {
+        hideLockout(cb);
+      } else if (statusEl) {
+        statusEl.textContent = "No active plan found yet. Once your upgrade goes through, try again.";
+        statusEl.className = "onboarding-error";
+      }
+    }).catch(() => {
+      if (btn) btn.disabled = false;
+      if (statusEl) {
+        statusEl.textContent = "Couldn't reach the server. Check your connection and try again.";
+        statusEl.className = "onboarding-error";
+      }
+    });
+  });
+  document.getElementById("lockout-signout")?.addEventListener("click", () => {
+    void window.yo.logout().then(() => window.location.reload());
   });
 
   window.yo.onThemeChanged((theme: string) => {
