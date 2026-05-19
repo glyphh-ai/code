@@ -262,17 +262,36 @@ const swarmRoster = new Map<string, SwarmRosterEntry>();
 // True while a swarm is running in the background — keeps the yo spinner
 // alive after the agent's own turn ends, so the panel never looks idle.
 let swarmActive = false;
+// Backstop: if a swarm goes fully silent this long we assume it finished (or
+// stalled) and drop the spinner — not every swarm emits a leader complete_task.
+const SWARM_IDLE_MS = 180_000;
+let swarmIdleTimer: ReturnType<typeof setTimeout> | null = null;
+// Keeps the spinner pinned as the last child while a swarm runs, even as the
+// yo agent's own messages and tool rows land below it.
+let swarmPinObserver: MutationObserver | null = null;
+
+/** Reset the idle backstop — called on every swarm signal. */
+function bumpSwarmIdle(): void {
+  if (swarmIdleTimer) clearTimeout(swarmIdleTimer);
+  swarmIdleTimer = setTimeout(() => { if (swarmActive) finishSwarm(); }, SWARM_IDLE_MS);
+}
 
 /** Keep the thinking spinner pinned to the bottom of the message list. */
 function pinSwarmSpinner(): void {
   if (!swarmActive) return;
   if (!yoStatusEl) showYoStatus("");
-  if (yoStatusEl) yoPanelMessages.appendChild(yoStatusEl);
+  // Move it only when it isn't already last — the guard stops the
+  // MutationObserver from re-triggering itself forever.
+  if (yoStatusEl && yoPanelMessages.lastElementChild !== yoStatusEl) {
+    yoPanelMessages.appendChild(yoStatusEl);
+  }
 }
 
-/** A swarm finished — drop the persistent spinner (unless a turn is live). */
+/** A swarm finished (or stalled) — drop the persistent spinner + watchers. */
 function finishSwarm(): void {
   swarmActive = false;
+  if (swarmIdleTimer) { clearTimeout(swarmIdleTimer); swarmIdleTimer = null; }
+  if (swarmPinObserver) { swarmPinObserver.disconnect(); swarmPinObserver = null; }
   if (!yoThinking) clearYoStatus();
 }
 
@@ -322,6 +341,11 @@ function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: 
   // The swarm now works in the background — keep the spinner alive (with the
   // usual "thinking…" phrase above it) until the leader reports it's done.
   swarmActive = true;
+  bumpSwarmIdle();
+  if (!swarmPinObserver) {
+    swarmPinObserver = new MutationObserver(() => pinSwarmSpinner());
+    swarmPinObserver.observe(yoPanelMessages, { childList: true });
+  }
   pinSwarmSpinner();
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
@@ -363,6 +387,7 @@ function addSwarmActivity(e: { from: string; to?: string; kind: string; body: st
   if (e.kind === "complete_task" && swarmRoster.get(e.from)?.position === "leader") {
     finishSwarm();
   } else {
+    bumpSwarmIdle();
     pinSwarmSpinner();
   }
   if (atBottom) yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
