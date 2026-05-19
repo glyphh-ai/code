@@ -5578,9 +5578,46 @@ select.settings-input {
   text-transform: uppercase; padding: 1px 5px; border-radius: 3px;
 }
 .swarm-text {
-  font-size: 11.5px; color: var(--text-2); margin-top: 1px;
-  white-space: pre-wrap; word-break: break-word;
+  font-size: 11.5px; color: var(--text-2); margin-top: 2px;
+  word-break: break-word; line-height: 1.5;
 }
+/* Markdown rendered inside a swarm row — keep it compact for the feed. */
+.swarm-text > :first-child { margin-top: 0; }
+.swarm-text > :last-child { margin-bottom: 0; }
+.swarm-text p { margin: 4px 0; }
+.swarm-text ul, .swarm-text ol { margin: 4px 0; padding-left: 18px; }
+.swarm-text li { margin: 1px 0; }
+.swarm-text h1, .swarm-text h2, .swarm-text h3,
+.swarm-text h4, .swarm-text h5, .swarm-text h6 {
+  margin: 8px 0 3px; font-size: 12px; font-weight: 700; color: var(--text);
+}
+.swarm-text pre {
+  margin: 4px 0; padding: 7px 9px; background: var(--surface-3);
+  border: 1px solid var(--border); border-radius: 5px;
+  overflow-x: auto; font-size: 10.5px;
+}
+.swarm-text code { font-size: 10.5px; }
+.swarm-text strong { color: var(--text); }
+
+/* Long bodies collapse behind a Show more / less toggle. */
+.swarm-collapsible .swarm-text {
+  max-height: 8.4em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.swarm-collapsible.swarm-expanded .swarm-text {
+  max-height: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.swarm-toggle {
+  margin-top: 4px;
+  background: none; border: none; padding: 0;
+  color: var(--accent); font-size: 10.5px; font-weight: 600;
+  font-family: inherit; cursor: pointer;
+}
+.swarm-toggle:hover { text-decoration: underline; }
 
 .yo-msg-actions {
   display: flex;

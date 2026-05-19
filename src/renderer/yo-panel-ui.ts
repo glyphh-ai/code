@@ -326,12 +326,17 @@ function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: 
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
 
+// Bodies longer than this collapse behind a "Show more" toggle.
+const SWARM_COLLAPSE_CHARS = 320;
+
 function addSwarmActivity(e: { from: string; to?: string; kind: string; body: string; ts: number }): void {
   if (!e.from || !e.body?.trim()) return;
   if (e.from === "orchestrator" || e.from === "unknown") return;
   const meta = swarmKindMeta(e.kind);
+  const body = e.body.trim().slice(0, 6000);
+  const long = body.length > SWARM_COLLAPSE_CHARS;
   const el = document.createElement("div");
-  el.className = "yo-msg yo-msg-swarm";
+  el.className = long ? "yo-msg yo-msg-swarm swarm-collapsible" : "yo-msg yo-msg-swarm";
   el.innerHTML =
     `<span class="swarm-badge">${swarmBadge(e.from)}</span>` +
     `<div class="swarm-body">` +
@@ -340,8 +345,18 @@ function addSwarmActivity(e: { from: string; to?: string; kind: string; body: st
         `${e.to ? `<span class="swarm-to">→ ${swarmEsc(e.to)}</span>` : ""}` +
         `<span class="swarm-kind" style="background:${meta.color}22;color:${meta.color}">${swarmEsc(meta.label)}</span>` +
       `</div>` +
-      `<div class="swarm-text">${swarmEsc(e.body.slice(0, 1200))}</div>` +
+      `<div class="swarm-text yo-md">${formatMarkdown(body)}</div>` +
+      (long ? `<button class="swarm-toggle" type="button">Show more</button>` : "") +
     `</div>`;
+  if (long) {
+    const toggle = el.querySelector(".swarm-toggle") as HTMLButtonElement;
+    toggle.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const expanded = el.classList.toggle("swarm-expanded");
+      toggle.textContent = expanded ? "Show less" : "Show more";
+      if (!expanded) el.scrollIntoView({ block: "nearest" });
+    });
+  }
   const atBottom = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight < 80;
   yoPanelMessages.appendChild(el);
   // The leader signing off (complete_task) means the swarm is done.
