@@ -262,7 +262,7 @@ declare global {
       yoChatsDelete: (id: string) => Promise<boolean>;
       yoChatNew: () => Promise<boolean>;
       // Agent mode + guardrails
-      getAgentMode: () => Promise<string>;
+      getAgentMode: () => Promise<{ perm: string; swarm: boolean }>;
       setAgentMode: (mode: string) => void;
       onAgentModeChanged: (cb: (mode: string) => void) => void;
       getToolRegistry: () => Promise<Array<{ name: string; label: string; description: string; tier: string; override: string }>>;

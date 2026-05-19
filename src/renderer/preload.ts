@@ -352,7 +352,7 @@ contextBridge.exposeInMainWorld("yo", {
   yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
 
   // Agent mode + guardrails
-  getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<string>,
+  getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<{ perm: string; swarm: boolean }>,
   setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
   onAgentModeChanged: (cb: (mode: string) => void) => {
     ipcRenderer.on("agent-mode-changed", (_e, mode) => cb(mode));

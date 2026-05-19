@@ -511,9 +511,9 @@ async function loadSettings() {
   await refreshMcpExposeStatus();
   await renderMcpTokens();
 
-  // Agent mode
+  // Agent permission mode (the swarm overlay is controlled elsewhere).
   const currentMode = await window.yo.getAgentMode();
-  settingsAgentMode.value = currentMode;
+  settingsAgentMode.value = currentMode.perm;
 
 
   // Timezone dropdown

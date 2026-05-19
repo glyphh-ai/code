@@ -678,14 +678,15 @@ async function boot() {
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   {
-    const savedModeRaw = getPreference<string>("agentMode", "default");
-    const savedMode = savedModeRaw === "swarm" ? "swarm" : getAgentMode();
-    yoInterceptor.setAgentMode(savedMode);
-    if (savedMode === "swarm") {
-      yoAgent.setSwarmMode(true);
-    } else {
-      yoAgent.setMode(savedMode as any);
-    }
+    // Perm and swarm are stored separately: `agentMode` always holds the
+    // permission (default/plan/acceptEdits/bypassPermissions); `agentSwarm`
+    // is the swarm-mode overlay. Keeping them apart means entering swarm
+    // mode never clobbers the user's saved permission.
+    const savedPerm = getAgentMode();
+    const savedSwarm = getPreference<boolean>("agentSwarm", false);
+    yoAgent.setMode(savedPerm);
+    if (savedSwarm) yoAgent.setSwarmMode(true);
+    yoInterceptor.setAgentMode(savedSwarm ? "swarm" : savedPerm);
   }
   yoInterceptor.setCurrentModel(llmConfig.model);
   // Fetch active models from server and populate the interceptor + presets cache
@@ -2282,21 +2283,20 @@ async function boot() {
     return getPreference<number>("filesRailWidth", 240);
   });
 
-  // IPC: Agent mode + guardrails
-  ipcMain.handle("get-agent-mode", () => {
-    if (yoAgent.isSwarmMode()) return "swarm";
-    return yoAgent.getMode();
-  });
+  // IPC: Agent mode + guardrails. Perm and the swarm overlay are reported
+  // (and stored) separately so one never overwrites the other.
+  ipcMain.handle("get-agent-mode", () => ({
+    perm: yoAgent.getMode(),
+    swarm: yoAgent.isSwarmMode(),
+  }));
   ipcMain.on("set-agent-mode", (_e, mode: string) => {
-    // "swarm" is a behavioral overlay, independent of the SDK permissionMode.
-    // The renderer sends "swarm" to flip the flag, then immediately sends
-    // the perm value (default/acceptEdits/bypassPermissions) which sets the
-    // SDK mode without clearing the swarm flag.
+    // "swarm" is a behavioral overlay, independent of the permission. It is
+    // tracked in its own `agentSwarm` pref and never touches `agentMode`,
+    // so the user's permission survives entering/leaving swarm mode.
     if (mode === "swarm") {
       yoAgent.setSwarmMode(true);
-      yoAgent.setMode("default" as any);
       yoAgent.clear();
-      setPreference("agentMode", "swarm");
+      setPreference("agentSwarm", true);
       mainWindow?.webContents.send("agent-mode-changed", "swarm");
       yoInterceptor.setAgentMode("swarm");
       return;
@@ -2304,12 +2304,15 @@ async function boot() {
     if (mode === "exit-swarm") {
       yoAgent.setSwarmMode(false);
       yoAgent.clear();
+      setPreference("agentSwarm", false);
+      const perm = yoAgent.getMode();
+      mainWindow?.webContents.send("agent-mode-changed", perm);
+      yoInterceptor.setAgentMode(perm);
       return;
     }
+    // A permission value — persisted always, even while swarm mode is on.
     yoAgent.setMode(mode as any);
-    if (!yoAgent.isSwarmMode()) {
-      setPreference("agentMode", mode);
-    }
+    setPreference("agentMode", mode);
     const effectiveMode = yoAgent.isSwarmMode() ? "swarm" : mode;
     mainWindow?.webContents.send("agent-mode-changed", effectiveMode);
     yoInterceptor.setAgentMode(effectiveMode);
@@ -2461,7 +2464,7 @@ async function boot() {
     // The yo agent just spun up a swarm — flip the mode dropdown to match.
     if (!yoAgent.isSwarmMode()) {
       yoAgent.setSwarmMode(true);
-      setPreference("agentMode", "swarm");
+      setPreference("agentSwarm", true);
       yoInterceptor.setAgentMode("swarm");
       mainWindow.webContents.send("agent-mode-changed", "swarm");
     }
@@ -2847,8 +2850,9 @@ function cleanupAll() {
   cleanupAuthTimers();
   cleanupCapabilities();
   try {
-    setPreference("cypherPanelContext", null);
-    setPreference("agentMode", "default");
+    // Clear the swarm overlay on quit (no live swarm survives a restart) but
+    // KEEP `agentMode` — that's the user's permission setting and must persist.
+    setPreference("agentSwarm", false);
     const tabs = getPreference<string[]>("openTabs", []);
     if (tabs.includes("cypher")) {
       setPreference("openTabs", tabs.filter((t: string) => t !== "cypher"));

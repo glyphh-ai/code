@@ -234,14 +234,10 @@ function syncAgentMode(): void {
 }
 
 async function initYoControls() {
-  const mode = await window.yo.getAgentMode();
-  if (mode === "swarm") {
-    setModeValue(mode);
-    setPermValue("default");
-  } else {
-    setModeValue("standard");
-    setPermValue(mode);
-  }
+  // Perm and the swarm overlay are independent — restore both.
+  const { perm, swarm } = await window.yo.getAgentMode();
+  setPermValue(perm || "default");
+  setModeValue(swarm ? "swarm" : "standard");
 }
 
 // ── Helpers: messages ──────────────────────────────────────────────────────
