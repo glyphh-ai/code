@@ -75,6 +75,10 @@ export interface ChatSummary {
 export class YoAgent {
   private chatId: string | null = null;
   private chatTitle: string = "";
+  // Swarm activity is appended to the active chat record so the thread
+  // restores in full. Batched + debounced — a swarm emits many events.
+  private _pendingSwarm: Array<{ role: string; content: string }> = [];
+  private _swarmFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private llmConfig: LLMConfig | null = null;
   private memoryStore: MemoryStore | null = null;
   private captureStore: CaptureStore | null = null;
@@ -507,7 +511,10 @@ export class YoAgent {
       const raw = fs.readFileSync(filepath, "utf-8");
       const jsonMatch = raw.match(/```json\n([\s\S]*?)\n```/);
       if (!jsonMatch) return null;
-      const messages: Array<{ role: string; content: string }> = JSON.parse(jsonMatch[1]);
+      const all: Array<{ role: string; content: string }> = JSON.parse(jsonMatch[1]);
+      // Only the actual conversation feeds context recovery — swarm-activity
+      // entries are thread history, not turns the model should replay.
+      const messages = all.filter((m) => m.role === "user" || m.role === "assistant");
       if (messages.length === 0) return null;
       // Take last 6 messages (3 exchanges) for context window efficiency
       const recent = messages.slice(-6);
@@ -538,6 +545,8 @@ export class YoAgent {
   // ── Chat management ────────────────────────────────────
 
   clear(): void {
+    // Flush buffered swarm activity into the outgoing chat before we drop it.
+    this.flushSwarmEntries();
     this.sessionId = null;
     this.chatId = null;
     this.chatTitle = "";
@@ -602,26 +611,23 @@ export class YoAgent {
 
   // ── Persistence ────────────────────────────────────────
 
-  private saveChatRecord(userMessage: string, assistantText: string, startTs: number): void {
+  /** Read the message array out of the current chat's .md file. */
+  private readChatMessages(): Array<{ role: string; content: string }> {
+    if (!this.chatId) return [];
+    const filepath = path.join(CHATS_DIR, `${this.chatId}.md`);
+    if (!fs.existsSync(filepath)) return [];
+    try {
+      const raw = fs.readFileSync(filepath, "utf-8");
+      const m = raw.match(/```json\n([\s\S]*?)\n```/);
+      return m ? JSON.parse(m[1]) : [];
+    } catch { return []; }
+  }
+
+  /** Write the message array back, regenerating frontmatter. */
+  private writeChatFile(messages: Array<{ role: string; content: string }>): void {
     if (!this.chatId) return;
     fs.mkdirSync(CHATS_DIR, { recursive: true });
-
-    const filepath = path.join(CHATS_DIR, `${this.chatId}.md`);
-    let existing: Array<{ role: string; content: string }> = [];
-    if (fs.existsSync(filepath)) {
-      try {
-        const raw = fs.readFileSync(filepath, "utf-8");
-        const jsonMatch = raw.match(/```json\n([\s\S]*?)\n```/);
-        if (jsonMatch) existing = JSON.parse(jsonMatch[1]);
-      } catch {}
-    }
-
-    existing.push({ role: "user", content: userMessage });
-    if (assistantText) {
-      existing.push({ role: "assistant", content: assistantText });
-    }
-
-    const userMsgs = existing.filter((m) => m.role === "user").length;
+    const userMsgs = messages.filter((m) => m.role === "user").length;
     const lines = [
       "---",
       `title: ${this.chatTitle}`,
@@ -631,11 +637,45 @@ export class YoAgent {
       "---",
       "",
       "```json",
-      JSON.stringify(existing, null, 2),
+      JSON.stringify(messages, null, 2),
       "```",
     ];
+    fs.writeFileSync(path.join(CHATS_DIR, `${this.chatId}.md`), lines.join("\n"), "utf-8");
+  }
 
-    fs.writeFileSync(filepath, lines.join("\n"), "utf-8");
+  private saveChatRecord(userMessage: string, assistantText: string, _startTs: number): void {
+    if (!this.chatId) return;
+    const existing = this.readChatMessages();
+    existing.push({ role: "user", content: userMessage });
+    if (assistantText) existing.push({ role: "assistant", content: assistantText });
+    this.writeChatFile(existing);
+    // Swarm activity that fired during this turn belongs after it — flush now
+    // so the buffered entries are appended in chronological order.
+    this.flushSwarmEntries();
+  }
+
+  /**
+   * Append a swarm-activity entry (kind "swarm" or "swarm-start") to the
+   * active chat so the thread restores in full. Buffered + debounced.
+   */
+  appendSwarmEntry(role: "swarm" | "swarm-start", content: string): void {
+    if (!this.chatId) return;
+    this._pendingSwarm.push({ role, content });
+    if (!this._swarmFlushTimer) {
+      this._swarmFlushTimer = setTimeout(() => {
+        this._swarmFlushTimer = null;
+        this.flushSwarmEntries();
+      }, 1500);
+    }
+  }
+
+  private flushSwarmEntries(): void {
+    if (this._swarmFlushTimer) { clearTimeout(this._swarmFlushTimer); this._swarmFlushTimer = null; }
+    if (!this.chatId || this._pendingSwarm.length === 0) return;
+    const pending = this._pendingSwarm.splice(0);
+    const existing = this.readChatMessages();
+    existing.push(...pending);
+    this.writeChatFile(existing);
   }
 
   private parseChatFile(raw: string): { title: string; sessionId: string | null; display: Array<{ role: string; text: string }> } {

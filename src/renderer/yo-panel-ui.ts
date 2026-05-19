@@ -319,7 +319,9 @@ function swarmBadge(agentId: string): string {
   return `<span class="member-badge-initial">${swarmEsc(letter)}</span>`;
 }
 
-function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }): void {
+// `restore` = replaying saved history; render the DOM but skip the live
+// side-effects (spinner, idle backstop, marking the swarm active).
+function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }, restore = false): void {
   swarmRoster.clear();
   for (const a of info.agents) {
     swarmRoster.set(a.id, { position: a.position, provider: a.provider, model: a.model });
@@ -335,6 +337,7 @@ function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: 
     `<div class="swarm-start-goal">${swarmEsc(info.goal)}</div>` +
     `<div class="swarm-start-roster">${roster}</div>`;
   yoPanelMessages.appendChild(el);
+  if (restore) return;
   // The swarm now works in the background — keep the spinner alive (with the
   // usual "thinking…" phrase above it) until the leader reports it's done.
   swarmActive = true;
@@ -350,7 +353,7 @@ function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: 
 // Bodies longer than this collapse behind a "Show more" toggle.
 const SWARM_COLLAPSE_CHARS = 320;
 
-function addSwarmActivity(e: { from: string; to?: string; kind: string; body: string; ts: number }): void {
+function addSwarmActivity(e: { from: string; to?: string; kind: string; body: string; ts: number }, restore = false): void {
   if (!e.from || !e.body?.trim()) return;
   if (e.from === "orchestrator" || e.from === "unknown") return;
   const meta = swarmKindMeta(e.kind);
@@ -380,6 +383,7 @@ function addSwarmActivity(e: { from: string; to?: string; kind: string; body: st
   }
   const atBottom = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight < 80;
   yoPanelMessages.appendChild(el);
+  if (restore) return; // replaying history — no live spinner / idle logic
   // The leader signing off (complete_task) means the swarm is done.
   if (e.kind === "complete_task" && swarmRoster.get(e.from)?.position === "leader") {
     finishSwarm();
@@ -1147,6 +1151,15 @@ async function loadYoHistory() {
         yoHistoryPanel.classList.add("hidden");
 
         for (const msg of messages) {
+          // Swarm activity is persisted into the thread — replay it inline.
+          if (msg.role === "swarm-start" || msg.role === "swarm") {
+            try {
+              const data = JSON.parse(msg.text);
+              if (msg.role === "swarm-start") addSwarmStart(data, true);
+              else addSwarmActivity(data, true);
+            } catch { /* skip a malformed swarm entry */ }
+            continue;
+          }
           if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
             const timeline = document.createElement("div");
             timeline.className = "yo-ag-timeline done";

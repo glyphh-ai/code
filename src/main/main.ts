@@ -1674,17 +1674,20 @@ async function boot() {
       return;
     }
     // Everything else → the yo panel, rendered inline with the conversation.
+    const activity = {
+      from: event.from,
+      to: event.to,
+      kind: event.kind,
+      body: event.body,
+      tags: event.tags,
+      ts: Date.now(),
+      meta: event.meta,
+    };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("yo-panel-swarm-activity", {
-        from: event.from,
-        to: event.to,
-        kind: event.kind,
-        body: event.body,
-        tags: event.tags,
-        ts: Date.now(),
-        meta: event.meta,
-      });
+      mainWindow.webContents.send("yo-panel-swarm-activity", activity);
     }
+    // Persist into the active chat record so the thread restores in full.
+    yoAgent.appendSwarmEntry("swarm", JSON.stringify(activity));
   });
 
   // Sync all joinable agents to server on boot (fire-and-forget)
@@ -2490,7 +2493,7 @@ async function boot() {
     }
     // Tell the yo panel a swarm is starting — it caches the roster (for
     // model badges) and the swarm's bus activity then streams in inline.
-    mainWindow.webContents.send("yo-panel-swarm-start", {
+    const swarmStart = {
       title: manifest.title, goal: manifest.goal,
       agents: manifest.agents.map((a) => {
         const reg = library.find((r) => r.id === a.agentId);
@@ -2499,7 +2502,10 @@ async function boot() {
           provider: reg?.model_provider, model: reg?.model_name,
         };
       }),
-    });
+    };
+    mainWindow.webContents.send("yo-panel-swarm-start", swarmStart);
+    // Persist the start marker so the thread restores with the swarm card.
+    yoAgent.appendSwarmEntry("swarm-start", JSON.stringify(swarmStart));
     const res = await spawnSwarm(manifest, mainWindow.webContents);
     if (!res.ok) return `Swarm failed to start: ${res.error || "unknown error"}`;
     return `Swarm started — ${res.spawned ?? 0} agent(s): ${roster.join(", ")}. `
