@@ -72,8 +72,8 @@ export class McpExpose {
   private bus: CypherBus | null = null;
   private hierarchyContext: Map<string, HierarchyEntry> | null = null;
   private projectContext: ProjectContext | null = null;
-  /** Runs a local swarm — injected by main (draft → open panel → spawnSwarm). */
-  private swarmRunner: ((goal: string, agentIds: string[]) => Promise<{ ok: boolean; spawned?: number; error?: string }>) | null = null;
+  /** Runs a local swarm — injected by main. Returns a human status line. */
+  private swarmRunner: ((goal: string, agentIds?: string[], size?: number) => Promise<string>) | null = null;
 
   setCaptureStore(store: CaptureStore): void {
     this.captureStore = store;
@@ -83,7 +83,7 @@ export class McpExpose {
     this.bus = bus;
   }
 
-  setSwarmRunner(fn: (goal: string, agentIds: string[]) => Promise<{ ok: boolean; spawned?: number; error?: string }>): void {
+  setSwarmRunner(fn: (goal: string, agentIds?: string[], size?: number) => Promise<string>): void {
     this.swarmRunner = fn;
   }
 
@@ -1092,36 +1092,12 @@ export class McpExpose {
         const goal = String(args.goal || "").trim();
         if (!goal) return reply("goal is required", true);
         if (!this.swarmRunner) return reply("swarm runner not available", true);
-
-        const { listAgents } = await import("./stores/agent-store-db");
-        const library = listAgents();
-        if (library.length === 0) {
-          return reply("No agents in the library — create some in the Agents tab first.", true);
-        }
-
-        // Roster: explicit ids if given, else the first `size` library agents.
-        let agentIds: string[];
-        if (Array.isArray(args.jammers) && args.jammers.length > 0) {
-          agentIds = (args.jammers as unknown[]).map((j) => String(j)).filter(Boolean);
-          const missing = agentIds.filter((id) => !library.some((a) => a.id === id));
-          if (missing.length > 0) {
-            return reply(`Unknown agent id(s): ${missing.join(", ")} — use list_jammers.`, true);
-          }
-        } else {
-          const size = Math.max(1, Math.min(library.length, Number(args.size) || 3));
-          agentIds = library.slice(0, size).map((a) => a.id);
-        }
-
         try {
-          const res = await this.swarmRunner(goal, agentIds);
-          if (!res.ok) return reply(`create_swarm failed: ${res.error || "unknown error"}`, true);
-          return replyJson({
-            ok: true,
-            spawned: res.spawned ?? 0,
-            agents: agentIds,
-            note: `Swarm started with ${res.spawned ?? 0} agent(s): ${agentIds.join(", ")}. `
-              + `The leader assigns work over the bus; watch the swarm panel.`,
-          });
+          const jammers = Array.isArray(args.jammers)
+            ? (args.jammers as unknown[]).map((j) => String(j)).filter(Boolean)
+            : undefined;
+          const size = typeof args.size === "number" ? args.size : undefined;
+          return reply(await this.swarmRunner(goal, jammers, size));
         } catch (err) {
           return reply(`create_swarm failed: ${err instanceof Error ? err.message : String(err)}`, true);
         }

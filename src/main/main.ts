@@ -1572,7 +1572,6 @@ async function boot() {
     panelManager,
     appConnector,
     workspaceManager,
-    cypherBus,
     yoAgent,
     yoInterceptor,
     openTabs,
@@ -1587,9 +1586,9 @@ async function boot() {
     councilHtml,
     councilPreload,
     execCommand,
+    swarmCreate: runSwarm,
     serverGetAuthed,
     serverPostAuthed,
-    getDropAuthStatus: () => null,
     fetchServerModels,
     setPreference,
     yoPanelWidth: () => getPreference("yoPanelWidth", 400),
@@ -2637,16 +2636,37 @@ async function boot() {
     getAgent,
   });
 
-  // Wire the create_swarm tool: draft a manifest from the goal + roster,
-  // open the swarm panel, and spawn the agents locally.
-  mcpExpose!.setSwarmRunner(async (goal, agentIds) => {
+  // runSwarm — the single entry shared by the create_swarm substrate tool
+  // (the yo agent) and mcp-expose. Resolves a roster, drafts a manifest,
+  // opens the swarm panel, spawns locally; returns a human status line.
+  async function runSwarm(goal: string, agentIds?: string[], size?: number): Promise<string> {
+    const g = (goal || "").trim();
+    if (!g) return "A goal is required.";
+    const library = listAgents();
+    if (library.length === 0) {
+      return "No agents in the library yet — create some in the Agents tab first.";
+    }
+    let roster: string[];
+    if (agentIds && agentIds.length > 0) {
+      const missing = agentIds.filter((id) => !library.some((a) => a.id === id));
+      if (missing.length > 0) return `Unknown agent id(s): ${missing.join(", ")}.`;
+      roster = agentIds;
+    } else {
+      const n = Math.max(1, Math.min(library.length, size || 3));
+      roster = library.slice(0, n).map((a) => a.id);
+    }
     const { draftSwarm } = await import("./swarm-draft");
-    const manifest = draftSwarm({ goal, workspace: workspaceManager.getActive().slug, agentIds });
+    const manifest = draftSwarm({ goal: g, workspace: workspaceManager.getActive().slug, agentIds: roster });
     if (mainWindow) panelManager.switchTo("cypher", mainWindow);
     const wc = panelManager.getView("cypher")?.webContents;
-    if (!wc || wc.isDestroyed()) return { ok: false, error: "swarm panel unavailable" };
-    return spawnSwarm(manifest, wc);
-  });
+    if (!wc || wc.isDestroyed()) return "Swarm panel unavailable.";
+    const res = await spawnSwarm(manifest, wc);
+    if (!res.ok) return `Swarm failed to start: ${res.error || "unknown error"}`;
+    return `Swarm started — ${res.spawned ?? 0} agent(s): ${roster.join(", ")}. `
+      + `The leader decomposes the goal and assigns work over the bus; watch the swarm panel.`;
+  }
+
+  mcpExpose!.setSwarmRunner(runSwarm);
 
   ipcMain.on("cypher-panel-leave", () => {
     cypherPanelContext = null;

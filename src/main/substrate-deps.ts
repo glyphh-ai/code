@@ -14,7 +14,6 @@ import type { BrowserWindow } from "electron";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import type { WorkspaceManager } from "./workspace-manager";
-import type { CypherBus } from "./cypher-bus";
 import type { YoAgent } from "./yo-agent";
 import type { YoInterceptor } from "./yo-interceptor";
 import type { SubstrateToolDeps } from "./substrate/tools";
@@ -28,7 +27,6 @@ export interface BuildSubstrateDepsArgs {
   panelManager: PanelManager;
   appConnector: AppConnector;
   workspaceManager: WorkspaceManager;
-  cypherBus: CypherBus;
   yoAgent: YoAgent;
   yoInterceptor: YoInterceptor;
 
@@ -48,10 +46,12 @@ export interface BuildSubstrateDepsArgs {
   councilPreload: string;
   execCommand: (cmd: string, sourcePanelId?: string) => Promise<string>;
 
+  // Local swarm — draft + spawn (returns a text status for the yo agent).
+  swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+
   // Server helpers
   serverGetAuthed: <T>(url: string) => Promise<T>;
   serverPostAuthed: <T = unknown>(url: string, body: Record<string, unknown>) => Promise<T>;
-  getDropAuthStatus: () => any;
   fetchServerModels: () => Promise<Array<{ provider: string; model: string; display_name?: string; max_context_tokens?: number }>>;
 
   // Preferences
@@ -67,7 +67,6 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     panelManager,
     appConnector,
     workspaceManager,
-    cypherBus,
     yoAgent,
     yoInterceptor,
     openTabs,
@@ -82,9 +81,9 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     councilHtml,
     councilPreload,
     execCommand,
+    swarmCreate,
     serverGetAuthed,
     serverPostAuthed,
-    getDropAuthStatus,
     fetchServerModels,
     setPreference,
     yoPanelWidth,
@@ -338,187 +337,8 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
       return result;
     },
-    cypher: {
-      getCurrent: () => {
-        // Lazy import to avoid loading order issues
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { getCurrentCypher } = require("./current-cypher");
-        return getCurrentCypher();
-      },
-      post: async (cypherId: string, text: string) => {
-        try {
-          // Broadcast locally to all running agents
-          const wsSlug = workspaceManager.getActive()?.slug || "";
-          cypherBus.dispatchBroadcast(wsSlug, {
-            from: "orchestrator",
-            body: text,
-            kind: "post",
-          });
-          // Persist to server
-          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
-            kind: "post", payload: { text },
-          });
-          return `Posted to cypher.`;
-        } catch (err) {
-          return `Post failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      postTo: async (cypherId: string, agentLocalId: string, text: string) => {
-        try {
-          // Deliver locally to the running agent via the bus
-          const wsSlug = workspaceManager.getActive()?.slug || "";
-          cypherBus.dispatchInbound(agentLocalId, wsSlug, {
-            from: "orchestrator",
-            to: agentLocalId,
-            body: text,
-            kind: "post_to",
-          });
-          // Also persist to server for observers/recovery
-          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/events`, {
-            kind: "post_to", payload: { to: agentLocalId, text },
-          });
-          return `Routed to ${agentLocalId}.`;
-        } catch (err) {
-          return `Post failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      status: async (cypherId: string) => {
-        try {
-          const [c, jR, dR, eR] = await Promise.all([
-            serverGetAuthed<{ cypher?: { title?: string; goal?: string; status?: string; type?: string } }>(`/api/cyphers/${encodeURIComponent(cypherId)}`),
-            serverGetAuthed<{ jammers?: Array<{ agent_local_id: string; user_id: string; role?: string; left_at?: string | null }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/jammers`),
-            serverGetAuthed<{ assignments?: Array<{ agent_local_id: string; position: string; area?: string | null }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/draft`),
-            serverGetAuthed<{ events?: Array<{ kind: string; by_agent_id?: string | null; payload?: Record<string, unknown>; created_at: string }> }>(`/api/cyphers/${encodeURIComponent(cypherId)}/events?limit=10`),
-          ]);
-          const lines: string[] = [];
-          const cy = c?.cypher;
-          if (cy) {
-            lines.push(`Cypher: ${cy.title ?? "(untitled)"} [${cy.status}]`);
-            if (cy.goal) lines.push(`Goal: ${cy.goal}`);
-          }
-          const jammers = jR?.jammers ?? [];
-          const active = jammers.filter((j) => !j.left_at);
-          lines.push(`Jammers (${active.length} active):`);
-          for (const j of active) lines.push(`  - ${j.agent_local_id}${j.role ? ` (${j.role})` : ""}`);
-          const ass = dR?.assignments ?? [];
-          if (ass.length > 0) {
-            lines.push(`Draft:`);
-            for (const a of ass) lines.push(`  - ${a.agent_local_id} → ${a.position}${a.area ? `: ${a.area}` : ""}`);
-          }
-          const events = eR?.events ?? [];
-          if (events.length > 0) {
-            lines.push(`Recent activity:`);
-            for (const e of events.slice(-10)) {
-              const who = e.by_agent_id ?? "system";
-              const body = (e.payload as { text?: string; body?: string } | undefined)?.text
-                ?? (e.payload as { text?: string; body?: string } | undefined)?.body
-                ?? JSON.stringify(e.payload).slice(0, 80);
-              lines.push(`  [${e.kind}] ${who}: ${body}`);
-            }
-          }
-          return lines.join("\n");
-        } catch (err) {
-          return `Status fetch failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      wrap: async (cypherId: string) => {
-        try {
-          await serverPostAuthed(`/api/cyphers/${encodeURIComponent(cypherId)}/wrap`, {});
-          return `Cypher wrapped.`;
-        } catch (err) {
-          return `Wrap failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-    },
-    project: {
-      getForCypher: async (cypherId: string) => {
-        try {
-          const r = await serverGetAuthed<{ project?: { slug: string } }>(`/api/projects/by-cypher/${encodeURIComponent(cypherId)}`);
-          return r?.project?.slug || null;
-        } catch { return null; }
-      },
-      create: async (cypherId: string, goal: string, linkedRepos: string[]) => {
-        try {
-          // Get GitHub owner info from drop auth
-          const ghStatus = await getDropAuthStatus();
-          const ownerLogin = ghStatus?.github?.gh_login || "local";
-          const r = await serverPostAuthed(`/api/projects`, {
-            goal,
-            cypher_id: cypherId,
-            owner_login: ownerLogin,
-            owner_kind: "user",
-            linked_repos: linkedRepos.map((repo) => ({ full_name: repo })),
-          }) as any;
-          return r?.project?.slug ? `Project created: ${r.project.slug}` : `Project created.`;
-        } catch (err) {
-          return `Create failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      board: async (projectRef: string) => {
-        try {
-          const r = await serverGetAuthed<{ items?: Array<{ id: string; title: string; status: string; assignee_user_id?: string; pr_url?: string; pr_state?: string }> }>(`/api/projects/${encodeURIComponent(projectRef)}/board`);
-          const items = r?.items || [];
-          if (items.length === 0) return "Board is empty. Add items with project_add_item.";
-          const lines = items.map((i) => {
-            const assign = i.assignee_user_id ? ` → ${i.assignee_user_id}` : "";
-            const pr = i.pr_url ? ` [PR: ${i.pr_state || "open"}]` : "";
-            return `[${i.status}] ${i.title}${assign}${pr} (id: ${i.id})`;
-          });
-          return lines.join("\n");
-        } catch (err) {
-          return `Board fetch failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      createItem: async (projectRef: string, title: string, body?: string, assignee?: string) => {
-        try {
-          const r = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items`, {
-            title, body, assignee_agent_id: assignee,
-          }) as any;
-          const item = r?.item;
-          if (item?.id) {
-            const cypherWc = panelManager.getView("cypher")?.webContents;
-            if (cypherWc && !cypherWc.isDestroyed()) {
-              cypherWc.send("cypher-project-item-update", { id: item.id, title, status: item.status || "Backlog", assignee });
-            }
-            return `Item created: "${title}" (id: ${item.id})`;
-          }
-          return `Item created.`;
-        } catch (err) {
-          return `Item create failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      updateItemStatus: async (projectRef: string, itemId: string, status: string) => {
-        try {
-          await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/status`, { status });
-          const cypherWc = panelManager.getView("cypher")?.webContents;
-          if (cypherWc && !cypherWc.isDestroyed()) {
-            cypherWc.send("cypher-project-item-update", { id: itemId, status });
-          }
-          return `Item moved to ${status}.`;
-        } catch (err) {
-          return `Status update failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      assignItem: async (projectRef: string, itemId: string, assigneeAgentId: string) => {
-        try {
-          await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/assign`, { agent_id: assigneeAgentId });
-          const cypherWc = panelManager.getView("cypher")?.webContents;
-          if (cypherWc && !cypherWc.isDestroyed()) {
-            cypherWc.send("cypher-project-item-update", { id: itemId, assignee: assigneeAgentId });
-          }
-          return `Item assigned to ${assigneeAgentId}.`;
-        } catch (err) {
-          return `Assign failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
-      commentOnItem: async (projectRef: string, itemId: string, body: string) => {
-        try {
-          const r = await serverPostAuthed(`/api/projects/${encodeURIComponent(projectRef)}/items/${encodeURIComponent(itemId)}/comment`, { body }) as any;
-          return r?.url ? `Comment posted: ${r.url}` : "Comment posted.";
-        } catch (err) {
-          return `Comment failed: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      },
+    swarm: {
+      create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
     },
     council: {
       getCurrent: () => {

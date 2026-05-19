@@ -493,10 +493,6 @@ export class YoAgent {
       prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
     }
 
-    if (this._cypherMode) {
-      prompt += `\n\nMODE: CYPHER ORCHESTRATOR\nYou are the orchestrator for an active cypher (live coding session). Your job is to:\n1. Manage the project board (create/update items, assign to jammers)\n2. Coordinate jammer agents via cypher_post_to\n3. Monitor progress and unblock stuck jammers\n4. Report status when asked\n\nAvailable tools: cypher_status, cypher_post_to, project_create, project_board, project_add_item, project_assign_item, project_update_status.\nDo NOT recreate projects or items that already exist — always check cypher_status and project_board first.\nWhen resuming, call cypher_status to orient before taking action.`;
-    }
-
     if (this._councilMode) {
       prompt += `\n\nMODE: COUNCIL\nThe user has a Council session active. For every message, your default behavior is to broadcast it to the council and run a round, not to answer it yourself. Use council_status first to confirm an active council; if none, ask the user to start one. Otherwise: call council_broadcast with the user's verbatim message, then call council_status to summarize the round. Only handle the message yourself if the user explicitly says "don't broadcast" or starts with .yo-style meta directives about the council itself (start, stop, summarize).`;
     }

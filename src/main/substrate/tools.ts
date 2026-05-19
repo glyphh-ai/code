@@ -90,33 +90,9 @@ export interface SubstrateToolDeps {
     create: () => string;
   };
   execCommand?: (cmd: string) => Promise<string>;
-  cypher?: {
-    /** The cypher id the .yo is currently piloting (Drop's active Workspace). */
-    getCurrent: () => string | null;
-    /** Post a broadcast event to the bus. Returns text status. */
-    post: (cypherId: string, text: string) => Promise<string>;
-    /** Direct a message to a specific jammer by agent_local_id. */
-    postTo: (cypherId: string, agentLocalId: string, text: string) => Promise<string>;
-    /** Read the cypher's status: goal, roster, assignments, recent activity. */
-    status: (cypherId: string) => Promise<string>;
-    /** Wrap (close) the cypher. Host-only at the server. */
-    wrap: (cypherId: string) => Promise<string>;
-  };
-  project?: {
-    /** Get the project linked to the current cypher. */
-    getForCypher: (cypherId: string) => Promise<string | null>;
-    /** Create a project linked to the current cypher. */
-    create: (cypherId: string, goal: string, linkedRepos: string[]) => Promise<string>;
-    /** Read the project board — items with statuses. */
-    board: (projectRef: string) => Promise<string>;
-    /** Create a work item on the board. */
-    createItem: (projectRef: string, title: string, body?: string, assignee?: string) => Promise<string>;
-    /** Update an item's status (Backlog, InProgress, Review, Done). */
-    updateItemStatus: (projectRef: string, itemId: string, status: string) => Promise<string>;
-    /** Assign an item to a jammer. */
-    assignItem: (projectRef: string, itemId: string, assigneeAgentId: string) => Promise<string>;
-    /** Post a comment on an issue/item. */
-    commentOnItem: (projectRef: string, itemId: string, body: string) => Promise<string>;
+  swarm?: {
+    /** Draft + spawn a local swarm. Returns a text status for the agent. */
+    create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
   };
   council?: {
     getCurrent: () => string | null;
@@ -1541,189 +1517,32 @@ const BUILTIN_TOOLS: ToolDef[] = [
     },
   },
 
-  // ── Cypher driver tools — only meaningful when a cypher is "current"
-  // (the user is in The Drop's Workspace view). When no cypher is active
-  // these return a friendly error rather than failing.
+  // ── Swarm ─────────────────────────────────────────────────
   {
-    name: "cypher_post",
+    name: "create_swarm",
     namespace: "yo",
-    description: "Broadcast a message to all jammers in the current cypher's bus. Use for status updates, decisions, or open prompts the team should react to.",
+    description: "Spin up a LOCAL swarm of agents to work a goal together. The first "
+      + "agent leads — it decomposes the goal and assigns tasks to the rest over the bus; "
+      + "the others execute and report back. Pass specific agent ids from the Agents "
+      + "library, or a `size` to auto-pick that many. This is the tool for any "
+      + "\"create a swarm / spin up N agents to do X\" request — NOT council (council is "
+      + "a one-shot multi-LLM debate, not a working swarm).",
     input_schema: {
       type: "object",
       properties: {
-        text: { type: "string", description: "Message body" },
-      },
-      required: ["text"],
-    },
-    run: async (input) => {
-      if (!deps.cypher) return "Cypher driver not wired.";
-      const id = deps.cypher.getCurrent();
-      if (!id) return "No cypher is active. Open a cypher in The Drop's Workspace first.";
-      return deps.cypher.post(id, String(input.text));
-    },
-  },
-  {
-    name: "cypher_post_to",
-    namespace: "yo",
-    description: "Direct-message a specific jammer in the current cypher by their agent id. Use to assign work or ask a focused question.",
-    input_schema: {
-      type: "object",
-      properties: {
-        agent_id: { type: "string", description: "The jammer's agent_local_id" },
-        text: { type: "string", description: "Message body" },
-      },
-      required: ["agent_id", "text"],
-    },
-    run: async (input) => {
-      if (!deps.cypher) return "Cypher driver not wired.";
-      const id = deps.cypher.getCurrent();
-      if (!id) return "No cypher is active.";
-      return deps.cypher.postTo(id, String(input.agent_id), String(input.text));
-    },
-  },
-  {
-    name: "cypher_status",
-    namespace: "yo",
-    description: "Read the current cypher's goal, roster, draft assignments, and recent activity. Always call this first to orient before posting work.",
-    input_schema: { type: "object", properties: {} },
-    run: async () => {
-      if (!deps.cypher) return "Cypher driver not wired.";
-      const id = deps.cypher.getCurrent();
-      if (!id) return "No cypher is active.";
-      return deps.cypher.status(id);
-    },
-  },
-  {
-    name: "cypher_wrap",
-    namespace: "yo",
-    description: "Close the current cypher. Match ends, performance is recorded, jammers terminate. Host-only at the server.",
-    input_schema: { type: "object", properties: {} },
-    destructive: true,
-    run: async () => {
-      if (!deps.cypher) return "Cypher driver not wired.";
-      const id = deps.cypher.getCurrent();
-      if (!id) return "No cypher is active.";
-      return deps.cypher.wrap(id);
-    },
-  },
-
-  // ── Project board tools — track state via GitHub-backed project items
-  {
-    name: "project_board",
-    namespace: "yo",
-    description: "Read the project board for the current cypher. Shows all items with their status (Backlog, InProgress, Review, Done) and assignees. Call this to understand what's been assigned and where things stand.",
-    input_schema: { type: "object", properties: {} },
-    run: async () => {
-      if (!deps.project || !deps.cypher) return "Project tools not wired.";
-      const cypherId = deps.cypher.getCurrent();
-      if (!cypherId) return "No cypher is active.";
-      const ref = await deps.project.getForCypher(cypherId);
-      if (!ref) return "No project linked to this cypher yet. Use project_create to set one up.";
-      return deps.project.board(ref);
-    },
-  },
-  {
-    name: "project_create",
-    namespace: "yo",
-    description: "Create a project board for the current cypher. Call this at cypher start to set up the tracking layer. Provide the goal and any linked GitHub repos.",
-    input_schema: {
-      type: "object",
-      properties: {
-        goal: { type: "string", description: "Project goal (from cypher goal)" },
-        repos: { type: "array", items: { type: "string" }, description: "Linked repo full names (owner/repo)" },
+        goal: { type: "string", description: "What the swarm should accomplish" },
+        agents: { type: "array", items: { type: "string" }, description: "Agent ids from the library; the first one leads. Omit to auto-pick by size." },
+        size: { type: "number", description: "If no agents are given, take this many from the library (default 3)" },
       },
       required: ["goal"],
     },
     run: async (input) => {
-      if (!deps.project || !deps.cypher) return "Project tools not wired.";
-      const cypherId = deps.cypher.getCurrent();
-      if (!cypherId) return "No cypher is active.";
-      return deps.project.create(cypherId, String(input.goal), (input.repos as string[]) || []);
-    },
-  },
-  {
-    name: "project_add_item",
-    namespace: "yo",
-    description: "Add a work item to the project board. Use to break down the goal into discrete tasks. Optionally assign to a jammer agent_id immediately.",
-    input_schema: {
-      type: "object",
-      properties: {
-        title: { type: "string", description: "Short task title" },
-        body: { type: "string", description: "Details, acceptance criteria" },
-        assignee: { type: "string", description: "agent_local_id to assign, or omit for unassigned" },
-      },
-      required: ["title"],
-    },
-    run: async (input) => {
-      if (!deps.project || !deps.cypher) return "Project tools not wired.";
-      const cypherId = deps.cypher.getCurrent();
-      if (!cypherId) return "No cypher is active.";
-      const ref = await deps.project.getForCypher(cypherId);
-      if (!ref) return "No project exists yet. Call project_create first.";
-      return deps.project.createItem(ref, String(input.title), input.body as string | undefined, input.assignee as string | undefined);
-    },
-  },
-  {
-    name: "project_update_status",
-    namespace: "yo",
-    description: "Move a project item to a new status column. Statuses: Backlog, InProgress, Review, Done.",
-    input_schema: {
-      type: "object",
-      properties: {
-        item_id: { type: "string", description: "The item ID" },
-        status: { type: "string", enum: ["Backlog", "InProgress", "Review", "Done"], description: "New status" },
-      },
-      required: ["item_id", "status"],
-    },
-    run: async (input) => {
-      if (!deps.project || !deps.cypher) return "Project tools not wired.";
-      const cypherId = deps.cypher.getCurrent();
-      if (!cypherId) return "No cypher is active.";
-      const ref = await deps.project.getForCypher(cypherId);
-      if (!ref) return "No project exists.";
-      return deps.project.updateItemStatus(ref, String(input.item_id), String(input.status));
-    },
-  },
-  {
-    name: "project_assign",
-    namespace: "yo",
-    description: "Assign a project item to a jammer. The jammer will receive the task via the cypher bus.",
-    input_schema: {
-      type: "object",
-      properties: {
-        item_id: { type: "string", description: "The item ID" },
-        agent_id: { type: "string", description: "The jammer's agent_local_id" },
-      },
-      required: ["item_id", "agent_id"],
-    },
-    run: async (input) => {
-      if (!deps.project || !deps.cypher) return "Project tools not wired.";
-      const cypherId = deps.cypher.getCurrent();
-      if (!cypherId) return "No cypher is active.";
-      const ref = await deps.project.getForCypher(cypherId);
-      if (!ref) return "No project exists.";
-      return deps.project.assignItem(ref, String(input.item_id), String(input.agent_id));
-    },
-  },
-  {
-    name: "project_comment",
-    namespace: "yo",
-    description: "Post a comment on a project item (GitHub issue). Use to log progress, ask questions, or document decisions on a task.",
-    input_schema: {
-      type: "object",
-      properties: {
-        item_id: { type: "string", description: "The item/issue ID or number" },
-        body: { type: "string", description: "Comment body (markdown supported)" },
-      },
-      required: ["item_id", "body"],
-    },
-    run: async (input) => {
-      if (!deps.project || !deps.cypher) return "Project tools not wired.";
-      const cypherId = deps.cypher.getCurrent();
-      if (!cypherId) return "No cypher is active.";
-      const ref = await deps.project.getForCypher(cypherId);
-      if (!ref) return "No project exists.";
-      return deps.project.commentOnItem(ref, String(input.item_id), String(input.body));
+      if (!deps.swarm) return "Swarm driver not wired.";
+      const goal = String(input.goal || "").trim();
+      if (!goal) return "A goal is required.";
+      const agents = Array.isArray(input.agents) ? (input.agents as unknown[]).map((a) => String(a)) : undefined;
+      const size = typeof input.size === "number" ? input.size : undefined;
+      return deps.swarm.create(goal, agents, size);
     },
   },
 
