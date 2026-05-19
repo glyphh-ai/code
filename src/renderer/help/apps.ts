@@ -1140,6 +1140,20 @@ function initApps() {
   // Panel tab: "Pick Element" — start the element picker on the app preview.
   document.getElementById("app-pick-btn")?.addEventListener("click", () => { void pickElement(); });
 
+  // Panel tab: command mapping form — Save / Cancel were never wired, so a
+  // captured command had no way to persist.
+  document.getElementById("map-save-btn")?.addEventListener("click", () => { void saveMapping(); });
+  document.getElementById("map-cancel-btn")?.addEventListener("click", () => {
+    appMapCommand.classList.add("hidden");
+  });
+  // Reveal the custom-key input when "+ custom command" is chosen.
+  document.getElementById("map-command-key")?.addEventListener("change", (e) => {
+    const sel = e.target as HTMLSelectElement;
+    const custom = document.getElementById("map-custom-key") as HTMLInputElement;
+    custom.classList.toggle("hidden", sel.value !== "__custom__");
+    if (sel.value === "__custom__") custom.focus();
+  });
+
   // App add form cancel
   document.getElementById("app-add-cancel")!.addEventListener("click", () => { pendingOriginTab = null; loadApps(); });
   document.getElementById("app-add-cancel-btn")!.addEventListener("click", () => { pendingOriginTab = null; loadApps(); });
