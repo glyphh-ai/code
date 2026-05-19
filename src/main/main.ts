@@ -2480,8 +2480,10 @@ async function boot() {
     const res = await spawnSwarm(manifest, mainWindow.webContents);
     if (!res.ok) return `Swarm failed to start: ${res.error || "unknown error"}`;
     return `Swarm started — ${res.spawned ?? 0} agent(s): ${roster.join(", ")}. `
-      + `The leader decomposes the goal and assigns work over the bus; their activity `
-      + `streams into this panel as it happens.`;
+      + `The leader decomposes the goal and assigns work to the others over the bus. `
+      + `Their activity streams inline into this conversation as it happens — there is `
+      + `no separate panel. Tell the user the swarm is running and its activity will `
+      + `appear here; do not claim to watch a panel or poll for results yourself.`;
   }
 
   mcpExpose!.setSwarmRunner(runSwarm);

@@ -316,8 +316,9 @@ export class AgentRunner {
           wcNow.send("cw:agent:message", instance.name, serialized);
         }
 
-        // Post visibility events to the cypher bus
-        if (this.bus && instance.config.cypherId) {
+        // Post visibility events to the bus — swarm agents included, so their
+        // thinking / tool use / results stream into the inline swarm feed.
+        if (this.bus && (instance.config.cypherId || instance.config.swarm)) {
           this.postEventToBus(instance, event);
         }
 

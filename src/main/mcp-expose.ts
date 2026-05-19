@@ -1180,7 +1180,8 @@ export class McpExpose {
         description: "Spin up a local swarm of agents to work a goal together. The first "
           + "agent leads — it decomposes the goal and assigns tasks to the rest over the bus. "
           + "Pass specific jammer ids, or a size to take that many from the library. Agents "
-          + "run locally and coordinate in the swarm panel.",
+          + "run locally; their activity streams inline into the yo conversation — there is "
+          + "no separate swarm panel.",
         inputSchema: {
           type: "object",
           properties: {

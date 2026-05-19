@@ -85,6 +85,14 @@ export class ClaudeBackend implements JammerBackend {
     }
     if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
       baseOptions.mcpServers = config.mcpServers;
+      // allowedTools is a strict allowlist — without an entry per MCP server
+      // the SDK silently blocks every mcp__<server>__<tool>, including the
+      // swarm coordination tools (assign_task / accept_task / report_status /
+      // complete_task / post / post_to). That leaves a swarm unable to
+      // coordinate. `mcp__<server>` allows every tool from that server.
+      for (const serverName of Object.keys(config.mcpServers)) {
+        baseOptions.allowedTools.push(`mcp__${serverName}`);
+      }
     }
 
     // Path-gate: in swarm mode, every tool call resolves through the

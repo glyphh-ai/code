@@ -1504,7 +1504,9 @@ const BUILTIN_TOOLS: ToolDef[] = [
       + "agent leads — it decomposes the goal and assigns tasks to the rest over the bus; "
       + "the others execute and report back. Pass specific agent ids from the Agents "
       + "library, or a `size` to auto-pick that many. This is the tool for any "
-      + "\"create a swarm / spin up N agents to do X / convene a team to debate X\" request.",
+      + "\"create a swarm / spin up N agents to do X / convene a team to debate X\" request. "
+      + "The swarm's activity streams inline into this conversation — there is no separate "
+      + "swarm panel, so don't tell the user to open or watch one.",
     input_schema: {
       type: "object",
       properties: {
