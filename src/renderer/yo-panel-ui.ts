@@ -259,6 +259,22 @@ function addYoUserMessage(text: string) {
 
 interface SwarmRosterEntry { position: string; provider?: string; model?: string }
 const swarmRoster = new Map<string, SwarmRosterEntry>();
+// True while a swarm is running in the background — keeps the yo spinner
+// alive after the agent's own turn ends, so the panel never looks idle.
+let swarmActive = false;
+
+/** Keep the thinking spinner pinned to the bottom of the message list. */
+function pinSwarmSpinner(): void {
+  if (!swarmActive) return;
+  if (!yoStatusEl) showYoStatus("");
+  if (yoStatusEl) yoPanelMessages.appendChild(yoStatusEl);
+}
+
+/** A swarm finished — drop the persistent spinner (unless a turn is live). */
+function finishSwarm(): void {
+  swarmActive = false;
+  if (!yoThinking) clearYoStatus();
+}
 
 const SWARM_KIND_META: Record<string, { label: string; color: string }> = {
   assign_task:    { label: "assign",   color: "#A855F7" },
@@ -303,6 +319,10 @@ function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: 
     `<div class="swarm-start-goal">${swarmEsc(info.goal)}</div>` +
     `<div class="swarm-start-roster">${roster}</div>`;
   yoPanelMessages.appendChild(el);
+  // The swarm now works in the background — keep the spinner alive (with the
+  // usual "thinking…" phrase above it) until the leader reports it's done.
+  swarmActive = true;
+  pinSwarmSpinner();
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
 
@@ -324,6 +344,12 @@ function addSwarmActivity(e: { from: string; to?: string; kind: string; body: st
     `</div>`;
   const atBottom = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight < 80;
   yoPanelMessages.appendChild(el);
+  // The leader signing off (complete_task) means the swarm is done.
+  if (e.kind === "complete_task" && swarmRoster.get(e.from)?.position === "leader") {
+    finishSwarm();
+  } else {
+    pinSwarmSpinner();
+  }
   if (atBottom) yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
 
@@ -699,6 +725,9 @@ function showYoStatus(_toolText: string) {
 }
 
 function clearYoStatus() {
+  // While a swarm runs in the background, the spinner stays put — the
+  // agent's own turn ending doesn't mean the panel is idle.
+  if (swarmActive) return;
   stopSpinner();
   if (yoStatusEl) { yoStatusEl.remove(); yoStatusEl = null; }
 }
