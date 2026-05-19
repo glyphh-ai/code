@@ -100,6 +100,7 @@ let yoThinking = false;
 let pendingYoMessages: string[] = [];
 
 let yoSpinnerInterval: ReturnType<typeof setInterval> | null = null;
+let yoSpinnerFrame = 0;
 let yoSpinnerEl: HTMLElement | null = null;
 let yoTimelineEl: HTMLElement | null = null;
 
@@ -402,18 +403,30 @@ function yoScroll() {
 
 // ── Helpers: spinner ───────────────────────────────────────────────────────
 
-function startSpinner(el: HTMLElement) {
-  let fi = 0;
-  const s = el.querySelector(".yo-ag-spinner") as HTMLElement;
-  if (!s) return;
-  if (yoSpinnerInterval) clearInterval(yoSpinnerInterval);
-  yoSpinnerInterval = setInterval(() => {
-    fi = (fi + 1) % BRAILLE.length;
-    s.textContent = BRAILLE[fi];
-  }, 80);
+// One ticker drives EVERY .yo-ag-spinner on screen. A single shared interval
+// owned by whoever called startSpinner last used to mean an unrelated
+// stopSpinner (e.g. finishTimeline) froze a still-visible spinner — notably
+// the swarm's persistent one. The ticker self-stops only when no spinner
+// element remains, so it can never strand a visible spinner.
+function tickSpinners(): void {
+  const spinners = document.querySelectorAll<HTMLElement>(".yo-ag-spinner");
+  if (spinners.length === 0) {
+    if (yoSpinnerInterval) { clearInterval(yoSpinnerInterval); yoSpinnerInterval = null; }
+    return;
+  }
+  yoSpinnerFrame = (yoSpinnerFrame + 1) % BRAILLE.length;
+  spinners.forEach((s) => { s.textContent = BRAILLE[yoSpinnerFrame]; });
+}
+
+function startSpinner(_el?: HTMLElement) {
+  if (yoSpinnerInterval) return; // already ticking — it picks up every spinner
+  yoSpinnerInterval = setInterval(tickSpinners, 80);
 }
 
 function stopSpinner() {
+  // Keep ticking while any spinner is still on screen; only stop when none
+  // remain (the ticker also self-stops on its next tick).
+  if (document.querySelector(".yo-ag-spinner")) return;
   if (yoSpinnerInterval) { clearInterval(yoSpinnerInterval); yoSpinnerInterval = null; }
 }
 
