@@ -377,7 +377,11 @@ async function boot() {
 
   const captureStore = new CaptureStore();
   captureStore.setEmbedder(embedder);
-  captureStore.setPolicyResolver((source) => appConnector.getCapturePolicy(source));
+  captureStore.setPolicyResolver((source) =>
+    // Swarm output accumulates — every agent message is kept, not deduped.
+    source.startsWith("swarm/")
+      ? { type: "append" }
+      : appConnector.getCapturePolicy(source));
 
   const dataStore = new DataStore();
 
@@ -654,6 +658,22 @@ async function boot() {
       panelManager.switchTo(panelId, mainWindow);
       jammerPreviewPanels.add(panelId);
     }
+  });
+
+  // Record substantive swarm output into the capture store, so a swarm's
+  // findings / reports are searchable and available to the yo agent as
+  // context later (via search_captures). Coordination chatter and telemetry
+  // are skipped — only messages that carry real content.
+  const SWARM_CAPTURE_KINDS = new Set([
+    "complete_task", "report_status", "artifact", "post", "post_to",
+  ]);
+  cypherBus.onPost((wsSlug, event) => {
+    if (!SWARM_CAPTURE_KINDS.has(event.kind)) return;
+    const body = (event.body || "").trim();
+    if (body.length < 40) return; // skip trivial acks
+    const header = `[swarm · ${event.from}${event.to ? ` → ${event.to}` : ""} · ${event.kind}]`;
+    void captureStore.ingest(`swarm/${event.from}`, `${header}\n${body}`, wsSlug)
+      .catch(() => { /* capture is best-effort */ });
   });
 
   agentRunner = new AgentRunner();
