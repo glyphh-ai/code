@@ -2498,6 +2498,22 @@ async function boot() {
     getAgent,
   });
 
+  // The enriched manifest the swarm panel renders its roster from. Held in
+  // main so a panel that loads/reloads mid-swarm can pull it back.
+  let swarmPanelManifest: {
+    id: string; title: string; goal: string;
+    agents: Array<{ id: string; position: string; parentAgentId: string | null;
+      area?: string; role?: string; provider?: string; model?: string }>;
+  } | null = null;
+
+  function sendSwarmManifest(wc?: Electron.WebContents | null): void {
+    if (!swarmPanelManifest) return;
+    const target = wc || panelManager.getView("cypher")?.webContents;
+    if (target && !target.isDestroyed()) target.send("swarm-manifest", swarmPanelManifest);
+  }
+
+  ipcMain.handle("swarm-get-manifest", () => swarmPanelManifest);
+
   // runSwarm — the single entry shared by the create_swarm substrate tool
   // (the yo agent) and mcp-expose. Resolves a roster, drafts a manifest,
   // opens the swarm panel, spawns locally; returns a human status line.
@@ -2519,9 +2535,26 @@ async function boot() {
     }
     const { draftSwarm } = await import("./swarm-draft");
     const manifest = draftSwarm({ goal: g, workspace: workspaceManager.getActive().slug, agentIds: roster });
+    // Enrich for the panel — fold in each agent's registry metadata so the
+    // panel can render badges + roles without another IPC round-trip.
+    swarmPanelManifest = {
+      id: manifest.id, title: manifest.title, goal: manifest.goal,
+      agents: manifest.agents.map((a) => {
+        const reg = library.find((r) => r.id === a.agentId);
+        return {
+          id: a.agentId, position: a.position, parentAgentId: a.parentAgentId ?? null,
+          area: a.area, role: reg?.role,
+          provider: reg?.model_provider, model: reg?.model_name,
+        };
+      }),
+    };
     if (mainWindow) panelManager.switchTo("cypher", mainWindow);
     const wc = panelManager.getView("cypher")?.webContents;
     if (!wc || wc.isDestroyed()) return "Swarm panel unavailable.";
+    // Push the manifest now and again once the panel finishes loading (a
+    // freshly-created view may not have a renderer listening yet).
+    sendSwarmManifest(wc);
+    wc.once("did-finish-load", () => sendSwarmManifest(wc));
     const res = await spawnSwarm(manifest, wc);
     if (!res.ok) return `Swarm failed to start: ${res.error || "unknown error"}`;
     return `Swarm started — ${res.spawned ?? 0} agent(s): ${roster.join(", ")}. `

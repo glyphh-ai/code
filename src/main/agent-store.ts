@@ -70,6 +70,13 @@ export interface AgentConfig {
   model_provider?: string;
   model_name?: string;
 
+  /**
+   * How this agent runs inside a swarm:
+   *  - "full"     — a full agent loop (tools, files, multi-turn). Default.
+   *  - "readonly" — a one-shot model turn (debate / think, no tools).
+   */
+  mode?: "full" | "readonly";
+
   /** If true, this agent is published to yo-server and discoverable for cyphers. */
   joinable?: boolean;
 

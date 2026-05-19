@@ -13,6 +13,10 @@ import type { HierarchyEntry, McpExpose } from "./mcp-expose";
 import type { CypherBus } from "./cypher-bus";
 import type { WorkspaceManager } from "./workspace-manager";
 import type { AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
+import { runByokStream } from "./provider-adapters/byok-client";
+import type { LLMProvider } from "./provider-adapters/agent-adapter";
+
+const BYOK_PROVIDERS = new Set<string>(["anthropic", "openai", "google", "xai", "perplexity"]);
 
 // ── Swarm manifest (local — no server) ──────────────────────
 
@@ -91,15 +95,19 @@ export function createCypherSession(deps: CypherSessionDeps) {
 
     const skipped: string[] = [];
 
-    function buildConfig(a: SwarmAssignment, briefing: string): RunnerAgentConfig | null {
-      const reg = getAgent(a.agentId);
-      if (!reg) { skipped.push(`${a.agentId} (not in registry)`); return null; }
+    /** A read-only agent runs a one-shot model turn, no tools. */
+    function isReadonly(reg: AgentRegistryConfig): boolean {
+      return reg.mode === "readonly"
+        && !!reg.model_provider
+        && BYOK_PROVIDERS.has(reg.model_provider);
+    }
+
+    function buildSystemPrompt(a: SwarmAssignment, reg: AgentRegistryConfig, readonly: boolean): string {
       const hier = hierarchyMap.get(a.agentId)!;
       const isLeader = a.position === "leader";
       const reportsStr = hier.reports.length ? hier.reports.join(", ") : "none";
       const parentStr = hier.parentAgentId ?? "nobody (you are top of chain)";
-
-      const systemPrompt = [
+      return [
         `# SWARM AGENT: ${reg.id}`,
         `Role: ${reg.role || a.position}`,
         `Swarm: ${manifest.title}`,
@@ -112,21 +120,22 @@ export function createCypherSession(deps: CypherSessionDeps) {
         `Direct reports: ${reportsStr}`,
         ``,
         `## METHODOLOGY`,
-        isLeader
-          ? `Decompose the goal and assign a concrete task to each report (${reportsStr}) with assign_task. Monitor progress, unblock workers, and keep the swarm moving. When the work is done, summarize the result.`
-          : `Accept your task with accept_task, do the work, update your leader with report_status, and call complete_task when finished.`,
-        ``,
-        `## COMMUNICATION`,
-        `- assign_task / accept_task / complete_task coordinate work`,
-        `- post_to messages another agent directly; report_status updates your leader`,
+        readonly
+          ? `You are a READ-ONLY agent: you have no tools and run a single turn. Think hard about the goal and your area, then give your analysis / position / recommendation in one clear, well-reasoned response.`
+          : isLeader
+            ? `Decompose the goal and assign a concrete task to each report (${reportsStr}) with assign_task. Monitor progress, unblock workers, and keep the swarm moving. When the work is done, summarize the result.`
+            : `Accept your task with accept_task, do the work, update your leader with report_status, and call complete_task when finished.`,
+        readonly ? `` : `\n## COMMUNICATION\n- assign_task / accept_task / complete_task coordinate work\n- post_to messages another agent directly; report_status updates your leader`,
         reg.systemPrompt ? `\n## CUSTOM INSTRUCTIONS\n${reg.systemPrompt}` : "",
       ].filter(Boolean).join("\n");
+    }
 
+    function buildConfig(a: SwarmAssignment, reg: AgentRegistryConfig, briefing: string): RunnerAgentConfig {
       return {
         name: reg.id,
         role: reg.role || a.position,
         cwd,
-        prompt: systemPrompt,
+        prompt: buildSystemPrompt(a, reg, false),
         startPrompt: briefing,
         workspace: wsSlug,
         model: reg.model_name,
@@ -148,22 +157,64 @@ export function createCypherSession(deps: CypherSessionDeps) {
       };
     }
 
+    /** Run a read-only agent: one BYOK turn, streamed onto the bus as feed. */
+    async function runReadonly(a: SwarmAssignment, reg: AgentRegistryConfig, briefing: string): Promise<void> {
+      if (!wc.isDestroyed()) wc.send("cw:agent:status", a.agentId, "running");
+      void cypherBus.post(wsSlug, { from: a.agentId, kind: "agent_thinking", body: "Thinking…" });
+      try {
+        let acc = "";
+        await runByokStream(
+          reg.model_provider as LLMProvider,
+          {
+            model: reg.model_name || "",
+            messages: [
+              { role: "system", content: buildSystemPrompt(a, reg, true) },
+              { role: "user", content: briefing },
+            ],
+          },
+          { onText: (d) => { acc += d; } },
+        );
+        void cypherBus.post(wsSlug, {
+          from: a.agentId, kind: "agent_result",
+          body: acc.trim() || "(no response)",
+        });
+      } catch (e) {
+        void cypherBus.post(wsSlug, {
+          from: a.agentId, kind: "agent_error",
+          body: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        if (!wc.isDestroyed()) wc.send("cw:agent:status", a.agentId, "done");
+      }
+    }
+
+    /** Dispatch one agent to its runtime — read-only turn or full agent loop. */
+    function startOne(a: SwarmAssignment, briefing: string): boolean {
+      const reg = getAgent(a.agentId);
+      if (!reg) { skipped.push(`${a.agentId} (not in registry)`); return false; }
+      if (isReadonly(reg)) {
+        console.log(`[spawn-swarm] running read-only agent "${a.agentId}"`);
+        void runReadonly(a, reg, briefing);
+        return true;
+      }
+      console.log(`[spawn-swarm] starting agent "${a.agentId}"`);
+      agentRunner.startAgent(wc, buildConfig(a, reg, briefing)).catch((e) =>
+        console.error(`[spawn-swarm] ${a.agentId} start failed:`, e instanceof Error ? e.message : e));
+      return true;
+    }
+
     let spawned = 0;
     const leaders = assignments.filter((a) => a.position === "leader");
     const workers = assignments.filter((a) => a.position !== "leader");
 
     // Leaders start immediately.
     for (const a of leaders) {
-      const cfg = buildConfig(a, [
+      const ok = startOne(a, [
         `You are "${a.agentId}", leading the swarm "${manifest.title}".`,
         `Goal: ${manifest.goal}`,
         `Decompose the goal and assign a task to each report via assign_task.`,
       ].join(" "));
-      if (!cfg) continue;
-      console.log(`[spawn-swarm] starting leader "${a.agentId}"`);
-      agentRunner.startAgent(wc, cfg).catch((e) =>
-        console.error(`[spawn-swarm] ${a.agentId} start failed:`, e instanceof Error ? e.message : e));
-      spawned++;
+      if (ok) spawned++;
     }
 
     // Workers start on assign_task, or auto-start after a grace period.
@@ -177,12 +228,7 @@ export function createCypherSession(deps: CypherSessionDeps) {
       const activate = (a: SwarmAssignment, briefing: string): void => {
         if (!pending.has(a.agentId)) return; // already activated
         pending.delete(a.agentId);
-        spawned++;
-        const cfg = buildConfig(a, briefing);
-        if (cfg) {
-          agentRunner.startAgent(wc, cfg).catch((e) =>
-            console.error(`[spawn-swarm] ${a.agentId} start failed:`, e instanceof Error ? e.message : e));
-        }
+        if (startOne(a, briefing)) spawned++;
       };
 
       // A worker assigned a task before the grace timer fires gets the task

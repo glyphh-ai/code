@@ -23,6 +23,7 @@ export interface AgentDef {
   skills?: string[];
   model_provider?: string;
   model_name?: string;
+  mode?: "full" | "readonly";
   guardrails?: AgentGuardrails;
   meta?: { createdAt: string; updatedAt: string };
 }
@@ -140,6 +141,7 @@ async function openEditor(agent: AgentDef | null): Promise<void> {
   $a<HTMLInputElement>("agent-guard-idle").value = g.auto_stop_idle_seconds != null ? String(g.auto_stop_idle_seconds) : "";
 
   populateModelSelector(current!.model_provider, current!.model_name);
+  $a<HTMLSelectElement>("agent-mode").value = current!.mode || "full";
   ($a("agent-delete-btn") as HTMLElement).style.display = isNew ? "none" : "";
 
   await loadAgentApps();
@@ -285,6 +287,7 @@ async function saveAgent(): Promise<void> {
     systemPrompt: $a<HTMLTextAreaElement>("agent-prompt").value || undefined,
     model_provider: mProvider,
     model_name: mName,
+    mode: ($a<HTMLSelectElement>("agent-mode").value === "readonly" ? "readonly" : "full"),
     apps: current.apps || [],
     skills: current.skills || [],
     guardrails: {
