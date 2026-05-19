@@ -2102,14 +2102,20 @@ async function boot() {
     }
     sendSplitState();
     sendTabState();
-    // After first reveal (post-splash), reload active panel
-    // — sites like Gmail don't render CSS properly when loaded at zero size
-    if (firstPanelReveal && panelManager.activePanelId) {
+    // First reveal — post-splash and post-onboarding — one-time setup.
+    if (firstPanelReveal) {
       firstPanelReveal = false;
-      const view = panelManager.getView(panelManager.activePanelId);
-      if (view && !view.webContents.isDestroyed()) {
-        view.webContents.reload();
+      // Reload the active panel — sites like Gmail don't render CSS
+      // properly when first loaded at zero size.
+      if (panelManager.activePanelId) {
+        const view = panelManager.getView(panelManager.activePanelId);
+        if (view && !view.webContents.isDestroyed()) {
+          view.webContents.reload();
+        }
       }
+      // Always open the yo panel on launch, regardless of whether it was
+      // open when the app last closed.
+      mainWindow.webContents.send("yo-panel-open", "");
     }
 
   });
