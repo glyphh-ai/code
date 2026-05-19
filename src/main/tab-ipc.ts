@@ -19,7 +19,6 @@ interface TabIpcDeps {
   tabBrowserCounter: { value: number };
   panelInstanceCounter: { value: number };
   panelNavWc: Record<string, Electron.WebContents>;
-  cypherPanelContext: { get: () => { cypherId: string; isOwner: boolean; title?: string } | null };
   resolveAppId: (panelId: string | null | undefined) => string;
   resolveBrowserHome: () => string;
   browserHtmlUrl: (initialUrl?: string) => string;
@@ -37,12 +36,11 @@ interface TabIpcDeps {
 export function registerTabIpc(deps: TabIpcDeps): void {
   const {
     panelManager, layoutManager, appConnector,
-    yoAgent, yoInterceptor, agentRunner,
     getMainWindow, openTabs, tabBrowserCounter, panelInstanceCounter,
-    panelNavWc, cypherPanelContext,
+    panelNavWc,
     resolveAppId, resolveBrowserHome, browserHtmlUrl,
     ensureTab, persistTabs, sendSplitState, sendTabState,
-    openYoPanel, createPanelForApp,
+    createPanelForApp,
     setPreference, getPreference, URL_BAR_HEIGHT,
   } = deps;
 
@@ -72,28 +70,6 @@ export function registerTabIpc(deps: TabIpcDeps): void {
       panelManager.switchTo(id, mainWindow);
       setPreference("lastView", { type: "panel", id });
 
-      // Activate/deactivate swarm mode when switching to/from the swarm tab
-      if (id === "cypher" && cypherPanelContext.get()?.cypherId) {
-        if (!yoAgent.isSwarmMode()) {
-          yoAgent.setSwarmMode(true);
-          yoAgent.setMode("acceptEdits");
-          setPreference("agentMode", "swarm");
-          mainWindow.webContents.send("agent-mode-changed", "swarm");
-          yoInterceptor.setAgentMode("swarm");
-        }
-        // Always open yo panel when switching to the swarm tab
-        openYoPanel("");
-        // Re-bind agents to current panel (may have been recreated)
-        const cypWc = panelManager.getView("cypher")?.webContents;
-        if (cypWc && !cypWc.isDestroyed()) {
-          agentRunner.rebindWebContents(cypWc);
-        }
-      } else if (id !== "cypher" && yoAgent.isSwarmMode()) {
-        yoAgent.setSwarmMode(false);
-        setPreference("agentMode", "default");
-        mainWindow.webContents.send("agent-mode-changed", "standard");
-        yoInterceptor.setAgentMode("default");
-      }
       // Persist suspended grid for restart
       const suspended = layoutManager.getSuspendedGridInfo();
       if (suspended) {

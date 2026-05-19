@@ -5536,6 +5536,52 @@ select.settings-input {
   position: relative;
 }
 
+/* ── Swarm activity (inline in the yo panel) ─────────────────────────────── */
+.yo-msg-swarm-start {
+  align-self: stretch;
+  white-space: normal;
+  border: 1px solid var(--border);
+  border-left: 3px solid #A855F7;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: rgba(168, 85, 247, 0.06);
+}
+.swarm-start-title { font-weight: 700; font-size: 12.5px; color: var(--text); }
+.swarm-start-goal { font-size: 11.5px; color: var(--text-2); margin: 2px 0 6px; }
+.swarm-start-roster { display: flex; flex-wrap: wrap; gap: 6px; }
+.swarm-roster-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px; color: var(--text-2);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 6px 2px 3px;
+}
+
+.yo-msg-swarm {
+  align-self: stretch;
+  white-space: normal;
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 4px 0;
+}
+.swarm-badge {
+  width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0;
+  overflow: hidden; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.swarm-badge img { width: 14px; height: 14px; object-fit: contain; }
+.member-badge-initial { font-size: 11px; font-weight: 700; color: var(--text-2); }
+.swarm-body { flex: 1; min-width: 0; }
+.swarm-meta { display: flex; gap: 6px; align-items: baseline; }
+.swarm-from { font-weight: 700; font-size: 11px; color: var(--text); }
+.swarm-to { font-size: 11px; color: var(--text-3); }
+.swarm-kind {
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; padding: 1px 5px; border-radius: 3px;
+}
+.swarm-text {
+  font-size: 11.5px; color: var(--text-2); margin-top: 1px;
+  white-space: pre-wrap; word-break: break-word;
+}
+
 .yo-msg-actions {
   display: flex;
   justify-content: flex-end;

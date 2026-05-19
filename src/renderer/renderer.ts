@@ -234,6 +234,9 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
+      // Local swarm — inline activity in the yo panel
+      onYoPanelSwarmStart: (cb: (info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }) => void) => void;
+      onYoPanelSwarmActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => void;
       // Cypher chat layer
       onYoPanelChatMsg: (cb: (msg: { from: string; body: string; ts: number; isLocal: boolean }) => void) => void;
       onYoPanelDripEffect: (cb: (recipe: string) => void) => void;

@@ -8,6 +8,7 @@
  */
 
 import { formatMarkdown } from "./format-markdown.js";
+import { badgeImgFor } from "./model-badges.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -248,6 +249,80 @@ function addYoUserMessage(text: string) {
   el.textContent = text;
   yoPanelMessages.appendChild(el);
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+// ── Swarm activity (inline) ────────────────────────────────────────────────
+// When a swarm is running, its bus events stream into the conversation as
+// lightweight rows — agent badge, who→who, kind, body.
+
+interface SwarmRosterEntry { position: string; provider?: string; model?: string }
+const swarmRoster = new Map<string, SwarmRosterEntry>();
+
+const SWARM_KIND_META: Record<string, { label: string; color: string }> = {
+  assign_task:    { label: "assign",   color: "#A855F7" },
+  accept_task:    { label: "accept",   color: "#4caf50" },
+  complete_task:  { label: "done",     color: "#4caf50" },
+  report_status:  { label: "report",   color: "#64b5f6" },
+  post:           { label: "post",     color: "#8a8a92" },
+  post_to:        { label: "to",       color: "#8a8a92" },
+  chat:           { label: "chat",     color: "#8a8a92" },
+  agent_tool_use: { label: "tool",     color: "#ffb400" },
+  agent_thinking: { label: "thinking", color: "#64b5f6" },
+  agent_result:   { label: "result",   color: "#4caf50" },
+  agent_error:    { label: "error",    color: "#f44" },
+  status:         { label: "status",   color: "#4caf50" },
+};
+function swarmKindMeta(kind: string): { label: string; color: string } {
+  return SWARM_KIND_META[kind] || { label: kind.replace(/^agent_/, ""), color: "#8a8a92" };
+}
+function swarmEsc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function swarmBadge(agentId: string): string {
+  const reg = swarmRoster.get(agentId);
+  if (reg?.provider) return badgeImgFor(reg.provider, reg.model || "");
+  const letter = (agentId || "?").charAt(0).toUpperCase();
+  return `<span class="member-badge-initial">${swarmEsc(letter)}</span>`;
+}
+
+function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }): void {
+  swarmRoster.clear();
+  for (const a of info.agents) {
+    swarmRoster.set(a.id, { position: a.position, provider: a.provider, model: a.model });
+  }
+  hideYoWelcome();
+  const el = document.createElement("div");
+  el.className = "yo-msg yo-msg-swarm-start";
+  const roster = info.agents
+    .map((a) => `<span class="swarm-roster-chip"><span class="swarm-badge">${swarmBadge(a.id)}</span>${swarmEsc(a.id)}${a.position === "leader" ? " ·lead" : ""}</span>`)
+    .join("");
+  el.innerHTML =
+    `<div class="swarm-start-title">🐝 Swarm started — ${swarmEsc(info.title)}</div>` +
+    `<div class="swarm-start-goal">${swarmEsc(info.goal)}</div>` +
+    `<div class="swarm-start-roster">${roster}</div>`;
+  yoPanelMessages.appendChild(el);
+  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+}
+
+function addSwarmActivity(e: { from: string; to?: string; kind: string; body: string; ts: number }): void {
+  if (!e.from || !e.body?.trim()) return;
+  if (e.from === "orchestrator" || e.from === "unknown") return;
+  const meta = swarmKindMeta(e.kind);
+  const el = document.createElement("div");
+  el.className = "yo-msg yo-msg-swarm";
+  el.innerHTML =
+    `<span class="swarm-badge">${swarmBadge(e.from)}</span>` +
+    `<div class="swarm-body">` +
+      `<div class="swarm-meta">` +
+        `<span class="swarm-from">${swarmEsc(e.from)}</span>` +
+        `${e.to ? `<span class="swarm-to">→ ${swarmEsc(e.to)}</span>` : ""}` +
+        `<span class="swarm-kind" style="background:${meta.color}22;color:${meta.color}">${swarmEsc(meta.label)}</span>` +
+      `</div>` +
+      `<div class="swarm-text">${swarmEsc(e.body.slice(0, 1200))}</div>` +
+    `</div>`;
+  const atBottom = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight < 80;
+  yoPanelMessages.appendChild(el);
+  if (atBottom) yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
 }
 
 // ── Helpers: scroll ────────────────────────────────────────────────────────
@@ -1184,8 +1259,9 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelDone((fullText) => { finalizeYoMessage(fullText); drainPendingYoMessages(); });
   window.yo.onYoPanelError((err) => showYoError(err));
   window.yo.onYoPanelClose(() => closeYoPanel());
-  // Cypher chat no longer renders in the private yo panel — it belongs in
-  // the shared cypher feed (three-layer model). See main.ts chat routing.
+  // Swarm activity streams inline into the conversation.
+  window.yo.onYoPanelSwarmStart((info) => addSwarmStart(info));
+  window.yo.onYoPanelSwarmActivity((event) => addSwarmActivity(event));
   window.yo.onYoPanelDripEffect((recipe) => {
     window.yo.dripsPreview(recipe);
   });

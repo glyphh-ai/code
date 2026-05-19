@@ -245,18 +245,10 @@ export function initTabBar(deps: TabBarDeps): {
     }
   }
 
-  // When the active tab toggles between the swarm panel and anything else,
-  // flip the .yo mode dropdown so messages route correctly: swarm mode
-  // delegates to a local swarm; standard mode runs the normal agent.
-  // Only fires on tab *change*, so a manual override (user picks standard
-  // while the swarm tab is active) is preserved within that tab.
-  function autoSwitchModeForActiveTab(tabs: TabInfo[], activeId: string) {
-    if (!deps.isYoControlsInited()) return;
-    void tabs;
-    const target = activeId === "cypher" ? "swarm" : "standard";
-    if (deps.getCurrentMode() === target) return;
-    deps.setModeValue(target);
-    deps.syncAgentMode();
+  // Swarm mode is controlled solely by the .yo mode dropdown — there is no
+  // dedicated panel to auto-switch for, and it must persist across tabs.
+  function autoSwitchModeForActiveTab(_tabs: TabInfo[], _activeId: string): void {
+    /* no-op */
   }
 
   // -- + button click handler --

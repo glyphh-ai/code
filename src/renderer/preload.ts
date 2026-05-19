@@ -328,6 +328,14 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("jammer-activity", (_e, event) => cb(event));
   },
 
+  // Local swarm — start signal (roster, for model badges) + inline activity.
+  onYoPanelSwarmStart: (cb: (info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }) => void) => {
+    ipcRenderer.on("yo-panel-swarm-start", (_e, info) => cb(info));
+  },
+  onYoPanelSwarmActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => {
+    ipcRenderer.on("yo-panel-swarm-activity", (_e, event) => cb(event));
+  },
+
   // Cypher chat messages (observer/mistro chat layer)
   onYoPanelChatMsg: (cb: (msg: { from: string; body: string; ts: number; isLocal: boolean }) => void) => {
     ipcRenderer.on("yo-panel-chat-msg", (_e, msg) => cb(msg));

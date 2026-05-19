@@ -639,30 +639,9 @@ async function boot() {
   // Track jammer preview panels so we can clean them up on cypher wrap/leave
   const jammerPreviewPanels = new Set<string>();
 
-  // React to local bus events. NOTE: this no longer renders the cypher feed
-  // or persists it — the feed is single-sourced from the SSE stream (see
-  // setEventObserver). A local agent's post round-trips through the server
-  // and renders once, from there, keyed by `seq`. This callback only handles
-  // local side-effects: leader-completion detection and preview panels.
+  // React to local bus events — local side-effects only (preview panels).
+  // Swarm activity itself streams into the yo panel; see the forwarder below.
   cypherBus.onPost((_wsSlug, event) => {
-    // Detect leader completion (no parent) — prompt mistro to wrap
-    if (event.kind === "complete_task") {
-      const hier = cypherBus.getHierarchyContext();
-      if (hier) {
-        const sender = hier.get(event.from);
-        if (sender && !sender.parentAgentId) {
-          const cypherView = panelManager.getView("cypher");
-          if (cypherView && !cypherView.webContents.isDestroyed()) {
-            cypherView.webContents.send("cypher-leader-done", {
-              agentId: event.from,
-              agentName: sender.agentId,
-              body: event.body,
-            });
-          }
-        }
-      }
-    }
-
     // Handle preview_url — create a browser panel for the jammer's URL
     if (event.kind === "preview_url" && event.meta?.url && mainWindow && !mainWindow.isDestroyed()) {
       const url = String(event.meta.url);
@@ -760,28 +739,6 @@ async function boot() {
         wc.on("did-finish-load", () => terminalManager.spawn(wc));
       }
       yoInterceptor.activateBarOnly(wc, id);
-    } else if (baseAppId === "cypher") {
-      // Cypher workspace: SDK-driven agent runner (not terminal PTYs)
-      const wsSlug = workspaceManager.getActive().slug;
-      cwWcWorkspace.set(wc.id, wsSlug);
-      wc.on("destroyed", () => {
-        cwWcWorkspace.delete(wc.id);
-        agentRunner.stopAll(wc.id);
-      });
-      const ws = workspaceManager.getActive();
-      const wsAgents = workspaceManager.listAgents(wsSlug);
-      // Ensure briefings + MCP config
-      rewriteAllBriefings(ws, wsAgents);
-      try { ensureProjectClaudeMd(ws); } catch { /* */ }
-      if (mcpExpose?.isRunning) {
-        const url = `http://127.0.0.1:${mcpExpose.getPort()}/mcp`;
-        const tokens = mcpExpose.getTokens();
-        const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
-        try { ensureProjectMcpJson(ws, url, token); } catch { /* */ }
-      }
-      inboxRouter?.watch(wsSlug);
-      // Activate yo/dip/drip interceptor so command palette works on cypher panel
-      yoInterceptor.activate(wc, id);
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
@@ -924,8 +881,6 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "cypher.html")}`;
-  const cypherPreload = path.join(__dirname, "cypher-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   vscodeServer = new VSCodeServer();
@@ -990,9 +945,6 @@ async function boot() {
     }
   }
 
-  // Cypher Mode panel — registered statically (not in app-connector)
-  panelManager.addPanel("cypher", cypherHtml, cypherPreload);
-
   // Start VS Code server in the background if enabled and CLI is available
   if (enableVscode && vscodeServer.available) {
     // The embedded editor opens the app-wide working directory.
@@ -1014,13 +966,6 @@ async function boot() {
     mainWindow?.webContents.send("show-welcome");
   });
   let restoring = false;
-
-  /** Activate the cypher workspace panel (switch to it). */
-  function activateCypher(): boolean {
-    if (!mainWindow) return false;
-    panelManager.switchTo("cypher", mainWindow);
-    return true;
-  }
 
   // LLM engine for inline yo/sup execution
   const yoChat = new YoChat(panelManager);
@@ -1438,12 +1383,9 @@ async function boot() {
   const panelUrls: Record<string, string> = {};
   const panelFavicons: Record<string, string> = getPreference<Record<string, string>>("panelFavicons", {});
   const panelNavWc: Record<string, Electron.WebContents> = {}; // navigable webContents per panel
-  let cypherPanelContext: { cypherId: string; isOwner: boolean; title?: string } | null =
-    getPreference<{ cypherId: string; isOwner: boolean; title?: string } | null>("cypherPanelContext", null);
 
   function getTabName(id: string | null | undefined): string {
     if (!id) return "";
-    if (id === "cypher" && cypherPanelContext?.title) return `⚡ ${cypherPanelContext.title}`;
     const app = appConnector.get(id) || appConnector.get(resolveAppId(id));
     return app?.name || id;
   }
@@ -1655,21 +1597,8 @@ async function boot() {
     return instanceId;
   });
 
-  commandParser.setCypherOpener(async (slug: string) => {
-    if (!mainWindow) return false;
-    try {
-      const r = await serverGetAuthed<{ cypher: { id: string; slug: string } }>(`/api/cyphers/by-slug/${encodeURIComponent(slug)}`);
-      if (!r?.cypher?.id) return false;
-      const wsSlug = workspaceManager.getActive().slug;
-      const map = getPreference<Record<string, string>>("workspaceCypher", {});
-      setPreference("workspaceCypher", { ...map, [wsSlug]: r.cypher.id });
-      cypherPanelContext = { cypherId: r.cypher.id, isOwner: false };
-      panelManager.switchTo("cypher", mainWindow);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  // Swarms are spawned by the yo agent (create_swarm), not opened as a panel.
+  commandParser.setCypherOpener(async () => false);
 
   // Account gate — the heartbeat is the authoritative 14-day-trial check.
   // When it reports the trial expired (or the account disabled) we lock the
@@ -1707,9 +1636,9 @@ async function boot() {
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
 
-  // Forward local swarm bus events to the swarm-view panel as `jammer-activity`.
-  // The bus is in-process — this is the single, immediate source for the feed
-  // and the agent cards (no server round-trip, no SSE replay, no duplicates).
+  // Forward local swarm bus events into the yo panel as inline activity.
+  // The bus is in-process — this is the single, immediate source (no server
+  // round-trip, no SSE replay, no duplicates).
   const DRIP_MIN_INTERVAL_MS = 1500;
   let lastDripRenderAt = 0;
   cypherBus.onPost((_wsSlug, event) => {
@@ -1723,10 +1652,9 @@ async function boot() {
       }
       return;
     }
-    // Everything else → the swarm-view feed + agent cards.
-    const cypherView = panelManager.getView("cypher");
-    if (cypherView && !cypherView.webContents.isDestroyed()) {
-      cypherView.webContents.send("jammer-activity", {
+    // Everything else → the yo panel, rendered inline with the conversation.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("yo-panel-swarm-activity", {
         from: event.from,
         to: event.to,
         kind: event.kind,
@@ -2498,28 +2426,13 @@ async function boot() {
     getAgent,
   });
 
-  // The enriched manifest the swarm panel renders its roster from. Held in
-  // main so a panel that loads/reloads mid-swarm can pull it back.
-  let swarmPanelManifest: {
-    id: string; title: string; goal: string;
-    agents: Array<{ id: string; position: string; parentAgentId: string | null;
-      area?: string; role?: string; provider?: string; model?: string }>;
-  } | null = null;
-
-  function sendSwarmManifest(wc?: Electron.WebContents | null): void {
-    if (!swarmPanelManifest) return;
-    const target = wc || panelManager.getView("cypher")?.webContents;
-    if (target && !target.isDestroyed()) target.send("swarm-manifest", swarmPanelManifest);
-  }
-
-  ipcMain.handle("swarm-get-manifest", () => swarmPanelManifest);
-
   // runSwarm — the single entry shared by the create_swarm substrate tool
   // (the yo agent) and mcp-expose. Resolves a roster, drafts a manifest,
-  // opens the swarm panel, spawns locally; returns a human status line.
+  // spawns locally; the swarm's activity streams inline into the yo panel.
   async function runSwarm(goal: string, agentIds?: string[], size?: number): Promise<string> {
     const g = (goal || "").trim();
     if (!g) return "A goal is required.";
+    if (!mainWindow || mainWindow.isDestroyed()) return "Workspace window unavailable.";
     const library = listAgents();
     if (library.length === 0) {
       return "No agents in the library yet — create some in the Agents tab first.";
@@ -2535,52 +2448,36 @@ async function boot() {
     }
     const { draftSwarm } = await import("./swarm-draft");
     const manifest = draftSwarm({ goal: g, workspace: workspaceManager.getActive().slug, agentIds: roster });
-    // Enrich for the panel — fold in each agent's registry metadata so the
-    // panel can render badges + roles without another IPC round-trip.
-    swarmPanelManifest = {
-      id: manifest.id, title: manifest.title, goal: manifest.goal,
+    // Workspace prep — the swarm shares the .yo project folder, so make sure
+    // its CLAUDE.md and MCP config are in place before any agent starts.
+    const ws = workspaceManager.getActive();
+    try { ensureProjectClaudeMd(ws); } catch { /* */ }
+    if (mcpExpose?.isRunning) {
+      const mcpUrl = `http://127.0.0.1:${mcpExpose.getPort()}/mcp`;
+      const tokens = mcpExpose.getTokens();
+      const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
+      try { ensureProjectMcpJson(ws, mcpUrl, token); } catch { /* */ }
+    }
+    // Tell the yo panel a swarm is starting — it caches the roster (for
+    // model badges) and the swarm's bus activity then streams in inline.
+    mainWindow.webContents.send("yo-panel-swarm-start", {
+      title: manifest.title, goal: manifest.goal,
       agents: manifest.agents.map((a) => {
         const reg = library.find((r) => r.id === a.agentId);
         return {
-          id: a.agentId, position: a.position, parentAgentId: a.parentAgentId ?? null,
-          area: a.area, role: reg?.role,
+          id: a.agentId, position: a.position,
           provider: reg?.model_provider, model: reg?.model_name,
         };
       }),
-    };
-    if (mainWindow) panelManager.switchTo("cypher", mainWindow);
-    const wc = panelManager.getView("cypher")?.webContents;
-    if (!wc || wc.isDestroyed()) return "Swarm panel unavailable.";
-    // Push the manifest now and again once the panel finishes loading (a
-    // freshly-created view may not have a renderer listening yet).
-    sendSwarmManifest(wc);
-    wc.once("did-finish-load", () => sendSwarmManifest(wc));
-    const res = await spawnSwarm(manifest, wc);
+    });
+    const res = await spawnSwarm(manifest, mainWindow.webContents);
     if (!res.ok) return `Swarm failed to start: ${res.error || "unknown error"}`;
     return `Swarm started — ${res.spawned ?? 0} agent(s): ${roster.join(", ")}. `
-      + `The leader decomposes the goal and assigns work over the bus; watch the swarm panel.`;
+      + `The leader decomposes the goal and assigns work over the bus; their activity `
+      + `streams into this panel as it happens.`;
   }
 
   mcpExpose!.setSwarmRunner(runSwarm);
-
-  ipcMain.on("cypher-panel-leave", () => {
-    cypherPanelContext = null;
-    setPreference("cypherPanelContext", null);
-    yoAgent.setSwarmMode(false);
-    setPreference("agentMode", "default");
-    mainWindow?.webContents.send("agent-mode-changed", "standard");
-    yoInterceptor.setAgentMode("default");
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      for (const pid of jammerPreviewPanels) {
-        panelManager.closePanel(pid, mainWindow);
-      }
-    }
-    jammerPreviewPanels.clear();
-    const idx = openTabs.indexOf("cypher");
-    if (idx !== -1) { openTabs.splice(idx, 1); persistTabs(); }
-    if (mainWindow) panelManager.switchTo("home", mainWindow);
-    sendTabState();
-  });
 
   ipcMain.handle("cypher-thread-load-agent", (_e, cypherId: string, agentName: string) => {
     return threadStore.loadAgent(cypherId, agentName);
@@ -2744,7 +2641,6 @@ async function boot() {
     tabBrowserCounter: { get value() { return tabBrowserCounter; }, set value(v) { tabBrowserCounter = v; } },
     panelInstanceCounter: { get value() { return panelInstanceCounter; }, set value(v) { panelInstanceCounter = v; } },
     panelNavWc,
-    cypherPanelContext: { get: () => cypherPanelContext },
     resolveAppId, resolveBrowserHome, browserHtmlUrl,
     ensureTab, persistTabs, sendSplitState, sendTabState,
     openYoPanel, createPanelForApp,
