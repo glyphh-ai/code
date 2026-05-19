@@ -234,7 +234,6 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
-      onYoPanelCouncilReady: (cb: (info: { name: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => void) => void;
       // Cypher chat layer
       onYoPanelChatMsg: (cb: (msg: { from: string; body: string; ts: number; isLocal: boolean }) => void) => void;
       onYoPanelDripEffect: (cb: (recipe: string) => void) => void;

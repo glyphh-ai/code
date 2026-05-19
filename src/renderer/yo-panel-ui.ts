@@ -54,14 +54,12 @@ let yoControlsInited = false;
 
 const MODE_ICONS: Record<string, string> = {
   standard: "❓",
-  council:  "🏛",
-  cypher:   "⚡",
+  swarm:    "🐝",
 };
 
 const MODE_COLORS: Record<string, string> = {
   standard: "#25C75E",
-  council:  "#A855F7",
-  cypher:   "#FF6B2C",
+  swarm:    "#A855F7",
 };
 
 const PERM_ICONS: Record<string, string> = {
@@ -222,24 +220,18 @@ function applyModeColor() {
 }
 
 function syncAgentMode(): void {
-  if (currentMode === "council") {
-    window.yo.setAgentMode("exit-cypher");
-    window.yo.setAgentMode("council");
-    window.yo.setAgentMode(currentPerm);
-  } else if (currentMode === "cypher") {
-    window.yo.setAgentMode("exit-council");
-    window.yo.setAgentMode("cypher");
+  if (currentMode === "swarm") {
+    window.yo.setAgentMode("swarm");
     window.yo.setAgentMode(currentPerm);
   } else {
-    window.yo.setAgentMode("exit-council");
-    window.yo.setAgentMode("exit-cypher");
+    window.yo.setAgentMode("exit-swarm");
     window.yo.setAgentMode(currentPerm);
   }
 }
 
 async function initYoControls() {
   const mode = await window.yo.getAgentMode();
-  if (mode === "council" || mode === "cypher") {
+  if (mode === "swarm") {
     setModeValue(mode);
     setPermValue("default");
   } else {
@@ -1158,16 +1150,13 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
 
   // -- Mode changes from main process --
   window.yo.onAgentModeChanged?.((mode: string) => {
-    if (mode === "standard" || mode === "council" || mode === "cypher") {
+    if (mode === "standard" || mode === "swarm") {
       setModeValue(mode);
     } else {
       setModeValue("standard");
       setPermValue(mode);
     }
     applyModeColor();
-    if (mode === "cypher" && !isYoPanelOpen()) {
-      openYoPanel("");
-    }
   });
 
   // -- Auto-grow textarea --
@@ -1200,22 +1189,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelDripEffect((recipe) => {
     window.yo.dripsPreview(recipe);
   });
-  window.yo.onYoPanelCouncilReady((info) => {
-    hideYoWelcome();
-    const el = document.createElement("div");
-    el.className = "yo-msg yo-msg-assistant";
-    const members = info.members.map((m: any) => `<strong>${typeof m === "string" ? m : m.model || m.provider}</strong>`).join(", ");
-    el.innerHTML = `<div style="margin-bottom:8px"><strong>Council "${info.name}"</strong> is ready.</div>` +
-      `<div style="font-size:12px;color:var(--text-2);margin-bottom:8px">${members}<br>Style: ${info.style} &middot; ${info.round_cap} rounds max</div>` +
-      `<div style="font-size:12px;color:var(--text-3)">` +
-      `Say <strong>"go"</strong> to start round 1<br>` +
-      `Ask a specific member a question<br>` +
-      `Add guidance before starting with <strong>"interject"</strong><br>` +
-      `<strong>"stop"</strong> or <strong>"summarize"</strong> at any time</div>`;
-    yoPanelMessages.appendChild(el);
-    yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
-  });
-
   // -- Send/stop button --
   yoPanelSendBtn.addEventListener("click", () => {
     if (yoThinking) {

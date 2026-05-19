@@ -52,7 +52,17 @@ how the yo agent is prompted.
   swarm talks over these, locally.
 
 **KEEP AS-IS:** `agent-runner`, `jammer-backends/` (agent loops), the agent
-registry, provider keys, the yo agent, council.
+registry, provider keys, the yo agent.
+
+**COUNCIL → SWARM (collapsed).** Council the feature is gone — there is now
+one feature, Swarm. The agent `cypher` mode is removed; the `council` mode is
+renamed **swarm** (it keeps Council's purple `#A855F7`). A swarm agent can run
+**read-only** (a one-shot BYOK model turn — debate/think, no tools; reuses
+`byok-client`/`agent-adapter`, which are kept) or **full** (a full agent loop
+with tools). Council's per-model-type provider logos were preserved in
+`src/renderer/model-badges.ts` for the swarm feed. Deleted: `council-session.ts`,
+`current-council.ts`, `council.ts/.html/-preload.ts`, `build:council`, the
+`council_*` substrate tools, and the `yo://council` panel.
 
 ---
 

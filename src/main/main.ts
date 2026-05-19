@@ -31,7 +31,6 @@ import { registerHotkey } from "./hotkey";
 import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
-const CYPHER_MAESTRO_AGENT = "mistro";
 import { CypherBus } from "./cypher-bus";
 import { listAgents, getAgent, saveAgent, removeAgent, idAvailable, type AgentConfig as AgentRegistryConfig } from "./stores/agent-store-db";
 import { pushAgentProfile, deleteAgentProfile, syncAllAgents } from "./agent-sync";
@@ -86,7 +85,6 @@ import { ConfigSync } from "./config-sync";
 import { reloadRemotePatterns } from "./firewall";
 import { usageTracker } from "./usage-tracker";
 import { usageQueue } from "./usage-queue";
-import { redactSecrets, summarizeToolInput } from "./feed-sanitize";
 import { promptLog } from "./prompt-log";
 import { Embedder } from "./embedder";
 import { CaptureStore } from "./capture-store";
@@ -702,13 +700,10 @@ async function boot() {
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   {
     const savedModeRaw = getPreference<string>("agentMode", "default");
-    const savedMode = savedModeRaw === "council" ? "council" : savedModeRaw === "cypher" ? "cypher" : getAgentMode();
+    const savedMode = savedModeRaw === "swarm" ? "swarm" : getAgentMode();
     yoInterceptor.setAgentMode(savedMode);
-    if (savedMode === "council") {
-      yoAgent.setCouncilMode(true);
-    } else if (savedMode === "cypher") {
-      yoAgent.setCypherMode(true);
-      yoAgent.setMode("acceptEdits");
+    if (savedMode === "swarm") {
+      yoAgent.setSwarmMode(true);
     } else {
       yoAgent.setMode(savedMode as any);
     }
@@ -929,8 +924,6 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
-  const councilPreload = path.join(__dirname, "council-preload.js");
   const cypherHtml = `file://${path.join(__dirname, "..", "renderer", "cypher.html")}`;
   const cypherPreload = path.join(__dirname, "cypher-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
@@ -947,8 +940,6 @@ async function boot() {
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://council") {
-      panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1395,8 +1386,6 @@ async function boot() {
       panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://council") {
-      panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1571,9 +1560,6 @@ async function boot() {
     mainWindow,
     panelManager,
     appConnector,
-    workspaceManager,
-    yoAgent,
-    yoInterceptor,
     openTabs,
     getTabBrowserCounter: () => tabBrowserCounter,
     setTabBrowserCounter: (n) => { tabBrowserCounter = n; },
@@ -1583,15 +1569,8 @@ async function boot() {
     smartGrab,
     executeCommand,
     browserHtmlUrl,
-    councilHtml,
-    councilPreload,
     execCommand,
     swarmCreate: runSwarm,
-    serverGetAuthed,
-    serverPostAuthed,
-    fetchServerModels,
-    setPreference,
-    yoPanelWidth: () => getPreference("yoPanelWidth", 400),
   }));
 
   // Hook into panel focus events — add tab when panel becomes active
@@ -2206,100 +2185,18 @@ async function boot() {
         return;
       }
 
-      // Cypher chat commands — only active during cypher mode
-      if (yoAgent.isCypherMode() && firstWord && ["chat", "to", "leaders", "all", "workers"].includes(firstWord)) {
-        const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-        const cyId = getCy();
-        if (!cyId) { mainWindow?.webContents.send("yo-panel-error", "No active cypher"); return; }
-        const account = getAccountInfo();
-        const senderName = account?.firstName || "mistro";
-        const rest = trimmed.slice(1 + firstWord.length).trim();
-
-        if (firstWord === "chat") {
-          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .chat <message>"); return; }
-          // Chat posts to the local bus → renders in the swarm-view feed.
-          void cypherBus.post(workspaceManager.getActiveSlug(), {
-            from: senderName,
-            kind: "chat",
-            body: rest,
-          });
-          mainWindow?.webContents.send("yo-panel-done", "");
-          return;
-        }
-
-        const wsSlug = workspaceManager.getActiveSlug();
-        const hier = cypherBus.getHierarchyContext();
-
-        if (firstWord === "to") {
-          const parts = rest.split(/\s+/);
-          const targetId = parts[0];
-          const msg = parts.slice(1).join(" ");
-          if (!targetId || !msg) { mainWindow?.webContents.send("yo-panel-error", "Usage: .to <agent_id> <message>"); return; }
-          cypherBus.post(wsSlug, { from: "user", to: targetId, kind: "post_to", body: msg });
-          mainWindow?.webContents.send("yo-panel-done", `Sent to ${targetId}`);
-          return;
-        }
-
-        if (firstWord === "leaders" && hier) {
-          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .leaders <message>"); return; }
-          for (const [id, entry] of hier) {
-            if (!entry.parentAgentId) {
-              cypherBus.post(wsSlug, { from: "user", to: id, kind: "post_to", body: rest });
-            }
-          }
-          mainWindow?.webContents.send("yo-panel-done", "Sent to leaders");
-          return;
-        }
-
-        if (firstWord === "workers" && hier) {
-          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .workers <message>"); return; }
-          for (const [id, entry] of hier) {
-            if (entry.parentAgentId) {
-              cypherBus.post(wsSlug, { from: "user", to: id, kind: "post_to", body: rest });
-            }
-          }
-          mainWindow?.webContents.send("yo-panel-done", "Sent to workers");
-          return;
-        }
-
-        if (firstWord === "all") {
-          if (!rest) { mainWindow?.webContents.send("yo-panel-error", "Usage: .all <message>"); return; }
-          cypherBus.post(wsSlug, { from: "user", kind: "post", body: rest, tags: ["broadcast"] });
-          mainWindow?.webContents.send("yo-panel-done", "Broadcast sent");
-          return;
-        }
-
-        mainWindow?.webContents.send("yo-panel-done", "");
-        return;
-      }
     }
 
     const wc = mainWindow?.webContents;
     if (!wc || mainWindow!.isDestroyed()) return;
 
-    // Everything goes to the yo agent (in cypher mode it has orchestration tools)
-    const { getCurrentCypher: getCy } = require("./current-cypher") as { getCurrentCypher: () => string | null };
-    const activeCypherId = yoAgent.isCypherMode() ? getCy() : null;
+    // Everything goes to the yo agent (in swarm mode it defaults to create_swarm).
     yoAgent.send(trimmed, {
       onText: (delta) => {
         wc.send("yo-panel-token", delta);
-        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "text", content: delta });
       },
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
-        if (activeCypherId) {
-          threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool", content: JSON.stringify(input).slice(0, 200), toolId: id, toolName: name });
-          // Three-layer model: the leader is a participant too. Publish the
-          // maestro's tool activity to the cypher feed (sanitized label only,
-          // never output) so jammers see how the DJ runs the cypher. Raw tool
-          // results stay in the private yo panel.
-          void cypherBus.post(workspaceManager.getActiveSlug(), {
-            from: CYPHER_MAESTRO_AGENT,
-            kind: "agent_tool_use",
-            body: summarizeToolInput(name, input),
-            meta: { tool_name: name },
-          });
-        }
         // Reveal the file the agent is touching: VS Code first (via the Yo
         // Bridge extension — no reload), Monaco .Yo Editor as the fallback.
         const fp = fileFromToolCall(name, input);
@@ -2307,25 +2204,10 @@ async function boot() {
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
-        // Tool RESULTS are the private layer — they may contain file contents
-        // or command output. They go to the local thread store only, never
-        // the shared feed.
-        if (activeCypherId) threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "tool-result", content: detail.slice(0, 500), toolId: id });
       },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
-        if (activeCypherId) {
-          threadStore.appendStage(activeCypherId, { ts: Date.now(), kind: "done", content: "" });
-          // Publish the maestro's turn narration to the feed (redacted, capped).
-          if (fullText && fullText.trim()) {
-            void cypherBus.post(workspaceManager.getActiveSlug(), {
-              from: CYPHER_MAESTRO_AGENT,
-              kind: "agent_thinking",
-              body: redactSecrets(fullText.slice(0, 500)),
-            });
-          }
-        }
       },
       onError: (err) => wc.send("yo-panel-error", err),
     });
@@ -2445,11 +2327,6 @@ async function boot() {
   });
 
   ipcMain.on("yo-panel-dismiss", () => {
-    if (yoAgent.isCypherMode()) {
-      // Silently keep the panel open — re-open if somehow closed
-      mainWindow?.webContents.send("yo-panel-open", "");
-      return;
-    }
     yoAgent.clear();
     mainWindow?.webContents.send("yo-panel-close");
     panelManager.setRightInset(0);
@@ -2479,48 +2356,33 @@ async function boot() {
 
   // IPC: Agent mode + guardrails
   ipcMain.handle("get-agent-mode", () => {
-    if (yoAgent.isCouncilMode()) return "council";
-    if (yoAgent.isCypherMode()) return "cypher";
+    if (yoAgent.isSwarmMode()) return "swarm";
     return yoAgent.getMode();
   });
   ipcMain.on("set-agent-mode", (_e, mode: string) => {
-    // "council" is a behavioral overlay, independent of the SDK permissionMode.
-    // The renderer sends "council" to flip the flag, then immediately sends
+    // "swarm" is a behavioral overlay, independent of the SDK permissionMode.
+    // The renderer sends "swarm" to flip the flag, then immediately sends
     // the perm value (default/acceptEdits/bypassPermissions) which sets the
-    // SDK mode without clearing the council flag.
-    if (mode === "council") {
-      yoAgent.setCouncilMode(true);
+    // SDK mode without clearing the swarm flag.
+    if (mode === "swarm") {
+      yoAgent.setSwarmMode(true);
       yoAgent.setMode("default" as any);
       yoAgent.clear();
-      setPreference("agentMode", "council");
-      mainWindow?.webContents.send("agent-mode-changed", "council");
-      yoInterceptor.setAgentMode("council");
+      setPreference("agentMode", "swarm");
+      mainWindow?.webContents.send("agent-mode-changed", "swarm");
+      yoInterceptor.setAgentMode("swarm");
       return;
     }
-    if (mode === "exit-council") {
-      yoAgent.setCouncilMode(false);
+    if (mode === "exit-swarm") {
+      yoAgent.setSwarmMode(false);
       yoAgent.clear();
-      return;
-    }
-    if (mode === "exit-cypher") {
-      yoAgent.setCypherMode(false);
-      yoAgent.clear();
-      return;
-    }
-    if (mode === "cypher") {
-      yoAgent.setCypherMode(true);
-      yoAgent.setMode("default" as any);
-      yoAgent.clear();
-      setPreference("agentMode", "cypher");
-      mainWindow?.webContents.send("agent-mode-changed", "cypher");
-      yoInterceptor.setAgentMode("cypher");
       return;
     }
     yoAgent.setMode(mode as any);
-    if (!yoAgent.isCouncilMode() && !yoAgent.isCypherMode()) {
+    if (!yoAgent.isSwarmMode()) {
       setPreference("agentMode", mode);
     }
-    const effectiveMode = yoAgent.isCypherMode() ? "cypher" : yoAgent.isCouncilMode() ? "council" : mode;
+    const effectiveMode = yoAgent.isSwarmMode() ? "swarm" : mode;
     mainWindow?.webContents.send("agent-mode-changed", effectiveMode);
     yoInterceptor.setAgentMode(effectiveMode);
   });
@@ -2671,7 +2533,7 @@ async function boot() {
   ipcMain.on("cypher-panel-leave", () => {
     cypherPanelContext = null;
     setPreference("cypherPanelContext", null);
-    yoAgent.setCypherMode(false);
+    yoAgent.setSwarmMode(false);
     setPreference("agentMode", "default");
     mainWindow?.webContents.send("agent-mode-changed", "standard");
     yoInterceptor.setAgentMode("default");

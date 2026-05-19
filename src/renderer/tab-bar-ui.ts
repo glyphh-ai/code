@@ -245,17 +245,15 @@ export function initTabBar(deps: TabBarDeps): {
     }
   }
 
-  // When the active tab toggles between a council panel and anything else,
-  // flip the .yo mode dropdown so messages route correctly: council mode
-  // broadcasts to the active session; standard mode runs the normal agent.
+  // When the active tab toggles between the swarm panel and anything else,
+  // flip the .yo mode dropdown so messages route correctly: swarm mode
+  // delegates to a local swarm; standard mode runs the normal agent.
   // Only fires on tab *change*, so a manual override (user picks standard
-  // while a council tab is active) is preserved within that tab.
+  // while the swarm tab is active) is preserved within that tab.
   function autoSwitchModeForActiveTab(tabs: TabInfo[], activeId: string) {
     if (!deps.isYoControlsInited()) return;
-    const tab = tabs.find((t) => t.id === activeId);
-    const isCouncil = tab?.url === "yo://council";
-    const isCypher = activeId === "cypher";
-    const target = isCouncil ? "council" : isCypher ? "cypher" : "standard";
+    void tabs;
+    const target = activeId === "cypher" ? "swarm" : "standard";
     if (deps.getCurrentMode() === target) return;
     deps.setModeValue(target);
     deps.syncAgentMode();

@@ -1,9 +1,9 @@
 /**
- * substrate-deps.ts — Panel / tab / cypher / project / council substrate deps.
+ * substrate-deps.ts — Panel / tab / swarm substrate deps.
  *
  * Extracted from main.ts.  Builds the second setSubstrateToolDeps() call that
- * wires runtime panel-interaction, tab management, cypher/project CRUD, and
- * council orchestration into the unified substrate tool registry.
+ * wires runtime panel-interaction, tab management, and local swarm spawning
+ * into the unified substrate tool registry.
  *
  * Usage (in main.ts):
  *   import { buildSubstrateDeps } from "./substrate-deps";
@@ -13,11 +13,7 @@
 import type { BrowserWindow } from "electron";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
-import type { WorkspaceManager } from "./workspace-manager";
-import type { YoAgent } from "./yo-agent";
-import type { YoInterceptor } from "./yo-interceptor";
 import type { SubstrateToolDeps } from "./substrate/tools";
-import type { CouncilCreateConfig } from "./council-session";
 
 // ── Deps interface ──────────────────────────────────────────────
 
@@ -26,9 +22,6 @@ export interface BuildSubstrateDepsArgs {
   mainWindow: BrowserWindow | null;
   panelManager: PanelManager;
   appConnector: AppConnector;
-  workspaceManager: WorkspaceManager;
-  yoAgent: YoAgent;
-  yoInterceptor: YoInterceptor;
 
   // Mutable tab state owned by main.ts
   openTabs: string[];
@@ -42,21 +35,10 @@ export interface BuildSubstrateDepsArgs {
   smartGrab: (wc: Electron.WebContents) => Promise<string | null>;
   executeCommand: (wc: Electron.WebContents, mapping: any, value?: string) => Promise<string>;
   browserHtmlUrl: (initialUrl?: string) => string;
-  councilHtml: string;
-  councilPreload: string;
   execCommand: (cmd: string, sourcePanelId?: string) => Promise<string>;
 
   // Local swarm — draft + spawn (returns a text status for the yo agent).
   swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
-
-  // Server helpers
-  serverGetAuthed: <T>(url: string) => Promise<T>;
-  serverPostAuthed: <T = unknown>(url: string, body: Record<string, unknown>) => Promise<T>;
-  fetchServerModels: () => Promise<Array<{ provider: string; model: string; display_name?: string; max_context_tokens?: number }>>;
-
-  // Preferences
-  setPreference: (key: string, value: unknown) => void;
-  yoPanelWidth: () => number;
 }
 
 // ── Builder ─────────────────────────────────────────────────────
@@ -66,9 +48,6 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     mainWindow,
     panelManager,
     appConnector,
-    workspaceManager,
-    yoAgent,
-    yoInterceptor,
     openTabs,
     getTabBrowserCounter,
     setTabBrowserCounter,
@@ -78,15 +57,8 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     smartGrab,
     executeCommand,
     browserHtmlUrl,
-    councilHtml,
-    councilPreload,
     execCommand,
     swarmCreate,
-    serverGetAuthed,
-    serverPostAuthed,
-    fetchServerModels,
-    setPreference,
-    yoPanelWidth,
   } = deps;
 
   return {
@@ -339,108 +311,6 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     },
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
-    },
-    council: {
-      getCurrent: () => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { getCurrentCouncil } = require("./current-council");
-        return getCurrentCouncil();
-      },
-      setCurrent: (id: string | null) => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { setCurrentCouncil } = require("./current-council");
-        setCurrentCouncil(id);
-      },
-      create: async (config) => {
-        const { createCouncil } = await import("./council-session");
-        const models = await fetchServerModels();
-        const enriched = { ...config } as CouncilCreateConfig;
-        if (enriched.members) {
-          enriched.members = enriched.members.map((m) => {
-            const sm = models.find((s) => s.provider === m.provider && s.model === m.model);
-            return { ...m, max_context_tokens: sm?.max_context_tokens ?? undefined };
-          });
-        }
-        const r = createCouncil(enriched, null);
-        return r.ok ? { ok: true, council_id: r.council_id } : { ok: false, error: r.error };
-      },
-      runRound: async (councilId: string) => {
-        const { runCouncilRound } = await import("./council-session");
-        return runCouncilRound(councilId);
-      },
-      interject: (councilId: string, text: string) => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { interjectCouncil } = require("./council-session");
-        return interjectCouncil(councilId, text);
-      },
-      askMember: async (councilId: string, memberId: string, question: string) => {
-        const { askCouncilMember } = await import("./council-session");
-        return askCouncilMember(councilId, memberId, question);
-      },
-      stop: (councilId: string) => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { stopCouncil } = require("./council-session");
-        return stopCouncil(councilId);
-      },
-      summarize: async (councilId: string) => {
-        const { summarizeCouncil } = await import("./council-session");
-        return summarizeCouncil(councilId);
-      },
-      status: (councilId: string) => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { renderCouncilStatus } = require("./council-session");
-        return renderCouncilStatus(councilId);
-      },
-      listProviderModels: async () => {
-        try {
-          const r = await serverGetAuthed<{ models: Array<{ provider: string; model: string; display_name: string }> }>("/api/models");
-          return r?.models ?? [];
-        } catch { return []; }
-      },
-      openPanel: async () => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        const app = appConnector.get("council");
-        const needsLoad = !panelManager.hasPanel("council");
-        if (app && needsLoad) {
-          panelManager.addPanel("council", councilHtml, councilPreload);
-        }
-        panelManager.switchTo("council", mainWindow!);
-        panelManager.setRightInset(yoPanelWidth());
-        mainWindow.webContents.send("yo-panel-open", "");
-        const wc = panelManager.getWebContents("council");
-        if (wc && needsLoad) {
-          await new Promise<void>((resolve) => {
-            const onLoad = () => { wc.removeListener("did-finish-load", onLoad); resolve(); };
-            wc.on("did-finish-load", onLoad);
-            setTimeout(resolve, 3000);
-          });
-        }
-        if (wc) {
-          const { getCurrentCouncil } = require("./current-council");
-          const cid = getCurrentCouncil();
-          if (cid) {
-            const { setCouncilForwardWc } = require("./council-session");
-            setCouncilForwardWc(cid, wc);
-          }
-        }
-      },
-      setMode: (mode: string) => {
-        if (mode === "council") {
-          yoAgent.setCouncilMode(true);
-          setPreference("agentMode", "council");
-          mainWindow?.webContents.send("agent-mode-changed", "council");
-          yoInterceptor.setAgentMode("council");
-        }
-      },
-      notifyReady: (info: { name: string; council_prompt: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => {
-        mainWindow?.webContents.send("yo-panel-council-ready", info);
-        const wc = panelManager.getWebContents("council");
-        if (wc) {
-          const { getCurrentCouncil } = require("./current-council");
-          const cid = getCurrentCouncil();
-          wc.send("council-convened", { council_id: cid, ...info });
-        }
-      },
     },
   };
 }

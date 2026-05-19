@@ -131,11 +131,11 @@ interface ProviderRow {
 }
 
 const PROVIDER_ROWS: ProviderRow[] = [
-  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Required for Claude chat outside the agent loop and Council members on Claude.", keyExample: "sk-ant-…" },
-  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across Council, agents, and direct chat.",                          keyExample: "sk-proj-…" },
-  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in Council and direct chat.",                                keyExample: "AIza…" },
-  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in Council and direct chat.",                                         keyExample: "xai-…" },
-  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in Council.",                                   keyExample: "pplx-…" },
+  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Claude chat outside the agent loop and read-only swarm agents on Claude.", keyExample: "sk-ant-…" },
+  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across swarm agents and direct chat.",                       keyExample: "sk-proj-…" },
+  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in swarm agents and direct chat.",                    keyExample: "AIza…" },
+  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in read-only swarm agents and direct chat.",                   keyExample: "xai-…" },
+  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in read-only swarm agents.",             keyExample: "pplx-…" },
 ];
 
 async function renderProviderKeys() {

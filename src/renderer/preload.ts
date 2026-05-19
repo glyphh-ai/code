@@ -322,9 +322,6 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
-  onYoPanelCouncilReady: (cb: (info: { name: string; members: Array<{ provider: string; model: string }>; style: string; round_cap: number }) => void) => {
-    ipcRenderer.on("yo-panel-council-ready", (_e, info) => cb(info));
-  },
 
   // Jammer activity feed (workspace bus events forwarded from main)
   onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => {

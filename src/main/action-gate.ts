@@ -55,15 +55,7 @@ export const TOOL_LABELS: Record<string, string> = {
   add_app:           "Add app",
   zoom:              "Zoom",
   manage_tabs:       "Manage tabs",
-  // Council tools
-  council_create:      "Create council",
-  council_broadcast:   "Run council round",
-  council_interject:   "Interject in council",
-  council_ask_member:  "Ask council member",
-  council_stop:        "Stop council",
-  council_status:      "Council status",
-  council_summarize:   "Summarize council",
-  council_list_models: "List council models",
+  create_swarm:      "Create swarm",
 };
 
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
@@ -104,15 +96,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   add_app:           "Add an app to the workspace",
   zoom:              "Zoom in or out on a panel",
   manage_tabs:       "Open, close, or switch browser tabs",
-  // Council tools
-  council_create:      "Create a multi-LLM debate session",
-  council_broadcast:   "Run the next round of the council",
-  council_interject:   "Insert a moderator note into the council",
-  council_ask_member:  "Send a targeted question to a specific council member",
-  council_stop:        "Halt all in-flight council members",
-  council_status:      "Read the current council state",
-  council_summarize:   "Produce and save a council summary",
-  council_list_models: "List available models for council members",
+  create_swarm:      "Spin up a local swarm of agents to work a goal",
 };
 
 export function getToolTier(toolName: string): ToolTier {
@@ -122,8 +106,7 @@ export function getToolTier(toolName: string): ToolTier {
 export function getAgentMode(): AgentMode {
   const raw = getPreference<string>("agentMode", "default");
   if (raw === "bypass") return "bypassPermissions";
-  if (raw === "cypher") return "acceptEdits";
-  if (raw === "council") return "default";
+  if (raw === "swarm") return "default";
   return raw as AgentMode;
 }
 

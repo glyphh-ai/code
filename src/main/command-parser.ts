@@ -19,7 +19,7 @@ import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "council"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace"]);
 
   private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
@@ -145,7 +145,7 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|council)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);

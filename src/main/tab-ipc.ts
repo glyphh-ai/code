@@ -72,24 +72,24 @@ export function registerTabIpc(deps: TabIpcDeps): void {
       panelManager.switchTo(id, mainWindow);
       setPreference("lastView", { type: "panel", id });
 
-      // Activate/deactivate cypher mode when switching to/from cypher tab
+      // Activate/deactivate swarm mode when switching to/from the swarm tab
       if (id === "cypher" && cypherPanelContext.get()?.cypherId) {
-        if (!yoAgent.isCypherMode()) {
-          yoAgent.setCypherMode(true);
+        if (!yoAgent.isSwarmMode()) {
+          yoAgent.setSwarmMode(true);
           yoAgent.setMode("acceptEdits");
-          setPreference("agentMode", "cypher");
-          mainWindow.webContents.send("agent-mode-changed", "cypher");
-          yoInterceptor.setAgentMode("cypher");
+          setPreference("agentMode", "swarm");
+          mainWindow.webContents.send("agent-mode-changed", "swarm");
+          yoInterceptor.setAgentMode("swarm");
         }
-        // Always open yo panel when switching to cypher tab
+        // Always open yo panel when switching to the swarm tab
         openYoPanel("");
         // Re-bind agents to current panel (may have been recreated)
         const cypWc = panelManager.getView("cypher")?.webContents;
         if (cypWc && !cypWc.isDestroyed()) {
           agentRunner.rebindWebContents(cypWc);
         }
-      } else if (id !== "cypher" && yoAgent.isCypherMode()) {
-        yoAgent.setCypherMode(false);
+      } else if (id !== "cypher" && yoAgent.isSwarmMode()) {
+        yoAgent.setSwarmMode(false);
         setPreference("agentMode", "default");
         mainWindow.webContents.send("agent-mode-changed", "standard");
         yoInterceptor.setAgentMode("default");

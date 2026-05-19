@@ -83,7 +83,7 @@ export class YoAgent {
   private noteStore: NoteStore | null = null;
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
-  private _councilMode: boolean = false;
+  private _swarmMode: boolean = false;
   private _planDelivered = false;
   private _approvalCallback: ApprovalCallback | null = null;
   private _onModeChange: ((mode: AgentMode) => void) | null = null;
@@ -107,18 +107,10 @@ export class YoAgent {
     this._mode = mode;
     if (changed) this.sessionId = null;
   }
-  setCouncilMode(on: boolean): void {
-    this._councilMode = on;
+  setSwarmMode(on: boolean): void {
+    this._swarmMode = on;
   }
-  isCouncilMode(): boolean { return this._councilMode; }
-  private _cypherMode: boolean = false;
-  private _cypherAgentTarget: string | null = null;
-  setCypherMode(on: boolean, agentTarget?: string): void {
-    this._cypherMode = on;
-    this._cypherAgentTarget = agentTarget || null;
-  }
-  isCypherMode(): boolean { return this._cypherMode; }
-  getCypherAgentTarget(): string | null { return this._cypherAgentTarget; }
+  isSwarmMode(): boolean { return this._swarmMode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
@@ -493,8 +485,8 @@ export class YoAgent {
       prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
     }
 
-    if (this._councilMode) {
-      prompt += `\n\nMODE: COUNCIL\nThe user has a Council session active. For every message, your default behavior is to broadcast it to the council and run a round, not to answer it yourself. Use council_status first to confirm an active council; if none, ask the user to start one. Otherwise: call council_broadcast with the user's verbatim message, then call council_status to summarize the round. Only handle the message yourself if the user explicitly says "don't broadcast" or starts with .yo-style meta directives about the council itself (start, stop, summarize).`;
+    if (this._swarmMode) {
+      prompt += `\n\nMODE: SWARM\nThe user wants work delegated to a local agent swarm. For every substantive request, your default behavior is to spin up a swarm rather than doing the work yourself: call create_swarm with the goal stated in the user's own words. Pick the best agents for the job from the registry, or let create_swarm choose. Once a swarm is running it works autonomously and reports into the swarm feed — do not try to do its work in parallel. Only handle a message yourself if it is a quick question, a meta directive about the swarm (status, stop), or the user explicitly says not to delegate.`;
     }
 
     // Context recovery: when resuming a chat without a live SDK session,

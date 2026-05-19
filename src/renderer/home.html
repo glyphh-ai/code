@@ -481,10 +481,10 @@
               <div class="cmd-row"><code>.drip</code><span>Default fireworks effect</span></div>
               <div class="cmd-row"><code>.drip 3 fireworks, hearts</code><span>Stacked count + mixed effects</span></div>
 
-              <h4>.council — Multi-model debate</h4>
-              <p>Convene a council of LLMs to debate a topic. Name the models you want, then state the prompt. The .yo agent moderates rounds, and you get diverse perspectives from different providers.</p>
-              <div class="cmd-row"><code>.council grok claude gemini what came first the chicken or egg</code><span>Three models debate a question</span></div>
-              <div class="cmd-row"><code>.council claude gemini should we use Postgres or Mongo</code><span>Two models, architecture decision</span></div>
+              <h4>swarm mode — Delegate to a local agent swarm</h4>
+              <p>Switch the .yo mode dropdown to <strong>swarm</strong> and the agent spins up a local swarm to work your goal: it picks the best agents from your Agents library, a leader decomposes the goal, and the rest execute and report into the swarm feed.</p>
+              <div class="cmd-row"><code>spin up a swarm to refactor the auth module</code><span>Auto-picks agents for the job</span></div>
+              <div class="cmd-row"><code>have 3 agents debate Postgres vs Mongo</code><span>Read-only agents debate a question</span></div>
 
               <h4>Chaining</h4>
               <p>Commands can be chained together. Each command runs in sequence.</p>
@@ -1454,8 +1454,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <h2>Providers</h2>
                 <p class="section-desc">
                   Bring your own API keys. yo never sees these values — they live encrypted on this machine
-                  via the OS keychain and call providers directly. Removing a key disables that provider in
-                  Council and any feature that uses it.
+                  via the OS keychain and call providers directly. Removing a key disables that provider for
+                  read-only swarm agents and any feature that uses it.
                 </p>
                 <div id="provider-keys-list" class="settings-form" style="gap:12px;display:flex;flex-direction:column;">
                   <!-- rows rendered by settings.ts -->
