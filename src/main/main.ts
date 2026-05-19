@@ -2458,6 +2458,13 @@ async function boot() {
       const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
       try { ensureProjectMcpJson(ws, mcpUrl, token); } catch { /* */ }
     }
+    // The yo agent just spun up a swarm — flip the mode dropdown to match.
+    if (!yoAgent.isSwarmMode()) {
+      yoAgent.setSwarmMode(true);
+      setPreference("agentMode", "swarm");
+      yoInterceptor.setAgentMode("swarm");
+      mainWindow.webContents.send("agent-mode-changed", "swarm");
+    }
     // Tell the yo panel a swarm is starting — it caches the roster (for
     // model badges) and the swarm's bus activity then streams in inline.
     mainWindow.webContents.send("yo-panel-swarm-start", {

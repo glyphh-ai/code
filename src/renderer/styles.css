@@ -5734,38 +5734,74 @@ select.settings-input {
   min-width: 0;
   flex: 1;
 }
+/* Title line — "<Tool>  <file/arg>" on a single row */
+.yo-result-titleline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
 .yo-result-name {
   color: var(--text);
   font-weight: 700;
   font-size: 12px;
   line-height: 1.35;
+  flex-shrink: 0;
 }
-.yo-result-subtitle {
+.yo-result-file {
   color: var(--text-3);
   font-weight: 400;
   font-size: 11.5px;
   line-height: 1.4;
+  font-family: var(--font-mono);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  min-width: 0;
+}
+.yo-result-progress {
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: italic;
+  flex-shrink: 0;
 }
 
-/* File-path subtitle that opens the file in the .Yo Editor on click */
-.yo-result-subtitle.yo-file-link {
+/* File label that opens the file in the .Yo Editor on click */
+.yo-result-file.yo-file-link {
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: transparent;
   transition: color 0.12s, text-decoration-color 0.12s;
 }
-.yo-result-subtitle.yo-file-link:hover {
+.yo-result-file.yo-file-link:hover {
   color: var(--accent);
   text-decoration-color: var(--accent);
 }
 
-.yo-result-block.yo-has-detail { cursor: pointer; }
-.yo-result-block.yo-has-detail:hover .yo-result-name { color: var(--white); }
+/* Tool stat line — Claude-Code style one-liner under the header.
+   Always visible when a tool finishes; clicking it expands the output. */
+.yo-tool-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  user-select: none;
+}
+.yo-tool-stat::before {
+  content: "⎿";
+  color: var(--text-3);
+  opacity: 0.6;
+}
+.yo-result-block.yo-has-detail .yo-tool-stat { cursor: pointer; }
+.yo-result-block.yo-has-detail .yo-tool-stat:hover { color: var(--text); }
+.yo-tool-stat-chevron {
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+.yo-result-block.yo-expanded .yo-tool-stat-chevron { transform: rotate(90deg); }
 
 /* Delegate instruction box — bordered, collapsible */
 .yo-delegate-instruction {
@@ -5785,68 +5821,26 @@ select.settings-input {
 .yo-delegate-full { display: block; }
 .yo-delegate-expanded { border-color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-2)); }
 
+/* Full tool output — hidden until the stat line is clicked. */
 .yo-result-content {
-  position: relative;
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
   margin-top: 4px;
-  font-size: 11.5px;
+  margin-left: 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
   color: var(--text-2);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 52px;
-  overflow: hidden;
-  transition: max-height 0.2s ease;
-}
-.yo-result-content::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 28px;
-  background: linear-gradient(to bottom, transparent, var(--surface-3));
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.yo-result-block.yo-has-detail .yo-result-content.yo-overflow::after {
-  opacity: 1;
+  max-height: 360px;
+  overflow-y: auto;
+  display: none;
 }
 .yo-result-block.yo-expanded .yo-result-content {
-  max-height: none;
-  overflow-y: visible;
-}
-.yo-result-block.yo-expanded .yo-result-content::after {
-  opacity: 0;
-}
-
-/* Show less button — visible only when expanded. Inherits app scrollbar
-   styles from the global rules (thin, green accent). */
-.yo-result-show-less {
-  display: none;
-  margin-top: 6px;
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.yo-result-show-less:hover {
-  background: rgba(37, 199, 94, 0.09);
-  border-color: var(--accent);
-  color: var(--white);
-}
-.yo-result-block.yo-expanded .yo-result-show-less {
-  display: inline-block;
+  display: block;
 }
 
 /* ── Todo checklist ────────────────────────────── */

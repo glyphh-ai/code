@@ -106,6 +106,8 @@ let yoTimelineEl: HTMLElement | null = null;
 let _mdRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
 const yoToolRows = new Map<string, HTMLElement>();
+// Tool name + input stashed at use-time so finishToolRow can compute a stat.
+const yoToolMeta = new Map<string, { name: string; input: unknown }>();
 
 let yoTodoEl: HTMLElement | null = null;
 
@@ -494,8 +496,48 @@ function findToolRowByName(toolName: string): HTMLElement | null {
   return null;
 }
 
+/** Last path segment, for the compact header file label. */
+function toolBasename(p: string): string {
+  const clean = p.split(/[?#]/)[0].replace(/[/\\]+$/, "");
+  const seg = clean.split(/[/\\]/).pop() || clean;
+  return seg || p;
+}
+
+/** Is this a file-path tool (read/edit/write/create)? */
+function isFileTool(name: string): boolean {
+  return /(read|edit|write|create|notebook)/i.test(name) && !name.startsWith("delegate_");
+}
+
+/**
+ * A one-line stat for a finished tool — Claude-Code style:
+ *   Edit  → "+12 −3"      Write → "+40"      Read → "42 lines"
+ *   Bash  → "8 lines"     other → "" (or line count when multi-line)
+ */
+function computeToolStat(name: string, input: unknown, detail: string): string {
+  const obj = (input && typeof input === "object") ? input as Record<string, unknown> : {};
+  const lc = (s: unknown) => (typeof s === "string" && s.length) ? s.split("\n").length : 0;
+  const n = name.toLowerCase();
+  const detailLines = detail.trim() ? detail.trim().split("\n").length : 0;
+  if (/edit/.test(n)) {
+    const add = lc(obj.new_string); const del = lc(obj.old_string);
+    if (add || del) return `+${add} −${del}`;
+  }
+  if (/write|create/.test(n)) {
+    const add = lc(obj.content) || lc(obj.text);
+    if (add) return `+${add}`;
+  }
+  if (/read|notebook/.test(n) && detailLines) {
+    return `${detailLines} line${detailLines === 1 ? "" : "s"}`;
+  }
+  if (/command|bash|shell/.test(n)) {
+    return detailLines ? `${detailLines} line${detailLines === 1 ? "" : "s"} output` : "done";
+  }
+  return detailLines > 1 ? `${detailLines} lines` : "";
+}
+
 function startToolRow(id: string, name: string, input: unknown) {
   ensureTimeline();
+  yoToolMeta.set(id, { name, input });
   const block = document.createElement("div");
   block.className = "yo-result-block yo-active";
   block.dataset.tool = name;
@@ -510,10 +552,14 @@ function startToolRow(id: string, name: string, input: unknown) {
   const headings = document.createElement("div");
   headings.className = "yo-result-headings";
 
+  // Title line — "<Tool>  <file/arg>" on a single row.
+  const titleLine = document.createElement("div");
+  titleLine.className = "yo-result-titleline";
   const nameEl = document.createElement("span");
   nameEl.className = "yo-result-name";
   nameEl.textContent = formatToolDisplayName(name);
-  headings.appendChild(nameEl);
+  titleLine.appendChild(nameEl);
+  headings.appendChild(titleLine);
 
   const isDelegate = name.startsWith("delegate_");
   const subtitleText = toolInputSummary(name, input);
@@ -541,18 +587,21 @@ function startToolRow(id: string, name: string, input: unknown) {
     headings.appendChild(instrBox);
   } else if (subtitleText) {
     const sub = document.createElement("span");
-    sub.className = "yo-result-subtitle";
-    sub.textContent = subtitleText;
-    // For file tools, make the path a link that opens it in the .Yo Editor.
-    if (/(read|edit|write|create)/i.test(name)) {
+    sub.className = "yo-result-file";
+    if (isFileTool(name)) {
+      // Show the basename inline; full path on hover; click opens it.
+      sub.textContent = toolBasename(subtitleText);
+      sub.title = subtitleText;
       sub.classList.add("yo-file-link");
-      sub.title = "Open in .Yo Editor";
       sub.addEventListener("click", (e) => {
         e.stopPropagation();
         window.yo.openInEditor(subtitleText);
       });
+    } else {
+      sub.textContent = subtitleText;
+      sub.title = subtitleText;
     }
-    headings.appendChild(sub);
+    titleLine.appendChild(sub);
   }
   header.appendChild(headings);
   block.appendChild(header);
@@ -578,42 +627,45 @@ function cleanToolDetail(raw: string): string {
 
 function finishToolRow(id: string, detail: string) {
   const block = yoToolRows.get(id);
+  const meta = yoToolMeta.get(id);
   yoToolRows.delete(id);
+  yoToolMeta.delete(id);
   if (!block) return;
   block.classList.remove("yo-active");
   block.classList.add("yo-done");
 
   const trimmed = cleanToolDetail(detail);
-  if (trimmed) {
-    const content = document.createElement("div");
-    content.className = "yo-result-content";
-    content.textContent = trimmed;
-    block.appendChild(content);
 
-    const showLess = document.createElement("button");
-    showLess.type = "button";
-    showLess.className = "yo-result-show-less";
-    showLess.textContent = "Show less";
-    block.appendChild(showLess);
+  // Stat line — "+12 −3" / "42 lines" — the always-visible one-line summary,
+  // and the click target that expands the full output.
+  const stat = meta ? computeToolStat(meta.name, meta.input, detail) : "";
+  if (stat || trimmed) {
+    const statLine = document.createElement("div");
+    statLine.className = "yo-tool-stat";
+    const statText = document.createElement("span");
+    statText.className = "yo-tool-stat-text";
+    statText.textContent = stat || "output";
+    statLine.appendChild(statText);
+    if (trimmed) {
+      const chevron = document.createElement("span");
+      chevron.className = "yo-tool-stat-chevron";
+      chevron.textContent = "▸";
+      statLine.appendChild(chevron);
+    }
+    block.appendChild(statLine);
 
-    block.classList.add("yo-has-detail");
-
-    requestAnimationFrame(() => {
-      if (content.scrollHeight > content.clientHeight + 1) {
-        content.classList.add("yo-overflow");
-      }
-    });
-
-    block.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement;
-      if (block.classList.contains("yo-expanded")) {
-        if (target.closest(".yo-result-show-less")) {
-          block.classList.remove("yo-expanded");
-        }
-      } else {
-        block.classList.add("yo-expanded");
-      }
-    });
+    if (trimmed) {
+      const content = document.createElement("div");
+      content.className = "yo-result-content";
+      content.textContent = trimmed;
+      block.appendChild(content);
+      block.classList.add("yo-has-detail");
+      // Click the stat line to expand / collapse the full output.
+      statLine.addEventListener("click", (e) => {
+        e.stopPropagation();
+        block.classList.toggle("yo-expanded");
+      });
+    }
   }
   yoScroll();
 }
@@ -621,13 +673,13 @@ function finishToolRow(id: string, detail: string) {
 function updateToolProgress(id: string, status: string) {
   const block = yoToolRows.get(id);
   if (!block) return;
-  const headings = block.querySelector(".yo-result-headings");
-  if (!headings) return;
-  let sub = headings.querySelector(".yo-result-subtitle") as HTMLElement | null;
+  const titleLine = block.querySelector(".yo-result-titleline");
+  if (!titleLine) return;
+  let sub = titleLine.querySelector(".yo-result-progress") as HTMLElement | null;
   if (!sub) {
     sub = document.createElement("span");
-    sub.className = "yo-result-subtitle";
-    headings.appendChild(sub);
+    sub.className = "yo-result-progress";
+    titleLine.appendChild(sub);
   }
   sub.textContent = status;
 }
