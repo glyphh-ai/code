@@ -33,6 +33,9 @@ export interface AgentConfig {
   mcpServers?: Record<string, any>;
   permissionMode?: string;
   cypherId?: string;
+  /** True for agents in a local swarm — enables bus message delivery and
+   *  turn-budget nudges without the server-cypher machinery. */
+  swarm?: boolean;
   /** Resource limits from the jammer's config — enforced by AgentRunner. */
   guardrails?: Guardrails;
 }

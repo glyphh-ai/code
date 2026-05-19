@@ -33,6 +33,17 @@ export type BusObserver = (wsSlug: string, event: BusEvent) => void;
 
 const TASK_KINDS = new Set(["assign_task", "accept_task", "complete_task", "request_review"]);
 
+/**
+ * Event kinds that are *coordination messages* and should be pushed into the
+ * recipient agent's loop. Everything else (agent_thinking / agent_tool_use /
+ * agent_result / status / preview_url / drip) is telemetry for the feed only
+ * and must NOT be delivered to agents — that would flood every loop.
+ */
+const DELIVER_KINDS = new Set([
+  "assign_task", "accept_task", "complete_task", "request_review",
+  "report_status", "post", "post_to", "chat",
+]);
+
 export class CypherBus {
   private registrations = new Map<string, AgentRegistration>();
   private getCypherForWorkspace: (wsSlug: string) => string | null;
@@ -100,9 +111,25 @@ export class CypherBus {
       refs: event.refs,
     });
 
-    // Notify observers (the swarm-view feed)
+    // Notify observers (the inline swarm feed in the yo panel)
     for (const obs of this.observers) {
       try { obs(wsSlug, event); } catch {}
+    }
+
+    // Deliver coordination messages into registered agents' loops. A directed
+    // event (post_to, assign_task, …) goes to its `to`; an untargeted one
+    // broadcasts to every agent in the workspace except the sender. This is
+    // what makes a leader's assign_task / correction reach a running worker.
+    // Telemetry kinds (agent_thinking/tool_use/result/status) are skipped —
+    // they belong on the feed only, never in an agent's loop.
+    if (DELIVER_KINDS.has(event.kind)) {
+      try {
+        if (event.to) {
+          this.dispatchInbound(event.to, wsSlug, event);
+        } else {
+          this.dispatchBroadcast(wsSlug, event);
+        }
+      } catch { /* a bad handler must not break the post */ }
     }
   }
 

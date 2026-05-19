@@ -167,12 +167,24 @@ export class AgentRunner {
       wc.send("cw:agent:status", config.name, "starting");
     }
 
-    // Register on cypher bus if available; fall back to file-based inbox
-    if (this.bus && config.cypherId) {
+    // Register on the bus so directed / broadcast messages are pushed into
+    // this agent's loop as follow-ups. Swarm + cypher agents both qualify;
+    // standalone agents fall back to the file-based inbox.
+    if (this.bus && (config.cypherId || config.swarm)) {
       instance.busUnsubscribe = this.bus.register(config.workspace, config.name, (event) => {
-        const msg = event.to
-          ? `Message from ${event.from}: ${event.body}`
-          : `[broadcast] ${event.from}: ${event.body}`;
+        let msg: string;
+        if (event.kind === "assign_task") {
+          // A (re-)assignment from the leader is authoritative — it overrides
+          // whatever the worker was doing or assumed its task was.
+          msg = `[ASSIGNMENT from ${event.from}] ${event.body}\n\n`
+            + `This is your task. If it differs from what you are currently doing, `
+            + `STOP and switch to this — it overrides any earlier interpretation. `
+            + `Acknowledge with accept_task, then execute it exactly as written.`;
+        } else if (event.to) {
+          msg = `Message from ${event.from}: ${event.body}`;
+        } else {
+          msg = `[broadcast] ${event.from}: ${event.body}`;
+        }
         this.queueMessage(instance, msg);
       });
     } else {
@@ -243,7 +255,7 @@ export class AgentRunner {
           instance.costUsd += event.costUsd;
           instance.turns += event.numTurns;
 
-          if (instance.config.cypherId && instance.turns > 0) {
+          if ((instance.config.cypherId || instance.config.swarm) && instance.turns > 0) {
             const t = instance.turns;
             const flags = instance as any;
             if (t >= 10 && !flags._nudge1) {

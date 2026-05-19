@@ -124,8 +124,9 @@ export function createCypherSession(deps: CypherSessionDeps) {
           ? `You are a READ-ONLY agent: you have no tools and run a single turn. Think hard about the goal and your area, then give your analysis / position / recommendation in one clear, well-reasoned response.`
           : isLeader
             ? `Decompose the goal and assign a concrete task to each report (${reportsStr}) with assign_task. Monitor progress, unblock workers, and keep the swarm moving. When the work is done, summarize the result.`
-            : `Accept your task with accept_task, do the work, update your leader with report_status, and call complete_task when finished.`,
+            : `Wait for your leader's assign_task — do NOT guess your task. When it arrives, accept it with accept_task, do EXACTLY what it says, update your leader with report_status, and call complete_task when finished.`,
         readonly ? `` : `\n## COMMUNICATION\n- assign_task / accept_task / complete_task coordinate work\n- post_to messages another agent directly; report_status updates your leader`,
+        readonly || isLeader ? `` : `\n## YOUR LEADER IS AUTHORITATIVE\nA message tagged [ASSIGNMENT from ...] is your real task and overrides anything you assumed earlier. If your leader corrects you or re-assigns mid-task, STOP what you're doing and follow the new instruction exactly — do not defend or continue your earlier interpretation.`,
         reg.systemPrompt ? `\n## CUSTOM INSTRUCTIONS\n${reg.systemPrompt}` : "",
       ].filter(Boolean).join("\n");
     }
@@ -138,6 +139,7 @@ export function createCypherSession(deps: CypherSessionDeps) {
         prompt: buildSystemPrompt(a, reg, false),
         startPrompt: briefing,
         workspace: wsSlug,
+        swarm: true,
         model: reg.model_name,
         modelProvider: reg.model_provider,
         guardrails: reg.guardrails,
@@ -240,28 +242,36 @@ export function createCypherSession(deps: CypherSessionDeps) {
         console.log(`[spawn-swarm] activating worker "${event.to}" on assign_task`);
         activate(a, [
           `You are "${event.to}" in swarm "${manifest.title}".`,
-          `${event.from} assigned you a task: ${event.body}`,
-          `Use accept_task to acknowledge, then execute it.`,
+          `${event.from} assigned you this task:`,
+          `\n${event.body}\n`,
+          `Acknowledge with accept_task, then execute it EXACTLY as written.`,
+          `Do not re-scope or reinterpret it. If anything is unclear, ask your`,
+          `leader with post_to before starting. If the leader later corrects or`,
+          `re-assigns you, that new instruction overrides this one.`,
         ].join(" "));
         if (pending.size === 0) unsub();
       });
 
       // A stalled leader must not leave the swarm dark — bring idle workers
-      // up after a grace period; they register on the bus and pick up their
-      // assignment live when it arrives.
+      // up after a grace period. They do NOT guess: they stand by, and their
+      // real task is pushed into their loop as a follow-up when the leader's
+      // assign_task lands on the bus.
       setTimeout(() => {
         if (pending.size === 0) return;
-        console.log(`[spawn-swarm] auto-starting ${pending.size} idle worker(s)`);
+        console.log(`[spawn-swarm] auto-starting ${pending.size} idle worker(s) — standby`);
         for (const a of [...pending.values()]) {
           activate(a, [
             `You are "${a.agentId}" in swarm "${manifest.title}".`,
-            `Goal: ${manifest.goal}.${a.area ? ` Your area: ${a.area}.` : ""}`,
-            `Your leader will assign a task via the bus — accept_task when it arrives.`,
-            `If you already see clear work in your area, start on it now.`,
+            `Goal: ${manifest.goal}`,
+            `Your leader is still planning and has NOT assigned your task yet.`,
+            `Do NOT guess your task or start any work. Reply with one short line`,
+            `that you are standing by, then stop. Your assignment will arrive as`,
+            `a follow-up message tagged [ASSIGNMENT from ...] — when it does,`,
+            `accept_task and execute it exactly as written.`,
           ].join(" "));
         }
         unsub();
-      }, 25_000);
+      }, 45_000);
     }
 
     return { ok: true, spawned, skipped };
