@@ -249,8 +249,11 @@ async function createWindow() {
   });
   mainSes.setPermissionCheckHandler((_wc, permission) => permission === "media");
 
+  // New workspace shell is the default entry. Set YO_LEGACY_UI=1 to
+  // boot the old browser-shell (index.html) instead.
+  const entryHtml = process.env.YO_LEGACY_UI === "1" ? "index.html" : "workspace.html";
   mainWindow.loadFile(
-    path.join(__dirname, "..", "renderer", "index.html")
+    path.join(__dirname, "..", "renderer", entryHtml)
   );
 
   mainWindow.on("ready-to-show", () => {

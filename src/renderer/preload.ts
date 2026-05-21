@@ -144,9 +144,12 @@ contextBridge.exposeInMainWorld("yo", {
   // Open a file in the .Yo Editor panel (from a file link in the yo panel).
   openInEditor: (filePath: string) => ipcRenderer.send("open-in-editor", filePath),
 
-  // Working directory — the single project folder the app is focused on.
+  // Working directory — per-chat folder the agent + files view focus on.
   getWorkingDir: () => ipcRenderer.invoke("working-dir:get") as Promise<string | null>,
-  pickWorkingDir: () => ipcRenderer.invoke("working-dir:pick") as Promise<string | null>,
+  pickWorkingDir: (opts?: { asDefault?: boolean }) =>
+    ipcRenderer.invoke("working-dir:pick", opts) as Promise<string | null>,
+  setWorkingDir: (dir: string) => ipcRenderer.invoke("working-dir:set", dir) as Promise<string>,
+  getWorkingDirRecents: () => ipcRenderer.invoke("working-dir:recents") as Promise<string[]>,
   onWorkingDirChanged: (callback: (dir: string | null) => void) => {
     ipcRenderer.on("working-dir-changed", (_e, dir) => callback(dir));
   },
@@ -396,6 +399,10 @@ contextBridge.exposeInMainWorld("yo", {
   filesRailGetWidth: () => ipcRenderer.invoke("files-rail-get-width") as Promise<number>,
   listDir: (dirPath: string) =>
     ipcRenderer.invoke("files:list-dir", dirPath) as Promise<Array<{ name: string; isDir: boolean }>>,
+  gitInfo: (root: string) =>
+    ipcRenderer.invoke("files:git-info", root) as Promise<{ isRepo: boolean; branch?: string; defaultBranch?: string }>,
+  gitRepos: (root: string) =>
+    ipcRenderer.invoke("files:git-repos", root) as Promise<Array<{ name: string; path: string; branch: string }>>,
   createFile: (filePath: string) =>
     ipcRenderer.invoke("files:create-file", filePath) as Promise<{ ok: boolean; error?: string }>,
   mkdir: (dirPath: string) =>

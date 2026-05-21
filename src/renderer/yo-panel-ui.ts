@@ -20,6 +20,11 @@ export interface YoPanelApi {
   showYoWelcome: () => void;
   hideYoWelcome: () => void;
   getYoPanelWidth: () => number;
+  // Chat history — exposed so the workspace Recents rail can drive it.
+  listChats: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
+  loadChat: (id: string) => Promise<void>;
+  deleteChat: (id: string) => Promise<void>;
+  newChat: () => Promise<void>;
 }
 
 export interface YoPanelCallbacks {
@@ -1098,6 +1103,89 @@ function playRecordStop() { playTone(1320, 120); setTimeout(() => playTone(880, 
 
 // ── Helpers: chat history ──────────────────────────────────────────────────
 
+// Load a saved chat by id and replay its messages into the panel.
+// Shared by the in-panel history list and the workspace Recents rail.
+async function loadChatById(id: string): Promise<void> {
+  const messages = await window.yo.yoChatsLoad(id);
+  if (!messages) return;
+  yoPanelMessages.innerHTML = "";
+  yoResponseEl = null;
+  yoStatusEl = null;
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
+
+  for (const msg of messages) {
+    // Swarm activity is persisted into the thread — replay it inline.
+    if (msg.role === "swarm-start" || msg.role === "swarm") {
+      try {
+        const data = JSON.parse(msg.text);
+        if (msg.role === "swarm-start") addSwarmStart(data, true);
+        else addSwarmActivity(data, true);
+      } catch { /* skip a malformed swarm entry */ }
+      continue;
+    }
+    if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
+      const timeline = document.createElement("div");
+      timeline.className = "yo-ag-timeline done";
+      for (const tool of msg.tools) {
+        const block = document.createElement("div");
+        block.className = "yo-result-block yo-done";
+        const header = document.createElement("div");
+        header.className = "yo-result-header";
+        const dot = document.createElement("span");
+        dot.className = "yo-ag-dot";
+        header.appendChild(dot);
+        const headings = document.createElement("div");
+        headings.className = "yo-result-headings";
+        const nameEl = document.createElement("span");
+        nameEl.className = "yo-result-name";
+        nameEl.textContent = formatToolDisplayName(tool.name);
+        headings.appendChild(nameEl);
+        const sub = toolInputSummary(tool.name, tool.input);
+        if (sub) {
+          const subEl = document.createElement("span");
+          subEl.className = "yo-result-subtitle";
+          subEl.textContent = sub;
+          headings.appendChild(subEl);
+        }
+        header.appendChild(headings);
+        block.appendChild(header);
+        timeline.appendChild(block);
+      }
+      yoPanelMessages.appendChild(timeline);
+    }
+
+    const el = document.createElement("div");
+    if (msg.role === "user") {
+      el.className = "yo-msg yo-msg-user";
+      el.textContent = msg.text;
+    } else {
+      if (!msg.text) continue;
+      el.className = "yo-msg yo-msg-assistant";
+      el.innerHTML = formatMarkdown(msg.text);
+      attachCopyHandlers(el);
+    }
+    yoPanelMessages.appendChild(el);
+  }
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  yoScroll();
+}
+
+// Start a fresh chat — clear the transcript + reset turn state.
+async function startNewChat(): Promise<void> {
+  await window.yo.yoChatNew();
+  yoPanelMessages.innerHTML = "";
+  yoResponseEl = null;
+  yoStatusEl = null;
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
+  showYoWelcome();
+  yoPanelInput.focus();
+}
+
 async function loadYoHistory() {
   const chats = await window.yo.yoChatsList();
   yoHistoryList.innerHTML = "";
@@ -1140,74 +1228,7 @@ async function loadYoHistory() {
     item.appendChild(title);
     item.appendChild(date);
     item.appendChild(del);
-    item.addEventListener("click", async () => {
-      const messages = await window.yo.yoChatsLoad(chat.id);
-      if (messages) {
-        yoPanelMessages.innerHTML = "";
-        yoResponseEl = null;
-        yoStatusEl = null;
-        yoLastAssistantText = "";
-        yoTurnFullText = "";
-        yoHistoryPanel.classList.add("hidden");
-
-        for (const msg of messages) {
-          // Swarm activity is persisted into the thread — replay it inline.
-          if (msg.role === "swarm-start" || msg.role === "swarm") {
-            try {
-              const data = JSON.parse(msg.text);
-              if (msg.role === "swarm-start") addSwarmStart(data, true);
-              else addSwarmActivity(data, true);
-            } catch { /* skip a malformed swarm entry */ }
-            continue;
-          }
-          if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
-            const timeline = document.createElement("div");
-            timeline.className = "yo-ag-timeline done";
-            for (const tool of msg.tools) {
-              const block = document.createElement("div");
-              block.className = "yo-result-block yo-done";
-              const header = document.createElement("div");
-              header.className = "yo-result-header";
-              const dot = document.createElement("span");
-              dot.className = "yo-ag-dot";
-              header.appendChild(dot);
-              const headings = document.createElement("div");
-              headings.className = "yo-result-headings";
-              const nameEl = document.createElement("span");
-              nameEl.className = "yo-result-name";
-              nameEl.textContent = formatToolDisplayName(tool.name);
-              headings.appendChild(nameEl);
-              const sub = toolInputSummary(tool.name, tool.input);
-              if (sub) {
-                const subEl = document.createElement("span");
-                subEl.className = "yo-result-subtitle";
-                subEl.textContent = sub;
-                headings.appendChild(subEl);
-              }
-              header.appendChild(headings);
-              block.appendChild(header);
-              timeline.appendChild(block);
-            }
-            yoPanelMessages.appendChild(timeline);
-          }
-
-          const el = document.createElement("div");
-          if (msg.role === "user") {
-            el.className = "yo-msg yo-msg-user";
-            el.textContent = msg.text;
-          } else {
-            if (!msg.text) continue;
-            el.className = "yo-msg yo-msg-assistant";
-            el.innerHTML = formatMarkdown(msg.text);
-            attachCopyHandlers(el);
-          }
-          yoPanelMessages.appendChild(el);
-        }
-        yoLastAssistantText = "";
-        yoTurnFullText = "";
-        yoScroll();
-      }
-    });
+    item.addEventListener("click", () => { void loadChatById(chat.id); });
     yoHistoryList.appendChild(item);
   }
 }
@@ -1602,16 +1623,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     }
   });
 
-  yoChatNewBtn.addEventListener("click", async () => {
-    await window.yo.yoChatNew();
-    yoPanelMessages.innerHTML = "";
-    yoResponseEl = null;
-    yoStatusEl = null;
-    yoLastAssistantText = "";
-    yoTurnFullText = "";
-    yoHistoryPanel.classList.add("hidden");
-    yoPanelInput.focus();
-  });
+  yoChatNewBtn.addEventListener("click", () => { void startNewChat(); });
 
   // -- Approval UI --
   window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
@@ -1680,5 +1692,9 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     showYoWelcome,
     hideYoWelcome,
     getYoPanelWidth: () => yoPanel.offsetWidth,
+    listChats: () => window.yo.yoChatsList(),
+    loadChat: (id: string) => loadChatById(id),
+    deleteChat: async (id: string) => { await window.yo.yoChatsDelete(id); },
+    newChat: () => startNewChat(),
   };
 }
