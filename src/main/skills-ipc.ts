@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import path from "path";
+import { pathToFileURL } from "url";
 import type { SkillEngine } from "./skill-engine";
 import type { McpManager } from "./mcp-manager";
 import type { AppConnector } from "./app-connector";
@@ -126,6 +127,13 @@ export function registerSkillsIpc(deps: SkillsIpcDeps): void {
     const target = path.join(folder, "SKILL.md");
     openSkillPath?.(target);
     return true;
+  });
+  // Resolve a file:// URL for a skill file (media preview: audio/video/images).
+  ipcMain.handle("skills-file-url", (_e, name: string, rel: string) => {
+    const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+    const safeRel = (rel || "").replace(/\.\.(\/|\\|$)/g, "").replace(/^[/\\]+/, "");
+    if (!safe || !safeRel) return "";
+    return pathToFileURL(path.join(skillEngine.getSkillsDir(), safe, safeRel)).href;
   });
   // Open a specific file within a skill's folder in VS Code / the editor.
   ipcMain.handle("skills-open-file-in-editor", (_e, name: string, rel: string) => {

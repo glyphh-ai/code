@@ -30,7 +30,19 @@ export const skillsScreen: Screen = {
       confirm: (m) => (ctx.wsConfirm ? ctx.wsConfirm(m) : Promise.resolve(window.confirm(m))),
       onChanged: () => void load(),
       onSelectSkill: (name) => { tree.setActive({ skill: name }); void content.showSkill(name); },
+      buildWithAgent: (prompt) => handToAgent(prompt),
     });
+
+    // Close the Skills slide and drop a build prompt into the yo agent input.
+    function handToAgent(prompt: string): void {
+      ctx.clearStack?.();
+      const input = document.getElementById("yo-panel-input") as HTMLTextAreaElement | null;
+      if (!input) return;
+      input.value = prompt;
+      input.dispatchEvent(new Event("input", { bubbles: true })); // trigger autogrow
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
 
     const tree = createSkillTree({
       onSelectSkill: (name) => void content.showSkill(name),
@@ -44,7 +56,7 @@ export const skillsScreen: Screen = {
     }) as HTMLInputElement;
     searchInput.addEventListener("input", () => tree.filter(searchInput.value));
     const newBtn = el("button", { class: "skill-new-btn", html: PLUS, attrs: { title: "New skill" } });
-    newBtn.addEventListener("click", () => { tree.setActive(null); content.showCreate(); });
+    newBtn.addEventListener("click", (e) => { e.stopPropagation(); openCreateMenu(newBtn); });
 
     const treePanel = el("div", { class: "skill-tree-panel" }, [
       el("div", { class: "skill-tree-toolbar" }, [
@@ -64,6 +76,78 @@ export const skillsScreen: Screen = {
       if (hasBridge() && yo) { try { skills = await yo.skillsListDetailed(); } catch { skills = []; } }
       tree.setSkills(skills);
     };
+
+    // ── "+" create menu ──
+    let menu: HTMLElement | null = null;
+    function closeMenu(): void { menu?.remove(); menu = null; document.removeEventListener("click", closeMenu); }
+    function openCreateMenu(anchor: HTMLElement): void {
+      if (menu) { closeMenu(); return; }
+      const item = (label: string, sub: string, onClick: () => void) => {
+        const b = el("button", { class: "ws-popover-item skill-menu-item" }, [
+          el("span", { class: "skill-menu-label", text: label }),
+          el("span", { class: "skill-menu-sub", text: sub }),
+        ]);
+        b.addEventListener("click", () => { closeMenu(); onClick(); });
+        return b;
+      };
+      menu = el("div", { class: "ws-popover skill-create-menu open" }, [
+        item("Create with .Yo", "Describe it to the agent", () => handToAgent("Create a new .Yo skill that ")),
+        item("Write instructions", "Name + description + instructions", () => { tree.setActive(null); content.showCreate(); }),
+        item("Upload a skill", "Import a .yo / .zip bundle", () => uploadSkill()),
+      ]);
+      document.body.append(menu);
+      const r = anchor.getBoundingClientRect();
+      menu.style.top = `${r.bottom + 4}px`;
+      menu.style.left = `${Math.min(r.left, window.innerWidth - 240)}px`;
+      setTimeout(() => document.addEventListener("click", closeMenu), 0);
+    }
+
+    // ── Upload modal (dropzone + picker) ──
+    function uploadSkill(): void {
+      const status = el("div", { class: "skill-upload-status" });
+      const fileInput = el("input", { attrs: { type: "file", accept: ".yo,.zip" } }) as HTMLInputElement;
+      fileInput.style.display = "none";
+      const drop = el("div", { class: "skill-upload-drop" }, [
+        el("div", { class: "skill-upload-drop-title", text: "Drop a skill bundle here" }),
+        el("div", { class: "skill-upload-drop-sub", text: "or click to choose a file" }),
+      ]);
+      const box = el("div", { class: "skill-upload-box" }, [
+        el("div", { class: "skill-upload-head", text: "Upload a skill" }),
+        drop, fileInput,
+        el("ul", { class: "skill-upload-reqs" }, [
+          el("li", { text: "A .yo or .zip bundle." }),
+          el("li", { text: "Must contain a SKILL.md (name + description front-matter)." }),
+          el("li", { text: "May include SKILL.js and supporting files." }),
+        ]),
+        status,
+        el("div", { class: "skill-upload-actions" }, [
+          (() => { const c = el("button", { class: "action-btn", text: "Cancel" }); c.addEventListener("click", close); return c; })(),
+        ]),
+      ]);
+      const overlay = el("div", { class: "skill-upload-overlay" }, [box]);
+      function close(): void { overlay.remove(); }
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+      drop.addEventListener("click", () => fileInput.click());
+      drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+      drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+      drop.addEventListener("drop", (e: DragEvent) => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer?.files[0]) void handleFile(e.dataTransfer.files[0]); });
+      fileInput.addEventListener("change", () => { if (fileInput.files?.[0]) void handleFile(fileInput.files[0]); });
+      async function handleFile(file: File): Promise<void> {
+        if (!hasBridge() || !yo) { status.textContent = "Importing requires the app."; return; }
+        status.textContent = "Importing…";
+        const base64 = await new Promise<string>((res) => {
+          const fr = new FileReader();
+          fr.onload = () => res(String(fr.result).split(",")[1] || "");
+          fr.readAsDataURL(file);
+        });
+        const r = await yo.skillsImport(base64, false).catch(() => ({ imported: [], skipped: [], error: "import failed" }));
+        if (r.error) { status.textContent = r.error; return; }
+        close();
+        await load();
+      }
+      document.body.append(overlay);
+    }
+
     void load();
   },
 };

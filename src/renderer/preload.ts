@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld("yo", {
   skillsDeleteFile: (name: string, rel: string) => ipcRenderer.invoke("skills-delete-file", name, rel) as Promise<boolean>,
   skillsOpenInEditor: (name: string) => ipcRenderer.invoke("skills-open-in-editor", name) as Promise<boolean>,
   skillsOpenFileInEditor: (name: string, rel: string) => ipcRenderer.invoke("skills-open-file-in-editor", name, rel) as Promise<boolean>,
+  skillsFileUrl: (name: string, rel: string) => ipcRenderer.invoke("skills-file-url", name, rel) as Promise<string>,
   // Run
   skillsRun: (name: string, input: unknown) => ipcRenderer.invoke("skills-run", name, input) as Promise<{ ok: true; output: unknown } | { ok: false; error: string }>,
   skillsCancel: (runId: string) => ipcRenderer.invoke("skills-cancel", runId) as Promise<boolean>,

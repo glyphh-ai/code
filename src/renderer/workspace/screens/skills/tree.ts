@@ -66,8 +66,11 @@ export function createSkillTree(opts: {
       files.sort((a, b) => (a === "SKILL.md" ? -1 : b === "SKILL.md" ? 1 : a === "SKILL.js" ? -1 : b === "SKILL.js" ? 1 : a.localeCompare(b)));
       f.body.innerHTML = "";
       for (const rel of files) {
+        const typeClass = /\.(md|mdx|markdown)$/i.test(rel) ? " md"
+          : /\.(js|mjs|cjs|jsx|ts|tsx)$/i.test(rel) ? " code"
+          : /\.(json|json5|yaml|yml|toml)$/i.test(rel) ? " data" : "";
         const item = el("div", { class: "skill-tree-file", attrs: { "data-file": rel } }, [
-          el("span", { class: "skill-tree-ficon", html: fileIcon(rel) }),
+          el("span", { class: `skill-tree-ficon${typeClass}`, html: fileIcon(rel) }),
           el("span", { class: "skill-tree-fname", text: rel }),
         ]);
         item.addEventListener("click", (e) => { e.stopPropagation(); active = { skill: name, file: rel }; syncActive(); opts.onSelectFile(name, rel); });
