@@ -53,7 +53,17 @@ export interface YoBridge {
   skillsImport(base64: string, overwrite?: boolean): Promise<{ imported: string[]; skipped: string[]; error?: string }>;
   skillsExport(name: string): Promise<string | null>;
   skillsFileUrl(name: string, rel: string): Promise<string>;
+  getLLMPresets(): Promise<Record<string, { name: string; models: string[]; defaultModel: string }>>;
+  getLLMConfig(): Promise<{ provider: string; model: string }>;
   skillsRun(name: string, input: unknown): Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
+  skillsScheduleStatus(): Promise<Array<{ name: string; schedule: string; paused: boolean }>>;
+  skillsRunHistory(name: string): Promise<Array<{ id: string; startedAt: number; durationMs?: number; error?: string; trigger: string; output?: unknown }>>;
+  runsList(skillName?: string): Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>;
+  runsGet(id: string): Promise<{ title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null>;
+  onRunsChanged(cb: () => void): void;
+  setKeepAwake(on: boolean): void;
+  skillsPauseSchedule(name: string): Promise<void>;
+  skillsResumeSchedule(name: string): Promise<void>;
   onSkillProgress(cb: (data: { runId: string; event: SkillProgressEvent }) => void): void;
   // …extend per screen. Prefer adding the exact signatures you use.
   [key: string]: unknown;

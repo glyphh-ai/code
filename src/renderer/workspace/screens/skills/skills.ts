@@ -19,6 +19,8 @@ export const SKILLS_ICON =
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 
 const PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+const MENU_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
+const MENU_UPLOAD = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`;
 const SEARCH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16" y2="16"/></svg>`;
 
 export const skillsScreen: Screen = {
@@ -44,8 +46,9 @@ export const skillsScreen: Screen = {
       input.setSelectionRange(input.value.length, input.value.length);
     }
 
+    const saveLastSelected = (name: string) => { if (hasBridge() && yo) yo.setPreference("skillsLastSelected", name); };
     const tree = createSkillTree({
-      onSelectSkill: (name) => void content.showSkill(name),
+      onSelectSkill: (name) => { saveLastSelected(name); void content.showSkill(name); },
       onSelectFile: (name, rel) => void content.showFile(name, rel),
     });
 
@@ -60,8 +63,11 @@ export const skillsScreen: Screen = {
 
     const treePanel = el("div", { class: "skill-tree-panel" }, [
       el("div", { class: "skill-tree-toolbar" }, [
-        el("span", { class: "skill-search", html: SEARCH }, [searchInput]),
+        el("span", { class: "skill-tree-title", text: "Skills" }),
         newBtn,
+      ]),
+      el("div", { class: "skill-tree-searchrow" }, [
+        el("span", { class: "skill-search", html: SEARCH }, [searchInput]),
       ]),
       el("div", { class: "skill-tree-scroll" }, [tree.el]),
     ]);
@@ -75,6 +81,14 @@ export const skillsScreen: Screen = {
       let skills: SkillMeta[] = [];
       if (hasBridge() && yo) { try { skills = await yo.skillsListDetailed(); } catch { skills = []; } }
       tree.setSkills(skills);
+      // Open to the last-selected skill (persisted) or default to the first,
+      // with its folder row selected.
+      if (!skills.length) { content.showEmpty(); return; }
+      let last = "";
+      if (hasBridge() && yo) { try { last = await yo.getPreference<string>("skillsLastSelected", ""); } catch { last = ""; } }
+      const pick = skills.find((s) => s.name === last) || skills[0];
+      tree.setActive({ skill: pick.name });
+      void content.showSkill(pick.name);
     };
 
     // ── "+" create menu ──
@@ -82,18 +96,18 @@ export const skillsScreen: Screen = {
     function closeMenu(): void { menu?.remove(); menu = null; document.removeEventListener("click", closeMenu); }
     function openCreateMenu(anchor: HTMLElement): void {
       if (menu) { closeMenu(); return; }
-      const item = (label: string, sub: string, onClick: () => void) => {
+      const item = (icon: string, label: string, onClick: () => void) => {
         const b = el("button", { class: "ws-popover-item skill-menu-item" }, [
+          el("span", { class: "skill-menu-icon", html: icon }),
           el("span", { class: "skill-menu-label", text: label }),
-          el("span", { class: "skill-menu-sub", text: sub }),
         ]);
         b.addEventListener("click", () => { closeMenu(); onClick(); });
         return b;
       };
       menu = el("div", { class: "ws-popover skill-create-menu open" }, [
-        item("Create with .Yo", "Describe it to the agent", () => handToAgent("Create a new .Yo skill that ")),
-        item("Write instructions", "Name + description + instructions", () => { tree.setActive(null); content.showCreate(); }),
-        item("Upload a skill", "Import a .yo / .zip bundle", () => uploadSkill()),
+        item(SKILLS_ICON, "Create with .Yo", () => handToAgent("Create a new .Yo skill that ")),
+        item(MENU_EDIT, "Write instructions", () => { tree.setActive(null); content.showCreate(); }),
+        item(MENU_UPLOAD, "Upload a skill", () => uploadSkill()),
       ]);
       document.body.append(menu);
       const r = anchor.getBoundingClientRect();
@@ -185,6 +199,7 @@ export function initSkills(ctx: WorkspaceCtx): void {
       id: "__skills",
       name: "Skills",
       iconSvg: SKILLS_ICON,
+      chromeless: true,
       onMount: (slideEl: HTMLElement) => {
         const body = slideEl.querySelector<HTMLElement>(".ws-slide-body");
         if (body) skillsScreen.mount(body, ctx);

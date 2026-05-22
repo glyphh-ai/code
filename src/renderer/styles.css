@@ -5227,7 +5227,7 @@ select.settings-input {
 .yo-panel-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 12px 22px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -5534,6 +5534,45 @@ select.settings-input {
   padding: 4px 0;
   white-space: normal;
   position: relative;
+}
+
+/* ── Task-run marker (top of a persisted scheduled/manual run) ───────────── */
+.yo-run-marker {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, rgba(127,127,127,0.06));
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-2, var(--text));
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.yo-run-marker:hover {
+  border-color: var(--accent, #25C75E);
+  background: var(--surface-3, rgba(127,127,127,0.10));
+}
+.yo-run-marker > svg { width: 16px; height: 16px; stroke: var(--accent, #25C75E); flex-shrink: 0; }
+.yo-run-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.yo-run-label { font-weight: 600; color: var(--text); }
+.yo-run-skill {
+  font-size: 11.5px;
+  color: var(--text-2, var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yo-run-chevron {
+  width: 16px; height: 16px;
+  stroke: var(--text-faint, #9ca3af) !important;
+  flex-shrink: 0;
 }
 
 /* ── Swarm activity (inline in the yo panel) ─────────────────────────────── */
@@ -6121,7 +6160,7 @@ select.settings-input {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  padding: 12px 14px 8px;
+  padding: 12px 22px 8px;
   border-top: 1px solid var(--border-2);
   flex-shrink: 0;
 }

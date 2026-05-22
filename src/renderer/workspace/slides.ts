@@ -22,6 +22,10 @@ export function initSlides(ctx) {
 
   function pushSlide(app) {
     if (!slidesLayer) { console.warn("[slides] no slides-layer element"); return; }
+    // Rule of thumb: only one thing lives in the center at a time. Bringing a
+    // new slide into view closes whatever was shown before, so dismissing the
+    // new thing returns to a clean (empty) state rather than a stale stack.
+    if (slideStack.length > 0) clearStack();
     const id = nextSlideId++;
     const el = renderSlideEl(app);
     el.style.transform = "translateX(-100%)";
@@ -71,6 +75,13 @@ export function initSlides(ctx) {
            <div class="label"></div>
            <div class="sub">prototype slide — hookable to a webview / iframe</div>
          </div>`;
+    // Chromeless screens own their own top (header / breadcrumb) — skip the
+    // slide's top chrome bar entirely. Close happens via the rail toggle.
+    if (app.chromeless) {
+      el.classList.add("ws-slide-chromeless");
+      el.innerHTML = `<div class="ws-slide-body">${bodyMarkup}</div>`;
+      return el;
+    }
     el.innerHTML = `
       <div class="ws-slide-header">
         <span class="ws-slide-avatar"></span>

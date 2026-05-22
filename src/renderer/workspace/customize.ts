@@ -9,7 +9,7 @@ export function initCustomize(ctx) {
   const { pushSlide, popSlide, slideStack } = ctx;
 
   const CUSTOMIZE_APP = { id: "__customize", name: "Customize", letter: "★", color: "#25C75E" };
-  const SCHEDULES_APP = { id: "__schedules", name: "Schedules", letter: "⏱", color: "#25C75E" };
+  // Schedules now has its own screen (screens/schedules) wired via initSchedules.
 
   function renderCustomizeBody() {
     return `
@@ -50,46 +50,13 @@ export function initCustomize(ctx) {
       </div>
     `;
   }
-  function renderSchedulesBody() {
-    return `
-      <div class="ws-customize">
-        <div class="ws-customize-intro">
-          Run a skill on a cadence. Outputs land in Activity (right rail).
-        </div>
-        <div class="ws-customize-section">
-          <div class="ws-customize-head">
-            <span class="label">Schedules</span>
-            <button class="ws-btn" data-add="schedule">+ New schedule</button>
-          </div>
-          <div class="ws-customize-list">
-            <div class="ws-customize-row">
-              <span class="name">RPA workflow</span>
-              <span class="hint">— every weekday at 8am · last run: 2h ago · <a href="#" data-activity="open">view output</a></span>
-            </div>
-            <div class="ws-customize-row">
-              <span class="name">Email triage</span>
-              <span class="hint">— hourly · last run: 12m ago · <a href="#" data-activity="open">view output</a></span>
-            </div>
-            <div class="ws-customize-row">
-              <span class="name">Weekly digest</span>
-              <span class="hint">— Fri 5pm · last run: yesterday · <a href="#" data-activity="open">view output</a></span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
   function toggleInternalSlide(internalId, app, bodyFn) {
     const top = slideStack[slideStack.length - 1];
     if (top && top.app && top.app.id === internalId) { popSlide(); return; }
     pushSlide({ ...app, __body: bodyFn() });
   }
   function toggleCustomizeSlide() { toggleInternalSlide("__customize", CUSTOMIZE_APP, renderCustomizeBody); }
-  function toggleSchedulesSlide() { toggleInternalSlide("__schedules", SCHEDULES_APP, renderSchedulesBody); }
 
   const openCustomize = $("open-customize");
   if (openCustomize) openCustomize.addEventListener("click", toggleCustomizeSlide);
-  const openSchedules = $("open-schedules");
-  if (openSchedules) openSchedules.addEventListener("click", toggleSchedulesSlide);
 }

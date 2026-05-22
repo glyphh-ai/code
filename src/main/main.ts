@@ -623,6 +623,25 @@ async function boot() {
   yoAgent.setWorkspaceGetter(workspaceGetter);
   yoAgent.setSkillEngine(skillEngine);
 
+  // Run prompt-mode skills/tasks through the full agent (tools + MCP) so
+  // tasks like "read my email and summarize" actually work.
+  skillEngine.setAgenticRunner((prompt) => yoAgent.runForResult(prompt));
+
+  // Persist every completed task run as a `type: run` chat (Activity + history).
+  skillEngine.onRunComplete((run) => {
+    try {
+      yoAgent.saveRunChat({
+        skillName: run.skillName,
+        trigger: run.trigger,
+        output: run.output,
+        error: run.error,
+        startedAt: run.startedAt,
+        instructions: skillEngine.getSkill(run.skillName)?.prompt,
+      });
+      mainWindow?.webContents.send("runs-changed");
+    } catch {}
+  });
+
   // Waz manager — disposable agent popup windows (.waz command)
   const { WazManager } = await import("./waz-manager");
   wazManager = new WazManager();

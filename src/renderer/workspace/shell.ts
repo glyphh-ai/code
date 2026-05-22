@@ -22,6 +22,7 @@ import { initLauncher } from "./launcher.js";
 import { initRecents } from "./recents.js";
 import { initCustomize } from "./customize.js";
 import { initSkills } from "./screens/skills/skills.js";
+import { initSchedules, initScheduledRail } from "./screens/schedules/schedules.js";
 
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -85,6 +86,8 @@ import { initSkills } from "./screens/skills/skills.js";
   initRecents(ctx);    // needs clearStack, closeAllChatOverlays, wsConfirm, placeView, viewIsOpen → renderRecents
   initCustomize(ctx);  // needs pushSlide, popSlide, slideStack
   initSkills(ctx);     // Skills screen (rail item → slide). needs pushSlide, popSlide, slideStack
+  initSchedules(ctx);  // Scheduled tasks screen (rail item → slide). needs pushSlide, popSlide, slideStack
+  initScheduledRail(ctx); // SCHEDULED left-rail section (above Recents)
 
   const { pushSlide, popSlide, clearStack, closeAllChatOverlays, renderRecents, APPS } = ctx;
 

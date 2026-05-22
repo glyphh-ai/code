@@ -149,6 +149,7 @@ export function initRails(ctx) {
     const wrap = document.createElement("div");
     wrap.className = "ws-rail-slot";
     wrap.dataset.slotId = String(slot.id);
+    wrap.dataset.view = slot.view;
     wrap.innerHTML = `
       <div class="ws-rail-slot-header">
         ${icon}
@@ -515,28 +516,37 @@ export function initRails(ctx) {
   }
 
   // ── Activity view ─────────────
-  const ACTIVITY_SEED = [
-    { id: 4, when: "12m ago", status: "ok",   source: "Email triage",  text: "Found 3 actionable threads. Drafted 2 replies." },
-    { id: 3, when: "2h ago",  status: "ok",   source: "RPA workflow",  text: "Logged into ADP, pulled timesheets, posted to #ops." },
-    { id: 2, when: "4h ago",  status: "fail", source: "RPA workflow",  text: "Auth expired on ADP. Skill paused — re-auth required." },
-    { id: 1, when: "yesterday", status: "ok", source: "Weekly digest", text: "Compiled across Linear + Slack + Gmail (sent to inbox)." },
-  ];
-  function renderActivityIntoSlot(body, slot) {
+  // Lists persisted task runs (type: run chats). Clicking a row opens that
+  // run's conversation in the agent panel.
+  function activityRelTime(iso) {
+    const ts = iso ? new Date(iso).getTime() : 0;
+    if (!ts) return "";
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 60) return "just now";
+    const m = Math.floor(s / 60); if (m < 60) return m + "m ago";
+    const h = Math.floor(m / 60); if (h < 24) return h + "h ago";
+    const d = Math.floor(h / 24); if (d < 7) return d + "d ago";
+    return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  async function renderActivityIntoSlot(body, slot) {
     body.innerHTML = `
       <div class="ws-activity-toolbar">
-        <span class="ws-activity-summary">${ACTIVITY_SEED.length} recent runs</span>
-        <button class="ws-icon-btn ws-activity-clear" title="Clear">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-          </svg>
-        </button>
+        <span class="ws-activity-summary">Loading…</span>
       </div>
       <div class="ws-activity-list"></div>
     `;
+    const summary = body.querySelector(".ws-activity-summary");
     const list = body.querySelector(".ws-activity-list");
-    ACTIVITY_SEED.forEach((entry) => {
-      const row = document.createElement("div");
-      row.className = "ws-activity-row " + entry.status;
+    let runs = [];
+    if (window.yo && window.yo.runsList) { try { runs = await window.yo.runsList(); } catch { runs = []; } }
+    summary.textContent = runs.length ? `${runs.length} recent run${runs.length === 1 ? "" : "s"}` : "No runs yet";
+    if (!runs.length) {
+      list.innerHTML = `<div class="ws-activity-empty">Scheduled and manual task runs show up here.</div>`;
+      return;
+    }
+    runs.forEach((entry) => {
+      const row = document.createElement("button");
+      row.className = "ws-activity-row " + (entry.ok ? "ok" : "fail");
       row.innerHTML = `
         <div class="ws-activity-row-head">
           <span class="ws-activity-status-dot"></span>
@@ -545,10 +555,22 @@ export function initRails(ctx) {
         </div>
         <div class="ws-activity-row-body"></div>
       `;
-      row.querySelector(".ws-activity-source").textContent = entry.source;
-      row.querySelector(".ws-activity-when").textContent   = entry.when;
-      row.querySelector(".ws-activity-row-body").textContent = entry.text;
+      row.querySelector(".ws-activity-source").textContent = entry.skillName || entry.title;
+      row.querySelector(".ws-activity-when").textContent   = activityRelTime(entry.created);
+      row.querySelector(".ws-activity-row-body").textContent =
+        (entry.trigger === "schedule" ? "Scheduled run" : "Manual run") + (entry.ok ? "" : " — failed");
+      row.addEventListener("click", () => {
+        const panel = window.__yoPanel;
+        if (panel && panel.loadChat) panel.loadChat(entry.id);
+      });
       list.appendChild(row);
+    });
+  }
+  // Refresh the Activity view live when a new run lands.
+  if (window.yo && window.yo.onRunsChanged) {
+    window.yo.onRunsChanged(() => {
+      const open = document.querySelector('.ws-rail-slot[data-view="activity"] .ws-rail-slot-body');
+      if (open) renderActivityIntoSlot(open, null);
     });
   }
 

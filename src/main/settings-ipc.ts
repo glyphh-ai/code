@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerSaveBlocker } from "electron";
 import type { LLMConfig } from "./llm-config";
 import type { McpExpose } from "./mcp-expose";
 import type { SessionCache } from "./session-cache";
@@ -37,6 +37,9 @@ interface SettingsIpcDeps {
   panelManager: PanelManager;
   yoAgent: YoAgent;
 }
+
+// Active power-save-blocker id for the "Keep awake" toggle (-1 = none).
+let keepAwakeBlockerId = -1;
 
 export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   const {
@@ -237,5 +240,22 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   ipcMain.handle("yo-chats-load", (_e, id: string) => deps.yoAgent.loadChat(id));
   ipcMain.handle("yo-chats-delete", (_e, id: string) => deps.yoAgent.deleteChat(id));
   ipcMain.handle("yo-chats-search", () => []);
+  ipcMain.handle("runs-list", (_e, skillName?: string) => deps.yoAgent.listRuns(skillName));
+  ipcMain.handle("runs-get", (_e, id: string) => deps.yoAgent.getRun(id));
+
+  // Keep awake — block app suspension so scheduled tasks fire on time.
+  ipcMain.on("set-keep-awake", (_e, on: boolean) => { applyKeepAwake(!!on); });
+  // Apply the saved preference at startup.
+  applyKeepAwake(getPreference<boolean>("schedulesKeepAwake", false));
+  function applyKeepAwake(on: boolean): void {
+    setPreference("schedulesKeepAwake", on);
+    const active = keepAwakeBlockerId >= 0 && powerSaveBlocker.isStarted(keepAwakeBlockerId);
+    if (on && !active) {
+      keepAwakeBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+    } else if (!on && active) {
+      powerSaveBlocker.stop(keepAwakeBlockerId);
+      keepAwakeBlockerId = -1;
+    }
+  }
   ipcMain.handle("yo-chat-new", () => { deps.yoAgent.clear(); return true; });
 }

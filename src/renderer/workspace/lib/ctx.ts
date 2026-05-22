@@ -14,6 +14,8 @@ export interface AppDescriptor {
   letter?: string;
   color?: string;
   iconSvg?: string;
+  /** Omit the slide's top chrome bar (icon + name + close); screen owns its top. */
+  chromeless?: boolean;
 }
 
 /** Shared APIs the core modules register on the context (grows over time). */

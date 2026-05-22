@@ -56,6 +56,8 @@ export class SkillEngine {
   private llmConfig: LLMConfig | null = null;
   private runHistory: Map<string, SkillRun[]> = new Map();
   private onChangeCallbacks: Array<() => void> = [];
+  private onRunCompleteCb: ((run: SkillRun) => void) | null = null;
+  private agenticRunner: ((prompt: string) => Promise<{ text: string; error?: string }>) | null = null;
   private mcpManager: McpManager | null = null;
   private libraryDir: string;
 
@@ -81,6 +83,12 @@ export class SkillEngine {
 
   onChange(cb: () => void): void { this.onChangeCallbacks.push(cb); }
   private emitChange(): void { for (const cb of this.onChangeCallbacks) try { cb(); } catch {} }
+
+  /** Notified after every completed run (manual/scheduled) — main persists it. */
+  onRunComplete(cb: (run: SkillRun) => void): void { this.onRunCompleteCb = cb; }
+
+  /** Inject the full agent (tools + MCP) for running prompt-mode skills/tasks. */
+  setAgenticRunner(fn: (prompt: string) => Promise<{ text: string; error?: string }>): void { this.agenticRunner = fn; }
 
   // ── Path helpers ─────────────────────────────────────
 
@@ -338,6 +346,7 @@ export class SkillEngine {
     list.unshift(run);
     if (list.length > 10) list.length = 10;
     this.runHistory.set(run.skillName, list);
+    try { this.onRunCompleteCb?.(run); } catch {}
   }
 
   getRunHistory(skillName: string): SkillRun[] {
@@ -377,14 +386,25 @@ export class SkillEngine {
       return result.output;
     }
 
-    // SKILL.md prompt-mode fallback — wrap process() in a SkillRun for parity
+    // SKILL.md prompt-mode. Task-style skills (e.g. "read my email and
+    // summarize") need tools, so run the skill's instructions through the full
+    // agent when available. Falls back to the plain text completion otherwise.
     const buffer = typeof input === "string" ? input : JSON.stringify(input ?? "");
     let output: string | undefined;
     let error: string | undefined;
-    try {
-      output = await this.process(buffer, name);
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+    const taskPrompt = (skill.prompt || "").trim();
+    // Only treat a non-empty string input as extra content to append.
+    const extra = typeof input === "string" && input.trim().length > 0 ? input.trim() : "";
+    if (this.agenticRunner && taskPrompt) {
+      const res = await this.agenticRunner(extra ? `${taskPrompt}\n\n${extra}` : taskPrompt);
+      output = res.text;
+      error = res.error;
+    } else {
+      try {
+        output = await this.process(buffer, name);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
     }
     this.appendRun({
       id: runId,

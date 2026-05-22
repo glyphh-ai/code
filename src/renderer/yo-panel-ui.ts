@@ -164,35 +164,163 @@ function setYoThinking(thinking: boolean) {
 
 // ── Helpers: welcome screen ────────────────────────────────────────────────
 
+/** Rotating welcome greetings. `{name}` is filled with the user's first name
+ *  (or "there" when unknown). One is picked at random each time the welcome
+ *  shows — same screen on app load and on a new session. */
+const YO_GREETINGS: string[] = [
+  "{name}, you ready?",
+  "Ready when you are, {name}.",
+  "What's the move, {name}?",
+  "Let's get into it, {name}.",
+  "Where do we start, {name}?",
+  "What are we building, {name}?",
+  "At your service, {name}.",
+  "What's first, {name}?",
+  "Point me at it, {name}.",
+  "What do you need, {name}?",
+  "Let's make something, {name}.",
+  "Good to see you, {name}.",
+  "What's on your plate, {name}?",
+  "Ready to roll, {name}?",
+  "Hit me, {name}.",
+  "What's cooking, {name}?",
+  "Let's knock it out, {name}.",
+  "How can I help, {name}?",
+  "What's the mission, {name}?",
+  "Say the word, {name}.",
+  "Let's do this, {name}.",
+  "What's next, {name}?",
+  "I'm all ears, {name}.",
+  "What can I take off your plate, {name}?",
+  "Throw me something, {name}.",
+  "Let's get to work, {name}.",
+  "What's the play, {name}?",
+  "Standing by, {name}.",
+  "Where to, {name}?",
+  "What's the task, {name}?",
+  "Let's ship something, {name}.",
+  "Ready to dig in, {name}?",
+  "What's the goal today, {name}?",
+  "Fire away, {name}.",
+  "What should we tackle, {name}?",
+  "Let's make it happen, {name}.",
+  "I've got you, {name}.",
+  "What are we automating today, {name}?",
+  "What's the ask, {name}?",
+  "Let's get rolling, {name}.",
+  "Tell me what you need, {name}.",
+  "What's the agenda, {name}?",
+  "Ready to crush it, {name}?",
+  "Where's your head at, {name}?",
+  "What's the problem, {name}?",
+  "Let's sort it out, {name}.",
+  "Lay it on me, {name}.",
+  "What's the priority, {name}?",
+  "Let's get after it, {name}.",
+  "How's it going, {name}?",
+  "What's the situation, {name}?",
+  "Ready to dive in, {name}?",
+  "What's the brief, {name}?",
+  "Let's tackle it, {name}.",
+  "What's grabbing your attention, {name}?",
+  "Game on, {name}.",
+  "What's the objective, {name}?",
+  "Let's wrap something up, {name}.",
+  "What needs doing, {name}?",
+  "Whenever you're ready, {name}.",
+  "What's the big thing today, {name}?",
+  "Let's chip away at it, {name}.",
+  "What's eating your time, {name}?",
+  "Drop it here, {name}.",
+  "What's the one thing, {name}?",
+  "Let's move, {name}.",
+  "What's slowing you down, {name}?",
+  "Ready to go, {name}?",
+  "What're we figuring out, {name}?",
+  "Let's untangle it, {name}.",
+  "What's the headache today, {name}?",
+  "Show me what you've got, {name}.",
+  "What's worth doing, {name}?",
+  "Let's build, {name}.",
+  "What's the deal, {name}?",
+  "Pick a thread, {name}.",
+  "What's on your mind, {name}?",
+  "Let's clear the deck, {name}.",
+  "What's the win today, {name}?",
+  "Anything I can grab, {name}?",
+  "What's the next step, {name}?",
+  "Let's make progress, {name}.",
+  "What's the focus, {name}?",
+  "Ready to make a dent, {name}?",
+  "What's the to-do, {name}?",
+  "Let's get unstuck, {name}.",
+  "What's looming, {name}?",
+  "Bring it on, {name}.",
+  "What's worth your time, {name}?",
+  "Let's handle it, {name}.",
+  "What's the first step, {name}?",
+  "I'm ready when you are, {name}.",
+  "What're we shipping today, {name}?",
+  "Let's get it done, {name}.",
+  "What's the target, {name}?",
+  "Queue me up, {name}.",
+  "What's the plan, {name}?",
+  "Let's start, {name}.",
+  "What can we knock out, {name}?",
+  "You ready, {name}?",
+];
+
+let yoAccountFirstName: string | null = null; // null = not yet fetched
+
 function hideYoWelcome() {
   const w = document.getElementById("yo-panel-welcome");
   if (w) w.remove();
 }
 
+function fillGreeting(template: string): string {
+  const name = (yoAccountFirstName && yoAccountFirstName.trim()) || "there";
+  return template.replace(/\{name\}/g, name);
+}
+
 function showYoWelcome() {
+  const template = YO_GREETINGS[Math.floor(Math.random() * YO_GREETINGS.length)];
+
+  // The ONE welcome: the empty-state greeting block (#yo-greeting, shown via
+  // CSS when #yo-panel.empty). Just rotate its subline; never inject a second
+  // welcome into yo-panel-messages (that would mark the panel non-empty and
+  // hide the real greeting).
+  const sub = document.querySelector<HTMLElement>(".yo-greeting-sub");
+  if (sub) {
+    hideYoWelcome();
+    const apply = () => { sub.textContent = fillGreeting(template); };
+    apply();
+    if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
+      (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
+        .then((info) => { yoAccountFirstName = info?.firstName || ""; apply(); })
+        .catch(() => { yoAccountFirstName = ""; });
+    }
+    return;
+  }
+
+  // Legacy fallback (no #yo-greeting block): inject the welcome div.
   hideYoWelcome();
   const w = document.createElement("div");
   w.id = "yo-panel-welcome";
   w.className = "yo-panel-welcome";
   w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo</div>
-    <div class="yo-welcome-tagline">Your AI workspace agent</div>
-    <div class="yo-welcome-hints">
-      <div class="yo-welcome-hint">find that reddit thread about pricing</div>
-      <div class="yo-welcome-hint">open gmail and claude side by side</div>
-      <div class="yo-welcome-hint">create a skill called summarize</div>
-      <div class="yo-welcome-hint">what did I capture yesterday?</div>
-    </div>`;
+    <div class="yo-welcome-tagline" id="yo-welcome-greeting"></div>`;
+  const greetingEl = w.querySelector<HTMLElement>("#yo-welcome-greeting");
+  if (greetingEl) greetingEl.textContent = fillGreeting(template);
   yoPanelMessages.appendChild(w);
-  w.querySelectorAll(".yo-welcome-hint").forEach((hint) => {
-    hint.addEventListener("click", () => {
-      const text = hint.textContent || "";
-      hideYoWelcome();
-      addYoUserMessage(text);
-      showYoStatus("");
-      setYoThinking(true);
-      window.yo.yoPanelSend(text);
-    });
-  });
+  if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
+    (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
+      .then((info) => {
+        yoAccountFirstName = info?.firstName || "";
+        const live = document.getElementById("yo-welcome-greeting");
+        if (live) live.textContent = fillGreeting(template);
+      })
+      .catch(() => { yoAccountFirstName = ""; });
+  }
 }
 
 // ── Helpers: mode/perm dropdowns ───────────────────────────────────────────
@@ -1125,6 +1253,52 @@ async function loadChatById(id: string): Promise<void> {
       } catch { /* skip a malformed swarm entry */ }
       continue;
     }
+    // Run marker — the header atop a persisted task-run conversation. Clicking
+    // it slides open the owning scheduled task (handled in the workspace shell).
+    if (msg.role === "run") {
+      const skill = msg.tools && msg.tools[0] ? msg.tools[0].name : "";
+      const marker = document.createElement("button");
+      marker.className = "yo-run-marker";
+      marker.type = "button";
+      if (skill) marker.title = `Open scheduled task “${skill}”`;
+      const svgNS = "http://www.w3.org/2000/svg";
+      const clock = document.createElementNS(svgNS, "svg");
+      clock.setAttribute("viewBox", "0 0 24 24");
+      clock.setAttribute("fill", "none");
+      clock.setAttribute("stroke", "currentColor");
+      clock.setAttribute("stroke-width", "2");
+      clock.innerHTML = `<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>`;
+      marker.appendChild(clock);
+      const text = document.createElement("span");
+      text.className = "yo-run-text";
+      const label = document.createElement("span");
+      label.className = "yo-run-label";
+      label.textContent = msg.text || "Ran task";
+      text.appendChild(label);
+      if (skill) {
+        const skillEl = document.createElement("span");
+        skillEl.className = "yo-run-skill";
+        skillEl.textContent = skill;
+        text.appendChild(skillEl);
+      }
+      marker.appendChild(text);
+      // Chevron on the far right.
+      const chev = document.createElementNS(svgNS, "svg");
+      chev.setAttribute("class", "yo-run-chevron");
+      chev.setAttribute("viewBox", "0 0 24 24");
+      chev.setAttribute("fill", "none");
+      chev.setAttribute("stroke", "currentColor");
+      chev.setAttribute("stroke-width", "2");
+      chev.innerHTML = `<polyline points="9 6 15 12 9 18"/>`;
+      marker.appendChild(chev);
+      if (skill) {
+        marker.addEventListener("click", () => {
+          window.dispatchEvent(new CustomEvent("open-schedule-task", { detail: { name: skill } }));
+        });
+      }
+      yoPanelMessages.appendChild(marker);
+      continue;
+    }
     if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
       const timeline = document.createElement("div");
       timeline.className = "yo-ag-timeline done";
@@ -1682,6 +1856,10 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       card.querySelector(".yo-approval-header")!.appendChild(status);
     });
   });
+
+  // Set the rotating greeting on the empty-state block at startup so it's
+  // live from app load (not just after opening the panel / a new session).
+  if (!yoPanelMessages.children.length) showYoWelcome();
 
   // Return the public API
   return {

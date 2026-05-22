@@ -10,6 +10,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import crypto from "crypto";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
@@ -70,6 +71,20 @@ export interface ChatSummary {
   title: string;
   created: string;
   messageCount: number;
+  /** "run" for persisted scheduled/manual task runs; undefined for normal chats. */
+  type?: string;
+  /** Owning skill name (run chats only). */
+  skillName?: string;
+}
+
+/** A persisted task run, surfaced in the Activity view + schedule detail. */
+export interface RunSummary {
+  id: string;
+  skillName: string;
+  title: string;
+  created: string;
+  trigger: string;
+  ok: boolean;
 }
 
 /** A persisted chat message. Assistant turns may carry the ordered
@@ -208,6 +223,63 @@ export class YoAgent {
   }
 
   // ── Send (public API) ──────────────────────────────────
+
+  /**
+   * Run a prompt headlessly through the full agent (tools + MCP, multi-turn)
+   * and return the final text. Used by scheduled / manual task runs so a task
+   * like "read my email and summarize" actually has tools — unlike the skill
+   * engine's plain single-turn completion. Does NOT touch the active chat
+   * (chatId/sessionId/title) so the user's live conversation is untouched.
+   */
+  async runForResult(prompt: string): Promise<{ text: string; error?: string }> {
+    let sdk: any;
+    try { sdk = await this.ensureSDK(); }
+    catch (err: any) { return { text: "", error: `Failed to load agent SDK: ${err?.message || err}` }; }
+
+    let mcpServer: any;
+    try { mcpServer = await this.ensureMcpServer(); }
+    catch (err: any) { return { text: "", error: `Failed to initialize MCP tools: ${err?.message || err}` }; }
+
+    const shellPath = getShellPath();
+    const model = this.llmConfig?.model || "claude-sonnet-4-6";
+    const options: Record<string, any> = {
+      model,
+      maxTurns: getPreference<number>("maxTurns", 200),
+      ...asarSafeQueryOptions(getWorkingDirectory() ?? undefined),
+      // Headless: no UI to approve tool calls, so bypass permissions.
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      tools: [],
+      mcpServers: { "yo": mcpServer },
+      systemPrompt: this.buildSystemPrompt(),
+      includePartialMessages: true,
+      env: {
+        ...process.env,
+        PATH: shellPath,
+        CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
+      },
+    };
+
+    let text = "";
+    try {
+      const gen = sdk.query({ prompt, options });
+      for await (const msg of gen) {
+        if (msg.type === "stream_event") {
+          const event = msg.event;
+          if (event?.type === "content_block_delta") {
+            const delta = (event as any).delta;
+            if (delta?.type === "text_delta" && delta.text) text += delta.text;
+          }
+        } else if (msg.type === "result") {
+          if (msg.usage) this.reportUsage(msg.usage.input_tokens || 0, msg.usage.output_tokens || 0, model);
+          if (msg.is_error && msg.result) return { text, error: msg.result };
+        }
+      }
+    } catch (err: any) {
+      return { text, error: err?.message || String(err) };
+    }
+    return { text: text.trim() };
+  }
 
   async send(message: string, cb: YoAgentCallbacks): Promise<void> {
     const balance = usageQueue.lastBalance;
@@ -601,6 +673,8 @@ export class YoAgent {
           let title = f.replace(/\.md$/, "");
           let created = "";
           let messageCount = 0;
+          let type: string | undefined;
+          let skillName: string | undefined;
           if (fmMatch) {
             const fm = fmMatch[1];
             const t = fm.match(/^title:\s*(.+)$/m);
@@ -609,8 +683,12 @@ export class YoAgent {
             if (c) created = c[1].trim();
             const m = fm.match(/^messages:\s*(\d+)$/m);
             if (m) messageCount = parseInt(m[1], 10);
+            const ty = fm.match(/^type:\s*(.+)$/m);
+            if (ty) type = ty[1].trim();
+            const sk = fm.match(/^skillName:\s*(.+)$/m);
+            if (sk) skillName = sk[1].trim();
           }
-          return { id: f.replace(/\.md$/, ""), title, created, messageCount };
+          return { id: f.replace(/\.md$/, ""), title, created, messageCount, type, skillName };
         } catch {
           return { id: f.replace(/\.md$/, ""), title: f, created: "", messageCount: 0 };
         }
@@ -625,6 +703,96 @@ export class YoAgent {
       fs.unlinkSync(path.join(CHATS_DIR, `${id}.md`));
       return true;
     } catch { return false; }
+  }
+
+  /**
+   * Persist a completed task run as a special `type: run` chat so it can be
+   * opened in the agent panel and listed in Activity / the schedule detail.
+   * Lives in CHATS_DIR alongside chats but is filtered out of Recents.
+   */
+  saveRunChat(opts: {
+    skillName: string;
+    trigger: string;
+    output?: unknown;
+    error?: string;
+    startedAt: number;
+    instructions?: string;
+  }): string {
+    fs.mkdirSync(CHATS_DIR, { recursive: true });
+    const id = `run-${opts.startedAt}-${crypto.randomBytes(3).toString("hex")}`;
+    const label = opts.trigger === "schedule" ? "Ran scheduled task" : "Ran task";
+    const outText = opts.error
+      ? `**Run failed**\n\n${opts.error}`
+      : (typeof opts.output === "string" ? opts.output : "```json\n" + JSON.stringify(opts.output ?? null, null, 2) + "\n```");
+    const messages: ChatMessage[] = [
+      { role: "run", content: label, tools: [{ name: opts.skillName }] },
+      ...(opts.instructions ? [{ role: "user", content: opts.instructions } as ChatMessage] : []),
+      { role: "assistant", content: outText },
+    ];
+    const lines = [
+      "---",
+      `title: ${opts.skillName}`,
+      `created: ${new Date(opts.startedAt).toISOString()}`,
+      `messages: 1`,
+      `type: run`,
+      `skillName: ${opts.skillName}`,
+      `trigger: ${opts.trigger}`,
+      ...(opts.error ? ["status: error"] : ["status: ok"]),
+      "---",
+      "",
+      "```json",
+      JSON.stringify(messages, null, 2),
+      "```",
+    ];
+    fs.writeFileSync(path.join(CHATS_DIR, `${id}.md`), lines.join("\n"), "utf-8");
+    // Keep run history bounded — prune oldest run files beyond a cap.
+    this.pruneRuns();
+    return id;
+  }
+
+  /** Read a single run's display messages without making it the active chat. */
+  getRun(id: string): { title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null {
+    const filepath = path.join(CHATS_DIR, `${id}.md`);
+    if (!fs.existsSync(filepath)) return null;
+    try {
+      const parsed = this.parseChatFile(fs.readFileSync(filepath, "utf-8"));
+      return { title: parsed.title, messages: parsed.display };
+    } catch { return null; }
+  }
+
+  /** List persisted task runs (optionally for one skill), newest first. */
+  listRuns(skillName?: string): RunSummary[] {
+    fs.mkdirSync(CHATS_DIR, { recursive: true });
+    try {
+      return fs.readdirSync(CHATS_DIR)
+        .filter((f) => f.startsWith("run-") && f.endsWith(".md"))
+        .map((f) => {
+          const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
+          const fm = raw.match(/^---\n([\s\S]*?)\n---/)?.[1] || "";
+          const get = (k: string) => fm.match(new RegExp(`^${k}:\\s*(.+)$`, "m"))?.[1].trim() || "";
+          return {
+            id: f.replace(/\.md$/, ""),
+            skillName: get("skillName") || get("title"),
+            title: get("title"),
+            created: get("created"),
+            trigger: get("trigger") || "manual",
+            ok: get("status") !== "error",
+          } as RunSummary;
+        })
+        .filter((r) => !skillName || r.skillName === skillName)
+        .sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+    } catch { return []; }
+  }
+
+  /** Cap stored run files (keep the newest 100). */
+  private pruneRuns(): void {
+    try {
+      const runs = fs.readdirSync(CHATS_DIR).filter((f) => f.startsWith("run-") && f.endsWith(".md")).sort();
+      const excess = runs.length - 100;
+      for (let i = 0; i < excess; i++) {
+        try { fs.unlinkSync(path.join(CHATS_DIR, runs[i])); } catch {}
+      }
+    } catch {}
   }
 
   // ── Persistence ────────────────────────────────────────

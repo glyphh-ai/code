@@ -48,9 +48,9 @@
   --text:        #e8e8e8;
   --text-bright: #ffffff;
   --text-2:      #a0a0a0;
-  --text-3:      #707070;
-  --text-muted:  #606060;
-  --text-faint:  #484848;
+  --text-3:      #808080;
+  --text-muted:  #707070;
+  --text-faint:  #6a6a6a;
   --hover:       #1e1e1e;
   --accent:      #25C75E;
   --accent-hover:#2dd868;
@@ -66,7 +66,7 @@
   --ws-bg:           var(--bg);
   --ws-bg-rail:      var(--surface-2);
   --ws-bg-card:      var(--surface);
-  --ws-line:         var(--border);
+  --ws-line:         var(--border-2);
   --ws-line-soft:    var(--border);
   --ws-text:         var(--text);
   --ws-text-muted:   var(--text-2);

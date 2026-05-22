@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/screens/skills.css">
+  <link rel="stylesheet" href="styles/screens/schedules.css">
   <!-- Monaco loader (AMD). Lazy-initialized by the Skills viewer's Code tab. -->
   <script src="monaco/loader.js"></script>
   <!--
@@ -197,7 +198,7 @@
       align-items: center;
       justify-content: center;
       width: 16px; height: 16px;
-      color: var(--text-muted);
+      color: var(--ws-text-muted);
     }
     .ws-nav-item .icon svg { width: 14px; height: 14px; stroke: currentColor; }
 
@@ -1368,8 +1369,25 @@
       background: var(--surface);
     }
     .ws-activity-row {
+      display: block;
+      width: 100%;
+      text-align: left;
       padding: 10px 12px;
+      border: none;
       border-bottom: 1px solid var(--border);
+      background: transparent;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .ws-activity-row:hover { background: var(--hover); }
+    .ws-activity-empty {
+      padding: 28px 16px;
+      text-align: center;
+      font-size: 12.5px;
+      color: var(--text-2);
+      line-height: 1.5;
     }
     .ws-activity-row-head {
       display: flex;
@@ -1908,6 +1926,9 @@
       color: var(--ws-text-muted);
       font-size: 13px;
     }
+    /* Chromeless screens fill edge-to-edge and own their own padding —
+       no body padding (and so no negative-margin hacks needed). */
+    .ws-slide-chromeless .ws-slide-body { padding: 0; }
     .ws-slide-body-stub {
       height: 100%;
       display: flex;
@@ -2770,21 +2791,14 @@
             </span>
             <span>Schedules</span>
           </div>
-          <div class="ws-nav-item" id="open-customize" title="Skills, Layouts, Drips">
-            <span class="icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="21" y1="4"  x2="14" y2="4"/>
-                <line x1="10" y1="4"  x2="3"  y2="4"/>
-                <line x1="21" y1="12" x2="12" y2="12"/>
-                <line x1="8"  y1="12" x2="3"  y2="12"/>
-                <line x1="21" y1="20" x2="16" y2="20"/>
-                <line x1="12" y1="20" x2="3"  y2="20"/>
-                <line x1="14" y1="2"  x2="14" y2="6"/>
-                <line x1="8"  y1="10" x2="8"  y2="14"/>
-                <line x1="16" y1="18" x2="16" y2="22"/>
-              </svg>
-            </span>
-            <span>Customize</span>
+
+          <div class="ws-section">
+            <div class="ws-section-label">Scheduled</div>
+            <div class="ws-list" id="scheduled-list">
+              <!-- Populated from the scheduledTasks preference; clicking a row
+                   slides open that task's detail page. -->
+              <div class="ws-list-empty" id="scheduled-empty">No scheduled tasks</div>
+            </div>
           </div>
 
           <div class="ws-section">
@@ -3271,8 +3285,6 @@
       <div id="cc-bootstrap-error" style="margin-top:12px;color:#d44a4a;font-size:12px;font-family:var(--font-mono, monospace);"></div>
     </div>
   </div>
-
-  <div class="ws-dev-banner">WORKSPACE · scaffolding the real app</div>
 
   <!-- Workspace UI shell — slides, rails, recents, modes, browser,
        customize. Loads in browser preview AND Electron; degrades

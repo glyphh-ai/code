@@ -357,6 +357,12 @@ contextBridge.exposeInMainWorld("yo", {
   yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
   yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
 
+  // Task runs (persisted scheduled/manual runs → Activity + schedule history)
+  runsList: (skillName?: string) => ipcRenderer.invoke("runs-list", skillName) as Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>,
+  runsGet: (id: string) => ipcRenderer.invoke("runs-get", id) as Promise<{ title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null>,
+  onRunsChanged: (cb: () => void) => { ipcRenderer.on("runs-changed", () => cb()); },
+  setKeepAwake: (on: boolean) => ipcRenderer.send("set-keep-awake", on),
+
   // Agent mode + guardrails
   getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<{ perm: string; swarm: boolean }>,
   setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),

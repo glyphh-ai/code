@@ -40,7 +40,8 @@ export function initRecents(ctx) {
     if (!panel || !recentsListEl) return;          // browser preview: keep placeholder
     let chats = [];
     try { chats = await panel.listChats(); } catch { chats = []; }
-    chats = chats.filter((c) => !recentsArchived.has(c.id));
+    // Task runs (type === "run") live in Activity, not Recents.
+    chats = chats.filter((c) => c.type !== "run" && !recentsArchived.has(c.id));
     chats.sort((a, b) => (recentsPinned.has(b.id) ? 1 : 0) - (recentsPinned.has(a.id) ? 1 : 0));
     recentsListEl.innerHTML = "";
     if (!chats.length) {
