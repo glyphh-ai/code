@@ -175,11 +175,21 @@
 .skill-create-instr { resize: vertical; min-height: 120px; font-family: inherit; line-height: 1.5; }
 
 /* ── Skill overview (right pane when a skill is selected) ── */
-.skill-meta { font-size: 12.5px; color: var(--ws-text-muted); margin-bottom: 14px; }
-.skill-meta strong { color: var(--ws-text); font-weight: 600; }
+.skill-meta-grid { display: flex; gap: 40px; margin-bottom: 16px; }
+.skill-meta-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ws-text-muted); margin-bottom: 3px; }
+.skill-meta-v { font-size: 13.5px; color: var(--ws-text); }
 .skill-desc-block { margin-bottom: 6px; }
-.skill-desc-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ws-text-muted); margin-bottom: 5px; }
-.skill-desc-help { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: var(--ws-bg-rail); border: 1px solid var(--ws-line); font-size: 10px; font-weight: 700; color: var(--ws-text-muted); cursor: help; }
+.skill-desc-label { position: relative; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ws-text-muted); margin-bottom: 5px; }
+.skill-desc-help { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: none; background: none; color: var(--ws-text-muted); cursor: pointer; }
+.skill-desc-help:hover { color: var(--ws-accent); }
+.skill-desc-help svg { width: 14px; height: 14px; }
+.skill-desc-tip {
+  position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 20;
+  background: var(--ws-bg-card); border: 1px solid var(--ws-line); border-radius: var(--ws-radius-sm);
+  box-shadow: var(--ws-shadow-md); padding: 7px 11px; max-width: 280px;
+  font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ws-text);
+}
+.skill-desc-tip.hidden { display: none; }
 .skill-desc-text { font-size: 14px; color: var(--ws-text); margin: 0; line-height: 1.55; }
 .skill-divider { border: none; border-top: 1px solid var(--ws-line); margin: 18px 0; }
 

@@ -62,6 +62,7 @@ const VSCODE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
 const TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 const KEBAB = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
 const EXPORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+const INFO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
 
 const iconBtn = (icon: string, title: string) =>
   el("button", { class: "skill-icon-btn", html: icon, attrs: { title } });
@@ -135,12 +136,22 @@ export class SkillContent {
     const body = full?.prompt || "";
 
     this.mdHost.innerHTML =
-      `<div class="skill-meta">Added by <strong>You</strong> · ${trigger}</div>` +
+      `<div class="skill-meta-grid">` +
+        `<div class="skill-meta-col"><div class="skill-meta-h">Added by</div><div class="skill-meta-v">You</div></div>` +
+        `<div class="skill-meta-col"><div class="skill-meta-h">Trigger</div><div class="skill-meta-v">${trigger}</div></div>` +
+      `</div>` +
       `<div class="skill-desc-block"><div class="skill-desc-label">Description` +
-      `<span class="skill-desc-help" title="The .Yo agent reads this description to decide when to use the skill during chat. Make it clear and specific.">?</span></div>` +
+        `<button class="skill-desc-help" type="button" aria-label="About description">${INFO}</button>` +
+        `<span class="skill-desc-tip hidden">.Yo uses this to help pick the right tool during chat</span>` +
+      `</div>` +
       `<p class="skill-desc-text">${desc ? escapeHtml(desc) : "<em>No description.</em>"}</p></div>` +
       `<hr class="skill-divider"/>` +
       renderMarkdown(body);
+
+    // Click the (i) to toggle the tooltip (re-click hides it).
+    const help = this.mdHost.querySelector<HTMLElement>(".skill-desc-help");
+    const tip = this.mdHost.querySelector<HTMLElement>(".skill-desc-tip");
+    help?.addEventListener("click", (e) => { e.stopPropagation(); tip?.classList.toggle("hidden"); });
   }
 
   private async setEnabled(name: string, on: boolean): Promise<void> {
