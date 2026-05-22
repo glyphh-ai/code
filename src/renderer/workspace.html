@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Yo</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/screens/skills.css">
+  <!-- Monaco loader (AMD). Lazy-initialized by the Skills viewer's Code tab. -->
+  <script src="monaco/loader.js"></script>
   <!--
     workspace.html — the new app entry, derived from index.html.
 
@@ -42,85 +47,9 @@
       src: url(fonts/JetBrainsMono-latin.woff2) format('woff2');
     }
 
-    /* ── Theme tokens — match yo's system (light + dark) ──────── */
-    :root,
-    [data-theme="light"] {
-      color-scheme: light;
-      --font-sans:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      --font-mono:  'JetBrains Mono', 'SF Mono', 'Fira Code', 'Courier New', monospace;
-      --bg:          #f5f5f5;
-      --bg-raised:   #ffffff;
-      --surface:     #ffffff;
-      --surface-2:   #fafafa;
-      --surface-3:   #f0f0f0;
-      --border:      #e5e5e5;
-      --border-2:    #d4d4d4;
-      --border-3:    #c4c4c4;
-      --text:        #1f2937;
-      --text-bright: #111111;
-      --text-2:      #4b5563;
-      --text-3:      #6b7280;
-      --text-muted:  #6b7280;
-      --text-faint:  #9ca3af;
-      --hover:       #f0f0f0;
-      --accent:      #25C75E;
-      --accent-hover:#22b855;
-      --accent-bg:   #ecfdf5;
-      --danger:      #ef4444;
-      --danger-bg:   #fef2f2;
-      --overlay-bg:  rgba(0, 0, 0, 0.3);
-      --shadow:      rgba(0, 0, 0, 0.12);
-    }
-    [data-theme="dark"] {
-      color-scheme: dark;
-      --bg:          #0a0a0a;
-      --bg-raised:   #0d0d0d;
-      --surface:     #111111;
-      --surface-2:   #1a1a1a;
-      --surface-3:   #141414;
-      --border:      #1e1e1e;
-      --border-2:    #2a2a2a;
-      --border-3:    #333333;
-      --text:        #e8e8e8;
-      --text-bright: #ffffff;
-      --text-2:      #a0a0a0;
-      --text-3:      #707070;
-      --text-muted:  #606060;
-      --text-faint:  #484848;
-      --hover:       #1e1e1e;
-      --accent:      #25C75E;
-      --accent-hover:#2dd868;
-      --accent-bg:   #1a2a1e;
-      --danger:      #ff5f57;
-      --danger-bg:   #2a1515;
-      --overlay-bg:  rgba(0, 0, 0, 0.6);
-      --shadow:      rgba(0, 0, 0, 0.4);
-    }
-    /* Workspace-internal aliases (point at theme tokens so dark mode
-       just works). New code should prefer the raw --bg/--surface/etc. */
-    :root {
-      --ws-bg:           var(--bg);
-      --ws-bg-rail:      var(--surface-2);
-      --ws-bg-card:      var(--surface);
-      --ws-line:         var(--border);
-      --ws-line-soft:    var(--border);
-      --ws-text:         var(--text);
-      --ws-text-muted:   var(--text-2);
-      --ws-text-faint:   var(--text-faint);
-      --ws-accent:       var(--accent);
-      --ws-accent-soft:  var(--accent-bg);
-      --ws-diff-add:     var(--accent);
-      --ws-diff-add-bg:  var(--accent-bg);
-      --ws-diff-del:     var(--danger);
-      --ws-diff-del-bg:  var(--danger-bg);
-      --ws-radius:       10px;
-      --ws-radius-sm:     6px;
-      --ws-rail-w:      260px;
-      --ws-header-h:     44px;
-      --ws-shadow-sm:   0 1px 2px var(--shadow);
-      --ws-shadow-md:   0 8px 24px var(--shadow);
-      --ws-ease:        cubic-bezier(0.22, 0.61, 0.36, 1);
-    }
+    /* Theme tokens (--bg/--ws-*/…) now live in styles/tokens.css, linked
+       above. Everything below is legacy inline layout CSS, migrating out to
+       per-screen files as screens are rebuilt. */
 
     /* Reset the body so the workspace grid takes the full viewport. */
     html, body { height: 100%; overflow: hidden; margin: 0; }
@@ -258,6 +187,11 @@
     .ws-nav-item:hover { background: rgba(0,0,0,0.04); }
     .ws-nav-item.primary { font-weight: 500; }
     .ws-nav-item.primary .icon { color: var(--ws-accent); font-weight: 600; }
+    /* Skills — first-class feature: green icon (theme accent), themed text
+       (var(--ws-text) so it flips light/dark with the app theme). */
+    .ws-nav-skills { font-weight: 500; }
+    .ws-nav-skills .icon { color: var(--ws-accent); }
+    .ws-nav-skills.active { background: var(--ws-accent-soft); }
     .ws-nav-item .icon {
       display: inline-flex;
       align-items: center;
@@ -1943,6 +1877,8 @@
       flex-shrink: 0;
       letter-spacing: -0.02em;
     }
+    .ws-slide-avatar.icon { background: transparent; color: var(--ws-accent); }
+    .ws-slide-avatar.icon svg { width: 18px; height: 18px; display: block; }
     .ws-slide-name {
       flex: 1;
       font-size: 13px;
@@ -2816,6 +2752,14 @@
         <div class="ws-rail-top">
           <div class="ws-nav-item primary" id="new-session">
             <span class="icon">+</span><span>New Session</span>
+          </div>
+          <div class="ws-nav-item ws-nav-skills" id="open-skills" title="Skills — your automations">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </span>
+            <span>Skills</span>
           </div>
           <div class="ws-nav-item" id="open-schedules" title="Run skills on a schedule">
             <span class="icon">

@@ -2393,7 +2393,12 @@ async function boot() {
     getMainWindow: () => mainWindow, panelManager, yoAgent,
   });
 
-  registerSkillsIpc({ skillEngine, mcpManager, appConnector, skillScheduler, canCreateSkill, listBuiltinYoTools });
+  registerSkillsIpc({
+    skillEngine, mcpManager, appConnector, skillScheduler, canCreateSkill, listBuiltinYoTools,
+    // Route the skill's SKILL.md through the same file-open path used by file
+    // links: VS Code (Yo Bridge) when enabled, else the Monaco .Yo Editor.
+    openSkillPath: (absPath: string) => { ipcMain.emit("file-open", null as never, absPath); },
+  });
 
   registerAppsIpc({
     appConnector, layoutManager, dripManager, panelManager,

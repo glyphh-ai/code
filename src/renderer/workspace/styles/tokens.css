@@ -1,0 +1,87 @@
+/**
+ * tokens.css — the single source of truth for workspace design tokens.
+ *
+ * Linked from workspace.html before the (legacy) inline <style>. New screens
+ * and components should consume these vars; never hard-code colors/spacing.
+ * Theme tokens (--bg/--surface/--text/--accent…) flip with [data-theme];
+ * the --ws-* aliases point at them so dark mode "just works".
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --font-sans:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono:  'JetBrains Mono', 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  --bg:          #f5f5f5;
+  --bg-raised:   #ffffff;
+  --surface:     #ffffff;
+  --surface-2:   #fafafa;
+  --surface-3:   #f0f0f0;
+  --border:      #e5e5e5;
+  --border-2:    #d4d4d4;
+  --border-3:    #c4c4c4;
+  --text:        #1f2937;
+  --text-bright: #111111;
+  --text-2:      #4b5563;
+  --text-3:      #6b7280;
+  --text-muted:  #6b7280;
+  --text-faint:  #9ca3af;
+  --hover:       #f0f0f0;
+  --accent:      #25C75E;
+  --accent-hover:#22b855;
+  --accent-bg:   #ecfdf5;
+  --danger:      #ef4444;
+  --danger-bg:   #fef2f2;
+  --overlay-bg:  rgba(0, 0, 0, 0.3);
+  --shadow:      rgba(0, 0, 0, 0.12);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0a0a0a;
+  --bg-raised:   #0d0d0d;
+  --surface:     #111111;
+  --surface-2:   #1a1a1a;
+  --surface-3:   #141414;
+  --border:      #1e1e1e;
+  --border-2:    #2a2a2a;
+  --border-3:    #333333;
+  --text:        #e8e8e8;
+  --text-bright: #ffffff;
+  --text-2:      #a0a0a0;
+  --text-3:      #707070;
+  --text-muted:  #606060;
+  --text-faint:  #484848;
+  --hover:       #1e1e1e;
+  --accent:      #25C75E;
+  --accent-hover:#2dd868;
+  --accent-bg:   #1a2a1e;
+  --danger:      #ff5f57;
+  --danger-bg:   #2a1515;
+  --overlay-bg:  rgba(0, 0, 0, 0.6);
+  --shadow:      rgba(0, 0, 0, 0.4);
+}
+/* Workspace-internal aliases (point at theme tokens so dark mode just works).
+   New code should prefer the raw --bg/--surface/etc. */
+:root {
+  --ws-bg:           var(--bg);
+  --ws-bg-rail:      var(--surface-2);
+  --ws-bg-card:      var(--surface);
+  --ws-line:         var(--border);
+  --ws-line-soft:    var(--border);
+  --ws-text:         var(--text);
+  --ws-text-muted:   var(--text-2);
+  --ws-text-faint:   var(--text-faint);
+  --ws-accent:       var(--accent);
+  --ws-accent-soft:  var(--accent-bg);
+  --ws-diff-add:     var(--accent);
+  --ws-diff-add-bg:  var(--accent-bg);
+  --ws-diff-del:     var(--danger);
+  --ws-diff-del-bg:  var(--danger-bg);
+  --ws-radius:       10px;
+  --ws-radius-sm:     6px;
+  --ws-rail-w:      260px;
+  --ws-header-h:     44px;
+  --ws-shadow-sm:   0 1px 2px var(--shadow);
+  --ws-shadow-md:   0 8px 24px var(--shadow);
+  --ws-ease:        cubic-bezier(0.22, 0.61, 0.36, 1);
+}

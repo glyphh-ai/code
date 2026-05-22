@@ -21,6 +21,7 @@ import { initModes } from "./modes.js";
 import { initLauncher } from "./launcher.js";
 import { initRecents } from "./recents.js";
 import { initCustomize } from "./customize.js";
+import { initSkills } from "./screens/skills/skills.js";
 
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -83,6 +84,7 @@ import { initCustomize } from "./customize.js";
   initLauncher(ctx);   // needs pushSlide, wsConfirm → APPS
   initRecents(ctx);    // needs clearStack, closeAllChatOverlays, wsConfirm, placeView, viewIsOpen → renderRecents
   initCustomize(ctx);  // needs pushSlide, popSlide, slideStack
+  initSkills(ctx);     // Skills screen (rail item → slide). needs pushSlide, popSlide, slideStack
 
   const { pushSlide, popSlide, clearStack, closeAllChatOverlays, renderRecents, APPS } = ctx;
 

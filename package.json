@@ -12,7 +12,7 @@
     "build:monaco": "shx cp src/renderer/monaco.html dist/renderer/ && shx cp -r node_modules/monaco-editor/min/vs dist/renderer/monaco",
     "build:code-workspace": "esbuild src/renderer/code-workspace.ts --bundle --outfile=dist/renderer/code-workspace-bundle.js --platform=browser && esbuild src/renderer/code-preload.ts --bundle --outfile=dist/main/code-workspace-preload.js --platform=node --external:electron && shx cp src/renderer/code-workspace.html dist/renderer/",
     "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
-    "build:workspace": "esbuild src/renderer/workspace.ts --bundle --outfile=dist/renderer/workspace-bundle.js --platform=browser && esbuild src/renderer/workspace/shell.ts --bundle --outfile=dist/renderer/workspace-shell.js --platform=browser && shx cp src/renderer/workspace.html dist/renderer/",
+    "build:workspace": "esbuild src/renderer/workspace.ts --bundle --outfile=dist/renderer/workspace-bundle.js --platform=browser && esbuild src/renderer/workspace/shell.ts --bundle --outfile=dist/renderer/workspace-shell.js --platform=browser && shx cp src/renderer/workspace.html dist/renderer/ && shx mkdir -p dist/renderer/styles && shx cp -r src/renderer/workspace/styles/* dist/renderer/styles/",
     "bench:code-index": "npm run build:main && node dist/main/code-index/benchmark.js",
     "bench:code-index-ab": "npm run build:main && node dist/main/code-index/benchmark-ab.js",
     "start": "electron .",

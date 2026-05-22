@@ -32,6 +32,10 @@ export function initSlides(ctx) {
     el.style.transform = "";
     el.classList.add("active");
     renderStackDots();
+    // Let screen-style slides wire up their freshly-mounted body.
+    if (typeof app.onMount === "function") {
+      try { app.onMount(el); } catch (err) { console.warn("[slides] onMount failed:", err); }
+    }
   }
   function popSlide() {
     if (slideStack.length === 0) return;
@@ -76,8 +80,14 @@ export function initSlides(ctx) {
       <div class="ws-slide-body">${bodyMarkup}</div>
     `;
     const avatar = el.querySelector(".ws-slide-avatar");
-    avatar.textContent = app.letter;
-    avatar.style.background = app.color;
+    if (app.iconSvg) {
+      // Screen slides render a themed glyph icon instead of a letter badge.
+      avatar.classList.add("icon");
+      avatar.innerHTML = app.iconSvg;
+    } else {
+      avatar.textContent = app.letter;
+      avatar.style.background = app.color;
+    }
     el.querySelector(".ws-slide-name").textContent = app.name;
     const stubBig = el.querySelector(".ws-slide-body-stub .big");
     if (stubBig) {
