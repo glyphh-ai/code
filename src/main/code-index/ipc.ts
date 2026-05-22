@@ -7,13 +7,28 @@
  */
 
 import { ipcMain } from "electron";
+import os from "os";
+import path from "path";
 import { buildCodeIndex } from "./builder";
 import { setCurrentIndex, getCurrentIndex } from "./search";
 
 let building = false;
 
+/** Auto-indexing the entire home folder (or filesystem root) walks tens of
+ *  thousands of files synchronously and freezes the app on the boot warm-up —
+ *  and a whole-home index isn't useful anyway. Skip those; a real project dir
+ *  indexes fine (and the walker is file-capped as a backstop). */
+function tooBroadToAutoIndex(dir: string): boolean {
+  const resolved = path.resolve(dir);
+  return resolved === path.resolve(os.homedir()) || resolved === path.parse(resolved).root;
+}
+
 export function reindexFor(dir: string): void {
   if (building) return;
+  if (tooBroadToAutoIndex(dir)) {
+    console.log(`[code-index] skipping auto-index of broad dir: ${dir}`);
+    return;
+  }
   building = true;
   try {
     setCurrentIndex(buildCodeIndex(dir));

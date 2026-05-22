@@ -25,6 +25,13 @@ const STEP = MAX_CHUNK_LINES - OVERLAP_LINES;
 
 const MAX_FILE_BYTES = 512 * 1024;
 
+// Hard cap on indexed files. The walk + chunk is synchronous and blocks the
+// main process, so an unbounded tree (a working dir set to $HOME, or a giant
+// monorepo) freezes the app on the boot warm-up. A real project is well under
+// this; hitting it means the root is too broad and a partial index is the
+// right tradeoff over a multi-second main-thread stall.
+const MAX_INDEX_FILES = 4000;
+
 const SOURCE_EXTS = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt",
   "c", "h", "cc", "cpp", "hpp", "cs", "rb", "php", "swift", "scala", "sh",
@@ -43,10 +50,13 @@ const SIGNATURE_RE =
 /** Recursively collect indexable source files under `root`. */
 export function walkSourceFiles(root: string): string[] {
   const out: string[] = [];
+  let capped = false;
   const visit = (dir: string) => {
+    if (capped) return;
     let entries: fs.Dirent[];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
+      if (capped) return;
       if (e.name.startsWith(".") && e.name !== ".") {
         if (e.isDirectory()) continue; // skip dotdirs (.git etc.)
       }
@@ -55,7 +65,14 @@ export function walkSourceFiles(root: string): string[] {
         if (!SKIP_DIRS.has(e.name)) visit(full);
       } else if (e.isFile()) {
         const ext = path.extname(e.name).slice(1).toLowerCase();
-        if (SOURCE_EXTS.has(ext)) out.push(full);
+        if (SOURCE_EXTS.has(ext)) {
+          out.push(full);
+          if (out.length >= MAX_INDEX_FILES) {
+            console.warn(`[code-index] file cap (${MAX_INDEX_FILES}) reached under ${root} — root too broad; index will be partial`);
+            capped = true;
+            return;
+          }
+        }
       }
     }
   };
