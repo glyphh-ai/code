@@ -49,6 +49,7 @@ export interface YoBridge {
     name: string, manifest: Record<string, unknown>, prompt: string, runnerCode?: string | null,
   ): Promise<boolean | { error: string }>;
   skillsOpenInEditor(name: string): Promise<boolean>;
+  skillsOpenFileInEditor(name: string, rel: string): Promise<boolean>;
   skillsRun(name: string, input: unknown): Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
   onSkillProgress(cb: (data: { runId: string; event: SkillProgressEvent }) => void): void;
   // …extend per screen. Prefer adding the exact signatures you use.

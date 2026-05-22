@@ -127,6 +127,14 @@ export function registerSkillsIpc(deps: SkillsIpcDeps): void {
     openSkillPath?.(target);
     return true;
   });
+  // Open a specific file within a skill's folder in VS Code / the editor.
+  ipcMain.handle("skills-open-file-in-editor", (_e, name: string, rel: string) => {
+    const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+    const safeRel = (rel || "").replace(/\.\.(\/|\\|$)/g, "").replace(/^[/\\]+/, "");
+    if (!safe || !safeRel) return false;
+    openSkillPath?.(path.join(skillEngine.getSkillsDir(), safe, safeRel));
+    return true;
+  });
   // Run a skill (LLM call with skill's prompt)
   ipcMain.handle("skills-run", async (_e, name: string, input: unknown) => {
     try {
