@@ -1,25 +1,25 @@
 /**
  * relay-client — persistent WebSocket to yo-server's /ws/relay endpoint.
  *
- * The local yo-client authenticates with a CLIENT-type MCP bearer token. Once
- * the socket is up, the server can forward MCP-style requests from external
- * callers (Claude code, etc.) holding an EXTERNAL token scoped to the same
- * user. Each request carries a reqId; this module dispatches it to a handler
- * by `method` and sends back a `{type:"response",reqId,ok,...}` frame.
+ * Authenticates with the user's existing JWT (the one from platform login —
+ * same token serverPostAuthed uses). No separate client-side token to manage:
+ * if you're signed in, the WS knows who you are. Once the socket is up, the
+ * server can forward MCP-style requests from external callers (Claude code,
+ * etc.) holding an EXTERNAL token scoped to the same user.
  *
  * Wire protocol (JSON frames):
  *   server → client: { type:"request", reqId, method, params }
  *   client → server: { type:"response", reqId, ok, result?, error? }
  *                    { type:"ping" }  (heartbeat — optional, server also pings)
  *
- * Connection is opt-in: the relay only starts when a client token is set
- * (preference `relayClientToken` or env `YO_RELAY_CLIENT_TOKEN`). Reconnect
- * uses exponential backoff capped at 30s so a flapping server doesn't burn
- * the user's CPU or trip the rate limiter.
+ * Connection is opt-in: the relay only starts when the `relayEnabled`
+ * preference is on. Reconnect uses exponential backoff capped at 30s so a
+ * flapping server doesn't burn the user's CPU or trip the rate limiter.
  */
 
 import { WebSocket } from "ws";
 import { getPreference } from "./stores/preferences-db.js";
+import { getAuthToken, isAuthenticated } from "./auth.js";
 
 const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
 
@@ -43,17 +43,8 @@ let reconnectTimer: NodeJS.Timeout | null = null;
 let backoffMs = 1_000;                            // grows on each failed attempt
 let started = false;
 
-function clientToken(): string | null {
-  const envTok = process.env.YO_RELAY_CLIENT_TOKEN;
-  if (envTok) return envTok;
-  const pref = getPreference<string>("relayClientToken", "");
-  return pref && pref.length > 0 ? pref : null;
-}
-
 function relayEnabled(): boolean {
-  // Two ways to enable: explicit toggle, or just setting a token.
-  const explicit = getPreference<boolean>("relayEnabled", false);
-  return explicit || !!process.env.YO_RELAY_CLIENT_TOKEN;
+  return getPreference<boolean>("relayEnabled", false);
 }
 
 async function dispatch(method: string, params: unknown): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
@@ -79,8 +70,9 @@ function scheduleReconnect(reason: string): void {
 
 function connect(): void {
   if (!relayEnabled()) return;
-  const token = clientToken();
-  if (!token) return;                              // wait for the user to set one
+  if (!isAuthenticated()) return;                  // wait until the user is signed in
+  const token = getAuthToken();
+  if (!token) return;
 
   const url = relayUrl();
   let ws: WebSocket;
@@ -150,13 +142,13 @@ export function reconnectRelay(): void {
 }
 
 /** Snapshot of the relay's current state — for the Settings status indicator. */
-export function getRelayStatus(): { enabled: boolean; hasToken: boolean; state: "off" | "connecting" | "connected" | "disconnected" } {
+export function getRelayStatus(): { enabled: boolean; signedIn: boolean; state: "off" | "connecting" | "connected" | "disconnected" } {
   const enabled = relayEnabled();
-  const hasToken = !!clientToken();
+  const signedIn = isAuthenticated();
   let state: "off" | "connecting" | "connected" | "disconnected" = "off";
-  if (!enabled || !hasToken) state = "off";
+  if (!enabled || !signedIn) state = "off";
   else if (socket && socket.readyState === WebSocket.OPEN) state = "connected";
   else if (socket && socket.readyState === WebSocket.CONNECTING) state = "connecting";
   else state = "disconnected";
-  return { enabled, hasToken, state };
+  return { enabled, signedIn, state };
 }

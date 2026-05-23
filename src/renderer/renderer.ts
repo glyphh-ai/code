@@ -290,7 +290,10 @@ declare global {
       mcpExposeRevokeToken: (token: string) => Promise<void>;
       // Remote relay
       relayReconnect: () => Promise<void>;
-      relayStatus: () => Promise<{ enabled: boolean; hasToken: boolean; state: "off" | "connecting" | "connected" | "disconnected" }>;
+      relayStatus: () => Promise<{ enabled: boolean; signedIn: boolean; state: "off" | "connecting" | "connected" | "disconnected" }>;
+      relayTokensList: () => Promise<Array<{ id: string; label: string; type: string; userId: string | null; createdAt: string; expiresAt: string }> | { error: string }>;
+      relayTokensCreate: (label: string) => Promise<{ ok: boolean; id: string; token: string; expiresAt: string } | { error: string }>;
+      relayTokensRevoke: (id: string) => Promise<{ ok: boolean } | { error: string }>;
 
       // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
       providerKeysList: () => Promise<Array<{

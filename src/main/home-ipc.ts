@@ -14,6 +14,7 @@ import type { McpManager } from "./mcp-manager";
 import type { ConnectorManager } from "./connectors";
 import type { PanelManager } from "./panel-manager";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
+import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed } from "./auth";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -39,12 +40,30 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose.revokeToken(token); });
 
-  // Relay: bouncing the WS after the user changes the client token / toggle.
-  // Settings prefs (relayEnabled, relayClientToken, relayServerToken) ride
-  // through the regular get/set-preference channels; this just forces a
-  // reconnect so the new values take effect immediately.
+  // Relay: bouncing the WS after the user flips the toggle, and proxying
+  // token CRUD to yo-server (the JWT authenticates these calls — same one
+  // the WS uses, so signed-in org admins can manage their own server tokens
+  // without ever opening the platform).
   ipcMain.handle("relay-reconnect", () => { reconnectRelay(); });
   ipcMain.handle("relay-status", () => getRelayStatus());
+  ipcMain.handle("relay-tokens-list", async () => {
+    try { return await serverGetAuthed<unknown[]>("/api/mcp/tokens?type=EXTERNAL"); }
+    catch (err) { return { error: err instanceof Error ? err.message : String(err) }; }
+  });
+  ipcMain.handle("relay-tokens-create", async (_e, label: string) => {
+    try {
+      return await serverPostAuthed<{ ok: boolean; id: string; token: string; expiresAt: string }>(
+        "/api/mcp/tokens",
+        { label: label || "default", type: "EXTERNAL" },
+      );
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("relay-tokens-revoke", async (_e, id: string) => {
+    try { return await serverDeleteAuthed<{ ok: boolean }>(`/api/mcp/tokens/${encodeURIComponent(id)}`); }
+    catch (err) { return { error: err instanceof Error ? err.message : String(err) }; }
+  });
 
   ipcMain.handle("mcp-get-servers", () => {
     if (!mcpManager) return [];

@@ -354,23 +354,25 @@ function initSettings() {
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
 
-  // ── Remote Relay wiring ───────────────────────────────────
+  // ── Remote Relay wiring (org-admin only) ──────────────────
+  const relaySection = document.getElementById("relay-section");
   const relayEnabledToggle = document.getElementById("relay-enabled-toggle") as HTMLInputElement;
-  const relayClientTokenInput = document.getElementById("relay-client-token") as HTMLInputElement;
-  const relayServerTokenInput = document.getElementById("relay-server-token") as HTMLInputElement;
   const relayStatusText = document.getElementById("relay-status-text");
   const relayConfigExample = document.getElementById("relay-config-example");
+  const relayTokensList = document.getElementById("relay-tokens-list");
+  const relayNewTokenBox = document.getElementById("relay-new-token");
+  const relayNewTokenValue = document.getElementById("relay-new-token-value");
+  const relayLabelInput = document.getElementById("relay-token-label") as HTMLInputElement;
 
   function renderRelayConfig(): void {
     if (!relayConfigExample) return;
-    const tok = relayServerTokenInput.value.trim() || "<your-server-token>";
     relayConfigExample.textContent = `{
   "mcpServers": {
     "yo-relay": {
       "type": "http",
       "url": "https://api.yosup.dev/mcp",
       "headers": {
-        "Authorization": "Bearer ${tok}"
+        "Authorization": "Bearer <your-token>"
       }
     }
   }
@@ -380,8 +382,8 @@ function initSettings() {
   async function refreshRelayStatus(): Promise<void> {
     if (!relayStatusText) return;
     const s = await window.yo.relayStatus();
-    const label = !s.enabled ? "Disabled."
-      : !s.hasToken ? "Enabled but no client token set."
+    const label = !s.signedIn ? "Sign in first."
+      : !s.enabled ? "Disabled."
       : s.state === "connected" ? "Connected to api.yosup.dev"
       : s.state === "connecting" ? "Connecting…"
       : s.state === "disconnected" ? "Disconnected — retrying"
@@ -390,20 +392,70 @@ function initSettings() {
     relayStatusText.style.color = s.state === "connected" ? "var(--accent)" : "var(--text-3)";
   }
 
+  function tokenRow(t: { id: string; label: string; createdAt: string; expiresAt: string }): HTMLElement {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);border:1px solid var(--border-2);border-radius:6px;margin-bottom:4px;font-size:12px;";
+    const created = t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "";
+    const expires = t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : "";
+    row.innerHTML = `
+      <span style="flex:1;color:var(--text);">${escapeHtmlLocal(t.label || "(unnamed)")}</span>
+      <span style="color:var(--text-3);font-size:11px;">${created} → ${expires}</span>
+      <button class="action-btn danger" data-revoke="${escapeHtmlLocal(t.id)}" style="font-size:11px;padding:3px 10px;">Revoke</button>`;
+    row.querySelector("[data-revoke]")!.addEventListener("click", async () => {
+      if (!confirm(`Revoke "${t.label || "this token"}"? External tools using it will stop working.`)) return;
+      const res = await window.yo.relayTokensRevoke(t.id);
+      if ("error" in res) { alert(`Could not revoke: ${res.error}`); return; }
+      void refreshRelayTokens();
+    });
+    return row;
+  }
+
+  function escapeHtmlLocal(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  async function refreshRelayTokens(): Promise<void> {
+    if (!relayTokensList) return;
+    relayTokensList.innerHTML = "";
+    const res = await window.yo.relayTokensList();
+    if ("error" in res) {
+      relayTokensList.innerHTML = `<div style="font-size:12px;color:var(--text-3);">Could not load tokens: ${escapeHtmlLocal(res.error)}</div>`;
+      return;
+    }
+    const tokens = res as Array<{ id: string; label: string; createdAt: string; expiresAt: string }>;
+    if (tokens.length === 0) {
+      relayTokensList.innerHTML = `<div style="font-size:12px;color:var(--text-3);">No tokens yet — generate one below.</div>`;
+      return;
+    }
+    for (const t of tokens) relayTokensList.appendChild(tokenRow(t));
+  }
+
   relayEnabledToggle.addEventListener("change", async () => {
     window.yo.setPreference("relayEnabled", relayEnabledToggle.checked);
     await window.yo.relayReconnect();
     void refreshRelayStatus();
   });
-  document.getElementById("relay-client-token-save")!.addEventListener("click", async () => {
-    window.yo.setPreference("relayClientToken", relayClientTokenInput.value.trim());
-    await window.yo.relayReconnect();
-    void refreshRelayStatus();
+
+  document.getElementById("relay-gen-token")!.addEventListener("click", async () => {
+    const label = relayLabelInput.value.trim() || "default";
+    const res = await window.yo.relayTokensCreate(label);
+    if ("error" in res) { alert(`Could not create token: ${res.error}`); return; }
+    relayLabelInput.value = "";
+    if (relayNewTokenBox && relayNewTokenValue) {
+      relayNewTokenValue.textContent = res.token;
+      relayNewTokenBox.classList.remove("hidden");
+    }
+    void refreshRelayTokens();
   });
-  document.getElementById("relay-server-token-save")!.addEventListener("click", () => {
-    window.yo.setPreference("relayServerToken", relayServerTokenInput.value.trim());
-    renderRelayConfig();
+
+  document.getElementById("relay-copy-new-token")!.addEventListener("click", () => {
+    const val = relayNewTokenValue?.textContent || "";
+    window.yo.copyToClipboard(val);
+    const btn = document.getElementById("relay-copy-new-token") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
+
   document.getElementById("relay-copy-config")!.addEventListener("click", () => {
     const val = relayConfigExample?.textContent || "";
     window.yo.copyToClipboard(val);
@@ -411,21 +463,23 @@ function initSettings() {
     btn.textContent = "Copied";
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
-  relayServerTokenInput.addEventListener("input", renderRelayConfig);
 
-  // Initial paint: load saved values + render config + poll status every 3s
-  // while the panel is open.
+  // Gate the whole subsection to org_admin / super_admin. Non-admins see
+  // nothing (the platform UI is also admin-only, so this is consistent).
   void (async () => {
+    const acct = await window.yo.getAccountInfo();
+    const role = acct?.role || "";
+    const allowed = role === "org_admin" || role === "super_admin";
+    if (!allowed) return;                              // leave .hidden
+    relaySection?.classList.remove("hidden");
+
     const enabled = await window.yo.getPreference("relayEnabled", false) as boolean;
-    const cTok = await window.yo.getPreference("relayClientToken", "") as string;
-    const sTok = await window.yo.getPreference("relayServerToken", "") as string;
     relayEnabledToggle.checked = !!enabled;
-    relayClientTokenInput.value = cTok || "";
-    relayServerTokenInput.value = sTok || "";
     renderRelayConfig();
     void refreshRelayStatus();
+    void refreshRelayTokens();
+    setInterval(refreshRelayStatus, 3_000);
   })();
-  setInterval(refreshRelayStatus, 3_000);
 
   // Agent mode
   settingsAgentMode.addEventListener("change", () => {

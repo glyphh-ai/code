@@ -1730,42 +1730,45 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     </div>
                   </div>
 
-                  <!-- ── Remote Relay ─────────────────────────────────── -->
-                  <hr style="border:none;border-top:1px solid var(--border-2);margin:24px 0;" />
-                  <div style="margin-bottom:8px;">
-                    <h3 class="settings-subheading" style="margin:0 0 4px;">Remote Relay</h3>
-                    <p style="font-size:12px;color:var(--text-2);margin:0 0 10px;">
-                      Let external LLMs (Claude code, Claude UI, ChatGPT) drive your .Yo instance through the cloud — list and switch panels, click / type / read DOM, take screenshots.
-                      Set <strong>two tokens</strong>: a <em>client token</em> stays here and authenticates your yo-client to the server; a <em>server token</em> is what you paste into the external tool's MCP config. Each is scoped to your user.
-                    </p>
-                    <label class="settings-toggle" style="margin-bottom:10px;">
-                      <input type="checkbox" id="relay-enabled-toggle" />
-                      <span class="toggle-switch"></span>
-                      <div class="toggle-info">
-                        <span class="toggle-title">Enable remote relay</span>
-                        <span class="toggle-desc">When on, your yo-client maintains a WebSocket to <span id="relay-status-pill" style="color:var(--text-3);">api.yosup.dev</span></span>
+                  <!-- ── Remote Relay (org-admin only) ────────────────── -->
+                  <div id="relay-section" class="hidden">
+                    <hr style="border:none;border-top:1px solid var(--border-2);margin:24px 0;" />
+                    <div style="margin-bottom:8px;">
+                      <h3 class="settings-subheading" style="margin:0 0 4px;">Remote Relay</h3>
+                      <p style="font-size:12px;color:var(--text-2);margin:0 0 10px;">
+                        Let external LLMs (Claude code, Claude UI, ChatGPT) drive your .Yo instance through the cloud — list and switch panels, click / type / read DOM, take screenshots. Your sign-in pairs this device to the relay; generate one or more <em>server tokens</em> below and paste them into your external tool's MCP config.
+                      </p>
+                      <label class="settings-toggle" style="margin-bottom:10px;">
+                        <input type="checkbox" id="relay-enabled-toggle" />
+                        <span class="toggle-switch"></span>
+                        <div class="toggle-info">
+                          <span class="toggle-title">Enable remote relay</span>
+                          <span class="toggle-desc">When on, your yo-client maintains a WebSocket to api.yosup.dev</span>
+                        </div>
+                      </label>
+                      <span id="relay-status-text" style="font-size:11px;color:var(--text-3);margin-top:4px;display:inline-block;">Not connected.</span>
+
+                      <h4 style="font-size:12px;font-weight:600;color:var(--text);margin:18px 0 6px;">Server tokens</h4>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 10px;">One token per external tool. Tokens are shown <strong>once</strong> on creation — copy immediately.</p>
+                      <div id="relay-new-token" class="hidden" style="background:var(--surface-2);border:1px solid var(--accent);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+                        <p style="font-size:11px;color:var(--accent);margin:0 0 6px;font-weight:600;">Token created — copy it now, it won't be shown again</p>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                          <code id="relay-new-token-value" style="flex:1;background:var(--bg);padding:5px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
+                          <button id="relay-copy-new-token" class="action-btn primary" style="font-size:11px;padding:4px 12px;white-space:nowrap;">Copy</button>
+                        </div>
                       </div>
-                    </label>
+                      <div id="relay-tokens-list" style="margin-bottom:10px;"></div>
+                      <div style="display:flex;gap:6px;align-items:center;">
+                        <input id="relay-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude code, ChatGPT)" style="flex:1;font-size:12px;padding:5px 8px;" />
+                        <button id="relay-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
+                      </div>
 
-                    <label class="settings-label" style="margin-top:6px;">Client token (stays here)</label>
-                    <div style="display:flex;gap:6px;align-items:center;">
-                      <input id="relay-client-token" type="password" class="settings-input" placeholder="yo_..." spellcheck="false" autocomplete="off" style="flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;" />
-                      <button id="relay-client-token-save" class="action-btn primary" style="font-size:12px;white-space:nowrap;">Save &amp; Connect</button>
-                    </div>
-                    <span id="relay-status-text" style="font-size:11px;color:var(--text-3);margin-top:4px;display:inline-block;">Not connected.</span>
-
-                    <label class="settings-label" style="margin-top:14px;">Server token (paste into external tool)</label>
-                    <div style="display:flex;gap:6px;align-items:center;">
-                      <input id="relay-server-token" type="password" class="settings-input" placeholder="yo_..." spellcheck="false" autocomplete="off" style="flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;" />
-                      <button id="relay-server-token-save" class="action-btn" style="font-size:12px;white-space:nowrap;">Save</button>
-                    </div>
-                    <p style="font-size:11px;color:var(--text-3);margin:4px 0 0;">Stored locally just so the example config below can render it. The server doesn't need this copy.</p>
-
-                    <h4 style="font-size:12px;font-weight:600;color:var(--text);margin:16px 0 6px;">External tool config</h4>
-                    <p style="font-size:11px;color:var(--text-3);margin:0 0 6px;">Add this to the external tool's MCP config:</p>
-                    <div style="position:relative;">
-                      <pre id="relay-config-example" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
-                      <button id="relay-copy-config" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
+                      <h4 style="font-size:12px;font-weight:600;color:var(--text);margin:18px 0 6px;">External tool config</h4>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 6px;">Add this to the external tool's MCP config. Replace <code style="color:var(--accent);">&lt;your-token&gt;</code> with a generated token above.</p>
+                      <div style="position:relative;">
+                        <pre id="relay-config-example" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
+                        <button id="relay-copy-config" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
+                      </div>
                     </div>
                   </div>
 
