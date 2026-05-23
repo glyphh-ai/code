@@ -191,6 +191,45 @@ export async function testKey(provider: ProviderId): Promise<{ ok: boolean; erro
 }
 
 /**
+ * Send a real one-shot prompt through the provider's inference API with the
+ * stored key and return the model's reply — so the Providers page can prove
+ * end-to-end connectivity (not just key validity).
+ */
+export async function testPrompt(
+  provider: ProviderId,
+  model?: string,
+  prompt?: string,
+): Promise<{ ok: boolean; text?: string; model?: string; error?: string }> {
+  if (!isValidProvider(provider)) return { ok: false, error: "unknown provider" };
+  const key = getKey(provider);
+  if (!key) return { ok: false, error: "no key configured" };
+  const { getDefaultModel } = await import("./provider-models");
+  const useModel = (model && model.trim()) || getDefaultModel(provider);
+  const userPrompt = (prompt && prompt.trim())
+    || "Reply in one short sentence confirming the connection works, and name the model you are.";
+  const { runByokStream } = await import("./provider-adapters/byok-client");
+  let text = "";
+  let streamErr = "";
+  try {
+    await runByokStream(
+      provider,
+      { model: useModel, messages: [{ role: "user", content: userPrompt }], maxTokens: 120 },
+      { onText: (d) => { text += d; }, onError: (m) => { streamErr = m; } },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "test failed";
+    recordTestResult(provider, false, msg);
+    return { ok: false, error: msg, model: useModel };
+  }
+  if (!text.trim() && streamErr) {
+    recordTestResult(provider, false, streamErr);
+    return { ok: false, error: streamErr, model: useModel };
+  }
+  recordTestResult(provider, true);
+  return { ok: true, text: text.trim() || "(empty response)", model: useModel };
+}
+
+/**
  * Cheapest possible "is this key live" call per provider. Uses HEAD/GET
  * against the provider's models-list or equivalent endpoint where
  * available; falls back to a 1-token completion when no listing is

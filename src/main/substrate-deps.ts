@@ -14,6 +14,8 @@ import type { BrowserWindow } from "electron";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import type { SubstrateToolDeps } from "./substrate/tools";
+import { getCurrentCouncil } from "./current-council";
+import { renderCouncilStatus, summarizeCouncil, interjectCouncil } from "./council-session";
 
 // ── Deps interface ──────────────────────────────────────────────
 
@@ -37,8 +39,23 @@ export interface BuildSubstrateDepsArgs {
   browserHtmlUrl: (initialUrl?: string) => string;
   execCommand: (cmd: string, sourcePanelId?: string) => Promise<string>;
 
+  // User-created agent registry (drives list_agents / call_agent tools).
+  agentRegistry?: {
+    list: () => Array<{ id: string; name: string; role?: string; mode?: string }>;
+    get: (id: string) => { id: string; name: string; role?: string } | null;
+  };
+
   // Local swarm — draft + spawn (returns a text status for the yo agent).
   swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+
+  // Local council — convene a multi-LLM debate + open the Council app.
+  councilCreate: (config: {
+    council_prompt: string;
+    name?: string;
+    style?: string;
+    round_cap?: number;
+    members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
+  }) => Promise<string>;
 }
 
 // ── Builder ─────────────────────────────────────────────────────
@@ -59,6 +76,8 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     browserHtmlUrl,
     execCommand,
     swarmCreate,
+    councilCreate,
+    agentRegistry,
   } = deps;
 
   return {
@@ -309,8 +328,41 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
       return result;
     },
+    apps: {
+      list: () => appConnector.list().map((a) => ({
+        id: a.id,
+        name: a.name,
+        url: a.url,
+        description: (a as { description?: string }).description,
+      })),
+      open: async (id: string) => {
+        const result = await execCommand(`dip ${id}`);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
+        return result;
+      },
+    },
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
     },
+    council: {
+      create: (config) => councilCreate(config),
+      status: () => {
+        const id = getCurrentCouncil();
+        return id ? renderCouncilStatus(id) : "No council is currently open in the Council app.";
+      },
+      summarize: async () => {
+        const id = getCurrentCouncil();
+        if (!id) return "No council is currently open in the Council app.";
+        const r = await summarizeCouncil(id);
+        return r.ok ? (r.text || "(empty summary)") : `Summarize failed: ${r.error}`;
+      },
+      interject: (text: string) => {
+        const id = getCurrentCouncil();
+        if (!id) return "No council is currently open in the Council app.";
+        const r = interjectCouncil(id, text);
+        return r.ok ? "Moderator note queued for the council's next round." : `Failed: ${r.error}`;
+      },
+    },
+    agentRegistry,
   };
 }

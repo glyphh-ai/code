@@ -39,7 +39,6 @@
       <nav id="help-nav">
         <div class="help-brand"><span class="dot">.</span>Yo</div>
         <button class="help-nav-item active" data-section="dashboard">Dashboard</button>
-        <button class="help-nav-item" data-section="guide">Guide</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="docs">Docs</button>
           <div class="help-nav-sub">
@@ -56,6 +55,7 @@
         </div>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="agents">Agents</button>
+        <button class="help-nav-item" data-section="councils">Councils</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="drips">Drips</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
@@ -71,8 +71,6 @@
             <button class="help-nav-sub-item" data-section="settings" data-sub="advanced">Advanced</button>
           </div>
         </div>
-        <button class="help-nav-item" data-section="support">Support</button>
-        <button class="help-nav-item" data-section="about">About</button>
         <div class="help-nav-spacer"></div>
         <div class="help-nav-user">
           <button class="help-nav-user-item" id="user-menu-platform">
@@ -406,6 +404,7 @@
         <div class="help-section" data-section="docs">
           <div class="settings-layout">
             <nav class="settings-nav docs-nav">
+              <button id="docs-back-settings" class="settings-nav-back">&#x2190; Settings</button>
               <button class="settings-nav-item active" data-doc="navigation">Navigation</button>
               <button class="settings-nav-item" data-doc="commands">Commands</button>
               <button class="settings-nav-item" data-doc="apps">Apps</button>
@@ -714,149 +713,9 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
         </div>
 
         <!-- Skills -->
+        <!-- Skills — file explorer (tree + preview), ported from v4 -->
         <div class="help-section" data-section="skills">
-          <h2>Skills</h2>
-          <p class="section-desc">Reusable prompts and automations. Skills can process content, call tools, run on schedules, and chain together.</p>
-          <div id="skills-limit-msg" class="hidden" style="padding:4px 0 8px;font-size:13px;color:var(--text-2);">You've reached the free plan limit of 5 skills. <a id="skills-upgrade-link" href="#" style="color:var(--accent);">Upgrade</a> to add more.</div>
-          <div id="skills-toolbar" class="crud-toolbar">
-            <input id="skill-search" type="text" class="crud-search" placeholder="Search skills..." spellcheck="false" autocomplete="off" />
-            <button id="skill-new-btn" class="action-btn primary">+ New</button>
-          </div>
-          <div id="skills-list" class="crud-cards"></div>
-
-          <!-- Skill editor: form on the LEFT, file tree + Monaco on the RIGHT -->
-          <div id="skill-editor" class="crud-inline-form hidden skill-editor-split">
-            <div class="crud-inline-header">
-              <a class="crud-breadcrumb-back" id="skill-back-link">← Skills</a>
-              <div class="crud-spacer"></div>
-              <button id="skill-export" class="action-btn" title="Export .yo bundle">Export</button>
-            </div>
-            <div id="skill-form-error" class="crud-form-error hidden"></div>
-
-            <div class="skill-split-body">
-              <div class="skill-split-left">
-
-                <div class="skill-left-form">
-                  <label class="settings-label">Name</label>
-                  <input type="text" id="skill-name" class="settings-input" placeholder="skill-name" spellcheck="false" autocomplete="off" />
-
-                  <label class="settings-label">Description</label>
-                  <textarea id="skill-desc" class="settings-input" rows="2" placeholder="What does this skill do?" spellcheck="false"></textarea>
-
-                  <label class="settings-label">Allowed tools</label>
-                  <div id="skill-tools-list" class="skill-row-list"></div>
-                  <button id="skill-tools-add" class="skill-row-add-btn" type="button">+ Add tool</button>
-
-                  <label class="settings-label">Depends on <span style="color:var(--text-2);font-weight:400;">(skills this skill can call)</span></label>
-                  <div id="skill-requires-list" class="skill-row-list"></div>
-                  <button id="skill-requires-add" class="skill-row-add-btn" type="button">+ Add dependency</button>
-
-                  <label class="settings-label">Schedule</label>
-                  <div id="skill-schedule-builder" class="skill-schedule-builder">
-                    <div class="sched-row">
-                      <select id="skill-schedule-freq" class="settings-input skill-sched-select">
-                        <option value="">None</option>
-                        <option value="minutes">Every N minutes</option>
-                        <option value="hourly">Hourly</option>
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                        <option value="weekdays">Weekdays (Mon-Fri)</option>
-                        <option value="custom">Custom cron</option>
-                      </select>
-                    </div>
-                    <div id="skill-schedule-opts" class="skill-schedule-opts hidden"></div>
-                    <div id="sched-days-row" class="sched-days hidden">
-                      <div class="sched-day-chips">
-                        <button type="button" class="sched-day-chip" data-dow="1">Mon</button>
-                        <button type="button" class="sched-day-chip" data-dow="2">Tue</button>
-                        <button type="button" class="sched-day-chip" data-dow="3">Wed</button>
-                        <button type="button" class="sched-day-chip" data-dow="4">Thu</button>
-                        <button type="button" class="sched-day-chip" data-dow="5">Fri</button>
-                        <button type="button" class="sched-day-chip" data-dow="6">Sat</button>
-                        <button type="button" class="sched-day-chip" data-dow="0">Sun</button>
-                      </div>
-                    </div>
-                    <div id="sched-time-row" class="sched-time-row hidden">
-                      <label>at</label>
-                      <select id="sched-hour" class="sched-sel"></select>
-                      <span>:</span>
-                      <select id="sched-minute" class="sched-sel"></select>
-                    </div>
-                    <div id="sched-dom-row" class="sched-dom-row hidden">
-                      <label>on day</label>
-                      <select id="sched-dom" class="sched-sel"></select>
-                    </div>
-                    <div id="sched-interval-row" class="sched-interval-row hidden">
-                      <label>every</label>
-                      <select id="sched-interval" class="sched-sel"></select>
-                      <span id="sched-interval-unit">minutes</span>
-                    </div>
-                    <input type="text" id="skill-schedule-cron" class="settings-input hidden" placeholder="* * * * *" spellcheck="false" style="font-family:var(--font-mono);font-size:12px;margin-top:4px;" />
-                    <div id="sched-preview" class="sched-preview hidden"></div>
-                  </div>
-
-                </div>
-
-                <div class="skill-left-footer">
-                  <button id="skill-delete" class="action-btn danger">Delete</button>
-                  <div style="flex:1;"></div>
-                  <button id="skill-run" class="action-btn">Run</button>
-                  <button id="skill-cancel" class="action-btn">Cancel</button>
-                  <button id="skill-save" class="action-btn primary">Save</button>
-                </div>
-
-                <div id="skill-run-output" class="skill-run-output hidden">
-                  <div class="skill-run-output-header">
-                    <span id="skill-run-output-status">Last run</span>
-                    <button id="skill-run-output-close" class="skill-run-output-close" title="Close">×</button>
-                  </div>
-                  <pre id="skill-run-output-body" class="skill-run-output-body"></pre>
-                </div>
-              </div>
-
-              <!-- RIGHT: file tree + Monaco editor -->
-              <div class="skill-split-right">
-                <div class="skill-code-widget">
-                  <aside class="skill-code-tree" id="skill-code-tree">
-                    <div class="skill-code-tree-header">
-                      <span id="skill-editor-status">SKILL.md</span>
-                      <div class="skill-tree-actions">
-                        <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        </button>
-                        <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                        </button>
-                        <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        </button>
-                      </div>
-                    </div>
-                    <div id="skill-file-list" class="skill-file-list"></div>
-                    <input type="file" id="skill-upload-input" multiple style="display:none" />
-                  </aside>
-                  <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
-                  <div id="skill-monaco-container" class="skill-code-monaco"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Hidden file input for .yo import -->
-          <input type="file" id="skill-import-input" accept=".yo,.zip" style="display:none" />
-
-          <!-- Ask-user modal (for ctx.ask.user) -->
-          <div id="skill-ask-user-modal" class="confirm-overlay hidden">
-            <div class="confirm-box" style="max-width:480px;">
-              <p id="skill-ask-user-question"></p>
-              <textarea id="skill-ask-user-answer" class="settings-input" rows="3" placeholder="Your answer..." spellcheck="false"></textarea>
-              <div class="confirm-actions">
-                <button id="skill-ask-user-submit" class="action-btn primary">Submit</button>
-                <button id="skill-ask-user-cancel" class="action-btn">Cancel</button>
-              </div>
-            </div>
-          </div>
+          <div id="skills-explorer-host" class="skills-explorer-host"></div>
         </div>
 
         <!-- MCP section removed — merged into Apps tabs -->
@@ -1398,6 +1257,116 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
           </div>
         </div>
 
+        <!-- Schedules -->
+        <div class="help-section" data-section="schedules">
+          <h2>Schedules</h2>
+          <p class="section-desc">Run tasks on a schedule or whenever you need them. Type /schedule in any task to set one up.</p>
+          <div id="schedules-banner" class="sched-banner">
+            <span class="sched-banner-text">Scheduled tasks only run while your computer is awake.</span>
+            <label class="sched-awake-toggle">
+              <input id="sched-keep-awake" type="checkbox" />
+              <span>Keep awake</span>
+            </label>
+          </div>
+          <div id="schedules-toolbar" class="crud-toolbar">
+            <input id="schedule-search" type="text" class="crud-search" placeholder="Search tasks..." spellcheck="false" autocomplete="off" />
+            <button id="schedule-new-btn" class="action-btn primary">+ New</button>
+          </div>
+          <div id="schedules-list" class="crud-cards"></div>
+
+          <!-- Detail view (read-only, with history) -->
+          <div id="schedule-detail" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="schedule-detail-back">&larr; Schedules</a>
+              <div class="crud-spacer"></div>
+              <button id="schedule-detail-edit" class="action-btn">Edit</button>
+              <button id="schedule-detail-run" class="action-btn primary">Run now</button>
+              <button id="schedule-detail-delete" class="action-btn danger">Delete</button>
+            </div>
+            <div id="schedule-detail-title" class="settings-label" style="font-size:18px;font-weight:600;color:var(--white);margin:8px 0 4px;"></div>
+            <div id="schedule-detail-desc" class="section-desc" style="margin:0 0 8px;"></div>
+            <div id="schedule-detail-status" class="settings-hint" style="margin-bottom:14px;"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+              <div>
+                <label class="settings-label">History</label>
+                <div id="schedule-detail-history" style="display:flex;flex-direction:column;gap:4px;"></div>
+              </div>
+              <div>
+                <label class="settings-label">Instructions</label>
+                <div id="schedule-detail-prompt" class="settings-hint" style="white-space:pre-wrap;color:var(--text-2);margin-bottom:12px;"></div>
+                <label class="settings-label">Repeats</label>
+                <div id="schedule-detail-repeats" class="settings-hint" style="margin-bottom:12px;"></div>
+                <label class="settings-label">Model</label>
+                <div id="schedule-detail-model" class="settings-hint" style="margin-bottom:12px;"></div>
+                <label class="settings-label">When it runs</label>
+                <div id="schedule-detail-ask" class="settings-hint"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Editor (create / edit) -->
+          <div id="schedule-editor" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="schedule-back-link">&larr; Schedules</a>
+              <div class="crud-spacer"></div>
+            </div>
+            <div id="schedule-form-error" class="crud-form-error hidden"></div>
+
+            <label class="settings-label">Name</label>
+            <input type="text" id="schedule-name" class="settings-input" placeholder="e.g. Daily brief" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Description</label>
+            <input type="text" id="schedule-desc" class="settings-input" placeholder="Short summary of what it does" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Instructions</label>
+            <textarea id="schedule-prompt" class="settings-input" rows="6" placeholder="What should .Yo do each time this runs?"></textarea>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">Frequency</label>
+                <select id="schedule-freq" class="settings-input">
+                  <option value="manual">Manual</option>
+                  <option value="hourly">Hourly</option>
+                  <option value="daily" selected>Daily</option>
+                  <option value="weekdays">Weekdays</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">Time</label>
+                <input type="time" id="schedule-time" class="settings-input" value="09:00" />
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">When it runs</label>
+                <select id="schedule-ask" class="settings-input">
+                  <option value="auto">Run automatically</option>
+                  <option value="ask">Ask before running</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">Model</label>
+                <select id="schedule-model" class="settings-input"></select>
+              </div>
+            </div>
+
+            <div class="settings-actions" style="margin-top:14px;">
+              <button id="schedule-delete-btn" class="action-btn danger">Delete</button>
+              <div style="flex:1;"></div>
+              <button id="schedule-cancel-btn" class="action-btn">Cancel</button>
+              <button id="schedule-save-btn" class="action-btn primary">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Councils -->
+        <div class="help-section" data-section="councils">
+          <div id="councils-root"></div>
+        </div>
+
         <!-- Settings -->
         <div class="help-section" data-section="settings">
           <div class="settings-layout">
@@ -1409,6 +1378,10 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <button class="settings-nav-item" data-sub="account">Account</button>
               <button class="settings-nav-item" data-sub="mcp">MCP Server</button>
               <button class="settings-nav-item" data-sub="advanced">Advanced</button>
+              <div class="settings-nav-sep"></div>
+              <button class="settings-nav-item" data-sub="support">Support</button>
+              <button class="settings-nav-item" data-sub="about">About</button>
+              <button class="settings-nav-item" data-jump="docs">Docs</button>
             </nav>
             <div class="settings-panels">
 
@@ -1546,10 +1519,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     <span class="license-label">Plan</span>
                     <span class="license-value" id="account-tier">—</span>
                   </div>
-                  <div class="license-row">
-                    <span class="license-label">Status</span>
-                    <span class="license-value" id="account-status">—</span>
-                  </div>
                   <div class="license-actions">
                     <button id="account-dashboard-btn" class="action-btn primary">Manage Account</button>
                     <button id="account-logout-btn" class="action-btn">Sign Out</button>
@@ -1615,6 +1584,57 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     </div>
                   </div>
 
+                  <!-- ── Remote Relay (org-admin only) ────────────────── -->
+                  <div id="relay-section" class="hidden">
+                    <hr style="border:none;border-top:1px solid var(--border-2);margin:24px 0;" />
+                    <div style="margin-bottom:8px;">
+                      <h3 class="settings-subheading" style="margin:0 0 4px;">Remote Relay</h3>
+                      <p style="font-size:12px;color:var(--text-2);margin:0 0 10px;">
+                        Let external LLMs (Claude code, Claude UI, ChatGPT) drive your .Yo instance through the cloud — list and switch panels, click / type / read DOM, take screenshots. Your sign-in pairs this device to the relay; generate one or more <em>server tokens</em> below and paste them into your external tool's MCP config.
+                      </p>
+                      <label class="settings-toggle" style="margin-bottom:10px;">
+                        <input type="checkbox" id="relay-enabled-toggle" />
+                        <span class="toggle-switch"></span>
+                        <div class="toggle-info">
+                          <span class="toggle-title">Enable remote relay</span>
+                          <span class="toggle-desc">When on, your yo-client maintains a WebSocket to api.yosup.dev</span>
+                        </div>
+                      </label>
+                      <span id="relay-status-text" style="font-size:11px;color:var(--text-3);margin-top:4px;display:inline-block;">Not connected.</span>
+
+                      <h4 style="font-size:12px;font-weight:600;color:var(--text);margin:18px 0 6px;">Server tokens</h4>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 10px;">One token per external tool. Tokens are shown <strong>once</strong> on creation — copy immediately.</p>
+                      <div id="relay-new-token" class="hidden" style="background:var(--surface-2);border:1px solid var(--accent);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+                        <p style="font-size:11px;color:var(--accent);margin:0 0 6px;font-weight:600;">Token created — copy it now, it won't be shown again</p>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                          <code id="relay-new-token-value" style="flex:1;background:var(--bg);padding:5px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
+                          <button id="relay-copy-new-token" class="action-btn primary" style="font-size:11px;padding:4px 12px;white-space:nowrap;">Copy</button>
+                          <button id="relay-install-claude" class="action-btn" style="font-size:11px;padding:4px 12px;white-space:nowrap;" title="Write this token into ~/.claude.json so the claude CLI picks up the relay automatically">Install in Claude code</button>
+                        </div>
+                        <p id="relay-install-status" style="font-size:11px;color:var(--text-3);margin:6px 0 0;display:none;"></p>
+                      </div>
+                      <div id="relay-tokens-list" style="margin-bottom:10px;"></div>
+                      <div style="display:flex;gap:6px;align-items:center;">
+                        <input id="relay-token-label" type="text" class="settings-input" placeholder="Label (e.g. Claude code, ChatGPT)" style="flex:1;font-size:12px;padding:5px 8px;" />
+                        <button id="relay-gen-token" class="action-btn primary" style="font-size:12px;white-space:nowrap;">+ Generate</button>
+                      </div>
+
+                      <h4 style="font-size:12px;font-weight:600;color:var(--text);margin:18px 0 6px;">External tool config</h4>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 6px;">Add this to the external tool's MCP config. Replace <code style="color:var(--accent);">&lt;your-token&gt;</code> with a generated token above.</p>
+                      <div style="position:relative;">
+                        <pre id="relay-config-example" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre;"></pre>
+                        <button id="relay-copy-config" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
+                      </div>
+
+                      <h4 style="font-size:12px;font-weight:600;color:var(--text);margin:18px 0 6px;">Or, for Claude code (CLI)</h4>
+                      <p style="font-size:11px;color:var(--text-3);margin:0 0 6px;">Run this in your terminal to register the relay with the <code>claude</code> CLI — replace <code style="color:var(--accent);">&lt;your-token&gt;</code>:</p>
+                      <div style="position:relative;">
+                        <pre id="relay-claude-cmd" style="background:var(--surface-2);padding:12px 14px;border-radius:6px;font-size:11px;line-height:1.6;font-family:'SF Mono','Fira Code',monospace;overflow:auto;margin:0;color:var(--text);white-space:pre-wrap;word-break:break-all;"></pre>
+                        <button id="relay-copy-claude-cmd" class="action-btn" style="position:absolute;top:8px;right:8px;font-size:10px;padding:3px 10px;">Copy</button>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
@@ -1669,12 +1689,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 </div>
               </div>
 
-            </div>
-          </div>
-        </div>
-
-        <!-- Support -->
-        <div class="help-section" data-section="support">
+              <!-- Support — kept inside Settings so the left nav stays up -->
+              <div class="settings-panel" data-sub="support">
           <h2>Support</h2>
           <p class="section-desc">Submit a ticket or join the community.</p>
 
@@ -1698,8 +1714,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
           </form>
         </div>
 
-        <!-- About -->
-        <div class="help-section" data-section="about">
+              <!-- About — kept inside Settings so the left nav stays up -->
+              <div class="settings-panel" data-sub="about">
           <h2>About</h2>
           <div class="about-header">
             <div class="about-logo"><span class="about-dot">.</span>Yo</div>
@@ -1728,6 +1744,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div class="about-policy" id="policy-refund">
               <h3>Refund Policy</h3>
               <div class="policy-content"></div>
+            </div>
+          </div>
+              </div>
+              <!-- /About -->
+
             </div>
           </div>
         </div>

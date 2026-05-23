@@ -5,12 +5,13 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
-    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:waz",
+    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:council && npm run build:waz",
     "build:main": "tsc && shx cp -r src/main/vscode-bridge dist/main/",
     "build:renderer": "tsc -p src/renderer/tsconfig.json && shx cp src/renderer/index.html src/renderer/home.html src/renderer/styles.css src/renderer/browser.html src/renderer/context.html dist/renderer/ && shx cp -r src/renderer/fonts dist/renderer/ && shx cp node_modules/chart.js/dist/chart.umd.min.js dist/renderer/",
     "build:terminal": "esbuild src/renderer/terminal-renderer.ts --bundle --outfile=dist/renderer/terminal-bundle.js --platform=browser && shx cp node_modules/@xterm/xterm/css/xterm.css src/renderer/terminal.html dist/renderer/",
     "build:monaco": "shx cp src/renderer/monaco.html dist/renderer/ && shx cp -r node_modules/monaco-editor/min/vs dist/renderer/monaco",
     "build:code-workspace": "esbuild src/renderer/code-workspace.ts --bundle --outfile=dist/renderer/code-workspace-bundle.js --platform=browser && esbuild src/renderer/code-preload.ts --bundle --outfile=dist/main/code-workspace-preload.js --platform=node --external:electron && shx cp src/renderer/code-workspace.html dist/renderer/",
+    "build:council": "esbuild src/renderer/council.ts --bundle --outfile=dist/renderer/council.js --platform=browser && esbuild src/renderer/council-preload.ts --bundle --outfile=dist/main/council-preload.js --platform=node --external:electron && shx cp src/renderer/council.html dist/renderer/",
     "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
     "bench:code-index": "npm run build:main && node dist/main/code-index/benchmark.js",
     "bench:code-index-ab": "npm run build:main && node dist/main/code-index/benchmark-ab.js",
@@ -35,6 +36,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.184.1",
+    "@types/ws": "^8.18.1",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.0",
     "esbuild": "^0.25.0",
@@ -55,9 +57,11 @@
     "cytoscape": "^3.33.3",
     "cytoscape-dagre": "^2.5.0",
     "dagre": "^0.8.5",
+    "dompurify": "^3.2.7",
     "dotenv": "^17.4.2",
     "electron-updater": "^6.8.3",
     "js-yaml": "^4.1.1",
+    "marked": "^14.0.0",
     "monaco-editor": "^0.55.1",
     "node-cron": "^4.2.1",
     "node-pty": "^1.0.0",
@@ -65,6 +69,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "three": "^0.184.0",
+    "ws": "^8.21.0",
     "zod": "^4.3.6"
   }
 }

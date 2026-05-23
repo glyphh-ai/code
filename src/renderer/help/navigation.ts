@@ -9,9 +9,11 @@ import { loadLayouts, initLayoutsEvents } from "./layouts.js";
 import { loadSkills, initSkillsEvents } from "./skills.js";
 import { loadApps, initApps, openNewAppForm } from "./apps.js";
 import { loadAgents, initAgents } from "./agents.js";
+import { loadSchedules, initSchedules, openScheduleByName } from "./schedules.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
 import { loadDocs, loadSupport, loadAbout } from "./docs.js";
+import { loadCouncils, initCouncils } from "./councils.js";
 
 const overlay = getHelpOverlay();
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
@@ -123,14 +125,19 @@ function activeSection(): string {
   return (document.querySelector(".help-nav-item.active") as HTMLElement)?.dataset.section || "guide";
 }
 
-export function loadActiveSection() {
-  const sec = activeSection();
+export function loadActiveSection(explicit?: string) {
+  // Prefer the explicitly-navigated section. Falling back to the active nav
+  // item breaks sections that have no `help-nav-item` (e.g. Schedules), which
+  // would otherwise resolve to "guide" and never load.
+  const sec = explicit || activeSection();
   if (sec === "dashboard") loadDashboard();
   else if (sec === "skills") loadSkills();
   else if (sec === "drips") loadDrips();
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "agents") void loadAgents();
+  else if (sec === "schedules") void loadSchedules();
+  else if (sec === "councils") void loadCouncils();
   else if (sec === "settings") loadSettings();
   else if (sec === "docs") loadDocs();
   else if (sec === "support") loadSupport();
@@ -164,8 +171,12 @@ export function gotoSection(section: string, sub?: string): void {
       navBtns.forEach((n) => n.classList.toggle("active", n.dataset.sub === sub));
       panels.forEach((p) => p.classList.toggle("active", p.dataset.sub === sub));
     }
+  } else if (section === "schedules" && sub) {
+    // Deep-link straight to a specific schedule's detail (e.g. from the yo
+    // panel's Scheduled history).
+    void openScheduleByName(sub);
   } else {
-    loadActiveSection();
+    loadActiveSection(section);
   }
 }
 
@@ -235,17 +246,36 @@ export function initHelp() {
   const settingsSubPanels = document.querySelectorAll<HTMLDivElement>(".help-section[data-section='settings'] .settings-panel");
   settingsSubNav.forEach((btn) => {
     btn.addEventListener("click", () => {
+      // Docs has its own topics nav, so it opens as its own section.
+      const jump = btn.dataset.jump;
+      if (jump) {
+        collapseAllDropdowns();
+        navSubItems.forEach((s) => s.classList.remove("active"));
+        switchToSection(jump);
+        loadActiveSection();
+        return;
+      }
+      const sub = btn.dataset.sub!;
       settingsSubNav.forEach((n) => n.classList.remove("active"));
       settingsSubPanels.forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
-      const target = document.querySelector(`.help-section[data-section='settings'] .settings-panel[data-sub="${btn.dataset.sub}"]`);
+      const target = document.querySelector(`.help-section[data-section='settings'] .settings-panel[data-sub="${sub}"]`);
       if (target) target.classList.add("active");
-      navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === btn.dataset.sub));
+      navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === sub));
+      // Support & About live inside Settings now — populate their dynamic bits.
+      if (sub === "support") loadSupport();
+      else if (sub === "about") loadAbout();
     });
   });
 
   docsSubNav.forEach((btn) => {
     btn.addEventListener("click", () => { showDocPanel(btn.dataset.doc!); });
+  });
+
+  // Docs has its own topics nav, so it can't show the Settings menu — give it
+  // a breadcrumb back to Settings instead.
+  document.getElementById("docs-back-settings")?.addEventListener("click", () => {
+    gotoSection("settings", "general");
   });
 
   // Initialize all section event handlers
@@ -256,4 +286,6 @@ export function initHelp() {
   initDripsEvents();
   initSkillsEvents();
   initAgents();
+  initSchedules();
+  initCouncils();
 }

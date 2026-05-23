@@ -1,4 +1,6 @@
 import { ipcMain } from "electron";
+import path from "path";
+import { pathToFileURL } from "url";
 import type { SkillEngine } from "./skill-engine";
 import type { McpManager } from "./mcp-manager";
 import type { AppConnector } from "./app-connector";
@@ -11,6 +13,8 @@ interface SkillsIpcDeps {
   skillScheduler: SkillScheduler | null;
   canCreateSkill: (count: number) => { allowed: boolean; reason?: string };
   listBuiltinYoTools: () => Array<{ name: string; description: string }>;
+  /** Open a path (skill folder or its SKILL.md) in the editor — supplied by main. */
+  openSkillPath?: (absPath: string) => void;
 }
 
 export function registerSkillsIpc(deps: SkillsIpcDeps): void {
@@ -21,6 +25,7 @@ export function registerSkillsIpc(deps: SkillsIpcDeps): void {
     skillScheduler,
     canCreateSkill,
     listBuiltinYoTools,
+    openSkillPath,
   } = deps;
 
   // IPC: skills CRUD (legacy-compatible signatures)
@@ -112,6 +117,32 @@ export function registerSkillsIpc(deps: SkillsIpcDeps): void {
     skillEngine.writeSkillFile(name, rel, content),
   );
   ipcMain.handle("skills-delete-file", (_e, name: string, rel: string) => skillEngine.deleteSkillFile(name, rel));
+  // Open a skill's folder (falls back to its SKILL.md) in VS Code / the editor.
+  ipcMain.handle("skills-open-in-editor", (_e, name: string) => {
+    const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+    if (!safe) return false;
+    const folder = path.join(skillEngine.getSkillsDir(), safe);
+    // Prefer opening SKILL.md so the editor lands on something concrete; the
+    // open router treats the folder's file the same way as any file link.
+    const target = path.join(folder, "SKILL.md");
+    openSkillPath?.(target);
+    return true;
+  });
+  // Resolve a file:// URL for a skill file (media preview: audio/video/images).
+  ipcMain.handle("skills-file-url", (_e, name: string, rel: string) => {
+    const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+    const safeRel = (rel || "").replace(/\.\.(\/|\\|$)/g, "").replace(/^[/\\]+/, "");
+    if (!safe || !safeRel) return "";
+    return pathToFileURL(path.join(skillEngine.getSkillsDir(), safe, safeRel)).href;
+  });
+  // Open a specific file within a skill's folder in VS Code / the editor.
+  ipcMain.handle("skills-open-file-in-editor", (_e, name: string, rel: string) => {
+    const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+    const safeRel = (rel || "").replace(/\.\.(\/|\\|$)/g, "").replace(/^[/\\]+/, "");
+    if (!safe || !safeRel) return false;
+    openSkillPath?.(path.join(skillEngine.getSkillsDir(), safe, safeRel));
+    return true;
+  });
   // Run a skill (LLM call with skill's prompt)
   ipcMain.handle("skills-run", async (_e, name: string, input: unknown) => {
     try {

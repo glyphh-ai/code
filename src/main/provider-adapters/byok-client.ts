@@ -167,11 +167,21 @@ async function runChatCompletions(
     if (!frame.data || frame.data === "[DONE]") return;
     let payload: Record<string, unknown>;
     try { payload = JSON.parse(frame.data); } catch { return; }
-    const choices = (payload as { choices?: Array<{ delta?: { content?: string }; finish_reason?: string }> }).choices;
-    const delta = choices?.[0]?.delta?.content;
+    const choices = (payload as { choices?: Array<{ delta?: { content?: string }; message?: { content?: string }; finish_reason?: string }> }).choices;
+    const choice = choices?.[0];
+    const delta = choice?.delta?.content;
     if (typeof delta === "string" && delta.length > 0) {
       fullText += delta;
       sink.onText?.(delta);
+    } else {
+      // Fallback: some compatible providers (e.g. Perplexity) deliver the whole
+      // answer in `message.content` on a chunk instead of streaming deltas.
+      const msg = choice?.message?.content;
+      if (typeof msg === "string" && msg.length > fullText.length) {
+        const added = msg.slice(fullText.length);
+        fullText = msg;
+        sink.onText?.(added);
+      }
     }
     const u = (payload as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage;
     if (u) {
@@ -205,7 +215,10 @@ async function runGemini(
   if (req.maxTokens != null) body.generationConfig = { maxOutputTokens: req.maxTokens };
   if (systemParts.length > 0) body.systemInstruction = { parts: [{ text: systemParts.join("\n\n") }] };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(req.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+  // Normalize the model id: callers sometimes pass a "models/…" prefix, which
+  // would double up in the path and 404. Strip it (and any stray whitespace).
+  const modelId = req.model.trim().replace(/^models\//, "");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },

@@ -256,14 +256,39 @@ export class CommandParser {
 
   // ── dip: switch panels + execute app commands ───────────────
 
-  private async handleDip(args: string[], sourcePanelId?: string): Promise<string> {
-    if (args.length === 0) {
-      return "Usage: dip <panel> [cmd1 cmd2 ...] | dip split <a> <b> | dip save <name> | dip back";
-    }
+  /**
+   * Step through the open tabs in their bar order, wrapping around.
+   * Forward (`back=false`) slides left→right; back slides right→left.
+   */
+  private cycleTabs(back: boolean, win: BrowserWindow): string {
+    const tabs = this.tabLister?.() ?? [];
+    if (tabs.length === 0) return "No open tabs";
+    const active = this.panels.activePanelId;
+    const idx = active ? tabs.indexOf(active) : -1;
+    const len = tabs.length;
+    const nextIdx = idx === -1
+      ? (back ? len - 1 : 0)
+      : (back ? (idx - 1 + len) % len : (idx + 1) % len);
+    const target = tabs[nextIdx];
+    this.layouts.suspendSplit();
+    const ok = this.panels.switchTo(target, win, back ? "left" : "right");
+    if (ok) setPreference("lastView", { type: "panel", id: target });
+    return ok ? `→ ${target}` : `Unknown panel: ${target}`;
+  }
 
-    const sub = args[0].toLowerCase();
+  private async handleDip(args: string[], sourcePanelId?: string): Promise<string> {
     const win = this.mainWindow ?? BrowserWindow.getFocusedWindow();
     if (!win || win.isDestroyed()) return "No active window";
+
+    // Bare `dip` steps forward through the open tabs (left→right slide).
+    if (args.length === 0) return this.cycleTabs(false, win);
+
+    const sub = args[0].toLowerCase();
+
+    // `dip back` / `dip .` step backward through the open tabs (right→left slide).
+    if (sub === "back" || (sub === "." && args.length === 1)) {
+      return this.cycleTabs(true, win);
+    }
 
     // dip . <panel-id> — swap just the calling panel within the current layout
     if (sub === "." && args.length >= 2) {
@@ -292,12 +317,6 @@ export class CommandParser {
       if (!id) return "No active tab to close.";
       this.tabCloser(id);
       return `Closed: ${id}`;
-    }
-
-    if (sub === "back") {
-      return this.panels.switchBack(win)
-        ? "Switched back"
-        : "No previous panel";
     }
 
     if (sub === "refresh") {

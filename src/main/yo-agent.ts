@@ -10,10 +10,11 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import crypto from "crypto";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
-import { getWorkingDirectory } from "./working-directory";
+import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
 import { promptLog } from "./prompt-log";
 import { guardPrompt } from "./firewall";
 import { execSync } from "child_process";
@@ -50,6 +51,7 @@ const SYSTEM_PROMPT = `You are yo — a fast, concise assistant backed by a capt
 RULES:
 - NEVER narrate. No "Let me...", "I'll start by...", "I found...", "Here's what I can do...". Just act and respond.
 - Call tools immediately. Zero preamble.
+- RECALL = SEARCH THE STORE FIRST. The capture store (vector DB) holds everything the user has captured — their history, notes, prior work, conversations, decisions. For ANY question about the user's past or what you know — "history", "what did I", "find / remember / look up", "what do you know about X", "my <anything>" — your FIRST action is ALWAYS search_captures (then search_notes for exact terms). Lead with what the store returns. Only reach for shell, files, panels, or .yo/inbox if the store genuinely has nothing relevant, and say so. Never substitute a shell/file lookup for the store on a recall question.
 - Responses: 1-3 sentences max unless the user asks for detail. Return actual content, not descriptions of it.
 - No bullet-point alternatives. No follow-up questions unless truly stuck with zero options.
 - If a tool fails or doesn't exist, say so in one sentence and stop.
@@ -70,6 +72,28 @@ export interface ChatSummary {
   title: string;
   created: string;
   messageCount: number;
+  /** "run" for persisted scheduled/manual task runs; undefined for normal chats. */
+  type?: string;
+  /** Owning skill name (run chats only). */
+  skillName?: string;
+}
+
+/** A persisted task run, surfaced in the Activity view + schedule detail. */
+export interface RunSummary {
+  id: string;
+  skillName: string;
+  title: string;
+  created: string;
+  trigger: string;
+  ok: boolean;
+}
+
+/** A persisted chat message. Assistant turns may carry the ordered
+ *  tool calls that ran during them so reloaded history is complete. */
+export interface ChatMessage {
+  role: string;
+  content: string;
+  tools?: Array<{ name: string; input?: unknown }>;
 }
 
 export class YoAgent {
@@ -87,7 +111,6 @@ export class YoAgent {
   private noteStore: NoteStore | null = null;
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
-  private _swarmMode: boolean = false;
   private _planDelivered = false;
   private _approvalCallback: ApprovalCallback | null = null;
   private _onModeChange: ((mode: AgentMode) => void) | null = null;
@@ -105,16 +128,15 @@ export class YoAgent {
   setSessionCache(cache: SessionCache): void { this.sessionCache = cache; }
   setSkillEngine(engine: SkillEngine): void { this.skillEngine = engine; }
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
+  private appsProvider: (() => Array<{ id: string; name: string }>) | null = null;
+  /** Lets the agent know which apps the user has configured (for open_app). */
+  setAppsProvider(fn: () => Array<{ id: string; name: string }>): void { this.appsProvider = fn; }
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void {
     const changed = this._mode !== mode;
     this._mode = mode;
     if (changed) this.sessionId = null;
   }
-  setSwarmMode(on: boolean): void {
-    this._swarmMode = on;
-  }
-  isSwarmMode(): boolean { return this._swarmMode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
@@ -200,6 +222,63 @@ export class YoAgent {
   }
 
   // ── Send (public API) ──────────────────────────────────
+
+  /**
+   * Run a prompt headlessly through the full agent (tools + MCP, multi-turn)
+   * and return the final text. Used by scheduled / manual task runs so a task
+   * like "read my email and summarize" actually has tools — unlike the skill
+   * engine's plain single-turn completion. Does NOT touch the active chat
+   * (chatId/sessionId/title) so the user's live conversation is untouched.
+   */
+  async runForResult(prompt: string): Promise<{ text: string; error?: string }> {
+    let sdk: any;
+    try { sdk = await this.ensureSDK(); }
+    catch (err: any) { return { text: "", error: `Failed to load agent SDK: ${err?.message || err}` }; }
+
+    let mcpServer: any;
+    try { mcpServer = await this.ensureMcpServer(); }
+    catch (err: any) { return { text: "", error: `Failed to initialize MCP tools: ${err?.message || err}` }; }
+
+    const shellPath = getShellPath();
+    const model = this.llmConfig?.model || "claude-sonnet-4-6";
+    const options: Record<string, any> = {
+      model,
+      maxTurns: getPreference<number>("maxTurns", 200),
+      ...asarSafeQueryOptions(getWorkingDirectory() ?? undefined),
+      // Headless: no UI to approve tool calls, so bypass permissions.
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      tools: [],
+      mcpServers: { "yo": mcpServer },
+      systemPrompt: this.buildSystemPrompt(),
+      includePartialMessages: true,
+      env: {
+        ...process.env,
+        PATH: shellPath,
+        CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
+      },
+    };
+
+    let text = "";
+    try {
+      const gen = sdk.query({ prompt, options });
+      for await (const msg of gen) {
+        if (msg.type === "stream_event") {
+          const event = msg.event;
+          if (event?.type === "content_block_delta") {
+            const delta = (event as any).delta;
+            if (delta?.type === "text_delta" && delta.text) text += delta.text;
+          }
+        } else if (msg.type === "result") {
+          if (msg.usage) this.reportUsage(msg.usage.input_tokens || 0, msg.usage.output_tokens || 0, model);
+          if (msg.is_error && msg.result) return { text, error: msg.result };
+        }
+      }
+    } catch (err: any) {
+      return { text, error: err?.message || String(err) };
+    }
+    return { text: text.trim() };
+  }
 
   async send(message: string, cb: YoAgentCallbacks): Promise<void> {
     const balance = usageQueue.lastBalance;
@@ -311,6 +390,10 @@ export class YoAgent {
     let totalInput = 0;
     let totalOutput = 0;
     const toolsUsed = new Set<string>();
+    // Full, ordered tool calls for this turn — persisted with the
+    // assistant message so reloaded history shows the complete run
+    // (not just the final answer text).
+    const turnTools: Array<{ name: string; input?: unknown }> = [];
 
     try {
       const gen = sdk.query({ prompt: message, options });
@@ -334,6 +417,7 @@ export class YoAgent {
                   this._lastTodos = (block.input as any).todos;
                 }
                 toolsUsed.add(block.name);
+                turnTools.push({ name: block.name, input: block.input });
                 cb.onToolUse(block.id, block.name, block.input);
               }
             }
@@ -401,7 +485,7 @@ export class YoAgent {
       }
 
       // Save chat record
-      this.saveChatRecord(message, fullText, startTs);
+      this.saveChatRecord(message, fullText, startTs, turnTools);
 
       promptLog.record({
         id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
@@ -485,12 +569,15 @@ export class YoAgent {
       }
     }
 
-    if (this._mode === "plan") {
-      prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
+    if (this.appsProvider) {
+      const apps = this.appsProvider();
+      if (apps.length > 0) {
+        prompt += `\n\nUSER'S APPS (open with open_app by id):\n${apps.map((a) => `- ${a.id}: ${a.name}`).join("\n")}`;
+      }
     }
 
-    if (this._swarmMode) {
-      prompt += `\n\nMODE: SWARM\nThe user wants work delegated to a local agent swarm. For every substantive request, your default behavior is to spin up a swarm rather than doing the work yourself: call create_swarm with the goal stated in the user's own words. Pick the best agents for the job from the registry, or let create_swarm choose. Once a swarm is running it works autonomously and reports into the swarm feed — do not try to do its work in parallel. Only handle a message yourself if it is a quick question, a meta directive about the swarm (status, stop), or the user explicitly says not to delegate.`;
+    if (this._mode === "plan") {
+      prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
     }
 
     // Context recovery: when resuming a chat without a live SDK session,
@@ -563,6 +650,11 @@ export class YoAgent {
       this.chatTitle = parsed.title;
       this.sessionId = parsed.sessionId || null;
       this._planDelivered = false;
+      // Restore the chat's working directory if it still exists, so the
+      // agent + files view re-point to the same folder.
+      if (parsed.workingDirectory && fs.existsSync(parsed.workingDirectory)) {
+        setWorkingDirectory(parsed.workingDirectory);
+      }
       return parsed.display;
     } catch {
       return null;
@@ -572,17 +664,20 @@ export class YoAgent {
   listChats(): ChatSummary[] {
     fs.mkdirSync(CHATS_DIR, { recursive: true });
     try {
+      // Recents = real conversations only. Scheduled/manual task runs
+      // (run-*.md) are surfaced in the Scheduled section via runsList, not here.
       const files = fs.readdirSync(CHATS_DIR)
-        .filter((f) => f.endsWith(".md"))
-        .sort().reverse();
+        .filter((f) => f.endsWith(".md") && !f.startsWith("run-"));
 
-      return files.map((f) => {
+      const summaries = files.map((f) => {
         try {
           const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
           const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
           let title = f.replace(/\.md$/, "");
           let created = "";
           let messageCount = 0;
+          let type: string | undefined;
+          let skillName: string | undefined;
           if (fmMatch) {
             const fm = fmMatch[1];
             const t = fm.match(/^title:\s*(.+)$/m);
@@ -591,12 +686,19 @@ export class YoAgent {
             if (c) created = c[1].trim();
             const m = fm.match(/^messages:\s*(\d+)$/m);
             if (m) messageCount = parseInt(m[1], 10);
+            const ty = fm.match(/^type:\s*(.+)$/m);
+            if (ty) type = ty[1].trim();
+            const sk = fm.match(/^skillName:\s*(.+)$/m);
+            if (sk) skillName = sk[1].trim();
           }
-          return { id: f.replace(/\.md$/, ""), title, created, messageCount };
+          return { id: f.replace(/\.md$/, ""), title, created, messageCount, type, skillName };
         } catch {
           return { id: f.replace(/\.md$/, ""), title: f, created: "", messageCount: 0 };
         }
       });
+      // Newest first by actual created timestamp (ISO strings sort lexically).
+      summaries.sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+      return summaries;
     } catch {
       return [];
     }
@@ -609,10 +711,116 @@ export class YoAgent {
     } catch { return false; }
   }
 
+  /** Delete all persisted run-*.md chats for a given task/skill name. */
+  deleteRunsForSkill(skillName: string): number {
+    let removed = 0;
+    try {
+      for (const f of fs.readdirSync(CHATS_DIR).filter((f) => f.startsWith("run-") && f.endsWith(".md"))) {
+        try {
+          const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
+          const m = raw.match(/^skillName:\s*(.+)$/m);
+          if (m && m[1].trim() === skillName) { fs.unlinkSync(path.join(CHATS_DIR, f)); removed++; }
+        } catch { /* skip */ }
+      }
+    } catch { /* no dir */ }
+    return removed;
+  }
+
+  /**
+   * Persist a completed task run as a special `type: run` chat so it can be
+   * opened in the agent panel and listed in Activity / the schedule detail.
+   * Lives in CHATS_DIR alongside chats but is filtered out of Recents.
+   */
+  saveRunChat(opts: {
+    skillName: string;
+    trigger: string;
+    output?: unknown;
+    error?: string;
+    startedAt: number;
+    instructions?: string;
+  }): string {
+    fs.mkdirSync(CHATS_DIR, { recursive: true });
+    const id = `run-${opts.startedAt}-${crypto.randomBytes(3).toString("hex")}`;
+    const label = opts.trigger === "schedule" ? "Ran scheduled task" : "Ran task";
+    const outText = opts.error
+      ? `**Run failed**\n\n${opts.error}`
+      : (typeof opts.output === "string" ? opts.output : "```json\n" + JSON.stringify(opts.output ?? null, null, 2) + "\n```");
+    const messages: ChatMessage[] = [
+      { role: "run", content: label, tools: [{ name: opts.skillName }] },
+      ...(opts.instructions ? [{ role: "user", content: opts.instructions } as ChatMessage] : []),
+      { role: "assistant", content: outText },
+    ];
+    const startedIso = new Date(Number.isFinite(opts.startedAt) ? opts.startedAt : Date.now()).toISOString();
+    const lines = [
+      "---",
+      `title: ${opts.skillName}`,
+      `created: ${startedIso}`,
+      `messages: 1`,
+      `type: run`,
+      `skillName: ${opts.skillName}`,
+      `trigger: ${opts.trigger}`,
+      ...(opts.error ? ["status: error"] : ["status: ok"]),
+      "---",
+      "",
+      "```json",
+      JSON.stringify(messages, null, 2),
+      "```",
+    ];
+    fs.writeFileSync(path.join(CHATS_DIR, `${id}.md`), lines.join("\n"), "utf-8");
+    // Keep run history bounded — prune oldest run files beyond a cap.
+    this.pruneRuns();
+    return id;
+  }
+
+  /** Read a single run's display messages without making it the active chat. */
+  getRun(id: string): { title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null {
+    const filepath = path.join(CHATS_DIR, `${id}.md`);
+    if (!fs.existsSync(filepath)) return null;
+    try {
+      const parsed = this.parseChatFile(fs.readFileSync(filepath, "utf-8"));
+      return { title: parsed.title, messages: parsed.display };
+    } catch { return null; }
+  }
+
+  /** List persisted task runs (optionally for one skill), newest first. */
+  listRuns(skillName?: string): RunSummary[] {
+    fs.mkdirSync(CHATS_DIR, { recursive: true });
+    try {
+      return fs.readdirSync(CHATS_DIR)
+        .filter((f) => f.startsWith("run-") && f.endsWith(".md"))
+        .map((f) => {
+          const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
+          const fm = raw.match(/^---\n([\s\S]*?)\n---/)?.[1] || "";
+          const get = (k: string) => fm.match(new RegExp(`^${k}:\\s*(.+)$`, "m"))?.[1].trim() || "";
+          return {
+            id: f.replace(/\.md$/, ""),
+            skillName: get("skillName") || get("title"),
+            title: get("title"),
+            created: get("created"),
+            trigger: get("trigger") || "manual",
+            ok: get("status") !== "error",
+          } as RunSummary;
+        })
+        .filter((r) => !skillName || r.skillName === skillName)
+        .sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+    } catch { return []; }
+  }
+
+  /** Cap stored run files (keep the newest 100). */
+  private pruneRuns(): void {
+    try {
+      const runs = fs.readdirSync(CHATS_DIR).filter((f) => f.startsWith("run-") && f.endsWith(".md")).sort();
+      const excess = runs.length - 100;
+      for (let i = 0; i < excess; i++) {
+        try { fs.unlinkSync(path.join(CHATS_DIR, runs[i])); } catch {}
+      }
+    } catch {}
+  }
+
   // ── Persistence ────────────────────────────────────────
 
   /** Read the message array out of the current chat's .md file. */
-  private readChatMessages(): Array<{ role: string; content: string }> {
+  private readChatMessages(): ChatMessage[] {
     if (!this.chatId) return [];
     const filepath = path.join(CHATS_DIR, `${this.chatId}.md`);
     if (!fs.existsSync(filepath)) return [];
@@ -624,15 +832,23 @@ export class YoAgent {
   }
 
   /** Write the message array back, regenerating frontmatter. */
-  private writeChatFile(messages: Array<{ role: string; content: string }>): void {
+  private writeChatFile(messages: ChatMessage[]): void {
     if (!this.chatId) return;
     fs.mkdirSync(CHATS_DIR, { recursive: true });
     const userMsgs = messages.filter((m) => m.role === "user").length;
+    // chatId is usually a Date.now() string, but a loaded chat can carry a
+    // non-numeric id (e.g. "run-…") — guard so toISOString() never throws
+    // "Invalid time value".
+    const createdTs = parseInt(this.chatId, 10);
+    const createdIso = new Date(Number.isFinite(createdTs) ? createdTs : Date.now()).toISOString();
     const lines = [
       "---",
       `title: ${this.chatTitle}`,
-      `created: ${new Date(parseInt(this.chatId, 10)).toISOString()}`,
+      `created: ${createdIso}`,
       `messages: ${userMsgs}`,
+      // Capture the folder this chat works in so reopening it restores
+      // the same context (agent cwd + files view).
+      `workingDirectory: ${getWorkingDirectory()}`,
       ...(this.sessionId ? [`sessionId: ${this.sessionId}`] : []),
       "---",
       "",
@@ -643,11 +859,22 @@ export class YoAgent {
     fs.writeFileSync(path.join(CHATS_DIR, `${this.chatId}.md`), lines.join("\n"), "utf-8");
   }
 
-  private saveChatRecord(userMessage: string, assistantText: string, _startTs: number): void {
+  private saveChatRecord(
+    userMessage: string,
+    assistantText: string,
+    _startTs: number,
+    tools?: Array<{ name: string; input?: unknown }>,
+  ): void {
     if (!this.chatId) return;
     const existing = this.readChatMessages();
     existing.push({ role: "user", content: userMessage });
-    if (assistantText) existing.push({ role: "assistant", content: assistantText });
+    // Persist the assistant turn even when it produced no text, so a
+    // tool-only turn still shows its tool timeline on reload.
+    if (assistantText || (tools && tools.length > 0)) {
+      const msg: ChatMessage = { role: "assistant", content: assistantText };
+      if (tools && tools.length > 0) msg.tools = tools;
+      existing.push(msg);
+    }
     this.writeChatFile(existing);
     // Swarm activity that fired during this turn belongs after it — flush now
     // so the buffered entries are appended in chronological order.
@@ -678,28 +905,38 @@ export class YoAgent {
     this.writeChatFile(existing);
   }
 
-  private parseChatFile(raw: string): { title: string; sessionId: string | null; display: Array<{ role: string; text: string }> } {
+  private parseChatFile(raw: string): {
+    title: string;
+    sessionId: string | null;
+    workingDirectory: string | null;
+    display: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }>;
+  } {
     let title = "";
     let sessionId: string | null = null;
+    let workingDirectory: string | null = null;
     const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
     if (fmMatch) {
       const t = fmMatch[1].match(/^title:\s*(.+)$/m);
       if (t) title = t[1].trim();
       const s = fmMatch[1].match(/^sessionId:\s*(.+)$/m);
       if (s) sessionId = s[1].trim();
+      const w = fmMatch[1].match(/^workingDirectory:\s*(.+)$/m);
+      if (w) workingDirectory = w[1].trim();
     }
 
     const jsonMatch = raw.match(/```json\n([\s\S]*?)\n```/);
-    let messages: Array<{ role: string; content: string }> = [];
+    let messages: ChatMessage[] = [];
     if (jsonMatch) {
       try { messages = JSON.parse(jsonMatch[1]); } catch {}
     }
 
+    // Carry tools through so the renderer can replay the tool timeline.
     const display = messages.map((m) => ({
       role: m.role,
       text: m.content || "",
+      ...(m.tools && m.tools.length > 0 ? { tools: m.tools } : {}),
     }));
 
-    return { title, sessionId, display };
+    return { title, sessionId, workingDirectory, display };
   }
 }

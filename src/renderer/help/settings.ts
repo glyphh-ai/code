@@ -2,8 +2,6 @@
  * Settings section — model config, toggles, MCP expose, tool overrides.
  */
 
-import { closeHelp } from "./shared.js";
-
 // ── Settings ─────────────────────────────────────────────
 
 const settingsModelSelect = document.getElementById("settings-model-select") as HTMLSelectElement;
@@ -128,14 +126,15 @@ interface ProviderRow {
   label: string;
   hint: string;
   keyExample: string;
+  keysUrl: string;
 }
 
 const PROVIDER_ROWS: ProviderRow[] = [
-  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Claude chat outside the agent loop and read-only swarm agents on Claude.", keyExample: "sk-ant-…" },
-  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across swarm agents and direct chat.",                       keyExample: "sk-proj-…" },
-  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in swarm agents and direct chat.",                    keyExample: "AIza…" },
-  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in read-only swarm agents and direct chat.",                   keyExample: "xai-…" },
-  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in read-only swarm agents.",             keyExample: "pplx-…" },
+  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Claude chat outside the agent loop and read-only swarm agents on Claude.", keyExample: "sk-ant-…",  keysUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across swarm agents and direct chat.",                       keyExample: "sk-proj-…", keysUrl: "https://platform.openai.com/api-keys" },
+  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in swarm agents and direct chat.",                    keyExample: "AIza…",     keysUrl: "https://aistudio.google.com/apikey" },
+  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in read-only swarm agents and direct chat.",                   keyExample: "xai-…",     keysUrl: "https://console.x.ai" },
+  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in read-only swarm agents.",             keyExample: "pplx-…",    keysUrl: "https://www.perplexity.ai/settings/api" },
 ];
 
 async function renderProviderKeys() {
@@ -143,6 +142,7 @@ async function renderProviderKeys() {
   if (!container) return;
   const status = await window.yo.providerKeysList();
   const byId = new Map(status.map((s) => [s.provider, s]));
+  const allModels = await window.yo.providerModelsGetAll().catch(() => ({} as Record<string, { default: string; models: string[] }>));
   container.innerHTML = "";
 
   for (const row of PROVIDER_ROWS) {
@@ -181,9 +181,20 @@ async function renderProviderKeys() {
 
     // Hint
     const hint = document.createElement("div");
-    hint.style.cssText = "font-size:12px;color:var(--text-3);margin-bottom:10px;";
+    hint.style.cssText = "font-size:12px;color:var(--text-3);margin-bottom:8px;";
     hint.textContent = row.hint;
     card.appendChild(hint);
+
+    // Link to the provider's API-keys page — opens in-yo (browser tab), not external.
+    const keyLink = document.createElement("a");
+    keyLink.textContent = "Get API key ↗";
+    keyLink.href = "#";
+    keyLink.style.cssText = "font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;margin-bottom:10px;display:inline-block;";
+    keyLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      void window.yo.execCommand(`dip ${row.keysUrl}`);
+    });
+    card.appendChild(keyLink);
 
     // Input + buttons
     const inputRow = document.createElement("div");
@@ -196,7 +207,7 @@ async function renderProviderKeys() {
     inputRow.appendChild(input);
 
     const saveBtn = document.createElement("button");
-    saveBtn.className = "action-btn";
+    saveBtn.className = "action-btn primary";
     saveBtn.textContent = "Save";
     saveBtn.addEventListener("click", async () => {
       const key = input.value.trim();
@@ -210,17 +221,44 @@ async function renderProviderKeys() {
     });
     inputRow.appendChild(saveBtn);
 
+    let testRespEl: HTMLElement | null = null;
     if (s?.configured) {
-      const testBtn = document.createElement("button");
-      testBtn.className = "action-btn";
-      testBtn.textContent = "Test";
-      testBtn.addEventListener("click", async () => {
-        testBtn.disabled = true;
-        testBtn.textContent = "Testing…";
-        try { await window.yo.providerKeysTest(row.id); } catch { /* surfaced via reload */ }
-        await renderProviderKeys();
+      // Live test: send a real prompt and show the model's reply (or the error).
+      testRespEl = document.createElement("div");
+      testRespEl.style.cssText = "display:none;margin-top:8px;font-size:12px;border-radius:6px;padding:8px 10px;white-space:pre-wrap;line-height:1.5;font-family:var(--font-mono, monospace);";
+
+      const testPromptBtn = document.createElement("button");
+      testPromptBtn.className = "action-btn primary";
+      testPromptBtn.textContent = "Send test";
+      testPromptBtn.title = "Send a one-shot prompt to this provider and show the response";
+      testPromptBtn.addEventListener("click", async () => {
+        const re = testRespEl!;
+        testPromptBtn.disabled = true;
+        const prev = testPromptBtn.textContent;
+        testPromptBtn.textContent = "Sending…";
+        re.style.display = "block";
+        re.style.background = "var(--surface-3)";
+        re.style.color = "var(--text-2)";
+        re.style.border = "1px solid var(--border)";
+        re.textContent = `Contacting ${row.label}…`;
+        let r: { ok: boolean; text?: string; model?: string; error?: string };
+        try { r = await window.yo.providerKeysTestPrompt(row.id); }
+        catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+        testPromptBtn.disabled = false;
+        testPromptBtn.textContent = prev;
+        if (r.ok) {
+          re.style.background = "var(--accent-bg)";
+          re.style.color = "var(--text)";
+          re.style.border = "1px solid var(--accent)";
+          re.textContent = `✓ ${r.model}\n\n${r.text}`;
+        } else {
+          re.style.background = "rgba(212,74,74,0.12)";
+          re.style.color = "#d44a4a";
+          re.style.border = "1px solid #d44a4a";
+          re.textContent = `✗ ${r.model || row.id} failed:\n\n${r.error || "unknown error"}`;
+        }
       });
-      inputRow.appendChild(testBtn);
+      inputRow.appendChild(testPromptBtn);
 
       const removeBtn = document.createElement("button");
       removeBtn.className = "action-btn danger";
@@ -234,6 +272,67 @@ async function renderProviderKeys() {
     }
 
     card.appendChild(inputRow);
+    if (testRespEl) card.appendChild(testRespEl);
+
+    // ── Editable model catalog (so users can fix/add models as providers change) ──
+    const cfg = allModels[row.id] || { default: "", models: [] };
+    const details = document.createElement("details");
+    details.style.cssText = "margin-top:10px;";
+    const summary = document.createElement("summary");
+    summary.style.cssText = "cursor:pointer;font-size:12px;color:var(--text-2);user-select:none;";
+    summary.textContent = `Models (${cfg.models.length}) — default: ${cfg.default || "none"}`;
+    details.appendChild(summary);
+
+    const inner = document.createElement("div");
+    inner.style.cssText = "margin-top:8px;display:flex;flex-direction:column;gap:6px;";
+    const ta = document.createElement("textarea");
+    ta.className = "settings-input";
+    ta.style.cssText = "min-height:84px;font-family:var(--font-mono, monospace);font-size:12px;";
+    ta.placeholder = "one model id per line";
+    ta.value = cfg.models.join("\n");
+    const defLabel = document.createElement("label");
+    defLabel.className = "settings-label";
+    defLabel.textContent = "Default model";
+    const defSel = document.createElement("select");
+    defSel.className = "settings-input";
+    defSel.style.width = "auto";
+    const fillDefSel = () => {
+      const models = ta.value.split("\n").map((m) => m.trim()).filter(Boolean);
+      defSel.innerHTML = "";
+      for (const m of models) { const o = document.createElement("option"); o.value = m; o.textContent = m; defSel.appendChild(o); }
+      defSel.value = models.includes(cfg.default) ? cfg.default : (models[0] || "");
+    };
+    fillDefSel();
+    ta.addEventListener("input", fillDefSel);
+
+    const mStatus = document.createElement("span");
+    mStatus.style.cssText = "font-size:11px;color:var(--text-3);";
+    const saveModelsBtn = document.createElement("button");
+    saveModelsBtn.className = "action-btn primary";
+    saveModelsBtn.textContent = "Save models";
+    saveModelsBtn.addEventListener("click", async () => {
+      const models = ta.value.split("\n").map((m) => m.trim()).filter(Boolean);
+      await window.yo.providerModelsSet(row.id, models, defSel.value);
+      mStatus.textContent = "Saved ✓";
+      await renderProviderKeys();
+    });
+    const resetModelsBtn = document.createElement("button");
+    resetModelsBtn.className = "action-btn";
+    resetModelsBtn.textContent = "Reset to defaults";
+    resetModelsBtn.addEventListener("click", async () => {
+      await window.yo.providerModelsReset(row.id);
+      await renderProviderKeys();
+    });
+    const mBtnRow = document.createElement("div");
+    mBtnRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+    mBtnRow.append(saveModelsBtn, resetModelsBtn, mStatus);
+
+    inner.append(
+      (() => { const l = document.createElement("label"); l.className = "settings-label"; l.textContent = "Available models (one per line)"; return l; })(),
+      ta, defLabel, defSel, mBtnRow,
+    );
+    details.appendChild(inner);
+    card.appendChild(details);
 
     // Last-test detail line (failures only)
     if (s?.lastTestOk === false && s.lastTestError) {
@@ -354,6 +453,169 @@ function initSettings() {
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
 
+  // ── Remote Relay wiring (org-admin only) ──────────────────
+  const relaySection = document.getElementById("relay-section");
+  const relayEnabledToggle = document.getElementById("relay-enabled-toggle") as HTMLInputElement;
+  const relayStatusText = document.getElementById("relay-status-text");
+  const relayConfigExample = document.getElementById("relay-config-example");
+  const relayTokensList = document.getElementById("relay-tokens-list");
+  const relayNewTokenBox = document.getElementById("relay-new-token");
+  const relayNewTokenValue = document.getElementById("relay-new-token-value");
+  const relayLabelInput = document.getElementById("relay-token-label") as HTMLInputElement;
+
+  function renderRelayConfig(): void {
+    if (relayConfigExample) {
+      relayConfigExample.textContent = `{
+  "mcpServers": {
+    "yo-relay": {
+      "type": "http",
+      "url": "https://api.yosup.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-token>"
+      }
+    }
+  }
+}`;
+    }
+    const claudeCmd = document.getElementById("relay-claude-cmd");
+    if (claudeCmd) {
+      claudeCmd.textContent =
+        `claude mcp add --transport http yo-relay https://api.yosup.dev/mcp --header "Authorization: Bearer <your-token>"`;
+    }
+  }
+
+  async function refreshRelayStatus(): Promise<void> {
+    if (!relayStatusText) return;
+    const s = await window.yo.relayStatus();
+    const label = !s.signedIn ? "Sign in first."
+      : !s.enabled ? "Disabled."
+      : s.state === "connected" ? "Connected to api.yosup.dev"
+      : s.state === "connecting" ? "Connecting…"
+      : s.state === "disconnected" ? "Disconnected — retrying"
+      : "Off";
+    relayStatusText.textContent = label;
+    relayStatusText.style.color = s.state === "connected" ? "var(--accent)" : "var(--text-3)";
+  }
+
+  function tokenRow(t: { id: string; label: string; createdAt: string; expiresAt: string }): HTMLElement {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);border:1px solid var(--border-2);border-radius:6px;margin-bottom:4px;font-size:12px;";
+    const created = t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "";
+    const expires = t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : "";
+    row.innerHTML = `
+      <span style="flex:1;color:var(--text);">${escapeHtmlLocal(t.label || "(unnamed)")}</span>
+      <span style="color:var(--text-3);font-size:11px;">${created} → ${expires}</span>
+      <button class="action-btn danger" data-revoke="${escapeHtmlLocal(t.id)}" style="font-size:11px;padding:3px 10px;">Revoke</button>`;
+    row.querySelector("[data-revoke]")!.addEventListener("click", async () => {
+      if (!confirm(`Revoke "${t.label || "this token"}"? External tools using it will stop working.`)) return;
+      const res = await window.yo.relayTokensRevoke(t.id);
+      if ("error" in res) { alert(`Could not revoke: ${res.error}`); return; }
+      void refreshRelayTokens();
+    });
+    return row;
+  }
+
+  function escapeHtmlLocal(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  async function refreshRelayTokens(): Promise<void> {
+    if (!relayTokensList) return;
+    relayTokensList.innerHTML = "";
+    const res = await window.yo.relayTokensList();
+    if ("error" in res) {
+      relayTokensList.innerHTML = `<div style="font-size:12px;color:var(--text-3);">Could not load tokens: ${escapeHtmlLocal(res.error)}</div>`;
+      return;
+    }
+    const tokens = res as Array<{ id: string; label: string; createdAt: string; expiresAt: string }>;
+    if (tokens.length === 0) {
+      relayTokensList.innerHTML = `<div style="font-size:12px;color:var(--text-3);">No tokens yet — generate one below.</div>`;
+      return;
+    }
+    for (const t of tokens) relayTokensList.appendChild(tokenRow(t));
+  }
+
+  relayEnabledToggle.addEventListener("change", async () => {
+    window.yo.setPreference("relayEnabled", relayEnabledToggle.checked);
+    await window.yo.relayReconnect();
+    void refreshRelayStatus();
+  });
+
+  document.getElementById("relay-gen-token")!.addEventListener("click", async () => {
+    const label = relayLabelInput.value.trim() || "default";
+    const res = await window.yo.relayTokensCreate(label);
+    if ("error" in res) { alert(`Could not create token: ${res.error}`); return; }
+    relayLabelInput.value = "";
+    if (relayNewTokenBox && relayNewTokenValue) {
+      relayNewTokenValue.textContent = res.token;
+      relayNewTokenBox.classList.remove("hidden");
+    }
+    void refreshRelayTokens();
+  });
+
+  document.getElementById("relay-copy-new-token")!.addEventListener("click", () => {
+    const val = relayNewTokenValue?.textContent || "";
+    window.yo.copyToClipboard(val);
+    const btn = document.getElementById("relay-copy-new-token") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+
+  document.getElementById("relay-install-claude")!.addEventListener("click", async () => {
+    const token = relayNewTokenValue?.textContent || "";
+    if (!token) return;
+    const btn = document.getElementById("relay-install-claude") as HTMLButtonElement;
+    const status = document.getElementById("relay-install-status");
+    btn.disabled = true;
+    btn.textContent = "Installing…";
+    const res = await window.yo.relayInstallClaude(token);
+    btn.disabled = false;
+    btn.textContent = "Install in Claude code";
+    if (status) {
+      status.style.display = "block";
+      if ("error" in res) {
+        status.textContent = `✗ ${res.error}`;
+        status.style.color = "var(--danger)";
+      } else {
+        status.textContent = `✓ Installed to ${res.path}`;
+        status.style.color = "var(--accent)";
+      }
+    }
+  });
+
+  document.getElementById("relay-copy-config")!.addEventListener("click", () => {
+    const val = relayConfigExample?.textContent || "";
+    window.yo.copyToClipboard(val);
+    const btn = document.getElementById("relay-copy-config") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+
+  document.getElementById("relay-copy-claude-cmd")!.addEventListener("click", () => {
+    const val = document.getElementById("relay-claude-cmd")?.textContent || "";
+    window.yo.copyToClipboard(val);
+    const btn = document.getElementById("relay-copy-claude-cmd") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+
+  // Gate the whole subsection to org_admin / super_admin. Non-admins see
+  // nothing (the platform UI is also admin-only, so this is consistent).
+  void (async () => {
+    const acct = await window.yo.getAccountInfo();
+    const role = acct?.role || "";
+    const allowed = role === "org_admin" || role === "super_admin";
+    if (!allowed) return;                              // leave .hidden
+    relaySection?.classList.remove("hidden");
+
+    const enabled = await window.yo.getPreference("relayEnabled", false) as boolean;
+    relayEnabledToggle.checked = !!enabled;
+    renderRelayConfig();
+    void refreshRelayStatus();
+    void refreshRelayTokens();
+    setInterval(refreshRelayStatus, 3_000);
+  })();
+
   // Agent mode
   settingsAgentMode.addEventListener("change", () => {
     window.yo.setAgentMode(settingsAgentMode.value);
@@ -407,10 +669,10 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // Account dashboard — opens platform in a browser tab
+  // Manage Account — open the platform inside the app (a panel tab), the same
+  // way the left-rail Platform button does (.dip <platformUrl>).
   document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
-    closeHelp();
-    window.yo.openExternal(window.yo.platformUrl);
+    void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
   });
 
   // Sign out
@@ -423,10 +685,9 @@ function initSettings() {
 
 async function loadSettings() {
   settingsStatus.textContent = "";
-  const [config, accountInfo, authStatus] = await Promise.all([
+  const [config, accountInfo] = await Promise.all([
     window.yo.getLLMConfig(),
     window.yo.getAccountInfo(),
-    window.yo.getAuthStatus(),
   ]);
 
   // Populate model dropdown — SDK agent only supports Anthropic models
@@ -465,7 +726,6 @@ async function loadSettings() {
   const nameEl = document.getElementById("account-name")!;
   const orgEl = document.getElementById("account-org")!;
   const tierEl = document.getElementById("account-tier")!;
-  const statusEl = document.getElementById("account-status")!;
 
   if (accountInfo) {
     emailEl.textContent = accountInfo.email;
@@ -473,24 +733,11 @@ async function loadSettings() {
     orgEl.textContent = accountInfo.orgName;
     tierEl.textContent = accountInfo.tier || "free";
     tierEl.className = `license-value ${accountInfo.tier !== "free" ? "active" : ""}`;
-
-    const billingStatus = accountInfo.billingStatus || authStatus.status;
-    if (billingStatus === "active") {
-      statusEl.textContent = "Active";
-      statusEl.className = "license-value active";
-    } else if (billingStatus === "expired" || authStatus.status === "expired") {
-      statusEl.textContent = "Expired";
-      statusEl.className = "license-value expired";
-    } else {
-      statusEl.textContent = billingStatus === "none" ? "Free" : billingStatus;
-      statusEl.className = "license-value";
-    }
   } else {
     emailEl.textContent = "Not signed in";
     nameEl.textContent = "—";
     orgEl.textContent = "—";
     tierEl.textContent = "—";
-    statusEl.textContent = "—";
   }
 
   // Load toggle states

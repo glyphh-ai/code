@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld("yo", {
   skillsReadFile: (name: string, rel: string) => ipcRenderer.invoke("skills-read-file", name, rel) as Promise<string | null>,
   skillsWriteFile: (name: string, rel: string, content: string) => ipcRenderer.invoke("skills-write-file", name, rel, content) as Promise<boolean>,
   skillsDeleteFile: (name: string, rel: string) => ipcRenderer.invoke("skills-delete-file", name, rel) as Promise<boolean>,
+  skillsOpenInEditor: (name: string) => ipcRenderer.invoke("skills-open-in-editor", name) as Promise<boolean>,
+  skillsOpenFileInEditor: (name: string, rel: string) => ipcRenderer.invoke("skills-open-file-in-editor", name, rel) as Promise<boolean>,
+  skillsFileUrl: (name: string, rel: string) => ipcRenderer.invoke("skills-file-url", name, rel) as Promise<string>,
   // Run
   skillsRun: (name: string, input: unknown) => ipcRenderer.invoke("skills-run", name, input) as Promise<{ ok: true; output: unknown } | { ok: false; error: string }>,
   skillsCancel: (runId: string) => ipcRenderer.invoke("skills-cancel", runId) as Promise<boolean>,
@@ -144,9 +147,12 @@ contextBridge.exposeInMainWorld("yo", {
   // Open a file in the .Yo Editor panel (from a file link in the yo panel).
   openInEditor: (filePath: string) => ipcRenderer.send("open-in-editor", filePath),
 
-  // Working directory — the single project folder the app is focused on.
+  // Working directory — per-chat folder the agent + files view focus on.
   getWorkingDir: () => ipcRenderer.invoke("working-dir:get") as Promise<string | null>,
-  pickWorkingDir: () => ipcRenderer.invoke("working-dir:pick") as Promise<string | null>,
+  pickWorkingDir: (opts?: { asDefault?: boolean }) =>
+    ipcRenderer.invoke("working-dir:pick", opts) as Promise<string | null>,
+  setWorkingDir: (dir: string) => ipcRenderer.invoke("working-dir:set", dir) as Promise<string>,
+  getWorkingDirRecents: () => ipcRenderer.invoke("working-dir:recents") as Promise<string[]>,
   onWorkingDirChanged: (callback: (dir: string | null) => void) => {
     ipcRenderer.on("working-dir-changed", (_e, dir) => callback(dir));
   },
@@ -289,6 +295,8 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Yo panel
   yoPanelOpen: (query: string) => ipcRenderer.send("yo-panel-open-from-renderer", query),
+  yoPanelPrefill: (text: string) => ipcRenderer.send("yo-panel-prefill-from-renderer", text),
+  openYoChat: (id: string) => ipcRenderer.send("yo-open-chat-from-renderer", id),
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
   yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
   yoPanelStop: () => ipcRenderer.send("yo-panel-stop"),
@@ -322,6 +330,15 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
+  onYoPanelRefocus: (cb: () => void) => {
+    ipcRenderer.on("yo-panel-refocus", () => cb());
+  },
+  onYoPanelPrefill: (cb: (text: string) => void) => {
+    ipcRenderer.on("yo-panel-prefill", (_e, text) => cb(text));
+  },
+  onYoPanelLoadChat: (cb: (id: string) => void) => {
+    ipcRenderer.on("yo-panel-load-chat", (_e, id) => cb(id));
+  },
 
   // Jammer activity feed (workspace bus events forwarded from main)
   onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => {
@@ -350,6 +367,34 @@ contextBridge.exposeInMainWorld("yo", {
   yoChatsLoad: (id: string) => ipcRenderer.invoke("yo-chats-load", id) as Promise<Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null>,
   yoChatsDelete: (id: string) => ipcRenderer.invoke("yo-chats-delete", id) as Promise<boolean>,
   yoChatNew: () => ipcRenderer.invoke("yo-chat-new") as Promise<boolean>,
+
+  // Task runs (persisted scheduled/manual runs → Activity + schedule history)
+  runsList: (skillName?: string) => ipcRenderer.invoke("runs-list", skillName) as Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>,
+  runsGet: (id: string) => ipcRenderer.invoke("runs-get", id) as Promise<{ title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null>,
+  onRunsChanged: (cb: () => void) => { ipcRenderer.on("runs-changed", () => cb()); },
+  setKeepAwake: (on: boolean) => ipcRenderer.send("set-keep-awake", on),
+
+  // Standalone prompt schedules (decoupled from skills)
+  schedulesList: () => ipcRenderer.invoke("schedules-list") as Promise<Array<Record<string, unknown>>>,
+  schedulesGet: (id: string) => ipcRenderer.invoke("schedules-get", id) as Promise<Record<string, unknown> | null>,
+  schedulesSave: (cfg: Record<string, unknown>) => ipcRenderer.invoke("schedules-save", cfg) as Promise<Record<string, unknown>>,
+  schedulesDelete: (id: string) => ipcRenderer.invoke("schedules-delete", id) as Promise<boolean>,
+  schedulesRun: (id: string) => ipcRenderer.invoke("schedules-run", id) as Promise<void>,
+  schedulesPause: (id: string) => ipcRenderer.invoke("schedules-pause", id) as Promise<void>,
+  schedulesResume: (id: string) => ipcRenderer.invoke("schedules-resume", id) as Promise<void>,
+  schedulesDeleteRuns: (name: string) => ipcRenderer.invoke("schedules-delete-runs", name) as Promise<number>,
+
+  // Saved councils — templates, run history, scheduling
+  councilsList: () => ipcRenderer.invoke("councils-list") as Promise<Array<Record<string, unknown>>>,
+  councilsGet: (id: string) => ipcRenderer.invoke("councils-get", id) as Promise<Record<string, unknown> | null>,
+  councilsSave: (cfg: Record<string, unknown>) => ipcRenderer.invoke("councils-save", cfg) as Promise<Record<string, unknown>>,
+  councilsDelete: (id: string) => ipcRenderer.invoke("councils-delete", id) as Promise<boolean>,
+  councilsRun: (id: string, live?: boolean) => ipcRenderer.invoke("councils-run", id, live) as Promise<{ ok: boolean; error?: string; message?: string; runId?: string }>,
+  councilsRuns: (id: string) => ipcRenderer.invoke("councils-runs", id) as Promise<Array<Record<string, unknown>>>,
+  councilsRunGet: (id: string, runId: string) => ipcRenderer.invoke("councils-run-get", id, runId) as Promise<Record<string, unknown> | null>,
+  councilsScheduleStatus: () => ipcRenderer.invoke("councils-schedule-status") as Promise<Array<{ id: string; schedule: string; paused: boolean }>>,
+  councilsPauseSchedule: (id: string) => ipcRenderer.invoke("councils-pause-schedule", id) as Promise<void>,
+  councilsResumeSchedule: (id: string) => ipcRenderer.invoke("councils-resume-schedule", id) as Promise<void>,
 
   // Agent mode + guardrails
   getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<{ perm: string; swarm: boolean }>,
@@ -396,6 +441,10 @@ contextBridge.exposeInMainWorld("yo", {
   filesRailGetWidth: () => ipcRenderer.invoke("files-rail-get-width") as Promise<number>,
   listDir: (dirPath: string) =>
     ipcRenderer.invoke("files:list-dir", dirPath) as Promise<Array<{ name: string; isDir: boolean }>>,
+  gitInfo: (root: string) =>
+    ipcRenderer.invoke("files:git-info", root) as Promise<{ isRepo: boolean; branch?: string; defaultBranch?: string }>,
+  gitRepos: (root: string) =>
+    ipcRenderer.invoke("files:git-repos", root) as Promise<Array<{ name: string; path: string; branch: string }>>,
   createFile: (filePath: string) =>
     ipcRenderer.invoke("files:create-file", filePath) as Promise<{ ok: boolean; error?: string }>,
   mkdir: (dirPath: string) =>
@@ -437,6 +486,16 @@ contextBridge.exposeInMainWorld("yo", {
   mcpExposeGenToken: (label: string, ttlDays?: number) => ipcRenderer.invoke("mcp-expose-gen-token", label, ttlDays) as Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>,
   mcpExposeRevokeToken: (token: string) => ipcRenderer.invoke("mcp-expose-revoke-token", token) as Promise<void>,
 
+  // Remote relay — settings UI uses these. The JWT authenticates the WS,
+  // so there's no client-token to manage; only the external (server) tokens
+  // for the user's external tools.
+  relayReconnect: () => ipcRenderer.invoke("relay-reconnect") as Promise<void>,
+  relayStatus: () => ipcRenderer.invoke("relay-status") as Promise<{ enabled: boolean; signedIn: boolean; state: "off" | "connecting" | "connected" | "disconnected" }>,
+  relayTokensList: () => ipcRenderer.invoke("relay-tokens-list") as Promise<Array<{ id: string; label: string; type: string; userId: string | null; createdAt: string; expiresAt: string }> | { error: string }>,
+  relayTokensCreate: (label: string) => ipcRenderer.invoke("relay-tokens-create", label) as Promise<{ ok: boolean; id: string; token: string; expiresAt: string } | { error: string }>,
+  relayTokensRevoke: (id: string) => ipcRenderer.invoke("relay-tokens-revoke", id) as Promise<{ ok: boolean } | { error: string }>,
+  relayInstallClaude: (token: string) => ipcRenderer.invoke("relay-install-claude", token) as Promise<{ ok: boolean; path: string } | { error: string }>,
+
   // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK).
   // List returns *status only* — never plaintext. set/remove/test mutate.
   providerKeysList: () => ipcRenderer.invoke("provider-keys-list") as Promise<Array<{
@@ -453,6 +512,14 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("provider-keys-remove", provider) as Promise<{ ok: boolean }>,
   providerKeysTest: (provider: string) =>
     ipcRenderer.invoke("provider-keys-test", provider) as Promise<{ ok: boolean; error?: string }>,
+  providerKeysTestPrompt: (provider: string, model?: string, prompt?: string) =>
+    ipcRenderer.invoke("provider-keys-test-prompt", provider, model, prompt) as Promise<{ ok: boolean; text?: string; model?: string; error?: string }>,
+  providerModelsGetAll: () =>
+    ipcRenderer.invoke("provider-models-get-all") as Promise<Record<string, { default: string; models: string[] }>>,
+  providerModelsSet: (provider: string, models: string[], def?: string) =>
+    ipcRenderer.invoke("provider-models-set", provider, models, def) as Promise<{ default: string; models: string[] }>,
+  providerModelsReset: (provider: string) =>
+    ipcRenderer.invoke("provider-models-reset", provider) as Promise<{ default: string; models: string[] }>,
 
   // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
   ccStatus: () => ipcRenderer.invoke("cc-status") as Promise<{

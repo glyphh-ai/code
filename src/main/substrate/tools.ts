@@ -90,9 +90,37 @@ export interface SubstrateToolDeps {
     create: () => string;
   };
   execCommand?: (cmd: string) => Promise<string>;
+  /** The user's configured apps (the registry behind `dip <app>`). */
+  apps?: {
+    list: () => Array<{ id: string; name: string; url?: string; description?: string }>;
+    open: (id: string) => Promise<string>;
+  };
   swarm?: {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
     create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+  };
+  /** Convene + interact with a local council (multi-LLM debate). */
+  council?: {
+    create: (config: {
+      council_prompt: string;
+      name?: string;
+      style?: string;
+      round_cap?: number;
+      members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
+    }) => Promise<string>;
+    /** Text status (members, round, last turns) of the active council. */
+    status: () => string;
+    /** Synthesize + return a summary of the active council. */
+    summarize: () => Promise<string>;
+    /** Queue a moderator note for the active council's next round. */
+    interject: (text: string) => string;
+  };
+  /** User-created agent registry — surfaced as list_agents + call_agent
+   *  so the .yo loop can delegate to a named agent without committing to a
+   *  full multi-agent swarm. */
+  agentRegistry?: {
+    list: () => Array<{ id: string; name: string; role?: string; mode?: string }>;
+    get: (id: string) => { id: string; name: string; role?: string } | null;
   };
 }
 
@@ -1496,6 +1524,51 @@ const BUILTIN_TOOLS: ToolDef[] = [
     },
   },
 
+  // ── User agents ───────────────────────────────────────────
+  {
+    name: "list_agents",
+    namespace: "yo",
+    description: "List the user's local agents (the library they curate in the Agents screen). "
+      + "Returns id, name, optional role, and mode for each. Use this to discover who's available "
+      + "before calling call_agent — pick the agent whose role best matches the task.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.agentRegistry) return "[]";
+      const all = deps.agentRegistry.list();
+      return JSON.stringify(all.map((a) => ({ id: a.id, name: a.name, role: a.role, mode: a.mode })), null, 2);
+    },
+  },
+  {
+    name: "call_agent",
+    namespace: "yo",
+    description: "Delegate a single task to one of the user's local agents (use list_agents to discover ids). "
+      + "Spawns the named agent with the given prompt; its activity streams inline into this conversation. "
+      + "Prefer this over create_swarm when you only need ONE agent — swarms are for multi-agent collaboration.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_id: { type: "string", description: "Agent id from list_agents" },
+        prompt: { type: "string", description: "What this agent should do (full task description in the user's own words)" },
+      },
+      required: ["agent_id", "prompt"],
+    },
+    run: async (input) => {
+      if (!deps.swarm) return "Agent runner not wired.";
+      if (!deps.agentRegistry) return "Agent registry not wired.";
+      const agentId = String(input.agent_id || "").trim();
+      const prompt = String(input.prompt || "").trim();
+      if (!agentId) return "agent_id is required.";
+      if (!prompt) return "prompt is required.";
+      if (!deps.agentRegistry.get(agentId)) {
+        const available = deps.agentRegistry.list().map((a) => a.id).join(", ");
+        return `Unknown agent id "${agentId}". Available: ${available || "(none — create one in the Agents tab)"}.`;
+      }
+      // Reuse the swarm machinery with a roster of one — the agent's activity
+      // streams into the same conversation feed.
+      return deps.swarm.create(prompt, [agentId], 1);
+    },
+  },
+
   // ── Swarm ─────────────────────────────────────────────────
   {
     name: "create_swarm",
@@ -1523,6 +1596,117 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const agents = Array.isArray(input.agents) ? (input.agents as unknown[]).map((a) => String(a)) : undefined;
       const size = typeof input.size === "number" ? input.size : undefined;
       return deps.swarm.create(goal, agents, size);
+    },
+  },
+  {
+    name: "list_apps",
+    namespace: "yo",
+    description: "List the apps the user has configured in yo (id, name, URL). Use this to resolve an app the user names — e.g. \"open council\", \"open gmail\" — to its id before calling open_app.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.apps) return "App registry not available.";
+      const apps = deps.apps.list();
+      if (apps.length === 0) return "No apps configured.";
+      return apps.map((a) => `- ${a.id}: ${a.name}${a.url ? ` — ${a.url}` : ""}${a.description ? ` (${a.description})` : ""}`).join("\n");
+    },
+  },
+  {
+    name: "open_app",
+    namespace: "yo",
+    description: "Open one of the user's configured apps by its id (from list_apps) as a panel/tab in yo. This is the tool for \"open <app>\" requests — open it directly, don't ask the user for a URL.",
+    input_schema: {
+      type: "object",
+      properties: { app_id: { type: "string", description: "The app id from list_apps (e.g. \"council\", \"gmail\")" } },
+      required: ["app_id"],
+    },
+    run: async (input) => {
+      if (!deps.apps) return "App registry not available.";
+      const id = String(input.app_id || "").trim();
+      if (!id) return "An app_id is required.";
+      return deps.apps.open(id);
+    },
+  },
+  {
+    name: "create_council",
+    namespace: "yo",
+    description: "Convene a LOCAL council — a panel of LLMs that debate a prompt over rounds — and open it in the Council app. This is the tool for \"convene a council / get a panel of models to debate X\" requests. You fill out the council from the user's prompt: pick 2–5 members across the configured providers, give each a distinct startup_prompt (its persona/role), and choose a style. The council then runs in its own UI panel.",
+    input_schema: {
+      type: "object",
+      properties: {
+        council_prompt: { type: "string", description: "The question/topic the council debates (use the user's own words)" },
+        name: { type: "string", description: "Short council name. Defaults from the prompt if omitted." },
+        style: { type: "string", enum: ["chained", "free_for_all", "debate"], description: "chained = take turns seeing prior turns; free_for_all = all answer in parallel; debate = adversarial. Default chained." },
+        round_cap: { type: "number", description: "Max rounds (1–20, default 3)" },
+        members: {
+          type: "array",
+          description: "2–10 members. Each: { provider, model, startup_prompt }. Omit to auto-pick one member per configured provider.",
+          items: {
+            type: "object",
+            properties: {
+              provider: { type: "string", description: "Provider id (anthropic, openai, google, xai, perplexity)" },
+              model: { type: "string", description: "Model id for that provider" },
+              startup_prompt: { type: "string", description: "This member's persona/role/system prompt" },
+            },
+            required: ["provider", "model"],
+          },
+        },
+      },
+      required: ["council_prompt"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const prompt = String(input.council_prompt || "").trim();
+      if (!prompt) return "A council_prompt is required.";
+      const members = Array.isArray(input.members)
+        ? (input.members as Array<Record<string, unknown>>).map((m) => ({
+            provider: String(m.provider || ""),
+            model: String(m.model || ""),
+            startup_prompt: m.startup_prompt ? String(m.startup_prompt) : undefined,
+          }))
+        : undefined;
+      return deps.council.create({
+        council_prompt: prompt,
+        name: input.name ? String(input.name) : undefined,
+        style: input.style ? String(input.style) : undefined,
+        round_cap: typeof input.round_cap === "number" ? input.round_cap : undefined,
+        members,
+      });
+    },
+  },
+  {
+    name: "council_status",
+    namespace: "yo",
+    description: "Inspect the council currently open in the Council app: its members, round progress, and recent turns. Use this to see what a running council is doing before summarizing or interjecting.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      return deps.council.status();
+    },
+  },
+  {
+    name: "council_summarize",
+    namespace: "yo",
+    description: "Synthesize and return a structured summary of the active council's debate so far (positions, agreements, contention, conclusion). Also surfaces the summary in the Council app.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      return deps.council.summarize();
+    },
+  },
+  {
+    name: "council_interject",
+    namespace: "yo",
+    description: "Add a moderator note/steer to the active council; it's injected into the next round so members take it into account.",
+    input_schema: {
+      type: "object",
+      properties: { text: { type: "string", description: "The moderator note to inject" } },
+      required: ["text"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const text = String(input.text || "").trim();
+      if (!text) return "A note is required.";
+      return deps.council.interject(text);
     },
   },
 

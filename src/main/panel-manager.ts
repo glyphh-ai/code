@@ -731,7 +731,9 @@ export class PanelManager {
   }
 
   /** Switch to a panel with slide animation (dip <id>) */
-  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "left"): boolean {
+  // Direction is the on-screen motion of the incoming view. Forward navigation
+  // slides left→right ("right"); going back slides right→left ("left").
+  switchTo(id: string, parent: BrowserWindow, direction: "left" | "right" = "right"): boolean {
     if (parent.isDestroyed()) return false;
     const view = this.getOrCreate(id, parent);
     if (!view) return false;
@@ -782,10 +784,10 @@ export class PanelManager {
     return true;
   }
 
-  /** Switch to previous panel — slides in from the left */
+  /** Switch to previous panel — going back slides right→left. */
   switchBack(parent: BrowserWindow): boolean {
     if (!this.previousPanel) return false;
-    return this.switchTo(this.previousPanel, parent, "right");
+    return this.switchTo(this.previousPanel, parent, "left");
   }
 
   /** Animate old views out + new views in (carousel slide) */

@@ -17,6 +17,7 @@ import { EventEmitter } from "events";
 import { serverPostAuthed, serverGetAuthed, getAccountInfo, getHeartbeatInfo } from "./auth";
 import type { McpManager } from "./mcp-manager";
 import type { AppConnector } from "./app-connector";
+import { refreshConnectorCatalog } from "./connector-tools-client";
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -278,102 +279,41 @@ export class ConnectorManager extends EventEmitter {
   // ── MCP bridge ────────────────────────────────────────
 
   /**
-   * Ensure Pipedream MCP servers are connected using real app IDs.
-   * Each connected Pipedream account maps to the existing app in AppConnector.
-   * Servers are ephemeral (in-memory only) since tokens are short-lived.
+   * Refresh the connector tool catalog from yo-server.
+   *
+   * Used to open an MCP client per connected app locally (against Pipedream's
+   * MCP URL with short-lived tokens). Now we fetch the flattened catalog via
+   * /api/connectors/tools — yo-server owns the Pipedream auth and exposes the
+   * same surface to both this client and the relay's external callers.
+   *
+   * Side effects:
+   *   - Clears any legacy ephemeral Pipedream servers in mcpManager (a one-
+   *     time cleanup for users upgrading from the old code path).
+   *   - Loads the connector catalog into mcpManager so getAllTools / callTool
+   *     keep working transparently for skills, the agent, and the relay's
+   *     local_mcp_* handlers.
    */
   async refreshMcp(): Promise<{ ok: boolean; error?: string; toolCount: number }> {
     if (!this.mcpManager) return { ok: false, error: "MCP manager not available", toolCount: 0 };
 
+    // One-time cleanup of any legacy ephemeral Pipedream servers from the
+    // pre-refactor code path.
+    this.removeLegacyPipedreamServers();
+
     try {
-      const res = await serverGetAuthed<{
-        ok: boolean;
-        mcpUrl?: string;
-        mcpToken?: string;
-        mcpHeaders?: Record<string, string>;
-        hasAccounts?: boolean;
-        apps?: Array<{ slug: string; mcpUrl: string }>;
-        error?: string;
-      }>("/api/connectors/mcp-endpoint");
-
-      console.log(`[connectors] mcp-endpoint response:`, JSON.stringify({ ok: res.ok, hasAccounts: res.hasAccounts, appsCount: res.apps?.length, error: res.error }));
-
-      if (!res.ok) {
-        this.removePipedreamServers();
-        return { ok: false, error: `Server returned: ${res.error || "no MCP URL"}`, toolCount: 0 };
-      }
-
-      if (!res.hasAccounts || !res.apps?.length) {
-        this.removePipedreamServers();
-        return { ok: false, error: "No connected accounts on server", toolCount: 0 };
-      }
-
-      const headers: Record<string, string> = {
-        ...(res.mcpHeaders || {}),
-      };
-      if (res.mcpToken) {
-        headers["Authorization"] = `Bearer ${res.mcpToken}`;
-      }
-
-      // Resolve Pipedream slugs to real app IDs
-      const activeAppIds = new Set<string>();
-      const appEntries: Array<{ appId: string; slug: string; mcpUrl: string }> = [];
-      for (const pdApp of res.apps) {
-        const realApp = this.appConnector?.findByPipedreamSlug(pdApp.slug);
-        const appId = realApp?.id || pdApp.slug;
-        activeAppIds.add(appId);
-        appEntries.push({ appId, slug: pdApp.slug, mcpUrl: pdApp.mcpUrl });
-      }
-
-      // Remove stale ephemeral servers no longer in the active set
-      for (const id of this.pipedreamServerIds) {
-        if (!activeAppIds.has(id)) {
-          this.mcpManager.removeEphemeralServer(id);
-        }
-      }
-      this.pipedreamServerIds = activeAppIds;
-
-      let totalTools = 0;
-      let lastError: string | undefined;
-      let anyOk = false;
-
-      for (const entry of appEntries) {
-        const config = {
-          id: entry.appId,
-          name: this.appConnector?.get(entry.appId)?.name || entry.slug,
-          transport: "streamable-http" as const,
-          url: entry.mcpUrl,
-          headers,
-          enabled: true,
-        };
-
-        this.mcpManager.addEphemeralServer(config);
-
-        try {
-          await this.mcpManager.connectServer(config);
-          const state = this.mcpManager.getServerState(entry.appId);
-          const tools = state?.tools.length || 0;
-          totalTools += tools;
-          if (state?.status === "connected") anyOk = true;
-          console.log(`[connectors] MCP ${entry.appId} (${entry.slug}): status=${state?.status}, tools=${tools}`);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          lastError = msg;
-          console.error(`[connectors] MCP ${entry.appId} (${entry.slug}) failed: ${msg}`);
-        }
-      }
-
-      return { ok: anyOk, error: lastError, toolCount: totalTools };
+      const tools = await refreshConnectorCatalog();
+      this.mcpManager.setConnectorCatalog(tools);
+      return { ok: true, toolCount: tools.length };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("Connectors MCP refresh error:", msg);
+      console.error("Connectors catalog refresh error:", msg);
       return { ok: false, error: msg, toolCount: 0 };
     }
   }
 
   private pipedreamServerIds = new Set<string>();
 
-  private removePipedreamServers(): void {
+  private removeLegacyPipedreamServers(): void {
     if (!this.mcpManager) return;
     for (const id of this.pipedreamServerIds) {
       this.mcpManager.removeEphemeralServer(id);

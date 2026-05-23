@@ -15,6 +15,7 @@ import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
 import { initYoPanel } from "./yo-panel-ui.js";
+import { initYoPanelWorkdir } from "./yo-panel-workdir.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
@@ -46,6 +47,9 @@ declare global {
       skillsReadFile: (name: string, rel: string) => Promise<string | null>;
       skillsWriteFile: (name: string, rel: string, content: string) => Promise<boolean>;
       skillsDeleteFile: (name: string, rel: string) => Promise<boolean>;
+      skillsOpenInEditor: (name: string) => Promise<boolean>;
+      skillsOpenFileInEditor: (name: string, rel: string) => Promise<boolean>;
+      skillsFileUrl: (name: string, rel: string) => Promise<string>;
       skillsRun: (name: string, input: unknown) => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
       skillsCancel: (runId: string) => Promise<boolean>;
       skillsUserResponse: (qid: string, answer: string) => Promise<boolean>;
@@ -234,6 +238,11 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
+      onYoPanelRefocus: (cb: () => void) => void;
+      yoPanelPrefill: (text: string) => void;
+      onYoPanelPrefill: (cb: (text: string) => void) => void;
+      openYoChat: (id: string) => void;
+      onYoPanelLoadChat: (cb: (id: string) => void) => void;
       // Local swarm — inline activity in the yo panel
       onYoPanelSwarmStart: (cb: (info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }) => void) => void;
       onYoPanelSwarmActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => void;
@@ -287,6 +296,13 @@ declare global {
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
       mcpExposeGenToken: (label: string, ttlDays?: number) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
+      // Remote relay
+      relayReconnect: () => Promise<void>;
+      relayStatus: () => Promise<{ enabled: boolean; signedIn: boolean; state: "off" | "connecting" | "connected" | "disconnected" }>;
+      relayTokensList: () => Promise<Array<{ id: string; label: string; type: string; userId: string | null; createdAt: string; expiresAt: string }> | { error: string }>;
+      relayTokensCreate: (label: string) => Promise<{ ok: boolean; id: string; token: string; expiresAt: string } | { error: string }>;
+      relayTokensRevoke: (id: string) => Promise<{ ok: boolean } | { error: string }>;
+      relayInstallClaude: (token: string) => Promise<{ ok: boolean; path: string } | { error: string }>;
 
       // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
       providerKeysList: () => Promise<Array<{
@@ -300,6 +316,10 @@ declare global {
       providerKeysSet: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
       providerKeysRemove: (provider: string) => Promise<{ ok: boolean }>;
       providerKeysTest: (provider: string) => Promise<{ ok: boolean; error?: string }>;
+      providerKeysTestPrompt: (provider: string, model?: string, prompt?: string) => Promise<{ ok: boolean; text?: string; model?: string; error?: string }>;
+      providerModelsGetAll: () => Promise<Record<string, { default: string; models: string[] }>>;
+      providerModelsSet: (provider: string, models: string[], def?: string) => Promise<{ default: string; models: string[] }>;
+      providerModelsReset: (provider: string) => Promise<{ default: string; models: string[] }>;
 
       // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
       ccStatus: () => Promise<{
@@ -382,6 +402,27 @@ declare global {
       mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
       mcpSetServerOverride: (serverId: string, override: string) => void;
       onMcpChanged: (cb: () => void) => void;
+      // Schedules (skill-runs history + keep-awake)
+      runsList: (skillName?: string) => Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>;
+      setKeepAwake: (on: boolean) => void;
+      schedulesList: () => Promise<Array<Record<string, unknown>>>;
+      schedulesGet: (id: string) => Promise<Record<string, unknown> | null>;
+      schedulesSave: (cfg: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      schedulesDelete: (id: string) => Promise<boolean>;
+      schedulesRun: (id: string) => Promise<void>;
+      schedulesPause: (id: string) => Promise<void>;
+      schedulesResume: (id: string) => Promise<void>;
+      schedulesDeleteRuns: (name: string) => Promise<number>;
+      councilsList: () => Promise<Array<Record<string, unknown>>>;
+      councilsGet: (id: string) => Promise<Record<string, unknown> | null>;
+      councilsSave: (cfg: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      councilsDelete: (id: string) => Promise<boolean>;
+      councilsRun: (id: string, live?: boolean) => Promise<{ ok: boolean; error?: string; message?: string; runId?: string }>;
+      councilsRuns: (id: string) => Promise<Array<Record<string, unknown>>>;
+      councilsRunGet: (id: string, runId: string) => Promise<Record<string, unknown> | null>;
+      councilsScheduleStatus: () => Promise<Array<{ id: string; schedule: string; paused: boolean }>>;
+      councilsPauseSchedule: (id: string) => Promise<void>;
+      councilsResumeSchedule: (id: string) => Promise<void>;
     };
   }
 }
@@ -418,10 +459,7 @@ document.getElementById("splash-close")?.addEventListener("click", () => window.
 
 // -- Titlebar label -> open home tab --
 
-document.getElementById("titlebar-label")!.addEventListener("click", () => {
-  window.yo.tabNewApp("home");
-});
-
+// The .Yo titlebar label is no longer a link — clicking it does nothing.
 
 // Yos badge removed in Phase 7 of THE-PIVOT-BYOK — yo-server no longer
 // tracks balances; users pay providers directly. The window.refreshYosBadge
@@ -432,6 +470,17 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => {
 // -- Yo panel (extracted to yo-panel-ui.ts) --
 const { openYoPanel, closeYoPanel, isYoPanelOpen, yoScroll, showYoWelcome, hideYoWelcome, getYoPanelWidth } = initYoPanel({
   renderGridHandles: () => gridApi.renderGridHandles(),
+});
+initYoPanelWorkdir();
+
+// Right-rail toggle in the header — slides the yo agent panel in/out.
+document.getElementById("yo-rail-toggle")?.addEventListener("click", () => {
+  if (isYoPanelOpen()) {
+    window.yo.yoPanelDismiss();
+  } else {
+    window.yo.yoPanelOpen("");
+    openYoPanel("");
+  }
 });
 
 // -- Tab bar (extracted to tab-bar-ui.ts) --
@@ -448,9 +497,14 @@ const urlBar = document.getElementById("url-bar")!;
 const urlBarInput = document.getElementById("url-bar-input") as HTMLInputElement;
 const urlBarFavicon = document.getElementById("url-bar-favicon") as HTMLImageElement;
 
+const titlebarRefresh = document.getElementById("titlebar-refresh") as HTMLButtonElement | null;
+
 function setUrlBarVisible(show: boolean) {
   urlBar.classList.toggle("hidden", !show);
   document.body.style.setProperty("--content-top", show ? "72px" : "38px");
+  // When the URL bar is hidden there's no Refresh anywhere — surface one in
+  // the titlebar so the active panel can still be reloaded.
+  titlebarRefresh?.classList.toggle("hidden", show);
 }
 
 // Load initial URL bar visibility
@@ -466,6 +520,7 @@ const urlBarRefresh = document.getElementById("url-bar-refresh") as HTMLButtonEl
 urlBarBack.addEventListener("click", () => window.yo.urlBarBack());
 urlBarForward.addEventListener("click", () => window.yo.urlBarForward());
 urlBarRefresh.addEventListener("click", () => window.yo.urlBarRefresh());
+titlebarRefresh?.addEventListener("click", () => window.yo.urlBarRefresh());
 
 // Navigate on Enter
 urlBarInput.addEventListener("keydown", (e) => {
@@ -567,6 +622,7 @@ window.yo.onOpenSettings(() => window.yo.tabNewApp("home"));
 const gridApi = initGrid({
   isYoPanelOpen,
   getYoPanelWidth,
+  getLeftInset: () => parseFloat(getComputedStyle(document.body).getPropertyValue("--left-inset")) || 0,
   isUrlBarHidden: () => urlBar.classList.contains("hidden"),
   setUrlBarVisibility: (hidden) => { urlBar.style.visibility = hidden ? "hidden" : ""; },
   showPanelScreenshots,
@@ -580,27 +636,16 @@ initDownloads();
 {
   const rail = document.getElementById("files-rail")!;
   const railToggle = document.getElementById("files-rail-toggle")!;
-  const railTitle = document.getElementById("files-rail-title")!;
-  const railName = document.getElementById("files-rail-name")!;
   const railResize = document.getElementById("files-rail-resize")!;
 
-  let railRoot: string | null = null;
   let railWidth = 240;
 
   const setInset = (px: number) => {
     document.body.style.setProperty("--left-inset", `${px}px`);
     window.yo.filesRailResize(px);
+    // Reposition any split drag-handles to track the new content offset.
+    gridApi.renderGridHandles();
   };
-
-  function refreshFolderName() {
-    if (railRoot) {
-      railName.textContent = railRoot.split("/").filter(Boolean).pop() || railRoot;
-      railTitle.title = `Working folder: ${railRoot} — click to change`;
-    } else {
-      railName.textContent = "Pick a folder";
-      railTitle.title = "Pick the working folder";
-    }
-  }
 
   function applyOpen(open: boolean) {
     railToggle.classList.toggle("active", open);
@@ -618,7 +663,6 @@ initDownloads();
   }
 
   railToggle.addEventListener("click", () => applyOpen(!rail.classList.contains("open")));
-  railTitle.addEventListener("click", () => { void window.yo.pickWorkingDir(); });
 
   // Nav: app sections + Settings, then Platform + Sign Out (pinned bottom).
   rail.querySelectorAll<HTMLElement>(".files-rail-navitem[data-section]").forEach((btn) => {
@@ -655,16 +699,9 @@ initDownloads();
     window.yo.filesRailWidthSave(railWidth);
   });
 
-  window.yo.onWorkingDirChanged((dir) => {
-    railRoot = dir;
-    refreshFolderName();
-  });
-
   void (async () => {
     railWidth = await window.yo.filesRailGetWidth().catch(() => 240);
     rail.style.width = `${railWidth}px`;
-    railRoot = await window.yo.getWorkingDir().catch(() => null);
-    refreshFolderName();
     let savedOpen: string | null = null;
     try { savedOpen = localStorage.getItem("filesRailOpen"); } catch { /* ignore */ }
     applyOpen(savedOpen !== "0"); // default open

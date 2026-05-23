@@ -20,6 +20,11 @@ export interface YoPanelApi {
   showYoWelcome: () => void;
   hideYoWelcome: () => void;
   getYoPanelWidth: () => number;
+  // Chat history — exposed so the workspace Recents rail can drive it.
+  listChats: () => Promise<Array<{ id: string; title: string; created: string; messageCount: number }>>;
+  loadChat: (id: string) => Promise<void>;
+  deleteChat: (id: string) => Promise<void>;
+  newChat: () => Promise<void>;
 }
 
 export interface YoPanelCallbacks {
@@ -43,25 +48,15 @@ let yoChatNewBtn: HTMLElement;
 
 // ── Mode/model dropdowns ───────────────────────────────────────────────────
 
-let yoModeDropdown: HTMLElement;
-let yoModeTrigger: HTMLElement;
-let yoModeMenu: HTMLElement;
-let yoModeOptions: NodeListOf<Element>;
 let yoPermDropdown: HTMLElement;
 let yoPermTrigger: HTMLElement;
 let yoPermMenu: HTMLElement;
 let yoPermOptions: NodeListOf<Element>;
 let yoControlsInited = false;
 
-const MODE_ICONS: Record<string, string> = {
-  standard: "❓",
-  swarm:    "🐝",
-};
-
-const MODE_COLORS: Record<string, string> = {
-  standard: "#25C75E",
-  swarm:    "#A855F7",
-};
+// Color is driven by PERMISSION. Plan is one of the permission options —
+// when selected, it paints the trigger plan-blue.
+const PLAN_COLOR = "#4A9EFF";
 
 const PERM_ICONS: Record<string, string> = {
   default: "🔒",
@@ -72,7 +67,7 @@ const PERM_ICONS: Record<string, string> = {
 
 const PERM_COLORS: Record<string, string> = {
   default: "#25C75E",
-  plan: "#4A9EFF",
+  plan: PLAN_COLOR,
   acceptEdits: "#FF8C00",
   bypassPermissions: "#FF2D55",
 };
@@ -84,8 +79,25 @@ const PERM_LABELS: Record<string, string> = {
   bypassPermissions: "bypass",
 };
 
-let currentMode = "standard";
 let currentPerm = "default";
+let planEnabled = false;
+let currentChatModel: string = "";          // empty = use workspace default
+
+// Shell-style input recall: ↑/↓ steps through previously sent prompts.
+const yoInputHistory: string[] = [];
+let yoHistIndex = 0;          // points one past the newest entry = the live draft
+let yoHistDraft = "";         // the in-progress text, preserved while browsing back
+
+const MODEL_PRETTY: Record<string, string> = {
+  "claude-sonnet-4-6": "Sonnet 4.6",
+  "claude-opus-4-7":   "Opus 4.7",
+  "claude-haiku-4-5":  "Haiku 4.5",
+  "gpt-5-codex":       "GPT-5 Codex",
+};
+function prettyModelLabel(model: string): string {
+  if (!model) return "Default";
+  return MODEL_PRETTY[model] || model;
+}
 
 // ── Internal state ─────────────────────────────────────────────────────────
 
@@ -159,53 +171,170 @@ function setYoThinking(thinking: boolean) {
 
 // ── Helpers: welcome screen ────────────────────────────────────────────────
 
+/** Rotating welcome greetings. `{name}` is filled with the user's first name
+ *  (or "there" when unknown). One is picked at random each time the welcome
+ *  shows — same screen on app load and on a new session. */
+const YO_GREETINGS: string[] = [
+  "{name}, you ready?",
+  "Ready when you are, {name}.",
+  "What's the move, {name}?",
+  "Let's get into it, {name}.",
+  "Where do we start, {name}?",
+  "What are we building, {name}?",
+  "At your service, {name}.",
+  "What's first, {name}?",
+  "Point me at it, {name}.",
+  "What do you need, {name}?",
+  "Let's make something, {name}.",
+  "Good to see you, {name}.",
+  "What's on your plate, {name}?",
+  "Ready to roll, {name}?",
+  "Hit me, {name}.",
+  "What's cooking, {name}?",
+  "Let's knock it out, {name}.",
+  "How can I help, {name}?",
+  "What's the mission, {name}?",
+  "Say the word, {name}.",
+  "Let's do this, {name}.",
+  "What's next, {name}?",
+  "I'm all ears, {name}.",
+  "What can I take off your plate, {name}?",
+  "Throw me something, {name}.",
+  "Let's get to work, {name}.",
+  "What's the play, {name}?",
+  "Standing by, {name}.",
+  "Where to, {name}?",
+  "What's the task, {name}?",
+  "Let's ship something, {name}.",
+  "Ready to dig in, {name}?",
+  "What's the goal today, {name}?",
+  "Fire away, {name}.",
+  "What should we tackle, {name}?",
+  "Let's make it happen, {name}.",
+  "I've got you, {name}.",
+  "What are we automating today, {name}?",
+  "What's the ask, {name}?",
+  "Let's get rolling, {name}.",
+  "Tell me what you need, {name}.",
+  "What's the agenda, {name}?",
+  "Ready to crush it, {name}?",
+  "Where's your head at, {name}?",
+  "What's the problem, {name}?",
+  "Let's sort it out, {name}.",
+  "Lay it on me, {name}.",
+  "What's the priority, {name}?",
+  "Let's get after it, {name}.",
+  "How's it going, {name}?",
+  "What's the situation, {name}?",
+  "Ready to dive in, {name}?",
+  "What's the brief, {name}?",
+  "Let's tackle it, {name}.",
+  "What's grabbing your attention, {name}?",
+  "Game on, {name}.",
+  "What's the objective, {name}?",
+  "Let's wrap something up, {name}.",
+  "What needs doing, {name}?",
+  "Whenever you're ready, {name}.",
+  "What's the big thing today, {name}?",
+  "Let's chip away at it, {name}.",
+  "What's eating your time, {name}?",
+  "Drop it here, {name}.",
+  "What's the one thing, {name}?",
+  "Let's move, {name}.",
+  "What's slowing you down, {name}?",
+  "Ready to go, {name}?",
+  "What're we figuring out, {name}?",
+  "Let's untangle it, {name}.",
+  "What's the headache today, {name}?",
+  "Show me what you've got, {name}.",
+  "What's worth doing, {name}?",
+  "Let's build, {name}.",
+  "What's the deal, {name}?",
+  "Pick a thread, {name}.",
+  "What's on your mind, {name}?",
+  "Let's clear the deck, {name}.",
+  "What's the win today, {name}?",
+  "Anything I can grab, {name}?",
+  "What's the next step, {name}?",
+  "Let's make progress, {name}.",
+  "What's the focus, {name}?",
+  "Ready to make a dent, {name}?",
+  "What's the to-do, {name}?",
+  "Let's get unstuck, {name}.",
+  "What's looming, {name}?",
+  "Bring it on, {name}.",
+  "What's worth your time, {name}?",
+  "Let's handle it, {name}.",
+  "What's the first step, {name}?",
+  "I'm ready when you are, {name}.",
+  "What're we shipping today, {name}?",
+  "Let's get it done, {name}.",
+  "What's the target, {name}?",
+  "Queue me up, {name}.",
+  "What's the plan, {name}?",
+  "Let's start, {name}.",
+  "What can we knock out, {name}?",
+  "You ready, {name}?",
+];
+
+let yoAccountFirstName: string | null = null; // null = not yet fetched
+
 function hideYoWelcome() {
   const w = document.getElementById("yo-panel-welcome");
   if (w) w.remove();
 }
 
+function fillGreeting(template: string): string {
+  const name = (yoAccountFirstName && yoAccountFirstName.trim()) || "there";
+  return template.replace(/\{name\}/g, name);
+}
+
 function showYoWelcome() {
+  const template = YO_GREETINGS[Math.floor(Math.random() * YO_GREETINGS.length)];
+
+  // The ONE welcome: the empty-state greeting block (#yo-greeting, shown via
+  // CSS when #yo-panel.empty). Just rotate its subline; never inject a second
+  // welcome into yo-panel-messages (that would mark the panel non-empty and
+  // hide the real greeting).
+  const sub = document.querySelector<HTMLElement>(".yo-greeting-sub");
+  if (sub) {
+    hideYoWelcome();
+    const apply = () => { sub.textContent = fillGreeting(template); };
+    apply();
+    if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
+      (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
+        .then((info) => { yoAccountFirstName = info?.firstName || ""; apply(); })
+        .catch(() => { yoAccountFirstName = ""; });
+    }
+    return;
+  }
+
+  // Legacy fallback (no #yo-greeting block): inject the welcome div.
   hideYoWelcome();
   const w = document.createElement("div");
   w.id = "yo-panel-welcome";
   w.className = "yo-panel-welcome";
   w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo</div>
-    <div class="yo-welcome-tagline">Your AI workspace agent</div>
-    <div class="yo-welcome-hints">
-      <div class="yo-welcome-hint">find that reddit thread about pricing</div>
-      <div class="yo-welcome-hint">open gmail and claude side by side</div>
-      <div class="yo-welcome-hint">create a skill called summarize</div>
-      <div class="yo-welcome-hint">what did I capture yesterday?</div>
-    </div>`;
+    <div class="yo-welcome-tagline" id="yo-welcome-greeting"></div>`;
+  const greetingEl = w.querySelector<HTMLElement>("#yo-welcome-greeting");
+  if (greetingEl) greetingEl.textContent = fillGreeting(template);
   yoPanelMessages.appendChild(w);
-  w.querySelectorAll(".yo-welcome-hint").forEach((hint) => {
-    hint.addEventListener("click", () => {
-      const text = hint.textContent || "";
-      hideYoWelcome();
-      addYoUserMessage(text);
-      showYoStatus("");
-      setYoThinking(true);
-      window.yo.yoPanelSend(text);
-    });
-  });
+  if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
+    (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
+      .then((info) => {
+        yoAccountFirstName = info?.firstName || "";
+        const live = document.getElementById("yo-welcome-greeting");
+        if (live) live.textContent = fillGreeting(template);
+      })
+      .catch(() => { yoAccountFirstName = ""; });
+  }
 }
 
-// ── Helpers: mode/perm dropdowns ───────────────────────────────────────────
-
-function setModeValue(mode: string) {
-  currentMode = mode;
-  const icon = yoModeTrigger.querySelector(".yo-mode-icon")!;
-  const label = yoModeTrigger.querySelector(".yo-mode-label")!;
-  icon.textContent = MODE_ICONS[mode] || MODE_ICONS.standard;
-  label.textContent = mode;
-  yoModeOptions.forEach((opt) => {
-    opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
-  });
-  applyModeColor();
-}
+// ── Helpers: permission dropdown ───────────────────────────────────────────
 
 function setPermValue(perm: string) {
   currentPerm = perm;
+  planEnabled = perm === "plan";
   const icon = yoPermTrigger.querySelector(".yo-perm-icon")!;
   const label = yoPermTrigger.querySelector(".yo-perm-label")!;
   icon.textContent = PERM_ICONS[perm] || PERM_ICONS.default;
@@ -213,31 +342,35 @@ function setPermValue(perm: string) {
   yoPermOptions.forEach((opt) => {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === perm);
   });
+  applyAccentColor();
 }
 
-function applyModeColor() {
-  const color = MODE_COLORS[currentMode] || MODE_COLORS.standard;
-  yoModeTrigger.style.borderColor = color;
+/** Accent color: the active permission's color (plan-blue when plan is selected). */
+function applyAccentColor() {
+  const color = PERM_COLORS[currentPerm] || PERM_COLORS.default;
+  yoPermTrigger.style.borderColor = color;
   yoPanelInput.style.setProperty("--mode-color", color);
   yoPanelSendBtn.style.background = color;
   document.documentElement.style.setProperty("--yo-mode-color", color);
 }
 
 function syncAgentMode(): void {
-  if (currentMode === "swarm") {
-    window.yo.setAgentMode("swarm");
-    window.yo.setAgentMode(currentPerm);
-  } else {
-    window.yo.setAgentMode("exit-swarm");
-    window.yo.setAgentMode(currentPerm);
-  }
+  // Plan is just another permission value — the backend treats "plan" as a
+  // permission mode (no tool calls, plan-mode prompt directive).
+  window.yo.setAgentMode(currentPerm);
+}
+
+async function initYoModelFromConfig(): Promise<void> {
+  try {
+    const cfg = await window.yo.getLLMConfig?.();
+    currentChatModel = (cfg?.model && cfg.provider === "anthropic") ? cfg.model : "";
+  } catch { currentChatModel = ""; }
 }
 
 async function initYoControls() {
-  // Perm and the swarm overlay are independent — restore both.
-  const { perm, swarm } = await window.yo.getAgentMode();
+  // Plan is one of the permission values — "plan" persists like any other.
+  const { perm } = await window.yo.getAgentMode();
   setPermValue(perm || "default");
-  setModeValue(swarm ? "swarm" : "standard");
 }
 
 // ── Helpers: messages ──────────────────────────────────────────────────────
@@ -908,7 +1041,7 @@ function finalizeYoMessage(fullText: string) {
   yoTurnFullText = "";
   yoResponseEl = null;
 
-  if (currentMode === "plan" && yoLastUserText) {
+  if (planEnabled && yoLastUserText) {
     showPlanActions();
   }
 
@@ -1018,9 +1151,37 @@ function autoGrowYoInput() {
   yoPanelInput.style.height = Math.min(yoPanelInput.scrollHeight, 160) + "px";
 }
 
+/** Move the caret to the end and resize the textarea. */
+function setYoInputValue(value: string) {
+  yoPanelInput.value = value;
+  autoGrowYoInput();
+  const end = value.length;
+  yoPanelInput.setSelectionRange(end, end);
+}
+
+/** ↑ — step back to an older history entry (stashing the live draft first). */
+function yoHistoryPrev() {
+  if (yoInputHistory.length === 0 || yoHistIndex === 0) return;
+  if (yoHistIndex === yoInputHistory.length) yoHistDraft = yoPanelInput.value;
+  yoHistIndex--;
+  setYoInputValue(yoInputHistory[yoHistIndex]);
+}
+
+/** ↓ — step forward to a newer entry, or back to the live draft at the end. */
+function yoHistoryNext() {
+  if (yoHistIndex >= yoInputHistory.length) return;
+  yoHistIndex++;
+  setYoInputValue(yoHistIndex === yoInputHistory.length ? yoHistDraft : yoInputHistory[yoHistIndex]);
+}
+
 function sendYoPanelMessage() {
   const text = yoPanelInput.value.trim();
   if (!text) return;
+
+  // Record into input history (skip consecutive duplicates) and reset browsing.
+  if (yoInputHistory[yoInputHistory.length - 1] !== text) yoInputHistory.push(text);
+  yoHistIndex = yoInputHistory.length;
+  yoHistDraft = "";
 
   if (/^\.rec$/i.test(text) && yoPanelMicBtn) {
     yoPanelInput.value = "";
@@ -1098,9 +1259,179 @@ function playRecordStop() { playTone(1320, 120); setTimeout(() => playTone(880, 
 
 // ── Helpers: chat history ──────────────────────────────────────────────────
 
+// Load a saved chat by id and replay its messages into the panel.
+// Shared by the in-panel history list and the workspace Recents rail.
+async function loadChatById(id: string): Promise<void> {
+  const messages = await window.yo.yoChatsLoad(id);
+  if (!messages) return;
+  yoPanelMessages.innerHTML = "";
+  yoResponseEl = null;
+  yoStatusEl = null;
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
+
+  for (const msg of messages) {
+    // Swarm activity is persisted into the thread — replay it inline.
+    if (msg.role === "swarm-start" || msg.role === "swarm") {
+      try {
+        const data = JSON.parse(msg.text);
+        if (msg.role === "swarm-start") addSwarmStart(data, true);
+        else addSwarmActivity(data, true);
+      } catch { /* skip a malformed swarm entry */ }
+      continue;
+    }
+    // Run marker — the header atop a persisted task-run conversation. Clicking
+    // it slides open the owning scheduled task (handled in the workspace shell).
+    if (msg.role === "run") {
+      const skill = msg.tools && msg.tools[0] ? msg.tools[0].name : "";
+      const marker = document.createElement("button");
+      marker.className = "yo-run-marker";
+      marker.type = "button";
+      if (skill) marker.title = `Open scheduled task “${skill}”`;
+      const svgNS = "http://www.w3.org/2000/svg";
+      const clock = document.createElementNS(svgNS, "svg");
+      clock.setAttribute("viewBox", "0 0 24 24");
+      clock.setAttribute("fill", "none");
+      clock.setAttribute("stroke", "currentColor");
+      clock.setAttribute("stroke-width", "2");
+      clock.innerHTML = `<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>`;
+      marker.appendChild(clock);
+      const text = document.createElement("span");
+      text.className = "yo-run-text";
+      const label = document.createElement("span");
+      label.className = "yo-run-label";
+      label.textContent = msg.text || "Ran task";
+      text.appendChild(label);
+      if (skill) {
+        const skillEl = document.createElement("span");
+        skillEl.className = "yo-run-skill";
+        skillEl.textContent = skill;
+        text.appendChild(skillEl);
+      }
+      marker.appendChild(text);
+      // Chevron on the far right.
+      const chev = document.createElementNS(svgNS, "svg");
+      chev.setAttribute("class", "yo-run-chevron");
+      chev.setAttribute("viewBox", "0 0 24 24");
+      chev.setAttribute("fill", "none");
+      chev.setAttribute("stroke", "currentColor");
+      chev.setAttribute("stroke-width", "2");
+      chev.innerHTML = `<polyline points="9 6 15 12 9 18"/>`;
+      marker.appendChild(chev);
+      if (skill) {
+        marker.addEventListener("click", () => {
+          window.dispatchEvent(new CustomEvent("open-schedule-task", { detail: { name: skill } }));
+        });
+      }
+      yoPanelMessages.appendChild(marker);
+      continue;
+    }
+    if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
+      const timeline = document.createElement("div");
+      timeline.className = "yo-ag-timeline done";
+      for (const tool of msg.tools) {
+        const block = document.createElement("div");
+        block.className = "yo-result-block yo-done";
+        const header = document.createElement("div");
+        header.className = "yo-result-header";
+        const dot = document.createElement("span");
+        dot.className = "yo-ag-dot";
+        header.appendChild(dot);
+        const headings = document.createElement("div");
+        headings.className = "yo-result-headings";
+        const nameEl = document.createElement("span");
+        nameEl.className = "yo-result-name";
+        nameEl.textContent = formatToolDisplayName(tool.name);
+        headings.appendChild(nameEl);
+        const sub = toolInputSummary(tool.name, tool.input);
+        if (sub) {
+          const subEl = document.createElement("span");
+          subEl.className = "yo-result-subtitle";
+          subEl.textContent = sub;
+          headings.appendChild(subEl);
+        }
+        header.appendChild(headings);
+        block.appendChild(header);
+        timeline.appendChild(block);
+      }
+      yoPanelMessages.appendChild(timeline);
+    }
+
+    const el = document.createElement("div");
+    if (msg.role === "user") {
+      el.className = "yo-msg yo-msg-user";
+      el.textContent = msg.text;
+    } else {
+      if (!msg.text) continue;
+      el.className = "yo-msg yo-msg-assistant";
+      el.innerHTML = formatMarkdown(msg.text);
+      attachCopyHandlers(el);
+    }
+    yoPanelMessages.appendChild(el);
+  }
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  yoScroll();
+}
+
+// Start a fresh chat — clear the transcript + reset turn state.
+async function startNewChat(): Promise<void> {
+  await window.yo.yoChatNew();
+  yoPanelMessages.innerHTML = "";
+  yoResponseEl = null;
+  yoStatusEl = null;
+  yoLastAssistantText = "";
+  yoTurnFullText = "";
+  if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
+  showYoWelcome();
+  yoPanelInput.focus();
+}
+
 async function loadYoHistory() {
   const chats = await window.yo.yoChatsList();
   yoHistoryList.innerHTML = "";
+
+  // ── Scheduled section — scheduled tasks (pref) + any task with run history ──
+  let scheduledNames: string[] = [];
+  try { scheduledNames = (await window.yo.getPreference("scheduledTasks", [])) as string[]; }
+  catch { scheduledNames = []; }
+  try {
+    const runs = await window.yo.runsList();
+    const runNames = [...new Set(runs.map((r) => r.skillName).filter(Boolean))];
+    scheduledNames = [...new Set([...scheduledNames, ...runNames])];
+  } catch { /* runs optional */ }
+  const schedHeader = document.createElement("div");
+  schedHeader.className = "yo-history-section-header";
+  schedHeader.textContent = "Scheduled";
+  yoHistoryList.appendChild(schedHeader);
+  if (scheduledNames.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "yo-history-empty";
+    empty.textContent = "no scheduled tasks";
+    yoHistoryList.appendChild(empty);
+  } else {
+    for (const name of scheduledNames) {
+      const item = document.createElement("div");
+      item.className = "yo-history-item";
+      const title = document.createElement("span");
+      title.className = "yo-history-title";
+      title.textContent = name;
+      item.appendChild(title);
+      item.addEventListener("click", () => {
+        // Open this schedule in the Schedules page (deep-links to its detail).
+        window.yo.openHomeSection("schedules", name);
+        if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
+      });
+      yoHistoryList.appendChild(item);
+    }
+  }
+
+  // ── Recents section — existing chat list ──
+  const recHeader = document.createElement("div");
+  recHeader.className = "yo-history-section-header";
+  recHeader.textContent = "Recents";
+  yoHistoryList.appendChild(recHeader);
   if (chats.length === 0) {
     const empty = document.createElement("div");
     empty.className = "yo-history-empty";
@@ -1140,74 +1471,7 @@ async function loadYoHistory() {
     item.appendChild(title);
     item.appendChild(date);
     item.appendChild(del);
-    item.addEventListener("click", async () => {
-      const messages = await window.yo.yoChatsLoad(chat.id);
-      if (messages) {
-        yoPanelMessages.innerHTML = "";
-        yoResponseEl = null;
-        yoStatusEl = null;
-        yoLastAssistantText = "";
-        yoTurnFullText = "";
-        yoHistoryPanel.classList.add("hidden");
-
-        for (const msg of messages) {
-          // Swarm activity is persisted into the thread — replay it inline.
-          if (msg.role === "swarm-start" || msg.role === "swarm") {
-            try {
-              const data = JSON.parse(msg.text);
-              if (msg.role === "swarm-start") addSwarmStart(data, true);
-              else addSwarmActivity(data, true);
-            } catch { /* skip a malformed swarm entry */ }
-            continue;
-          }
-          if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
-            const timeline = document.createElement("div");
-            timeline.className = "yo-ag-timeline done";
-            for (const tool of msg.tools) {
-              const block = document.createElement("div");
-              block.className = "yo-result-block yo-done";
-              const header = document.createElement("div");
-              header.className = "yo-result-header";
-              const dot = document.createElement("span");
-              dot.className = "yo-ag-dot";
-              header.appendChild(dot);
-              const headings = document.createElement("div");
-              headings.className = "yo-result-headings";
-              const nameEl = document.createElement("span");
-              nameEl.className = "yo-result-name";
-              nameEl.textContent = formatToolDisplayName(tool.name);
-              headings.appendChild(nameEl);
-              const sub = toolInputSummary(tool.name, tool.input);
-              if (sub) {
-                const subEl = document.createElement("span");
-                subEl.className = "yo-result-subtitle";
-                subEl.textContent = sub;
-                headings.appendChild(subEl);
-              }
-              header.appendChild(headings);
-              block.appendChild(header);
-              timeline.appendChild(block);
-            }
-            yoPanelMessages.appendChild(timeline);
-          }
-
-          const el = document.createElement("div");
-          if (msg.role === "user") {
-            el.className = "yo-msg yo-msg-user";
-            el.textContent = msg.text;
-          } else {
-            if (!msg.text) continue;
-            el.className = "yo-msg yo-msg-assistant";
-            el.innerHTML = formatMarkdown(msg.text);
-            attachCopyHandlers(el);
-          }
-          yoPanelMessages.appendChild(el);
-        }
-        yoLastAssistantText = "";
-        yoTurnFullText = "";
-        yoScroll();
-      }
-    });
+    item.addEventListener("click", () => { void loadChatById(chat.id); });
     yoHistoryList.appendChild(item);
   }
 }
@@ -1218,6 +1482,14 @@ async function openYoPanel(query: string) {
   if (!yoControlsInited) {
     yoControlsInited = true;
     initYoControls();
+    void initYoModelFromConfig().then(() => {
+      // Repaint label + active state once the saved model is known.
+      const label = document.getElementById("yo-model-trigger")?.querySelector(".yo-model-label");
+      if (label) label.textContent = prettyModelLabel(currentChatModel);
+      document.querySelectorAll<HTMLElement>("#yo-model-menu .yo-model-option").forEach((o) => {
+        o.classList.toggle("active", (o.dataset.value || "") === currentChatModel);
+      });
+    });
   }
 
   const defaultWidth = 380;
@@ -1299,11 +1571,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoHistoryList = document.getElementById("yo-history-list")!;
   yoChatNewBtn = document.getElementById("yo-chat-new")!;
 
-  // Mode/perm dropdown elements
-  yoModeDropdown = document.getElementById("yo-mode-dropdown")!;
-  yoModeTrigger = document.getElementById("yo-mode-trigger")!;
-  yoModeMenu = document.getElementById("yo-mode-menu")!;
-  yoModeOptions = yoModeMenu.querySelectorAll(".yo-mode-option");
+  // Permission dropdown elements
   yoPermDropdown = document.getElementById("yo-perm-dropdown")!;
   yoPermTrigger = document.getElementById("yo-perm-trigger")!;
   yoPermMenu = document.getElementById("yo-perm-menu")!;
@@ -1326,26 +1594,10 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   }
 
-  // -- Mode dropdown listeners --
-  yoModeTrigger.addEventListener("click", (e) => {
-    e.stopPropagation();
-    yoModeMenu.classList.toggle("hidden");
-    yoPermMenu.classList.add("hidden");
-  });
-
-  yoModeOptions.forEach((opt) => {
-    opt.addEventListener("click", () => {
-      const value = (opt as HTMLElement).dataset.value!;
-      setModeValue(value);
-      syncAgentMode();
-      yoModeMenu.classList.add("hidden");
-    });
-  });
-
+  // -- Permission dropdown listeners --
   yoPermTrigger.addEventListener("click", (e) => {
     e.stopPropagation();
     yoPermMenu.classList.toggle("hidden");
-    yoModeMenu.classList.add("hidden");
   });
 
   yoPermOptions.forEach((opt) => {
@@ -1357,24 +1609,63 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   });
 
+  // Model dropdown — sections (Claude / GPT). GPT items are disabled until
+  // the GPT loop is wired. Changing the model warns the user that the
+  // current chat will be reset (context lost) and starts a new one.
+  const modelDropdown = document.getElementById("yo-model-dropdown");
+  const modelTrigger = document.getElementById("yo-model-trigger");
+  const modelMenu = document.getElementById("yo-model-menu");
+  const modelOptions = modelMenu?.querySelectorAll<HTMLElement>(".yo-model-option");
+  function paintModelLabel(): void {
+    const label = modelTrigger?.querySelector(".yo-model-label");
+    if (!label) return;
+    if (!currentChatModel) { label.textContent = "Default"; return; }
+    label.textContent = prettyModelLabel(currentChatModel);
+  }
+  if (modelTrigger && modelMenu) {
+    modelTrigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      modelMenu.classList.toggle("hidden");
+      yoPermMenu.classList.add("hidden");
+    });
+  }
+  modelOptions?.forEach((opt) => {
+    opt.addEventListener("click", async () => {
+      if (opt.classList.contains("disabled")) return;
+      const newModel = opt.dataset.value || "";
+      modelMenu?.classList.add("hidden");
+      if (newModel === currentChatModel) return;
+      // If a chat is in progress, warn before resetting. Empty messages =
+      // welcome screen = safe to change silently.
+      const inChat = yoPanelMessages.children.length > 0 && !yoPanelMessages.querySelector(".yo-panel-welcome");
+      if (inChat && !confirm("Changing the model will start a new chat — context will be lost. Continue?")) return;
+      currentChatModel = newModel;
+      modelOptions.forEach((o) => o.classList.toggle("active", o === opt));
+      paintModelLabel();
+      // Persist via saveLLMConfig — provider is always anthropic until the
+      // GPT loop ships. (The GPT items are disabled, so we never hit that
+      // branch from this dropdown.)
+      const fallback = newModel || "claude-sonnet-4-6";
+      await window.yo.saveLLMConfig({ provider: "anthropic", model: fallback });
+      if (inChat) await startNewChat();
+    });
+  });
+  paintModelLabel();
+  // Initial paint: highlight the active default.
+  modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
+
   document.addEventListener("click", (e) => {
-    if (!yoModeDropdown.contains(e.target as Node)) {
-      yoModeMenu.classList.add("hidden");
-    }
     if (!yoPermDropdown.contains(e.target as Node)) {
       yoPermMenu.classList.add("hidden");
     }
+    if (modelDropdown && !modelDropdown.contains(e.target as Node)) {
+      modelMenu?.classList.add("hidden");
+    }
   });
 
-  // -- Mode changes from main process --
+  // -- Permission changes from main process --
   window.yo.onAgentModeChanged?.((mode: string) => {
-    if (mode === "standard" || mode === "swarm") {
-      setModeValue(mode);
-    } else {
-      setModeValue("standard");
-      setPermValue(mode);
-    }
-    applyModeColor();
+    setPermValue(mode);
   });
 
   // -- Auto-grow textarea --
@@ -1402,6 +1693,16 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelDone((fullText) => { finalizeYoMessage(fullText); drainPendingYoMessages(); });
   window.yo.onYoPanelError((err) => showYoError(err));
   window.yo.onYoPanelClose(() => closeYoPanel());
+  window.yo.onYoPanelRefocus(() => yoPanelInput.focus());
+  window.yo.onYoPanelPrefill((text) => {
+    // Prefill the input without sending — the user finishes + submits.
+    yoPanelInput.value = text;
+    autoGrowYoInput();
+    yoPanelInput.focus();
+    yoPanelInput.setSelectionRange(text.length, text.length);
+  });
+  window.yo.onYoPanelLoadChat((id) => { void loadChatById(id); });
+
   // Swarm activity streams inline into the conversation.
   window.yo.onYoPanelSwarmStart((info) => addSwarmStart(info));
   window.yo.onYoPanelSwarmActivity((event) => addSwarmActivity(event));
@@ -1428,11 +1729,28 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     }
   });
 
-  // -- Enter to send --
+  // -- Enter to send; ↑/↓ to recall input history --
   yoPanelInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendYoPanelMessage();
+      return;
+    }
+    // Only hijack the arrows at the text edges so multi-line editing still works.
+    if (e.key === "ArrowUp") {
+      const caret = yoPanelInput.selectionStart;
+      const onFirstLine = yoPanelInput.value.lastIndexOf("\n", caret - 1) === -1;
+      if (onFirstLine && caret === yoPanelInput.selectionEnd) {
+        e.preventDefault();
+        yoHistoryPrev();
+      }
+    } else if (e.key === "ArrowDown") {
+      const caret = yoPanelInput.selectionStart;
+      const onLastLine = yoPanelInput.value.indexOf("\n", caret) === -1;
+      if (onLastLine && caret === yoPanelInput.selectionEnd) {
+        e.preventDefault();
+        yoHistoryNext();
+      }
     }
   });
 
@@ -1602,16 +1920,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     }
   });
 
-  yoChatNewBtn.addEventListener("click", async () => {
-    await window.yo.yoChatNew();
-    yoPanelMessages.innerHTML = "";
-    yoResponseEl = null;
-    yoStatusEl = null;
-    yoLastAssistantText = "";
-    yoTurnFullText = "";
-    yoHistoryPanel.classList.add("hidden");
-    yoPanelInput.focus();
-  });
+  yoChatNewBtn.addEventListener("click", () => { void startNewChat(); });
 
   // -- Approval UI --
   window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
@@ -1671,6 +1980,10 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   });
 
+  // Set the rotating greeting on the empty-state block at startup so it's
+  // live from app load (not just after opening the panel / a new session).
+  if (!yoPanelMessages.children.length) showYoWelcome();
+
   // Return the public API
   return {
     openYoPanel,
@@ -1680,5 +1993,9 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     showYoWelcome,
     hideYoWelcome,
     getYoPanelWidth: () => yoPanel.offsetWidth,
+    listChats: () => window.yo.yoChatsList(),
+    loadChat: (id: string) => loadChatById(id),
+    deleteChat: async (id: string) => { await window.yo.yoChatsDelete(id); },
+    newChat: () => startNewChat(),
   };
 }

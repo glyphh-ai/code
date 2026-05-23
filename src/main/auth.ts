@@ -472,6 +472,38 @@ export function serverGetAuthed<T>(endpoint: string): Promise<T> {
   });
 }
 
+export function serverDeleteAuthed<T>(endpoint: string): Promise<T> {
+  const token = getAuthToken();
+  if (!token) return Promise.reject(new Error("Not authenticated"));
+
+  return new Promise((resolve, reject) => {
+    const url = `${AUTH_SERVER}${endpoint}`;
+    const request = net.request({ url, method: "DELETE" });
+    request.setHeader("Authorization", `Bearer ${token}`);
+    const timer = setTimeout(() => { request.abort(); reject(new Error("Request timeout")); }, 10_000);
+
+    let responseBody = "";
+    request.on("response", (response) => {
+      const status = response.statusCode ?? 500;
+      clearTimeout(timer);
+      response.on("data", (chunk) => { responseBody += chunk.toString(); });
+      response.on("end", () => {
+        if (status < 200 || status >= 300) {
+          reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(responseBody) as T);
+        } catch {
+          reject(new Error("Invalid server response"));
+        }
+      });
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 export function serverPostAuthed<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
   const token = getAuthToken();
   if (!token) return Promise.reject(new Error("Not authenticated"));

@@ -190,6 +190,7 @@ const VSCODE_GRAB_SCRIPT = `
 const NO_CAPTURE: CapturePolicy = { type: "manual" };
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE },
+  { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
@@ -298,7 +299,7 @@ export class AppConnector {
     // Purge internal apps removed from the build (The Drop, .Yo Editor).
     // They were persisted to ~/yo/apps/<id>.json on a prior launch, so
     // dropping them from INTERNAL_APPS alone leaves them in the app list.
-    for (const staleId of ["drop", "files", "council"]) {
+    for (const staleId of ["drop", "files"]) {
       const stale = this.apps.get(staleId);
       if (stale && stale.url?.startsWith("yo://")) {
         this.apps.delete(staleId);
