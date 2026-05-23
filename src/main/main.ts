@@ -939,6 +939,8 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
+  const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
+  const councilPreload = path.join(__dirname, "council-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   vscodeServer = new VSCodeServer();
@@ -953,6 +955,8 @@ async function boot() {
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://council") {
+      panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1389,6 +1393,8 @@ async function boot() {
       panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://council") {
+      panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -2395,6 +2401,26 @@ async function boot() {
     mainWindow?.webContents.send("agent-mode-changed", effectiveMode);
     yoInterceptor.setAgentMode(effectiveMode);
   });
+
+  // ── Council app — standalone multi-LLM debate panel.
+  // Restored without the old yo-agent council mode plumbing. The panel
+  // self-drives: user fills the form, the page calls council-create here,
+  // and council-session streams events back via "council-event" IPC.
+  {
+    const { setCurrentCouncil } = require("./current-council") as typeof import("./current-council");
+    const councilModule = require("./council-session") as typeof import("./council-session");
+    ipcMain.handle("council-set-current", (_e, id: string | null) => {
+      setCurrentCouncil(id);
+      return { ok: true };
+    });
+    ipcMain.handle("council-create", async (e, config: import("./council-session").CouncilCreateConfig) => {
+      const r = councilModule.createCouncil(config, e.sender);
+      if (r.ok && r.council_id) setCurrentCouncil(r.council_id);
+      return r;
+    });
+    ipcMain.handle("council-stop", (_e, id: string) => councilModule.stopCouncil(id));
+    ipcMain.handle("council-end", (_e, id: string) => councilModule.endCouncil(id));
+  }
 
   // Approval system — pending approvals map + IPC
   const pendingApprovals = new Map<string, (approved: boolean) => void>();

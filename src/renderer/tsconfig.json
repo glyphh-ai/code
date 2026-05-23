@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "sourceMap": true
   },
-  "include": ["renderer.ts", "downloads-ui.ts", "boot-gate-ui.ts", "drip-ui.ts", "voice-ui.ts", "tab-bar-ui.ts", "grid-ui.ts", "yo-panel-ui.ts", "yo-panel-workdir.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "model-badges.ts", "workspace.ts", "workspace/**/*.ts"]
+  "include": ["renderer.ts", "downloads-ui.ts", "boot-gate-ui.ts", "drip-ui.ts", "voice-ui.ts", "tab-bar-ui.ts", "grid-ui.ts", "yo-panel-ui.ts", "yo-panel-workdir.ts", "council.ts", "help/**/*.ts", "home.ts", "onboarding.ts", "model-badges.ts", "workspace.ts", "workspace/**/*.ts"]
 }
