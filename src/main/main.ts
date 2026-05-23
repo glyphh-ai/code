@@ -93,6 +93,7 @@ import { ActionGrabber } from "./action-grabber";
 import { AgentRunner, AgentConfig } from "./agent-runner";
 import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
+import { initRelayClient } from "./relay-client";
 import { registerFilesIpc } from "./files-ipc";
 import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
@@ -430,6 +431,10 @@ async function boot() {
   mcpManager = new McpManager();
   mcpManager.setAppConnector(appConnector);
   mcpManager.init().catch((err) => console.error("[mcp-manager]", err));
+
+  // Relay client — persistent WebSocket to yo-server so external MCP callers
+  // can drive this instance. No-op until the user sets a client token.
+  initRelayClient();
   mcpManager.on("changed", () => {
     mainWindow?.webContents.send("mcp-changed");
   });
