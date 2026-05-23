@@ -90,9 +90,24 @@ export interface SubstrateToolDeps {
     create: () => string;
   };
   execCommand?: (cmd: string) => Promise<string>;
+  /** The user's configured apps (the registry behind `dip <app>`). */
+  apps?: {
+    list: () => Array<{ id: string; name: string; url?: string; description?: string }>;
+    open: (id: string) => Promise<string>;
+  };
   swarm?: {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
     create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+  };
+  /** Convene a local council (multi-LLM debate) from a prompt. */
+  council?: {
+    create: (config: {
+      council_prompt: string;
+      name?: string;
+      style?: string;
+      round_cap?: number;
+      members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
+    }) => Promise<string>;
   };
   /** User-created agent registry — surfaced as list_agents + call_agent
    *  so the .yo loop can delegate to a named agent without committing to a
@@ -1575,6 +1590,81 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const agents = Array.isArray(input.agents) ? (input.agents as unknown[]).map((a) => String(a)) : undefined;
       const size = typeof input.size === "number" ? input.size : undefined;
       return deps.swarm.create(goal, agents, size);
+    },
+  },
+  {
+    name: "list_apps",
+    namespace: "yo",
+    description: "List the apps the user has configured in yo (id, name, URL). Use this to resolve an app the user names — e.g. \"open council\", \"open gmail\" — to its id before calling open_app.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.apps) return "App registry not available.";
+      const apps = deps.apps.list();
+      if (apps.length === 0) return "No apps configured.";
+      return apps.map((a) => `- ${a.id}: ${a.name}${a.url ? ` — ${a.url}` : ""}${a.description ? ` (${a.description})` : ""}`).join("\n");
+    },
+  },
+  {
+    name: "open_app",
+    namespace: "yo",
+    description: "Open one of the user's configured apps by its id (from list_apps) as a panel/tab in yo. This is the tool for \"open <app>\" requests — open it directly, don't ask the user for a URL.",
+    input_schema: {
+      type: "object",
+      properties: { app_id: { type: "string", description: "The app id from list_apps (e.g. \"council\", \"gmail\")" } },
+      required: ["app_id"],
+    },
+    run: async (input) => {
+      if (!deps.apps) return "App registry not available.";
+      const id = String(input.app_id || "").trim();
+      if (!id) return "An app_id is required.";
+      return deps.apps.open(id);
+    },
+  },
+  {
+    name: "create_council",
+    namespace: "yo",
+    description: "Convene a LOCAL council — a panel of LLMs that debate a prompt over rounds — and open it in the Council app. This is the tool for \"convene a council / get a panel of models to debate X\" requests. You fill out the council from the user's prompt: pick 2–5 members across the configured providers, give each a distinct startup_prompt (its persona/role), and choose a style. The council then runs in its own UI panel.",
+    input_schema: {
+      type: "object",
+      properties: {
+        council_prompt: { type: "string", description: "The question/topic the council debates (use the user's own words)" },
+        name: { type: "string", description: "Short council name. Defaults from the prompt if omitted." },
+        style: { type: "string", enum: ["chained", "free_for_all", "debate"], description: "chained = take turns seeing prior turns; free_for_all = all answer in parallel; debate = adversarial. Default chained." },
+        round_cap: { type: "number", description: "Max rounds (1–20, default 3)" },
+        members: {
+          type: "array",
+          description: "2–10 members. Each: { provider, model, startup_prompt }. Omit to auto-pick one member per configured provider.",
+          items: {
+            type: "object",
+            properties: {
+              provider: { type: "string", description: "Provider id (anthropic, openai, google, xai, perplexity)" },
+              model: { type: "string", description: "Model id for that provider" },
+              startup_prompt: { type: "string", description: "This member's persona/role/system prompt" },
+            },
+            required: ["provider", "model"],
+          },
+        },
+      },
+      required: ["council_prompt"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const prompt = String(input.council_prompt || "").trim();
+      if (!prompt) return "A council_prompt is required.";
+      const members = Array.isArray(input.members)
+        ? (input.members as Array<Record<string, unknown>>).map((m) => ({
+            provider: String(m.provider || ""),
+            model: String(m.model || ""),
+            startup_prompt: m.startup_prompt ? String(m.startup_prompt) : undefined,
+          }))
+        : undefined;
+      return deps.council.create({
+        council_prompt: prompt,
+        name: input.name ? String(input.name) : undefined,
+        style: input.style ? String(input.style) : undefined,
+        round_cap: typeof input.round_cap === "number" ? input.round_cap : undefined,
+        members,
+      });
     },
   },
 

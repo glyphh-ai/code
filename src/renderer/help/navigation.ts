@@ -13,6 +13,7 @@ import { loadSchedules, initSchedules } from "./schedules.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
 import { loadDocs, loadSupport, loadAbout } from "./docs.js";
+import { loadCouncils, initCouncils } from "./councils.js";
 
 const overlay = getHelpOverlay();
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
@@ -133,6 +134,7 @@ export function loadActiveSection() {
   else if (sec === "apps") loadApps();
   else if (sec === "agents") void loadAgents();
   else if (sec === "schedules") void loadSchedules();
+  else if (sec === "councils") void loadCouncils();
   else if (sec === "settings") loadSettings();
   else if (sec === "docs") loadDocs();
   else if (sec === "support") loadSupport();
@@ -237,17 +239,36 @@ export function initHelp() {
   const settingsSubPanels = document.querySelectorAll<HTMLDivElement>(".help-section[data-section='settings'] .settings-panel");
   settingsSubNav.forEach((btn) => {
     btn.addEventListener("click", () => {
+      // Docs has its own topics nav, so it opens as its own section.
+      const jump = btn.dataset.jump;
+      if (jump) {
+        collapseAllDropdowns();
+        navSubItems.forEach((s) => s.classList.remove("active"));
+        switchToSection(jump);
+        loadActiveSection();
+        return;
+      }
+      const sub = btn.dataset.sub!;
       settingsSubNav.forEach((n) => n.classList.remove("active"));
       settingsSubPanels.forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
-      const target = document.querySelector(`.help-section[data-section='settings'] .settings-panel[data-sub="${btn.dataset.sub}"]`);
+      const target = document.querySelector(`.help-section[data-section='settings'] .settings-panel[data-sub="${sub}"]`);
       if (target) target.classList.add("active");
-      navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === btn.dataset.sub));
+      navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === sub));
+      // Support & About live inside Settings now — populate their dynamic bits.
+      if (sub === "support") loadSupport();
+      else if (sub === "about") loadAbout();
     });
   });
 
   docsSubNav.forEach((btn) => {
     btn.addEventListener("click", () => { showDocPanel(btn.dataset.doc!); });
+  });
+
+  // Docs has its own topics nav, so it can't show the Settings menu — give it
+  // a breadcrumb back to Settings instead.
+  document.getElementById("docs-back-settings")?.addEventListener("click", () => {
+    gotoSection("settings", "general");
   });
 
   // Initialize all section event handlers
@@ -259,4 +280,5 @@ export function initHelp() {
   initSkillsEvents();
   initAgents();
   initSchedules();
+  initCouncils();
 }

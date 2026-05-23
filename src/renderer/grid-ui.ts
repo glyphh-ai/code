@@ -16,6 +16,8 @@ type GridInfo = {
 export interface GridDeps {
   isYoPanelOpen: () => boolean;
   getYoPanelWidth: () => number;
+  /** Width of the left rail inset — panels start at this x offset. */
+  getLeftInset: () => number;
   isUrlBarHidden: () => boolean;
   setUrlBarVisibility: (hidden: boolean) => void;
   showPanelScreenshots: () => Promise<void>;
@@ -45,12 +47,10 @@ export function initGrid(deps: GridDeps): {
     return 72;
   }
 
-  /** Available width for panels (accounts for yo panel inset) */
+  /** Available width for panels (accounts for the left rail + yo panel insets) */
   function getAvailableWidth(): number {
-    if (deps.isYoPanelOpen()) {
-      return window.innerWidth - deps.getYoPanelWidth();
-    }
-    return window.innerWidth;
+    const rightInset = deps.isYoPanelOpen() ? deps.getYoPanelWidth() : 0;
+    return window.innerWidth - deps.getLeftInset() - rightInset;
   }
 
   function renderCellUrlBars() {
@@ -134,8 +134,9 @@ export function initGrid(deps: GridDeps): {
 
     const cells = grid.cells || [];
 
-    // Column border handles — use available width (accounts for yo panel)
+    // Column border handles — offset by the left rail, sized to available width
     const availW = getAvailableWidth();
+    const leftInset = deps.getLeftInset();
     let cumCol = 0;
     for (let i = 0; i < grid.cols - 1; i++) {
       cumCol += grid.colWidths[i];
@@ -144,14 +145,14 @@ export function initGrid(deps: GridDeps): {
       if (!hasEdge) continue;
       const handle = document.createElement("div");
       handle.className = "grid-col-handle";
-      handle.style.left = `${Math.round(cumCol * availW)}px`;
+      handle.style.left = `${leftInset + Math.round(cumCol * availW)}px`;
       handle.dataset.type = "col";
       handle.dataset.index = String(i);
       gridHandles.appendChild(handle);
       handle.addEventListener("mousedown", (e) => startDrag(e, "col", i));
     }
 
-    // Row border handles
+    // Row border handles — span the content area (start after the left rail)
     let cumRow = 0;
     for (let i = 0; i < grid.rows - 1; i++) {
       cumRow += grid.rowHeights[i];
@@ -161,6 +162,7 @@ export function initGrid(deps: GridDeps): {
       const handle = document.createElement("div");
       handle.className = "grid-row-handle";
       handle.style.top = `${getContentTop() + cumRow * (window.innerHeight - getContentTop())}px`;
+      handle.style.left = `${leftInset}px`;
       handle.dataset.type = "row";
       handle.dataset.index = String(i);
       gridHandles.appendChild(handle);
@@ -172,11 +174,12 @@ export function initGrid(deps: GridDeps): {
   window.addEventListener("resize", () => {
     if (!currentGrid) return;
     const aw = getAvailableWidth();
+    const leftInset = deps.getLeftInset();
     gridHandles.querySelectorAll<HTMLElement>(".grid-col-handle").forEach((h) => {
       const idx = parseInt(h.dataset.index!, 10);
       let cc = 0;
       for (let j = 0; j <= idx; j++) cc += currentGrid!.colWidths[j];
-      h.style.left = `${Math.round(cc * aw)}px`;
+      h.style.left = `${leftInset + Math.round(cc * aw)}px`;
     });
     const contentHeight = window.innerHeight - getContentTop();
     gridHandles.querySelectorAll<HTMLElement>(".grid-row-handle").forEach((h) => {
@@ -184,6 +187,7 @@ export function initGrid(deps: GridDeps): {
       let cr = 0;
       for (let j = 0; j <= idx; j++) cr += currentGrid!.rowHeights[j];
       h.style.top = `${getContentTop() + cr * contentHeight}px`;
+      h.style.left = `${leftInset}px`;
     });
   });
 
@@ -212,10 +216,11 @@ export function initGrid(deps: GridDeps): {
 
     if (dragType === "col") {
       const aw = getAvailableWidth();
-      const fraction = e.clientX / aw;
+      const leftInset = deps.getLeftInset();
+      const fraction = (e.clientX - leftInset) / aw;
       const clamped = Math.max(0.05, Math.min(0.95, fraction));
       const handle = gridHandles.querySelector<HTMLElement>(`.grid-col-handle[data-index="${dragIndex}"]`);
-      if (handle) handle.style.left = `${Math.round(clamped * aw)}px`;
+      if (handle) handle.style.left = `${leftInset + Math.round(clamped * aw)}px`;
     } else {
       const contentHeight = window.innerHeight - getContentTop();
       const fraction = (e.clientY - getContentTop()) / contentHeight;
@@ -241,7 +246,7 @@ export function initGrid(deps: GridDeps): {
     if (dragType === "col") {
       const handle = gridHandles.querySelector<HTMLElement>(`.grid-col-handle[data-index="${dragIndex}"]`);
       if (handle) {
-        const fraction = parseFloat(handle.style.left) / getAvailableWidth();
+        const fraction = (parseFloat(handle.style.left) - deps.getLeftInset()) / getAvailableWidth();
         window.yo.gridDragEnd("col", dragIndex, fraction);
       }
     } else {

@@ -45,6 +45,15 @@ export interface BuildSubstrateDepsArgs {
 
   // Local swarm — draft + spawn (returns a text status for the yo agent).
   swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+
+  // Local council — convene a multi-LLM debate + open the Council app.
+  councilCreate: (config: {
+    council_prompt: string;
+    name?: string;
+    style?: string;
+    round_cap?: number;
+    members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
+  }) => Promise<string>;
 }
 
 // ── Builder ─────────────────────────────────────────────────────
@@ -65,6 +74,7 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     browserHtmlUrl,
     execCommand,
     swarmCreate,
+    councilCreate,
     agentRegistry,
   } = deps;
 
@@ -316,8 +326,24 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
       return result;
     },
+    apps: {
+      list: () => appConnector.list().map((a) => ({
+        id: a.id,
+        name: a.name,
+        url: a.url,
+        description: (a as { description?: string }).description,
+      })),
+      open: async (id: string) => {
+        const result = await execCommand(`dip ${id}`);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
+        return result;
+      },
+    },
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
+    },
+    council: {
+      create: (config) => councilCreate(config),
     },
     agentRegistry,
   };

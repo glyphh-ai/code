@@ -39,7 +39,6 @@
       <nav id="help-nav">
         <div class="help-brand"><span class="dot">.</span>Yo</div>
         <button class="help-nav-item active" data-section="dashboard">Dashboard</button>
-        <button class="help-nav-item" data-section="guide">Guide</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="docs">Docs</button>
           <div class="help-nav-sub">
@@ -56,6 +55,7 @@
         </div>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="agents">Agents</button>
+        <button class="help-nav-item" data-section="councils">Councils</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="drips">Drips</button>
         <button class="help-nav-item" data-section="skills">Skills</button>
@@ -71,8 +71,6 @@
             <button class="help-nav-sub-item" data-section="settings" data-sub="advanced">Advanced</button>
           </div>
         </div>
-        <button class="help-nav-item" data-section="support">Support</button>
-        <button class="help-nav-item" data-section="about">About</button>
         <div class="help-nav-spacer"></div>
         <div class="help-nav-user">
           <button class="help-nav-user-item" id="user-menu-platform">
@@ -406,6 +404,7 @@
         <div class="help-section" data-section="docs">
           <div class="settings-layout">
             <nav class="settings-nav docs-nav">
+              <button id="docs-back-settings" class="settings-nav-back">&#x2190; Settings</button>
               <button class="settings-nav-item active" data-doc="navigation">Navigation</button>
               <button class="settings-nav-item" data-doc="commands">Commands</button>
               <button class="settings-nav-item" data-doc="apps">Apps</button>
@@ -1513,6 +1512,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
           </div>
         </div>
 
+        <!-- Councils -->
+        <div class="help-section" data-section="councils">
+          <div id="councils-root"></div>
+        </div>
+
         <!-- Settings -->
         <div class="help-section" data-section="settings">
           <div class="settings-layout">
@@ -1524,6 +1528,10 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <button class="settings-nav-item" data-sub="account">Account</button>
               <button class="settings-nav-item" data-sub="mcp">MCP Server</button>
               <button class="settings-nav-item" data-sub="advanced">Advanced</button>
+              <div class="settings-nav-sep"></div>
+              <button class="settings-nav-item" data-sub="support">Support</button>
+              <button class="settings-nav-item" data-sub="about">About</button>
+              <button class="settings-nav-item" data-jump="docs">Docs</button>
             </nav>
             <div class="settings-panels">
 
@@ -1660,10 +1668,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <div class="license-row">
                     <span class="license-label">Plan</span>
                     <span class="license-value" id="account-tier">—</span>
-                  </div>
-                  <div class="license-row">
-                    <span class="license-label">Status</span>
-                    <span class="license-value" id="account-status">—</span>
                   </div>
                   <div class="license-actions">
                     <button id="account-dashboard-btn" class="action-btn primary">Manage Account</button>
@@ -1835,12 +1839,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 </div>
               </div>
 
-            </div>
-          </div>
-        </div>
-
-        <!-- Support -->
-        <div class="help-section" data-section="support">
+              <!-- Support — kept inside Settings so the left nav stays up -->
+              <div class="settings-panel" data-sub="support">
           <h2>Support</h2>
           <p class="section-desc">Submit a ticket or join the community.</p>
 
@@ -1864,8 +1864,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
           </form>
         </div>
 
-        <!-- About -->
-        <div class="help-section" data-section="about">
+              <!-- About — kept inside Settings so the left nav stays up -->
+              <div class="settings-panel" data-sub="about">
           <h2>About</h2>
           <div class="about-header">
             <div class="about-logo"><span class="about-dot">.</span>Yo</div>
@@ -1894,6 +1894,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div class="about-policy" id="policy-refund">
               <h3>Refund Policy</h3>
               <div class="policy-content"></div>
+            </div>
+          </div>
+              </div>
+              <!-- /About -->
+
             </div>
           </div>
         </div>

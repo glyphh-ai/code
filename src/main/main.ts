@@ -623,6 +623,7 @@ async function boot() {
   yoAgent.setCaptureStore(captureStore);
   yoAgent.setWorkspaceGetter(workspaceGetter);
   yoAgent.setSkillEngine(skillEngine);
+  yoAgent.setAppsProvider(() => appConnector.list().map((a) => ({ id: a.id, name: a.name })));
 
   // Run prompt-mode skills/tasks through the full agent (tools + MCP) so
   // tasks like "read my email and summarize" actually work.
@@ -721,15 +722,10 @@ async function boot() {
   // yo/dip/drip interceptor — injected into ALL app panels
   const yoInterceptor = new YoInterceptor(appConnector, skillEngine, session);
   {
-    // Perm and swarm are stored separately: `agentMode` always holds the
-    // permission (default/plan/acceptEdits/bypassPermissions); `agentSwarm`
-    // is the swarm-mode overlay. Keeping them apart means entering swarm
-    // mode never clobbers the user's saved permission.
+    // `agentMode` holds the permission (default/plan/acceptEdits/bypassPermissions).
     const savedPerm = getAgentMode();
-    const savedSwarm = getPreference<boolean>("agentSwarm", false);
     yoAgent.setMode(savedPerm);
-    if (savedSwarm) yoAgent.setSwarmMode(true);
-    yoInterceptor.setAgentMode(savedSwarm ? "swarm" : savedPerm);
+    yoInterceptor.setAgentMode(savedPerm);
   }
   yoInterceptor.setCurrentModel(llmConfig.model);
   // Fetch active models from server and populate the interceptor + presets cache
@@ -1557,6 +1553,81 @@ async function boot() {
   }
 
   // Panel interaction + layout tools — wired via substrate-deps.ts
+  // Agent-convened council: auto-fill members from configured providers if the
+  // agent didn't pick any, open the Council app, convene, and let the panel run.
+  const DEFAULT_COUNCIL_MODELS: Record<string, string> = {
+    anthropic: "claude-sonnet-4-6",
+    openai: "gpt-4o",
+    google: "gemini-2.0-flash",
+    xai: "grok-2-latest",
+    perplexity: "sonar",
+  };
+  const councilCreateFromAgent = async (config: {
+    council_prompt: string; name?: string; style?: string; round_cap?: number;
+    members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
+  }): Promise<string> => {
+    if (!mainWindow || mainWindow.isDestroyed()) return "No window available.";
+    const councilApp = appConnector.get("council");
+    if (!councilApp) return "Council app is not registered.";
+    const councilSession = require("./council-session") as typeof import("./council-session");
+    const { setCurrentCouncil } = require("./current-council") as typeof import("./current-council");
+
+    let members = (config.members ?? []).filter((m) => m.provider && m.model);
+    if (members.length < 2) {
+      const configured = providerKeysModule.listStatus().filter((p) => p.configured).map((p) => p.provider);
+      members = configured
+        .filter((p) => DEFAULT_COUNCIL_MODELS[p])
+        .map((p) => ({ provider: p, model: DEFAULT_COUNCIL_MODELS[p], startup_prompt: "" }));
+    }
+    if (members.length < 2) {
+      return "A council needs at least 2 members. Add API keys for 2+ providers in Settings → Providers, or pass explicit members.";
+    }
+
+    const style: import("./council-session").CouncilStyle =
+      config.style === "free_for_all" || config.style === "debate" ? config.style : "chained";
+    const name = (config.name || config.council_prompt).slice(0, 48);
+    const fullConfig: import("./council-session").CouncilCreateConfig = {
+      name,
+      council_prompt: config.council_prompt,
+      style,
+      round_cap: config.round_cap && config.round_cap > 0 ? Math.min(20, config.round_cap) : 3,
+      members: members.map((m, i) => ({
+        provider: m.provider as import("./council-session").CouncilMemberConfig["provider"],
+        model: m.model,
+        startup_prompt: (m.startup_prompt && m.startup_prompt.trim())
+          || `You are council member ${i + 1}. Bring your own distinct, expert perspective. Be concise and engage directly with the other members' points.`,
+      })),
+    };
+
+    if (!panelManager.hasPanel("council")) createPanelForApp("council", councilApp);
+    ensureTab("council");
+    panelManager.switchTo("council", mainWindow);
+    sendTabState();
+
+    const r = councilSession.createCouncil(fullConfig, null);
+    if (!r.ok) return `Council failed to convene: ${r.error || "unknown"}`;
+    const councilId = r.council_id;
+    setCurrentCouncil(councilId);
+
+    // Hand the freshly-loaded panel its roster once it has subscribed; the
+    // renderer enters the layout view and kicks off the rounds.
+    setTimeout(() => {
+      const view = panelManager.getView("council");
+      if (!view || view.webContents.isDestroyed()) return;
+      councilSession.setCouncilForwardWc(councilId, view.webContents);
+      view.webContents.send("council-convened", {
+        council_id: councilId,
+        name: fullConfig.name,
+        council_prompt: fullConfig.council_prompt,
+        members: fullConfig.members.map((m) => ({ provider: m.provider, model: m.model })),
+        style: fullConfig.style,
+        round_cap: fullConfig.round_cap,
+      });
+    }, 800);
+
+    return `Council "${fullConfig.name}" convened in the Council app — ${fullConfig.members.length} members (${fullConfig.members.map((m) => m.provider).join(", ")}), ${fullConfig.style} style, up to ${fullConfig.round_cap} rounds. It runs in that panel; tell the user to watch the Council app.`;
+  };
+
   setSubstrateToolDeps(buildSubstrateDeps({
     mainWindow,
     panelManager,
@@ -1572,6 +1643,7 @@ async function boot() {
     browserHtmlUrl,
     execCommand,
     swarmCreate: runSwarm,
+    councilCreate: councilCreateFromAgent,
     agentRegistry: {
       list: () => listAgents().map((a) => ({
         id: a.id,
@@ -2187,6 +2259,16 @@ async function boot() {
         try {
           const result = await execCommand(trimmed.slice(1));
           mainWindow?.webContents.send("yo-panel-done", result || "done.");
+          // A `.dip` switch focuses the new BrowserView, stealing keyboard focus
+          // from the yo input. Hand it back once the slide settles.
+          if (firstWord === "dip") {
+            setTimeout(() => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.focus();
+                mainWindow.webContents.send("yo-panel-refocus");
+              }
+            }, 300);
+          }
         } catch (err: any) {
           mainWindow?.webContents.send("yo-panel-error", err?.message || String(err));
         }
@@ -2307,16 +2389,30 @@ async function boot() {
     panelManager.getView("files")?.webContents.send("files:external-open", resolved);
   });
 
-  // Left-rail nav → open the Settings (home) panel at a given section.
-  // `pendingHomeSection` covers the cold-start race: the home page grabs it
-  // on load via `home:get-pending-section`; the live event handles the rest.
+  // Left-rail nav → open the home panel (Settings/Dashboard/Apps/…) at a given
+  // section. The home panel is a transient overlay: it does NOT create a tab,
+  // and clicking the same rail item again toggles it closed — sliding back to
+  // the previously active panel. `pendingHomeSection` covers the cold-start
+  // race: the home page grabs it on load via `home:get-pending-section`.
   let pendingHomeSection: { section: string; sub?: string } | null = null;
+  let currentHomeSection: { section: string; sub?: string } | null = null;
   ipcMain.on("open-home-section", (_e, section: string, sub?: string) => {
     if (!mainWindow || typeof section !== "string") return;
+    const homeActive = panelManager.activePanelId === "home";
+    const sameSection = currentHomeSection?.section === section && currentHomeSection?.sub === sub;
+    // Toggle: re-clicking the active section slides the home panel back out.
+    if (homeActive && sameSection) {
+      currentHomeSection = null;
+      pendingHomeSection = null;
+      panelManager.switchBack(mainWindow);
+      sendSplitState();
+      sendTabState();
+      return;
+    }
+    currentHomeSection = { section, sub };
     pendingHomeSection = { section, sub };
     const homeApp = appConnector.get("home");
     if (homeApp && !panelManager.hasPanel("home")) createPanelForApp("home", homeApp);
-    ensureTab("home");
     panelManager.switchTo("home", mainWindow);
     sendSplitState();
     sendTabState();
@@ -2362,39 +2458,15 @@ async function boot() {
     return getPreference<number>("filesRailWidth", 240);
   });
 
-  // IPC: Agent mode + guardrails. Perm and the swarm overlay are reported
-  // (and stored) separately so one never overwrites the other.
+  // IPC: Agent permission mode (default/plan/acceptEdits/bypassPermissions).
   ipcMain.handle("get-agent-mode", () => ({
     perm: yoAgent.getMode(),
-    swarm: yoAgent.isSwarmMode(),
   }));
   ipcMain.on("set-agent-mode", (_e, mode: string) => {
-    // "swarm" is a behavioral overlay, independent of the permission. It is
-    // tracked in its own `agentSwarm` pref and never touches `agentMode`,
-    // so the user's permission survives entering/leaving swarm mode.
-    if (mode === "swarm") {
-      yoAgent.setSwarmMode(true);
-      yoAgent.clear();
-      setPreference("agentSwarm", true);
-      mainWindow?.webContents.send("agent-mode-changed", "swarm");
-      yoInterceptor.setAgentMode("swarm");
-      return;
-    }
-    if (mode === "exit-swarm") {
-      yoAgent.setSwarmMode(false);
-      yoAgent.clear();
-      setPreference("agentSwarm", false);
-      const perm = yoAgent.getMode();
-      mainWindow?.webContents.send("agent-mode-changed", perm);
-      yoInterceptor.setAgentMode(perm);
-      return;
-    }
-    // A permission value — persisted always, even while swarm mode is on.
     yoAgent.setMode(mode as any);
     setPreference("agentMode", mode);
-    const effectiveMode = yoAgent.isSwarmMode() ? "swarm" : mode;
-    mainWindow?.webContents.send("agent-mode-changed", effectiveMode);
-    yoInterceptor.setAgentMode(effectiveMode);
+    mainWindow?.webContents.send("agent-mode-changed", mode);
+    yoInterceptor.setAgentMode(mode);
   });
 
   // ── Council app — standalone multi-LLM debate panel.
@@ -2415,6 +2487,25 @@ async function boot() {
     });
     ipcMain.handle("council-stop", (_e, id: string) => councilModule.stopCouncil(id));
     ipcMain.handle("council-end", (_e, id: string) => councilModule.endCouncil(id));
+    // Run all rounds to the cap — driven by the layout's "Start" button and by
+    // agent-convened councils once the panel has subscribed.
+    ipcMain.handle("council-run", (_e, id: string) => councilModule.runCouncilToCompletion(id));
+
+    // Saved council templates + run history + scheduling.
+    const { CouncilScheduler } = require("./council-scheduler") as typeof import("./council-scheduler");
+    const { registerCouncilsIpc } = require("./councils-ipc") as typeof import("./councils-ipc");
+    const councilScheduler = new CouncilScheduler();
+    registerCouncilsIpc({
+      scheduler: councilScheduler,
+      runLive: (tpl) => councilCreateFromAgent({
+        council_prompt: tpl.council_prompt,
+        name: tpl.name,
+        style: tpl.style,
+        round_cap: tpl.round_cap,
+        members: tpl.members,
+      }),
+    });
+    councilScheduler.start();
   }
 
   // Approval system — pending approvals map + IPC
@@ -2564,13 +2655,6 @@ async function boot() {
       const tokens = mcpExpose.getTokens();
       const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
       try { ensureProjectMcpJson(ws, mcpUrl, token); } catch { /* */ }
-    }
-    // The yo agent just spun up a swarm — flip the mode dropdown to match.
-    if (!yoAgent.isSwarmMode()) {
-      yoAgent.setSwarmMode(true);
-      setPreference("agentSwarm", true);
-      yoInterceptor.setAgentMode("swarm");
-      mainWindow.webContents.send("agent-mode-changed", "swarm");
     }
     // Tell the yo panel a swarm is starting — it caches the roster (for
     // model badges) and the swarm's bus activity then streams in inline.
@@ -2957,9 +3041,6 @@ function cleanupAll() {
   cleanupAuthTimers();
   cleanupCapabilities();
   try {
-    // Clear the swarm overlay on quit (no live swarm survives a restart) but
-    // KEEP `agentMode` — that's the user's permission setting and must persist.
-    setPreference("agentSwarm", false);
     const tabs = getPreference<string[]>("openTabs", []);
     if (tabs.includes("cypher")) {
       setPreference("openTabs", tabs.filter((t: string) => t !== "cypher"));

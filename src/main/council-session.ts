@@ -22,6 +22,7 @@ import crypto from "crypto";
 import type { WebContents } from "electron";
 import { runByokStream } from "./provider-adapters/byok-client";
 import { guardPrompt } from "./firewall";
+import { saveRun, type CouncilTemplate } from "./council-store";
 import type {
   AdapterMessage, AdapterTurnRequest, AdapterTurnSink, LLMProvider,
 } from "./provider-adapters/agent-adapter";
@@ -475,6 +476,83 @@ export async function runCouncilRound(councilId: string): Promise<{ ok: boolean;
   emit(s, { kind: "round_end", round });
   if ((s.status as string) === "running") s.status = "ready";
   return { ok: true, round };
+}
+
+/**
+ * Run rounds back-to-back until the round cap is hit or the council is
+ * stopped/ended. Used by the "Start" control and by agent-convened councils.
+ */
+export async function runCouncilToCompletion(councilId: string): Promise<{ ok: boolean; error?: string }> {
+  const s = sessions.get(councilId);
+  if (!s) return { ok: false, error: "council not found" };
+  for (;;) {
+    const cur = sessions.get(councilId);
+    if (!cur) break;
+    if (cur.status === "ended" || (cur.status as string) === "stopped") break;
+    if (cur.currentRound >= cur.config.round_cap) break;
+    const r = await runCouncilRound(councilId);
+    if (!r.ok) break;
+  }
+  return { ok: true };
+}
+
+/**
+ * Convene a council from a saved template, run it to completion headlessly,
+ * summarize it, and persist the run to the council store's run history.
+ * Used by the scheduler and by "run a saved council" actions.
+ */
+export async function runCouncilFromTemplate(
+  tpl: CouncilTemplate,
+  trigger: "manual" | "schedule" | "agent",
+): Promise<{ ok: boolean; runId?: string; error?: string }> {
+  const r = createCouncil({
+    name: tpl.name,
+    council_prompt: tpl.council_prompt,
+    style: tpl.style,
+    round_cap: tpl.round_cap,
+    members: tpl.members.map((m) => ({
+      provider: m.provider as CouncilMemberConfig["provider"],
+      model: m.model,
+      startup_prompt: m.startup_prompt,
+    })),
+  }, null);
+  if (!r.ok) return { ok: false, error: r.error };
+  const liveId = r.council_id;
+  const runId = `${Date.now()}`;
+  try {
+    await runCouncilToCompletion(liveId);
+    let summary: { ok: boolean; path?: string; text?: string; error?: string } = { ok: false };
+    try { summary = await summarizeCouncil(liveId); } catch { /* summary is best-effort */ }
+    const session = getCouncil(liveId);
+    saveRun({
+      runId,
+      councilId: tpl.id,
+      name: tpl.name,
+      startedAt: new Date().toISOString(),
+      trigger,
+      status: "ok",
+      rounds: session?.currentRound ?? 0,
+      transcript: listCouncilTranscript(liveId),
+      summary: summary.text,
+      summaryPath: summary.path,
+    });
+    return { ok: true, runId };
+  } catch (err) {
+    saveRun({
+      runId,
+      councilId: tpl.id,
+      name: tpl.name,
+      startedAt: new Date().toISOString(),
+      trigger,
+      status: "error",
+      rounds: getCouncil(liveId)?.currentRound ?? 0,
+      transcript: listCouncilTranscript(liveId),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    endCouncil(liveId);
+  }
 }
 
 /**

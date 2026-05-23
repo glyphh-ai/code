@@ -46,7 +46,13 @@ interface CouncilAPI {
   }) => Promise<{ ok: boolean; council_id?: string; error?: string }>;
   councilStop: (id: string) => Promise<{ ok: boolean; error?: string }>;
   councilEnd: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  councilRun: (id: string) => Promise<{ ok: boolean; error?: string }>;
   councilSetCurrent: (id: string | null) => Promise<{ ok: boolean }>;
+  councilsSave: (cfg: {
+    id?: string; name: string; council_prompt: string;
+    style: string; round_cap: number;
+    members: Array<{ provider: string; model: string; startup_prompt: string }>;
+  }) => Promise<unknown>;
   onCouncilEvent: (cb: (event: CouncilEvent) => void) => () => void;
   onCouncilConvened: (cb: (info: {
     council_id: string;
@@ -319,6 +325,26 @@ async function convene(): Promise<void> {
   enterLayout(r.council_id, name);
 }
 
+/** Save the current form as a reusable template (no convene). */
+async function saveTemplate(): Promise<void> {
+  clearFormError();
+  const name = $i("cf-name").value.trim();
+  const prompt = $t("cf-prompt").value.trim();
+  const roundCap = Math.max(1, Math.min(20, parseInt($i("cf-round-cap").value, 10) || 3));
+  if (!name) { showFormError("Council name required"); return; }
+  if (!prompt) { showFormError("Council prompt required"); return; }
+  const members = formState.members.filter((m) => m.provider && m.model);
+  if (members.length < 2) { showFormError("Need at least 2 members"); return; }
+  await council.councilsSave({
+    name, council_prompt: prompt, style: formState.style, round_cap: roundCap,
+    members: members.map((m) => ({ provider: m.provider, model: m.model, startup_prompt: m.startup_prompt })),
+  });
+  const btn = $("cf-save-template");
+  const prev = btn.textContent;
+  btn.textContent = "Saved ✓";
+  setTimeout(() => { btn.textContent = prev; }, 1500);
+}
+
 // ── Layout view ────────────────────────────────────────
 
 function enterLayout(councilId: string, name: string): void {
@@ -341,6 +367,8 @@ function enterLayout(councilId: string, name: string): void {
   $("council-name-pill").classList.remove("hidden");
   $("council-name-pill").textContent = name;
   $("btn-end-council").classList.remove("hidden");
+  // Manual convene waits for the user to press Start before running rounds.
+  $("btn-start-council").classList.remove("hidden");
 
   setTopbarStatus("Ready");
   renderRoster();
@@ -669,6 +697,7 @@ async function init(): Promise<void> {
     el.addEventListener("click", () => setStyleChip(el.dataset.chip as typeof formState.style));
   });
   $("cf-save").addEventListener("click", () => { void convene(); });
+  $("cf-save-template").addEventListener("click", () => { void saveTemplate(); });
 
   // External convene (agent tool path)
   council.onCouncilConvened((info) => {
@@ -706,9 +735,19 @@ async function init(): Promise<void> {
     if (layoutState.unsubscribeEvents) layoutState.unsubscribeEvents();
     layoutState.unsubscribeEvents = council.onCouncilEvent(handleCouncilEvent);
     void council.councilSetCurrent(info.council_id);
+    // Agent-convened councils start running immediately (the agent already
+    // chose to convene); now that we're subscribed, kick off the rounds.
+    setTopbarStatus("Running…");
+    void council.councilRun(info.council_id);
   });
 
   // Layout events
+  $("btn-start-council").addEventListener("click", () => {
+    if (!layoutState.councilId) return;
+    $("btn-start-council").classList.add("hidden");
+    setTopbarStatus("Running…");
+    void council.councilRun(layoutState.councilId);
+  });
   $("btn-end-council").addEventListener("click", () => { void endCouncil(); });
   $("roster-back").addEventListener("click", () => {
     layoutState.focused = null;

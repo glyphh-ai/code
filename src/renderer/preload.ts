@@ -328,6 +328,9 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());
   },
+  onYoPanelRefocus: (cb: () => void) => {
+    ipcRenderer.on("yo-panel-refocus", () => cb());
+  },
 
   // Jammer activity feed (workspace bus events forwarded from main)
   onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => {
@@ -362,6 +365,18 @@ contextBridge.exposeInMainWorld("yo", {
   runsGet: (id: string) => ipcRenderer.invoke("runs-get", id) as Promise<{ title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null>,
   onRunsChanged: (cb: () => void) => { ipcRenderer.on("runs-changed", () => cb()); },
   setKeepAwake: (on: boolean) => ipcRenderer.send("set-keep-awake", on),
+
+  // Saved councils — templates, run history, scheduling
+  councilsList: () => ipcRenderer.invoke("councils-list") as Promise<Array<Record<string, unknown>>>,
+  councilsGet: (id: string) => ipcRenderer.invoke("councils-get", id) as Promise<Record<string, unknown> | null>,
+  councilsSave: (cfg: Record<string, unknown>) => ipcRenderer.invoke("councils-save", cfg) as Promise<Record<string, unknown>>,
+  councilsDelete: (id: string) => ipcRenderer.invoke("councils-delete", id) as Promise<boolean>,
+  councilsRun: (id: string, live?: boolean) => ipcRenderer.invoke("councils-run", id, live) as Promise<{ ok: boolean; error?: string; message?: string; runId?: string }>,
+  councilsRuns: (id: string) => ipcRenderer.invoke("councils-runs", id) as Promise<Array<Record<string, unknown>>>,
+  councilsRunGet: (id: string, runId: string) => ipcRenderer.invoke("councils-run-get", id, runId) as Promise<Record<string, unknown> | null>,
+  councilsScheduleStatus: () => ipcRenderer.invoke("councils-schedule-status") as Promise<Array<{ id: string; schedule: string; paused: boolean }>>,
+  councilsPauseSchedule: (id: string) => ipcRenderer.invoke("councils-pause-schedule", id) as Promise<void>,
+  councilsResumeSchedule: (id: string) => ipcRenderer.invoke("councils-resume-schedule", id) as Promise<void>,
 
   // Agent mode + guardrails
   getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<{ perm: string; swarm: boolean }>,

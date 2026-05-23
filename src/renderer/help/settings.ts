@@ -2,8 +2,6 @@
  * Settings section — model config, toggles, MCP expose, tool overrides.
  */
 
-import { closeHelp } from "./shared.js";
-
 // ── Settings ─────────────────────────────────────────────
 
 const settingsModelSelect = document.getElementById("settings-model-select") as HTMLSelectElement;
@@ -128,14 +126,15 @@ interface ProviderRow {
   label: string;
   hint: string;
   keyExample: string;
+  keysUrl: string;
 }
 
 const PROVIDER_ROWS: ProviderRow[] = [
-  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Claude chat outside the agent loop and read-only swarm agents on Claude.", keyExample: "sk-ant-…" },
-  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across swarm agents and direct chat.",                       keyExample: "sk-proj-…" },
-  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in swarm agents and direct chat.",                    keyExample: "AIza…" },
-  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in read-only swarm agents and direct chat.",                   keyExample: "xai-…" },
-  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in read-only swarm agents.",             keyExample: "pplx-…" },
+  { id: "anthropic",   label: "Anthropic (Claude)",     hint: "Claude chat outside the agent loop and read-only swarm agents on Claude.", keyExample: "sk-ant-…",  keysUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "openai",      label: "OpenAI",                 hint: "GPT-4 / GPT-5 across swarm agents and direct chat.",                       keyExample: "sk-proj-…", keysUrl: "https://platform.openai.com/api-keys" },
+  { id: "google",      label: "Google AI (Gemini)",     hint: "Gemini family models in swarm agents and direct chat.",                    keyExample: "AIza…",     keysUrl: "https://aistudio.google.com/apikey" },
+  { id: "xai",         label: "xAI (Grok)",             hint: "Grok models in read-only swarm agents and direct chat.",                   keyExample: "xai-…",     keysUrl: "https://console.x.ai" },
+  { id: "perplexity",  label: "Perplexity",             hint: "Perplexity search-grounded models in read-only swarm agents.",             keyExample: "pplx-…",    keysUrl: "https://www.perplexity.ai/settings/api" },
 ];
 
 async function renderProviderKeys() {
@@ -181,9 +180,20 @@ async function renderProviderKeys() {
 
     // Hint
     const hint = document.createElement("div");
-    hint.style.cssText = "font-size:12px;color:var(--text-3);margin-bottom:10px;";
+    hint.style.cssText = "font-size:12px;color:var(--text-3);margin-bottom:8px;";
     hint.textContent = row.hint;
     card.appendChild(hint);
+
+    // Link to the provider's API-keys page — opens in-yo (browser tab), not external.
+    const keyLink = document.createElement("a");
+    keyLink.textContent = "Get API key ↗";
+    keyLink.href = "#";
+    keyLink.style.cssText = "font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;margin-bottom:10px;display:inline-block;";
+    keyLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      void window.yo.execCommand(`dip ${row.keysUrl}`);
+    });
+    card.appendChild(keyLink);
 
     // Input + buttons
     const inputRow = document.createElement("div");
@@ -196,7 +206,7 @@ async function renderProviderKeys() {
     inputRow.appendChild(input);
 
     const saveBtn = document.createElement("button");
-    saveBtn.className = "action-btn";
+    saveBtn.className = "action-btn primary";
     saveBtn.textContent = "Save";
     saveBtn.addEventListener("click", async () => {
       const key = input.value.trim();
@@ -570,10 +580,10 @@ function initSettings() {
     window.yo.relaunch();
   });
 
-  // Account dashboard — opens platform in a browser tab
+  // Manage Account — open the platform inside the app (a panel tab), the same
+  // way the left-rail Platform button does (.dip <platformUrl>).
   document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
-    closeHelp();
-    window.yo.openExternal(window.yo.platformUrl);
+    void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
   });
 
   // Sign out
@@ -586,10 +596,9 @@ function initSettings() {
 
 async function loadSettings() {
   settingsStatus.textContent = "";
-  const [config, accountInfo, authStatus] = await Promise.all([
+  const [config, accountInfo] = await Promise.all([
     window.yo.getLLMConfig(),
     window.yo.getAccountInfo(),
-    window.yo.getAuthStatus(),
   ]);
 
   // Populate model dropdown — SDK agent only supports Anthropic models
@@ -628,7 +637,6 @@ async function loadSettings() {
   const nameEl = document.getElementById("account-name")!;
   const orgEl = document.getElementById("account-org")!;
   const tierEl = document.getElementById("account-tier")!;
-  const statusEl = document.getElementById("account-status")!;
 
   if (accountInfo) {
     emailEl.textContent = accountInfo.email;
@@ -636,24 +644,11 @@ async function loadSettings() {
     orgEl.textContent = accountInfo.orgName;
     tierEl.textContent = accountInfo.tier || "free";
     tierEl.className = `license-value ${accountInfo.tier !== "free" ? "active" : ""}`;
-
-    const billingStatus = accountInfo.billingStatus || authStatus.status;
-    if (billingStatus === "active") {
-      statusEl.textContent = "Active";
-      statusEl.className = "license-value active";
-    } else if (billingStatus === "expired" || authStatus.status === "expired") {
-      statusEl.textContent = "Expired";
-      statusEl.className = "license-value expired";
-    } else {
-      statusEl.textContent = billingStatus === "none" ? "Free" : billingStatus;
-      statusEl.className = "license-value";
-    }
   } else {
     emailEl.textContent = "Not signed in";
     nameEl.textContent = "—";
     orgEl.textContent = "—";
     tierEl.textContent = "—";
-    statusEl.textContent = "—";
   }
 
   // Load toggle states

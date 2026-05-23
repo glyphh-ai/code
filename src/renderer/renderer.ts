@@ -235,6 +235,7 @@ declare global {
       onYoPanelDone: (cb: (fullText: string) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
+      onYoPanelRefocus: (cb: () => void) => void;
       // Local swarm — inline activity in the yo panel
       onYoPanelSwarmStart: (cb: (info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }) => void) => void;
       onYoPanelSwarmActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => void;
@@ -393,6 +394,16 @@ declare global {
       // Schedules (skill-runs history + keep-awake)
       runsList: (skillName?: string) => Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>;
       setKeepAwake: (on: boolean) => void;
+      councilsList: () => Promise<Array<Record<string, unknown>>>;
+      councilsGet: (id: string) => Promise<Record<string, unknown> | null>;
+      councilsSave: (cfg: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      councilsDelete: (id: string) => Promise<boolean>;
+      councilsRun: (id: string, live?: boolean) => Promise<{ ok: boolean; error?: string; message?: string; runId?: string }>;
+      councilsRuns: (id: string) => Promise<Array<Record<string, unknown>>>;
+      councilsRunGet: (id: string, runId: string) => Promise<Record<string, unknown> | null>;
+      councilsScheduleStatus: () => Promise<Array<{ id: string; schedule: string; paused: boolean }>>;
+      councilsPauseSchedule: (id: string) => Promise<void>;
+      councilsResumeSchedule: (id: string) => Promise<void>;
     };
   }
 }
@@ -429,10 +440,7 @@ document.getElementById("splash-close")?.addEventListener("click", () => window.
 
 // -- Titlebar label -> open home tab --
 
-document.getElementById("titlebar-label")!.addEventListener("click", () => {
-  window.yo.tabNewApp("home");
-});
-
+// The .Yo titlebar label is no longer a link — clicking it does nothing.
 
 // Yos badge removed in Phase 7 of THE-PIVOT-BYOK — yo-server no longer
 // tracks balances; users pay providers directly. The window.refreshYosBadge
@@ -470,9 +478,14 @@ const urlBar = document.getElementById("url-bar")!;
 const urlBarInput = document.getElementById("url-bar-input") as HTMLInputElement;
 const urlBarFavicon = document.getElementById("url-bar-favicon") as HTMLImageElement;
 
+const titlebarRefresh = document.getElementById("titlebar-refresh") as HTMLButtonElement | null;
+
 function setUrlBarVisible(show: boolean) {
   urlBar.classList.toggle("hidden", !show);
   document.body.style.setProperty("--content-top", show ? "72px" : "38px");
+  // When the URL bar is hidden there's no Refresh anywhere — surface one in
+  // the titlebar so the active panel can still be reloaded.
+  titlebarRefresh?.classList.toggle("hidden", show);
 }
 
 // Load initial URL bar visibility
@@ -488,6 +501,7 @@ const urlBarRefresh = document.getElementById("url-bar-refresh") as HTMLButtonEl
 urlBarBack.addEventListener("click", () => window.yo.urlBarBack());
 urlBarForward.addEventListener("click", () => window.yo.urlBarForward());
 urlBarRefresh.addEventListener("click", () => window.yo.urlBarRefresh());
+titlebarRefresh?.addEventListener("click", () => window.yo.urlBarRefresh());
 
 // Navigate on Enter
 urlBarInput.addEventListener("keydown", (e) => {
@@ -589,6 +603,7 @@ window.yo.onOpenSettings(() => window.yo.tabNewApp("home"));
 const gridApi = initGrid({
   isYoPanelOpen,
   getYoPanelWidth,
+  getLeftInset: () => parseFloat(getComputedStyle(document.body).getPropertyValue("--left-inset")) || 0,
   isUrlBarHidden: () => urlBar.classList.contains("hidden"),
   setUrlBarVisibility: (hidden) => { urlBar.style.visibility = hidden ? "hidden" : ""; },
   showPanelScreenshots,
@@ -602,27 +617,16 @@ initDownloads();
 {
   const rail = document.getElementById("files-rail")!;
   const railToggle = document.getElementById("files-rail-toggle")!;
-  const railTitle = document.getElementById("files-rail-title")!;
-  const railName = document.getElementById("files-rail-name")!;
   const railResize = document.getElementById("files-rail-resize")!;
 
-  let railRoot: string | null = null;
   let railWidth = 240;
 
   const setInset = (px: number) => {
     document.body.style.setProperty("--left-inset", `${px}px`);
     window.yo.filesRailResize(px);
+    // Reposition any split drag-handles to track the new content offset.
+    gridApi.renderGridHandles();
   };
-
-  function refreshFolderName() {
-    if (railRoot) {
-      railName.textContent = railRoot.split("/").filter(Boolean).pop() || railRoot;
-      railTitle.title = `Working folder: ${railRoot}`;
-    } else {
-      railName.textContent = "No folder";
-      railTitle.title = "Working folder";
-    }
-  }
 
   function applyOpen(open: boolean) {
     railToggle.classList.toggle("active", open);
@@ -676,16 +680,9 @@ initDownloads();
     window.yo.filesRailWidthSave(railWidth);
   });
 
-  window.yo.onWorkingDirChanged((dir) => {
-    railRoot = dir;
-    refreshFolderName();
-  });
-
   void (async () => {
     railWidth = await window.yo.filesRailGetWidth().catch(() => 240);
     rail.style.width = `${railWidth}px`;
-    railRoot = await window.yo.getWorkingDir().catch(() => null);
-    refreshFolderName();
     let savedOpen: string | null = null;
     try { savedOpen = localStorage.getItem("filesRailOpen"); } catch { /* ignore */ }
     applyOpen(savedOpen !== "0"); // default open

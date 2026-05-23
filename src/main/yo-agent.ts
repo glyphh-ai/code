@@ -110,7 +110,6 @@ export class YoAgent {
   private noteStore: NoteStore | null = null;
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
-  private _swarmMode: boolean = false;
   private _planDelivered = false;
   private _approvalCallback: ApprovalCallback | null = null;
   private _onModeChange: ((mode: AgentMode) => void) | null = null;
@@ -128,16 +127,15 @@ export class YoAgent {
   setSessionCache(cache: SessionCache): void { this.sessionCache = cache; }
   setSkillEngine(engine: SkillEngine): void { this.skillEngine = engine; }
   setNoteStore(store: NoteStore): void { this.noteStore = store; }
+  private appsProvider: (() => Array<{ id: string; name: string }>) | null = null;
+  /** Lets the agent know which apps the user has configured (for open_app). */
+  setAppsProvider(fn: () => Array<{ id: string; name: string }>): void { this.appsProvider = fn; }
   getMode(): AgentMode { return this._mode; }
   setMode(mode: AgentMode): void {
     const changed = this._mode !== mode;
     this._mode = mode;
     if (changed) this.sessionId = null;
   }
-  setSwarmMode(on: boolean): void {
-    this._swarmMode = on;
-  }
-  isSwarmMode(): boolean { return this._swarmMode; }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
@@ -570,12 +568,15 @@ export class YoAgent {
       }
     }
 
-    if (this._mode === "plan") {
-      prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
+    if (this.appsProvider) {
+      const apps = this.appsProvider();
+      if (apps.length > 0) {
+        prompt += `\n\nUSER'S APPS (open with open_app by id):\n${apps.map((a) => `- ${a.id}: ${a.name}`).join("\n")}`;
+      }
     }
 
-    if (this._swarmMode) {
-      prompt += `\n\nMODE: SWARM\nThe user wants work delegated to a local agent swarm. For every substantive request, your default behavior is to spin up a swarm rather than doing the work yourself: call create_swarm with the goal stated in the user's own words. Pick the best agents for the job from the registry, or let create_swarm choose. Once a swarm is running it works autonomously and reports into the swarm feed — do not try to do its work in parallel. Only handle a message yourself if it is a quick question, a meta directive about the swarm (status, stop), or the user explicitly says not to delegate.`;
+    if (this._mode === "plan") {
+      prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
     }
 
     // Context recovery: when resuming a chat without a live SDK session,

@@ -48,47 +48,45 @@ let yoChatNewBtn: HTMLElement;
 
 // ── Mode/model dropdowns ───────────────────────────────────────────────────
 
-let yoModeDropdown: HTMLElement;
-let yoModeTrigger: HTMLElement;
-let yoModeMenu: HTMLElement;
-let yoModeOptions: NodeListOf<Element>;
 let yoPermDropdown: HTMLElement;
 let yoPermTrigger: HTMLElement;
 let yoPermMenu: HTMLElement;
 let yoPermOptions: NodeListOf<Element>;
 let yoControlsInited = false;
 
-const MODE_ICONS: Record<string, string> = {
-  standard: "❓",
-  swarm:    "🐝",
-};
+// Color is driven by PERMISSION. Plan is one of the permission options —
+// when selected, it paints the trigger plan-blue.
+const PLAN_COLOR = "#4A9EFF";
 
-// Color is driven by PERMISSION (not mode). Plan is a separate checkbox
-// modifier — when on, it overrides the perm color with plan-blue.
 const PERM_ICONS: Record<string, string> = {
   default: "🔒",
+  plan: "📋",
   acceptEdits: "⚡",
   bypassPermissions: "🔥",
 };
 
 const PERM_COLORS: Record<string, string> = {
   default: "#25C75E",
+  plan: PLAN_COLOR,
   acceptEdits: "#FF8C00",
   bypassPermissions: "#FF2D55",
 };
 
-const PLAN_COLOR = "#4A9EFF";
-
 const PERM_LABELS: Record<string, string> = {
   default: "ask",
+  plan: "plan",
   acceptEdits: "auto",
   bypassPermissions: "bypass",
 };
 
-let currentMode = "standard";
 let currentPerm = "default";
 let planEnabled = false;
 let currentChatModel: string = "";          // empty = use workspace default
+
+// Shell-style input recall: ↑/↓ steps through previously sent prompts.
+const yoInputHistory: string[] = [];
+let yoHistIndex = 0;          // points one past the newest entry = the live draft
+let yoHistDraft = "";         // the in-progress text, preserved while browsing back
 
 const MODEL_PRETTY: Record<string, string> = {
   "claude-sonnet-4-6": "Sonnet 4.6",
@@ -332,24 +330,11 @@ function showYoWelcome() {
   }
 }
 
-// ── Helpers: mode/perm dropdowns ───────────────────────────────────────────
-
-function setModeValue(mode: string) {
-  currentMode = mode;
-  const icon = yoModeTrigger.querySelector(".yo-mode-icon")!;
-  const label = yoModeTrigger.querySelector(".yo-mode-label")!;
-  icon.textContent = MODE_ICONS[mode] || MODE_ICONS.standard;
-  label.textContent = mode;
-  yoModeOptions.forEach((opt) => {
-    opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
-  });
-  // Mode no longer drives accent color — that's the perm's job. We still
-  // keep a subtle border tint on the mode trigger so swarm vs standard is
-  // visually distinct without dominating the panel.
-}
+// ── Helpers: permission dropdown ───────────────────────────────────────────
 
 function setPermValue(perm: string) {
   currentPerm = perm;
+  planEnabled = perm === "plan";
   const icon = yoPermTrigger.querySelector(".yo-perm-icon")!;
   const label = yoPermTrigger.querySelector(".yo-perm-label")!;
   icon.textContent = PERM_ICONS[perm] || PERM_ICONS.default;
@@ -360,18 +345,9 @@ function setPermValue(perm: string) {
   applyAccentColor();
 }
 
-function setPlanEnabled(on: boolean) {
-  planEnabled = on;
-  const cb = document.getElementById("yo-plan-checkbox") as HTMLInputElement | null;
-  if (cb && cb.checked !== on) cb.checked = on;
-  applyAccentColor();
-}
-
-/** Accent color: plan-blue when plan is on, else the active permission's color. */
+/** Accent color: the active permission's color (plan-blue when plan is selected). */
 function applyAccentColor() {
-  const color = planEnabled
-    ? PLAN_COLOR
-    : (PERM_COLORS[currentPerm] || PERM_COLORS.default);
+  const color = PERM_COLORS[currentPerm] || PERM_COLORS.default;
   yoPermTrigger.style.borderColor = color;
   yoPanelInput.style.setProperty("--mode-color", color);
   yoPanelSendBtn.style.background = color;
@@ -379,11 +355,9 @@ function applyAccentColor() {
 }
 
 function syncAgentMode(): void {
-  // Swarm vs standard is independent of plan + perm.
-  window.yo.setAgentMode(currentMode === "swarm" ? "swarm" : "exit-swarm");
-  // Plan overrides whatever perm the user picked; backend treats "plan" as
-  // a permission mode (no tool calls, plan-mode prompt directive).
-  window.yo.setAgentMode(planEnabled ? "plan" : currentPerm);
+  // Plan is just another permission value — the backend treats "plan" as a
+  // permission mode (no tool calls, plan-mode prompt directive).
+  window.yo.setAgentMode(currentPerm);
 }
 
 async function initYoModelFromConfig(): Promise<void> {
@@ -394,19 +368,9 @@ async function initYoModelFromConfig(): Promise<void> {
 }
 
 async function initYoControls() {
-  // Perm, plan, and swarm are now independent. Plan rides as a separate
-  // checkbox modifier; if the backend's last persisted perm was "plan", we
-  // turn the checkbox on and default the perm dropdown to ask.
-  const { perm, swarm } = await window.yo.getAgentMode();
-  const rawPerm = perm || "default";
-  if (rawPerm === "plan") {
-    setPlanEnabled(true);
-    setPermValue("default");
-  } else {
-    setPlanEnabled(false);
-    setPermValue(rawPerm);
-  }
-  setModeValue(swarm ? "swarm" : "standard");
+  // Plan is one of the permission values — "plan" persists like any other.
+  const { perm } = await window.yo.getAgentMode();
+  setPermValue(perm || "default");
 }
 
 // ── Helpers: messages ──────────────────────────────────────────────────────
@@ -1187,9 +1151,37 @@ function autoGrowYoInput() {
   yoPanelInput.style.height = Math.min(yoPanelInput.scrollHeight, 160) + "px";
 }
 
+/** Move the caret to the end and resize the textarea. */
+function setYoInputValue(value: string) {
+  yoPanelInput.value = value;
+  autoGrowYoInput();
+  const end = value.length;
+  yoPanelInput.setSelectionRange(end, end);
+}
+
+/** ↑ — step back to an older history entry (stashing the live draft first). */
+function yoHistoryPrev() {
+  if (yoInputHistory.length === 0 || yoHistIndex === 0) return;
+  if (yoHistIndex === yoInputHistory.length) yoHistDraft = yoPanelInput.value;
+  yoHistIndex--;
+  setYoInputValue(yoInputHistory[yoHistIndex]);
+}
+
+/** ↓ — step forward to a newer entry, or back to the live draft at the end. */
+function yoHistoryNext() {
+  if (yoHistIndex >= yoInputHistory.length) return;
+  yoHistIndex++;
+  setYoInputValue(yoHistIndex === yoInputHistory.length ? yoHistDraft : yoInputHistory[yoHistIndex]);
+}
+
 function sendYoPanelMessage() {
   const text = yoPanelInput.value.trim();
   if (!text) return;
+
+  // Record into input history (skip consecutive duplicates) and reset browsing.
+  if (yoInputHistory[yoInputHistory.length - 1] !== text) yoInputHistory.push(text);
+  yoHistIndex = yoInputHistory.length;
+  yoHistDraft = "";
 
   if (/^\.rec$/i.test(text) && yoPanelMicBtn) {
     yoPanelInput.value = "";
@@ -1577,11 +1569,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoHistoryList = document.getElementById("yo-history-list")!;
   yoChatNewBtn = document.getElementById("yo-chat-new")!;
 
-  // Mode/perm dropdown elements
-  yoModeDropdown = document.getElementById("yo-mode-dropdown")!;
-  yoModeTrigger = document.getElementById("yo-mode-trigger")!;
-  yoModeMenu = document.getElementById("yo-mode-menu")!;
-  yoModeOptions = yoModeMenu.querySelectorAll(".yo-mode-option");
+  // Permission dropdown elements
   yoPermDropdown = document.getElementById("yo-perm-dropdown")!;
   yoPermTrigger = document.getElementById("yo-perm-trigger")!;
   yoPermMenu = document.getElementById("yo-perm-menu")!;
@@ -1604,26 +1592,10 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   }
 
-  // -- Mode dropdown listeners --
-  yoModeTrigger.addEventListener("click", (e) => {
-    e.stopPropagation();
-    yoModeMenu.classList.toggle("hidden");
-    yoPermMenu.classList.add("hidden");
-  });
-
-  yoModeOptions.forEach((opt) => {
-    opt.addEventListener("click", () => {
-      const value = (opt as HTMLElement).dataset.value!;
-      setModeValue(value);
-      syncAgentMode();
-      yoModeMenu.classList.add("hidden");
-    });
-  });
-
+  // -- Permission dropdown listeners --
   yoPermTrigger.addEventListener("click", (e) => {
     e.stopPropagation();
     yoPermMenu.classList.toggle("hidden");
-    yoModeMenu.classList.add("hidden");
   });
 
   yoPermOptions.forEach((opt) => {
@@ -1634,15 +1606,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       yoPermMenu.classList.add("hidden");
     });
   });
-
-  // Plan checkbox — sits next to the perm dropdown as a modifier.
-  const planCheckbox = document.getElementById("yo-plan-checkbox") as HTMLInputElement | null;
-  if (planCheckbox) {
-    planCheckbox.addEventListener("change", () => {
-      setPlanEnabled(planCheckbox.checked);
-      syncAgentMode();
-    });
-  }
 
   // Model dropdown — sections (Claude / GPT). GPT items are disabled until
   // the GPT loop is wired. Changing the model warns the user that the
@@ -1661,7 +1624,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     modelTrigger.addEventListener("click", (e) => {
       e.stopPropagation();
       modelMenu.classList.toggle("hidden");
-      yoModeMenu.classList.add("hidden");
       yoPermMenu.classList.add("hidden");
     });
   }
@@ -1691,9 +1653,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
 
   document.addEventListener("click", (e) => {
-    if (!yoModeDropdown.contains(e.target as Node)) {
-      yoModeMenu.classList.add("hidden");
-    }
     if (!yoPermDropdown.contains(e.target as Node)) {
       yoPermMenu.classList.add("hidden");
     }
@@ -1702,16 +1661,9 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     }
   });
 
-  // -- Mode changes from main process --
+  // -- Permission changes from main process --
   window.yo.onAgentModeChanged?.((mode: string) => {
-    if (mode === "standard" || mode === "swarm") {
-      setModeValue(mode);
-    } else if (mode === "plan") {
-      setPlanEnabled(true);
-    } else {
-      setPlanEnabled(false);
-      setPermValue(mode);
-    }
+    setPermValue(mode);
   });
 
   // -- Auto-grow textarea --
@@ -1739,6 +1691,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelDone((fullText) => { finalizeYoMessage(fullText); drainPendingYoMessages(); });
   window.yo.onYoPanelError((err) => showYoError(err));
   window.yo.onYoPanelClose(() => closeYoPanel());
+  window.yo.onYoPanelRefocus(() => yoPanelInput.focus());
   // Swarm activity streams inline into the conversation.
   window.yo.onYoPanelSwarmStart((info) => addSwarmStart(info));
   window.yo.onYoPanelSwarmActivity((event) => addSwarmActivity(event));
@@ -1765,11 +1718,28 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     }
   });
 
-  // -- Enter to send --
+  // -- Enter to send; ↑/↓ to recall input history --
   yoPanelInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendYoPanelMessage();
+      return;
+    }
+    // Only hijack the arrows at the text edges so multi-line editing still works.
+    if (e.key === "ArrowUp") {
+      const caret = yoPanelInput.selectionStart;
+      const onFirstLine = yoPanelInput.value.lastIndexOf("\n", caret - 1) === -1;
+      if (onFirstLine && caret === yoPanelInput.selectionEnd) {
+        e.preventDefault();
+        yoHistoryPrev();
+      }
+    } else if (e.key === "ArrowDown") {
+      const caret = yoPanelInput.selectionStart;
+      const onLastLine = yoPanelInput.value.indexOf("\n", caret) === -1;
+      if (onLastLine && caret === yoPanelInput.selectionEnd) {
+        e.preventDefault();
+        yoHistoryNext();
+      }
     }
   });
 

@@ -4344,6 +4344,31 @@ ol.docs-list li::before {
   background: var(--active-bg);
 }
 
+.settings-nav-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 12px 8px 0;
+}
+
+.settings-nav-back {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+
+.settings-nav-back:hover {
+  color: var(--white);
+  background: var(--active-bg);
+}
+
 .settings-panels {
   flex: 1;
   min-width: 0;
