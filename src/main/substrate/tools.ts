@@ -99,7 +99,7 @@ export interface SubstrateToolDeps {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
     create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
   };
-  /** Convene a local council (multi-LLM debate) from a prompt. */
+  /** Convene + interact with a local council (multi-LLM debate). */
   council?: {
     create: (config: {
       council_prompt: string;
@@ -108,6 +108,12 @@ export interface SubstrateToolDeps {
       round_cap?: number;
       members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
     }) => Promise<string>;
+    /** Text status (members, round, last turns) of the active council. */
+    status: () => string;
+    /** Synthesize + return a summary of the active council. */
+    summarize: () => Promise<string>;
+    /** Queue a moderator note for the active council's next round. */
+    interject: (text: string) => string;
   };
   /** User-created agent registry — surfaced as list_agents + call_agent
    *  so the .yo loop can delegate to a named agent without committing to a
@@ -1665,6 +1671,42 @@ const BUILTIN_TOOLS: ToolDef[] = [
         round_cap: typeof input.round_cap === "number" ? input.round_cap : undefined,
         members,
       });
+    },
+  },
+  {
+    name: "council_status",
+    namespace: "yo",
+    description: "Inspect the council currently open in the Council app: its members, round progress, and recent turns. Use this to see what a running council is doing before summarizing or interjecting.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      return deps.council.status();
+    },
+  },
+  {
+    name: "council_summarize",
+    namespace: "yo",
+    description: "Synthesize and return a structured summary of the active council's debate so far (positions, agreements, contention, conclusion). Also surfaces the summary in the Council app.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.council) return "Council driver not wired.";
+      return deps.council.summarize();
+    },
+  },
+  {
+    name: "council_interject",
+    namespace: "yo",
+    description: "Add a moderator note/steer to the active council; it's injected into the next round so members take it into account.",
+    input_schema: {
+      type: "object",
+      properties: { text: { type: "string", description: "The moderator note to inject" } },
+      required: ["text"],
+    },
+    run: async (input) => {
+      if (!deps.council) return "Council driver not wired.";
+      const text = String(input.text || "").trim();
+      if (!text) return "A note is required.";
+      return deps.council.interject(text);
     },
   },
 

@@ -232,6 +232,22 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   });
   ipcMain.handle("provider-keys-test", (_e, provider: string) =>
     providerKeys.testKey(provider as providerKeysModule.ProviderId));
+  ipcMain.handle("provider-keys-test-prompt", (_e, provider: string, model?: string, prompt?: string) =>
+    providerKeys.testPrompt(provider as providerKeysModule.ProviderId, model, prompt));
+
+  // Editable per-provider model catalog (source of truth for dropdowns/defaults).
+  {
+    const pm = require("./provider-models") as typeof import("./provider-models");
+    ipcMain.handle("provider-models-get-all", () => pm.getAllProviderModels());
+    ipcMain.handle("provider-models-set", (_e, provider: string, models: string[], def?: string) => {
+      pm.setProviderModels(provider, models, def);
+      return pm.getProviderModelConfig(provider);
+    });
+    ipcMain.handle("provider-models-reset", (_e, provider: string) => {
+      pm.resetProviderModels(provider);
+      return pm.getProviderModelConfig(provider);
+    });
+  }
 
   ipcMain.handle("cc-status", () => ccBootstrapStatus());
   ipcMain.handle("cc-login-open-terminal", () => spawnCcLogin());

@@ -9,7 +9,7 @@ import { loadLayouts, initLayoutsEvents } from "./layouts.js";
 import { loadSkills, initSkillsEvents } from "./skills.js";
 import { loadApps, initApps, openNewAppForm } from "./apps.js";
 import { loadAgents, initAgents } from "./agents.js";
-import { loadSchedules, initSchedules } from "./schedules.js";
+import { loadSchedules, initSchedules, openScheduleByName } from "./schedules.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
 import { loadDocs, loadSupport, loadAbout } from "./docs.js";
@@ -125,8 +125,11 @@ function activeSection(): string {
   return (document.querySelector(".help-nav-item.active") as HTMLElement)?.dataset.section || "guide";
 }
 
-export function loadActiveSection() {
-  const sec = activeSection();
+export function loadActiveSection(explicit?: string) {
+  // Prefer the explicitly-navigated section. Falling back to the active nav
+  // item breaks sections that have no `help-nav-item` (e.g. Schedules), which
+  // would otherwise resolve to "guide" and never load.
+  const sec = explicit || activeSection();
   if (sec === "dashboard") loadDashboard();
   else if (sec === "skills") loadSkills();
   else if (sec === "drips") loadDrips();
@@ -168,8 +171,12 @@ export function gotoSection(section: string, sub?: string): void {
       navBtns.forEach((n) => n.classList.toggle("active", n.dataset.sub === sub));
       panels.forEach((p) => p.classList.toggle("active", p.dataset.sub === sub));
     }
+  } else if (section === "schedules" && sub) {
+    // Deep-link straight to a specific schedule's detail (e.g. from the yo
+    // panel's Scheduled history).
+    void openScheduleByName(sub);
   } else {
-    loadActiveSection();
+    loadActiveSection(section);
   }
 }
 

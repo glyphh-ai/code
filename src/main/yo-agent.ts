@@ -51,6 +51,7 @@ const SYSTEM_PROMPT = `You are yo — a fast, concise assistant backed by a capt
 RULES:
 - NEVER narrate. No "Let me...", "I'll start by...", "I found...", "Here's what I can do...". Just act and respond.
 - Call tools immediately. Zero preamble.
+- RECALL = SEARCH THE STORE FIRST. The capture store (vector DB) holds everything the user has captured — their history, notes, prior work, conversations, decisions. For ANY question about the user's past or what you know — "history", "what did I", "find / remember / look up", "what do you know about X", "my <anything>" — your FIRST action is ALWAYS search_captures (then search_notes for exact terms). Lead with what the store returns. Only reach for shell, files, panels, or .yo/inbox if the store genuinely has nothing relevant, and say so. Never substitute a shell/file lookup for the store on a recall question.
 - Responses: 1-3 sentences max unless the user asks for detail. Return actual content, not descriptions of it.
 - No bullet-point alternatives. No follow-up questions unless truly stuck with zero options.
 - If a tool fails or doesn't exist, say so in one sentence and stop.
@@ -663,11 +664,12 @@ export class YoAgent {
   listChats(): ChatSummary[] {
     fs.mkdirSync(CHATS_DIR, { recursive: true });
     try {
+      // Recents = real conversations only. Scheduled/manual task runs
+      // (run-*.md) are surfaced in the Scheduled section via runsList, not here.
       const files = fs.readdirSync(CHATS_DIR)
-        .filter((f) => f.endsWith(".md"))
-        .sort().reverse();
+        .filter((f) => f.endsWith(".md") && !f.startsWith("run-"));
 
-      return files.map((f) => {
+      const summaries = files.map((f) => {
         try {
           const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
           const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
@@ -694,6 +696,9 @@ export class YoAgent {
           return { id: f.replace(/\.md$/, ""), title: f, created: "", messageCount: 0 };
         }
       });
+      // Newest first by actual created timestamp (ISO strings sort lexically).
+      summaries.sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+      return summaries;
     } catch {
       return [];
     }
@@ -704,6 +709,21 @@ export class YoAgent {
       fs.unlinkSync(path.join(CHATS_DIR, `${id}.md`));
       return true;
     } catch { return false; }
+  }
+
+  /** Delete all persisted run-*.md chats for a given task/skill name. */
+  deleteRunsForSkill(skillName: string): number {
+    let removed = 0;
+    try {
+      for (const f of fs.readdirSync(CHATS_DIR).filter((f) => f.startsWith("run-") && f.endsWith(".md"))) {
+        try {
+          const raw = fs.readFileSync(path.join(CHATS_DIR, f), "utf-8");
+          const m = raw.match(/^skillName:\s*(.+)$/m);
+          if (m && m[1].trim() === skillName) { fs.unlinkSync(path.join(CHATS_DIR, f)); removed++; }
+        } catch { /* skip */ }
+      }
+    } catch { /* no dir */ }
+    return removed;
   }
 
   /**
@@ -730,10 +750,11 @@ export class YoAgent {
       ...(opts.instructions ? [{ role: "user", content: opts.instructions } as ChatMessage] : []),
       { role: "assistant", content: outText },
     ];
+    const startedIso = new Date(Number.isFinite(opts.startedAt) ? opts.startedAt : Date.now()).toISOString();
     const lines = [
       "---",
       `title: ${opts.skillName}`,
-      `created: ${new Date(opts.startedAt).toISOString()}`,
+      `created: ${startedIso}`,
       `messages: 1`,
       `type: run`,
       `skillName: ${opts.skillName}`,
@@ -815,10 +836,15 @@ export class YoAgent {
     if (!this.chatId) return;
     fs.mkdirSync(CHATS_DIR, { recursive: true });
     const userMsgs = messages.filter((m) => m.role === "user").length;
+    // chatId is usually a Date.now() string, but a loaded chat can carry a
+    // non-numeric id (e.g. "run-…") — guard so toISOString() never throws
+    // "Invalid time value".
+    const createdTs = parseInt(this.chatId, 10);
+    const createdIso = new Date(Number.isFinite(createdTs) ? createdTs : Date.now()).toISOString();
     const lines = [
       "---",
       `title: ${this.chatTitle}`,
-      `created: ${new Date(parseInt(this.chatId, 10)).toISOString()}`,
+      `created: ${createdIso}`,
       `messages: ${userMsgs}`,
       // Capture the folder this chat works in so reopening it restores
       // the same context (agent cwd + files view).

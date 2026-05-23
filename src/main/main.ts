@@ -1555,13 +1555,7 @@ async function boot() {
   // Panel interaction + layout tools — wired via substrate-deps.ts
   // Agent-convened council: auto-fill members from configured providers if the
   // agent didn't pick any, open the Council app, convene, and let the panel run.
-  const DEFAULT_COUNCIL_MODELS: Record<string, string> = {
-    anthropic: "claude-sonnet-4-6",
-    openai: "gpt-4o",
-    google: "gemini-2.0-flash",
-    xai: "grok-2-latest",
-    perplexity: "sonar",
-  };
+  const { getDefaultModel: getDefaultProviderModel } = require("./provider-models") as typeof import("./provider-models");
   const councilCreateFromAgent = async (config: {
     council_prompt: string; name?: string; style?: string; round_cap?: number;
     members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
@@ -1576,8 +1570,8 @@ async function boot() {
     if (members.length < 2) {
       const configured = providerKeysModule.listStatus().filter((p) => p.configured).map((p) => p.provider);
       members = configured
-        .filter((p) => DEFAULT_COUNCIL_MODELS[p])
-        .map((p) => ({ provider: p, model: DEFAULT_COUNCIL_MODELS[p], startup_prompt: "" }));
+        .map((p) => ({ provider: p, model: getDefaultProviderModel(p), startup_prompt: "" }))
+        .filter((m) => m.model);
     }
     if (members.length < 2) {
       return "A council needs at least 2 members. Add API keys for 2+ providers in Settings → Providers, or pass explicit members.";
@@ -2430,10 +2424,31 @@ async function boot() {
     if (query) openYoPanel(query);
   });
 
+  // Open the yo panel and PREFILL its input without sending (e.g. Skills'
+  // "Create with .Yo" hands over a partial prompt for the user to finish).
+  ipcMain.on("yo-panel-prefill-from-renderer", (_e, text: string) => {
+    yoAgent.clear();
+    openYoPanel("");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.focus();
+      mainWindow.webContents.send("yo-panel-prefill", text);
+    }
+  });
+
   ipcMain.on("yo-panel-dismiss", () => {
     yoAgent.clear();
     mainWindow?.webContents.send("yo-panel-close");
     panelManager.setRightInset(0);
+  });
+
+  // Open the yo panel and load a specific chat/run by id (e.g. clicking a
+  // schedule's run history opens that run as a normal chat in the panel).
+  ipcMain.on("yo-open-chat-from-renderer", (_e, id: string) => {
+    openYoPanel("");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.focus();
+      mainWindow.webContents.send("yo-panel-load-chat", id);
+    }
   });
 
   // IPC: Yo panel resize
@@ -2490,6 +2505,8 @@ async function boot() {
     // Run all rounds to the cap — driven by the layout's "Start" button and by
     // agent-convened councils once the panel has subscribed.
     ipcMain.handle("council-run", (_e, id: string) => councilModule.runCouncilToCompletion(id));
+    // Summarize — emits a "summary" event into the panel + returns the text.
+    ipcMain.handle("council-summarize", (_e, id: string) => councilModule.summarizeCouncil(id));
 
     // Saved council templates + run history + scheduling.
     const { CouncilScheduler } = require("./council-scheduler") as typeof import("./council-scheduler");
@@ -2557,6 +2574,16 @@ async function boot() {
     // links: VS Code (Yo Bridge) when enabled, else the Monaco .Yo Editor.
     openSkillPath: (absPath: string) => { ipcMain.emit("file-open", null as never, absPath); },
   });
+
+  // Standalone prompt schedules (decoupled from skills).
+  {
+    const { registerSchedulesIpc } = require("./schedules-ipc") as typeof import("./schedules-ipc");
+    registerSchedulesIpc({
+      runForResult: (prompt: string) => yoAgent.runForResult(prompt),
+      saveRunChat: (opts) => yoAgent.saveRunChat(opts),
+      deleteRunsForSkill: (name: string) => yoAgent.deleteRunsForSkill(name),
+    });
+  }
 
   registerAppsIpc({
     appConnector, layoutManager, dripManager, panelManager,

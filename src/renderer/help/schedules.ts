@@ -11,6 +11,10 @@
 import { $a, escapeHtml, confirmAction } from "./shared.js";
 
 interface TaskRow {
+  /** Store schedule id (source "schedule") or task name (skill/orphan). */
+  id: string;
+  /** Where this task lives: standalone prompt schedule, a skill, or run-only. */
+  source: "schedule" | "skill" | "orphan";
   name: string;
   description: string;
   cron: string;
@@ -108,7 +112,7 @@ function prettyModel(model: string): string {
 // ── State ───────────────────────────────────────────────────
 
 let tasks: TaskRow[] = [];
-let currentEdit: { name: string; isNew: boolean } | null = null;
+let currentEdit: { name: string; isNew: boolean; source: "schedule" | "skill" | "orphan" | "new"; id: string } | null = null;
 let currentDetail: TaskRow | null = null;
 
 // ── List ────────────────────────────────────────────────────
@@ -122,30 +126,58 @@ async function loadSchedules(): Promise<void> {
   if (banner) banner.classList.remove("hidden");
 
   tasks = [];
+  const covered = new Set<string>();
   try {
-    const names: string[] = (await window.yo.getPreference("scheduledTasks", [])) as string[];
+    // 1) Standalone prompt schedules (the new, skill-free store).
+    try {
+      const stored = await window.yo.schedulesList();
+      for (const raw of stored) {
+        const s = raw as { id: string; name: string; description?: string; prompt: string; cron: string; model?: string; ask?: string; paused?: boolean };
+        covered.add(s.name);
+        tasks.push({
+          id: s.id, source: "schedule", name: s.name,
+          description: s.description || "", cron: s.cron || "", scheduleLabel: scheduleLabel(s.cron || ""),
+          model: s.model || "", ask: s.ask || "auto", prompt: s.prompt || "", paused: !!s.paused,
+        });
+      }
+    } catch { /* none */ }
+
+    // 2) Legacy skill-backed schedules (skills tracked in the pref).
+    const prefNames: string[] = ((await window.yo.getPreference("scheduledTasks", [])) as string[]) || [];
     let status: Array<{ name: string; schedule: string; paused: boolean }> = [];
     try { status = await window.yo.skillsScheduleStatus(); } catch { status = []; }
     const pausedByName = new Map(status.map((s) => [s.name, s.paused]));
-    for (const name of names) {
+    for (const name of prefNames) {
+      if (covered.has(name)) continue;
       try {
         const s = await window.yo.skillsGet(name);
         if (!s) continue;
+        covered.add(name);
         const m = s.manifest as Record<string, unknown>;
         const cron = (m.schedule as string) || "";
         tasks.push({
-          name,
+          id: name, source: "skill", name,
           description: (m.description as string) || "",
-          cron,
-          scheduleLabel: scheduleLabel(cron),
-          model: (m.model as string) || "",
-          ask: (m.ask as string) || "auto",
-          prompt: s.prompt || "",
-          paused: pausedByName.get(name) ?? false,
+          cron, scheduleLabel: scheduleLabel(cron),
+          model: (m.model as string) || "", ask: (m.ask as string) || "auto",
+          prompt: s.prompt || "", paused: pausedByName.get(name) ?? false,
         });
-      } catch { /* skip missing */ }
+      } catch { /* skip */ }
     }
-  } catch { /* no prefs yet */ }
+
+    // 3) Orphaned tasks that only exist as run history (skill since removed).
+    let runNames: string[] = [];
+    try { runNames = [...new Set((await window.yo.runsList()).map((r) => r.skillName).filter(Boolean))]; } catch { runNames = []; }
+    for (const name of runNames) {
+      if (covered.has(name)) continue;
+      covered.add(name);
+      tasks.push({
+        id: name, source: "orphan", name,
+        description: "Run history only — no schedule definition.",
+        cron: "", scheduleLabel: "Manual", model: "", ask: "auto", prompt: "", paused: false,
+      });
+    }
+  } catch { /* nothing yet */ }
   renderSchedulesList();
 }
 
@@ -195,8 +227,11 @@ function renderSchedulesList(): void {
       e.stopPropagation();
       const cb = e.currentTarget as HTMLInputElement;
       try {
-        if (cb.checked) await window.yo.skillsResumeSchedule(t.name);
-        else await window.yo.skillsPauseSchedule(t.name);
+        if (t.source === "schedule") {
+          if (cb.checked) await window.yo.schedulesResume(t.id); else await window.yo.schedulesPause(t.id);
+        } else {
+          if (cb.checked) await window.yo.skillsResumeSchedule(t.name); else await window.yo.skillsPauseSchedule(t.name);
+        }
         t.paused = !cb.checked;
       } catch { cb.checked = !cb.checked; }
     });
@@ -223,22 +258,85 @@ function cssEscape(s: string): string {
 // ── Actions ─────────────────────────────────────────────────
 
 async function runNow(t: TaskRow): Promise<void> {
-  try { await window.yo.skillsRun(t.name, undefined); } catch { /* surfaced in activity */ }
-  if (currentDetail && currentDetail.name === t.name) {
-    void loadDetailHistory(t);
+  if (t.source === "orphan") return; // run-history only — nothing to execute
+  const before = new Set<string>();
+  try { (await window.yo.runsList(t.name)).forEach((r) => before.add(r.id)); } catch { /* none */ }
+
+  const runPromise = (t.source === "schedule"
+    ? window.yo.schedulesRun(t.id)
+    : window.yo.skillsRun(t.name, undefined)
+  ).catch(() => { /* failure shows in history */ });
+
+  // Toast immediately; "View" waits for the run, then opens it in the yo agent.
+  showToast(`Task "${t.name}" is running…`, "View run", async () => {
+    await runPromise;
+    try {
+      const after = await window.yo.runsList(t.name);
+      const fresh = after.find((r) => !before.has(r.id)) || after[0];
+      if (fresh) window.yo.openYoChat(fresh.id);
+    } catch { /* ignore */ }
+  });
+
+  await runPromise;
+  if (currentDetail && currentDetail.name === t.name) void loadDetailHistory(t);
+}
+
+/** Transient bottom-center notification (ported from v4). */
+function showToast(message: string, actionLabel?: string, onAction?: () => void): void {
+  const toast = document.createElement("div");
+  toast.className = "sched-toast";
+  const msg = document.createElement("span");
+  msg.className = "sched-toast-msg";
+  msg.textContent = message;
+  toast.appendChild(msg);
+  let timer = 0;
+  const dismiss = () => { window.clearTimeout(timer); toast.classList.remove("show"); setTimeout(() => toast.remove(), 200); };
+  if (actionLabel && onAction) {
+    const a = document.createElement("button");
+    a.className = "sched-toast-action";
+    a.textContent = actionLabel;
+    a.addEventListener("click", () => { dismiss(); onAction(); });
+    toast.appendChild(a);
   }
+  const close = document.createElement("button");
+  close.className = "sched-toast-close";
+  close.textContent = "×";
+  close.addEventListener("click", dismiss);
+  toast.appendChild(close);
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  timer = window.setTimeout(dismiss, 6000);
 }
 
 async function removeTask(t: TaskRow): Promise<void> {
-  if (!(await confirmAction(`Delete the scheduled task "${t.name}"? This removes the skill too.`))) return;
-  try { await window.yo.skillsRemove(t.name); } catch { /* ignore */ }
-  const names = ((await window.yo.getPreference("scheduledTasks", [])) as string[]).filter((n) => n !== t.name);
-  window.yo.setPreference("scheduledTasks", names);
+  const msg = t.source === "skill"
+    ? `Delete the scheduled task "${t.name}"? This removes the skill too.`
+    : `Delete the scheduled task "${t.name}"? This also clears its run history.`;
+  if (!(await confirmAction(msg))) return;
+  try {
+    if (t.source === "schedule") {
+      await window.yo.schedulesDelete(t.id);            // removes the schedule + its runs
+    } else if (t.source === "skill") {
+      try { await window.yo.skillsRemove(t.name); } catch { /* ignore */ }
+      const names = ((await window.yo.getPreference("scheduledTasks", [])) as string[]).filter((n) => n !== t.name);
+      window.yo.setPreference("scheduledTasks", names);
+      await window.yo.schedulesDeleteRuns(t.name);       // clear its run history too
+    } else {
+      await window.yo.schedulesDeleteRuns(t.name);       // orphan: just delete the runs
+    }
+  } catch { /* ignore */ }
   window.dispatchEvent(new Event("scheduled-tasks-changed"));
   await loadSchedules();
 }
 
 // ── Detail ──────────────────────────────────────────────────
+
+/** Deep-link: open the Schedules page and show one task's detail by name. */
+export async function openScheduleByName(name: string): Promise<void> {
+  await loadSchedules();
+  const t = tasks.find((x) => x.name === name);
+  if (t) openDetail(t);
+}
 
 function openDetail(t: TaskRow): void {
   currentDetail = t;
@@ -280,15 +378,16 @@ async function loadDetailHistory(t: TaskRow): Promise<void> {
 }
 
 function openRunInAgent(runId: string): void {
-  const panel = (window as unknown as { __yoPanel?: { loadChat?: (id: string) => void } }).__yoPanel;
-  panel?.loadChat?.(runId);
+  // The yo panel lives in the main window (this page is the home BrowserView),
+  // so route through main to open the panel + load this run as a chat.
+  window.yo.openYoChat(runId);
 }
 
 // ── Editor ──────────────────────────────────────────────────
 
 function openEditor(t: TaskRow | null): void {
   const isNew = t === null;
-  currentEdit = { name: t?.name || "", isNew };
+  currentEdit = { name: t?.name || "", isNew, source: t?.source || "new", id: t?.id || "" };
 
   $a("schedules-toolbar").classList.add("hidden");
   $a("schedules-list").classList.add("hidden");
@@ -359,25 +458,35 @@ async function saveSchedule(): Promise<void> {
     $a<HTMLSelectElement>("schedule-freq").value,
     $a<HTMLInputElement>("schedule-time").value,
   );
-  const manifest: Record<string, unknown> = {
-    name,
-    description: $a<HTMLInputElement>("schedule-desc").value.trim(),
-    schedule: cron,
-    scheduleLabel: scheduleLabel(cron),
-    model: $a<HTMLSelectElement>("schedule-model").value,
-    ask: $a<HTMLSelectElement>("schedule-ask").value,
-  };
+  const model = $a<HTMLSelectElement>("schedule-model").value;
+  const ask = $a<HTMLSelectElement>("schedule-ask").value;
   const saveBtn = $a("schedule-save-btn");
   saveBtn.setAttribute("disabled", "1");
-  const res = await window.yo.skillsWriteFull(name, manifest, instructions);
-  saveBtn.removeAttribute("disabled");
-  if (res && typeof res === "object" && "error" in res) {
-    err.textContent = (res as { error: string }).error || "Could not save the task.";
-    err.classList.remove("hidden");
-    return;
+
+  if (currentEdit.source === "skill") {
+    // Editing a legacy skill-backed schedule — keep it a skill for back-compat.
+    const manifest: Record<string, unknown> = {
+      name, description: $a<HTMLInputElement>("schedule-desc").value.trim(),
+      schedule: cron, scheduleLabel: scheduleLabel(cron), model, ask,
+    };
+    const res = await window.yo.skillsWriteFull(name, manifest, instructions);
+    saveBtn.removeAttribute("disabled");
+    if (res && typeof res === "object" && "error" in res) {
+      err.textContent = (res as { error: string }).error || "Could not save the task.";
+      err.classList.remove("hidden");
+      return;
+    }
+    const names = (await window.yo.getPreference("scheduledTasks", [])) as string[];
+    if (!names.includes(name)) { names.push(name); window.yo.setPreference("scheduledTasks", names); }
+  } else {
+    // New or store-backed schedule — a standalone prompt schedule (no skill).
+    await window.yo.schedulesSave({
+      id: currentEdit.source === "schedule" ? currentEdit.id : "",
+      name, description: $a<HTMLInputElement>("schedule-desc").value.trim(),
+      prompt: instructions, cron, model, ask,
+    });
+    saveBtn.removeAttribute("disabled");
   }
-  const names = (await window.yo.getPreference("scheduledTasks", [])) as string[];
-  if (!names.includes(name)) { names.push(name); window.yo.setPreference("scheduledTasks", names); }
   window.dispatchEvent(new Event("scheduled-tasks-changed"));
   await loadSchedules();
 }

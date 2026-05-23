@@ -142,6 +142,7 @@ async function renderProviderKeys() {
   if (!container) return;
   const status = await window.yo.providerKeysList();
   const byId = new Map(status.map((s) => [s.provider, s]));
+  const allModels = await window.yo.providerModelsGetAll().catch(() => ({} as Record<string, { default: string; models: string[] }>));
   container.innerHTML = "";
 
   for (const row of PROVIDER_ROWS) {
@@ -220,17 +221,44 @@ async function renderProviderKeys() {
     });
     inputRow.appendChild(saveBtn);
 
+    let testRespEl: HTMLElement | null = null;
     if (s?.configured) {
-      const testBtn = document.createElement("button");
-      testBtn.className = "action-btn";
-      testBtn.textContent = "Test";
-      testBtn.addEventListener("click", async () => {
-        testBtn.disabled = true;
-        testBtn.textContent = "Testing…";
-        try { await window.yo.providerKeysTest(row.id); } catch { /* surfaced via reload */ }
-        await renderProviderKeys();
+      // Live test: send a real prompt and show the model's reply (or the error).
+      testRespEl = document.createElement("div");
+      testRespEl.style.cssText = "display:none;margin-top:8px;font-size:12px;border-radius:6px;padding:8px 10px;white-space:pre-wrap;line-height:1.5;font-family:var(--font-mono, monospace);";
+
+      const testPromptBtn = document.createElement("button");
+      testPromptBtn.className = "action-btn primary";
+      testPromptBtn.textContent = "Send test";
+      testPromptBtn.title = "Send a one-shot prompt to this provider and show the response";
+      testPromptBtn.addEventListener("click", async () => {
+        const re = testRespEl!;
+        testPromptBtn.disabled = true;
+        const prev = testPromptBtn.textContent;
+        testPromptBtn.textContent = "Sending…";
+        re.style.display = "block";
+        re.style.background = "var(--surface-3)";
+        re.style.color = "var(--text-2)";
+        re.style.border = "1px solid var(--border)";
+        re.textContent = `Contacting ${row.label}…`;
+        let r: { ok: boolean; text?: string; model?: string; error?: string };
+        try { r = await window.yo.providerKeysTestPrompt(row.id); }
+        catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+        testPromptBtn.disabled = false;
+        testPromptBtn.textContent = prev;
+        if (r.ok) {
+          re.style.background = "var(--accent-bg)";
+          re.style.color = "var(--text)";
+          re.style.border = "1px solid var(--accent)";
+          re.textContent = `✓ ${r.model}\n\n${r.text}`;
+        } else {
+          re.style.background = "rgba(212,74,74,0.12)";
+          re.style.color = "#d44a4a";
+          re.style.border = "1px solid #d44a4a";
+          re.textContent = `✗ ${r.model || row.id} failed:\n\n${r.error || "unknown error"}`;
+        }
       });
-      inputRow.appendChild(testBtn);
+      inputRow.appendChild(testPromptBtn);
 
       const removeBtn = document.createElement("button");
       removeBtn.className = "action-btn danger";
@@ -244,6 +272,67 @@ async function renderProviderKeys() {
     }
 
     card.appendChild(inputRow);
+    if (testRespEl) card.appendChild(testRespEl);
+
+    // ── Editable model catalog (so users can fix/add models as providers change) ──
+    const cfg = allModels[row.id] || { default: "", models: [] };
+    const details = document.createElement("details");
+    details.style.cssText = "margin-top:10px;";
+    const summary = document.createElement("summary");
+    summary.style.cssText = "cursor:pointer;font-size:12px;color:var(--text-2);user-select:none;";
+    summary.textContent = `Models (${cfg.models.length}) — default: ${cfg.default || "none"}`;
+    details.appendChild(summary);
+
+    const inner = document.createElement("div");
+    inner.style.cssText = "margin-top:8px;display:flex;flex-direction:column;gap:6px;";
+    const ta = document.createElement("textarea");
+    ta.className = "settings-input";
+    ta.style.cssText = "min-height:84px;font-family:var(--font-mono, monospace);font-size:12px;";
+    ta.placeholder = "one model id per line";
+    ta.value = cfg.models.join("\n");
+    const defLabel = document.createElement("label");
+    defLabel.className = "settings-label";
+    defLabel.textContent = "Default model";
+    const defSel = document.createElement("select");
+    defSel.className = "settings-input";
+    defSel.style.width = "auto";
+    const fillDefSel = () => {
+      const models = ta.value.split("\n").map((m) => m.trim()).filter(Boolean);
+      defSel.innerHTML = "";
+      for (const m of models) { const o = document.createElement("option"); o.value = m; o.textContent = m; defSel.appendChild(o); }
+      defSel.value = models.includes(cfg.default) ? cfg.default : (models[0] || "");
+    };
+    fillDefSel();
+    ta.addEventListener("input", fillDefSel);
+
+    const mStatus = document.createElement("span");
+    mStatus.style.cssText = "font-size:11px;color:var(--text-3);";
+    const saveModelsBtn = document.createElement("button");
+    saveModelsBtn.className = "action-btn primary";
+    saveModelsBtn.textContent = "Save models";
+    saveModelsBtn.addEventListener("click", async () => {
+      const models = ta.value.split("\n").map((m) => m.trim()).filter(Boolean);
+      await window.yo.providerModelsSet(row.id, models, defSel.value);
+      mStatus.textContent = "Saved ✓";
+      await renderProviderKeys();
+    });
+    const resetModelsBtn = document.createElement("button");
+    resetModelsBtn.className = "action-btn";
+    resetModelsBtn.textContent = "Reset to defaults";
+    resetModelsBtn.addEventListener("click", async () => {
+      await window.yo.providerModelsReset(row.id);
+      await renderProviderKeys();
+    });
+    const mBtnRow = document.createElement("div");
+    mBtnRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+    mBtnRow.append(saveModelsBtn, resetModelsBtn, mStatus);
+
+    inner.append(
+      (() => { const l = document.createElement("label"); l.className = "settings-label"; l.textContent = "Available models (one per line)"; return l; })(),
+      ta, defLabel, defSel, mBtnRow,
+    );
+    details.appendChild(inner);
+    card.appendChild(details);
 
     // Last-test detail line (failures only)
     if (s?.lastTestOk === false && s.lastTestError) {

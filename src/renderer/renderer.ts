@@ -47,6 +47,9 @@ declare global {
       skillsReadFile: (name: string, rel: string) => Promise<string | null>;
       skillsWriteFile: (name: string, rel: string, content: string) => Promise<boolean>;
       skillsDeleteFile: (name: string, rel: string) => Promise<boolean>;
+      skillsOpenInEditor: (name: string) => Promise<boolean>;
+      skillsOpenFileInEditor: (name: string, rel: string) => Promise<boolean>;
+      skillsFileUrl: (name: string, rel: string) => Promise<string>;
       skillsRun: (name: string, input: unknown) => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
       skillsCancel: (runId: string) => Promise<boolean>;
       skillsUserResponse: (qid: string, answer: string) => Promise<boolean>;
@@ -236,6 +239,10 @@ declare global {
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
       onYoPanelRefocus: (cb: () => void) => void;
+      yoPanelPrefill: (text: string) => void;
+      onYoPanelPrefill: (cb: (text: string) => void) => void;
+      openYoChat: (id: string) => void;
+      onYoPanelLoadChat: (cb: (id: string) => void) => void;
       // Local swarm — inline activity in the yo panel
       onYoPanelSwarmStart: (cb: (info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }) => void) => void;
       onYoPanelSwarmActivity: (cb: (event: { from: string; to?: string; kind: string; body: string; tags?: string[]; ts: number; meta?: Record<string, unknown> }) => void) => void;
@@ -309,6 +316,10 @@ declare global {
       providerKeysSet: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
       providerKeysRemove: (provider: string) => Promise<{ ok: boolean }>;
       providerKeysTest: (provider: string) => Promise<{ ok: boolean; error?: string }>;
+      providerKeysTestPrompt: (provider: string, model?: string, prompt?: string) => Promise<{ ok: boolean; text?: string; model?: string; error?: string }>;
+      providerModelsGetAll: () => Promise<Record<string, { default: string; models: string[] }>>;
+      providerModelsSet: (provider: string, models: string[], def?: string) => Promise<{ default: string; models: string[] }>;
+      providerModelsReset: (provider: string) => Promise<{ default: string; models: string[] }>;
 
       // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
       ccStatus: () => Promise<{
@@ -394,6 +405,14 @@ declare global {
       // Schedules (skill-runs history + keep-awake)
       runsList: (skillName?: string) => Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>;
       setKeepAwake: (on: boolean) => void;
+      schedulesList: () => Promise<Array<Record<string, unknown>>>;
+      schedulesGet: (id: string) => Promise<Record<string, unknown> | null>;
+      schedulesSave: (cfg: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      schedulesDelete: (id: string) => Promise<boolean>;
+      schedulesRun: (id: string) => Promise<void>;
+      schedulesPause: (id: string) => Promise<void>;
+      schedulesResume: (id: string) => Promise<void>;
+      schedulesDeleteRuns: (name: string) => Promise<number>;
       councilsList: () => Promise<Array<Record<string, unknown>>>;
       councilsGet: (id: string) => Promise<Record<string, unknown> | null>;
       councilsSave: (cfg: Record<string, unknown>) => Promise<Record<string, unknown>>;

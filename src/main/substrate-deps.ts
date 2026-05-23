@@ -14,6 +14,8 @@ import type { BrowserWindow } from "electron";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import type { SubstrateToolDeps } from "./substrate/tools";
+import { getCurrentCouncil } from "./current-council";
+import { renderCouncilStatus, summarizeCouncil, interjectCouncil } from "./council-session";
 
 // ── Deps interface ──────────────────────────────────────────────
 
@@ -344,6 +346,22 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     },
     council: {
       create: (config) => councilCreate(config),
+      status: () => {
+        const id = getCurrentCouncil();
+        return id ? renderCouncilStatus(id) : "No council is currently open in the Council app.";
+      },
+      summarize: async () => {
+        const id = getCurrentCouncil();
+        if (!id) return "No council is currently open in the Council app.";
+        const r = await summarizeCouncil(id);
+        return r.ok ? (r.text || "(empty summary)") : `Summarize failed: ${r.error}`;
+      },
+      interject: (text: string) => {
+        const id = getCurrentCouncil();
+        if (!id) return "No council is currently open in the Council app.";
+        const r = interjectCouncil(id, text);
+        return r.ok ? "Moderator note queued for the council's next round." : `Failed: ${r.error}`;
+      },
     },
     agentRegistry,
   };

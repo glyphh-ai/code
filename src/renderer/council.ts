@@ -47,12 +47,14 @@ interface CouncilAPI {
   councilStop: (id: string) => Promise<{ ok: boolean; error?: string }>;
   councilEnd: (id: string) => Promise<{ ok: boolean; error?: string }>;
   councilRun: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  councilSummarize: (id: string) => Promise<{ ok: boolean; text?: string; path?: string; error?: string }>;
   councilSetCurrent: (id: string | null) => Promise<{ ok: boolean }>;
   councilsSave: (cfg: {
     id?: string; name: string; council_prompt: string;
     style: string; round_cap: number;
     members: Array<{ provider: string; model: string; startup_prompt: string }>;
   }) => Promise<unknown>;
+  providerModelsGetAll: () => Promise<Record<string, { default: string; models: string[] }>>;
   onCouncilEvent: (cb: (event: CouncilEvent) => void) => () => void;
   onCouncilConvened: (cb: (info: {
     council_id: string;
@@ -367,6 +369,7 @@ function enterLayout(councilId: string, name: string): void {
   $("council-name-pill").classList.remove("hidden");
   $("council-name-pill").textContent = name;
   $("btn-end-council").classList.remove("hidden");
+  $("btn-summarize-council").classList.remove("hidden");
   // Manual convene waits for the user to press Start before running rounds.
   $("btn-start-council").classList.remove("hidden");
 
@@ -664,12 +667,37 @@ function appendSystemMessage(text: string): void {
 
 // ── Init ──────────────────────────────────────────────
 
+function applyTheme(t: string): void {
+  const resolved = t === "system"
+    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : t;
+  document.documentElement.setAttribute("data-theme", resolved);
+}
+
 async function init(): Promise<void> {
+  // Match the app theme (the page links styles.css but never applied the theme,
+  // so it was stuck on the light-theme tokens → dark, low-contrast text).
+  try { applyTheme(await council.getTheme()); } catch { applyTheme("dark"); }
+  council.onThemeChanged((t) => applyTheme(t));
+
   // Load models for the picker
   try {
     const r = await council.modelsList();
     if (r && "models" in r && Array.isArray(r.models)) modelsCache = r.models;
   } catch { modelsCache = []; }
+  // Merge in the editable provider-model registry so the dropdowns offer the
+  // user's current/valid model ids (kept up to date in Settings → Providers).
+  try {
+    const catalog = await council.providerModelsGetAll();
+    const seen = new Set(modelsCache.map((m) => `${m.provider}/${m.model}`));
+    for (const [provider, cfg] of Object.entries(catalog)) {
+      for (const model of cfg.models) {
+        if (seen.has(`${provider}/${model}`)) continue;
+        seen.add(`${provider}/${model}`);
+        modelsCache.push({ provider, model, display_name: model, yos_per_1k_input: 0, yos_per_1k_output: 0 });
+      }
+    }
+  } catch { /* registry optional */ }
 
   // Load BYOK provider statuses (Phase 5 of THE-PIVOT-BYOK).
   // Members whose provider lacks a saved key are flagged in renderMembers
@@ -720,6 +748,7 @@ async function init(): Promise<void> {
     $("council-name-pill").classList.remove("hidden");
     $("council-name-pill").textContent = info.name;
     $("btn-end-council").classList.remove("hidden");
+    $("btn-summarize-council").classList.remove("hidden");
 
     setTopbarStatus("Ready");
     renderRoster();
@@ -747,6 +776,32 @@ async function init(): Promise<void> {
     $("btn-start-council").classList.add("hidden");
     setTopbarStatus("Running…");
     void council.councilRun(layoutState.councilId);
+  });
+  $("btn-summarize-council").addEventListener("click", async () => {
+    if (!layoutState.councilId) return;
+    const btn = $("btn-summarize-council") as HTMLButtonElement;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    // Show the SAME spinner used for member turns, inline in the stream, while
+    // we summarize. The button keeps its label (no invisible "Summarizing…").
+    const row = document.createElement("div");
+    row.className = "msg system";
+    row.innerHTML = `<div class="msg-head"><span class="who">Summarizing…</span></div>`;
+    const body = document.createElement("div");
+    body.className = "msg-body";
+    const spinner = document.createElement("span");
+    spinner.className = "yo-ag-spinner";
+    body.appendChild(spinner);
+    row.appendChild(body);
+    $("stream-body").appendChild(row);
+    startMemberSpinner(spinner);
+    $("stream-body").scrollTop = $("stream-body").scrollHeight;
+    setTopbarStatus("Summarizing…");
+    // The summary itself streams back as a "summary" council event.
+    await council.councilSummarize(layoutState.councilId).catch(() => {});
+    stopMemberSpinner(spinner);
+    row.remove();
+    btn.disabled = false;
   });
   $("btn-end-council").addEventListener("click", () => { void endCouncil(); });
   $("roster-back").addEventListener("click", () => {

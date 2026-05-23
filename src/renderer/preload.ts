@@ -295,6 +295,8 @@ contextBridge.exposeInMainWorld("yo", {
 
   // Yo panel
   yoPanelOpen: (query: string) => ipcRenderer.send("yo-panel-open-from-renderer", query),
+  yoPanelPrefill: (text: string) => ipcRenderer.send("yo-panel-prefill-from-renderer", text),
+  openYoChat: (id: string) => ipcRenderer.send("yo-open-chat-from-renderer", id),
   yoPanelSend: (message: string) => ipcRenderer.send("yo-panel-send", message),
   yoPanelDismiss: () => ipcRenderer.send("yo-panel-dismiss"),
   yoPanelStop: () => ipcRenderer.send("yo-panel-stop"),
@@ -331,6 +333,12 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelRefocus: (cb: () => void) => {
     ipcRenderer.on("yo-panel-refocus", () => cb());
   },
+  onYoPanelPrefill: (cb: (text: string) => void) => {
+    ipcRenderer.on("yo-panel-prefill", (_e, text) => cb(text));
+  },
+  onYoPanelLoadChat: (cb: (id: string) => void) => {
+    ipcRenderer.on("yo-panel-load-chat", (_e, id) => cb(id));
+  },
 
   // Jammer activity feed (workspace bus events forwarded from main)
   onJammerActivity: (cb: (event: { from: string; kind: string; body: string; tags?: string[]; ts: number }) => void) => {
@@ -365,6 +373,16 @@ contextBridge.exposeInMainWorld("yo", {
   runsGet: (id: string) => ipcRenderer.invoke("runs-get", id) as Promise<{ title: string; messages: Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> } | null>,
   onRunsChanged: (cb: () => void) => { ipcRenderer.on("runs-changed", () => cb()); },
   setKeepAwake: (on: boolean) => ipcRenderer.send("set-keep-awake", on),
+
+  // Standalone prompt schedules (decoupled from skills)
+  schedulesList: () => ipcRenderer.invoke("schedules-list") as Promise<Array<Record<string, unknown>>>,
+  schedulesGet: (id: string) => ipcRenderer.invoke("schedules-get", id) as Promise<Record<string, unknown> | null>,
+  schedulesSave: (cfg: Record<string, unknown>) => ipcRenderer.invoke("schedules-save", cfg) as Promise<Record<string, unknown>>,
+  schedulesDelete: (id: string) => ipcRenderer.invoke("schedules-delete", id) as Promise<boolean>,
+  schedulesRun: (id: string) => ipcRenderer.invoke("schedules-run", id) as Promise<void>,
+  schedulesPause: (id: string) => ipcRenderer.invoke("schedules-pause", id) as Promise<void>,
+  schedulesResume: (id: string) => ipcRenderer.invoke("schedules-resume", id) as Promise<void>,
+  schedulesDeleteRuns: (name: string) => ipcRenderer.invoke("schedules-delete-runs", name) as Promise<number>,
 
   // Saved councils — templates, run history, scheduling
   councilsList: () => ipcRenderer.invoke("councils-list") as Promise<Array<Record<string, unknown>>>,
@@ -494,6 +512,14 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("provider-keys-remove", provider) as Promise<{ ok: boolean }>,
   providerKeysTest: (provider: string) =>
     ipcRenderer.invoke("provider-keys-test", provider) as Promise<{ ok: boolean; error?: string }>,
+  providerKeysTestPrompt: (provider: string, model?: string, prompt?: string) =>
+    ipcRenderer.invoke("provider-keys-test-prompt", provider, model, prompt) as Promise<{ ok: boolean; text?: string; model?: string; error?: string }>,
+  providerModelsGetAll: () =>
+    ipcRenderer.invoke("provider-models-get-all") as Promise<Record<string, { default: string; models: string[] }>>,
+  providerModelsSet: (provider: string, models: string[], def?: string) =>
+    ipcRenderer.invoke("provider-models-set", provider, models, def) as Promise<{ default: string; models: string[] }>,
+  providerModelsReset: (provider: string) =>
+    ipcRenderer.invoke("provider-models-reset", provider) as Promise<{ default: string; models: string[] }>,
 
   // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
   ccStatus: () => ipcRenderer.invoke("cc-status") as Promise<{

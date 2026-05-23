@@ -1392,10 +1392,15 @@ async function loadYoHistory() {
   const chats = await window.yo.yoChatsList();
   yoHistoryList.innerHTML = "";
 
-  // ── Scheduled section — list of scheduled tasks (from preference) ──
+  // ── Scheduled section — scheduled tasks (pref) + any task with run history ──
   let scheduledNames: string[] = [];
   try { scheduledNames = (await window.yo.getPreference("scheduledTasks", [])) as string[]; }
   catch { scheduledNames = []; }
+  try {
+    const runs = await window.yo.runsList();
+    const runNames = [...new Set(runs.map((r) => r.skillName).filter(Boolean))];
+    scheduledNames = [...new Set([...scheduledNames, ...runNames])];
+  } catch { /* runs optional */ }
   const schedHeader = document.createElement("div");
   schedHeader.className = "yo-history-section-header";
   schedHeader.textContent = "Scheduled";
@@ -1413,13 +1418,10 @@ async function loadYoHistory() {
       title.className = "yo-history-title";
       title.textContent = name;
       item.appendChild(title);
-      item.addEventListener("click", async () => {
-        // Open the task's most recent run; fall back to a new chat if it has never run.
-        try {
-          const runs = await window.yo.runsList(name);
-          if (runs[0]) { void loadChatById(runs[0].id); return; }
-        } catch { /* ignore */ }
-        void startNewChat();
+      item.addEventListener("click", () => {
+        // Open this schedule in the Schedules page (deep-links to its detail).
+        window.yo.openHomeSection("schedules", name);
+        if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
       });
       yoHistoryList.appendChild(item);
     }
@@ -1692,6 +1694,15 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   window.yo.onYoPanelError((err) => showYoError(err));
   window.yo.onYoPanelClose(() => closeYoPanel());
   window.yo.onYoPanelRefocus(() => yoPanelInput.focus());
+  window.yo.onYoPanelPrefill((text) => {
+    // Prefill the input without sending — the user finishes + submits.
+    yoPanelInput.value = text;
+    autoGrowYoInput();
+    yoPanelInput.focus();
+    yoPanelInput.setSelectionRange(text.length, text.length);
+  });
+  window.yo.onYoPanelLoadChat((id) => { void loadChatById(id); });
+
   // Swarm activity streams inline into the conversation.
   window.yo.onYoPanelSwarmStart((info) => addSwarmStart(info));
   window.yo.onYoPanelSwarmActivity((event) => addSwarmActivity(event));

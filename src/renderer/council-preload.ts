@@ -23,6 +23,7 @@ interface CouncilAPI {
   councilStop: (councilId: string) => Promise<{ ok: boolean; error?: string }>;
   councilEnd: (councilId: string) => Promise<{ ok: boolean; error?: string }>;
   councilRun: (councilId: string) => Promise<{ ok: boolean; error?: string }>;
+  councilSummarize: (councilId: string) => Promise<{ ok: boolean; text?: string; path?: string; error?: string }>;
   councilSetCurrent: (councilId: string | null) => Promise<{ ok: boolean }>;
   /** Save the current setup as a reusable template (Councils list). */
   councilsSave: (cfg: {
@@ -30,6 +31,8 @@ interface CouncilAPI {
     style: string; round_cap: number;
     members: Array<{ provider: string; model: string; startup_prompt: string }>;
   }) => Promise<unknown>;
+  /** Editable per-provider model catalog (valid current model ids). */
+  providerModelsGetAll: () => Promise<Record<string, { default: string; models: string[] }>>;
 
   // Stream subscription — main forwards round events / agent tokens
   onCouncilEvent: (cb: (event: {
@@ -66,8 +69,10 @@ const api: CouncilAPI = {
   councilStop: (id) => ipcRenderer.invoke("council-stop", id),
   councilEnd: (id) => ipcRenderer.invoke("council-end", id),
   councilRun: (id) => ipcRenderer.invoke("council-run", id),
+  councilSummarize: (id) => ipcRenderer.invoke("council-summarize", id),
   councilSetCurrent: (id) => ipcRenderer.invoke("council-set-current", id),
   councilsSave: (cfg) => ipcRenderer.invoke("councils-save", cfg),
+  providerModelsGetAll: () => ipcRenderer.invoke("provider-models-get-all"),
   onCouncilEvent: (cb) => {
     const handler = (_e: Electron.IpcRendererEvent, event: Parameters<typeof cb>[0]) => cb(event);
     ipcRenderer.on("council-event", handler);

@@ -169,7 +169,7 @@
   .msg-head .who { font-weight: 700; color: var(--text); }
   .msg-head .role { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
   .msg-head .round { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: var(--accent-glow); padding: 1px 6px; border-radius: 3px; }
-  .msg-body { color: var(--text-2); font-size: 13px; line-height: 1.55; word-wrap: break-word; padding-left: 2px; }
+  .msg-body { color: var(--text); font-size: 13px; line-height: 1.6; word-wrap: break-word; padding-left: 2px; }
   .msg.moderator .msg-body { color: var(--accent); font-style: italic; }
   .msg.system .msg-body { color: var(--text-3); font-style: italic; }
   .msg.council-topic { border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 16px; }
@@ -315,6 +315,7 @@
   <span id="council-name-pill" class="topbar-status hidden" style="background:var(--surface-2);color:var(--text-2);"></span>
   <div class="topbar-spacer"></div>
   <button class="action-btn primary hidden" id="btn-start-council">Start council</button>
+  <button class="action-btn hidden" id="btn-summarize-council">Summarize</button>
   <button class="action-btn danger hidden" id="btn-end-council">End council</button>
 </div>
 
