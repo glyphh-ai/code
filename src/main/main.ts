@@ -94,6 +94,7 @@ import { AgentRunner, AgentConfig } from "./agent-runner";
 import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { initRelayClient } from "./relay-client";
+import { installRelayHandlers } from "./relay-handlers";
 import { registerFilesIpc } from "./files-ipc";
 import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
@@ -874,6 +875,14 @@ async function boot() {
   // Persist zoom when changed via keyboard shortcut in panels
   panelManager.setOnZoomChange((factor) => {
     setPreference("zoom", factor);
+  });
+
+  // Relay panel + RPA handlers — register once panelManager exists. The
+  // WebSocket itself was started earlier; handlers are looked up at request
+  // time, so registering them here is fine.
+  installRelayHandlers({
+    panelManager,
+    getMainWindow: () => mainWindow,
   });
 
   // Browser panel helpers (must be before app connector loop)
