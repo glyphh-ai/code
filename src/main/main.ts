@@ -883,6 +883,7 @@ async function boot() {
   installRelayHandlers({
     panelManager,
     getMainWindow: () => mainWindow,
+    getMcpManager: () => mcpManager,
   });
 
   // Browser panel helpers (must be before app connector loop)

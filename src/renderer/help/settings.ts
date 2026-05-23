@@ -365,8 +365,8 @@ function initSettings() {
   const relayLabelInput = document.getElementById("relay-token-label") as HTMLInputElement;
 
   function renderRelayConfig(): void {
-    if (!relayConfigExample) return;
-    relayConfigExample.textContent = `{
+    if (relayConfigExample) {
+      relayConfigExample.textContent = `{
   "mcpServers": {
     "yo-relay": {
       "type": "http",
@@ -377,6 +377,12 @@ function initSettings() {
     }
   }
 }`;
+    }
+    const claudeCmd = document.getElementById("relay-claude-cmd");
+    if (claudeCmd) {
+      claudeCmd.textContent =
+        `claude mcp add --transport http yo-relay https://api.yosup.dev/mcp --header "Authorization: Bearer <your-token>"`;
+    }
   }
 
   async function refreshRelayStatus(): Promise<void> {
@@ -460,6 +466,14 @@ function initSettings() {
     const val = relayConfigExample?.textContent || "";
     window.yo.copyToClipboard(val);
     const btn = document.getElementById("relay-copy-config") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+
+  document.getElementById("relay-copy-claude-cmd")!.addEventListener("click", () => {
+    const val = document.getElementById("relay-claude-cmd")?.textContent || "";
+    window.yo.copyToClipboard(val);
+    const btn = document.getElementById("relay-copy-claude-cmd") as HTMLButtonElement;
     btn.textContent = "Copied";
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });

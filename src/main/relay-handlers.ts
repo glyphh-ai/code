@@ -9,11 +9,13 @@
 
 import type { BrowserWindow, WebContents } from "electron";
 import type { PanelManager } from "./panel-manager.js";
+import type { McpManager } from "./mcp-manager.js";
 import { registerRelayHandler } from "./relay-client.js";
 
 interface Deps {
   panelManager: PanelManager;
   getMainWindow: () => BrowserWindow | null;
+  getMcpManager: () => McpManager | null;
 }
 
 /** Pull a live webContents for a panel id, or throw a structured error. */
@@ -31,7 +33,7 @@ function jsLiteral(value: string): string {
 }
 
 export function installRelayHandlers(deps: Deps): void {
-  const { panelManager, getMainWindow } = deps;
+  const { panelManager, getMainWindow, getMcpManager } = deps;
 
   // ── panels ──────────────────────────────────────────────
 
@@ -173,5 +175,37 @@ export function installRelayHandlers(deps: Deps): void {
     const image = await wc.capturePage();
     if (image.isEmpty()) throw new Error("capturePage returned empty image");
     return { dataUrl: image.toDataURL() };
+  });
+
+  // ── MCP passthrough — re-expose the user's connected-app tools ─
+
+  // List every tool from the user's connected MCP servers, flattened. The
+  // external caller can discover what's available before invoking. Schemas
+  // come through so the caller can shape arguments correctly.
+  registerRelayHandler("mcp.list_tools", () => {
+    const mm = getMcpManager();
+    if (!mm) return [];
+    return mm.getAllTools().map((t) => ({
+      serverId: t.serverId,
+      serverName: t.serverName,
+      name: t.name,
+      qualifiedName: t.qualifiedName,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    }));
+  });
+
+  // Invoke a specific tool by (serverId, name). Returns the coerced text
+  // result McpManager.callToolDirect produces — image content becomes
+  // `[image: mime]`, errors are caught and returned as a string.
+  registerRelayHandler("mcp.call_tool", async (params) => {
+    const p = params as { serverId?: string; name?: string; args?: Record<string, unknown> } | null;
+    const serverId = String(p?.serverId || "");
+    const name = String(p?.name || "");
+    if (!serverId || !name) throw new Error("mcp.call_tool requires { serverId, name }");
+    const mm = getMcpManager();
+    if (!mm) throw new Error("MCP manager not initialized");
+    const result = await mm.callToolDirect(serverId, name, p?.args || {});
+    return { result };
   });
 }
