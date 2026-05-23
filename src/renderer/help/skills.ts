@@ -5,6 +5,59 @@
 import {
   paginate, renderPaginationBar, confirmAction, closeHelp,
 } from "./shared.js";
+import { formatMarkdown } from "../format-markdown.js";
+
+// File-viewer mode: when a non-overview file is open, the right pane hides
+// the form and shows either rendered markdown (.md) or the Monaco editor.
+let fileViewerSourceMode = false;
+
+function isMarkdownFile(rel: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(rel);
+}
+
+function showSkillOverview(): void {
+  document.getElementById("skill-file-viewer")?.classList.add("hidden");
+  const form = document.querySelector<HTMLElement>("#skill-editor .skill-left-form");
+  const footer = document.querySelector<HTMLElement>("#skill-editor .skill-left-footer");
+  const runOut = document.getElementById("skill-run-output");
+  if (form) form.style.display = "";
+  if (footer) footer.style.display = "";
+  if (runOut && !runOut.classList.contains("hidden")) runOut.style.display = "";
+}
+
+function showSkillFileViewer(rel: string): void {
+  const viewer = document.getElementById("skill-file-viewer");
+  const form = document.querySelector<HTMLElement>("#skill-editor .skill-left-form");
+  const footer = document.querySelector<HTMLElement>("#skill-editor .skill-left-footer");
+  const runOut = document.getElementById("skill-run-output");
+  if (!viewer) return;
+  viewer.classList.remove("hidden");
+  if (form) form.style.display = "none";
+  if (footer) footer.style.display = "none";
+  if (runOut) runOut.style.display = "none";
+  const path = document.getElementById("skill-file-viewer-path");
+  if (path) path.textContent = rel;
+}
+
+function paintSkillFileViewer(rel: string, content: string): void {
+  const md = document.getElementById("skill-file-viewer-md");
+  const monaco = document.getElementById("skill-monaco-container");
+  const toggle = document.getElementById("skill-file-viewer-toggle");
+  const isMd = isMarkdownFile(rel);
+  if (toggle) toggle.style.display = isMd ? "" : "none";
+  if (isMd && !fileViewerSourceMode) {
+    if (md) {
+      md.classList.remove("hidden");
+      md.innerHTML = formatMarkdown(content);
+    }
+    if (monaco) monaco.style.display = "none";
+    if (toggle) toggle.textContent = "Source";
+  } else {
+    if (md) md.classList.add("hidden");
+    if (monaco) monaco.style.display = "";
+    if (toggle) toggle.textContent = isMd ? "Preview" : "Source";
+  }
+}
 
 // ── Skills ────────────────────────────────────────────────
 // Folder-based skills: SKILL.md (frontmatter + prompt) + SKILL.js (optional runner) + arbitrary files.
@@ -465,7 +518,9 @@ async function openSkillEditor(name: string | null) {
   skillEditor.classList.remove("hidden");
 
   renderSkillFileTree();
-  await openSkillFile(editingSelectedFile);
+  // Default view: skill overview (form). Files in the tree open the viewer.
+  showSkillOverview();
+  fileViewerSourceMode = false;
 
   skillNameInput.focus();
 }
@@ -569,24 +624,32 @@ async function openSkillFile(relPath: string) {
   }
   const content = editingFileContents.get(relPath) || "";
 
-  await ensureMonaco();
-  const w = window as any;
-  if (monacoEditor) {
-    const model = w.monaco.editor.createModel(content, languageForFile(relPath));
-    monacoEditor.setModel(model);
-  } else {
-    monacoEditor = w.monaco.editor.create(container, {
-      value: content,
-      language: languageForFile(relPath),
-      theme: document.documentElement.getAttribute("data-theme") === "dark" ? "vs-dark" : "vs",
-      fontSize: 12,
-      fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
-      minimap: { enabled: false },
-      wordWrap: "on",
-      automaticLayout: true,
-      padding: { top: 8 },
-      scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
-    });
+  // Switch the right pane into file-viewer mode (replaces the overview).
+  showSkillFileViewer(relPath);
+  paintSkillFileViewer(relPath, content);
+
+  // Only initialize / load Monaco when source mode is active or file isn't .md.
+  const isMd = isMarkdownFile(relPath);
+  if (!isMd || fileViewerSourceMode) {
+    await ensureMonaco();
+    const w = window as any;
+    if (monacoEditor) {
+      const model = w.monaco.editor.createModel(content, languageForFile(relPath));
+      monacoEditor.setModel(model);
+    } else {
+      monacoEditor = w.monaco.editor.create(container, {
+        value: content,
+        language: languageForFile(relPath),
+        theme: document.documentElement.getAttribute("data-theme") === "dark" ? "vs-dark" : "vs",
+        fontSize: 12,
+        fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+        minimap: { enabled: false },
+        wordWrap: "on",
+        automaticLayout: true,
+        padding: { top: 8 },
+        scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+      });
+    }
   }
 }
 
@@ -990,6 +1053,15 @@ export function initSkillsEvents() {
     (document.getElementById("skill-upload-input") as HTMLInputElement).click();
   });
   document.getElementById("skill-upload-input")!.addEventListener("change", uploadSkillFiles);
+  // File-viewer toggle: back to overview, and source / preview switch for markdown.
+  document.getElementById("skill-file-viewer-back")?.addEventListener("click", () => {
+    captureCurrentEditorContent();
+    showSkillOverview();
+  });
+  document.getElementById("skill-file-viewer-toggle")?.addEventListener("click", () => {
+    fileViewerSourceMode = !fileViewerSourceMode;
+    void openSkillFile(editingSelectedFile);
+  });
   initSkillTreeResize();
   // Drag-and-drop .yo import onto the skills list
   skillsListEl.addEventListener("dragover", (e) => { e.preventDefault(); });

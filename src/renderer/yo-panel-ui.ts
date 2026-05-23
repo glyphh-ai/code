@@ -1363,6 +1363,45 @@ async function startNewChat(): Promise<void> {
 async function loadYoHistory() {
   const chats = await window.yo.yoChatsList();
   yoHistoryList.innerHTML = "";
+
+  // ── Scheduled section — list of scheduled tasks (from preference) ──
+  let scheduledNames: string[] = [];
+  try { scheduledNames = (await window.yo.getPreference("scheduledTasks", [])) as string[]; }
+  catch { scheduledNames = []; }
+  const schedHeader = document.createElement("div");
+  schedHeader.className = "yo-history-section-header";
+  schedHeader.textContent = "Scheduled";
+  yoHistoryList.appendChild(schedHeader);
+  if (scheduledNames.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "yo-history-empty";
+    empty.textContent = "no scheduled tasks";
+    yoHistoryList.appendChild(empty);
+  } else {
+    for (const name of scheduledNames) {
+      const item = document.createElement("div");
+      item.className = "yo-history-item";
+      const title = document.createElement("span");
+      title.className = "yo-history-title";
+      title.textContent = name;
+      item.appendChild(title);
+      item.addEventListener("click", async () => {
+        // Open the task's most recent run; fall back to a new chat if it has never run.
+        try {
+          const runs = await window.yo.runsList(name);
+          if (runs[0]) { void loadChatById(runs[0].id); return; }
+        } catch { /* ignore */ }
+        void startNewChat();
+      });
+      yoHistoryList.appendChild(item);
+    }
+  }
+
+  // ── Recents section — existing chat list ──
+  const recHeader = document.createElement("div");
+  recHeader.className = "yo-history-section-header";
+  recHeader.textContent = "Recents";
+  yoHistoryList.appendChild(recHeader);
   if (chats.length === 0) {
     const empty = document.createElement("div");
     empty.className = "yo-history-empty";

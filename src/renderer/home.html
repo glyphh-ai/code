@@ -734,7 +734,31 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div id="skill-form-error" class="crud-form-error hidden"></div>
 
             <div class="skill-split-body">
-              <div class="skill-split-left">
+              <!-- LEFT: file tree (extracted from the widget) -->
+              <div class="skill-split-tree">
+                <aside class="skill-code-tree" id="skill-code-tree">
+                  <div class="skill-code-tree-header">
+                    <span id="skill-editor-status">SKILL.md</span>
+                    <div class="skill-tree-actions">
+                      <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      </button>
+                      <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                      </button>
+                      <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div id="skill-file-list" class="skill-file-list"></div>
+                  <input type="file" id="skill-upload-input" multiple style="display:none" />
+                </aside>
+                <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
+              </div>
+
+              <!-- RIGHT: skill overview (form) — toggles with file viewer below -->
+              <div class="skill-split-overview">
 
                 <div class="skill-left-form">
                   <label class="settings-label">Name</label>
@@ -813,30 +837,16 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                   <pre id="skill-run-output-body" class="skill-run-output-body"></pre>
                 </div>
-              </div>
 
-              <!-- RIGHT: file tree + Monaco editor -->
-              <div class="skill-split-right">
-                <div class="skill-code-widget">
-                  <aside class="skill-code-tree" id="skill-code-tree">
-                    <div class="skill-code-tree-header">
-                      <span id="skill-editor-status">SKILL.md</span>
-                      <div class="skill-tree-actions">
-                        <button id="skill-new-file-btn" class="skill-tree-action-btn" title="New file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        </button>
-                        <button id="skill-new-folder-btn" class="skill-tree-action-btn" title="New folder">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                        </button>
-                        <button id="skill-upload-file-btn" class="skill-tree-action-btn" title="Upload file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        </button>
-                      </div>
-                    </div>
-                    <div id="skill-file-list" class="skill-file-list"></div>
-                    <input type="file" id="skill-upload-input" multiple style="display:none" />
-                  </aside>
-                  <div id="skill-tree-resize" class="skill-tree-resize" title="Drag to resize"></div>
+                <!-- File viewer (replaces overview when a non-SKILL.md file is open) -->
+                <div id="skill-file-viewer" class="skill-file-viewer hidden">
+                  <div class="skill-file-viewer-header">
+                    <button id="skill-file-viewer-back" class="action-btn">&larr; Overview</button>
+                    <span id="skill-file-viewer-path" class="skill-file-viewer-path"></span>
+                    <div style="flex:1;"></div>
+                    <button id="skill-file-viewer-toggle" class="action-btn" title="Toggle source / preview">Source</button>
+                  </div>
+                  <div id="skill-file-viewer-md" class="skill-file-viewer-md yo-md hidden"></div>
                   <div id="skill-monaco-container" class="skill-code-monaco"></div>
                 </div>
               </div>
@@ -1394,6 +1404,111 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <div style="flex:1;"></div>
               <button id="agent-cancel-btn" class="action-btn">Cancel</button>
               <button id="agent-save-btn" class="action-btn primary">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Schedules -->
+        <div class="help-section" data-section="schedules">
+          <h2>Schedules</h2>
+          <p class="section-desc">Run tasks on a schedule or whenever you need them. Type /schedule in any task to set one up.</p>
+          <div id="schedules-banner" class="sched-banner">
+            <span class="sched-banner-text">Scheduled tasks only run while your computer is awake.</span>
+            <label class="sched-awake-toggle">
+              <input id="sched-keep-awake" type="checkbox" />
+              <span>Keep awake</span>
+            </label>
+          </div>
+          <div id="schedules-toolbar" class="crud-toolbar">
+            <input id="schedule-search" type="text" class="crud-search" placeholder="Search tasks..." spellcheck="false" autocomplete="off" />
+            <button id="schedule-new-btn" class="action-btn primary">+ New</button>
+          </div>
+          <div id="schedules-list" class="crud-cards"></div>
+
+          <!-- Detail view (read-only, with history) -->
+          <div id="schedule-detail" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="schedule-detail-back">&larr; Schedules</a>
+              <div class="crud-spacer"></div>
+              <button id="schedule-detail-edit" class="action-btn">Edit</button>
+              <button id="schedule-detail-run" class="action-btn primary">Run now</button>
+              <button id="schedule-detail-delete" class="action-btn danger">Delete</button>
+            </div>
+            <div id="schedule-detail-title" class="settings-label" style="font-size:18px;font-weight:600;color:var(--white);margin:8px 0 4px;"></div>
+            <div id="schedule-detail-desc" class="section-desc" style="margin:0 0 8px;"></div>
+            <div id="schedule-detail-status" class="settings-hint" style="margin-bottom:14px;"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+              <div>
+                <label class="settings-label">History</label>
+                <div id="schedule-detail-history" style="display:flex;flex-direction:column;gap:4px;"></div>
+              </div>
+              <div>
+                <label class="settings-label">Instructions</label>
+                <div id="schedule-detail-prompt" class="settings-hint" style="white-space:pre-wrap;color:var(--text-2);margin-bottom:12px;"></div>
+                <label class="settings-label">Repeats</label>
+                <div id="schedule-detail-repeats" class="settings-hint" style="margin-bottom:12px;"></div>
+                <label class="settings-label">Model</label>
+                <div id="schedule-detail-model" class="settings-hint" style="margin-bottom:12px;"></div>
+                <label class="settings-label">When it runs</label>
+                <div id="schedule-detail-ask" class="settings-hint"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Editor (create / edit) -->
+          <div id="schedule-editor" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="schedule-back-link">&larr; Schedules</a>
+              <div class="crud-spacer"></div>
+            </div>
+            <div id="schedule-form-error" class="crud-form-error hidden"></div>
+
+            <label class="settings-label">Name</label>
+            <input type="text" id="schedule-name" class="settings-input" placeholder="e.g. Daily brief" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Description</label>
+            <input type="text" id="schedule-desc" class="settings-input" placeholder="Short summary of what it does" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Instructions</label>
+            <textarea id="schedule-prompt" class="settings-input" rows="6" placeholder="What should .Yo do each time this runs?"></textarea>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">Frequency</label>
+                <select id="schedule-freq" class="settings-input">
+                  <option value="manual">Manual</option>
+                  <option value="hourly">Hourly</option>
+                  <option value="daily" selected>Daily</option>
+                  <option value="weekdays">Weekdays</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">Time</label>
+                <input type="time" id="schedule-time" class="settings-input" value="09:00" />
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">When it runs</label>
+                <select id="schedule-ask" class="settings-input">
+                  <option value="auto">Run automatically</option>
+                  <option value="ask">Ask before running</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="settings-label">Model</label>
+                <select id="schedule-model" class="settings-input"></select>
+              </div>
+            </div>
+
+            <div class="settings-actions" style="margin-top:14px;">
+              <button id="schedule-delete-btn" class="action-btn danger">Delete</button>
+              <div style="flex:1;"></div>
+              <button id="schedule-cancel-btn" class="action-btn">Cancel</button>
+              <button id="schedule-save-btn" class="action-btn primary">Save</button>
             </div>
           </div>
         </div>

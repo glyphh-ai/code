@@ -15,6 +15,7 @@ import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
 import { initYoPanel } from "./yo-panel-ui.js";
+import { initYoPanelWorkdir } from "./yo-panel-workdir.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
@@ -382,6 +383,9 @@ declare global {
       mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
       mcpSetServerOverride: (serverId: string, override: string) => void;
       onMcpChanged: (cb: () => void) => void;
+      // Schedules (skill-runs history + keep-awake)
+      runsList: (skillName?: string) => Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>;
+      setKeepAwake: (on: boolean) => void;
     };
   }
 }
@@ -432,6 +436,17 @@ document.getElementById("titlebar-label")!.addEventListener("click", () => {
 // -- Yo panel (extracted to yo-panel-ui.ts) --
 const { openYoPanel, closeYoPanel, isYoPanelOpen, yoScroll, showYoWelcome, hideYoWelcome, getYoPanelWidth } = initYoPanel({
   renderGridHandles: () => gridApi.renderGridHandles(),
+});
+initYoPanelWorkdir();
+
+// Right-rail toggle in the header — slides the yo agent panel in/out.
+document.getElementById("yo-rail-toggle")?.addEventListener("click", () => {
+  if (isYoPanelOpen()) {
+    window.yo.yoPanelDismiss();
+  } else {
+    window.yo.yoPanelOpen("");
+    openYoPanel("");
+  }
 });
 
 // -- Tab bar (extracted to tab-bar-ui.ts) --
@@ -595,10 +610,10 @@ initDownloads();
   function refreshFolderName() {
     if (railRoot) {
       railName.textContent = railRoot.split("/").filter(Boolean).pop() || railRoot;
-      railTitle.title = `Working folder: ${railRoot} — click to change`;
+      railTitle.title = `Working folder: ${railRoot}`;
     } else {
-      railName.textContent = "Pick a folder";
-      railTitle.title = "Pick the working folder";
+      railName.textContent = "No folder";
+      railTitle.title = "Working folder";
     }
   }
 
@@ -618,7 +633,6 @@ initDownloads();
   }
 
   railToggle.addEventListener("click", () => applyOpen(!rail.classList.contains("open")));
-  railTitle.addEventListener("click", () => { void window.yo.pickWorkingDir(); });
 
   // Nav: app sections + Settings, then Platform + Sign Out (pinned bottom).
   rail.querySelectorAll<HTMLElement>(".files-rail-navitem[data-section]").forEach((btn) => {
