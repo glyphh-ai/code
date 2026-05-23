@@ -288,6 +288,9 @@ declare global {
       mcpExposeGetTokens: () => Promise<Array<{ token: string; label: string; createdAt: string; expiresAt: string }>>;
       mcpExposeGenToken: (label: string, ttlDays?: number) => Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>;
       mcpExposeRevokeToken: (token: string) => Promise<void>;
+      // Remote relay
+      relayReconnect: () => Promise<void>;
+      relayStatus: () => Promise<{ enabled: boolean; hasToken: boolean; state: "off" | "connecting" | "connected" | "disconnected" }>;
 
       // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
       providerKeysList: () => Promise<Array<{

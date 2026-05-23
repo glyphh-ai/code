@@ -354,6 +354,79 @@ function initSettings() {
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
 
+  // ── Remote Relay wiring ───────────────────────────────────
+  const relayEnabledToggle = document.getElementById("relay-enabled-toggle") as HTMLInputElement;
+  const relayClientTokenInput = document.getElementById("relay-client-token") as HTMLInputElement;
+  const relayServerTokenInput = document.getElementById("relay-server-token") as HTMLInputElement;
+  const relayStatusText = document.getElementById("relay-status-text");
+  const relayConfigExample = document.getElementById("relay-config-example");
+
+  function renderRelayConfig(): void {
+    if (!relayConfigExample) return;
+    const tok = relayServerTokenInput.value.trim() || "<your-server-token>";
+    relayConfigExample.textContent = `{
+  "mcpServers": {
+    "yo-relay": {
+      "type": "http",
+      "url": "https://api.yosup.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${tok}"
+      }
+    }
+  }
+}`;
+  }
+
+  async function refreshRelayStatus(): Promise<void> {
+    if (!relayStatusText) return;
+    const s = await window.yo.relayStatus();
+    const label = !s.enabled ? "Disabled."
+      : !s.hasToken ? "Enabled but no client token set."
+      : s.state === "connected" ? "Connected to api.yosup.dev"
+      : s.state === "connecting" ? "Connecting…"
+      : s.state === "disconnected" ? "Disconnected — retrying"
+      : "Off";
+    relayStatusText.textContent = label;
+    relayStatusText.style.color = s.state === "connected" ? "var(--accent)" : "var(--text-3)";
+  }
+
+  relayEnabledToggle.addEventListener("change", async () => {
+    window.yo.setPreference("relayEnabled", relayEnabledToggle.checked);
+    await window.yo.relayReconnect();
+    void refreshRelayStatus();
+  });
+  document.getElementById("relay-client-token-save")!.addEventListener("click", async () => {
+    window.yo.setPreference("relayClientToken", relayClientTokenInput.value.trim());
+    await window.yo.relayReconnect();
+    void refreshRelayStatus();
+  });
+  document.getElementById("relay-server-token-save")!.addEventListener("click", () => {
+    window.yo.setPreference("relayServerToken", relayServerTokenInput.value.trim());
+    renderRelayConfig();
+  });
+  document.getElementById("relay-copy-config")!.addEventListener("click", () => {
+    const val = relayConfigExample?.textContent || "";
+    window.yo.copyToClipboard(val);
+    const btn = document.getElementById("relay-copy-config") as HTMLButtonElement;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+  relayServerTokenInput.addEventListener("input", renderRelayConfig);
+
+  // Initial paint: load saved values + render config + poll status every 3s
+  // while the panel is open.
+  void (async () => {
+    const enabled = await window.yo.getPreference("relayEnabled", false) as boolean;
+    const cTok = await window.yo.getPreference("relayClientToken", "") as string;
+    const sTok = await window.yo.getPreference("relayServerToken", "") as string;
+    relayEnabledToggle.checked = !!enabled;
+    relayClientTokenInput.value = cTok || "";
+    relayServerTokenInput.value = sTok || "";
+    renderRelayConfig();
+    void refreshRelayStatus();
+  })();
+  setInterval(refreshRelayStatus, 3_000);
+
   // Agent mode
   settingsAgentMode.addEventListener("change", () => {
     window.yo.setAgentMode(settingsAgentMode.value);

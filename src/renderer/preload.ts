@@ -453,6 +453,10 @@ contextBridge.exposeInMainWorld("yo", {
   mcpExposeGenToken: (label: string, ttlDays?: number) => ipcRenderer.invoke("mcp-expose-gen-token", label, ttlDays) as Promise<{ token: string; label: string; createdAt: string; expiresAt: string }>,
   mcpExposeRevokeToken: (token: string) => ipcRenderer.invoke("mcp-expose-revoke-token", token) as Promise<void>,
 
+  // Remote relay — settings UI uses these to bounce the WS after token / toggle change
+  relayReconnect: () => ipcRenderer.invoke("relay-reconnect") as Promise<void>,
+  relayStatus: () => ipcRenderer.invoke("relay-status") as Promise<{ enabled: boolean; hasToken: boolean; state: "off" | "connecting" | "connected" | "disconnected" }>,
+
   // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK).
   // List returns *status only* — never plaintext. set/remove/test mutate.
   providerKeysList: () => ipcRenderer.invoke("provider-keys-list") as Promise<Array<{

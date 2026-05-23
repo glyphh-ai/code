@@ -13,6 +13,7 @@ import type { McpExpose } from "./mcp-expose";
 import type { McpManager } from "./mcp-manager";
 import type { ConnectorManager } from "./connectors";
 import type { PanelManager } from "./panel-manager";
+import { reconnectRelay, getRelayStatus } from "./relay-client";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -37,6 +38,13 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose.revokeToken(token); });
+
+  // Relay: bouncing the WS after the user changes the client token / toggle.
+  // Settings prefs (relayEnabled, relayClientToken, relayServerToken) ride
+  // through the regular get/set-preference channels; this just forces a
+  // reconnect so the new values take effect immediately.
+  ipcMain.handle("relay-reconnect", () => { reconnectRelay(); });
+  ipcMain.handle("relay-status", () => getRelayStatus());
 
   ipcMain.handle("mcp-get-servers", () => {
     if (!mcpManager) return [];

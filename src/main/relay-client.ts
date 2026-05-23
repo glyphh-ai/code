@@ -148,3 +148,15 @@ export function reconnectRelay(): void {
   backoffMs = 1_000;
   connect();
 }
+
+/** Snapshot of the relay's current state — for the Settings status indicator. */
+export function getRelayStatus(): { enabled: boolean; hasToken: boolean; state: "off" | "connecting" | "connected" | "disconnected" } {
+  const enabled = relayEnabled();
+  const hasToken = !!clientToken();
+  let state: "off" | "connecting" | "connected" | "disconnected" = "off";
+  if (!enabled || !hasToken) state = "off";
+  else if (socket && socket.readyState === WebSocket.OPEN) state = "connected";
+  else if (socket && socket.readyState === WebSocket.CONNECTING) state = "connecting";
+  else state = "disconnected";
+  return { enabled, hasToken, state };
+}
