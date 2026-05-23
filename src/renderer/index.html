@@ -303,13 +303,6 @@
               <span class="yo-mode-opt-desc">confirms before acting</span>
             </div>
           </div>
-          <div class="yo-perm-option" data-value="plan">
-            <span class="yo-mode-opt-icon">&#x1F4CB;</span>
-            <div class="yo-mode-opt-text">
-              <span class="yo-mode-opt-label">plan</span>
-              <span class="yo-mode-opt-desc">drafts a plan, no tools</span>
-            </div>
-          </div>
           <div class="yo-perm-option" data-value="acceptEdits">
             <span class="yo-mode-opt-icon">&#x26A1;</span>
             <div class="yo-mode-opt-text">
@@ -322,6 +315,51 @@
             <div class="yo-mode-opt-text">
               <span class="yo-mode-opt-label">bypass</span>
               <span class="yo-mode-opt-desc">no prompts &mdash; use with care</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <label id="yo-plan-toggle" class="yo-plan-toggle" title="Plan mode: draft a plan, no tool calls">
+        <input type="checkbox" id="yo-plan-checkbox" />
+        <span class="yo-plan-icon">&#x1F4CB;</span>
+        <span class="yo-plan-label">plan</span>
+      </label>
+      <div id="yo-model-dropdown" class="yo-mode-dropdown">
+        <button id="yo-model-trigger" class="yo-mode-trigger" title="Model">
+          <span class="yo-model-label">Default</span>
+          <span class="yo-mode-chevron">&#x25BE;</span>
+        </button>
+        <div id="yo-model-menu" class="yo-mode-menu hidden">
+          <div class="yo-model-section-header">Claude</div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Default</span>
+              <span class="yo-mode-opt-desc">use the workspace default</span>
+            </div>
+          </div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="claude-sonnet-4-6">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Sonnet 4.6</span>
+              <span class="yo-mode-opt-desc">balanced quality + speed</span>
+            </div>
+          </div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="claude-opus-4-7">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Opus 4.7</span>
+              <span class="yo-mode-opt-desc">heaviest reasoning</span>
+            </div>
+          </div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="claude-haiku-4-5">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Haiku 4.5</span>
+              <span class="yo-mode-opt-desc">fastest, lightest</span>
+            </div>
+          </div>
+          <div class="yo-model-section-header">GPT</div>
+          <div class="yo-model-option disabled" data-provider="openai" data-value="gpt-5-codex" title="GPT loop not yet implemented in the .yo agent">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">GPT-5 Codex</span>
+              <span class="yo-mode-opt-desc">coming soon</span>
             </div>
           </div>
         </div>

@@ -6599,6 +6599,63 @@ select.settings-input {
 .yo-mode-option:hover, .yo-perm-option:hover { background: var(--hover); }
 .yo-mode-option.active, .yo-perm-option.active { background: var(--border); }
 
+/* Plan checkbox — binary modifier, sits next to the perm dropdown */
+.yo-plan-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  user-select: none;
+}
+.yo-plan-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.yo-plan-toggle:hover { border-color: var(--text-faint); }
+.yo-plan-toggle:has(input:checked) {
+  background: rgba(74, 158, 255, 0.15);
+  border-color: #4A9EFF;
+  color: #4A9EFF;
+}
+.yo-plan-icon { font-size: 12px; line-height: 1; }
+
+/* Model dropdown — section headers separate Claude / GPT, disabled rows
+   are dimmed and unclickable. */
+.yo-model-section-header {
+  padding: 6px 8px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.yo-model-section-header:not(:first-child) {
+  border-top: 1px solid var(--border-2);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+.yo-model-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.yo-model-option:hover { background: var(--hover); }
+.yo-model-option.active { background: var(--border); }
+.yo-model-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.yo-model-option.disabled:hover { background: transparent; }
+
 /* Bypass mode: alert-red so the user can't pick it accidentally */
 .yo-mode-option[data-value="bypass"] .yo-mode-opt-label,
 .yo-perm-option[data-value="bypass"] .yo-mode-opt-label { color: #FF2D55; font-weight: 700; }

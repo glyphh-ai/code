@@ -63,34 +63,43 @@ const MODE_ICONS: Record<string, string> = {
   swarm:    "🐝",
 };
 
-const MODE_COLORS: Record<string, string> = {
-  standard: "#25C75E",
-  swarm:    "#A855F7",
-};
-
+// Color is driven by PERMISSION (not mode). Plan is a separate checkbox
+// modifier — when on, it overrides the perm color with plan-blue.
 const PERM_ICONS: Record<string, string> = {
   default: "🔒",
-  plan: "📋",
   acceptEdits: "⚡",
   bypassPermissions: "🔥",
 };
 
 const PERM_COLORS: Record<string, string> = {
   default: "#25C75E",
-  plan: "#4A9EFF",
   acceptEdits: "#FF8C00",
   bypassPermissions: "#FF2D55",
 };
 
+const PLAN_COLOR = "#4A9EFF";
+
 const PERM_LABELS: Record<string, string> = {
   default: "ask",
-  plan: "plan",
   acceptEdits: "auto",
   bypassPermissions: "bypass",
 };
 
 let currentMode = "standard";
 let currentPerm = "default";
+let planEnabled = false;
+let currentChatModel: string = "";          // empty = use workspace default
+
+const MODEL_PRETTY: Record<string, string> = {
+  "claude-sonnet-4-6": "Sonnet 4.6",
+  "claude-opus-4-7":   "Opus 4.7",
+  "claude-haiku-4-5":  "Haiku 4.5",
+  "gpt-5-codex":       "GPT-5 Codex",
+};
+function prettyModelLabel(model: string): string {
+  if (!model) return "Default";
+  return MODEL_PRETTY[model] || model;
+}
 
 // ── Internal state ─────────────────────────────────────────────────────────
 
@@ -334,7 +343,9 @@ function setModeValue(mode: string) {
   yoModeOptions.forEach((opt) => {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === mode);
   });
-  applyModeColor();
+  // Mode no longer drives accent color — that's the perm's job. We still
+  // keep a subtle border tint on the mode trigger so swarm vs standard is
+  // visually distinct without dominating the panel.
 }
 
 function setPermValue(perm: string) {
@@ -346,30 +357,55 @@ function setPermValue(perm: string) {
   yoPermOptions.forEach((opt) => {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === perm);
   });
+  applyAccentColor();
 }
 
-function applyModeColor() {
-  const color = MODE_COLORS[currentMode] || MODE_COLORS.standard;
-  yoModeTrigger.style.borderColor = color;
+function setPlanEnabled(on: boolean) {
+  planEnabled = on;
+  const cb = document.getElementById("yo-plan-checkbox") as HTMLInputElement | null;
+  if (cb && cb.checked !== on) cb.checked = on;
+  applyAccentColor();
+}
+
+/** Accent color: plan-blue when plan is on, else the active permission's color. */
+function applyAccentColor() {
+  const color = planEnabled
+    ? PLAN_COLOR
+    : (PERM_COLORS[currentPerm] || PERM_COLORS.default);
+  yoPermTrigger.style.borderColor = color;
   yoPanelInput.style.setProperty("--mode-color", color);
   yoPanelSendBtn.style.background = color;
   document.documentElement.style.setProperty("--yo-mode-color", color);
 }
 
 function syncAgentMode(): void {
-  if (currentMode === "swarm") {
-    window.yo.setAgentMode("swarm");
-    window.yo.setAgentMode(currentPerm);
-  } else {
-    window.yo.setAgentMode("exit-swarm");
-    window.yo.setAgentMode(currentPerm);
-  }
+  // Swarm vs standard is independent of plan + perm.
+  window.yo.setAgentMode(currentMode === "swarm" ? "swarm" : "exit-swarm");
+  // Plan overrides whatever perm the user picked; backend treats "plan" as
+  // a permission mode (no tool calls, plan-mode prompt directive).
+  window.yo.setAgentMode(planEnabled ? "plan" : currentPerm);
+}
+
+async function initYoModelFromConfig(): Promise<void> {
+  try {
+    const cfg = await window.yo.getLLMConfig?.();
+    currentChatModel = (cfg?.model && cfg.provider === "anthropic") ? cfg.model : "";
+  } catch { currentChatModel = ""; }
 }
 
 async function initYoControls() {
-  // Perm and the swarm overlay are independent — restore both.
+  // Perm, plan, and swarm are now independent. Plan rides as a separate
+  // checkbox modifier; if the backend's last persisted perm was "plan", we
+  // turn the checkbox on and default the perm dropdown to ask.
   const { perm, swarm } = await window.yo.getAgentMode();
-  setPermValue(perm || "default");
+  const rawPerm = perm || "default";
+  if (rawPerm === "plan") {
+    setPlanEnabled(true);
+    setPermValue("default");
+  } else {
+    setPlanEnabled(false);
+    setPermValue(rawPerm);
+  }
   setModeValue(swarm ? "swarm" : "standard");
 }
 
@@ -1041,7 +1077,7 @@ function finalizeYoMessage(fullText: string) {
   yoTurnFullText = "";
   yoResponseEl = null;
 
-  if (currentMode === "plan" && yoLastUserText) {
+  if (planEnabled && yoLastUserText) {
     showPlanActions();
   }
 
@@ -1452,6 +1488,14 @@ async function openYoPanel(query: string) {
   if (!yoControlsInited) {
     yoControlsInited = true;
     initYoControls();
+    void initYoModelFromConfig().then(() => {
+      // Repaint label + active state once the saved model is known.
+      const label = document.getElementById("yo-model-trigger")?.querySelector(".yo-model-label");
+      if (label) label.textContent = prettyModelLabel(currentChatModel);
+      document.querySelectorAll<HTMLElement>("#yo-model-menu .yo-model-option").forEach((o) => {
+        o.classList.toggle("active", (o.dataset.value || "") === currentChatModel);
+      });
+    });
   }
 
   const defaultWidth = 380;
@@ -1591,6 +1635,61 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   });
 
+  // Plan checkbox — sits next to the perm dropdown as a modifier.
+  const planCheckbox = document.getElementById("yo-plan-checkbox") as HTMLInputElement | null;
+  if (planCheckbox) {
+    planCheckbox.addEventListener("change", () => {
+      setPlanEnabled(planCheckbox.checked);
+      syncAgentMode();
+    });
+  }
+
+  // Model dropdown — sections (Claude / GPT). GPT items are disabled until
+  // the GPT loop is wired. Changing the model warns the user that the
+  // current chat will be reset (context lost) and starts a new one.
+  const modelDropdown = document.getElementById("yo-model-dropdown");
+  const modelTrigger = document.getElementById("yo-model-trigger");
+  const modelMenu = document.getElementById("yo-model-menu");
+  const modelOptions = modelMenu?.querySelectorAll<HTMLElement>(".yo-model-option");
+  function paintModelLabel(): void {
+    const label = modelTrigger?.querySelector(".yo-model-label");
+    if (!label) return;
+    if (!currentChatModel) { label.textContent = "Default"; return; }
+    label.textContent = prettyModelLabel(currentChatModel);
+  }
+  if (modelTrigger && modelMenu) {
+    modelTrigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      modelMenu.classList.toggle("hidden");
+      yoModeMenu.classList.add("hidden");
+      yoPermMenu.classList.add("hidden");
+    });
+  }
+  modelOptions?.forEach((opt) => {
+    opt.addEventListener("click", async () => {
+      if (opt.classList.contains("disabled")) return;
+      const newModel = opt.dataset.value || "";
+      modelMenu?.classList.add("hidden");
+      if (newModel === currentChatModel) return;
+      // If a chat is in progress, warn before resetting. Empty messages =
+      // welcome screen = safe to change silently.
+      const inChat = yoPanelMessages.children.length > 0 && !yoPanelMessages.querySelector(".yo-panel-welcome");
+      if (inChat && !confirm("Changing the model will start a new chat — context will be lost. Continue?")) return;
+      currentChatModel = newModel;
+      modelOptions.forEach((o) => o.classList.toggle("active", o === opt));
+      paintModelLabel();
+      // Persist via saveLLMConfig — provider is always anthropic until the
+      // GPT loop ships. (The GPT items are disabled, so we never hit that
+      // branch from this dropdown.)
+      const fallback = newModel || "claude-sonnet-4-6";
+      await window.yo.saveLLMConfig({ provider: "anthropic", model: fallback });
+      if (inChat) await startNewChat();
+    });
+  });
+  paintModelLabel();
+  // Initial paint: highlight the active default.
+  modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
+
   document.addEventListener("click", (e) => {
     if (!yoModeDropdown.contains(e.target as Node)) {
       yoModeMenu.classList.add("hidden");
@@ -1598,17 +1697,21 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     if (!yoPermDropdown.contains(e.target as Node)) {
       yoPermMenu.classList.add("hidden");
     }
+    if (modelDropdown && !modelDropdown.contains(e.target as Node)) {
+      modelMenu?.classList.add("hidden");
+    }
   });
 
   // -- Mode changes from main process --
   window.yo.onAgentModeChanged?.((mode: string) => {
     if (mode === "standard" || mode === "swarm") {
       setModeValue(mode);
+    } else if (mode === "plan") {
+      setPlanEnabled(true);
     } else {
-      setModeValue("standard");
+      setPlanEnabled(false);
       setPermValue(mode);
     }
-    applyModeColor();
   });
 
   // -- Auto-grow textarea --

@@ -94,6 +94,13 @@ export interface SubstrateToolDeps {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
     create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
   };
+  /** User-created agent registry — surfaced as list_agents + call_agent
+   *  so the .yo loop can delegate to a named agent without committing to a
+   *  full multi-agent swarm. */
+  agentRegistry?: {
+    list: () => Array<{ id: string; name: string; role?: string; mode?: string }>;
+    get: (id: string) => { id: string; name: string; role?: string } | null;
+  };
 }
 
 let deps: SubstrateToolDeps = {};
@@ -1493,6 +1500,51 @@ const BUILTIN_TOOLS: ToolDef[] = [
     run: async (input) => {
       if (!deps.workspace) return "Workspace not available. Is MCP running?";
       return deps.workspace.readAgent(String(input.name), input.kind as string | undefined);
+    },
+  },
+
+  // ── User agents ───────────────────────────────────────────
+  {
+    name: "list_agents",
+    namespace: "yo",
+    description: "List the user's local agents (the library they curate in the Agents screen). "
+      + "Returns id, name, optional role, and mode for each. Use this to discover who's available "
+      + "before calling call_agent — pick the agent whose role best matches the task.",
+    input_schema: { type: "object", properties: {} },
+    run: async () => {
+      if (!deps.agentRegistry) return "[]";
+      const all = deps.agentRegistry.list();
+      return JSON.stringify(all.map((a) => ({ id: a.id, name: a.name, role: a.role, mode: a.mode })), null, 2);
+    },
+  },
+  {
+    name: "call_agent",
+    namespace: "yo",
+    description: "Delegate a single task to one of the user's local agents (use list_agents to discover ids). "
+      + "Spawns the named agent with the given prompt; its activity streams inline into this conversation. "
+      + "Prefer this over create_swarm when you only need ONE agent — swarms are for multi-agent collaboration.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_id: { type: "string", description: "Agent id from list_agents" },
+        prompt: { type: "string", description: "What this agent should do (full task description in the user's own words)" },
+      },
+      required: ["agent_id", "prompt"],
+    },
+    run: async (input) => {
+      if (!deps.swarm) return "Agent runner not wired.";
+      if (!deps.agentRegistry) return "Agent registry not wired.";
+      const agentId = String(input.agent_id || "").trim();
+      const prompt = String(input.prompt || "").trim();
+      if (!agentId) return "agent_id is required.";
+      if (!prompt) return "prompt is required.";
+      if (!deps.agentRegistry.get(agentId)) {
+        const available = deps.agentRegistry.list().map((a) => a.id).join(", ");
+        return `Unknown agent id "${agentId}". Available: ${available || "(none — create one in the Agents tab)"}.`;
+      }
+      // Reuse the swarm machinery with a roster of one — the agent's activity
+      // streams into the same conversation feed.
+      return deps.swarm.create(prompt, [agentId], 1);
     },
   },
 

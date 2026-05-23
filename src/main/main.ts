@@ -1571,6 +1571,18 @@ async function boot() {
     browserHtmlUrl,
     execCommand,
     swarmCreate: runSwarm,
+    agentRegistry: {
+      list: () => listAgents().map((a) => ({
+        id: a.id,
+        name: a.name,
+        role: a.role,
+        mode: a.mode,
+      })),
+      get: (id: string) => {
+        const a = getAgent(id);
+        return a ? { id: a.id, name: a.name, role: a.role } : null;
+      },
+    },
   }));
 
   // Hook into panel focus events — add tab when panel becomes active

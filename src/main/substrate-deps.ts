@@ -37,6 +37,12 @@ export interface BuildSubstrateDepsArgs {
   browserHtmlUrl: (initialUrl?: string) => string;
   execCommand: (cmd: string, sourcePanelId?: string) => Promise<string>;
 
+  // User-created agent registry (drives list_agents / call_agent tools).
+  agentRegistry?: {
+    list: () => Array<{ id: string; name: string; role?: string; mode?: string }>;
+    get: (id: string) => { id: string; name: string; role?: string } | null;
+  };
+
   // Local swarm — draft + spawn (returns a text status for the yo agent).
   swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
 }
@@ -59,6 +65,7 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     browserHtmlUrl,
     execCommand,
     swarmCreate,
+    agentRegistry,
   } = deps;
 
   return {
@@ -312,5 +319,6 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
     },
+    agentRegistry,
   };
 }
