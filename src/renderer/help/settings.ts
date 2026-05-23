@@ -462,6 +462,28 @@ function initSettings() {
     setTimeout(() => { btn.textContent = "Copy"; }, 2000);
   });
 
+  document.getElementById("relay-install-claude")!.addEventListener("click", async () => {
+    const token = relayNewTokenValue?.textContent || "";
+    if (!token) return;
+    const btn = document.getElementById("relay-install-claude") as HTMLButtonElement;
+    const status = document.getElementById("relay-install-status");
+    btn.disabled = true;
+    btn.textContent = "Installing…";
+    const res = await window.yo.relayInstallClaude(token);
+    btn.disabled = false;
+    btn.textContent = "Install in Claude code";
+    if (status) {
+      status.style.display = "block";
+      if ("error" in res) {
+        status.textContent = `✗ ${res.error}`;
+        status.style.color = "var(--danger)";
+      } else {
+        status.textContent = `✓ Installed to ${res.path}`;
+        status.style.color = "var(--accent)";
+      }
+    }
+  });
+
   document.getElementById("relay-copy-config")!.addEventListener("click", () => {
     const val = relayConfigExample?.textContent || "";
     window.yo.copyToClipboard(val);

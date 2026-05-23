@@ -65,6 +65,39 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
     catch (err) { return { error: err instanceof Error ? err.message : String(err) }; }
   });
 
+  // Install the relay into the user's ~/.claude.json so Claude code picks it
+  // up without hand-editing. Idempotent: only touches the "yo-relay" entry
+  // under mcpServers; everything else (other servers, projects, settings)
+  // round-trips untouched. Returns the resolved path on success.
+  ipcMain.handle("relay-install-claude", async (_e, token: string) => {
+    if (!token || typeof token !== "string") return { error: "token is required" };
+    const cfgPath = path.join(os.homedir(), ".claude.json");
+    let existing: Record<string, unknown> = {};
+    try {
+      if (fs.existsSync(cfgPath)) {
+        const raw = fs.readFileSync(cfgPath, "utf8");
+        if (raw.trim()) existing = JSON.parse(raw) as Record<string, unknown>;
+      }
+    } catch (err) {
+      return { error: `Could not read ${cfgPath}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    const mcpServers = (existing.mcpServers && typeof existing.mcpServers === "object")
+      ? existing.mcpServers as Record<string, unknown>
+      : {};
+    mcpServers["yo-relay"] = {
+      type: "http",
+      url: "https://api.yosup.dev/mcp",
+      headers: { Authorization: `Bearer ${token}` },
+    };
+    existing.mcpServers = mcpServers;
+    try {
+      fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2) + "\n", { mode: 0o600 });
+      return { ok: true, path: cfgPath };
+    } catch (err) {
+      return { error: `Could not write ${cfgPath}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
+
   ipcMain.handle("mcp-get-servers", () => {
     if (!mcpManager) return [];
     return mcpManager.getServerStates().map((s) => ({

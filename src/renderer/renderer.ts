@@ -294,6 +294,7 @@ declare global {
       relayTokensList: () => Promise<Array<{ id: string; label: string; type: string; userId: string | null; createdAt: string; expiresAt: string }> | { error: string }>;
       relayTokensCreate: (label: string) => Promise<{ ok: boolean; id: string; token: string; expiresAt: string } | { error: string }>;
       relayTokensRevoke: (id: string) => Promise<{ ok: boolean } | { error: string }>;
+      relayInstallClaude: (token: string) => Promise<{ ok: boolean; path: string } | { error: string }>;
 
       // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK)
       providerKeysList: () => Promise<Array<{

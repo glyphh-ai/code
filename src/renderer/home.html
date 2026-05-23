@@ -1755,7 +1755,9 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                         <div style="display:flex;gap:6px;align-items:center;">
                           <code id="relay-new-token-value" style="flex:1;background:var(--bg);padding:5px 8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;font-family:'SF Mono','Fira Code',monospace;color:var(--text);"></code>
                           <button id="relay-copy-new-token" class="action-btn primary" style="font-size:11px;padding:4px 12px;white-space:nowrap;">Copy</button>
+                          <button id="relay-install-claude" class="action-btn" style="font-size:11px;padding:4px 12px;white-space:nowrap;" title="Write this token into ~/.claude.json so the claude CLI picks up the relay automatically">Install in Claude code</button>
                         </div>
+                        <p id="relay-install-status" style="font-size:11px;color:var(--text-3);margin:6px 0 0;display:none;"></p>
                       </div>
                       <div id="relay-tokens-list" style="margin-bottom:10px;"></div>
                       <div style="display:flex;gap:6px;align-items:center;">

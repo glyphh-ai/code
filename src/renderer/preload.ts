@@ -461,6 +461,7 @@ contextBridge.exposeInMainWorld("yo", {
   relayTokensList: () => ipcRenderer.invoke("relay-tokens-list") as Promise<Array<{ id: string; label: string; type: string; userId: string | null; createdAt: string; expiresAt: string }> | { error: string }>,
   relayTokensCreate: (label: string) => ipcRenderer.invoke("relay-tokens-create", label) as Promise<{ ok: boolean; id: string; token: string; expiresAt: string } | { error: string }>,
   relayTokensRevoke: (id: string) => ipcRenderer.invoke("relay-tokens-revoke", id) as Promise<{ ok: boolean } | { error: string }>,
+  relayInstallClaude: (token: string) => ipcRenderer.invoke("relay-install-claude", token) as Promise<{ ok: boolean; path: string } | { error: string }>,
 
   // BYOK provider keys (Phase 1 of THE-PIVOT-BYOK).
   // List returns *status only* — never plaintext. set/remove/test mutate.
