@@ -9,6 +9,7 @@ import { McpClient, McpTool, McpToolResult } from "./mcp-client";
 import { getPreference, setPreference } from "./preferences";
 import { EventEmitter } from "events";
 import type { AppConnector, McpConfig } from "./app-connector";
+import { callConnectorTool, type ConnectorTool } from "./connector-tools-client";
 
 export interface McpServerConfig {
   id: string;
@@ -33,6 +34,11 @@ export type McpToolOverride = "default" | "auto" | "ask";
 
 export class McpManager extends EventEmitter {
   private servers = new Map<string, { client: McpClient; state: McpServerState }>();
+  // Tools from the user's Pipedream-connected apps. These are NOT local MCP
+  // servers — they're served by yo-server via /api/connectors/tools{,/call}.
+  // Surfaced through getAllTools alongside local server tools so consumers
+  // (skills, agent, relay) don't need to special-case them.
+  private connectorCatalog: ConnectorTool[] = [];
   private appConnector: AppConnector | null = null;
   private ephemeralIds = new Set<string>();
 
@@ -283,6 +289,12 @@ export class McpManager extends EventEmitter {
     return this.servers.get(id)?.state ?? null;
   }
 
+  /** Replace the connector tool catalog (called by ConnectorManager.refreshMcp). */
+  setConnectorCatalog(tools: ConnectorTool[]): void {
+    this.connectorCatalog = tools;
+    this.emit("changed");
+  }
+
   getAllTools(): Array<{
     serverId: string;
     serverName: string;
@@ -292,6 +304,45 @@ export class McpManager extends EventEmitter {
     inputSchema: Record<string, unknown>;
   }> {
     const tools: ReturnType<McpManager["getAllTools"]> = [];
+    // Local MCP servers — talk directly via the client per connection.
+    for (const entry of this.servers.values()) {
+      if (entry.state.status !== "connected") continue;
+      for (const tool of entry.state.tools) {
+        tools.push({
+          serverId: entry.state.config.id,
+          serverName: entry.state.config.name,
+          name: tool.name,
+          qualifiedName: `mcp__${entry.state.config.id}__${tool.name}`,
+          description: tool.description || "",
+          inputSchema: tool.inputSchema,
+        });
+      }
+    }
+    // Pipedream-connected apps — served through yo-server. Use the slug as
+    // the serverId so existing call sites (skills, agent) keep working.
+    for (const t of this.connectorCatalog) {
+      tools.push({
+        serverId: t.slug,
+        serverName: t.slug,
+        name: t.name,
+        qualifiedName: `mcp__${t.slug}__${t.name}`,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      });
+    }
+    return tools;
+  }
+
+  /** Tools from LOCAL MCP servers only — used by the relay's local_mcp_* path. */
+  getLocalTools(): Array<{
+    serverId: string;
+    serverName: string;
+    name: string;
+    qualifiedName: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }> {
+    const tools: ReturnType<McpManager["getLocalTools"]> = [];
     for (const entry of this.servers.values()) {
       if (entry.state.status !== "connected") continue;
       for (const tool of entry.state.tools) {
@@ -308,11 +359,23 @@ export class McpManager extends EventEmitter {
     return tools;
   }
 
+  /** True when `serverId` is a Pipedream-connected app (route via yo-server). */
+  private isConnectorServerId(serverId: string): boolean {
+    return this.connectorCatalog.some((t) => t.slug === serverId);
+  }
+
   async callTool(qualifiedName: string, args: Record<string, unknown> = {}): Promise<string> {
     const match = qualifiedName.match(/^mcp__(.+?)__(.+)$/);
     if (!match) return `Invalid MCP tool name: ${qualifiedName}`;
 
     const [, serverId, toolName] = match;
+
+    // Connector tools: route through yo-server. No local MCP client per app.
+    if (this.isConnectorServerId(serverId)) {
+      try { return await callConnectorTool(serverId, toolName, args); }
+      catch (err) { return `MCP tool error: ${err instanceof Error ? err.message : err}`; }
+    }
+
     const entry = this.servers.get(serverId);
     if (!entry) return `MCP server "${serverId}" not found.`;
     if (entry.state.status !== "connected") return `MCP server "${serverId}" is not connected.`;

@@ -177,15 +177,15 @@ export function installRelayHandlers(deps: Deps): void {
     return { dataUrl: image.toDataURL() };
   });
 
-  // ── MCP passthrough — re-expose the user's connected-app tools ─
+  // ── Local MCP servers only — Pipedream-connected apps go via the ─
+  // server-side connector path (relay's connector_list_tools /
+  // connector_call_tool), not through here. getLocalTools filters those
+  // out, so local_mcp_* never returns duplicates.
 
-  // List every tool from the user's connected MCP servers, flattened. The
-  // external caller can discover what's available before invoking. Schemas
-  // come through so the caller can shape arguments correctly.
   registerRelayHandler("mcp.list_tools", () => {
     const mm = getMcpManager();
     if (!mm) return [];
-    return mm.getAllTools().map((t) => ({
+    return mm.getLocalTools().map((t) => ({
       serverId: t.serverId,
       serverName: t.serverName,
       name: t.name,
@@ -195,9 +195,6 @@ export function installRelayHandlers(deps: Deps): void {
     }));
   });
 
-  // Invoke a specific tool by (serverId, name). Returns the coerced text
-  // result McpManager.callToolDirect produces — image content becomes
-  // `[image: mime]`, errors are caught and returned as a string.
   registerRelayHandler("mcp.call_tool", async (params) => {
     const p = params as { serverId?: string; name?: string; args?: Record<string, unknown> } | null;
     const serverId = String(p?.serverId || "");
