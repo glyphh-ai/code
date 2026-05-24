@@ -2553,11 +2553,25 @@ async function boot() {
     councilScheduler.start();
   }
 
-  // ── Vibe app — standalone panel (shell). Placeholder IPC seam; the real
-  // feature gets built in behind registerVibeIpc later.
-  {
-    const { registerVibeIpc } = require("./vibe-ipc") as typeof import("./vibe-ipc");
-    registerVibeIpc({ terminalManager });
+  // ── Vibe app — standalone panel bound to a persisted Vibe project.
+  const { registerVibeIpc, openVibe } = require("./vibe-ipc") as typeof import("./vibe-ipc");
+  registerVibeIpc({ terminalManager });
+
+  /** Ensure the vibe panel exists, switch to it, and reload it so vibe-ready
+   *  re-fires and the agent re-spawns in the (now-active) vibe's code dir. */
+  function showVibePanel(): void {
+    if (!mainWindow) return;
+    if (!panelManager.hasPanel("vibe")) {
+      createPanelForApp("vibe", { id: "vibe", url: "yo://vibe" });
+    }
+    panelManager.switchTo("vibe", mainWindow);
+    const wc = panelManager.getWebContents("vibe");
+    if (wc && !wc.isDestroyed()) wc.reload();
+  }
+
+  /** Set the vibe active + show/reload the panel. Used by the Vibes home section. */
+  function openVibeById(id: string) {
+    return openVibe(id, { showVibePanel });
   }
 
   // Approval system — pending approvals map + IPC
@@ -2675,6 +2689,7 @@ async function boot() {
     mcpExpose: mcpExpose!, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, getMainWindow: () => mainWindow, activeReminders,
+    openVibe: openVibeById,
   });
 
   // ── Local swarm session (cypher-session.ts) ──────────────────────

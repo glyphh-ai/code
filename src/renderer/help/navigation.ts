@@ -9,6 +9,7 @@ import { loadLayouts, initLayoutsEvents } from "./layouts.js";
 import { loadSkills, initSkillsEvents } from "./skills.js";
 import { loadApps, initApps, openNewAppForm } from "./apps.js";
 import { loadAgents, initAgents } from "./agents.js";
+import { loadVibes, initVibes } from "./vibes.js";
 import { loadSchedules, initSchedules, openScheduleByName } from "./schedules.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
@@ -136,6 +137,7 @@ export function loadActiveSection(explicit?: string) {
   else if (sec === "layouts") loadLayouts();
   else if (sec === "apps") loadApps();
   else if (sec === "agents") void loadAgents();
+  else if (sec === "vibes") void loadVibes();
   else if (sec === "schedules") void loadSchedules();
   else if (sec === "councils") void loadCouncils();
   else if (sec === "settings") loadSettings();
@@ -290,6 +292,7 @@ export function initHelp() {
   initDripsEvents();
   initSkillsEvents();
   initAgents();
+  initVibes();
   initSchedules();
   initCouncils();
 }

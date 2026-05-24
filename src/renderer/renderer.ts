@@ -337,6 +337,12 @@ declare global {
       agentsSave: (cfg: unknown) => Promise<unknown>;
       agentsRemove: (id: string) => Promise<boolean>;
       agentsIdAvailable: (id: string) => Promise<boolean>;
+      // Vibes — persisted vibe-coding projects
+      vibesList: () => Promise<Array<Record<string, unknown>>>;
+      vibesGet: (id: string) => Promise<Record<string, unknown> | null>;
+      vibesCreate: (name: string, description?: string) => Promise<Record<string, unknown>>;
+      vibesDelete: (id: string) => Promise<boolean>;
+      vibesOpen: (id: string) => Promise<Record<string, unknown> | null>;
       // yos wallet
       yosBalance: () => Promise<{ user_id: string; balance: number } | { error: string }>;
       yosRateCards: () => Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>;

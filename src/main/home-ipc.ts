@@ -15,6 +15,7 @@ import type { ConnectorManager } from "./connectors";
 import type { PanelManager } from "./panel-manager";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
 import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed } from "./auth";
+import { listVibes, getVibe, createVibe, deleteVibe, type VibeMeta } from "./vibe-store";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -27,6 +28,8 @@ interface HomeIpcDeps {
   panelManager: PanelManager;
   getMainWindow: () => import("electron").BrowserWindow | null;
   activeReminders: Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>;
+  /** Open a vibe by id: set it active + show/reload the vibe panel. Returns the vibe. */
+  openVibe: (id: string) => VibeMeta | null;
 }
 
 export function registerHomeIpc(deps: HomeIpcDeps): void {
@@ -34,7 +37,17 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
     mcpExpose, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, getMainWindow, activeReminders,
+    openVibe,
   } = deps;
+
+  // ── Vibes registry CRUD + open ────────────────────────────
+  ipcMain.handle("vibes-list", () => listVibes());
+  ipcMain.handle("vibes-get", (_e, id: string) => getVibe(id));
+  ipcMain.handle("vibes-create", (_e, name: string, description?: string) => createVibe(name, description));
+  ipcMain.handle("vibes-delete", (_e, id: string) => deleteVibe(id));
+  // Open: set the vibe active and switch + reload the vibe panel (so the agent
+  // re-spawns in the new vibe's code dir). Returns the opened vibe.
+  ipcMain.handle("vibes-open", (_e, id: string) => openVibe(id));
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));

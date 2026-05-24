@@ -544,6 +544,13 @@ contextBridge.exposeInMainWorld("yo", {
   agentsRemove: (id: string) => ipcRenderer.invoke("agents-remove", id) as Promise<boolean>,
   agentsIdAvailable: (id: string) => ipcRenderer.invoke("agents-id-available", id) as Promise<boolean>,
 
+  // Vibes — persisted vibe-coding projects (~/yo/vibes/<id>/)
+  vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<Record<string, unknown>>>,
+  vibesGet: (id: string) => ipcRenderer.invoke("vibes-get", id) as Promise<Record<string, unknown> | null>,
+  vibesCreate: (name: string, description?: string) => ipcRenderer.invoke("vibes-create", name, description) as Promise<Record<string, unknown>>,
+  vibesDelete: (id: string) => ipcRenderer.invoke("vibes-delete", id) as Promise<boolean>,
+  vibesOpen: (id: string) => ipcRenderer.invoke("vibes-open", id) as Promise<Record<string, unknown> | null>,
+
   // yos wallet + rate cards
   yosBalance: () => ipcRenderer.invoke("yos-balance") as Promise<{ user_id: string; balance: number } | { error: string }>,
   yosRateCards: () => ipcRenderer.invoke("yos-rate-cards") as Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>,

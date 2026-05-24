@@ -55,6 +55,7 @@
         </div>
         <button class="help-nav-item" data-section="apps">Apps</button>
         <button class="help-nav-item" data-section="agents">Agents</button>
+        <button class="help-nav-item" data-section="vibes">Vibes</button>
         <button class="help-nav-item" data-section="councils">Councils</button>
         <button class="help-nav-item" data-section="layouts">Layouts</button>
         <button class="help-nav-item" data-section="drips">Drips</button>
@@ -1253,6 +1254,36 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <div style="flex:1;"></div>
               <button id="agent-cancel-btn" class="action-btn">Cancel</button>
               <button id="agent-save-btn" class="action-btn primary">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vibes -->
+        <div class="help-section" data-section="vibes">
+          <h2>Vibes</h2>
+          <p class="section-desc">Your vibe-coding projects — each is a persisted workspace (agent · plan · preview) the coding agent builds in.</p>
+          <div id="vibes-toolbar" class="crud-toolbar">
+            <input id="vibe-search" type="text" class="crud-search" placeholder="Search vibes..." spellcheck="false" autocomplete="off" />
+            <button id="vibe-new-btn" class="action-btn primary">+ New</button>
+          </div>
+          <div id="vibes-list" class="crud-cards"></div>
+          <div id="vibe-detail" class="crud-inline-form hidden">
+            <div class="crud-inline-header">
+              <a class="crud-breadcrumb-back" id="vibe-back-link">&larr; Vibes</a>
+              <div class="crud-spacer"></div>
+            </div>
+            <div id="vibe-form-error" class="crud-form-error hidden"></div>
+
+            <label class="settings-label">Name</label>
+            <input type="text" id="vibe-name" class="settings-input" placeholder="My app" spellcheck="false" autocomplete="off" />
+
+            <label class="settings-label">Description</label>
+            <textarea id="vibe-description" class="settings-input" rows="3" placeholder="What are you building?"></textarea>
+
+            <div class="settings-actions" style="margin-top:12px;">
+              <button id="vibe-delete-btn" class="action-btn danger">Delete</button>
+              <div style="flex:1;"></div>
+              <button id="vibe-open-btn" class="action-btn primary">Open workspace</button>
             </div>
           </div>
         </div>
