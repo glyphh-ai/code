@@ -4,41 +4,130 @@
 <meta charset="UTF-8">
 <title>Vibe</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="xterm.css">
 <style>
   /* Vibe-specific layout — base reset, fonts, colors, buttons all from styles.css */
 
-  body { font-size: 14px; line-height: 1.5; }
+  html, body { height: 100%; }
+  body { font-size: 14px; line-height: 1.5; overflow: hidden; }
 
   /* ── Top bar ───────────────────────────────────────────── */
   .topbar {
     display: flex; align-items: center; gap: 12px;
-    padding: 14px 24px;
+    padding: 10px 16px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     flex-shrink: 0;
+    height: 44px;
   }
   .brand {
-    font-family: var(--font-mono); font-size: 18px; font-weight: 800;
+    font-family: var(--font-mono); font-size: 16px; font-weight: 800;
     color: var(--text); letter-spacing: -0.02em;
   }
   .brand .dot { color: var(--accent); }
   .topbar-spacer { flex: 1; }
 
-  /* ── Placeholder shell ─────────────────────────────────── */
-  .vibe-wrap {
-    height: calc(100vh - 64px);
+  /* ── 3-region workspace grid ───────────────────────────── */
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+    height: calc(100vh - 44px);
+    width: 100%;
+  }
+  .region {
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    text-align: center;
-    padding: 32px 24px;
+    min-width: 0; min-height: 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg);
   }
-  .vibe-wrap h1 {
+  .region:last-child { border-right: none; }
+
+  .region-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
     font-family: var(--font-mono);
-    font-size: 32px; font-weight: 800; letter-spacing: -0.02em;
-    margin: 0 0 8px; color: var(--text);
+    font-size: 12px; font-weight: 700;
+    color: var(--text-2);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    height: 36px;
   }
-  .vibe-wrap .lede {
-    color: var(--text-2); font-size: 14px; margin: 0;
+  .region-header .spacer { flex: 1; }
+
+  /* ── Agent (terminal) region ───────────────────────────── */
+  #vibe-term {
+    flex: 1; min-height: 0;
+    background: #0d0d14;
+    padding: 4px;
+  }
+  #vibe-term .xterm { height: 100%; }
+  .xterm-viewport::-webkit-scrollbar { width: 8px; }
+  .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(37, 199, 94, 0.3); border-radius: 4px; }
+  .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── Plan region ───────────────────────────────────────── */
+  .saved-indicator {
+    font-size: 11px; font-weight: 600;
+    color: var(--accent);
+    text-transform: none; letter-spacing: 0;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .saved-indicator.show { opacity: 1; }
+  #vibe-plan {
+    flex: 1; min-height: 0;
+    width: 100%;
+    resize: none;
+    border: none;
+    outline: none;
+    padding: 14px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    box-sizing: border-box;
+  }
+
+  /* ── Preview region ────────────────────────────────────── */
+  .url-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  #vibe-url {
+    flex: 1; min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    outline: none;
+  }
+  #vibe-url:focus { border-color: var(--accent); }
+  .url-bar button {
+    padding: 6px 12px;
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .url-bar button:hover { border-color: var(--accent); color: var(--accent); }
+  #vibe-preview {
+    flex: 1; min-height: 0;
+    width: 100%;
+    border: none;
+    background: #ffffff;
   }
 </style>
 </head>
@@ -50,10 +139,35 @@
   <div class="topbar-spacer"></div>
 </div>
 
-<!-- ── Placeholder shell ──────────────────────────────── -->
-<div class="vibe-wrap" id="view-main">
-  <h1>Vibe</h1>
-  <p class="lede">Coming soon.</p>
+<!-- ── 3-region workspace ──────────────────────────────── -->
+<div class="workspace">
+
+  <!-- LEFT: Agent -->
+  <div class="region" id="region-agent">
+    <div class="region-header">Agent</div>
+    <div id="vibe-term"></div>
+  </div>
+
+  <!-- MIDDLE: Plan -->
+  <div class="region" id="region-plan">
+    <div class="region-header">
+      plan.md
+      <span class="spacer"></span>
+      <span class="saved-indicator" id="vibe-plan-saved">saved</span>
+    </div>
+    <textarea id="vibe-plan" spellcheck="false" placeholder="# Plan&#10;&#10;Write the living task list here…"></textarea>
+  </div>
+
+  <!-- RIGHT: Preview -->
+  <div class="region" id="region-preview">
+    <div class="region-header">Preview</div>
+    <div class="url-bar">
+      <input id="vibe-url" type="text" value="http://localhost:5173" spellcheck="false" />
+      <button id="vibe-reload" type="button">Reload</button>
+    </div>
+    <webview id="vibe-preview" src="http://localhost:5173" allowpopups></webview>
+  </div>
+
 </div>
 
 <script>

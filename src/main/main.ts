@@ -952,7 +952,8 @@ async function boot() {
     } else if (app.url === "yo://council") {
       panelManager.addPanel(app.id, councilHtml, councilPreload);
     } else if (app.url === "yo://vibe") {
-      panelManager.addPanel(app.id, vibeHtml, vibePreload);
+      // webviewTag: true so the <webview id="vibe-preview"> live preview works.
+      panelManager.addPanel(app.id, vibeHtml, vibePreload, undefined, true);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1411,7 +1412,8 @@ async function boot() {
     } else if (app.url === "yo://council") {
       panelManager.addPanel(instanceId, councilHtml, councilPreload);
     } else if (app.url === "yo://vibe") {
-      panelManager.addPanel(instanceId, vibeHtml, vibePreload);
+      // webviewTag: true so the <webview id="vibe-preview"> live preview works.
+      panelManager.addPanel(instanceId, vibeHtml, vibePreload, undefined, true);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -2555,7 +2557,7 @@ async function boot() {
   // feature gets built in behind registerVibeIpc later.
   {
     const { registerVibeIpc } = require("./vibe-ipc") as typeof import("./vibe-ipc");
-    registerVibeIpc();
+    registerVibeIpc({ terminalManager });
   }
 
   // Approval system — pending approvals map + IPC
