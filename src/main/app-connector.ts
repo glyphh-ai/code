@@ -191,6 +191,7 @@ const NO_CAPTURE: CapturePolicy = { type: "manual" };
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
+  { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE },
   { id: "vscode", name: "VS Code", url: "yo://vscode" },
   { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },

@@ -933,6 +933,8 @@ async function boot() {
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
   const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
   const councilPreload = path.join(__dirname, "council-preload.js");
+  const vibeHtml = `file://${path.join(__dirname, "..", "renderer", "vibe.html")}`;
+  const vibePreload = path.join(__dirname, "vibe-preload.js");
   const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   vscodeServer = new VSCodeServer();
@@ -949,6 +951,8 @@ async function boot() {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://council") {
       panelManager.addPanel(app.id, councilHtml, councilPreload);
+    } else if (app.url === "yo://vibe") {
+      panelManager.addPanel(app.id, vibeHtml, vibePreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -1406,6 +1410,8 @@ async function boot() {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
     } else if (app.url === "yo://council") {
       panelManager.addPanel(instanceId, councilHtml, councilPreload);
+    } else if (app.url === "yo://vibe") {
+      panelManager.addPanel(instanceId, vibeHtml, vibePreload);
     } else if (app.url === "yo://monaco") {
       panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
@@ -2543,6 +2549,13 @@ async function boot() {
       }),
     });
     councilScheduler.start();
+  }
+
+  // ── Vibe app — standalone panel (shell). Placeholder IPC seam; the real
+  // feature gets built in behind registerVibeIpc later.
+  {
+    const { registerVibeIpc } = require("./vibe-ipc") as typeof import("./vibe-ipc");
+    registerVibeIpc();
   }
 
   // Approval system — pending approvals map + IPC

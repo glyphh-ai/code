@@ -5,7 +5,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
-    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:council && npm run build:waz && npm run build:overlay && npm run build:prompt",
+    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:council && npm run build:waz && npm run build:overlay && npm run build:prompt && npm run build:vibe",
     "build:main": "tsc && shx cp -r src/main/vscode-bridge dist/main/",
     "build:overlay": "shx mkdir -p dist/main/overlay && swiftc src/main/overlay/keytap.swift -o dist/main/overlay/keytap",
     "build:prompt": "esbuild src/renderer/prompt-renderer.ts --bundle --outfile=dist/renderer/prompt-bundle.js --platform=browser && esbuild src/renderer/prompt-preload.ts --bundle --outfile=dist/main/prompt-preload.js --platform=node --external:electron && shx cp src/renderer/prompt.html dist/renderer/",
@@ -14,6 +14,7 @@
     "build:monaco": "shx cp src/renderer/monaco.html dist/renderer/ && shx cp -r node_modules/monaco-editor/min/vs dist/renderer/monaco",
     "build:code-workspace": "esbuild src/renderer/code-workspace.ts --bundle --outfile=dist/renderer/code-workspace-bundle.js --platform=browser && esbuild src/renderer/code-preload.ts --bundle --outfile=dist/main/code-workspace-preload.js --platform=node --external:electron && shx cp src/renderer/code-workspace.html dist/renderer/",
     "build:council": "esbuild src/renderer/council.ts --bundle --outfile=dist/renderer/council.js --platform=browser && esbuild src/renderer/council-preload.ts --bundle --outfile=dist/main/council-preload.js --platform=node --external:electron && shx cp src/renderer/council.html dist/renderer/",
+    "build:vibe": "esbuild src/renderer/vibe.ts --bundle --outfile=dist/renderer/vibe.js --platform=browser && esbuild src/renderer/vibe-preload.ts --bundle --outfile=dist/main/vibe-preload.js --platform=node --external:electron && shx cp src/renderer/vibe.html dist/renderer/",
     "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
     "bench:code-index": "npm run build:main && node dist/main/code-index/benchmark.js",
     "bench:code-index-ab": "npm run build:main && node dist/main/code-index/benchmark-ab.js",

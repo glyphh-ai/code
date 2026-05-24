@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Vibe</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Vibe-specific layout — base reset, fonts, colors, buttons all from styles.css */
+
+  body { font-size: 14px; line-height: 1.5; }
+
+  /* ── Top bar ───────────────────────────────────────────── */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .brand {
+    font-family: var(--font-mono); font-size: 18px; font-weight: 800;
+    color: var(--text); letter-spacing: -0.02em;
+  }
+  .brand .dot { color: var(--accent); }
+  .topbar-spacer { flex: 1; }
+
+  /* ── Placeholder shell ─────────────────────────────────── */
+  .vibe-wrap {
+    height: calc(100vh - 64px);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding: 32px 24px;
+  }
+  .vibe-wrap h1 {
+    font-family: var(--font-mono);
+    font-size: 32px; font-weight: 800; letter-spacing: -0.02em;
+    margin: 0 0 8px; color: var(--text);
+  }
+  .vibe-wrap .lede {
+    color: var(--text-2); font-size: 14px; margin: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ────────────────────────────────────────── -->
+<div class="topbar">
+  <div class="brand"><span class="dot">.</span>vibe</div>
+  <div class="topbar-spacer"></div>
+</div>
+
+<!-- ── Placeholder shell ──────────────────────────────── -->
+<div class="vibe-wrap" id="view-main">
+  <h1>Vibe</h1>
+  <p class="lede">Coming soon.</p>
+</div>
+
+<script>
+  (async () => {
+    const api = window.vibe;
+    if (api && api.getTheme) {
+      const t = await api.getTheme();
+      const resolved = t === "system"
+        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+        : t;
+      document.documentElement.setAttribute("data-theme", resolved);
+    }
+    if (api && api.onThemeChanged) {
+      api.onThemeChanged((theme) => {
+        document.documentElement.setAttribute("data-theme", theme);
+      });
+    }
+  })();
+</script>
+<script src="./vibe.js"></script>
+</body>
+</html>
