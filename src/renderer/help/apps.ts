@@ -421,68 +421,38 @@ async function loadConnectionTab() {
   toolsEl.innerHTML = "";
   noToolsEl.classList.add("hidden");
   if (isConnected && app.connection?.pipedreamSlug) {
-    await loadConnectionTools(app.id);
+    await loadConnectionTools(app.connection.pipedreamSlug);
   } else {
     noToolsEl.textContent = "Connect an app to see its tools.";
     noToolsEl.classList.remove("hidden");
   }
 }
 
-async function loadConnectionTools(appId: string) {
+async function loadConnectionTools(slug: string) {
   const toolsEl = document.getElementById("app-connection-tools")!;
   const noToolsEl = document.getElementById("app-connection-no-tools")!;
   toolsEl.innerHTML = "";
+  noToolsEl.textContent = "Loading tools…";
+  noToolsEl.classList.remove("hidden");
 
-  const servers = await window.yo.mcpGetServers();
-  const pdServer = servers.find((s) => s.config.id === appId);
-
-  if (!pdServer) {
-    noToolsEl.textContent = "Connecting...";
-    noToolsEl.classList.remove("hidden");
-    console.log(`[connection-tools] No server "${appId}" found. Available:`, servers.map(s => s.config.id));
-
-    try {
-      const refreshResult = await window.yo.connectorsRefreshMcp();
-      console.log("[connection-tools] refreshMcp result:", refreshResult);
-      const retryServers = await window.yo.mcpGetServers();
-      console.log("[connection-tools] After refresh, servers:", retryServers.map(s => `${s.config.id} (${s.status}, ${s.tools.length} tools)`));
-      const retryPd = retryServers.find((s) => s.config.id === appId);
-      if (retryPd) {
-        noToolsEl.classList.add("hidden");
-        return loadConnectionTools(appId);
-      }
-    } catch (err) {
-      console.error("[connection-tools] refreshMcp error:", err);
-    }
-    noToolsEl.textContent = "Tools not available for this app.";
-    return;
+  // Tools come from yo-server's flat connector catalog (keyed by pipedream
+  // app slug), surfaced via connectors-list-tools. Filter to this app's slug.
+  let tools: Array<{ slug: string; name: string; description: string }> = [];
+  try {
+    tools = await window.yo.connectorsListTools();
+  } catch (err) {
+    console.error("[connection-tools] list failed:", err);
   }
+  const appTools = tools.filter((t) => t.slug === slug);
 
-  if (pdServer.status !== "connected") {
-    noToolsEl.textContent = `Server: ${pdServer.status}${pdServer.error ? " — " + pdServer.error : ""}. Reconnecting...`;
-    noToolsEl.classList.remove("hidden");
-
-    try {
-      const result = await window.yo.connectorsRefreshMcp();
-      if (result.ok) {
-        noToolsEl.classList.add("hidden");
-        return loadConnectionTools(appId);
-      }
-      noToolsEl.textContent = `Server: ${pdServer.status}${result.error ? " — " + result.error : ""}`;
-    } catch { /* ignore */ }
-    return;
-  }
-
-  if (pdServer.tools.length === 0) {
-    noToolsEl.textContent = "Server connected but no tools discovered.";
+  if (appTools.length === 0) {
+    noToolsEl.textContent = "No tools available for this app yet.";
     noToolsEl.classList.remove("hidden");
     return;
   }
-
-  const toolsToShow = pdServer.tools;
 
   noToolsEl.classList.add("hidden");
-  for (const tool of toolsToShow) {
+  for (const tool of appTools) {
     const row = document.createElement("div");
     row.className = "crud-card";
     row.innerHTML = `

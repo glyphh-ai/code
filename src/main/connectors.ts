@@ -17,7 +17,7 @@ import { EventEmitter } from "events";
 import { serverPostAuthed, serverGetAuthed, getAccountInfo, getHeartbeatInfo } from "./auth";
 import type { McpManager } from "./mcp-manager";
 import type { AppConnector } from "./app-connector";
-import { refreshConnectorCatalog } from "./connector-tools-client";
+import { refreshConnectorCatalog, type ConnectorTool } from "./connector-tools-client";
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -309,6 +309,13 @@ export class ConnectorManager extends EventEmitter {
       console.error("Connectors catalog refresh error:", msg);
       return { ok: false, error: msg, toolCount: 0 };
     }
+  }
+
+  /** Flat connector tool catalog (refreshed) for the Apps → connection tab. */
+  async listTools(): Promise<ConnectorTool[]> {
+    const tools = await refreshConnectorCatalog();
+    this.mcpManager?.setConnectorCatalog(tools);
+    return tools;
   }
 
   private pipedreamServerIds = new Set<string>();

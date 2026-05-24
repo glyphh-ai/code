@@ -284,6 +284,7 @@ declare global {
       connectorsConnect: (appSlug: string) => Promise<{ ok: boolean; error?: string }>;
       connectorsDisconnect: (accountId: string) => Promise<boolean>;
       connectorsRefreshMcp: () => Promise<{ ok: boolean; error?: string; toolCount: number }>;
+      connectorsListTools: () => Promise<Array<{ slug: string; name: string; description: string }>>;
       onConnectorsChanged: (cb: () => void) => void;
       // Auto-update
       onUpdateStatus: (cb: (info: { status: string; version?: string; percent?: number; error?: string }) => void) => void;

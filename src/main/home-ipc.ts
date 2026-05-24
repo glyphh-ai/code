@@ -163,6 +163,10 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
     if (!connectorManager) return { ok: false, error: "Not initialized", toolCount: 0 };
     return connectorManager.refreshMcp();
   });
+  ipcMain.handle("connectors-list-tools", async () => {
+    if (!connectorManager) return [];
+    return connectorManager.listTools();
+  });
 
   ipcMain.handle("dashboard:today", () => usageTracker.getToday());
   ipcMain.handle("dashboard:history", (_e, days?: number) => usageTracker.getHistory(days || 30));
