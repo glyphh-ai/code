@@ -25,6 +25,7 @@ import {
   deleteVibe,
   saveVibe,
   vibeCodeDir,
+  vibeSpecPath,
   vibePlanPath,
   vibeClaudePath,
   type VibeMeta,
@@ -131,6 +132,22 @@ export function registerVibeIpc(deps: VibeIpcDeps): void {
 
   // ── Region 1: spawn the Claude Code agent when the renderer is ready ──
   ipcMain.on("vibe-ready", (e) => spawnVibeAgent(e.sender));
+
+  // ── SPEC.md read / write (the durable source of truth, above the plan) ──
+  ipcMain.handle("vibe-spec-read", () => {
+    try {
+      return fs.readFileSync(vibeSpecPath(resolveActiveVibeId()), "utf-8");
+    } catch {
+      return "";
+    }
+  });
+  ipcMain.on("vibe-spec-write", (_e, text: string) => {
+    try {
+      fs.writeFileSync(vibeSpecPath(resolveActiveVibeId()), typeof text === "string" ? text : "", "utf-8");
+    } catch (err) {
+      console.log("[vibe] spec write failed:", (err as Error).message);
+    }
+  });
 
   // ── Region 2: plan.md read / write (bound to the active vibe) ──
   ipcMain.handle("vibe-plan-read", () => {

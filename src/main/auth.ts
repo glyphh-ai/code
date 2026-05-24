@@ -63,6 +63,26 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let authWindow: BrowserWindow | null = null;
 
+// ── Re-auth gate ─────────────────────────────────────────────
+// Fired when the session can't be kept alive (refresh rejected, or an authed
+// call hit 401 with no usable token) so the UI can surface the login screen
+// instead of silently degrading. Debounced so a burst of failing calls only
+// pops one prompt.
+let reauthHandler: (() => void) | null = null;
+let lastReauthAt = 0;
+
+/** Register the callback that surfaces the login gate (set by main.ts). */
+export function setReauthHandler(fn: () => void): void { reauthHandler = fn; }
+
+/** Signal that the user must re-authenticate. Debounced (30s). */
+function triggerReauth(): void {
+  const now = Date.now();
+  if (now - lastReauthAt < 30_000) return;
+  lastReauthAt = now;
+  console.warn("[auth] session cannot be refreshed — prompting re-login");
+  try { reauthHandler?.(); } catch { /* noop */ }
+}
+
 // ── Encrypted storage ────────────────────────────────────────
 
 function secureWrite(filePath: string, data: string): void {
@@ -147,7 +167,9 @@ async function refreshTokens(): Promise<boolean> {
       });
       return true;
     }
+    // Server rejected the refresh token (expired / revoked) — hard failure.
     clearSessionFile();
+    triggerReauth();
     return false;
   } catch {
     // Network error — keep existing session if still valid, retry soon
@@ -155,7 +177,9 @@ async function refreshTokens(): Promise<boolean> {
       setTimeout(() => { void refreshTokens(); }, 30_000);
       return true;
     }
+    // Offline past expiry with nothing usable — surface the gate.
     clearSessionFile();
+    triggerReauth();
     return false;
   }
 }
@@ -423,6 +447,7 @@ function serverPost<T>(endpoint: string, body: Record<string, unknown>): Promise
       clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status === 401) triggerReauth();
         if (status < 200 || status >= 300) {
           reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
           return;
@@ -442,7 +467,7 @@ function serverPost<T>(endpoint: string, body: Record<string, unknown>): Promise
 
 export function serverGetAuthed<T>(endpoint: string): Promise<T> {
   const token = getAuthToken();
-  if (!token) return Promise.reject(new Error("Not authenticated"));
+  if (!token) { triggerReauth(); return Promise.reject(new Error("Not authenticated")); }
 
   return new Promise((resolve, reject) => {
     const url = `${AUTH_SERVER}${endpoint}`;
@@ -456,6 +481,7 @@ export function serverGetAuthed<T>(endpoint: string): Promise<T> {
       clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status === 401) triggerReauth();
         if (status < 200 || status >= 300) {
           reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
           return;
@@ -474,7 +500,7 @@ export function serverGetAuthed<T>(endpoint: string): Promise<T> {
 
 export function serverDeleteAuthed<T>(endpoint: string): Promise<T> {
   const token = getAuthToken();
-  if (!token) return Promise.reject(new Error("Not authenticated"));
+  if (!token) { triggerReauth(); return Promise.reject(new Error("Not authenticated")); }
 
   return new Promise((resolve, reject) => {
     const url = `${AUTH_SERVER}${endpoint}`;
@@ -488,6 +514,7 @@ export function serverDeleteAuthed<T>(endpoint: string): Promise<T> {
       clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status === 401) triggerReauth();
         if (status < 200 || status >= 300) {
           reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
           return;
@@ -506,7 +533,7 @@ export function serverDeleteAuthed<T>(endpoint: string): Promise<T> {
 
 export function serverPostAuthed<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
   const token = getAuthToken();
-  if (!token) return Promise.reject(new Error("Not authenticated"));
+  if (!token) { triggerReauth(); return Promise.reject(new Error("Not authenticated")); }
 
   return new Promise((resolve, reject) => {
     const url = `${AUTH_SERVER}${endpoint}`;
@@ -522,6 +549,7 @@ export function serverPostAuthed<T>(endpoint: string, body: Record<string, unkno
       clearTimeout(timer);
       response.on("data", (chunk) => { responseBody += chunk.toString(); });
       response.on("end", () => {
+        if (status === 401) triggerReauth();
         if (status < 200 || status >= 300) {
           reject(new Error(`HTTP ${status}: ${responseBody.slice(0, 200)}`));
           return;

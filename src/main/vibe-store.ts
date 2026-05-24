@@ -3,7 +3,8 @@
  *
  * Each vibe is a persisted project under ~/yo/vibes/<id>/:
  *   meta.json   # VibeMeta (below)
- *   plan.md     # the living task list (region 2 of the vibe workspace)
+ *   SPEC.md     # durable intent — the source of truth above the plan
+ *   plan.md     # the living task list (derived from SPEC.md, agent-maintained)
  *   CLAUDE.md   # the methodology fed to the coding agent (editable per project)
  *   code/       # the project being built (the agent cwd)
  *
@@ -34,6 +35,20 @@ export interface VibeMeta {
 }
 
 // ── Seed content ────────────────────────────────────────────
+
+const STARTER_SPEC = `# Spec
+
+> What we're building and why. This is the durable source of truth — the agent
+> derives the plan from it, and editing this is how you steer.
+
+## Goal
+Describe the app in a sentence or two.
+
+## Requirements
+- [ ] …
+
+## Notes
+`;
 
 const STARTER_PLAN = `# Plan
 
@@ -104,6 +119,10 @@ export function vibeCodeDir(id: string): string {
   return path.join(vibeDir(id), "code");
 }
 
+export function vibeSpecPath(id: string): string {
+  return path.join(vibeDir(id), "SPEC.md");
+}
+
 export function vibePlanPath(id: string): string {
   return path.join(vibeDir(id), "plan.md");
 }
@@ -143,8 +162,11 @@ export function createVibe(name: string, description?: string): VibeMeta {
   const id = uniqueId(trimmed);
   const now = new Date().toISOString();
 
-  // Scaffold the project tree: <id>/code/ + seed plan.md + CLAUDE.md.
+  // Scaffold the project tree: <id>/code/ + seed SPEC.md + plan.md + CLAUDE.md.
   fs.mkdirSync(vibeCodeDir(id), { recursive: true });
+  if (!fs.existsSync(vibeSpecPath(id))) {
+    fs.writeFileSync(vibeSpecPath(id), STARTER_SPEC, { mode: 0o600 });
+  }
   if (!fs.existsSync(vibePlanPath(id))) {
     fs.writeFileSync(vibePlanPath(id), STARTER_PLAN, { mode: 0o600 });
   }

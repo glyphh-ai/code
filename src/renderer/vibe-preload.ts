@@ -10,7 +10,11 @@ interface VibeAPI {
   /** Tell main the renderer is ready (after first fit) → triggers agent spawn. */
   ready: () => void;
 
-  // ── Plan file (~/yo/vibes/scratch/plan.md) ────────────────
+  // ── Spec file (~/yo/vibes/<id>/SPEC.md) — durable source of truth ──
+  specRead: () => Promise<string>;
+  specWrite: (text: string) => void;
+
+  // ── Plan file (~/yo/vibes/<id>/plan.md) ───────────────────
   planRead: () => Promise<string>;
   planWrite: (text: string) => void;
 
@@ -26,6 +30,9 @@ const api: VibeAPI = {
     ipcRenderer.on("terminal:data", (_e, data: string) => cb(data));
   },
   ready: () => ipcRenderer.send("vibe-ready"),
+
+  specRead: () => ipcRenderer.invoke("vibe-spec-read") as Promise<string>,
+  specWrite: (text) => ipcRenderer.send("vibe-spec-write", text),
 
   planRead: () => ipcRenderer.invoke("vibe-plan-read") as Promise<string>,
   planWrite: (text) => ipcRenderer.send("vibe-plan-write", text),

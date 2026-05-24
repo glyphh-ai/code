@@ -28,7 +28,7 @@ import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewrit
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
+import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, setReauthHandler, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
 import { CypherBus } from "./cypher-bus";
@@ -1038,22 +1038,25 @@ async function boot() {
 
   // Global keytap overlay (macOS): native CGEventTap helper intercepts dot-commands
   // typed in ANY app and shows an inline braille spinner at the caret while we work.
-  // Desktop overlay. Until the agent overlay (.yo/.sup/.dip) is ready we ship
-  // with ONLY the global ".drip" effect active; the rest stay off behind the
-  // `overlayAgentEnabled` flag (flip the pref to enable them).
-  const overlayBin = app.isPackaged
-    ? path.join(process.resourcesPath, "overlay", "keytap")
-    : path.join(__dirname, "overlay", "keytap");
-  const overlayTriggers = getPreference<boolean>("overlayAgentEnabled", false)
-    ? ".yo,.dip,.sup,.drip,.peace"
-    : ".drip";
-  startOverlay(
-    yoAgent,
-    (cmd) => commandParser.execute(cmd),
-    () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } },
-    overlayBin,
-    overlayTriggers,
-  );
+  // DISABLED by default — spawning the helper triggers the macOS Accessibility /
+  // Input-Monitoring permission prompt on launch, which we don't want yet. Flip the
+  // `overlayEnabled` pref to turn it back on. When enabled, `overlayAgentEnabled`
+  // further controls whether the .yo/.dip/.sup agent triggers are live (vs. .drip only).
+  if (getPreference<boolean>("overlayEnabled", false)) {
+    const overlayBin = app.isPackaged
+      ? path.join(process.resourcesPath, "overlay", "keytap")
+      : path.join(__dirname, "overlay", "keytap");
+    const overlayTriggers = getPreference<boolean>("overlayAgentEnabled", false)
+      ? ".yo,.dip,.sup,.drip,.peace"
+      : ".drip";
+    startOverlay(
+      yoAgent,
+      (cmd) => commandParser.execute(cmd),
+      () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } },
+      overlayBin,
+      overlayTriggers,
+    );
+  }
 
   // Wire yo agent dependencies
   yoAgent.setSessionCache(session);
@@ -1831,6 +1834,17 @@ async function boot() {
   ipcMain.handle("recheck-account", async () => {
     const hb = await refreshHeartbeat();
     return { status: hb?.status ?? getAuthStatus().status };
+  });
+
+  // Session expired and couldn't be refreshed → surface the login gate instead
+  // of silently degrading (connectors/cloud-sync go dark otherwise). Reuses the
+  // onboarding overlay; signing back in mints a fresh JWT and everything that
+  // rides the token (connector catalog, heartbeat, cloud-sync) recovers.
+  setReauthHandler(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      panelManager.hideActive(mainWindow);
+      mainWindow.webContents.send("show-onboarding");
+    }
   });
 
   // Initialize auth — restore session, schedule refresh, start heartbeat.

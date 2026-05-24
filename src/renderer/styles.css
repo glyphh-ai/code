@@ -6820,9 +6820,13 @@ select.settings-input {
   flex-shrink: 0;
 }
 .yo-approval-title {
+  flex: 1 1 auto;
+  min-width: 0;            /* allow the flex item to shrink instead of overflowing */
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
+  overflow-wrap: anywhere; /* wrap long tool names rather than push the card wide */
+  word-break: break-word;
 }
 .yo-approval-detail {
   font-size: 11px;
