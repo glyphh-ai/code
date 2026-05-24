@@ -110,39 +110,83 @@ function openDetail(vibe: VibeDef | null): void {
   ($a("vibe-delete-btn") as HTMLElement).style.display = isNew ? "none" : "";
 }
 
+/** Resolve the vibe id to plan against — creating the vibe first if this is a new one. */
+async function resolvePlanTarget(status: HTMLElement | null): Promise<string | null> {
+  let vibeId = isNew ? undefined : current?.id;
+  if (vibeId) return vibeId;
+  const name = $a<HTMLInputElement>("vibe-name").value.trim();
+  if (!name) { if (status) status.textContent = "Name is required."; return null; }
+  const description = $a<HTMLTextAreaElement>("vibe-description").value.trim() || undefined;
+  const created = (await window.yo.vibesCreate(name, description)) as unknown as VibeDef;
+  vibeId = created?.id;
+  if (!vibeId) { if (status) status.textContent = "Could not create vibe."; return null; }
+  // Now editing the created vibe.
+  current = created;
+  isNew = false;
+  ($a("vibe-delete-btn") as HTMLElement).style.display = "";
+  return vibeId;
+}
+
+function setPlanButtonsDisabled(disabled: boolean): void {
+  const a = document.getElementById("vibe-plan-btn") as HTMLButtonElement | null;
+  const b = document.getElementById("vibe-council-btn") as HTMLButtonElement | null;
+  if (a) a.disabled = disabled;
+  if (b) b.disabled = disabled;
+}
+
 /**
  * Generate plan.md + CLAUDE.md for the current vibe via vibe-planner.
  * For a brand-new vibe, create it first (so it has an id + dir to write into).
  */
 async function generatePlan(): Promise<void> {
   const status = $a("vibe-plan-status");
-  const btn = $a<HTMLButtonElement>("vibe-plan-btn");
   const goal = $a<HTMLTextAreaElement>("vibe-goal").value.trim();
   if (!goal) { if (status) status.textContent = "Enter a goal first."; return; }
 
-  let vibeId = isNew ? undefined : current?.id;
-  if (!vibeId) {
-    const name = $a<HTMLInputElement>("vibe-name").value.trim();
-    if (!name) { if (status) status.textContent = "Name is required."; return; }
-    const description = $a<HTMLTextAreaElement>("vibe-description").value.trim() || undefined;
-    const created = (await window.yo.vibesCreate(name, description)) as unknown as VibeDef;
-    vibeId = created?.id;
-    if (!vibeId) { if (status) status.textContent = "Could not create vibe."; return; }
-    // Now editing the created vibe.
-    current = created;
-    isNew = false;
-    ($a("vibe-delete-btn") as HTMLElement).style.display = "";
-  }
+  const vibeId = await resolvePlanTarget(status);
+  if (!vibeId) return;
 
-  if (btn) btn.disabled = true;
+  setPlanButtonsDisabled(true);
   if (status) status.textContent = "Generating plan…";
   try {
     const res = await window.yo.vibesPlan(vibeId, goal);
-    if (status) status.textContent = res?.ok ? "Plan generated. Open the workspace to see it." : (res?.error || "Failed to generate plan.");
+    if (status) status.textContent = res?.ok ? "Plan ready. Open the workspace to see it." : (res?.error || "Failed to generate plan.");
   } catch (err) {
     if (status) status.textContent = err instanceof Error ? err.message : String(err);
   } finally {
-    if (btn) btn.disabled = false;
+    setPlanButtonsDisabled(false);
+  }
+}
+
+/**
+ * Plan with a council (Phase 4): convene a multi-LLM council on the goal, then
+ * feed its synthesis into the planner. Slow — buttons are disabled while it
+ * runs. On the <2-provider gate (fellBack:false) we point the user at Settings
+ * → Providers and suggest plain Generate plan.
+ */
+async function planWithCouncil(): Promise<void> {
+  const status = $a("vibe-plan-status");
+  const goal = $a<HTMLTextAreaElement>("vibe-goal").value.trim();
+  if (!goal) { if (status) status.textContent = "Enter a goal first."; return; }
+
+  const vibeId = await resolvePlanTarget(status);
+  if (!vibeId) return;
+
+  setPlanButtonsDisabled(true);
+  if (status) status.textContent = "Convening council… (this can take a minute)";
+  try {
+    const res = await window.yo.vibesPlanWithCouncil(vibeId, goal);
+    if (res?.ok) {
+      if (status) status.textContent = "Plan ready (informed by the council). Open the workspace to see it.";
+    } else if (res && res.fellBack === false && /2\+? providers|2 or more providers/i.test(res.error || "")) {
+      if (status) status.textContent = "Council needs 2+ providers. Add API keys in Settings → Providers, or use “Generate plan” instead.";
+    } else {
+      if (status) status.textContent = res?.error || "Failed to plan with council.";
+    }
+  } catch (err) {
+    if (status) status.textContent = err instanceof Error ? err.message : String(err);
+  } finally {
+    setPlanButtonsDisabled(false);
   }
 }
 
@@ -178,6 +222,8 @@ function initVibes(): void {
     void openWorkspace(isNew ? undefined : current?.id);
   });
   $a("vibe-plan-btn").addEventListener("click", () => { void generatePlan(); });
+  const councilBtn = document.getElementById("vibe-council-btn");
+  if (councilBtn) councilBtn.addEventListener("click", () => { void planWithCouncil(); });
   $a("vibe-delete-btn").addEventListener("click", async () => {
     if (!current || isNew) return;
     if (!(await confirmAction(`Delete vibe "${current.name || current.id}"? This removes its project files.`))) return;

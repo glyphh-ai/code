@@ -48,7 +48,7 @@ const VIBE_PLANNER_PROMPT = `You are vibe-planner — yo's reusable build method
 1. plan.md — a concrete, ordered task checklist (GitHub-style checkboxes) that breaks the goal into small, verifiable build steps.
 2. CLAUDE.md — the methodology / rails the coding agent must follow while building THIS project.
 
-Your input is a JSON object (or plain text) describing the project: it may include "goal", "name", and "description". Treat the goal as the primary signal.
+Your input is a JSON object (or plain text) describing the project: it may include "goal", "name", "description", and an optional "councilSynthesis". Treat the goal as the primary signal. If a "councilSynthesis" is provided, treat it as the agreed approach reached by a multi-LLM council debate on this goal — let it shape both the plan's task breakdown and the CLAUDE.md methodology (favor its recommended architecture, sequencing, and tradeoff calls). The synthesis is the *what/how*; you turn it into the concrete build steps.
 
 Return STRICT JSON ONLY — no prose, no markdown fences around the whole thing — matching exactly this schema:
 { "plan": "<full markdown for plan.md>", "claudeMd": "<full markdown for CLAUDE.md>" }

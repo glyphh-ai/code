@@ -551,6 +551,7 @@ contextBridge.exposeInMainWorld("yo", {
   vibesDelete: (id: string) => ipcRenderer.invoke("vibes-delete", id) as Promise<boolean>,
   vibesOpen: (id: string) => ipcRenderer.invoke("vibes-open", id) as Promise<Record<string, unknown> | null>,
   vibesPlan: (id: string, goal: string) => ipcRenderer.invoke("vibes-plan", id, goal) as Promise<{ ok: boolean; error?: string }>,
+  vibesPlanWithCouncil: (id: string, goal: string) => ipcRenderer.invoke("vibes-plan-with-council", id, goal) as Promise<{ ok: boolean; error?: string; fellBack?: boolean }>,
 
   // yos wallet + rate cards
   yosBalance: () => ipcRenderer.invoke("yos-balance") as Promise<{ user_id: string; balance: number } | { error: string }>,

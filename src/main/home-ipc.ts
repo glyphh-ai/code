@@ -16,7 +16,7 @@ import type { PanelManager } from "./panel-manager";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
 import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed } from "./auth";
 import { listVibes, getVibe, createVibe, deleteVibe, type VibeMeta } from "./vibe-store";
-import { vibePlan } from "./vibe-ipc";
+import { vibePlan, vibePlanWithCouncil, type VibePlanWithCouncilDeps } from "./vibe-ipc";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -33,6 +33,12 @@ interface HomeIpcDeps {
   openVibe: (id: string) => VibeMeta | null;
   /** Run the seeded vibe-planner methodology against a goal (single-shot). */
   runVibePlanner: (goal: string) => Promise<string>;
+  /**
+   * Phase-4 council deps: build a council config from a goal + the council
+   * lifecycle fns. Wired from main so home-ipc stays decoupled from council
+   * internals and the provider/member-builder.
+   */
+  vibeCouncil: Omit<VibePlanWithCouncilDeps, "runPlanner">;
 }
 
 export function registerHomeIpc(deps: HomeIpcDeps): void {
@@ -40,7 +46,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
     mcpExpose, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, getMainWindow, activeReminders,
-    openVibe, runVibePlanner,
+    openVibe, runVibePlanner, vibeCouncil,
   } = deps;
 
   // ── Vibes registry CRUD + open ────────────────────────────
@@ -54,6 +60,16 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   // Generate plan.md + CLAUDE.md for a vibe from a goal via the vibe-planner skill.
   ipcMain.handle("vibes-plan", (_e, id: string, goal: string) =>
     vibePlan(id, goal, { runPlanner: runVibePlanner }));
+  // Phase 4 — optional council-backed planning: convene a headless multi-LLM
+  // council on the goal, feed its synthesis into the planner. Always resolves
+  // (the council path is slow + can error; we never let the IPC hang).
+  ipcMain.handle("vibes-plan-with-council", async (_e, id: string, goal: string) => {
+    try {
+      return await vibePlanWithCouncil(id, goal, { runPlanner: runVibePlanner, ...vibeCouncil });
+    } catch (err) {
+      return { ok: false, fellBack: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));

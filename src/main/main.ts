@@ -1587,6 +1587,53 @@ async function boot() {
   // Agent-convened council: auto-fill members from configured providers if the
   // agent didn't pick any, open the Council app, convene, and let the panel run.
   const { getDefaultModel: getDefaultProviderModel } = require("./provider-models") as typeof import("./provider-models");
+
+  /**
+   * Shared council member-builder. Fills members from explicit picks, falling
+   * back to the user's configured providers (Settings → Providers) at their
+   * default model with a generic distinct-perspective startup prompt. Returns
+   * fewer than 2 members when not enough providers are configured — callers
+   * must guard on `members.length >= 2`. Reused by the agent-convened council
+   * and the Phase-4 council-backed vibe planner.
+   */
+  const buildCouncilMembers = (
+    explicit?: Array<{ provider: string; model: string; startup_prompt?: string }>,
+  ): import("./council-session").CouncilMemberConfig[] => {
+    let members = (explicit ?? []).filter((m) => m.provider && m.model);
+    if (members.length < 2) {
+      const configured = providerKeysModule.listStatus().filter((p) => p.configured).map((p) => p.provider);
+      members = configured
+        .map((p) => ({ provider: p, model: getDefaultProviderModel(p), startup_prompt: "" }))
+        .filter((m) => m.model);
+    }
+    return members.map((m, i) => ({
+      provider: m.provider as import("./council-session").CouncilMemberConfig["provider"],
+      model: m.model,
+      startup_prompt: (m.startup_prompt && m.startup_prompt.trim())
+        || `You are council member ${i + 1}. Bring your own distinct, expert perspective. Be concise and engage directly with the other members' points.`,
+    }));
+  };
+
+  /**
+   * Build a full headless CouncilCreateConfig from a vibe goal (Phase 4). The
+   * council debates *what to build and how*; its synthesis seeds the planner.
+   * Returns null when fewer than 2 members can be built (provider gate).
+   */
+  const buildVibeCouncilConfig = (
+    goal: string,
+  ): import("./council-session").CouncilCreateConfig | null => {
+    const members = buildCouncilMembers();
+    if (members.length < 2) return null;
+    const trimmed = goal.trim();
+    return {
+      name: `Plan: ${trimmed}`.slice(0, 48),
+      council_prompt: `We are planning how to build this software project:\n\n${trimmed}\n\nDebate the best architecture, tech stack, scope, and build sequence. Surface tradeoffs and risks. Converge on a concrete, buildable approach a coding agent can follow.`,
+      style: "debate",
+      round_cap: 2,
+      members,
+    };
+  };
+
   const councilCreateFromAgent = async (config: {
     council_prompt: string; name?: string; style?: string; round_cap?: number;
     members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
@@ -1597,13 +1644,7 @@ async function boot() {
     const councilSession = require("./council-session") as typeof import("./council-session");
     const { setCurrentCouncil } = require("./current-council") as typeof import("./current-council");
 
-    let members = (config.members ?? []).filter((m) => m.provider && m.model);
-    if (members.length < 2) {
-      const configured = providerKeysModule.listStatus().filter((p) => p.configured).map((p) => p.provider);
-      members = configured
-        .map((p) => ({ provider: p, model: getDefaultProviderModel(p), startup_prompt: "" }))
-        .filter((m) => m.model);
-    }
+    const members = buildCouncilMembers(config.members);
     if (members.length < 2) {
       return "A council needs at least 2 members. Add API keys for 2+ providers in Settings → Providers, or pass explicit members.";
     }
@@ -1616,12 +1657,7 @@ async function boot() {
       council_prompt: config.council_prompt,
       style,
       round_cap: config.round_cap && config.round_cap > 0 ? Math.min(20, config.round_cap) : 3,
-      members: members.map((m, i) => ({
-        provider: m.provider as import("./council-session").CouncilMemberConfig["provider"],
-        model: m.model,
-        startup_prompt: (m.startup_prompt && m.startup_prompt.trim())
-          || `You are council member ${i + 1}. Bring your own distinct, expert perspective. Be concise and engage directly with the other members' points.`,
-      })),
+      members,
     };
 
     if (!panelManager.hasPanel("council")) createPanelForApp("council", councilApp);
@@ -2704,6 +2740,27 @@ async function boot() {
       // Fallback if seeding somehow didn't run: go through the full agent.
       const res = await yoAgent.runForResult(goal);
       return res.text;
+    },
+    // Phase 4 — council-backed planning deps. Reuses the shared member-builder
+    // (buildVibeCouncilConfig) and the headless council lifecycle.
+    vibeCouncil: {
+      buildCouncilConfig: buildVibeCouncilConfig,
+      createCouncil: (cfg, fwd) => {
+        const cs = require("./council-session") as typeof import("./council-session");
+        return cs.createCouncil(cfg, fwd);
+      },
+      runCouncilToCompletion: (cid) => {
+        const cs = require("./council-session") as typeof import("./council-session");
+        return cs.runCouncilToCompletion(cid);
+      },
+      summarizeCouncil: (cid) => {
+        const cs = require("./council-session") as typeof import("./council-session");
+        return cs.summarizeCouncil(cid);
+      },
+      endCouncil: (cid) => {
+        const cs = require("./council-session") as typeof import("./council-session");
+        return cs.endCouncil(cid);
+      },
     },
   });
 

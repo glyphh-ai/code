@@ -23,11 +23,13 @@ import {
   getVibe,
   createVibe,
   deleteVibe,
+  saveVibe,
   vibeCodeDir,
   vibePlanPath,
   vibeClaudePath,
   type VibeMeta,
 } from "./vibe-store";
+import type { CouncilCreateConfig } from "./council-session";
 
 const STARTER_PLAN = `# Plan
 
@@ -60,6 +62,37 @@ export interface VibePlanDeps {
 export interface VibePlanResult {
   ok: boolean;
   error?: string;
+}
+
+/** Result of a council-backed plan run. */
+export interface VibePlanWithCouncilResult {
+  ok: boolean;
+  error?: string;
+  /** True when the council could not run (e.g. <2 providers) — no fallback was used. */
+  fellBack?: boolean;
+}
+
+/**
+ * Dependencies the council-backed planning flow needs. main.ts wires these so
+ * vibe-ipc stays decoupled from how councils are convened and how providers are
+ * enumerated.
+ */
+export interface VibePlanWithCouncilDeps extends VibePlanDeps {
+  /**
+   * Build a CouncilCreateConfig from a goal using the user's configured
+   * providers (reuses main's member-builder). Returns null when fewer than 2
+   * members can be built so the caller can report the gate cleanly.
+   */
+  buildCouncilConfig: (goal: string) => CouncilCreateConfig | null;
+  /** council-session.createCouncil */
+  createCouncil: (config: CouncilCreateConfig, forwardWc: null) =>
+    { ok: true; council_id: string } | { ok: false; error: string };
+  /** council-session.runCouncilToCompletion */
+  runCouncilToCompletion: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  /** council-session.summarizeCouncil */
+  summarizeCouncil: (id: string) => Promise<{ ok: boolean; text?: string; path?: string; error?: string }>;
+  /** council-session.endCouncil */
+  endCouncil: (id: string) => { ok: boolean; error?: string };
 }
 
 /** The currently-bound vibe. null until a vibe is opened (or a default is made). */
@@ -156,14 +189,27 @@ export function openVibe(id: string, deps: OpenVibeDeps): VibeMeta | null {
  * prose or a code fence — we parse loosely). On success we write plan.md +
  * CLAUDE.md into the vibe dir; the plan pane reads plan.md on next open/reload.
  */
-export async function vibePlan(id: string, goal: string, deps: VibePlanDeps): Promise<VibePlanResult> {
+export async function vibePlan(
+  id: string,
+  goal: string,
+  deps: VibePlanDeps,
+  councilSynthesis?: string,
+): Promise<VibePlanResult> {
   const vibe = getVibe(id);
   if (!vibe) return { ok: false, error: `Vibe "${id}" not found` };
   const trimmedGoal = (goal || vibe.description || vibe.name || "").trim();
   if (!trimmedGoal) return { ok: false, error: "A goal is required to generate a plan." };
 
   // Hand the planner a structured goal payload so it can use name/description.
-  const input = JSON.stringify({ goal: trimmedGoal, name: vibe.name, description: vibe.description });
+  // When a council synthesis is supplied (Phase 4), pass it through so the
+  // planner treats the debate's agreed approach as the shape of the plan.
+  const synthesis = (councilSynthesis || "").trim();
+  const input = JSON.stringify({
+    goal: trimmedGoal,
+    name: vibe.name,
+    description: vibe.description,
+    ...(synthesis ? { councilSynthesis: synthesis } : {}),
+  });
 
   let raw: string;
   try {
@@ -187,6 +233,85 @@ export async function vibePlan(id: string, goal: string, deps: VibePlanDeps): Pr
   } catch (err) {
     return { ok: false, error: `Failed writing vibe files: ${err instanceof Error ? err.message : String(err)}` };
   }
+  return { ok: true };
+}
+
+/**
+ * Phase 4 — plan with a council.
+ *
+ * Convene a headless multi-LLM council on the goal, run it to completion,
+ * capture its synthesis, then feed that synthesis into the Phase-3 planner so
+ * plan.md / CLAUDE.md are informed by the debate. The council is OPTIONAL: if
+ * fewer than 2 providers are configured we can't build a valid council, so we
+ * return { ok:false, fellBack:false } and let the renderer steer the user to
+ * plain "Generate plan" (or to add provider keys).
+ *
+ * Robustness: the council can be slow and providers can error. We never throw —
+ * every path resolves. If the council runs but yields no usable synthesis we
+ * still call the planner with just the goal (graceful degradation).
+ */
+export async function vibePlanWithCouncil(
+  id: string,
+  goal: string,
+  deps: VibePlanWithCouncilDeps,
+): Promise<VibePlanWithCouncilResult> {
+  const vibe = getVibe(id);
+  if (!vibe) return { ok: false, error: `Vibe "${id}" not found`, fellBack: false };
+  const trimmedGoal = (goal || vibe.description || vibe.name || "").trim();
+  if (!trimmedGoal) return { ok: false, error: "A goal is required to plan with a council.", fellBack: false };
+
+  // 1) Build a council config from the goal (reuses main's member-builder).
+  const config = deps.buildCouncilConfig(trimmedGoal);
+  if (!config || config.members.length < 2) {
+    return {
+      ok: false,
+      fellBack: false,
+      error: "A council needs 2+ providers. Add API keys for 2 or more providers in Settings → Providers, or use plain Generate plan.",
+    };
+  }
+
+  // 2) Convene headless (no panel for Phase 4) and run to completion.
+  let councilId: string | null = null;
+  let synthesis = "";
+  try {
+    const created = deps.createCouncil(config, null);
+    if (!created.ok) {
+      return { ok: false, fellBack: false, error: `Council failed to convene: ${created.error}` };
+    }
+    councilId = created.council_id;
+
+    // runCouncilToCompletion is bounded by the config's round_cap and never
+    // throws (member errors are captured into the transcript), so this won't
+    // hang beyond the providers' own timeouts.
+    await deps.runCouncilToCompletion(councilId);
+
+    // 3) Summarize → synthesis text. summarizeCouncil persists to disk; capture
+    // the text BEFORE endCouncil (sessions are in-memory).
+    try {
+      const sum = await deps.summarizeCouncil(councilId);
+      if (sum.ok && sum.text && sum.text.trim()) synthesis = sum.text.trim();
+    } catch (err) {
+      console.log("[vibe] council summarize failed:", err instanceof Error ? err.message : String(err));
+    }
+  } catch (err) {
+    return { ok: false, fellBack: false, error: `Council error: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    if (councilId) {
+      try { deps.endCouncil(councilId); } catch { /* best-effort cleanup */ }
+    }
+  }
+
+  // 4) Feed the synthesis into the Phase-3 planner (writes plan.md + CLAUDE.md).
+  const planResult = await vibePlan(id, trimmedGoal, { runPlanner: deps.runPlanner }, synthesis);
+  if (!planResult.ok) {
+    return { ok: false, fellBack: false, error: planResult.error };
+  }
+
+  // 5) Record the council on the vibe meta.
+  if (councilId) {
+    try { saveVibe({ ...vibe, council_id: councilId }); } catch { /* non-fatal */ }
+  }
+
   return { ok: true };
 }
 
