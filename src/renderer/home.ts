@@ -5,7 +5,7 @@
  * Hosts all sections that used to live in the help overlay.
  */
 
-import { initHelp, loadActiveSection, openNewAppDeepLink, gotoSection } from "./help/index.js";
+import { initHelp, openNewAppDeepLink, gotoSection } from "./help/index.js";
 
 // Theme: the inline script in home.html applied localStorage theme synchronously.
 // Here we re-fetch the authoritative value from main and keep localStorage in sync.
@@ -29,15 +29,23 @@ window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", as
 });
 
 initHelp();
-loadActiveSection();
 window.yo.refreshAuth?.().catch(() => {});
 
-// Section switching is driven by the app's left-rail nav (the in-page sidebar
-// is hidden). Honor a pending request made before this page finished loading,
-// then listen for live ones.
-window.yo.getPendingSection?.()
-  .then((p) => { if (p) gotoSection(p.section, p.sub); })
-  .catch(() => {});
+// Pick the startup section. Priority: an explicit pending nav (the rail asked
+// for a specific section) → the user's configured default ("homeStartupSection",
+// blank = "last viewed") → the last section they had open → dashboard.
+// (Fixes the app always opening on the dashboard.)
+void (async () => {
+  try {
+    const pending = await window.yo.getPendingSection?.();
+    if (pending) { gotoSection(pending.section, pending.sub); return; }
+  } catch { /* fall through */ }
+  const def = ((await window.yo.getPreference?.("homeStartupSection", "")) as string) || "";
+  const lastSec = ((await window.yo.getPreference?.("homeLastSection", "")) as string) || "";
+  const lastSub = ((await window.yo.getPreference?.("homeLastSub", "")) as string) || "";
+  const sec = def || lastSec || "dashboard";
+  gotoSection(sec, sec === lastSec ? (lastSub || undefined) : undefined);
+})();
 window.yo.onGotoSection?.((section, sub) => gotoSection(section, sub));
 
 // "Create App" from a browser tab routes here — open the New App form prefilled.

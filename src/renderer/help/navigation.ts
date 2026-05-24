@@ -150,6 +150,10 @@ export function loadActiveSection(explicit?: string) {
  * stay in the DOM so `switchToSection` / `loadActiveSection` keep working.
  */
 export function gotoSection(section: string, sub?: string): void {
+  // Remember the last section the user viewed so the app reopens here next
+  // launch (unless a fixed startup page is set in Settings).
+  void window.yo.setPreference?.("homeLastSection", section);
+  void window.yo.setPreference?.("homeLastSub", sub || "");
   collapseAllDropdowns();
   navSubItems.forEach((s) => s.classList.remove("active"));
   switchToSection(section);
