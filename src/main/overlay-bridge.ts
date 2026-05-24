@@ -89,10 +89,20 @@ async function handleLine(line: string, yoAgent: YoAgent): Promise<void> {
   const app = msg.app || "";
 
   try {
-    // .dip / .drip → just do it: focus the app, run through the parser, then clear spinner.
-    if (trigger === ".dip" || trigger === ".drip") {
+    // .dip → switch apps: bring yo to the front, run through the parser, clear spinner.
+    if (trigger === ".dip") {
       focusMainFn?.();
-      const cmd = `${trigger.slice(1)}${query ? " " + query : ""}`;
+      const cmd = `dip${query ? " " + query : ""}`;
+      try { await runCommandFn?.(cmd); }
+      catch (e) { console.error("[overlay] command failed:", e); }
+      sendToHelper({ type: "done" });
+      return;
+    }
+    // .drip → full-screen OS overlay over whatever app you're in: do NOT focus
+    // yo (the effect floats over everything). The drip-manager plays full-screen
+    // unless the in-app ".drip ." variant is used.
+    if (trigger === ".drip") {
+      const cmd = `drip${query ? " " + query : ""}`;
       try { await runCommandFn?.(cmd); }
       catch (e) { console.error("[overlay] command failed:", e); }
       sendToHelper({ type: "done" });

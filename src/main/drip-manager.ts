@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -574,9 +574,14 @@ export class DripManager {
     return name in ONE_SHOT_EFFECTS || name in this.customs;
   }
 
-  /** Parse and execute a drip command. Returns status string. */
+  /** Parse and execute a drip command. Returns status string.
+   *  `.drip .` (leading "." arg) plays IN-APP (windowed over the yo window);
+   *  otherwise the effect plays FULL-SCREEN over every app (OS overlay). */
   execute(args: string[]): string {
-    if (args.length === 0) { this.fireOneShot("fireworks"); return ""; }
+    let fullscreen = true;
+    if (args.length > 0 && args[0] === ".") { fullscreen = false; args = args.slice(1); }
+
+    if (args.length === 0) { this.fireOneShot("fireworks", -1, fullscreen); return ""; }
 
     const sub = args[0].toLowerCase();
 
@@ -599,14 +604,14 @@ export class DripManager {
 
     // Check if first non-number arg is a custom
     if (args.length === 1 && this.customs[sub]) {
-      return this.executeRaw(this.customs[sub]);
+      return this.executeRaw(this.customs[sub], fullscreen);
     }
 
-    return this.executeRaw(args.join(" "));
+    return this.executeRaw(args.join(" "), fullscreen);
   }
 
   /** Parse raw drip string: [count] [effects...] or [-1] [opacity] [effects...] */
-  private executeRaw(raw: string): string {
+  private executeRaw(raw: string, fullscreen: boolean): string {
     const parts = raw.trim().split(/\s+/);
     let count = 1;
     let opacity = -1;
@@ -631,7 +636,7 @@ export class DripManager {
 
     if (count === -1) {
       const op = opacity > 0 ? opacity : 0.5;
-      for (const effect of effects) this.firePersistent(effect, op);
+      for (const effect of effects) this.firePersistent(effect, op, fullscreen);
       return `drip: ${effects.join(" + ")} constant`;
     }
 
@@ -640,7 +645,7 @@ export class DripManager {
         const delay = (i * effects.length + j) * 1500;
         const eff = effects[j];
         const op = opacity > 0 ? opacity : -1;
-        setTimeout(() => this.fireOneShot(eff, op), delay);
+        setTimeout(() => this.fireOneShot(eff, op, fullscreen), delay);
       }
     }
 
@@ -656,12 +661,23 @@ export class DripManager {
     }).filter(p => p !== "-1");
   }
 
-  private fireOneShot(effect: string, opacity = -1): void {
-    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
-    const bounds = this.mainWindow.getBounds();
+  // Full screen of the display under the cursor (where the user is working).
+  private displayBounds(): Electron.Rectangle {
+    return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds;
+  }
+
+  private overlayBounds(fullscreen: boolean): Electron.Rectangle | null {
+    if (fullscreen) return this.displayBounds();
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return null;
+    return this.mainWindow.getBounds();
+  }
+
+  private fireOneShot(effect: string, opacity = -1, fullscreen = false): void {
+    const bounds = this.overlayBounds(fullscreen);
+    if (!bounds) return;
     let html = this.buildOneShotHtml(effect, bounds.width, bounds.height);
     if (opacity > 0) html = html.replace("<body>", `<body style="opacity:${opacity}">`);
-    const overlay = this.createOverlay(bounds);
+    const overlay = this.createOverlay(bounds, fullscreen);
     overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     overlay.webContents.on("console-message", (_e, _level, msg) => {
       if (msg === "__drip_close__" && !overlay.isDestroyed()) overlay.close();
@@ -670,17 +686,17 @@ export class DripManager {
     setTimeout(() => { if (!overlay.isDestroyed()) overlay.close(); }, safetyMs);
   }
 
-  private firePersistent(effect: string, opacity: number): void {
+  private firePersistent(effect: string, opacity: number, fullscreen = false): void {
     const existing = this.persistent.get(effect);
     if (existing && !existing.isDestroyed()) {
       existing.close();
       this.persistent.delete(effect);
       return;
     }
-    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
-    const bounds = this.mainWindow.getBounds();
+    const bounds = this.overlayBounds(fullscreen);
+    if (!bounds) return;
     const html = this.buildLoopHtml(effect, bounds.width, bounds.height, opacity);
-    const overlay = this.createOverlay(bounds);
+    const overlay = this.createOverlay(bounds, fullscreen);
     overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     overlay.on("closed", () => this.persistent.delete(effect));
     this.persistent.set(effect, overlay);
@@ -693,14 +709,21 @@ export class DripManager {
 
   cleanup(): void { this.stopAll(); }
 
-  private createOverlay(bounds: Electron.Rectangle): BrowserWindow {
+  private createOverlay(bounds: Electron.Rectangle, fullscreen = false): BrowserWindow {
     const overlay = new BrowserWindow({
-      parent: this.mainWindow!,
+      // Full-screen: a top-level window so it floats over EVERY app. Windowed:
+      // parented to the yo window so it only shows inside the app.
+      ...(fullscreen ? {} : { parent: this.mainWindow! }),
       x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
-      frame: false, transparent: true, hasShadow: false,
+      frame: false, transparent: true, hasShadow: false, resizable: false,
       backgroundColor: "#00000000", skipTaskbar: true, show: false,
+      ...(fullscreen ? { alwaysOnTop: true, focusable: false } : {}),
       webPreferences: { contextIsolation: true, nodeIntegration: false },
     });
+    if (fullscreen) {
+      overlay.setAlwaysOnTop(true, "screen-saver");
+      overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
     overlay.setIgnoreMouseEvents(true);
     overlay.once("ready-to-show", () => { if (!overlay.isDestroyed()) overlay.showInactive(); });
     return overlay;
