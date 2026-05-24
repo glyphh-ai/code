@@ -3148,7 +3148,15 @@ ol.docs-list li::before {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: -4px;
+  margin-top: 0;   /* was -4px — pulled the breadcrumb above the form's scroll top and clipped it */
+}
+
+/* In a CRUD detail/edit view, hide the list page header (H2 + description) so
+   only the form + its breadcrumb show. Skip dashboard (its inline detail sits
+   under charts, not a plain list). */
+.help-section:not([data-section="dashboard"]):has(.crud-inline-form:not(.hidden)) > h2,
+.help-section:not([data-section="dashboard"]):has(.crud-inline-form:not(.hidden)) > .section-desc {
+  display: none;
 }
 .crud-breadcrumb-back {
   color: var(--text-2);
