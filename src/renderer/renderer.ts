@@ -509,7 +509,7 @@ function setUrlBarVisible(show: boolean) {
 }
 
 // Load initial URL bar visibility
-window.yo.getPreference("showUrlBar", true).then((show) => {
+window.yo.getPreference("showUrlBar", false).then((show) => {
   setUrlBarVisible(show as boolean);
 });
 

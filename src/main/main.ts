@@ -1545,7 +1545,7 @@ async function boot() {
     // stealing focus in a loop.
     if (!layoutManager.hasSplit) {
       const isBrowser = resolveAppId(id) === "browser";
-      const urlBarPref = getPreference<boolean>("showUrlBar", true);
+      const urlBarPref = getPreference<boolean>("showUrlBar", false);
       if (isBrowser || urlBarPref) {
         panelManager.setTopInset(URL_BAR_HEIGHT);
         mainWindow.webContents.send("url-bar-force", true);
