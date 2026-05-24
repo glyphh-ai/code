@@ -1,19 +1,34 @@
-// overlay-bridge.ts — supervises the native keytap helper (protocol v2) and routes
+// overlay-bridge.ts — supervises the native keytap helper (protocol v3) and routes
 // the dot-commands it intercepts (anywhere in the OS) into the right destination.
+// The UX is now mostly INLINE: the helper shows a braille spinner at the caret while
+// we work, and we reply telling it what to do. The slide-out agent panel
+// (overlay-prompt.ts) is opened ONLY when an inline `.yo` needs more information.
 //
 // The helper (src/main/overlay/keytap.swift, compiled to dist/main/overlay/keytap)
 // talks newline-delimited JSON over stdio:
-//   helper -> us (stdout):  {"type":"open","trigger","query","x","y","app"}
-//   us -> helper (stdin):   {"type":"paste","text","app"} | {"type":"dismiss"}
-// On "open":
-//   .yo                       → pop the at-caret prompt window (overlay-prompt.ts),
-//                               which streams the agent and can paste back.
-//   .dip/.drip/.sup/.peace    → focus the main window and run the command through the
-//                               app's command parser (no prompt window).
+//   helper -> us (stdout):  {"type":"run","trigger","query","x","y","app"}
+//   us -> helper (stdin):   {"type":"result"|"ephemeral"|"done"|"panel"|"paste", …}
+//
+// Routing by trigger:
+//   .dip / .drip  → focus main window, run through the command parser, then {done}.
+//   .sup          → run through the command parser, paste a short confirmation that
+//                   auto-deletes after ~2s ({ephemeral}).
+//   .yo / .peace  → run ONE-SHOT via yoAgent.runForResult with a disambiguation
+//                   directive. Normal answer → {result} pasted inline. If the answer
+//                   begins with NEEDS_INPUT: → open the slide-out panel seeded with
+//                   the query and reply {panel}.
 import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import type { YoAgent } from "./yo-agent";
-import { openPromptWindow } from "./overlay-prompt";
+import { openAgentPanel, wireAgentPanel } from "./overlay-prompt";
+
+// Prepended to the query for inline `.yo` one-shot runs. The agent either returns
+// only the text to insert, or exactly "NEEDS_INPUT: <question>" if it truly can't proceed.
+const DIRECTIVE =
+  "You are invoked inline from anywhere in the OS; your answer is pasted straight into the user's text field. " +
+  "If you can answer or perform the request, reply with ONLY the text to insert — concise, plain text, no preamble. " +
+  "ONLY if you genuinely cannot proceed without more information, reply with exactly: NEEDS_INPUT: <one short question>.\n\n" +
+  "Request: ";
 
 let proc: ChildProcess | null = null;
 let stopped = false;
@@ -35,6 +50,7 @@ export function startOverlay(
   stopped = false;
   runCommandFn = runCommand;
   focusMainFn = focusMain;
+  wireAgentPanel(yoAgent);
   spawnHelper(yoAgent, binPath);
 }
 
@@ -67,32 +83,48 @@ function spawnHelper(yoAgent: YoAgent, binPath: string): void {
 async function handleLine(line: string, yoAgent: YoAgent): Promise<void> {
   let msg: { type?: string; trigger?: string; query?: string; x?: number; y?: number; app?: string };
   try { msg = JSON.parse(line); } catch { return; }
-  if (msg.type !== "open") return;
+  if (msg.type !== "run") return;
   const trigger = msg.trigger || ".yo";
   const query = (msg.query || "").trim();
+  const app = msg.app || "";
 
-  // .yo → the interactive at-caret agent prompt window.
-  if (trigger === ".yo") {
-    openPromptWindow(yoAgent, {
-      trigger,
-      query,
-      x: typeof msg.x === "number" ? msg.x : 0,
-      y: typeof msg.y === "number" ? msg.y : 0,
-      app: msg.app || "",
-    });
-    return;
+  try {
+    // .dip / .drip → just do it: focus the app, run through the parser, then clear spinner.
+    if (trigger === ".dip" || trigger === ".drip") {
+      focusMainFn?.();
+      const cmd = `${trigger.slice(1)}${query ? " " + query : ""}`;
+      try { await runCommandFn?.(cmd); }
+      catch (e) { console.error("[overlay] command failed:", e); }
+      sendToHelper({ type: "done" });
+      return;
+    }
+
+    // .sup → capture, then paste a short inline confirmation that auto-deletes.
+    if (trigger === ".sup") {
+      let out = "";
+      try { out = ((await runCommandFn?.(`sup${query ? " " + query : ""}`)) as string) || ""; }
+      catch (e) { console.error("[overlay] sup failed:", e); }
+      const text = (out && out.trim()) || "captured ✓";
+      sendToHelper({ type: "ephemeral", text, ms: 2000 });
+      return;
+    }
+
+    // .yo (and .peace → treat as .yo) → one-shot agent run with disambiguation.
+    const r = await yoAgent.runForResult(DIRECTIVE + query);
+    const text = (r.error ? "" : r.text).trim();
+    if (text.startsWith("NEEDS_INPUT:")) {
+      openAgentPanel(query, app);
+      sendToHelper({ type: "panel" });
+    } else {
+      sendToHelper({ type: "result", text });
+    }
+  } catch (e) {
+    console.error("[overlay] run handling failed:", e);
+    sendToHelper({ type: "done" });
   }
-
-  // .dip / .drip / .sup / .peace → focus the app and run through the command parser.
-  // e.g. ".dip gmail" → runCommand("dip gmail").
-  focusMainFn?.();
-  const cmd = `${trigger.slice(1)}${query ? " " + query : ""}`;
-  try { void runCommandFn?.(cmd); }
-  catch (e) { console.error("[overlay] command failed:", e); }
 }
 
-// Send a control message to the helper's stdin (used by the prompt window to paste
-// the chosen answer back into the origin app, or to dismiss).
+// Send a control message to the helper's stdin (used inline + by the panel's Insert).
 export function sendToHelper(obj: Record<string, unknown>): void {
   if (!proc?.stdin?.writable) return;
   proc.stdin.write(JSON.stringify(obj) + "\n");

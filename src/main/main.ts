@@ -1029,8 +1029,10 @@ async function boot() {
   commandParser.setYoChat(yoChat);
 
   // Global keytap overlay (macOS): native CGEventTap helper intercepts dot-commands
-  // typed in ANY app. .yo opens the at-caret agent prompt; .dip/.drip/.sup/.peace run
-  // through the command parser. Always-on for macOS (no settings toggle yet).
+  // typed in ANY app and shows an inline braille spinner at the caret while we work.
+  // .yo runs one-shot and pastes the answer inline (or opens a slide-out panel when it
+  // needs more info); .dip/.drip just run; .sup pastes an auto-deleting confirmation.
+  // Always-on for macOS (no settings toggle yet).
   const overlayBin = app.isPackaged
     ? path.join(process.resourcesPath, "overlay", "keytap")
     : path.join(__dirname, "overlay", "keytap");

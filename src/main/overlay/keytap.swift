@@ -1,25 +1,31 @@
-// keytap.swift — the yo OS overlay (protocol v2). Intercepts ".yo …" (and the
-// other dot-commands) typed in ANY text field anywhere, keys off Enter, erases the
-// typed command, and reports the caret position + frontmost app to the Electron main
-// process. Electron then opens a frameless prompt window EXACTLY at the caret. When
-// the user picks an answer, Electron sends a "paste" back and we re-activate the
-// origin app and paste the text into the field. The helper no longer runs the agent
-// itself and no longer shows a spinner HUD.
+// keytap.swift — the yo OS overlay (protocol v3). Intercepts ".yo …" (and the other
+// dot-commands) typed in ANY text field anywhere, keys off Enter, erases the typed
+// command, and shows an INLINE braille spinner at the caret while the Electron main
+// process works. No HUD window, no words — a single rotating braille glyph typed in
+// place (type glyph; each tick backspace 1 + type next glyph). Electron then replies
+// over stdin telling us what to do: paste a result inline, paste an ephemeral
+// confirmation and auto-delete it, do nothing (a slide-out panel is shown), or paste
+// back text the panel produced.
 //
-// Protocol v2 (newline-delimited JSON):
-//   helper -> main (stdout):  {"type":"open","trigger":".yo","query":"…","x":<int>,"y":<int>,"app":"<bundleId>"}
-//   main -> helper (stdin):   {"type":"paste","text":"…","app":"<bundleId>"}
-//                             {"type":"dismiss"}
+// Protocol v3 (newline-delimited JSON):
+//   helper -> main (stdout):  {"type":"run","trigger":".yo","query":"…","x":<int>,"y":<int>,"app":"<bundleId>"}
+//   main -> helper (stdin):   {"type":"result","text":"…"}                  → clear spinner, paste text
+//                             {"type":"ephemeral","text":"…","ms":2000}     → clear spinner, paste, then delete after ms
+//                             {"type":"done"}                               → clear spinner, nothing
+//                             {"type":"panel"}                              → clear spinner, nothing (Electron shows panel)
+//                             {"type":"paste","text":"…","app":"<bundleId>"}→ re-activate app + paste (panel's Insert)
 //
 // Coords are Quartz / global top-left (what caretRect returns). x = caret minX,
-// y = caret maxY (bottom of the caret line) — do NOT flip Y; Electron screen coords
-// match. stdout is RESERVED for the protocol — never print to it. Debug -> /tmp/yo-keytap.log.
-// Built by `npm run build:overlay` -> dist/main/overlay/keytap. Needs Accessibility permission.
+// y = caret maxY. stdout is RESERVED for the protocol — never print to it.
+// Debug -> /tmp/yo-keytap.log. Built by `npm run build:overlay`. Needs Accessibility.
 import Cocoa
 import ApplicationServices
 
 let TRIGGERS = [".yo", ".dip", ".sup", ".drip", ".peace"]
 let MAGIC: Int64 = 0x796F   // 'yo' — stamped on our own synthetic events so we ignore them
+
+// Single-glyph braille spinner frames. We only ever show ONE glyph at a time.
+let TRAIL_CHARS = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
 
 var line = ""
 var tapRef: CFMachPort?
@@ -54,8 +60,44 @@ func pasteText(_ s: String) {
     }
 }
 
-// ── geometry: where to float the HUD (Quartz top-left / global coords) ──
-// Screen rect of the text caret in the focused field, when the app exposes it.
+// Type a literal string at the caret via the pasteboard (used for the spinner glyph).
+// Synchronous-ish paste: restore clipboard shortly after.
+func typeText(_ s: String) {
+    guard !s.isEmpty else { return }
+    pasteText(s)
+}
+
+// ── inline braille spinner ──────────────────────────────────────────────────
+// We type exactly ONE glyph and, every tick, backspace 1 + type the next glyph.
+// glyphCount tracks how many spinner graphemes are currently on screen (0 or 1)
+// so a reply can erase the spinner before doing its own thing.
+var spinnerTimer: Timer?
+var spinnerFrame = 0
+var glyphCount = 0
+
+func startSpinner() {
+    stopSpinner()   // defensive: never stack spinners
+    spinnerFrame = 0
+    typeText(TRAIL_CHARS[spinnerFrame])
+    glyphCount = 1
+    // Give the first glyph's paste time to land before ticking.
+    let t = Timer(timeInterval: 0.1, repeats: true) { _ in
+        spinnerFrame = (spinnerFrame + 1) % TRAIL_CHARS.count
+        backspaceN(1)
+        typeText(TRAIL_CHARS[spinnerFrame])
+        glyphCount = 1
+    }
+    spinnerTimer = t
+    RunLoop.main.add(t, forMode: .common)
+}
+
+func stopSpinner() {
+    spinnerTimer?.invalidate()
+    spinnerTimer = nil
+    if glyphCount > 0 { backspaceN(glyphCount); glyphCount = 0 }
+}
+
+// ── geometry: where the caret is (Quartz top-left / global coords) ──
 func caretRect() -> CGRect? {
     guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
     let axApp = AXUIElementCreateApplication(app.processIdentifier)
@@ -95,9 +137,8 @@ func focusedWindowRect() -> CGRect? {
 }
 
 // ── stdio bridge to the Electron main process ──
-// Emit an "open" event: caret screen coords (Quartz top-left) + frontmost bundle id.
-// Electron opens the prompt window EXACTLY at (x, y). We do NOT flip Y.
-func sendOpen(_ trigger: String, _ query: String) {
+// Emit a "run" event: caret screen coords (Quartz top-left) + frontmost bundle id.
+func sendRun(_ trigger: String, _ query: String) {
     var x = 0, y = 0
     if let c = caretRect() {                 // caret minX / maxY (bottom of the line)
         x = Int(c.minX); y = Int(c.maxY)
@@ -105,13 +146,13 @@ func sendOpen(_ trigger: String, _ query: String) {
         x = Int(r.minX); y = Int(r.minY)
     }
     let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
-    let obj: [String: Any] = ["type": "open", "trigger": trigger, "query": query,
+    let obj: [String: Any] = ["type": "run", "trigger": trigger, "query": query,
                               "x": x, "y": y, "app": bundleId]
     if let data = try? JSONSerialization.data(withJSONObject: obj), var s = String(data: data, encoding: .utf8) {
         s += "\n"
         FileHandle.standardOutput.write(s.data(using: .utf8)!)
     }
-    log("open \(trigger) \(query) @(\(x),\(y)) app=\(bundleId)")
+    log("run \(trigger) \(query) @(\(x),\(y)) app=\(bundleId)")
 }
 
 // Re-activate the origin app by bundle id, then paste the chosen text into its field.
@@ -121,12 +162,10 @@ func activateAndPaste(app bundleId: String, text: String) {
         if let target = running.first {
             target.activate(options: [])
         } else {
-            // Fall back to AppleScript activation by bundle id.
             let src = "tell application id \"\(bundleId)\" to activate"
             if let s = NSAppleScript(source: src) { var err: NSDictionary?; s.executeAndReturnError(&err) }
         }
     }
-    // Give focus time to land in the origin field before pasting.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
         if !text.isEmpty { pasteText(text) }
         log("paste len=\(text.count) app=\(bundleId)")
@@ -135,9 +174,7 @@ func activateAndPaste(app bundleId: String, text: String) {
 
 func handle(_ event: CGEvent) -> Bool {   // true = swallow
     if event.getIntegerValueField(.eventSourceUserData) == MAGIC { return false }
-    // Only act when yo is NOT frontmost. The helper is spawned by the Electron main
-    // process, so getppid() == the yo app's pid. When yo (or its prompt window) is
-    // frontmost, let keystrokes pass through to the app's in-app command handling.
+    // Only act when yo is NOT frontmost (the helper's parent pid is the yo app).
     if NSWorkspace.shared.frontmostApplication?.processIdentifier == getppid() { return false }
     let keycode = event.getIntegerValueField(.keyboardEventKeycode)
 
@@ -149,10 +186,11 @@ func handle(_ event: CGEvent) -> Bool {   // true = swallow
             line = ""
             log("match \(trig)")
             DispatchQueue.main.async {
-                // Capture caret BEFORE erasing, then erase the typed command and
-                // ask Electron to open the prompt window at the caret.
-                sendOpen(trig, query)
+                // Erase the typed command, report it to Electron, then start the
+                // inline spinner at the caret while Electron works.
                 backspaceN(n)
+                sendRun(trig, query)
+                startSpinner()
             }
             return true   // swallow the Enter
         }
@@ -173,8 +211,7 @@ func handle(_ event: CGEvent) -> Bool {   // true = swallow
 }
 
 // Read newline-delimited JSON messages from Electron on a background thread.
-//   {"type":"paste","text":"…","app":"<bundleId>"} → re-activate app + paste
-//   {"type":"dismiss"}                              → no-op (Electron closed its window)
+// Every reply first stops the inline spinner, then does its thing.
 func startStdinReader() {
     DispatchQueue.global(qos: .userInitiated).async {
         while let raw = readLine(strippingNewline: true) {
@@ -182,12 +219,34 @@ func startStdinReader() {
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let type = obj["type"] as? String ?? ""
             switch type {
+            case "result":
+                let text = obj["text"] as? String ?? ""
+                DispatchQueue.main.async {
+                    stopSpinner()
+                    if !text.isEmpty { pasteText(text) }
+                    log("result len=\(text.count)")
+                }
+            case "ephemeral":
+                let text = obj["text"] as? String ?? ""
+                let ms = obj["ms"] as? Int ?? 2000
+                DispatchQueue.main.async {
+                    stopSpinner()
+                    pasteText(text)
+                    // Delete the confirmation after `ms` — count graphemes, not UTF-16.
+                    let count = text.count
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(ms) / 1000.0) {
+                        backspaceN(count)
+                    }
+                    log("ephemeral len=\(text.count) ms=\(ms)")
+                }
+            case "done":
+                DispatchQueue.main.async { stopSpinner(); log("done") }
+            case "panel":
+                DispatchQueue.main.async { stopSpinner(); log("panel") }
             case "paste":
                 let text = obj["text"] as? String ?? ""
                 let app = obj["app"] as? String ?? ""
-                DispatchQueue.main.async { activateAndPaste(app: app, text: text) }
-            case "dismiss":
-                break   // Electron closes its own window; nothing to do here.
+                DispatchQueue.main.async { stopSpinner(); activateAndPaste(app: app, text: text) }
             default:
                 break
             }
