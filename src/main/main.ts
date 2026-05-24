@@ -99,6 +99,7 @@ import { registerFilesIpc } from "./files-ipc";
 import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
+import { startOverlay } from "./overlay-bridge";
 import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
@@ -1026,6 +1027,19 @@ async function boot() {
   yoInterceptor.setYoChat(yoChat);
   yoInterceptor.setCaptureStore(captureStore);
   commandParser.setYoChat(yoChat);
+
+  // Global keytap overlay (macOS): native CGEventTap helper intercepts dot-commands
+  // typed in ANY app. .yo opens the at-caret agent prompt; .dip/.drip/.sup/.peace run
+  // through the command parser. Always-on for macOS (no settings toggle yet).
+  const overlayBin = app.isPackaged
+    ? path.join(process.resourcesPath, "overlay", "keytap")
+    : path.join(__dirname, "overlay", "keytap");
+  startOverlay(
+    yoAgent,
+    (cmd) => commandParser.execute(cmd),
+    () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } },
+    overlayBin
+  );
 
   // Wire yo agent dependencies
   yoAgent.setSessionCache(session);
