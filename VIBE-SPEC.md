@@ -56,3 +56,17 @@ On "plan with a council": `createCouncil(...)` → run → `summarizeCouncil(id)
 - CC auth: `ensureCcAuth()` is non-blocking (shows a modal); `spawnCcLogin()` for first login.
 - Council sessions are in-memory — `summarizeCouncil()` persists; capture synthesis before `endCouncil()`.
 - Skill `Write plan.md` lands relative to the agent cwd → pass the vibe dir.
+
+## Status (as of v4.2.0 tag)
+Phases 1–5 built + the Vibes left-rail item. **Compile-verified only — not yet run.** First smoke test: `npm run dev` → open a Vibe → confirm the Claude Code agent boots, "Generate plan" writes a plan.md, the preview loads.
+
+## Next iteration — make the plan dynamic + agent-driven (not yet built)
+First-pass notes from dogfooding; the static planner (Phase 3) is the seed, this makes it live:
+- **Agent owns the plan.** The vibe's `CLAUDE.md` IS the coding agent's system prompt (Claude Code reads it in the project dir). Put the rails there: on load, **ask the user what they want to build**; create/maintain `plan.md`; progress task-by-task and check items off as it goes.
+- **Feed the URL to the agent.** Pass the vibe's preview/publish URL into the agent (env var + written into `CLAUDE.md`) so it knows where to serve and "publish to"; the preview pane points at the same URL.
+- **Live plan pane.** Watch `plan.md` for the agent's edits → re-render the pane; user edits write back. Bidirectional, not a one-shot read.
+- **Controls on the building page.** A control strip in the vibe panel: start/stop the agent, run the dev server, ship, advance-to-next-task. Shape it as it firms up.
+- **Re-seed note:** `seedBuiltinSkills()` skips an existing on-disk `vibe-planner/SKILL.md`, so prompt changes (e.g. the council-synthesis instruction) won't reach already-seeded users until re-seeded (version the skill or re-write on bump).
+
+## Known tech debt — the hidden nav
+`home.html` has a hidden `#help-nav` (`display:none`) whose `.help-nav-item[data-section]` buttons are **load-bearing state** for the section switcher (`activeSection()`/`switchToSection()`/`loadActiveSection()` in `navigation.ts`). The visible nav is the app's left rail (`#files-rail-nav` in `index.html`), which drives sections via `openHomeSection → gotoSection` (flipping the hidden nav's active classes). Leftover from migrating nav to the rail without rewriting the switcher. Footgun: every section must be wired in **two** places (hidden nav for state + visible rail for display) — caused "Vibes missing from rail" and "always loads dashboard". Cleanup (a refactor): drive section state from the rail/a state var and delete `#help-nav` + the `.help-nav-item` coupling so there's one nav.
