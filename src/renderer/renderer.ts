@@ -71,6 +71,8 @@ declare global {
         mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
       }>>;
       appsAdd: (id: string, name: string, url?: string) => Promise<unknown>;
+      appImport: () => Promise<{ ok: boolean; appId?: string; error?: string }>;
+      appExport: (appId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
       appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) => Promise<unknown>;
       appsRemoveMcp: (id: string) => Promise<boolean>;
       appsRemove: (id: string) => Promise<boolean>;
@@ -345,6 +347,7 @@ declare global {
       vibesOpen: (id: string) => Promise<Record<string, unknown> | null>;
       vibesPlan: (id: string, goal: string) => Promise<{ ok: boolean; error?: string }>;
       vibesPlanWithCouncil: (id: string, goal: string) => Promise<{ ok: boolean; error?: string; fellBack?: boolean }>;
+      vibesShip: (id: string) => Promise<{ ok: boolean; appId?: string; error?: string }>;
       // yos wallet
       yosBalance: () => Promise<{ user_id: string; balance: number } | { error: string }>;
       yosRateCards: () => Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>;

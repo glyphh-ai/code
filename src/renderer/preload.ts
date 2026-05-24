@@ -167,6 +167,9 @@ contextBridge.exposeInMainWorld("yo", {
     mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
   }>>,
   appsAdd: (id: string, name: string, url?: string) => ipcRenderer.invoke("apps-add", id, name, url),
+  // yo app package (import / export)
+  appImport: () => ipcRenderer.invoke("app-import") as Promise<{ ok: boolean; appId?: string; error?: string }>,
+  appExport: (appId: string) => ipcRenderer.invoke("app-export", appId) as Promise<{ ok: boolean; path?: string; error?: string }>,
   appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) =>
     ipcRenderer.invoke("apps-set-mcp", id, mcp),
   appsRemoveMcp: (id: string) => ipcRenderer.invoke("apps-remove-mcp", id) as Promise<boolean>,
@@ -552,6 +555,7 @@ contextBridge.exposeInMainWorld("yo", {
   vibesOpen: (id: string) => ipcRenderer.invoke("vibes-open", id) as Promise<Record<string, unknown> | null>,
   vibesPlan: (id: string, goal: string) => ipcRenderer.invoke("vibes-plan", id, goal) as Promise<{ ok: boolean; error?: string }>,
   vibesPlanWithCouncil: (id: string, goal: string) => ipcRenderer.invoke("vibes-plan-with-council", id, goal) as Promise<{ ok: boolean; error?: string; fellBack?: boolean }>,
+  vibesShip: (id: string) => ipcRenderer.invoke("vibes-ship", id) as Promise<{ ok: boolean; appId?: string; error?: string }>,
 
   // yos wallet + rate cards
   yosBalance: () => ipcRenderer.invoke("yos-balance") as Promise<{ user_id: string; balance: number } | { error: string }>,

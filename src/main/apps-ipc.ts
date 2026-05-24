@@ -1,5 +1,6 @@
-import { ipcMain } from "electron";
+import { ipcMain, dialog } from "electron";
 import type { AppConnector } from "./app-connector";
+import { exportApp, importApp } from "./yo-app-package";
 import type { LayoutManager } from "./layout-manager";
 import type { DripManager } from "./drip-manager";
 import type { PanelManager } from "./panel-manager";
@@ -121,6 +122,44 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     appConnector.updateCapturePolicy(id, policy as any));
   ipcMain.handle("apps-get-capture-policy", (_e, id: string) => appConnector.getCapturePolicy(id));
   ipcMain.handle("apps-set-connected-slug", () => false);
+
+  // ── yo app package (import / export) ──────────────────────
+  // Export an app to a .yoapp bundle. Web apps are manifest-only; bundled apps
+  // carry their code/ assets. (Static-build bundling for vibe output is a TODO;
+  // exportApp already supports a bundledCodeDir arg for when that lands.)
+  ipcMain.handle("app-export", async (_e, appId: string) => {
+    const app = appConnector.get(appId);
+    if (!app) return { ok: false, error: `App "${appId}" not found` };
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return { ok: false, error: "No window" };
+    const safeName = (app.name || app.id).replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || app.id;
+    const result = await dialog.showSaveDialog(win, {
+      title: "Export app",
+      defaultPath: `${safeName}.yoapp`,
+      filters: [{ name: "yo app", extensions: ["yoapp"] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, error: "Canceled" };
+    const dest = result.filePath.endsWith(".yoapp") ? result.filePath : `${result.filePath}.yoapp`;
+    return exportApp(appConnector, appId, dest);
+  });
+
+  // Import a .yoapp bundle → register it (deduping the id) → return the appId.
+  ipcMain.handle("app-import", async () => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return { ok: false, error: "No window" };
+    const result = await dialog.showOpenDialog(win, {
+      title: "Import app",
+      properties: ["openFile"],
+      filters: [{ name: "yo app", extensions: ["yoapp"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, error: "Canceled" };
+    const res = importApp(appConnector, result.filePaths[0]);
+    if (res.ok && res.appId) {
+      const app = appConnector.get(res.appId);
+      if (app?.url) panelManager.addPanel(res.appId, app.url);
+    }
+    return res;
+  });
 
   // IPC: app command mapping (DOM picker)
   ipcMain.handle("apps-set-command", (_e, id: string, key: string, mapping: { selector: string; action: string; description: string }) => {

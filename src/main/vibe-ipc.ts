@@ -394,6 +394,70 @@ function spawnVibeAgent(wc: WebContents): void {
   });
 }
 
+/** Result of shipping a vibe as a yo app. */
+export interface VibeShipResult {
+  ok: boolean;
+  appId?: string;
+  error?: string;
+}
+
+/** Dependencies shipVibe needs — just the apps registry. */
+export interface VibeShipDeps {
+  /** add(id, name, url): the app-connector registration seam. */
+  addApp: (id: string, name: string, url: string) => { id: string } | void;
+  /** hasDirect(id): used to dedupe the output app id. */
+  hasApp: (id: string) => boolean;
+}
+
+/** Dedupe an app id against the registry: base → base-2 → base-3 … */
+function uniqueShipId(base: string, hasApp: (id: string) => boolean): string {
+  if (!hasApp(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const cand = `${base}-${n}`;
+    if (!hasApp(cand)) return cand;
+  }
+  return `${base}-${Date.now()}`;
+}
+
+/**
+ * Ship a vibe's built output as a yo app so it shows up in the user's apps list.
+ *
+ * For now this wires the WEB-app path: the app's url is the vibe's dev server
+ * (meta.devServerUrl) or a sensible default (http://localhost:5173). The app id
+ * is "vibe-out-<vibeId>" (deduped). meta.outputAppId is recorded so re-shipping
+ * the same vibe updates rather than piles up.
+ *
+ * TODO(static bundling): for a self-contained ".yoapp", run the vibe's build and
+ * export code/ via yo-app-package.exportApp(..., bundledCodeDir). The web path
+ * is enough to register + open the app today.
+ */
+export function shipVibe(id: string, deps: VibeShipDeps): VibeShipResult {
+  const vibe = getVibe(id);
+  if (!vibe) return { ok: false, error: `Vibe "${id}" not found` };
+
+  const url = (vibe.devServerUrl || "").trim() || "http://localhost:5173";
+  // Reuse the existing output app id if we've shipped this vibe before.
+  const baseId = vibe.outputAppId || `vibe-out-${id}`;
+  const appId = vibe.outputAppId && deps.hasApp(vibe.outputAppId)
+    ? vibe.outputAppId
+    : uniqueShipId(baseId, deps.hasApp);
+
+  try {
+    deps.addApp(appId, vibe.name || id, url);
+  } catch (err) {
+    return { ok: false, error: `Failed to register app: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  // Record the output app on the vibe meta (non-fatal if it fails).
+  try {
+    saveVibe({ ...vibe, outputAppId: appId });
+  } catch (err) {
+    console.log("[vibe] ship: saveVibe failed:", err instanceof Error ? err.message : String(err));
+  }
+
+  return { ok: true, appId };
+}
+
 /** Helper to emit a "vibe-event" frame to a given panel's WebContents. */
 export function sendVibeEvent(target: WebContents, event: { kind: string; [key: string]: unknown }): void {
   target.send("vibe-event", event);

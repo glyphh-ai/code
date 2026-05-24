@@ -847,6 +847,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                 <button id="apps-add-mcp">Add MCP Server</button>
               </div>
             </div>
+            <button id="apps-import-btn" class="action-btn" title="Import a .yoapp bundle">Import app</button>
           </div>
 
           <div id="apps-list" class="crud-cards"></div>
@@ -976,6 +977,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                   <div class="settings-actions" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
                     <button id="app-detail-delete" class="action-btn danger">Delete</button>
+                    <button id="app-detail-export" class="action-btn" title="Export this app as a .yoapp bundle">Export</button>
                     <div style="flex:1;"></div>
                     <button id="app-dash-cancel" class="action-btn">Cancel</button>
                     <button id="app-dash-save" class="action-btn primary">Save</button>
@@ -1291,8 +1293,10 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div class="settings-actions" style="margin-top:12px;">
               <button id="vibe-delete-btn" class="action-btn danger">Delete</button>
               <div style="flex:1;"></div>
+              <button id="vibe-ship-btn" class="action-btn" title="Register this vibe's output as a yo app in your apps list">Ship as app</button>
               <button id="vibe-open-btn" class="action-btn primary">Open workspace</button>
             </div>
+            <div id="vibe-ship-status" class="crud-card-meta" style="margin-top:6px;"></div>
           </div>
         </div>
 

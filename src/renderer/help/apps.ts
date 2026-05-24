@@ -1191,6 +1191,44 @@ function initApps() {
     closeAppDetail();
   });
 
+  // Export the current app as a .yoapp bundle (main shows the save dialog).
+  document.getElementById("app-detail-export")?.addEventListener("click", async () => {
+    if (!currentAppId) return;
+    const btn = document.getElementById("app-detail-export") as HTMLButtonElement;
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Exporting…";
+    try {
+      const res = await window.yo.appExport(currentAppId);
+      btn.textContent = res?.ok ? "Exported ✓" : (res?.error === "Canceled" ? prev : "Export failed");
+    } catch {
+      btn.textContent = "Export failed";
+    } finally {
+      setTimeout(() => { btn.disabled = false; btn.textContent = prev; }, 1800);
+    }
+  });
+
+  // Import a .yoapp bundle (main shows the open dialog) → reload the apps list.
+  document.getElementById("apps-import-btn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("apps-import-btn") as HTMLButtonElement;
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Importing…";
+    try {
+      const res = await window.yo.appImport();
+      if (res?.ok) {
+        btn.textContent = "Imported ✓";
+        await loadApps();
+      } else {
+        btn.textContent = res?.error === "Canceled" ? (prev || "Import app") : "Import failed";
+      }
+    } catch {
+      btn.textContent = "Import failed";
+    } finally {
+      setTimeout(() => { btn.disabled = false; btn.textContent = prev || "Import app"; }, 1800);
+    }
+  });
+
   // MCP tab: transport toggle, save, connect, disconnect
   document.getElementById("app-mcp-transport")!.addEventListener("change", updateMcpFields);
   document.getElementById("app-mcp-save")!.addEventListener("click", saveMcpConfig);

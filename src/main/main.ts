@@ -2727,7 +2727,7 @@ async function boot() {
   registerHomeIpc({
     mcpExpose: mcpExpose!, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
-    panelManager, getMainWindow: () => mainWindow, activeReminders,
+    panelManager, appConnector, getMainWindow: () => mainWindow, activeReminders,
     openVibe: openVibeById,
     // vibe-planner: run the seeded methodology single-shot against the goal.
     // Uses the skill's editable SKILL.md body as the system prompt so a

@@ -106,8 +106,33 @@ function openDetail(vibe: VibeDef | null): void {
   $a<HTMLTextAreaElement>("vibe-goal").value = current.description || "";
   const planStatus = $a("vibe-plan-status");
   if (planStatus) planStatus.textContent = "";
+  const shipStatus = document.getElementById("vibe-ship-status");
+  if (shipStatus) shipStatus.textContent = "";
   // Existing vibes are opened by id; only new vibes are read-write here.
   ($a("vibe-delete-btn") as HTMLElement).style.display = isNew ? "none" : "";
+  // "Ship as app" only applies to a persisted vibe (needs an id + output).
+  const shipBtn = document.getElementById("vibe-ship-btn");
+  if (shipBtn) (shipBtn as HTMLElement).style.display = isNew ? "none" : "";
+}
+
+/**
+ * Ship the current vibe's output as a yo app (web app → its dev server, or a
+ * localhost default). On success it appears in the Apps list.
+ */
+async function shipAsApp(): Promise<void> {
+  if (!current || isNew || !current.id) return;
+  const status = document.getElementById("vibe-ship-status");
+  const btn = document.getElementById("vibe-ship-btn") as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = "Shipping…";
+  try {
+    const res = await window.yo.vibesShip(current.id);
+    if (status) status.textContent = res?.ok ? "Added to your apps." : (res?.error || "Could not ship as app.");
+  } catch (err) {
+    if (status) status.textContent = err instanceof Error ? err.message : String(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 /** Resolve the vibe id to plan against — creating the vibe first if this is a new one. */
@@ -224,6 +249,8 @@ function initVibes(): void {
   $a("vibe-plan-btn").addEventListener("click", () => { void generatePlan(); });
   const councilBtn = document.getElementById("vibe-council-btn");
   if (councilBtn) councilBtn.addEventListener("click", () => { void planWithCouncil(); });
+  const shipBtn = document.getElementById("vibe-ship-btn");
+  if (shipBtn) shipBtn.addEventListener("click", () => { void shipAsApp(); });
   $a("vibe-delete-btn").addEventListener("click", async () => {
     if (!current || isNew) return;
     if (!(await confirmAction(`Delete vibe "${current.name || current.id}"? This removes its project files.`))) return;
