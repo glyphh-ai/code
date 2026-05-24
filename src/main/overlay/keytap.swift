@@ -21,7 +21,14 @@
 import Cocoa
 import ApplicationServices
 
-let TRIGGERS = [".yo", ".dip", ".sup", ".drip", ".peace"]
+// Active triggers come from YO_OVERLAY_TRIGGERS (comma-separated), set by the
+// Electron main process from a flag. Default: only ".drip" until the agent
+// overlay (.yo/.sup/.dip) is ready to ship.
+let TRIGGERS: [String] = {
+    let raw = ProcessInfo.processInfo.environment["YO_OVERLAY_TRIGGERS"] ?? ".drip"
+    let list = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    return list.isEmpty ? [".drip"] : list
+}()
 let MAGIC: Int64 = 0x796F   // 'yo' — stamped on our own synthetic events so we ignore them
 
 // Single-glyph braille spinner frames. We only ever show ONE glyph at a time.

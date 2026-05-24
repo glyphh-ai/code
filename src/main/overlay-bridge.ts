@@ -35,12 +35,17 @@ let stopped = false;
 let restarts = 0;
 let runCommandFn: ((cmd: string) => Promise<string> | void) | null = null;
 let focusMainFn: (() => void) | null = null;
+// Which dot-commands the helper intercepts. Until the agent overlay is ready
+// we ship with only ".drip" active (the global full-screen effect); the rest
+// (.yo/.sup/.dip/.peace) stay off behind a flag.
+let triggersEnv = ".drip";
 
 export function startOverlay(
   yoAgent: YoAgent,
   runCommand: (cmd: string) => Promise<string> | void,
   focusMain: () => void,
   binPath: string,
+  triggers: string,
 ): void {
   if (process.platform !== "darwin") return;
   if (!fs.existsSync(binPath)) {
@@ -50,12 +55,16 @@ export function startOverlay(
   stopped = false;
   runCommandFn = runCommand;
   focusMainFn = focusMain;
+  triggersEnv = triggers || ".drip";
   wireAgentPanel(yoAgent);
   spawnHelper(yoAgent, binPath);
 }
 
 function spawnHelper(yoAgent: YoAgent, binPath: string): void {
-  proc = spawn(binPath, [], { stdio: ["pipe", "pipe", "inherit"] });
+  proc = spawn(binPath, [], {
+    stdio: ["pipe", "pipe", "inherit"],
+    env: { ...process.env, YO_OVERLAY_TRIGGERS: triggersEnv },
+  });
   let buf = "";
   proc.stdout!.on("data", (chunk: Buffer) => {
     buf += chunk.toString("utf8");

@@ -1030,17 +1030,21 @@ async function boot() {
 
   // Global keytap overlay (macOS): native CGEventTap helper intercepts dot-commands
   // typed in ANY app and shows an inline braille spinner at the caret while we work.
-  // .yo runs one-shot and pastes the answer inline (or opens a slide-out panel when it
-  // needs more info); .dip/.drip just run; .sup pastes an auto-deleting confirmation.
-  // Always-on for macOS (no settings toggle yet).
+  // Desktop overlay. Until the agent overlay (.yo/.sup/.dip) is ready we ship
+  // with ONLY the global ".drip" effect active; the rest stay off behind the
+  // `overlayAgentEnabled` flag (flip the pref to enable them).
   const overlayBin = app.isPackaged
     ? path.join(process.resourcesPath, "overlay", "keytap")
     : path.join(__dirname, "overlay", "keytap");
+  const overlayTriggers = getPreference<boolean>("overlayAgentEnabled", false)
+    ? ".yo,.dip,.sup,.drip,.peace"
+    : ".drip";
   startOverlay(
     yoAgent,
     (cmd) => commandParser.execute(cmd),
     () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } },
-    overlayBin
+    overlayBin,
+    overlayTriggers,
   );
 
   // Wire yo agent dependencies
