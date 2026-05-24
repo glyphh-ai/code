@@ -37,6 +37,56 @@ const SKILL_MD = "SKILL.md";
 const SKILL_JS = "SKILL.js";
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
+// ── Built-in seeded skills ───────────────────────────────────
+//
+// Shipped methodologies written to ~/.claude/skills/<name>/ on boot when
+// absent. Seeding never clobbers a user-edited copy (see seedBuiltinSkills).
+
+/** vibe-planner — yo's reusable build methodology (Vibe Phase 3). */
+const VIBE_PLANNER_PROMPT = `You are vibe-planner — yo's reusable build methodology. You turn a project goal into two artifacts a Claude Code coding agent will use to build the thing:
+
+1. plan.md — a concrete, ordered task checklist (GitHub-style checkboxes) that breaks the goal into small, verifiable build steps.
+2. CLAUDE.md — the methodology / rails the coding agent must follow while building THIS project.
+
+Your input is a JSON object (or plain text) describing the project: it may include "goal", "name", and "description". Treat the goal as the primary signal.
+
+Return STRICT JSON ONLY — no prose, no markdown fences around the whole thing — matching exactly this schema:
+{ "plan": "<full markdown for plan.md>", "claudeMd": "<full markdown for CLAUDE.md>" }
+
+Requirements for "plan":
+- Start with a "# Plan" heading and a one-line restatement of the goal.
+- Group tasks under short ## phase headings (e.g. Scaffold, Core, UI, Verify, Ship) when it helps.
+- Every task is a "- [ ] " checkbox line, concrete and small enough to verify in one step.
+- Order tasks so each builds on the last; put a working skeleton / dev server early so there is always something to preview.
+- 8-20 tasks total. Be specific to the goal, not generic.
+
+Requirements for "claudeMd":
+- Start with a "# Methodology" heading naming the project.
+- Cover PROCESS: clarify the goal first if ambiguous; implement task-by-task against plan.md; after each task verify against the live preview / dev server before moving on; check the box in plan.md as each task completes and add follow-up tasks discovered along the way.
+- Cover CONVENTIONS: build in the code/ working directory; keep a dev server running for the preview; prefer small reversible commits; match existing patterns.
+- Cover PLAN UPKEEP: plan.md is the living source of truth — keep it checked off and append new tasks as scope is discovered.
+- Keep it concise but real — a usable default the user can edit per project.
+
+Output ONLY the JSON object.`;
+
+interface BuiltinSkill {
+  name: string;
+  manifest: SkillManifest;
+  prompt: string;
+}
+
+const BUILTIN_SKILLS: BuiltinSkill[] = [
+  {
+    name: "vibe-planner",
+    manifest: {
+      name: "vibe-planner",
+      description: "Turns a project goal into a plan.md task checklist + a CLAUDE.md build methodology for a vibe.",
+      type: "skill",
+    },
+    prompt: VIBE_PLANNER_PROMPT,
+  },
+];
+
 // Legacy fallback prompt when a skill has neither runner nor body.
 const DEFAULT_SKILL_PROMPT = `You are a context capture assistant.
 Given the following session content (raw conversation between a user and an AI),
@@ -129,6 +179,24 @@ export class SkillEngine {
     }
     const fm = yaml.dump(clean, { noRefs: true, lineWidth: 0 });
     return `---\n${fm.trim()}\n---\n\n${body.trim()}\n`;
+  }
+
+  // ── Built-in seeding ─────────────────────────────────
+
+  /**
+   * Write any bundled built-in skills (e.g. vibe-planner) to disk if they
+   * are absent. Never clobbers a user-edited copy — if SKILL.md already
+   * exists for the name, it is left untouched. Idempotent; safe at boot.
+   * Returns the names that were newly seeded.
+   */
+  seedBuiltinSkills(): string[] {
+    const seeded: string[] = [];
+    for (const b of BUILTIN_SKILLS) {
+      const mdPath = path.join(this.skillFolder(b.name), SKILL_MD);
+      if (fs.existsSync(mdPath)) continue;
+      if (this.writeSkill(b.name, { ...b.manifest }, b.prompt)) seeded.push(b.name);
+    }
+    return seeded;
   }
 
   // ── CRUD ─────────────────────────────────────────────

@@ -16,6 +16,7 @@ import type { PanelManager } from "./panel-manager";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
 import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed } from "./auth";
 import { listVibes, getVibe, createVibe, deleteVibe, type VibeMeta } from "./vibe-store";
+import { vibePlan } from "./vibe-ipc";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -30,6 +31,8 @@ interface HomeIpcDeps {
   activeReminders: Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>;
   /** Open a vibe by id: set it active + show/reload the vibe panel. Returns the vibe. */
   openVibe: (id: string) => VibeMeta | null;
+  /** Run the seeded vibe-planner methodology against a goal (single-shot). */
+  runVibePlanner: (goal: string) => Promise<string>;
 }
 
 export function registerHomeIpc(deps: HomeIpcDeps): void {
@@ -37,7 +40,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
     mcpExpose, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, getMainWindow, activeReminders,
-    openVibe,
+    openVibe, runVibePlanner,
   } = deps;
 
   // ── Vibes registry CRUD + open ────────────────────────────
@@ -48,6 +51,9 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   // Open: set the vibe active and switch + reload the vibe panel (so the agent
   // re-spawns in the new vibe's code dir). Returns the opened vibe.
   ipcMain.handle("vibes-open", (_e, id: string) => openVibe(id));
+  // Generate plan.md + CLAUDE.md for a vibe from a goal via the vibe-planner skill.
+  ipcMain.handle("vibes-plan", (_e, id: string, goal: string) =>
+    vibePlan(id, goal, { runPlanner: runVibePlanner }));
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));

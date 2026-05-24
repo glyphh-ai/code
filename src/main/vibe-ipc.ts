@@ -25,6 +25,7 @@ import {
   deleteVibe,
   vibeCodeDir,
   vibePlanPath,
+  vibeClaudePath,
   type VibeMeta,
 } from "./vibe-store";
 
@@ -44,6 +45,21 @@ export interface VibeIpcDeps {
 export interface OpenVibeDeps {
   /** Ensure the "vibe" panel exists, switch to it, and reload its webContents. */
   showVibePanel: () => void;
+}
+
+/**
+ * Dependencies the vibe-planner flow needs. Wired from main so vibe-ipc
+ * stays decoupled from how skills/agents are constructed.
+ */
+export interface VibePlanDeps {
+  /** Run the seeded "vibe-planner" methodology against a goal, single-shot. */
+  runPlanner: (goal: string) => Promise<string>;
+}
+
+/** Result of a vibe-plan run. */
+export interface VibePlanResult {
+  ok: boolean;
+  error?: string;
 }
 
 /** The currently-bound vibe. null until a vibe is opened (or a default is made). */
@@ -131,6 +147,89 @@ export function openVibe(id: string, deps: OpenVibeDeps): VibeMeta | null {
   setActiveVibe(id);
   deps.showVibePanel();
   return vibe;
+}
+
+/**
+ * Run the vibe-planner methodology for a vibe and write the two artifacts.
+ *
+ * The planner returns a JSON object { plan, claudeMd } (it may be wrapped in
+ * prose or a code fence — we parse loosely). On success we write plan.md +
+ * CLAUDE.md into the vibe dir; the plan pane reads plan.md on next open/reload.
+ */
+export async function vibePlan(id: string, goal: string, deps: VibePlanDeps): Promise<VibePlanResult> {
+  const vibe = getVibe(id);
+  if (!vibe) return { ok: false, error: `Vibe "${id}" not found` };
+  const trimmedGoal = (goal || vibe.description || vibe.name || "").trim();
+  if (!trimmedGoal) return { ok: false, error: "A goal is required to generate a plan." };
+
+  // Hand the planner a structured goal payload so it can use name/description.
+  const input = JSON.stringify({ goal: trimmedGoal, name: vibe.name, description: vibe.description });
+
+  let raw: string;
+  try {
+    raw = await deps.runPlanner(input);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const parsed = parsePlannerOutput(raw);
+  if (!parsed) {
+    return { ok: false, error: "Planner did not return a usable plan (could not parse plan/CLAUDE markdown)." };
+  }
+
+  try {
+    if (parsed.plan.trim()) {
+      fs.writeFileSync(vibePlanPath(id), parsed.plan.trim() + "\n", "utf-8");
+    }
+    if (parsed.claudeMd.trim()) {
+      fs.writeFileSync(vibeClaudePath(id), parsed.claudeMd.trim() + "\n", "utf-8");
+    }
+  } catch (err) {
+    return { ok: false, error: `Failed writing vibe files: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Loosely parse the planner's response into { plan, claudeMd }.
+ * Accepts: raw JSON, JSON wrapped in a ```json fence or surrounding prose,
+ * and (fallback) two delimited markdown sections.
+ */
+function parsePlannerOutput(raw: string): { plan: string; claudeMd: string } | null {
+  if (!raw || !raw.trim()) return null;
+
+  const tryJson = (s: string): { plan: string; claudeMd: string } | null => {
+    try {
+      const obj = JSON.parse(s) as Record<string, unknown>;
+      const plan = typeof obj.plan === "string" ? obj.plan : "";
+      const claudeMd =
+        typeof obj.claudeMd === "string" ? obj.claudeMd
+        : typeof (obj as any).claude_md === "string" ? (obj as any).claude_md
+        : typeof (obj as any).claude === "string" ? (obj as any).claude
+        : "";
+      if (plan || claudeMd) return { plan, claudeMd };
+    } catch { /* fall through */ }
+    return null;
+  };
+
+  // 1) Direct JSON.
+  let res = tryJson(raw.trim());
+  if (res) return res;
+
+  // 2) JSON inside the first {...} block (handles prose/fences around it).
+  const brace = raw.match(/\{[\s\S]*\}/);
+  if (brace) {
+    res = tryJson(brace[0]);
+    if (res) return res;
+  }
+
+  // 3) Fallback: split on a CLAUDE.md-ish delimiter heading.
+  const splitMatch = raw.match(/^([\s\S]*?)\n#{1,3}\s*(?:CLAUDE\.md|Methodology)\b[^\n]*\n([\s\S]*)$/im);
+  if (splitMatch) {
+    return { plan: splitMatch[1], claudeMd: `# Methodology\n${splitMatch[2]}` };
+  }
+
+  return null;
 }
 
 /** Spawn the single coding agent into the active vibe's code dir (gated on CC auth). */

@@ -102,8 +102,48 @@ function openDetail(vibe: VibeDef | null): void {
 
   $a<HTMLInputElement>("vibe-name").value = current.name || "";
   $a<HTMLTextAreaElement>("vibe-description").value = current.description || "";
+  // Seed the goal from the description as a sensible starting point.
+  $a<HTMLTextAreaElement>("vibe-goal").value = current.description || "";
+  const planStatus = $a("vibe-plan-status");
+  if (planStatus) planStatus.textContent = "";
   // Existing vibes are opened by id; only new vibes are read-write here.
   ($a("vibe-delete-btn") as HTMLElement).style.display = isNew ? "none" : "";
+}
+
+/**
+ * Generate plan.md + CLAUDE.md for the current vibe via vibe-planner.
+ * For a brand-new vibe, create it first (so it has an id + dir to write into).
+ */
+async function generatePlan(): Promise<void> {
+  const status = $a("vibe-plan-status");
+  const btn = $a<HTMLButtonElement>("vibe-plan-btn");
+  const goal = $a<HTMLTextAreaElement>("vibe-goal").value.trim();
+  if (!goal) { if (status) status.textContent = "Enter a goal first."; return; }
+
+  let vibeId = isNew ? undefined : current?.id;
+  if (!vibeId) {
+    const name = $a<HTMLInputElement>("vibe-name").value.trim();
+    if (!name) { if (status) status.textContent = "Name is required."; return; }
+    const description = $a<HTMLTextAreaElement>("vibe-description").value.trim() || undefined;
+    const created = (await window.yo.vibesCreate(name, description)) as unknown as VibeDef;
+    vibeId = created?.id;
+    if (!vibeId) { if (status) status.textContent = "Could not create vibe."; return; }
+    // Now editing the created vibe.
+    current = created;
+    isNew = false;
+    ($a("vibe-delete-btn") as HTMLElement).style.display = "";
+  }
+
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = "Generating plan…";
+  try {
+    const res = await window.yo.vibesPlan(vibeId, goal);
+    if (status) status.textContent = res?.ok ? "Plan generated. Open the workspace to see it." : (res?.error || "Failed to generate plan.");
+  } catch (err) {
+    if (status) status.textContent = err instanceof Error ? err.message : String(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 /** Open (creating first if this is a new vibe) → bind the panel + close home. */
@@ -137,6 +177,7 @@ function initVibes(): void {
     // In the detail view: existing vibe opens by id; new vibe creates then opens.
     void openWorkspace(isNew ? undefined : current?.id);
   });
+  $a("vibe-plan-btn").addEventListener("click", () => { void generatePlan(); });
   $a("vibe-delete-btn").addEventListener("click", async () => {
     if (!current || isNew) return;
     if (!(await confirmAction(`Delete vibe "${current.name || current.id}"? This removes its project files.`))) return;

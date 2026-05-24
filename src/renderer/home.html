@@ -1280,6 +1280,13 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <label class="settings-label">Description</label>
             <textarea id="vibe-description" class="settings-input" rows="3" placeholder="What are you building?"></textarea>
 
+            <label class="settings-label">Goal (for plan generation)</label>
+            <textarea id="vibe-goal" class="settings-input" rows="3" placeholder="Describe the goal — vibe-planner turns it into plan.md + CLAUDE.md"></textarea>
+            <div class="settings-actions" style="margin-top:8px;">
+              <button id="vibe-plan-btn" class="action-btn">Generate plan</button>
+              <span id="vibe-plan-status" class="crud-card-meta" style="margin-left:8px;"></span>
+            </div>
+
             <div class="settings-actions" style="margin-top:12px;">
               <button id="vibe-delete-btn" class="action-btn danger">Delete</button>
               <div style="flex:1;"></div>

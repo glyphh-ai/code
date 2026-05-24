@@ -370,6 +370,9 @@ async function boot() {
 
   // Core services
   skillEngine = new SkillEngine();
+  // Seed bundled built-in skills (e.g. vibe-planner) if absent. Never
+  // clobbers a user-edited copy; safe + idempotent on every boot.
+  try { skillEngine.seedBuiltinSkills(); } catch (err) { console.log("[skills] seed failed:", (err as Error).message); }
   appConnector = new AppConnector();
 
   // Embedder + capture store
@@ -2690,6 +2693,18 @@ async function boot() {
     usageTracker, promptLog, llmConfig,
     panelManager, getMainWindow: () => mainWindow, activeReminders,
     openVibe: openVibeById,
+    // vibe-planner: run the seeded methodology single-shot against the goal.
+    // Uses the skill's editable SKILL.md body as the system prompt so a
+    // user-tuned methodology is honored; deterministic JSON output that
+    // vibePlan() parses + writes to plan.md / CLAUDE.md.
+    runVibePlanner: async (goal: string) => {
+      const skill = skillEngine.getSkill("vibe-planner");
+      const prompt = skill?.prompt?.trim();
+      if (prompt) return skillEngine.processWithPrompt(goal, prompt);
+      // Fallback if seeding somehow didn't run: go through the full agent.
+      const res = await yoAgent.runForResult(goal);
+      return res.text;
+    },
   });
 
   // ── Local swarm session (cypher-session.ts) ──────────────────────

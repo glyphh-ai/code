@@ -343,6 +343,7 @@ declare global {
       vibesCreate: (name: string, description?: string) => Promise<Record<string, unknown>>;
       vibesDelete: (id: string) => Promise<boolean>;
       vibesOpen: (id: string) => Promise<Record<string, unknown> | null>;
+      vibesPlan: (id: string, goal: string) => Promise<{ ok: boolean; error?: string }>;
       // yos wallet
       yosBalance: () => Promise<{ user_id: string; balance: number } | { error: string }>;
       yosRateCards: () => Promise<{ cards: Array<{ tier: string; yos_per_1k_input: number; yos_per_1k_output: number; yos_per_idle_minute: number }> } | { error: string }>;
