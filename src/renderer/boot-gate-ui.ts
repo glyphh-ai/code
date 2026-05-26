@@ -44,6 +44,10 @@ const UPDATE_DOWNLOAD_CAP_MS = 120_000;   // max time to hold the splash for a d
 let updateVerdict: UpdateVerdict = "pending";
 let dismissRequested = false;
 let splashRemoved = false;
+// Set once the main process commits to auto-installing a downloaded update and
+// restarting. The splash must then stay up (showing a stand-by message) so the
+// user never gets dropped into the workspace for the instant before the restart.
+let restarting = false;
 let pendingGraceTimer: ReturnType<typeof setTimeout> | null = null;
 let downloadCapTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -234,6 +238,8 @@ function setSplashUpdate(percent: number, label: string): void {
 /** Actually fade out and remove the splash. Idempotent. */
 function finishSplash(cb: BootGateCallbacks): void {
   if (splashRemoved) return;
+  // A restart is imminent — keep the splash up rather than flashing the app.
+  if (restarting) return;
   splashRemoved = true;
   if (pendingGraceTimer) { clearTimeout(pendingGraceTimer); pendingGraceTimer = null; }
   if (downloadCapTimer) { clearTimeout(downloadCapTimer); downloadCapTimer = null; }
@@ -369,6 +375,11 @@ export function initBootGate(cb: BootGateCallbacks): void {
       updateVerdict = "done";
       setSplashUpdate(100, "Update ready");
       scheduleSplashFinish(cb);
+    } else if (info.status === "restarting") {
+      // Main is about to quitAndInstall — hold the splash and reassure the user
+      // instead of briefly dropping them into the app right before the restart.
+      restarting = true;
+      setSplashUpdate(100, "App will restart shortly — please stand by…");
     } else if (info.status === "error") {
       if (updateVerdict !== "done") updateVerdict = "clear";
       scheduleSplashFinish(cb);

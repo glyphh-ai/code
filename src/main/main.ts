@@ -2115,7 +2115,13 @@ async function boot() {
     // (and the next launch) still apply it.
     if (Date.now() - appStartedAt > 10 * 60 * 1000) return;
     setPreference("pendingUpdateInstall", { version: info.version, tried: true });
-    // Let the splash paint "Update ready" before we restart into the update.
+    // We're committing to the restart — tell the renderer so it holds the splash
+    // with a stand-by message rather than flashing the workspace for a moment.
+    mainWindow?.webContents.send("update-status", {
+      status: "restarting",
+      version: info.version,
+    });
+    // Let the splash paint the stand-by message before we restart into the update.
     setTimeout(() => {
       try {
         autoUpdater.quitAndInstall(true, true);
