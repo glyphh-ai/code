@@ -66,7 +66,7 @@ export function registerMarketplaceIpc(deps: MarketplaceIpcDeps): void {
     catch (err) { return { error: err instanceof Error ? err.message : "fetch failed" }; }
   });
   ipcMain.handle("yos-buy-url", () => {
-    const base = process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";
+    const base = process.env.YO_PLATFORM_URL || "https://platform.dotyo.dev";
     return { url: `${base}/dashboard/billing#yos` };
   });
   ipcMain.handle("agents-leaderboard", async (_e, opts?: { skills?: string; days?: number; limit?: number }) => {

@@ -21,7 +21,7 @@ import { WebSocket } from "ws";
 import { getPreference } from "./stores/preferences-db.js";
 import { getAuthToken, isAuthenticated } from "./auth.js";
 
-const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
+const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.dotyo.dev";
 
 /** Build the WS URL from the HTTP API base — https → wss, http → ws. */
 function relayUrl(): string {

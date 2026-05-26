@@ -56,7 +56,7 @@ through the prereq column.
 ## What this pivot does NOT change
 
 - **The Electron app's primary auth.** Users still sign into yo-client
-  via `platform.yosup.dev/auth?flow=electron` → BrowserWindow → device
+  via `platform.dotyo.dev/auth?flow=electron` → BrowserWindow → device
   code → JWT (`auth.ts`). That session backs everything *outside* The
   Drop.
 - **Other panel apps.** Home, Terminal, Council, Monaco, Browser,
@@ -118,7 +118,7 @@ Three pieces, only one of which is new code in yo-client:
 ```
 
 The Drop is a renderer + preload pair like council. Its sole expansion
-is the GH OAuth flow: a child `BrowserWindow` opens `https://api.yosup.dev/api/auth/github/start`,
+is the GH OAuth flow: a child `BrowserWindow` opens `https://api.dotyo.dev/api/auth/github/start`,
 the user authorizes on github.com, the redirect lands at the platform's
 `/auth/callback?code=…`, The Drop's main-process owner intercepts the
 code, exchanges it via yo-server, and persists the augmented session in
@@ -449,7 +449,7 @@ a yo-client-wide Preferences pane. Keeps the scope tight.
 - [ ] **Drop → Preferences → Installations:** list of orgs/accounts
       the yo App is installed on, each with a member count + per-seat
       monthly cost summary. Click → opens that org's billing page on
-      `platform.yosup.dev` (server-rendered).
+      `platform.dotyo.dev` (server-rendered).
 - [ ] **Drop → Preferences → Personal subscription:** for jammers
       without an org install — links to platform's billing.
 - [ ] Remove yos balance widget completely from The Drop header.

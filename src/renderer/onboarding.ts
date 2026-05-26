@@ -281,12 +281,12 @@ if (ONBOARDING_AVAILABLE && signinBtn && registerBtn && stepAuth && trialInfo) {
 
   // Policy links
   document.getElementById("onboarding-terms-link")?.addEventListener("click", () => {
-    window.yo.openExternal("https://yosup.dev/terms");
+    window.yo.openExternal("https://dotyo.dev/terms");
   });
   document.getElementById("onboarding-privacy-link")?.addEventListener("click", () => {
-    window.yo.openExternal("https://yosup.dev/privacy");
+    window.yo.openExternal("https://dotyo.dev/privacy");
   });
   document.getElementById("onboarding-refund-link")?.addEventListener("click", () => {
-    window.yo.openExternal("https://yosup.dev/refund");
+    window.yo.openExternal("https://dotyo.dev/refund");
   });
 }

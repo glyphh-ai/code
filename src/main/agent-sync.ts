@@ -17,7 +17,7 @@ import { isAuthenticated, getAuthToken } from "./auth";
 import type { AgentConfig } from "./agent-store";
 
 const AUTH_SERVER =
-  process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
+  process.env.YO_AUTH_SERVER || "https://api.dotyo.dev";
 
 // ── Types ───────────────────────────────────────────────────
 

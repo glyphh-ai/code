@@ -3028,7 +3028,7 @@ async function boot() {
     }
   });
 
-  // Account and billing managed via yosup.dev/dashboard
+  // Account and billing managed via dotyo.dev/dashboard
 
   // IPC: support ticket (uses authenticated server call)
   ipcMain.handle("submit-support-ticket", async (_e, ticket: { subject: string; description: string }) => {

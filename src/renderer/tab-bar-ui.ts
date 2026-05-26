@@ -256,6 +256,10 @@ export function initTabBar(deps: TabBarDeps): {
   tabNewBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
 
+    // Never open new apps while the account is locked (trial expired/disabled).
+    // The button is hidden by CSS then, but guard the handler defensively.
+    if (document.body.classList.contains("account-locked")) return;
+
     if (tabNewMenu) { closeTabNewMenu(); return; }
 
     const apps = await window.yo.appsList();

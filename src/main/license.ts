@@ -19,7 +19,7 @@ const TRIAL_DAYS = 14;
 const REFRESH_MARGIN = 3 * 60 * 1000; // refresh 3 min before expiry
 
 const LICENSE_SERVER =
-  process.env.YO_LICENSE_SERVER || "https://api.yosup.dev";
+  process.env.YO_LICENSE_SERVER || "https://api.dotyo.dev";
 
 interface LicenseState {
   status: "trial" | "licensed" | "expired";

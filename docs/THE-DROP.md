@@ -336,7 +336,7 @@ users misusing the cypher mechanism.
 - **URL safety**: setup-step URLs must point to public hosts. Blocks
   loopback, RFC1918, link-local, carrier-NAT, `.local` / `.internal`
   / `.lan` / `.intranet` TLDs, and yosup's own infrastructure
-  (`api.yosup.dev`, `platform.yosup.dev`, etc.). Schemes restricted
+  (`api.dotyo.dev`, `platform.dotyo.dev`, etc.). Schemes restricted
   to http/https/git.
 - **Length caps**: title ≤ 200, goal ≤ 4000, message body ≤ 16000,
   setup steps ≤ 20, URL ≤ 2048.

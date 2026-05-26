@@ -283,7 +283,7 @@ function dismissSplash(cb: BootGateCallbacks): void {
 // ── Account lockout (trial expired / account disabled) ──────────────────────
 
 let accountLocked = false;
-let upgradeUrl = "https://platform.yosup.dev/dashboard/billing";
+let upgradeUrl = "https://platform.dotyo.dev/dashboard/billing";
 
 /** Raise the full-window lockout gate. The user keeps the titlebar (so they
  *  can quit) but everything else is sealed until the account is active. */
@@ -294,6 +294,12 @@ function showLockout(cb: BootGateCallbacks, info?: { status?: string; upgradeUrl
   // Seal the workspace: panels are native BrowserViews that paint over HTML,
   // so they must be hidden for the overlay to actually cover anything.
   cb.hidePanels();
+
+  // The lockout overlay starts below the 38px titlebar (so window controls stay
+  // clickable). That leaves the titlebar's workspace chrome — tab strip, the "+"
+  // add-app button, rail toggles, downloads — visible and interactive above the
+  // overlay. Seal them too; styles.css hides them while body.account-locked.
+  document.body.classList.add("account-locked");
 
   // A locked account never sees onboarding or the tutorial.
   document.getElementById("onboarding-overlay")?.classList.add("hidden");
@@ -316,6 +322,7 @@ function showLockout(cb: BootGateCallbacks, info?: { status?: string; upgradeUrl
 /** Account is active again — drop the gate and reveal the workspace. */
 function hideLockout(cb: BootGateCallbacks): void {
   accountLocked = false;
+  document.body.classList.remove("account-locked");
   document.getElementById("lockout-overlay")?.classList.add("hidden");
   cb.showPanels();
 }

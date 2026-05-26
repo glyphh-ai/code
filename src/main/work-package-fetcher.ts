@@ -16,7 +16,7 @@ import { net } from "electron";
 import AdmZip from "adm-zip";
 import { getAuthToken } from "./auth";
 
-const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
+const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.dotyo.dev";
 
 export interface FetchOpts {
   workPackageId: string;

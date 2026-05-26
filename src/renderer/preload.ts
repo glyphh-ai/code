@@ -284,9 +284,9 @@ contextBridge.exposeInMainWorld("yo", {
   getAuthStatus: () => ipcRenderer.invoke("get-auth-status") as Promise<{ authenticated: boolean; status: string; tier?: string }>,
   refreshAuth: () => ipcRenderer.invoke("refresh-auth") as Promise<{ tier: string; status: string }>,
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
-  platformUrl: process.env.YO_PLATFORM_URL || "https://platform.yosup.dev",
-  openAccountDashboard: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.yosup.dev")),
-  openBilling: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.yosup.dev") + "/dashboard/billing"),
+  platformUrl: process.env.YO_PLATFORM_URL || "https://platform.dotyo.dev",
+  openAccountDashboard: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.dotyo.dev")),
+  openBilling: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.dotyo.dev") + "/dashboard/billing"),
 
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>

@@ -1,8 +1,8 @@
 /**
- * Auth — BrowserWindow-based authentication via platform.yosup.dev.
+ * Auth — BrowserWindow-based authentication via platform.dotyo.dev.
  *
  * Flow:
- *   1. Open BrowserWindow to platform.yosup.dev/auth?flow=electron (register or login)
+ *   1. Open BrowserWindow to platform.dotyo.dev/auth?flow=electron (register or login)
  *   2. User completes auth on the platform
  *   3. Web generates a one-time device code and redirects to /auth/callback?code=XXX
  *   4. We intercept the navigation, extract the code, exchange it for JWT tokens
@@ -21,9 +21,9 @@ const REFRESH_MARGIN = 3 * 60 * 1000; // refresh 3 min before expiry
 const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
 
 export const AUTH_SERVER =
-  process.env.YO_AUTH_SERVER || "https://api.yosup.dev";
+  process.env.YO_AUTH_SERVER || "https://api.dotyo.dev";
 export const PLATFORM_URL =
-  process.env.YO_PLATFORM_URL || "https://platform.yosup.dev";
+  process.env.YO_PLATFORM_URL || "https://platform.dotyo.dev";
 
 // ── Types ────────────────────────────────────────────────────
 

@@ -138,7 +138,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
       : {};
     mcpServers["yo-relay"] = {
       type: "http",
-      url: "https://api.yosup.dev/mcp",
+      url: "https://api.dotyo.dev/mcp",
       headers: { Authorization: `Bearer ${token}` },
     };
     existing.mcpServers = mcpServers;

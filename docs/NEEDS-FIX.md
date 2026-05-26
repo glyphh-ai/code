@@ -10,7 +10,7 @@ second slot is reserved for **remote** mode:
 
 - `standard` — local input. User types in the side panel, yoAgent runs.
 - `remote` — platform-driven input. The user starts a self-jammer cypher;
-  the platform (yosup.dev) posts events to it via voice transcript or web
+  the platform (dotyo.dev) posts events to it via voice transcript or web
   UI; the local cypher-runtime picks them up and dispatches to yoAgent;
   responses stream back to the platform via the same event channel.
 
