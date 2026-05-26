@@ -1480,7 +1480,10 @@ async function boot() {
   }
 
   function buildTabState() {
-    const visible = getPreference<boolean>("showTabs", true);
+    // Tabs are always shown now — the "Show Tabs" option was removed (closing
+    // the last tab used to strand chrome like the URL bar). Kept as a const so
+    // the rest of buildTabState reads unchanged.
+    const visible = true;
     const gridInfo = layoutManager.getGridInfo();
     const suspendedInfo = layoutManager.getSuspendedGridInfo();
     const layoutInfo = gridInfo || suspendedInfo;

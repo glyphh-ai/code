@@ -121,6 +121,7 @@ export function registerTabIpc(deps: TabIpcDeps): void {
       persistTabs();
       sendSplitState();
       sendTabState();
+      applyUrlBarForActive();
       return;
     }
 
@@ -138,6 +139,9 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     }
     sendSplitState();
     sendTabState();
+    // The active panel changed — re-evaluate the URL bar so it doesn't linger
+    // after the browser (or the last tab) is closed.
+    applyUrlBarForActive();
   });
 
   ipcMain.on("tab-new", () => {
@@ -331,15 +335,22 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     }
   });
 
-  ipcMain.on("url-bar-toggle", (_e, show: boolean) => {
+  // Recompute URL-bar visibility from the CURRENT active panel and apply it
+  // (inset + force). The bar shows only when there's an active panel that is a
+  // browser, or the user's global showUrlBar pref is on. Called whenever the
+  // active panel changes (incl. closing the last tab) so the bar never lingers.
+  function applyUrlBarForActive(): void {
     const mainWindow = getMainWindow();
-    setPreference("showUrlBar", show);
+    if (!mainWindow || mainWindow.isDestroyed()) return;
     const id = panelManager.activePanelId;
     const isBrowser = id ? resolveAppId(id) === "browser" : false;
-    const showBar = show || isBrowser;
+    const showBar = !!id && (isBrowser || getPreference<boolean>("showUrlBar", false));
     panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("url-bar-force", showBar);
-    }
+    mainWindow.webContents.send("url-bar-force", showBar);
+  }
+
+  ipcMain.on("url-bar-toggle", (_e, show: boolean) => {
+    setPreference("showUrlBar", show);
+    applyUrlBarForActive();
   });
 }
