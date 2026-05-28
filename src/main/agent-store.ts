@@ -194,6 +194,35 @@ export function removeAgent(id: string): boolean {
   }
 }
 
+const DEFAULT_AGENT_PROMPT = `You are .Yo's default worker-bee agent.
+
+You run in the user's current working folder with full Claude Code
+tooling — Read, Edit, Bash, Grep, Glob, Write — plus any MCP tools the
+user has whitelisted for this agent. Be useful, be direct, and prefer
+making the change over describing what you would change.
+
+You are NOT the right-rail .Yo wrapper agent — that's a separate agent
+that spans all folders at ~/yo/. You are workspace-scoped: your cwd is
+the only context you have to act on by default.
+
+Edit your behavior in this file (CLAUDE.md) or update agent.json via
+the Agents app.`;
+
+/** Ensure a "default" agent exists. Creates one with the full Claude Code
+ *  preamble system prompt on first call. Used by yo://agent when no slug
+ *  is specified. */
+export function ensureDefaultAgent(): AgentConfig {
+  const existing = getAgent("default");
+  if (existing) return existing;
+  return saveAgent({
+    id: "default",
+    name: "Agent",
+    type: "local",
+    systemPrompt: DEFAULT_AGENT_PROMPT,
+    mode: "full",
+  });
+}
+
 /** Returns true if the slug is available (no folder for it yet). */
 export function idAvailable(id: string): boolean {
   ensureDir();

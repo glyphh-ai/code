@@ -20,7 +20,7 @@ import { ipcMain, BrowserWindow, type WebContents } from "electron";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import { getShellPath } from "./shell-path";
 import { getPreference } from "./stores/preferences-db";
-import { getAgent } from "./agent-store";
+import { getAgent, ensureDefaultAgent } from "./agent-store";
 
 export type PermMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
 
@@ -137,6 +137,11 @@ async function runTurn(instance: RunningInstance, message: string, model: string
 }
 
 export function registerAgentInteractiveIpc(): void {
+  ipcMain.handle("agent:ensure-default", () => {
+    const cfg = ensureDefaultAgent();
+    return { slug: cfg.id };
+  });
+
   ipcMain.handle("agent:start", (e, opts: InteractiveStartOpts) => {
     if (!opts?.instanceId) return { error: "instanceId required" };
     if (instances.has(opts.instanceId)) return { ok: true };

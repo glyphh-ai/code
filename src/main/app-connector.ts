@@ -177,6 +177,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   // Settings — opened from the header gear; no longer in the left rail.
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
+  { id: "agent", name: "Agent", url: "yo://agent", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
