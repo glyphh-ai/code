@@ -633,14 +633,14 @@ body.account-locked #dl-btn-wrap {
   height: 38px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 12px;
   background: var(--surface);
   /* Thin rail-color sliver between the tab strip and the app content area
      so the active tab (also surface-2) flows into the workspace without a
      dark divider line. Replaces the previous 1px var(--border) bottom. */
   border-bottom: 4px solid var(--surface-2);
   -webkit-app-region: drag;
-  gap: 12px;
+  gap: 6px;
 }
 
 #titlebar-label {
@@ -671,11 +671,13 @@ body.account-locked #dl-btn-wrap {
 
 .url-bar {
   position: fixed;
-  top: 38px;
+  top: 42px;
   left: var(--left-inset, 0px);
   right: var(--right-inset, 0px);
   height: 34px;
-  background: var(--surface);
+  /* Matches the titlebar sliver + rail + active tab so the chrome strip
+     between the tab row and the workspace reads as one continuous band. */
+  background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -836,6 +838,13 @@ body.account-locked #dl-btn-wrap {
   overflow-y: hidden;
   -webkit-app-region: drag;
   scrollbar-width: none;
+  /* When a rail is open, push the tabs out of the rail's column so the
+     first tab starts at the left rail's right edge and the last tab ends
+     at the right rail's left edge. The 140px subtrahend approximates the
+     chrome (window controls + .Yo logo + toggle icons) already sitting
+     before/after the tab-bar inside the titlebar. */
+  padding-left: max(0px, calc(var(--left-inset, 0px) - 140px));
+  padding-right: max(0px, calc(var(--right-inset, 0px) - 140px));
 }
 
 #tab-bar .tab,
@@ -5111,7 +5120,7 @@ select.settings-input {
   justify-content: center;
   width: 24px;
   height: 22px;
-  margin: 0 4px;
+  margin: 0;
   padding: 0;
   background: transparent;
   border: none;
