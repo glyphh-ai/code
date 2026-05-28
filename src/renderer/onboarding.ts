@@ -201,8 +201,6 @@ function initAnimation(canvas: HTMLCanvasElement) {
 const overlay = document.getElementById("onboarding-overlay");
 const canvas = document.getElementById("onboarding-canvas") as HTMLCanvasElement | null;
 const stepAuth = document.getElementById("onboarding-step-auth");
-const signinBtn = document.getElementById("onboarding-signin") as HTMLButtonElement | null;
-const registerBtn = document.getElementById("onboarding-register") as HTMLButtonElement | null;
 const statusEl = document.getElementById("onboarding-status");
 const trialInfo = document.getElementById("onboarding-trial");
 
@@ -222,6 +220,7 @@ export function showOnboarding(_needsAuth?: boolean) {
   overlay.classList.remove("hidden");
   trialInfo.textContent = "Sign in to your account or create one to get started.";
   stepAuth.classList.remove("hidden");
+  renderAuthStep("login");
   if (canvas) stopAnimation = initAnimation(canvas);
 }
 
@@ -246,40 +245,129 @@ function completeOnboarding() {
   }, 600);
 }
 
-if (ONBOARDING_AVAILABLE && signinBtn && registerBtn && stepAuth && trialInfo) {
-  signinBtn.addEventListener("click", async () => {
-    signinBtn.disabled = true;
-    signinBtn.textContent = "Opening...";
-    setStatus("");
+// ── Inline email auth (no popup, no device-code handoff) ─────
+type AuthMode = "login" | "register-email" | "register-code" | "register-profile";
+let regEmail = "";
 
-    const ok = await window.yo.startAuth("login");
-    signinBtn.disabled = false;
-    signinBtn.textContent = "Sign in";
+function fieldInput(type: string, placeholder: string, autofocus = false): HTMLInputElement {
+  const i = document.createElement("input");
+  i.type = type;
+  i.placeholder = placeholder;
+  i.autocomplete = "off";
+  i.autocapitalize = "off";
+  if (autofocus) setTimeout(() => i.focus(), 60);
+  return i;
+}
 
-    if (ok) {
-      completeOnboarding();
-    } else {
-      setStatus("Sign in was cancelled or failed", true);
-    }
-  });
+function primaryButton(label: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "onboarding-signin-btn";
+  b.textContent = label;
+  return b;
+}
 
-  registerBtn.addEventListener("click", async () => {
-    registerBtn.disabled = true;
-    registerBtn.textContent = "Opening...";
-    setStatus("");
+function linkButton(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "onboarding-link-btn";
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
 
-    const ok = await window.yo.startAuth("register");
-    registerBtn.disabled = false;
-    registerBtn.textContent = "Create Account";
+function onEnter(el: HTMLElement, fn: () => void): void {
+  el.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") fn(); });
+}
 
-    if (ok) {
-      completeOnboarding();
-    } else {
-      setStatus("Registration was cancelled or failed", true);
-    }
-  });
+function renderAuthStep(mode: AuthMode): void {
+  if (!stepAuth) return;
+  setStatus("");
+  stepAuth.innerHTML = "";
+  const fields = document.createElement("div");
+  fields.className = "onboarding-fields";
+  stepAuth.appendChild(fields);
 
-  // Policy links
+  if (mode === "login") {
+    const email = fieldInput("email", "Email", true);
+    const pw = fieldInput("password", "Password");
+    const btn = primaryButton("Sign in");
+    const submit = async () => {
+      if (!email.value.trim() || !pw.value) { setStatus("Enter your email and password", true); return; }
+      btn.disabled = true; btn.textContent = "Signing in…"; setStatus("");
+      const r = await window.yo.authLogin(email.value.trim(), pw.value);
+      btn.disabled = false; btn.textContent = "Sign in";
+      if (r.ok) { completeOnboarding(); } else { setStatus(r.error || "Sign in failed", true); }
+    };
+    btn.addEventListener("click", submit);
+    onEnter(email, () => pw.focus());
+    onEnter(pw, submit);
+    fields.append(email, pw, btn, linkButton("Need an account? Create one", () => renderAuthStep("register-email")));
+  } else if (mode === "register-email") {
+    const desc = document.createElement("p");
+    desc.className = "onboarding-desc";
+    desc.textContent = "Enter your email — we'll send you a 6-digit code.";
+    const email = fieldInput("email", "Email", true);
+    const btn = primaryButton("Continue");
+    const submit = async () => {
+      if (!email.value.trim()) { setStatus("Enter your email", true); return; }
+      btn.disabled = true; btn.textContent = "Sending…"; setStatus("");
+      const r = await window.yo.authRegister(email.value.trim());
+      btn.disabled = false; btn.textContent = "Continue";
+      if (r.ok) { regEmail = email.value.trim(); renderAuthStep("register-code"); }
+      else { setStatus(r.error || "Could not send code", true); }
+    };
+    btn.addEventListener("click", submit);
+    onEnter(email, submit);
+    fields.append(desc, email, btn, linkButton("Have an account? Sign in", () => renderAuthStep("login")));
+  } else if (mode === "register-code") {
+    const desc = document.createElement("p");
+    desc.className = "onboarding-desc";
+    desc.textContent = `Enter the 6-digit code sent to ${regEmail}.`;
+    const code = fieldInput("text", "6-digit code", true);
+    code.maxLength = 6;
+    code.inputMode = "numeric";
+    const btn = primaryButton("Verify");
+    const submit = async () => {
+      if (!code.value.trim()) { setStatus("Enter the code", true); return; }
+      btn.disabled = true; btn.textContent = "Verifying…"; setStatus("");
+      const r = await window.yo.authVerifyCode(regEmail, code.value.trim());
+      btn.disabled = false; btn.textContent = "Verify";
+      if (r.ok) { renderAuthStep("register-profile"); } else { setStatus(r.error || "Invalid code", true); }
+    };
+    btn.addEventListener("click", submit);
+    onEnter(code, submit);
+    fields.append(desc, code, btn, linkButton("Use a different email", () => renderAuthStep("register-email")));
+  } else {
+    const first = fieldInput("text", "First name", true);
+    const last = fieldInput("text", "Last name");
+    const pw = fieldInput("password", "Password (8+ characters)");
+    const pw2 = fieldInput("password", "Confirm password");
+    const org = fieldInput("text", "Organization name (optional)");
+    const btn = primaryButton("Create account");
+    const submit = async () => {
+      if (!first.value.trim() || !last.value.trim()) { setStatus("Enter your first and last name", true); return; }
+      if (pw.value.length < 8) { setStatus("Password must be at least 8 characters", true); return; }
+      if (pw.value !== pw2.value) { setStatus("Passwords do not match", true); return; }
+      btn.disabled = true; btn.textContent = "Creating…"; setStatus("");
+      const r = await window.yo.authCompleteProfile({
+        email: regEmail,
+        firstName: first.value.trim(),
+        lastName: last.value.trim(),
+        password: pw.value,
+        confirmPassword: pw2.value,
+        orgName: org.value.trim() || undefined,
+      });
+      btn.disabled = false; btn.textContent = "Create account";
+      if (r.ok) { completeOnboarding(); } else { setStatus(r.error || "Account creation failed", true); }
+    };
+    btn.addEventListener("click", submit);
+    onEnter(org, submit);
+    fields.append(first, last, pw, pw2, org, btn);
+  }
+}
+
+if (ONBOARDING_AVAILABLE) {
   document.getElementById("onboarding-terms-link")?.addEventListener("click", () => {
     window.yo.openExternal("https://dotyo.dev/terms");
   });

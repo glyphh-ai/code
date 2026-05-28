@@ -481,6 +481,19 @@ body {
 .onboarding-register-btn:hover { border-color: var(--accent); color: var(--text); }
 .onboarding-register-btn:disabled { opacity: 0.5; cursor: default; }
 
+.onboarding-link-btn {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 0 0;
+  margin-top: 2px;
+  text-align: center;
+  transition: color 0.15s;
+}
+.onboarding-link-btn:hover { color: var(--accent); }
+
 /* ── Lockout gate (trial expired / account disabled) ─────────── */
 
 /* Starts below the 38px titlebar so window controls stay clickable —

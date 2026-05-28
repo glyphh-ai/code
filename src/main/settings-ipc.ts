@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerSaveBlocker } from "electron";
+import { authRegister, authVerifyCode, authCompleteProfile, authLogin } from "./auth";
 import type { LLMConfig } from "./llm-config";
 import type { McpExpose } from "./mcp-expose";
 import type { SessionCache } from "./session-cache";
@@ -78,6 +79,12 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
 
   ipcMain.handle("start-auth", async (_e, mode: "register" | "login") => startAuthFlow(mode));
   ipcMain.handle("is-authenticated", () => isAuthenticated());
+
+  // Native (in-client) email auth — no popup, no device-code handoff.
+  ipcMain.handle("auth-register", (_e, email: string) => authRegister(email));
+  ipcMain.handle("auth-verify-code", (_e, email: string, code: string) => authVerifyCode(email, code));
+  ipcMain.handle("auth-complete-profile", (_e, data: { email: string; firstName: string; lastName: string; password: string; confirmPassword: string; orgName?: string }) => authCompleteProfile(data));
+  ipcMain.handle("auth-login", (_e, email: string, password: string) => authLogin(email, password));
 
   ipcMain.handle("dev-flags", () => ({
     cyphersEnabled: process.env.YO_CYPHERS_ENABLED === "1" || process.env.YO_CYPHERS_ENABLED === "true",

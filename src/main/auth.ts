@@ -360,6 +360,88 @@ export function startAuthFlow(mode: "register" | "login" = "register"): Promise<
   });
 }
 
+// ── Native (in-client) email auth ────────────────────────────
+// Email-only auth handled entirely inside the client against the server API —
+// no BrowserWindow popup, no device-code handoff (which strands new users on
+// the platform page). Tokens land in the same encrypted session store.
+
+interface NativeAuthResponse {
+  ok?: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  error?: string;
+}
+
+/** Pull the server's `{ error }` message out of a serverPost rejection. */
+function parseAuthError(err: unknown, fallback: string): string {
+  const msg = String((err as Error)?.message || "");
+  const m = msg.match(/\{.*"error"\s*:\s*"([^"]+)"/);
+  if (m) return m[1];
+  if (/HTTP 409/.test(msg)) return "Account already exists";
+  if (/timeout/i.test(msg)) return "Request timed out — check your connection";
+  return fallback;
+}
+
+async function storeAuthTokens(result: NativeAuthResponse): Promise<boolean> {
+  if (result.accessToken && result.refreshToken && result.expiresIn) {
+    saveSessionFile({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresAt: Date.now() + result.expiresIn * 1000,
+    });
+    await fetchAccountInfo();
+    await fetchHeartbeat();
+    return true;
+  }
+  return false;
+}
+
+/** Step 1 of registration: send a 6-digit code to the email. */
+export async function authRegister(email: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await serverPost("/api/auth/register", { email });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: parseAuthError(err, "Could not start registration") };
+  }
+}
+
+/** Step 2 of registration: verify the 6-digit code. */
+export async function authVerifyCode(email: string, code: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await serverPost("/api/auth/verify-code", { email, code });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: parseAuthError(err, "Invalid or expired code") };
+  }
+}
+
+/** Step 3 of registration: create the account + org, then sign in (store tokens). */
+export async function authCompleteProfile(data: {
+  email: string; firstName: string; lastName: string;
+  password: string; confirmPassword: string; orgName?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const result = await serverPost<NativeAuthResponse>("/api/auth/complete-profile", data);
+    if (await storeAuthTokens(result)) return { ok: true };
+    return { ok: false, error: result.error || "Account creation failed" };
+  } catch (err) {
+    return { ok: false, error: parseAuthError(err, "Account creation failed") };
+  }
+}
+
+/** Sign in with email + password (stores tokens on success). */
+export async function authLogin(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const result = await serverPost<NativeAuthResponse>("/api/auth/login", { email, password });
+    if (await storeAuthTokens(result)) return { ok: true };
+    return { ok: false, error: result.error || "Invalid credentials" };
+  } catch (err) {
+    return { ok: false, error: parseAuthError(err, "Invalid credentials") };
+  }
+}
+
 /** Exchange a one-time device code for JWT tokens. */
 async function exchangeDeviceCode(code: string): Promise<boolean> {
   try {
