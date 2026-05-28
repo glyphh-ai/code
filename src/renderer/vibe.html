@@ -4,237 +4,81 @@
 <meta charset="UTF-8">
 <title>Vibe</title>
 <link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="xterm.css">
+<script>
+  // Apply theme synchronously before first paint (matches the rest of the
+  // app — reads from localStorage which the main renderer keeps in sync).
+  try {
+    var t = localStorage.getItem("yoTheme") || "light";
+    var r = t === "system"
+      ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+      : t;
+    document.documentElement.setAttribute("data-theme", r);
+  } catch (e) {}
+</script>
 <style>
-  /* Vibe-specific layout — base reset, fonts, colors, buttons all from styles.css */
-
   html, body { height: 100%; }
-  body { font-size: 14px; line-height: 1.5; overflow: hidden; }
-
-  /* ── Top bar ───────────────────────────────────────────── */
-  .topbar {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    flex-shrink: 0;
-    height: 44px;
-  }
-  .brand {
-    font-family: var(--font-mono); font-size: 16px; font-weight: 800;
-    color: var(--text); letter-spacing: -0.02em;
-  }
-  .brand .dot { color: var(--accent); }
-  .topbar-spacer { flex: 1; }
-  .topbar-btn {
-    padding: 6px 12px;
-    border: 1px solid var(--border-2);
-    border-radius: 6px;
-    background: var(--surface-2);
-    color: var(--text);
-    font-size: 12px; font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .topbar-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-  /* ── 2-region workspace: Build (spec + plan) | Agent ───── */
-  .workspace {
-    display: grid;
-    grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
-    height: calc(100vh - 44px);
-    width: 100%;
-  }
-  .region {
-    display: flex; flex-direction: column;
-    min-width: 0; min-height: 0;
-    border-right: 1px solid var(--border);
-    background: var(--bg);
-  }
-  .region:last-child { border-right: none; }
-
-  .region-header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    flex-shrink: 0;
-    font-family: var(--font-mono);
-    font-size: 12px; font-weight: 700;
-    color: var(--text-2);
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    height: 36px;
-  }
-  .region-header .spacer { flex: 1; }
-  .saved-indicator {
-    font-size: 11px; font-weight: 600;
-    color: var(--accent);
-    text-transform: none; letter-spacing: 0;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
-  .saved-indicator.show { opacity: 1; }
-
-  /* ── Build column: SPEC editor (top) + plan checklist (bottom) ── */
-  #region-build { }
-  .build-spec {
-    display: flex; flex-direction: column;
-    flex: 1 1 55%; min-height: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  #vibe-spec {
-    flex: 1; min-height: 0;
-    width: 100%;
-    resize: none; border: none; outline: none;
-    padding: 14px 16px;
+  body {
+    font-size: 14px; line-height: 1.5;
     background: var(--bg); color: var(--text);
-    font-family: var(--font-mono); font-size: 13px; line-height: 1.6;
-    box-sizing: border-box;
+    font-family: var(--font-sans);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    overflow: hidden;
   }
-  .build-plan {
-    display: flex; flex-direction: column;
-    flex: 1 1 45%; min-height: 0;
+  .vibe-stub {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    text-align: center; padding: 32px;
   }
-  .plan-progress {
-    font-size: 11px; font-weight: 600; color: var(--text-2);
-    text-transform: none; letter-spacing: 0;
+  .vibe-logo {
+    font-family: var(--font-mono);
+    font-size: 56px; font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--text);
   }
-  #vibe-plan-checklist {
-    flex: 1; min-height: 0; overflow-y: auto;
-    padding: 8px 12px;
+  .vibe-logo .dot { color: var(--accent); }
+  .vibe-soon {
+    font-size: 11px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.08em;
   }
-  .plan-task {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 5px 6px; border-radius: 6px;
-    font-size: 13px; line-height: 1.45; color: var(--text);
-    cursor: default;
+  .vibe-desc {
+    font-size: 14px; color: var(--text-2);
+    max-width: 460px;
   }
-  .plan-task:hover { background: var(--surface); }
-  .plan-task input { margin-top: 3px; cursor: pointer; flex-shrink: 0; }
-  .plan-task.done .plan-task-text { color: var(--text-3); text-decoration: line-through; }
-  .plan-task.current { background: rgba(37, 199, 94, 0.08); }
-  .plan-task.current .plan-task-text::after {
-    content: " ← now"; color: var(--accent); font-weight: 600; font-size: 11px;
-  }
-  .plan-empty { padding: 10px 12px; font-size: 12px; color: var(--text-3); }
-  /* Non-task plan lines (headings, prose) shown lightly for context. */
-  .plan-line { padding: 2px 6px; font-size: 12px; color: var(--text-3); white-space: pre-wrap; }
-  .plan-line.h { color: var(--text-2); font-weight: 700; margin-top: 6px; }
-
-  /* ── Agent (terminal) region ───────────────────────────── */
-  #vibe-term {
-    flex: 1; min-height: 0;
-    background: #0d0d14;
-    padding: 4px;
-  }
-  #vibe-term .xterm { height: 100%; }
-  .xterm-viewport::-webkit-scrollbar { width: 8px; }
-  .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(37, 199, 94, 0.3); border-radius: 4px; }
-  .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-
-  /* ── Preview overlay (on-demand, eats no space until opened) ── */
-  #vibe-preview-overlay {
-    position: fixed; inset: 44px 0 0 0;
-    display: none; flex-direction: column;
-    background: var(--bg); z-index: 50;
-  }
-  #vibe-preview-overlay.open { display: flex; }
-  .preview-bar {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    flex-shrink: 0;
-  }
-  #vibe-url {
-    flex: 1; min-width: 0;
-    padding: 6px 10px;
-    border: 1px solid var(--border-2); border-radius: 6px;
-    background: var(--input-bg); color: var(--text);
-    font-family: var(--font-mono); font-size: 12px; outline: none;
-  }
-  #vibe-url:focus { border-color: var(--accent); }
-  .preview-bar button {
-    padding: 6px 12px;
-    border: 1px solid var(--border-2); border-radius: 6px;
-    background: var(--surface-2); color: var(--text);
-    font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
-  }
-  .preview-bar button:hover { border-color: var(--accent); color: var(--accent); }
-  #vibe-preview {
-    flex: 1; min-height: 0; width: 100%;
-    border: none; background: #ffffff;
+  .vibe-folder {
+    font-family: var(--font-mono);
+    font-size: 12px; color: var(--text-3);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    margin-top: 8px;
   }
 </style>
 </head>
 <body>
-
-<!-- ── Top bar ────────────────────────────────────────── -->
-<div class="topbar">
-  <div class="brand"><span class="dot">.</span>vibe</div>
-  <div class="topbar-spacer"></div>
-  <button id="vibe-preview-btn" class="topbar-btn" type="button">Preview ↗</button>
-</div>
-
-<!-- ── 2-region workspace: Build | Agent ───────────────── -->
-<div class="workspace">
-
-  <!-- LEFT: Build (Spec + Plan checklist) -->
-  <div class="region" id="region-build">
-    <div class="build-spec">
-      <div class="region-header">
-        SPEC.md
-        <span class="spacer"></span>
-        <span class="saved-indicator" id="vibe-spec-saved">saved</span>
-      </div>
-      <textarea id="vibe-spec" spellcheck="false" placeholder="# Spec&#10;&#10;What are we building, and why?"></textarea>
+  <div class="vibe-stub">
+    <div class="vibe-logo"><span class="dot">.</span>Vibe</div>
+    <div class="vibe-soon">Coming soon</div>
+    <div class="vibe-desc">
+      Spec-driven coding with Claude in your repo. The dev plane that pairs with .Spec.
     </div>
-    <div class="build-plan">
-      <div class="region-header">
-        Plan
-        <span class="spacer"></span>
-        <span class="plan-progress" id="vibe-plan-progress"></span>
-      </div>
-      <div id="vibe-plan-checklist"></div>
-    </div>
+    <div class="vibe-folder" id="vibe-folder">no folder bound</div>
   </div>
 
-  <!-- RIGHT: Agent (the driving Claude Code terminal) -->
-  <div class="region" id="region-agent">
-    <div class="region-header">Agent — your Claude Code</div>
-    <div id="vibe-term"></div>
-  </div>
-
-</div>
-
-<!-- ── Preview overlay (toggled by the topbar button) ──── -->
-<div id="vibe-preview-overlay">
-  <div class="preview-bar">
-    <input id="vibe-url" type="text" value="http://localhost:5173" spellcheck="false" />
-    <button id="vibe-reload" type="button">Reload</button>
-    <button id="vibe-preview-close" type="button">Close ✕</button>
-  </div>
-  <webview id="vibe-preview" src="about:blank" allowpopups></webview>
-</div>
-
-<script>
-  (async () => {
-    const api = window.vibe;
-    if (api && api.getTheme) {
-      const t = await api.getTheme();
-      const resolved = t === "system"
-        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
-        : t;
-      document.documentElement.setAttribute("data-theme", resolved);
-    }
-    if (api && api.onThemeChanged) {
-      api.onThemeChanged((theme) => {
-        document.documentElement.setAttribute("data-theme", theme);
-      });
-    }
-  })();
-</script>
-<script src="./vibe.js"></script>
+  <script>
+    (async () => {
+      const api = window.vibe;
+      if (api && api.onThemeChanged) {
+        api.onThemeChanged((theme) => {
+          document.documentElement.setAttribute("data-theme", theme);
+        });
+      }
+      if (api && api.getWorkingDir) {
+        try {
+          const dir = await api.getWorkingDir();
+          if (dir) document.getElementById("vibe-folder").textContent = dir;
+        } catch {}
+      }
+    })();
+  </script>
 </body>
 </html>

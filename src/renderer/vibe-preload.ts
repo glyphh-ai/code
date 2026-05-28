@@ -18,6 +18,9 @@ interface VibeAPI {
   planRead: () => Promise<string>;
   planWrite: (text: string) => void;
 
+  // ── Working directory ─────────────────────────────────────
+  getWorkingDir: () => Promise<string | null>;
+
   // ── Theme ─────────────────────────────────────────────────
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
@@ -36,6 +39,8 @@ const api: VibeAPI = {
 
   planRead: () => ipcRenderer.invoke("vibe-plan-read") as Promise<string>,
   planWrite: (text) => ipcRenderer.send("vibe-plan-write", text),
+
+  getWorkingDir: () => ipcRenderer.invoke("working-dir:get") as Promise<string | null>,
 
   getTheme: () => ipcRenderer.invoke("get-theme") as Promise<string>,
   onThemeChanged: (cb) => {

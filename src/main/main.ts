@@ -2517,18 +2517,28 @@ async function boot() {
 
   // ── Welcome app IPC ──
   ipcMain.handle("welcome:recents", () => getWorkingDirRecents());
-  ipcMain.handle("welcome:open-vibe", () => {
-    if (mainWindow) {
-      if (!panelManager.hasPanel("vibe")) {
-        createPanelForApp("vibe", { id: "vibe", url: "yo://vibe" });
-      }
-      panelManager.switchTo("vibe", mainWindow);
+
+  /** Welcome card → always opens a NEW instance of the named internal app.
+   *  Vibe and Spec are folder-bound; every click spawns its own panel +
+   *  tab (vibe, vibe-2, vibe-3 …) so the user can keep multiple work
+   *  surfaces side-by-side instead of clobbering one. */
+  function openFreshInternalApp(baseId: string): void {
+    if (!mainWindow) return;
+    const app = appConnector.get(baseId);
+    if (!app?.url) return;
+    let instanceId = baseId;
+    if (panelManager.hasPanel(baseId)) {
+      panelInstanceCounter++;
+      instanceId = `${baseId}-${panelInstanceCounter}`;
     }
-  });
-  ipcMain.handle("welcome:open-spec", () => {
-    // Spec is stubbed in Phase 2 — for now this is a no-op the renderer
-    // shows as a "coming soon" affordance on the card itself.
-  });
+    createPanelForApp(instanceId, app);
+    ensureTab(instanceId);
+    panelManager.switchTo(instanceId, mainWindow);
+    sendSplitState();
+    sendTabState();
+  }
+  ipcMain.handle("welcome:open-vibe", () => openFreshInternalApp("vibe"));
+  ipcMain.handle("welcome:open-spec", () => openFreshInternalApp("spec"));
   ipcMain.handle("welcome:open-folder", (_e, folder: string) => {
     if (folder) setWorkingDirectory(folder);
     if (mainWindow) {
