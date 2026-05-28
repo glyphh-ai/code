@@ -1266,6 +1266,19 @@ async function boot() {
       createPanelForApp(id, app);
     }
 
+    // Welcome takes precedence over any restored view when the pref is on.
+    // The user explicitly unchecks "Show on startup" in Welcome's footer to
+    // bypass. lastView is still restored under the welcome panel — Cmd-W /
+    // .dip back / clicking a Recent jumps you into it.
+    const showWelcomeOnBoot = getPreference<boolean>("welcomeOnStartup", true);
+    if (showWelcomeOnBoot && mainWindow) {
+      if (!panelManager.hasPanel("welcome")) {
+        createPanelForApp("welcome", { id: "welcome", url: "yo://welcome" });
+      }
+      panelManager.switchTo("welcome", mainWindow);
+      // Don't fall through to lastView restoration when Welcome is showing.
+      return;
+    }
     if (lastView && mainWindow) {
       if (lastView.type === "grid-full" && lastView.grid) {
         const allCellIds = lastView.grid.cells.map(c => c.panelId);
