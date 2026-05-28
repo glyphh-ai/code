@@ -93,10 +93,25 @@
     display: flex; flex-direction: column; gap: 8px;
   }
   .recents-header {
-    font-size: 11px; color: var(--text-3);
-    text-transform: uppercase; letter-spacing: 0.08em;
+    display: flex; align-items: center; gap: 8px;
     padding: 0 4px 4px 4px;
   }
+  .recents-title {
+    font-size: 11px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .recents-search {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit; font-size: 12px;
+    outline: none;
+    transition: border-color 120ms ease;
+  }
+  .recents-search:focus { border-color: var(--accent); }
   .recents-list {
     display: flex; flex-direction: column; gap: 4px;
   }
@@ -110,9 +125,32 @@
     text-align: left;
     color: var(--text);
     font-family: inherit; font-size: 13px;
+    position: relative;
   }
   .recent-row:hover { background: var(--surface-2); border-color: var(--border); }
-  .recent-folder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent-content {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .recent-app {
+    font-weight: 600; color: var(--text); font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .recent-folder {
+    color: var(--text-3); font-size: 11px;
+    font-family: var(--font-mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .recent-dismiss {
+    width: 22px; height: 22px;
+    border: none; border-radius: 4px;
+    background: transparent; color: var(--text-3);
+    cursor: pointer; font-size: 16px; line-height: 1;
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  .recent-row:hover .recent-dismiss { opacity: 1; }
+  .recent-dismiss:hover { background: var(--surface); color: var(--text); }
   .recent-empty {
     padding: 16px;
     color: var(--text-3);
@@ -121,6 +159,18 @@
     border: 1px dashed var(--border);
     border-radius: 8px;
   }
+  .recents-more {
+    align-self: center;
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-2);
+    font-family: inherit; font-size: 12px;
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+  .recents-more:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Footer ────────────────────────────────────────── */
   .welcome-footer {
@@ -151,10 +201,14 @@
     </div>
 
     <div class="recents">
-      <div class="recents-header">Recent folders</div>
-      <div class="recents-list" id="recents-list">
-        <div class="recent-empty">No recent folders yet.</div>
+      <div class="recents-header">
+        <span class="recents-title">Recents</span>
+        <input id="recents-search" class="recents-search" type="text" placeholder="Search…" spellcheck="false" />
       </div>
+      <div class="recents-list" id="recents-list">
+        <div class="recent-empty">No recents yet — open Vibe or Spec on a folder to start.</div>
+      </div>
+      <button id="recents-more" class="recents-more" type="button" style="display:none;">Show more</button>
     </div>
 
     <div class="welcome-footer">

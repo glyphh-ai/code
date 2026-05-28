@@ -866,12 +866,15 @@ body.account-locked #dl-btn-wrap {
 
 .tab:hover { background: var(--hover); color: var(--text); }
 
+/* Active tab: rail surface color with a green accent ring (no green fill).
+   The 4px rail-color sliver below the titlebar (see #panel-container's
+   inset shadow) means the active tab visually flows into the workspace. */
 .tab-active {
-  background: var(--accent);
+  background: var(--surface-2);
   border-color: var(--accent);
-  color: #000;
+  color: var(--text);
 }
-.tab-active:hover { background: var(--accent-hover); color: #000; }
+.tab-active:hover { background: var(--surface-2); color: var(--text); }
 
 .tab-favicon {
   width: 14px;
@@ -4219,6 +4222,9 @@ ol.docs-list li::before {
   height: calc(100vh - 38px);
   background: var(--bg);
   position: relative;
+  /* Thin rail-color sliver at the top so the active tab (also surface-2)
+     visually connects into the workspace before the app content begins. */
+  box-shadow: inset 0 4px 0 var(--surface-2);
 }
 
 /* ── Download toast ────────────────────────────────────── */
@@ -5196,18 +5202,144 @@ select.settings-input {
   white-space: nowrap;
 }
 
-/* Bottom nav — app sections + Settings + Platform + Sign Out */
+/* Top: launcher buttons. Height is driven by the draggable split below;
+   the recents pane takes the remaining space. */
 .files-rail-nav {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 var(--rail-nav-h, 280px);
+  min-height: 80px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding: 6px;
   gap: 1px;
 }
-/* Pushes Platform + Sign Out to the bottom of the rail. */
-.files-rail-spacer { flex: 1 1 auto; min-height: 8px; }
+/* Legacy spacer — no longer pushes anything to the rail bottom now that
+   Platform + Sign Out are gone, but kept as a small floor inside the nav. */
+.files-rail-spacer { flex: 0 0 8px; }
+
+/* Draggable divider between the launcher nav and Recents. */
+.rail-split-handle {
+  flex: 0 0 6px;
+  position: relative;
+  cursor: row-resize;
+  background: transparent;
+}
+.rail-split-handle::after {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px;
+  top: 50%; transform: translateY(-50%);
+  height: 1px;
+  background: var(--border);
+  transition: background 0.15s, height 0.15s;
+}
+.rail-split-handle:hover::after { background: var(--border-3); height: 2px; }
+.rail-split-handle.dragging::after { background: var(--accent); height: 2px; }
+
+/* Bottom: Recents — folder-bound app/layout instances. */
+.rail-recents {
+  flex: 1 1 0;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  gap: 6px;
+}
+.rail-recents-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rail-recents-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.rail-recents-search {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.rail-recents-search:focus { border-color: var(--accent); }
+.rail-recents-list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-recents-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  color: var(--text);
+  font-family: inherit;
+  position: relative;
+}
+.rail-recents-row:hover { background: var(--surface); border-color: var(--border); }
+.rail-recents-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rail-recents-app {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rail-recents-folder {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rail-recents-dismiss {
+  width: 18px; height: 18px;
+  border: none; border-radius: 3px;
+  background: transparent; color: var(--text-3);
+  cursor: pointer; font-size: 13px; line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.rail-recents-row:hover .rail-recents-dismiss { opacity: 1; }
+.rail-recents-dismiss:hover { background: var(--surface-2); color: var(--text); }
+.rail-recents-empty {
+  padding: 12px 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  line-height: 1.4;
+}
+.rail-recents-more {
+  align-self: stretch;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-family: inherit; font-size: 11px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.rail-recents-more:hover { border-color: var(--accent); color: var(--accent); }
 .files-rail-navitem {
   display: flex;
   align-items: center;

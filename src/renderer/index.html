@@ -366,6 +366,21 @@
       </button>
       <div class="files-rail-spacer"></div>
     </div>
+    <!-- Draggable divider between top (launchers) and bottom (recents).
+         Drag persists as `leftRailSplit` (px of recents pane height). -->
+    <div id="rail-split-handle" class="rail-split-handle" title="Drag to resize"></div>
+    <!-- Bottom: Recents — folder-bound app/layout instances. Same data
+         source as the Welcome screen. Click to re-open. -->
+    <div id="rail-recents" class="rail-recents">
+      <div class="rail-recents-header">
+        <span class="rail-recents-title">Recents</span>
+        <input id="rail-recents-search" class="rail-recents-search" type="text" placeholder="Search…" spellcheck="false" />
+      </div>
+      <div id="rail-recents-list" class="rail-recents-list">
+        <div class="rail-recents-empty">No recents yet.</div>
+      </div>
+      <button id="rail-recents-more" class="rail-recents-more" type="button" style="display:none;">Show more</button>
+    </div>
     <div id="files-rail-resize" class="files-rail-resize"></div>
   </div>
 

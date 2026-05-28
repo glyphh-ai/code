@@ -467,6 +467,25 @@ contextBridge.exposeInMainWorld("yo", {
   filesRailResize: (width: number) => ipcRenderer.send("files-rail-resize", width),
   filesRailWidthSave: (width: number) => ipcRenderer.send("files-rail-width-save", width),
   filesRailGetWidth: () => ipcRenderer.invoke("files-rail-get-width") as Promise<number>,
+
+  // Recents (rich: app/layout + folder pairs)
+  recentsList: () => ipcRenderer.invoke("recents:list") as Promise<Array<{
+    kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
+  }>>,
+  recentsOpen: (entry: { kind: "app" | "layout"; id: string; name: string; folder: string; ts: number }) =>
+    ipcRenderer.invoke("recents:open", entry) as Promise<boolean>,
+  recentsRemove: (entry: { kind: "app" | "layout"; id: string; folder: string }) =>
+    ipcRenderer.invoke("recents:remove", entry) as Promise<boolean>,
+  recentsClear: () => ipcRenderer.invoke("recents:clear") as Promise<boolean>,
+  onRecentsChanged: (cb: (list: Array<{
+    kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
+  }>) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, list: Array<{
+      kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
+    }>) => cb(list);
+    ipcRenderer.on("recents-changed", handler);
+    return () => { ipcRenderer.removeListener("recents-changed", handler); };
+  },
   listDir: (dirPath: string) =>
     ipcRenderer.invoke("files:list-dir", dirPath) as Promise<Array<{ name: string; isDir: boolean }>>,
   gitInfo: (root: string) =>

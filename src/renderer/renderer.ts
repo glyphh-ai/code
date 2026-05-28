@@ -268,6 +268,16 @@ declare global {
       filesRailResize: (width: number) => void;
       filesRailWidthSave: (width: number) => void;
       filesRailGetWidth: () => Promise<number>;
+      // Recents (rich)
+      recentsList: () => Promise<Array<{
+        kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
+      }>>;
+      recentsOpen: (entry: { kind: "app" | "layout"; id: string; name: string; folder: string; ts: number }) => Promise<boolean>;
+      recentsRemove: (entry: { kind: "app" | "layout"; id: string; folder: string }) => Promise<boolean>;
+      recentsClear: () => Promise<boolean>;
+      onRecentsChanged: (cb: (list: Array<{
+        kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
+      }>) => void) => () => void;
       listDir: (dirPath: string) => Promise<Array<{ name: string; isDir: boolean }>>;
       openFile: (filePath: string) => void;
       createFile: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
@@ -732,6 +742,139 @@ initDownloads();
     try { savedOpen = localStorage.getItem("filesRailOpen"); } catch { /* ignore */ }
     applyOpen(savedOpen !== "0"); // default open
   })();
+
+  // ── Rail Recents (bottom pane) ───────────────────────────────────
+  type RailRecent = { kind: "app" | "layout"; id: string; name: string; folder: string; ts: number };
+  const PAGE = 10;
+  const railNav = document.getElementById("files-rail-nav")!;
+  const railRecents = document.getElementById("rail-recents")!;
+  const railRecentsList = document.getElementById("rail-recents-list")!;
+  const railRecentsSearch = document.getElementById("rail-recents-search") as HTMLInputElement | null;
+  const railRecentsMore = document.getElementById("rail-recents-more") as HTMLButtonElement | null;
+  const railSplitHandle = document.getElementById("rail-split-handle")!;
+
+  let railRecentsAll: RailRecent[] = [];
+  let railRecentsQuery = "";
+  let railRecentsPage = 0;
+
+  function homeShorten(p: string): string {
+    return p.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
+  }
+  function railRecentsFiltered(): RailRecent[] {
+    const q = railRecentsQuery.trim().toLowerCase();
+    if (!q) return railRecentsAll;
+    return railRecentsAll.filter(
+      (r) => r.name.toLowerCase().includes(q) || r.folder.toLowerCase().includes(q),
+    );
+  }
+  function renderRailRecents(): void {
+    const all = railRecentsFiltered();
+    const shown = all.slice(0, (railRecentsPage + 1) * PAGE);
+    railRecentsList.innerHTML = "";
+    if (shown.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "rail-recents-empty";
+      empty.textContent = railRecentsQuery
+        ? `No recents matching "${railRecentsQuery}".`
+        : "No recents yet.";
+      railRecentsList.appendChild(empty);
+      if (railRecentsMore) railRecentsMore.style.display = "none";
+      return;
+    }
+    for (const entry of shown) {
+      const row = document.createElement("button");
+      row.className = "rail-recents-row";
+      row.type = "button";
+      row.title = entry.folder;
+      const content = document.createElement("div");
+      content.className = "rail-recents-content";
+      const nameEl = document.createElement("div");
+      nameEl.className = "rail-recents-app";
+      nameEl.textContent = entry.name;
+      const folderEl = document.createElement("div");
+      folderEl.className = "rail-recents-folder";
+      folderEl.textContent = homeShorten(entry.folder);
+      content.append(nameEl, folderEl);
+      const dismiss = document.createElement("button");
+      dismiss.className = "rail-recents-dismiss";
+      dismiss.type = "button";
+      dismiss.title = "Remove";
+      dismiss.textContent = "×";
+      dismiss.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void window.yo.recentsRemove({ kind: entry.kind, id: entry.id, folder: entry.folder });
+      });
+      row.append(content, dismiss);
+      row.addEventListener("click", () => { void window.yo.recentsOpen(entry); });
+      railRecentsList.appendChild(row);
+    }
+    if (railRecentsMore) {
+      if (shown.length < all.length) {
+        railRecentsMore.style.display = "";
+        const remaining = Math.min(PAGE, all.length - shown.length);
+        railRecentsMore.textContent = `Show ${remaining} more`;
+      } else {
+        railRecentsMore.style.display = "none";
+      }
+    }
+  }
+  async function refreshRailRecents(): Promise<void> {
+    railRecentsAll = (await window.yo.recentsList().catch(() => [])) as RailRecent[];
+    const maxPage = Math.max(0, Math.ceil(railRecentsFiltered().length / PAGE) - 1);
+    if (railRecentsPage > maxPage) railRecentsPage = maxPage;
+    renderRailRecents();
+  }
+  railRecentsSearch?.addEventListener("input", () => {
+    railRecentsQuery = railRecentsSearch.value;
+    railRecentsPage = 0;
+    renderRailRecents();
+  });
+  railRecentsMore?.addEventListener("click", () => {
+    railRecentsPage += 1;
+    renderRailRecents();
+  });
+  window.yo.onRecentsChanged(() => { void refreshRailRecents(); });
+  void refreshRailRecents();
+
+  // ── Rail split: draggable divider between nav (top) and recents ──
+  // Persisted as `leftRailSplit` (px of the nav pane height).
+  let navH = 280;
+  let splitDragging = false;
+  function applyNavHeight(px: number): void {
+    rail.style.setProperty("--rail-nav-h", `${Math.max(80, px)}px`);
+  }
+  void (async () => {
+    const saved = await window.yo.getPreference("leftRailSplit", 280);
+    if (typeof saved === "number" && saved > 0) navH = saved;
+    applyNavHeight(navH);
+  })();
+  railSplitHandle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    splitDragging = true;
+    railSplitHandle.classList.add("dragging");
+    document.body.style.cursor = "row-resize";
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!splitDragging) return;
+    const railRect = rail.getBoundingClientRect();
+    // Relative y inside the rail. Clamp to keep both panes usable.
+    const relY = e.clientY - railRect.top;
+    const minTop = 80;
+    const minBottom = 120;
+    navH = Math.max(minTop, Math.min(railRect.height - minBottom, relY));
+    applyNavHeight(navH);
+  });
+  document.addEventListener("mouseup", () => {
+    if (!splitDragging) return;
+    splitDragging = false;
+    railSplitHandle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    void window.yo.setPreference("leftRailSplit", navH);
+  });
+
+  // Silence the unused-var warning for railNav / railRecents — referenced
+  // for clarity above and used implicitly via DOM.
+  void railNav; void railRecents;
 }
 
 // -- Update bar --

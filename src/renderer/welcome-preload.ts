@@ -1,7 +1,18 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+type RecentEntry = {
+  kind: "app" | "layout";
+  id: string;
+  name: string;
+  folder: string;
+  ts: number;
+};
+
 interface WelcomeApi {
-  getRecents: () => Promise<string[]>;
+  recentsList: () => Promise<RecentEntry[]>;
+  recentsOpen: (entry: RecentEntry) => Promise<boolean>;
+  recentsRemove: (entry: Pick<RecentEntry, "kind" | "id" | "folder">) => Promise<boolean>;
+  onRecentsChanged: (cb: (list: RecentEntry[]) => void) => () => void;
   openVibe: () => Promise<void>;
   openSpec: () => Promise<void>;
   openFolder: (folder: string) => Promise<void>;
@@ -12,7 +23,14 @@ interface WelcomeApi {
 }
 
 const api: WelcomeApi = {
-  getRecents: () => ipcRenderer.invoke("welcome:recents") as Promise<string[]>,
+  recentsList: () => ipcRenderer.invoke("recents:list") as Promise<RecentEntry[]>,
+  recentsOpen: (entry) => ipcRenderer.invoke("recents:open", entry) as Promise<boolean>,
+  recentsRemove: (entry) => ipcRenderer.invoke("recents:remove", entry) as Promise<boolean>,
+  onRecentsChanged: (cb) => {
+    const handler = (_e: Electron.IpcRendererEvent, list: RecentEntry[]) => cb(list);
+    ipcRenderer.on("recents-changed", handler);
+    return () => { ipcRenderer.removeListener("recents-changed", handler); };
+  },
   openVibe: () => ipcRenderer.invoke("welcome:open-vibe") as Promise<void>,
   openSpec: () => ipcRenderer.invoke("welcome:open-spec") as Promise<void>,
   openFolder: (folder) => ipcRenderer.invoke("welcome:open-folder", folder) as Promise<void>,

@@ -86,7 +86,7 @@ import { installRelayHandlers } from "./relay-handlers";
 import { registerAgentInteractiveIpc } from "./agent-interactive";
 import { registerAgentDefaultsIpc } from "./agent-defaults";
 import { registerCodeIndexIpc } from "./code-index/ipc";
-import { registerWorkingDirectoryIpc, getWorkingDirectory, getWorkingDirRecents, setWorkingDirectory } from "./working-directory";
+import { registerWorkingDirectoryIpc, getWorkingDirectory, getWorkingDirRecents, setWorkingDirectory, addRecent } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { startOverlay } from "./overlay-bridge";
 import { ConnectorManager } from "./connectors";
@@ -1888,6 +1888,23 @@ async function boot() {
       onWorkingDirChange: () => {
         // VS Code surface removed — nothing to re-point anymore.
       },
+      // Re-open a recent entry by spawning a fresh instance of its app or
+      // layout at the captured folder. For apps we reuse openFreshInternalApp's
+      // sibling for user apps (just spawn via tab-new-app's logic). Layouts
+      // call into layoutManager.loadByName + setWorkingDirectory.
+      openRecent: (entry) => {
+        if (!mainWindow) return;
+        setWorkingDirectory(entry.folder);
+        if (entry.kind === "app") {
+          openFreshInternalApp(entry.id);
+        } else if (entry.kind === "layout") {
+          // Layout open path: the existing tab-new-app handles "open layout
+          // by name" via the __layout__ id, but it's keyed by id. For now
+          // route the user to a panel that shows the layout; a fuller
+          // implementation lands with Phase 1 folder-bound layouts.
+          openFreshInternalApp("layouts");
+        }
+      },
     });
   }
 
@@ -2521,7 +2538,8 @@ async function boot() {
   /** Welcome card → always opens a NEW instance of the named internal app.
    *  Vibe and Spec are folder-bound; every click spawns its own panel +
    *  tab (vibe, vibe-2, vibe-3 …) so the user can keep multiple work
-   *  surfaces side-by-side instead of clobbering one. */
+   *  surfaces side-by-side instead of clobbering one. If a folder is
+   *  currently set, records the mount in Recents. */
   function openFreshInternalApp(baseId: string): void {
     if (!mainWindow) return;
     const app = appConnector.get(baseId);
@@ -2536,6 +2554,13 @@ async function boot() {
     panelManager.switchTo(instanceId, mainWindow);
     sendSplitState();
     sendTabState();
+    // Record as a (app, folder) recent if we know the folder. Folder-bound
+    // apps without a bound folder yet (Vibe / Spec stubs) skip recording —
+    // they record when a folder is actually picked, in a later phase.
+    if (app.requiresFolder) {
+      const folder = getWorkingDirectory();
+      if (folder) addRecent({ kind: "app", id: baseId, name: app.name, folder });
+    }
   }
   ipcMain.handle("welcome:open-vibe", () => openFreshInternalApp("vibe"));
   ipcMain.handle("welcome:open-spec", () => openFreshInternalApp("spec"));
