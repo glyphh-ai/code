@@ -761,6 +761,19 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <div id="grid-preview"></div>
             </div>
 
+            <!-- Folder-binding mode — only meaningful when the layout contains
+                 a folder-bound app (Vibe, Spec, Terminal, Agent, …). -->
+            <div id="layout-folder-mode-row" class="hidden" style="margin-top:12px;">
+              <label class="settings-label">Folder binding</label>
+              <select id="layout-folder-mode" class="settings-input settings-input-md">
+                <option value="single">Single folder (one picker, all panels share)</option>
+                <option value="multi">Multi-folder (each panel picks its own)</option>
+              </select>
+              <span class="settings-hint" style="margin-top:4px;display:block;font-size:11px;color:var(--text-3);">
+                Layouts never bake in a folder. You pick one at load time.
+              </span>
+            </div>
+
             <div class="settings-actions" style="margin-top:8px;">
               <button id="layout-delete-btn" class="action-btn danger">Delete</button>
               <div style="flex:1;"></div>

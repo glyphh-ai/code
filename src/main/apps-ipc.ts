@@ -71,14 +71,22 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     });
     return true;
   });
-  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }> }) => {
+  ipcMain.handle("layouts-save-grid", (_e, grid: { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: Array<{ panelId: string; col: number; row: number; colSpan: number; rowSpan: number }>; folderMode?: "single" | "multi" }) => {
     const existing = layoutManager.listLayouts().find(l => l.name === grid.name);
     if (!existing) {
       const gate = canSaveLayout(layoutManager.listLayouts().length);
       if (!gate.allowed) return { error: gate.reason };
     }
-    layoutManager.saveLayout({ ...grid, version: 2 });
+    layoutManager.saveLayout({ ...grid, version: 2, folderMode: grid.folderMode ?? "single" });
     return true;
+  });
+  /** True if any app in the layout declares requiresFolder. The UI uses
+   *  this to show the folder-mode toggle + the layout-level folder picker. */
+  ipcMain.handle("layouts-folder-required", (_e, name: string) => {
+    const layout = layoutManager.listLayouts().find(l => l.name === name);
+    if (!layout) return false;
+    const apps = appConnector.list();
+    return layout.cells.some(c => apps.find(a => a.id === c.panelId)?.requiresFolder);
   });
   ipcMain.handle("layouts-delete", (_e, name: string) => layoutManager.deleteLayout(name));
 

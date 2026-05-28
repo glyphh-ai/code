@@ -36,6 +36,25 @@ const gridRowsSelect = document.getElementById("grid-rows") as HTMLSelectElement
 const mergeRightBtn = document.getElementById("grid-merge-right") as HTMLButtonElement;
 const mergeDownBtn = document.getElementById("grid-merge-down") as HTMLButtonElement;
 const splitBtn = document.getElementById("grid-split-btn") as HTMLButtonElement;
+const folderModeRow = document.getElementById("layout-folder-mode-row")!;
+const folderModeSelect = document.getElementById("layout-folder-mode") as HTMLSelectElement;
+
+/** Recompute whether this layout is folder-bound (any cell's app declares
+ *  requiresFolder). Shows/hides the folder-mode row accordingly. */
+async function refreshFolderModeRow(): Promise<void> {
+  try {
+    const apps = await window.yo.appsList();
+    const byId = new Map(apps.map((a) => [a.id, a]));
+    const folderRequired = builderCells.some((c) => {
+      if (!c.panelId) return false;
+      const app: any = byId.get(c.panelId);
+      return !!app?.requiresFolder;
+    });
+    folderModeRow.classList.toggle("hidden", !folderRequired);
+  } catch {
+    folderModeRow.classList.add("hidden");
+  }
+}
 
 interface BuilderCell {
   panelId: string;
@@ -135,6 +154,7 @@ function updateMergeButtons() {
 }
 
 function renderGridPreview() {
+  void refreshFolderModeRow();
   gridPreview.style.gridTemplateColumns = `repeat(${builderCols}, 1fr)`;
   gridPreview.style.gridTemplateRows = `repeat(${builderRows}, 1fr)`;
 
@@ -327,6 +347,7 @@ async function editLayout(name: string) {
   }
   gridColsSelect.value = String(builderCols);
   gridRowsSelect.value = String(builderRows);
+  folderModeSelect.value = (layout as any)?.folderMode === "multi" ? "multi" : "single";
   layoutNameInput.value = name;
   layoutDeleteBtn.style.display = "";
   layoutFormError.classList.add("hidden");
@@ -346,6 +367,7 @@ async function newLayout() {
   initBuilderCells();
   gridColsSelect.value = "2";
   gridRowsSelect.value = "1";
+  folderModeSelect.value = "single";
   layoutNameInput.value = "";
   layoutDeleteBtn.style.display = "none";
   layoutFormError.classList.add("hidden");
@@ -386,6 +408,7 @@ async function saveLayout() {
     await window.yo.layoutsDelete(editingLayoutName);
   }
 
+  const folderMode = (folderModeSelect.value === "multi" ? "multi" : "single") as "single" | "multi";
   await window.yo.layoutsSaveGrid({
     name,
     cols: builderCols,
@@ -393,6 +416,7 @@ async function saveLayout() {
     colWidths: Array(builderCols).fill(1 / builderCols),
     rowHeights: Array(builderRows).fill(1 / builderRows),
     cells: assignedCells,
+    folderMode,
   });
   cancelLayout();
 }

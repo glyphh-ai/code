@@ -21,6 +21,13 @@ export interface GridCell {
   rowSpan: number;
 }
 
+/** Folder-binding mode for layouts that contain any folder-bound app
+ *  (requiresFolder: true). "single" hoists ONE picker to the layout chrome
+ *  — all folder-bound panels share that folder. "multi" lets each
+ *  folder-bound panel pick its own. Layouts with no folder-bound panels
+ *  ignore this field. Default = "single". */
+export type LayoutFolderMode = "single" | "multi";
+
 export interface GridLayout {
   name: string;
   version: 2;
@@ -29,6 +36,10 @@ export interface GridLayout {
   colWidths: number[];    // fractions summing to ~1
   rowHeights: number[];   // fractions summing to ~1
   cells: GridCell[];
+  /** "single" (default) or "multi". Only meaningful when at least one
+   *  cell's app declares requiresFolder. Saved layouts do NOT bake in
+   *  a folder — folder is provided at load time. */
+  folderMode?: LayoutFolderMode;
 }
 
 /** Per-cell bounds for renderer overlays (URL bars in grid) */
