@@ -197,6 +197,7 @@ declare global {
       tabList: () => Promise<{ tabs: TabInfo[]; activeId: string; visible: boolean }>;
       tabSwitch: (id: string) => void;
       tabClose: (id: string) => void;
+      tabCloseAll: () => void;
       tabReorder: (newOrder: string[]) => void;
       tabNew: () => void;
       tabNewApp: (appId: string) => void;

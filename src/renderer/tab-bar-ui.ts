@@ -52,28 +52,44 @@ export function initTabBar(deps: TabBarDeps): {
     let host = "";
     try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
     const baseName = (tabName && tabName.trim()) || host || "App";
+    const isBrowserUrlTab = !!url && /^https?:\/\//i.test(url);
 
-    // "Create App" — opens Home → Apps → New App with the URL prefilled so
-    // the user can review/edit before adding. On save, this tab converts to it.
-    const createBtn = document.createElement("button");
-    createBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>Create App</span>`;
-    createBtn.addEventListener("click", () => {
-      closeTabCtxMenu();
-      window.yo.createAppFromTab(tabId, url, baseName);
-    });
-    menu.appendChild(createBtn);
+    // Browser-only options: "Create App" + "Add as app" — only useful on
+    // browser tabs with a real URL.
+    if (isBrowserUrlTab) {
+      const createBtn = document.createElement("button");
+      createBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>Create App</span>`;
+      createBtn.addEventListener("click", () => {
+        closeTabCtxMenu();
+        window.yo.createAppFromTab(tabId, url, baseName);
+      });
+      menu.appendChild(createBtn);
 
-    const addBtn = document.createElement("button");
-    addBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg><span>Add as app</span>`;
-    addBtn.addEventListener("click", async () => {
+      const addBtn = document.createElement("button");
+      addBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg><span>Add as app</span>`;
+      addBtn.addEventListener("click", async () => {
+        closeTabCtxMenu();
+        const id = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `app-${Date.now()}`;
+        const result = await window.yo.appsAdd(id, baseName, url);
+        if (result && typeof result === "object" && "error" in result) {
+          alert((result as { error: string }).error);
+        }
+      });
+      menu.appendChild(addBtn);
+
+      const divider = document.createElement("div");
+      divider.className = "tab-new-menu-divider";
+      menu.appendChild(divider);
+    }
+
+    // Close all (universal — every tab gets it).
+    const closeAllBtn = document.createElement("button");
+    closeAllBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close all tabs</span>`;
+    closeAllBtn.addEventListener("click", () => {
       closeTabCtxMenu();
-      const id = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `app-${Date.now()}`;
-      const result = await window.yo.appsAdd(id, baseName, url);
-      if (result && typeof result === "object" && "error" in result) {
-        alert((result as { error: string }).error);
-      }
+      window.yo.tabCloseAll();
     });
-    menu.appendChild(addBtn);
+    menu.appendChild(closeAllBtn);
 
     // Position; clamp to viewport
     menu.style.top = `${y}px`;
@@ -166,15 +182,13 @@ export function initTabBar(deps: TabBarDeps): {
         el.appendChild(close);
       }
 
-      // Right-click "Add as app" — only for browser tabs with a real URL
-      const isBrowserTab = tab.id === "browser" || tab.id.startsWith("browse-");
-      if (isBrowserTab && tab.url && /^https?:\/\//i.test(tab.url)) {
-        el.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openTabContextMenu(e.clientX, e.clientY, tab.id, tab.url!, tab.name);
-        });
-      }
+      // Right-click → tab context menu. Universal "Close all tabs" item;
+      // browser tabs with a real URL also get "Create App" / "Add as app".
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openTabContextMenu(e.clientX, e.clientY, tab.id, tab.url || "", tab.name);
+      });
 
       // Drag-and-drop reordering (not for pinned or layout tabs)
       if (!tab.pinned && tab.id !== "__layout__") {

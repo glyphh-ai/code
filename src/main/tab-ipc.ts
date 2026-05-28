@@ -144,6 +144,54 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     applyUrlBarForActive();
   });
 
+  ipcMain.on("tab-close-all", () => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+
+    // Close every non-pinned tab. Pinned tabs (home) stay so the user always
+    // has a place to land. Reuse the existing single-close path per id so
+    // layout/browser bookkeeping (suspended grid clear, browserTabUrls
+    // cleanup, etc.) stays in one place.
+    const ids = openTabs.filter((id) => id !== "home");
+    for (const id of ids) {
+      const idx = openTabs.indexOf(id);
+      if (idx < 0) continue;
+
+      if (id === "__layout__") {
+        const gridInfo = layoutManager.getGridInfo() || layoutManager.getSuspendedGridInfo();
+        if (gridInfo) {
+          for (const panelId of gridInfo.panelIds) {
+            const pidx = openTabs.indexOf(panelId);
+            if (pidx >= 0) openTabs.splice(pidx, 1);
+            panelManager.closePanel(panelId, mainWindow);
+          }
+        }
+        layoutManager.clearSplit();
+        layoutManager.clearSuspended();
+        setPreference("suspendedLayout", null);
+        const layoutIdx = openTabs.indexOf("__layout__");
+        if (layoutIdx >= 0) openTabs.splice(layoutIdx, 1);
+        continue;
+      }
+
+      openTabs.splice(idx, 1);
+      panelManager.closePanel(id, mainWindow);
+      if (resolveAppId(id) === "browser") {
+        const saved = getPreference<Record<string, string>>("browserTabUrls", {});
+        delete saved[id];
+        setPreference("browserTabUrls", saved);
+      }
+    }
+    persistTabs();
+    // Land on the pinned home tab if it's there, else nothing active.
+    if (openTabs.includes("home")) {
+      panelManager.switchTo("home", mainWindow);
+    }
+    sendSplitState();
+    sendTabState();
+    applyUrlBarForActive();
+  });
+
   ipcMain.on("tab-new", () => {
     const mainWindow = getMainWindow();
     if (!mainWindow) return;
@@ -165,7 +213,15 @@ export function registerTabIpc(deps: TabIpcDeps): void {
 
     layoutManager.suspendSplit();
 
-    if (appId === "home") {
+    // System apps (Dashboard, Apps, Agents, Vibes, Councils, Schedules,
+    // Layouts, Skills, Drips, Settings, Welcome) and `home` are singletons:
+    // there's only ever one of each. Opening one that's already open just
+    // slides to the existing panel — no second tab, no second instance.
+    // User apps keep "already open → spawn new instance" so users can have
+    // two Browsers, two Vibes on different folders, etc.
+    const isSingleton = appId === "home" || app.kind === "system";
+
+    if (isSingleton) {
       if (!panelManager.hasPanel(appId)) createPanelForApp(appId, app);
       panelManager.switchTo(appId, mainWindow);
       ensureTab(appId);

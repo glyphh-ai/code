@@ -287,6 +287,7 @@ contextBridge.exposeInMainWorld("yo", {
   tabList: () => ipcRenderer.invoke("tab-list") as Promise<{ tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>; activeId: string; visible: boolean }>,
   tabSwitch: (id: string) => ipcRenderer.send("tab-switch", id),
   tabClose: (id: string) => ipcRenderer.send("tab-close", id),
+  tabCloseAll: () => ipcRenderer.send("tab-close-all"),
   tabReorder: (newOrder: string[]) => ipcRenderer.send("tab-reorder", newOrder),
   tabNew: () => ipcRenderer.send("tab-new"),
   tabNewApp: (appId: string) => ipcRenderer.send("tab-new-app", appId),
