@@ -746,8 +746,15 @@ export class PanelManager {
     const yTop = 38 + this._topInset;
     const finalBounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
 
-    // No animation if same panel, hidden, or already animating
-    if (oldId === id || this._hidden || this._animating) {
+    // While hidden (onboarding/splash overlay) or locked (trial expired/disabled),
+    // record the desired active panel but attach NO BrowserView — a BrowserView
+    // always paints above the HTML overlay and would cover the gate.
+    if (this._hidden || this._locked) {
+      return true;
+    }
+
+    // No animation if same panel or already animating
+    if (oldId === id || this._animating) {
       parent.setBrowserView(view);
       view.setBounds(finalBounds);
       view.setAutoResize({ width: true, height: true });
@@ -922,6 +929,34 @@ export class PanelManager {
   }
   private _hidden = false;
 
+  // ── Single gate for window-view attachment ───────────────────
+  // Panel-manager is the ONLY authority for what BrowserViews are attached to
+  // the window. Both the single-panel path (switchTo) and the layout/grid path
+  // (layout-manager) route their attaches through `attachView` so the gate is
+  // honored everywhere. `_locked` (trial-expired / disabled) and `_hidden`
+  // (onboarding / splash overlay) both suppress attachment — without this, a
+  // second owner (the grid layout) re-attaches app views over the lockout.
+  private _locked = false;
+  get isLocked(): boolean { return this._locked; }
+  setLocked(v: boolean): void { this._locked = v; }
+
+  /** True when no BrowserView may be attached (overlay/lockout is up). */
+  get isAttachSuppressed(): boolean { return this._hidden || this._locked; }
+
+  /** Attach a view to the window — no-op while hidden/locked. */
+  attachView(parent: BrowserWindow, view: BrowserView): boolean {
+    if (this._hidden || this._locked) return false;
+    parent.addBrowserView(view);
+    return true;
+  }
+
+  /** Detach every BrowserView from the window (always allowed). */
+  detachAllViews(parent: BrowserWindow): void {
+    for (const bv of parent.getBrowserViews()) {
+      try { parent.removeBrowserView(bv); } catch { /* already destroyed */ }
+    }
+  }
+
   /** Capture screenshots of all visible BrowserViews (for freeze-frame during hide) */
   async captureScreenshots(parent: BrowserWindow): Promise<Array<{ dataUrl: string; bounds: Electron.Rectangle }>> {
     const results: Array<{ dataUrl: string; bounds: Electron.Rectangle }> = [];
@@ -940,13 +975,12 @@ export class PanelManager {
   /** Hide ALL BrowserViews (for overlay support) */
   hideActive(parent: BrowserWindow): void {
     this._hidden = true;
-    for (const bv of parent.getBrowserViews()) {
-      try { parent.removeBrowserView(bv); } catch { /* already destroyed */ }
-    }
+    this.detachAllViews(parent);
   }
 
-  /** Restore the active panel's BrowserView */
+  /** Restore the active panel's BrowserView. No-op while locked (trial expired). */
   showActive(parent: BrowserWindow): void {
+    if (this._locked) return;
     this._hidden = false;
     if (this.activePanel) {
       this.switchTo(this.activePanel, parent);

@@ -420,7 +420,7 @@ export class LayoutManager {
     const oldBounds = { ...oldView.getBounds() };
     newView.setBounds({ ...finalBounds, x: finalBounds.x + cellW });
     newView.setAutoResize({ width: false, height: false });
-    win.addBrowserView(newView);
+    this.panelManager.attachView(win, newView);
 
     this.panelManager.slideViews(
       win,
@@ -478,9 +478,7 @@ export class LayoutManager {
 
     // Remove old views (unless animating — slideViews handles cleanup)
     if (!animate || oldViews.length === 0) {
-      for (const bv of win.getBrowserViews()) {
-        win.removeBrowserView(bv);
-      }
+      this.panelManager.detachAllViews(win);
     }
 
     // Cumulative column positions (fractions)
@@ -537,10 +535,10 @@ export class LayoutManager {
         // Position off-screen; slideViews will animate in
         view.setBounds({ ...finalBounds, x: finalBounds.x + w });
         view.setAutoResize({ width: false, height: false });
-        win.addBrowserView(view);
+        this.panelManager.attachView(win, view);
         newViews.push({ view, finalBounds });
       } else {
-        win.addBrowserView(view);
+        this.panelManager.attachView(win, view);
         view.setBounds(finalBounds);
         view.setAutoResize({ width: false, height: false });
       }

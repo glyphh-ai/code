@@ -244,8 +244,10 @@ function finishSplash(cb: BootGateCallbacks): void {
   if (pendingGraceTimer) { clearTimeout(pendingGraceTimer); pendingGraceTimer = null; }
   if (downloadCapTimer) { clearTimeout(downloadCapTimer); downloadCapTimer = null; }
   // Show panels first (behind splash z-index:9999) so they're ready when splash fades.
-  // BUT not if tutorial / CC modal / lockout gate is up — BrowserViews paint over HTML overlays.
-  if (!tutorialShowing && !ccModalShowing && !accountLocked) cb.showPanels();
+  // BUT not if tutorial / CC modal / lockout gate / login overlay is up — BrowserViews paint
+  // over HTML overlays. (Panels survive a renderer reload in the main process, so after a
+  // logout-and-reload from the lockout screen we must NOT re-attach them over the login.)
+  if (!tutorialShowing && !ccModalShowing && !accountLocked && !bootData?.needsOnboarding) cb.showPanels();
   const splash = document.getElementById("splash");
   if (splash) {
     splash.classList.add("fade-out");

@@ -1820,6 +1820,10 @@ async function boot() {
     const locked = hb.status === "expired" || hb.status === "disabled";
     if (locked === accountLocked) return;
     accountLocked = locked;
+    // Set the lock on the panel manager FIRST and unconditionally (independent of
+    // mainWindow timing). While locked it refuses every view attach — single panel
+    // or grid layout — so nothing can paint over the lockout overlay.
+    panelManager.setLocked(locked);
     if (locked) {
       if (mainWindow) panelManager.hideActive(mainWindow);
       mainWindow?.webContents.send("account-locked", {
