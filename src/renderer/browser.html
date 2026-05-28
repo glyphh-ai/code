@@ -14,7 +14,9 @@
     /* ── Loading bar ─────────────────── */
     .loading-bar {
       height: 2px;
-      background: transparent;
+      /* surface-2 (dark mode) — matches the chrome/rail silver color so
+         the 2px strip doesn't read as a dark gap above the page. */
+      background: #2e2e32;
       position: relative;
       overflow: hidden;
       z-index: 2;
