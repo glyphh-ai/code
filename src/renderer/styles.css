@@ -840,11 +840,11 @@ body.account-locked #dl-btn-wrap {
   scrollbar-width: none;
   /* When a rail is open, push the tabs out of the rail's column so the
      first tab starts at the left rail's right edge and the last tab ends
-     at the right rail's left edge. The 140px subtrahend approximates the
-     chrome (window controls + .Yo logo + toggle icons) already sitting
-     before/after the tab-bar inside the titlebar. */
-  padding-left: max(0px, calc(var(--left-inset, 0px) - 140px));
-  padding-right: max(0px, calc(var(--right-inset, 0px) - 140px));
+     at the right rail's left edge. The 148px subtrahend matches the
+     measured chrome before the tab-bar (12 titlebar padding + 52 window
+     controls + 6 gap + ~42 .Yo label + 6 gap + 24 toggle + 6 gap). */
+  padding-left: max(0px, calc(var(--left-inset, 0px) - 148px));
+  padding-right: max(0px, calc(var(--right-inset, 0px) - 148px));
 }
 
 #tab-bar .tab,
