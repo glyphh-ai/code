@@ -39,7 +39,6 @@ let yoPanelInput: HTMLTextAreaElement;
 let yoPanelSendBtn: HTMLElement;
 let yoPanelMicBtn: HTMLButtonElement | null;
 let yoScrollBtn: HTMLElement;
-let yoPanelCloseBtn: Element;
 let yoPanelResize: HTMLElement;
 let yoHistoryToggle: HTMLElement;
 let yoHistoryPanel: HTMLElement;
@@ -1578,7 +1577,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoPanelSendBtn = document.getElementById("yo-panel-send")!;
   yoPanelMicBtn = document.getElementById("yo-panel-mic") as HTMLButtonElement | null;
   yoScrollBtn = document.getElementById("yo-scroll-btn")!;
-  yoPanelCloseBtn = document.querySelector(".yo-panel-close")!;
   yoPanelResize = document.getElementById("yo-panel-resize")!;
   yoHistoryToggle = document.getElementById("yo-history-toggle")!;
   yoHistoryPanel = document.getElementById("yo-history")!;
@@ -1892,10 +1890,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   }
 
   // -- Close button --
-  yoPanelCloseBtn.addEventListener("click", () => {
-    window.yo.yoPanelDismiss();
-  });
-
   // -- Resize handle --
   let yoPanelDragging = false;
 
@@ -1923,16 +1917,55 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     if (width) window.yo.yoPanelWidthSave(width);
   });
 
-  // -- Chat history --
-  yoHistoryToggle.addEventListener("click", () => {
+  // -- Chat history (dropdown anchored to the clock icon in the header) --
+  yoHistoryToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
     const isHidden = yoHistoryPanel.classList.contains("hidden");
     if (isHidden) {
       loadYoHistory();
       yoHistoryPanel.classList.remove("hidden");
+      const search = document.getElementById("yo-history-search") as HTMLInputElement | null;
+      if (search) { search.value = ""; applyHistoryFilter(""); search.focus(); }
     } else {
       yoHistoryPanel.classList.add("hidden");
     }
   });
+
+  // Close history dropdown on outside click.
+  document.addEventListener("click", (e) => {
+    if (yoHistoryPanel.classList.contains("hidden")) return;
+    const target = e.target as Node;
+    if (!yoHistoryPanel.contains(target) && !yoHistoryToggle.contains(target)) {
+      yoHistoryPanel.classList.add("hidden");
+    }
+  });
+
+  // Search: hide history rows whose title doesn't match; keep section
+  // headers visible only when at least one of their following items matches.
+  const yoHistorySearch = document.getElementById("yo-history-search") as HTMLInputElement | null;
+  function applyHistoryFilter(q: string): void {
+    const query = q.trim().toLowerCase();
+    const children = Array.from(yoHistoryList.children) as HTMLElement[];
+    let currentHeader: HTMLElement | null = null;
+    let currentMatched = 0;
+    for (const el of children) {
+      if (el.classList.contains("yo-history-section-header")) {
+        if (currentHeader) currentHeader.style.display = currentMatched > 0 ? "" : "none";
+        currentHeader = el;
+        currentMatched = 0;
+      } else if (el.classList.contains("yo-history-item")) {
+        const text = (el.querySelector(".yo-history-title")?.textContent || "").toLowerCase();
+        const match = !query || text.includes(query);
+        el.style.display = match ? "" : "none";
+        if (match) currentMatched++;
+      } else if (el.classList.contains("yo-history-empty")) {
+        // Hide empty placeholders when actively searching — they're noise.
+        el.style.display = query ? "none" : "";
+      }
+    }
+    if (currentHeader) currentHeader.style.display = currentMatched > 0 ? "" : "none";
+  }
+  yoHistorySearch?.addEventListener("input", () => applyHistoryFilter(yoHistorySearch.value));
 
   yoChatNewBtn.addEventListener("click", () => { void startNewChat(); });
 

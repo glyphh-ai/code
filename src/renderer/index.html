@@ -218,12 +218,15 @@
   <div id="yo-panel" class="yo-panel hidden">
     <div id="yo-panel-resize" class="yo-panel-resize"></div>
     <div class="yo-panel-header">
-      <button id="yo-history-toggle" class="yo-history-toggle" title="Chat history">&#9776;</button>
-      <span class="yo-panel-title"><span class="yo-dot">.</span>Yo</span>
+      <span class="yo-panel-title"><span class="yo-dot">.</span>Yo <span class="yo-dot">.</span>Agent</span>
+      <span class="yo-panel-header-spacer"></span>
+      <button id="yo-history-toggle" class="yo-history-toggle" title="Chat history">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+      </button>
       <button id="yo-chat-new" class="yo-chat-new" title="New chat">+</button>
-      <button class="yo-panel-close">&times;</button>
     </div>
     <div id="yo-history" class="yo-history hidden">
+      <input id="yo-history-search" class="yo-history-search" type="text" placeholder="Search history…" spellcheck="false" />
       <div id="yo-history-list" class="yo-history-list"></div>
     </div>
     <div class="yo-panel-messages" id="yo-panel-messages"></div>
