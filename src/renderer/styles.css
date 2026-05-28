@@ -2459,10 +2459,17 @@ body.account-locked #dl-btn-wrap {
 
 .docs-panel {
   display: none;
+  max-width: none;
 }
 
 .docs-panel.active {
   display: block;
+}
+
+/* Docs content fills the right pane edge-to-edge (minus the .settings-panels
+   left padding). Defensive override so no inherited cap squeezes it. */
+.docs-panels {
+  max-width: none;
 }
 
 .docs-panel h3 {
@@ -4442,6 +4449,14 @@ ol.docs-list li::before {
   margin-top: 16px;
 }
 
+/* Provider cards fill the panel width — they're wide compound cards
+   (label + status badge + hint + key input + Save + verify response),
+   not narrow form fields, so the 420px settings-form clamp doesn't
+   fit them. */
+#provider-keys-list {
+  max-width: none;
+}
+
 .settings-label {
   font-size: 12px;
   font-weight: 600;
@@ -4811,7 +4826,6 @@ select.settings-input {
   display: flex;
   flex-direction: column;
   gap: 32px;
-  max-width: 640px;
 }
 
 .about-policy h3 {
