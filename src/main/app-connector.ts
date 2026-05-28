@@ -266,9 +266,11 @@ export class AppConnector {
   /** Seed internal + default apps on first launch */
   private ensureDefaults(): void {
     // Purge internal apps removed from the build (The Drop, .Yo Editor,
-    // VS Code, Monaco). They were persisted to ~/yo/apps/<id>.json on a
-    // prior launch, so dropping them from INTERNAL_APPS alone leaves
-    // them in the app list.
+    // VS Code, the standalone Monaco panel). They were persisted to
+    // ~/yo/apps/<id>.json on a prior launch, so dropping them from
+    // INTERNAL_APPS alone leaves them in the app list. The Monaco
+    // editor library itself is still loaded — only the standalone app
+    // entry is gone.
     for (const staleId of ["drop", "files", "vscode", "monaco"]) {
       const stale = this.apps.get(staleId);
       if (stale && stale.url?.startsWith("yo://")) {

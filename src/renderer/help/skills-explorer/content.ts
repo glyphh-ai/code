@@ -3,7 +3,7 @@
  *   • showSkill(name) — overview: name + description + rendered SKILL.md +
  *     actions (Run, Export, Delete) + enabled toggle.
  *   • showFile(name, rel) — markdown renders by default (toggle to source);
- *     code → read-only <pre> block; media → player. Copy.
+ *     code → read-only Monaco; media → player. Copy.
  *   • showCreate() — minimal new-skill form that hands off to the .Yo agent.
  */
 
@@ -13,6 +13,31 @@ import { RunConsole } from "./run-console.js";
 
 const renderMarkdown = (src: string | null | undefined): string => formatMarkdown(src || "");
 
+// ── Monaco (read-only) ──────────────────────────────────────
+let monacoReady: Promise<void> | null = null;
+function ensureMonaco(): Promise<void> {
+  if (monacoReady) return monacoReady;
+  monacoReady = new Promise<void>((resolve) => {
+    const w = window as unknown as { monaco?: unknown; require: any };
+    if (w.monaco) { resolve(); return; }
+    w.require.config({ paths: { vs: "monaco" } });
+    w.require(["vs/editor/editor.main"], () => resolve());
+  });
+  return monacoReady;
+}
+function languageForFile(rel: string): string {
+  const ext = rel.toLowerCase().split(".").pop() || "";
+  const map: Record<string, string> = {
+    js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
+    ts: "typescript", tsx: "typescript", json: "json", md: "markdown", mdx: "markdown",
+    markdown: "markdown", yaml: "yaml", yml: "yaml", html: "html", htm: "html",
+    css: "css", scss: "scss", less: "less", sh: "shell", bash: "shell", py: "python",
+    rb: "ruby", go: "go", rs: "rust", toml: "ini", ini: "ini", xml: "xml", svg: "xml",
+  };
+  return map[ext] || "plaintext";
+}
+const monacoTheme = () =>
+  (document.documentElement.dataset.theme || document.body.dataset.theme) === "dark" ? "vs-dark" : "vs";
 const isMarkdown = (f: string) => /\.(md|mdx|markdown)$/i.test(f);
 
 function mediaKind(rel: string): "image" | "audio" | "video" | null {
@@ -49,7 +74,8 @@ export class SkillContent {
   readonly root: HTMLElement;
   private bar: HTMLElement;
   private body: HTMLElement;
-  private codeHost: HTMLElement;
+  private monaco: any = null;
+  private monacoHost: HTMLElement;
   private mdHost: HTMLElement;
   private runConsole = new RunConsole();
   private fileCache = new Map<string, string>();
@@ -57,10 +83,10 @@ export class SkillContent {
 
   constructor(private deps: SkillContentDeps) {
     this.bar = el("div", { class: "skill-content-bar" });
-    this.codeHost = el("pre", { class: "skill-code hidden" });
+    this.monacoHost = el("div", { class: "skill-monaco hidden" });
     this.mdHost = el("div", { class: "skill-md-render yo-md hidden" });
     this.runConsole.root.classList.add("hidden");
-    this.body = el("div", { class: "skill-content-body" }, [this.mdHost, this.codeHost, this.runConsole.root]);
+    this.body = el("div", { class: "skill-content-body" }, [this.mdHost, this.monacoHost, this.runConsole.root]);
     this.root = el("div", { class: "skill-content" }, [this.bar, this.body]);
     this.showEmpty();
   }
@@ -74,7 +100,7 @@ export class SkillContent {
 
   private hideAll(): void {
     this.mdHost.classList.add("hidden");
-    this.codeHost.classList.add("hidden");
+    this.monacoHost.classList.add("hidden");
     this.runConsole.root.classList.add("hidden");
   }
 
@@ -218,12 +244,28 @@ export class SkillContent {
       this.mdHost.classList.remove("hidden");
       this.mdHost.innerHTML = renderMarkdown(text);
     } else {
-      this.codeHost.classList.remove("hidden");
-      this.codeHost.textContent = text;
+      this.monacoHost.classList.remove("hidden");
+      await this.showSource(text, languageForFile(rel));
     }
   }
 
-  relayout(): void { /* no-op — plain <pre> needs no layout */ }
+  private async showSource(text: string, lang: string): Promise<void> {
+    await ensureMonaco();
+    const w = window as unknown as { monaco: any };
+    if (this.monaco) {
+      this.monaco.setModel(w.monaco.editor.createModel(text, lang));
+    } else {
+      this.monaco = w.monaco.editor.create(this.monacoHost, {
+        value: text, language: lang, theme: monacoTheme(), readOnly: true,
+        fontSize: 12, fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+        minimap: { enabled: false }, wordWrap: "on", automaticLayout: true,
+        padding: { top: 8 }, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+      });
+    }
+    setTimeout(() => this.monaco?.layout?.(), 0);
+  }
+
+  relayout(): void { this.monaco?.layout?.(); }
 
   // ── Create mode ──
   showCreate(): void {

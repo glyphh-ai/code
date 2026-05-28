@@ -1467,19 +1467,9 @@ body.account-locked #dl-btn-wrap {
 .skill-tree-resize.dragging {
   background: var(--accent);
 }
-.skill-code {
+.skill-code-monaco {
   flex: 1;
   min-width: 0;
-  margin: 0;
-  padding: 12px 14px;
-  overflow: auto;
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: var(--font-mono, "SF Mono", "Menlo", monospace);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre;
-  tab-size: 2;
 }
 .skill-code-tree-header {
   display: flex;
@@ -1521,6 +1511,8 @@ body.account-locked #dl-btn-wrap {
   background: var(--hover);
   color: var(--text);
 }
+.skill-code-monaco { background: #1e1e1e; }
+
 /* Skill editor right-pane tabs (Code / Preview) */
 .skill-right-tabs {
   display: flex;
@@ -7002,7 +6994,7 @@ select.settings-input {
 
 /* ── Tree: skill folders → files ── */
 .skill-tree-empty { padding: 16px 10px; color: var(--ws-text-faint); font-size: 12.5px; }
-.skill-tree-folder.hidden, .skill-tree-files.hidden, .skill-code.hidden, .skill-md-render.hidden,
+.skill-tree-folder.hidden, .skill-tree-files.hidden, .skill-monaco.hidden, .skill-md-render.hidden,
 .skill-run-pane.hidden, .skill-run-preview.hidden, .skill-form-error.hidden { display: none; }
 
 .skill-tree-folder-row, .skill-tree-file {
@@ -7057,6 +7049,7 @@ select.settings-input {
 .skill-icon-btn.active { color: var(--ws-accent); border-color: var(--ws-accent); }
 .skill-icon-btn svg { width: 15px; height: 15px; }
 
+.skill-monaco { min-height: 0; }
 .skill-md-render { overflow: auto; padding: 20px var(--skill-gut); color: var(--ws-text); font-size: 14px; line-height: 1.65; }
 
 /* create form */
