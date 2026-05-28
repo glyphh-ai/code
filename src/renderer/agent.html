@@ -47,6 +47,11 @@
   /* Controls row — spacer pushes model + send to the far right while
      the perm dropdown stays on the far left. */
   .agent-controls-spacer { flex: 1; }
+  /* Agent-app override: the perm dropdown shouldn't grab all the slack
+     between the two dropdowns. The styles.css base rule has it at
+     flex:1 (right-rail wants that); here we cap it. */
+  #yo-perm-dropdown { flex: 0 0 auto; }
+  #yo-perm-trigger { min-width: 96px; max-width: 120px; }
 
   /* Far-right animated .Yo dot — mirrors the splash-screen dot-dance. */
   .agent-yo-mark {
