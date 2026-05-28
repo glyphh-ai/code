@@ -632,17 +632,11 @@ body.account-locked #dl-btn-wrap {
   height: 38px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 16px;
   background: var(--surface);
-  /* 4px rail-color band between the tab strip and the workspace below.
-     Content-box (the * reset no longer sets box-sizing: border-box) means
-     this border ADDS to the outer height — total titlebar = 42px. Keep
-     all offsets dependent on titlebar height in sync (url-bar top,
-     panel-container height, panel-manager yTop, layout-manager
-     TITLEBAR_HEIGHT). */
-  border-bottom: 4px solid var(--surface-2);
+  border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
-  gap: 6px;
+  gap: 12px;
 }
 
 #titlebar-label {
@@ -673,11 +667,11 @@ body.account-locked #dl-btn-wrap {
 
 .url-bar {
   position: fixed;
-  top: 42px;
+  top: 38px;
   left: var(--left-inset, 0px);
   right: var(--right-inset, 0px);
   height: 34px;
-  background: var(--surface-2);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -831,20 +825,13 @@ body.account-locked #dl-btn-wrap {
 #tab-bar {
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: 0;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-app-region: drag;
   scrollbar-width: none;
-  /* When a rail is open, push the tabs out of the rail's column so the
-     first tab starts at the left rail's right edge and the last tab ends
-     at the right rail's left edge. The 148px subtrahend matches the
-     measured chrome before the tab-bar (12 titlebar padding + 52 window
-     controls + 6 gap + ~42 .Yo label + 6 gap + 24 toggle + 6 gap). */
-  padding-left: max(0px, calc(var(--left-inset, 0px) - 148px));
-  padding-right: max(0px, calc(var(--right-inset, 0px) - 148px));
 }
 
 #tab-bar .tab,
@@ -859,7 +846,7 @@ body.account-locked #dl-btn-wrap {
   gap: 6px;
   height: 26px;
   padding: 0 8px 0 12px;
-  background: var(--surface-3);
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -878,15 +865,12 @@ body.account-locked #dl-btn-wrap {
 
 .tab:hover { background: var(--hover); color: var(--text); }
 
-/* Active tab: lifted onto the rail surface color with a subtle neutral
-   ring (no green fill, no accent border). Reads as "this tab is the
-   one connected to the workspace below." */
 .tab-active {
-  background: var(--surface-2);
-  border-color: var(--border-2);
-  color: var(--text);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
 }
-.tab-active:hover { background: var(--surface-2); color: var(--text); }
+.tab-active:hover { background: var(--accent-hover); color: #000; }
 
 .tab-favicon {
   width: 14px;
@@ -4231,8 +4215,7 @@ ol.docs-list li::before {
 /* ── Panel container ─────────────────────────────────────── */
 
 #panel-container {
-  /* 38px titlebar content + 4px surface-2 sliver border-bottom = 42px chrome */
-  height: calc(100vh - 42px);
+  height: calc(100vh - 38px);
   background: var(--bg);
   position: relative;
 }
@@ -5119,7 +5102,7 @@ select.settings-input {
   justify-content: center;
   width: 24px;
   height: 22px;
-  margin: 0;
+  margin: 0 4px;
   padding: 0;
   background: transparent;
   border: none;
