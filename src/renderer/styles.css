@@ -873,10 +873,9 @@ body.account-locked #dl-btn-wrap {
 
 .tab:hover { background: var(--hover); color: var(--text); }
 
-/* Active tab: lifted onto the rail surface color. No accent ring — just a
-   subtle neutral border. The 4px rail-color sliver below the titlebar
-   (see #titlebar border-bottom) means the tab flows visually into the
-   workspace before the app content begins. */
+/* Active tab: lifted onto the rail surface color with a subtle neutral
+   ring (no green fill, no accent border). Reads as "this tab is the
+   one connected to the workspace below." */
 .tab-active {
   background: var(--surface-2);
   border-color: var(--border-2);
