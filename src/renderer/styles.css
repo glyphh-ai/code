@@ -5102,6 +5102,11 @@ select.settings-input {
   transform: translateX(0);
 }
 .yo-panel.hidden { display: none !important; }
+/* Hide the resize/peek strip whenever the panel is closed — otherwise the
+   4px that sits left of the panel's edge (left: -4px on an 8px element)
+   sticks out at the viewport's right edge and reads as an unintended
+   "popout tab". Users open .Yo via the titlebar button instead. */
+.yo-panel:not(.open) .yo-panel-resize { display: none; }
 
 /* ── Files left rail ──────────────────────────────────────── */
 
@@ -6987,7 +6992,8 @@ select.settings-input {
 .yo-mode-menu.hidden { display: none; }
 
 .yo-mode-option,
-.yo-perm-option {
+.yo-perm-option,
+.yo-type-option {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -6996,8 +7002,12 @@ select.settings-input {
   cursor: pointer;
   transition: background 0.1s;
 }
-.yo-mode-option:hover, .yo-perm-option:hover { background: var(--hover); }
-.yo-mode-option.active, .yo-perm-option.active { background: var(--border); }
+.yo-mode-option:hover,
+.yo-perm-option:hover,
+.yo-type-option:hover { background: var(--hover); }
+.yo-mode-option.active,
+.yo-perm-option.active,
+.yo-type-option.active { background: var(--border); }
 
 /* Plan checkbox — binary modifier, sits next to the perm dropdown */
 .yo-plan-toggle {
@@ -7055,6 +7065,56 @@ select.settings-input {
   opacity: 0.45;
 }
 .yo-model-option.disabled:hover { background: transparent; }
+
+/* The model dropdown lives on the RIGHT side of the controls row. Anchor
+   its menu to the trigger's right edge so it doesn't overflow the panel.
+   Also bump the min-width so the descriptions don't wrap awkwardly. */
+#yo-model-dropdown .yo-mode-menu {
+  left: auto;
+  right: 0;
+  min-width: 240px;
+}
+
+/* Checkmark sits on the far right of each option row; only visible when
+   that row is `.active`. Same pattern works for model + perm + type. */
+.yo-mode-opt-check {
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
+  opacity: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.yo-mode-opt-check svg { width: 14px; height: 14px; stroke: currentColor; }
+.yo-model-option.active .yo-mode-opt-check,
+.yo-perm-option.active .yo-mode-opt-check,
+.yo-type-option.active .yo-mode-opt-check { opacity: 1; }
+
+/* Replace emoji-based opt icons with consistently-sized inline SVGs. */
+.yo-mode-opt-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+.yo-perm-icon svg,
+.yo-type-icon svg {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
 
 /* Bypass mode: alert-red so the user can't pick it accidentally */
 .yo-mode-option[data-value="bypass"] .yo-mode-opt-label,
@@ -8427,3 +8487,16 @@ select.settings-input {
 .ws-right-rails.has-fullscreen .ws-rail-slot.fullscreen {
   flex: 1 !important;
 }
+
+/* Layout tab — single grid glyph in front of the layout's name. Replaces
+   the previous stacked-favicons cluster. */
+.tab-layout-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+.tab-layout-icon svg { width: 13px; height: 13px; stroke: currentColor; }
+.tab-active .tab-layout-icon { color: var(--text); }

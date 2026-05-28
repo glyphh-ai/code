@@ -76,6 +76,16 @@ export interface AgentConfig {
    */
   mode?: "full" | "readonly";
 
+  /**
+   * Workflow kind for the agent's chat loop:
+   *  - "standard" — freeform, no enforced workflow (default)
+   *  - "spec"     — phased: requirements → design → tasks, approval-card gates
+   *  - "vibe"     — single plan.md, inline plan mode
+   * Switchable per agent; persisted on save. Reflected in the type
+   * dropdown in the agent controls row.
+   */
+  kind?: "standard" | "spec" | "vibe";
+
   /** If true, this agent is published to yo-server and discoverable for cyphers. */
   joinable?: boolean;
 

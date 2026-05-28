@@ -42,6 +42,11 @@ export interface YoAgentCallbacks {
   listChats: () => Promise<ChatSummary[]>;
   /** Approval prompt response. */
   respondApproval: (id: string, approved: boolean) => void;
+  /** User picked a different workflow kind from the type dropdown. The
+   *  current in-flight turn (if any) keeps its kind; the change applies
+   *  from the next user message. Optional — surfaces that don't have a
+   *  type dropdown leave this unset. */
+  kindChanged?: (kind: AgentKind) => void;
 }
 
 export interface YoAgentRendererOptions {
@@ -55,11 +60,13 @@ export interface YoAgentRendererOptions {
   dripEnabled?: boolean;
 }
 
+// Inline SVG icons — replacements for the previous emoji glyphs so the icon
+// set stays consistent across themes and platforms. Sized by CSS.
 const PERM_ICONS: Record<PermMode, string> = {
-  default: "🔒",
-  plan: "📋",
-  acceptEdits: "⚡",
-  bypassPermissions: "🔥",
+  default: `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  plan: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>`,
+  acceptEdits: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  bypassPermissions: `<svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
 };
 const PERM_LABELS: Record<PermMode, string> = {
   default: "ask",
@@ -69,10 +76,18 @@ const PERM_LABELS: Record<PermMode, string> = {
 };
 const PERM_COLORS: Record<PermMode, string> = {
   default: "#25C75E",
-  plan: "#4A9EFF",
+  plan: "#8B5CF6",
   acceptEdits: "#FF8C00",
   bypassPermissions: "#FF2D55",
 };
+
+export type AgentKind = "standard" | "spec" | "vibe";
+const TYPE_ICONS: Record<AgentKind, string> = {
+  standard: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>`,
+  spec: `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>`,
+  vibe: `<svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+};
+const TYPE_LABELS: Record<AgentKind, string> = { standard: "standard", spec: "spec", vibe: "vibe" };
 
 const MODEL_PRETTY: Record<string, string> = {
   "claude-sonnet-4-6": "Sonnet 4.6",
@@ -139,6 +154,11 @@ export class YoAgentRenderer {
   private permMenu!: HTMLElement;
   private permIcon!: HTMLElement;
   private permLabel!: HTMLElement;
+  private typeTrigger: HTMLElement | null = null;
+  private typeMenu: HTMLElement | null = null;
+  private typeIcon: HTMLElement | null = null;
+  private typeLabel: HTMLElement | null = null;
+  private agentKind: AgentKind = "standard";
   private modelTrigger!: HTMLElement;
   private modelMenu!: HTMLElement;
   private modelLabel!: HTMLElement;
@@ -205,6 +225,12 @@ export class YoAgentRenderer {
     this.permMenu = this.$("#yo-perm-menu");
     this.permIcon = this.permTrigger.querySelector(".yo-perm-icon") as HTMLElement;
     this.permLabel = this.permTrigger.querySelector(".yo-perm-label") as HTMLElement;
+    // Type dropdown is optional — the agent app has it, the right-rail
+    // panel might not (yet). Skip wiring if its DOM isn't present.
+    this.typeTrigger = this.root.querySelector("#yo-type-trigger") as HTMLElement | null;
+    this.typeMenu = this.root.querySelector("#yo-type-menu") as HTMLElement | null;
+    this.typeIcon = this.typeTrigger?.querySelector(".yo-type-icon") as HTMLElement | null;
+    this.typeLabel = this.typeTrigger?.querySelector(".yo-type-label") as HTMLElement | null;
     this.modelTrigger = this.$("#yo-model-trigger");
     this.modelMenu = this.$("#yo-model-menu");
     this.modelLabel = this.modelTrigger.querySelector(".yo-model-label") as HTMLElement;
@@ -289,6 +315,7 @@ export class YoAgentRenderer {
       e.stopPropagation();
       this.permMenu.classList.toggle("hidden");
       this.modelMenu.classList.add("hidden");
+      this.typeMenu?.classList.add("hidden");
     });
     this.permMenu.querySelectorAll<HTMLElement>(".yo-perm-option").forEach((opt) => {
       opt.addEventListener("click", () => {
@@ -297,6 +324,25 @@ export class YoAgentRenderer {
         this.permMenu.classList.add("hidden");
       });
     });
+
+    // Type dropdown (only if mounted in this surface)
+    if (this.typeTrigger && this.typeMenu) {
+      const typeTrigger = this.typeTrigger;
+      const typeMenu = this.typeMenu;
+      typeTrigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        typeMenu.classList.toggle("hidden");
+        this.permMenu.classList.add("hidden");
+        this.modelMenu.classList.add("hidden");
+      });
+      typeMenu.querySelectorAll<HTMLElement>(".yo-type-option").forEach((opt) => {
+        opt.addEventListener("click", () => {
+          const v = (opt.dataset.value || "standard") as AgentKind;
+          this.applyType(v);
+          typeMenu.classList.add("hidden");
+        });
+      });
+    }
 
     this.modelTrigger.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -316,6 +362,10 @@ export class YoAgentRenderer {
       const t = e.target as Node;
       if (!this.permTrigger.contains(t) && !this.permMenu.contains(t)) this.permMenu.classList.add("hidden");
       if (!this.modelTrigger.contains(t) && !this.modelMenu.contains(t)) this.modelMenu.classList.add("hidden");
+      if (this.typeTrigger && this.typeMenu &&
+          !this.typeTrigger.contains(t) && !this.typeMenu.contains(t)) {
+        this.typeMenu.classList.add("hidden");
+      }
     });
 
     this.messages.addEventListener("scroll", () => this.updateScrollBtn());
@@ -503,7 +553,16 @@ export class YoAgentRenderer {
     if (this.timelineEl && this.timelineEl.parentElement) return;
     const el = document.createElement("div");
     el.className = "yo-timeline";
-    this.messages.appendChild(el);
+    // Tool rows belong ABOVE the spinner — the spinner indicates ongoing
+    // work, so it should remain the last item in the message column as
+    // tools accumulate. If the spinner is already mounted, insert the
+    // timeline before it so future appendChilds into the timeline stack
+    // above the spinner naturally.
+    if (this.spinnerEl && this.spinnerEl.parentElement === this.messages) {
+      this.messages.insertBefore(el, this.spinnerEl);
+    } else {
+      this.messages.appendChild(el);
+    }
     this.timelineEl = el;
   }
 
@@ -637,7 +696,7 @@ export class YoAgentRenderer {
 
   private applyPerm(p: PermMode): void {
     this.perm = p;
-    this.permIcon.textContent = PERM_ICONS[p] || "🔒";
+    this.permIcon.innerHTML = PERM_ICONS[p] || PERM_ICONS.default;
     this.permLabel.textContent = PERM_LABELS[p] || "ask";
     const color = PERM_COLORS[p] || PERM_COLORS.default;
     this.permTrigger.style.color = color;
@@ -645,6 +704,23 @@ export class YoAgentRenderer {
     this.permMenu.querySelectorAll<HTMLElement>(".yo-perm-option").forEach((o) => {
       o.classList.toggle("active", o.dataset.value === p);
     });
+  }
+
+  /** Initialize the kind from a persisted config without firing the change
+   *  callback — used on mount to reflect the saved AgentConfig.kind. */
+  initAgentKind(k: AgentKind): void { this.applyType(k, /*silent=*/ true); }
+  /** User-initiated kind change. Fires the callback so the host can persist. */
+  setAgentKind(k: AgentKind): void { this.applyType(k); }
+  getAgentKind(): AgentKind { return this.agentKind; }
+  private applyType(k: AgentKind, silent = false): void {
+    const changed = this.agentKind !== k;
+    this.agentKind = k;
+    if (this.typeIcon) this.typeIcon.innerHTML = TYPE_ICONS[k] || TYPE_ICONS.standard;
+    if (this.typeLabel) this.typeLabel.textContent = TYPE_LABELS[k] || "standard";
+    this.typeMenu?.querySelectorAll<HTMLElement>(".yo-type-option").forEach((o) => {
+      o.classList.toggle("active", o.dataset.value === k);
+    });
+    if (changed && !silent) this.callbacks.kindChanged?.(k);
   }
 
   private applyModel(m: string): void {

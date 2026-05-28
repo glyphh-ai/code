@@ -293,16 +293,37 @@ export function registerWorkingDirectoryIpc(deps: {
 
   // Unified git diff of the working tree (staged + unstaged combined). The
   // Workbench Diff slot renders this; returns "" when the tree is clean.
+  // Probes the dir first so a non-repo cwd gets a clean "not a git repo"
+  // message instead of the noisy `git diff --no-index` usage dump that git
+  // emits when the path isn't inside a work tree.
   ipcMain.handle("files:git-diff", async (_e, root: string) => {
     if (typeof root !== "string" || !root) return { text: "", error: "missing root" };
+    try {
+      const probe = await execFileP("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root });
+      if (probe.stdout.trim() !== "true") return { text: "", error: "not a git repo" };
+    } catch {
+      return { text: "", error: "not a git repo" };
+    }
     try {
       const { stdout } = await execFileP("git", ["diff", "HEAD"], { cwd: root, maxBuffer: 10 * 1024 * 1024 });
       return { text: stdout };
     } catch (err) {
+      // Initial commit (no HEAD) is a normal state — show staged + unstaged.
       const msg = err instanceof Error
         ? (err as Error & { stderr?: string }).stderr || err.message
         : String(err);
-      return { text: "", error: msg };
+      if (/unknown revision|ambiguous argument 'HEAD'|bad revision/i.test(msg)) {
+        try {
+          const { stdout } = await execFileP("git", ["diff"], { cwd: root, maxBuffer: 10 * 1024 * 1024 });
+          return { text: stdout };
+        } catch (err2) {
+          const msg2 = err2 instanceof Error
+            ? (err2 as Error & { stderr?: string }).stderr || err2.message
+            : String(err2);
+          return { text: "", error: msg2.split("\n")[0] || "git error" };
+        }
+      }
+      return { text: "", error: msg.split("\n")[0] || "git error" };
     }
   });
 }

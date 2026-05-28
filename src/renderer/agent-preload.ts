@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("agent", {
   ensureDefault: () => ipcRenderer.invoke("agent:ensure-default"),
+  getKind: (slug: string) =>
+    ipcRenderer.invoke("agent:get-kind", slug) as Promise<{ kind: "standard" | "spec" | "vibe" }>,
+  setKind: (slug: string, kind: "standard" | "spec" | "vibe") =>
+    ipcRenderer.invoke("agent:set-kind", slug, kind) as Promise<{ ok: boolean; error?: string }>,
   start: (opts: { instanceId: string; agentSlug: string; cwd: string }) =>
     ipcRenderer.invoke("agent:start", opts),
   send: (instanceId: string, message: string, model: string, perm: string) =>

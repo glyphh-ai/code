@@ -13,8 +13,7 @@
  * inline, phase toggles on the far right (only one active at a time).
  */
 
-type Phase = "requirements" | "architecture" | "design" | "test" | "tasks";
-const PHASES: Phase[] = ["requirements", "architecture", "design", "test", "tasks"];
+type Phase = "requirements" | "design" | "tasks";
 
 interface PlanApi {
   getCwd: () => Promise<string>;

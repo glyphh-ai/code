@@ -20,7 +20,7 @@ import { ipcMain, type WebContents } from "electron";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import { getShellPath } from "./shell-path";
 import { getPreference } from "./stores/preferences-db";
-import { getAgent, ensureDefaultAgent } from "./agent-store";
+import { getAgent, ensureDefaultAgent, saveAgent, type AgentConfig } from "./agent-store";
 
 export type PermMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
 
@@ -148,6 +148,25 @@ export function registerAgentInteractiveIpc(): void {
   ipcMain.handle("agent:ensure-default", () => {
     const cfg = ensureDefaultAgent();
     return { slug: cfg.id };
+  });
+
+  // Read just the kind for an agent slug. Falls back to "standard" when the
+  // agent isn't found or the field is unset.
+  ipcMain.handle("agent:get-kind", (_e, slug: string) => {
+    const cfg = slug ? getAgent(slug) : null;
+    return { kind: cfg?.kind || "standard" };
+  });
+
+  // Persist the workflow kind on an agent. Switchable mid-conversation; the
+  // change takes effect from the NEXT turn (current in-flight turn finishes
+  // under the previous kind).
+  ipcMain.handle("agent:set-kind", (_e, slug: string, kind: "standard" | "spec" | "vibe") => {
+    if (!slug) return { ok: false };
+    const cfg = getAgent(slug);
+    if (!cfg) return { ok: false, error: "agent not found" };
+    const next: AgentConfig = { ...cfg, kind };
+    saveAgent(next);
+    return { ok: true };
   });
 
   ipcMain.handle("agent:start", (e, opts: InteractiveStartOpts) => {

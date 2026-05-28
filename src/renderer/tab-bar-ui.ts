@@ -1,6 +1,6 @@
 // tab-bar-ui.ts — Tab bar system extracted from renderer.ts
 
-type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
+type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string; kind?: string };
 
 // ── Internal-app icons for the `+` picker ─────────────────────────────────
 // Mirrors the SVGs used on the left-rail launcher buttons in index.html so
@@ -162,21 +162,14 @@ export function initTabBar(deps: TabBarDeps): {
         icon.className = "tab-home-icon";
         icon.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
         el.appendChild(icon);
-      } else if (tab.layoutFavicons && tab.layoutFavicons.length > 0) {
-        const stack = document.createElement("span");
-        stack.className = "tab-favicon-stack";
-        for (let i = 0; i < Math.min(tab.layoutFavicons.length, 4); i++) {
-          const img = document.createElement("img");
-          img.className = "tab-favicon-stacked";
-          img.width = 12;
-          img.height = 12;
-          img.src = tab.layoutFavicons[i];
-          img.onerror = () => { img.style.display = "none"; };
-          img.style.marginLeft = i > 0 ? "-6px" : "0";
-          img.style.zIndex = String(10 - i);
-          stack.appendChild(img);
-        }
-        el.appendChild(stack);
+      } else if (tab.kind === "layout") {
+        // Layout tab gets a single grid glyph + the layout's name (handled by
+        // the label block below). Stacked panel favicons are gone — the
+        // layout's own identity wins.
+        const icon = document.createElement("span");
+        icon.className = "tab-layout-icon";
+        icon.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>';
+        el.appendChild(icon);
       } else {
         const favicon = document.createElement("img");
         favicon.className = "tab-favicon";

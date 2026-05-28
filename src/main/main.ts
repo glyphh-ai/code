@@ -1479,14 +1479,18 @@ async function boot() {
       return isBrowser ? (panelUrls[id] || undefined) : undefined;
     };
 
-    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string }>;
+    let tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string; kind?: string }>;
     if (hasLayout) {
-      const layoutName = layoutInfo.panelIds.map((id) => getTabName(id)).join(" + ");
-      const layoutFavicons = layoutInfo.panelIds.map((id) => panelFavicons[id] || "").filter(Boolean);
+      // Show the saved layout's NAME — falling back to the panel-id join only
+      // for unnamed grids (ad-hoc splits created on the fly). The tab-bar
+      // renderer keys off `kind: "layout"` to draw a single layout glyph
+      // instead of stacked panel favicons.
+      const savedName = (layoutInfo.name || "").trim();
+      const layoutName = savedName || layoutInfo.panelIds.map((id) => getTabName(id)).join(" + ");
       const layoutTabId = "__layout__";
       const gridSet = new Set(layoutInfo.panelIds);
       tabs = [
-        { id: layoutTabId, name: layoutName, layoutFavicons },
+        { id: layoutTabId, name: layoutName, kind: "layout" },
         ...openTabs.filter((id) => !gridSet.has(id)).map((id) => ({
           id,
           name: getTabName(id),

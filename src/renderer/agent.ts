@@ -13,6 +13,8 @@ import { createYoAgentRenderer, type PermMode, type ChatSummary } from "./yo-age
 
 interface AgentApi {
   ensureDefault: () => Promise<{ slug: string }>;
+  getKind: (slug: string) => Promise<{ kind: "standard" | "spec" | "vibe" }>;
+  setKind: (slug: string, kind: "standard" | "spec" | "vibe") => Promise<{ ok: boolean; error?: string }>;
   start: (opts: { instanceId: string; agentSlug: string; cwd: string }) => Promise<unknown>;
   send: (instanceId: string, message: string, model: string, perm: PermMode) => Promise<unknown>;
   stop: (instanceId: string) => Promise<unknown>;
@@ -270,8 +272,13 @@ async function init(): Promise<void> {
       loadChat: async () => { /* TODO */ },
       deleteChat: async () => { /* TODO */ },
       respondApproval: () => { /* TODO */ },
+      kindChanged: (kind) => { void window.agent.setKind(slug, kind); },
     },
   });
+
+  // Seed the type dropdown from the saved AgentConfig.kind so the UI
+  // reflects what's actually persisted. Silent init — won't echo back.
+  void window.agent.getKind(slug).then(({ kind }) => renderer.initAgentKind(kind));
 
   // Initial paint + engine start.
   void paintWorkdirBar(cwd);
