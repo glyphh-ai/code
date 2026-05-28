@@ -672,7 +672,7 @@ body.account-locked #dl-btn-wrap {
   left: var(--left-inset, 0px);
   right: var(--right-inset, 0px);
   height: 28px;
-  background: var(--surface);
+  background: var(--surface-2);
   border: none;
   display: flex;
   align-items: center;
@@ -723,7 +723,7 @@ body.account-locked #dl-btn-wrap {
   font-size: 13px;
   color: var(--white);
   -webkit-text-fill-color: var(--white);
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--border-3);
   border-radius: 8px;
   outline: none;
