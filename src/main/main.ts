@@ -1476,9 +1476,9 @@ async function boot() {
     mainWindow?.webContents.send("tab-state", buildTabState());
   }
 
-  // 36px url-bar (28 input + 4 top + 4 bottom padding) + 4px gap below
-  // so the panel content area starts a few px after the url-bar ends.
-  const URL_BAR_HEIGHT = 40;
+  // 36px url-bar (28 input + 4 top + 4 bottom padding). No gap below —
+  // panel content starts immediately at url-bar's bottom edge.
+  const URL_BAR_HEIGHT = 36;
 
   /** Push the active panel's URL + favicon + nav state to the renderer URL bar */
   function sendUrlUpdate() {
