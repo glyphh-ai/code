@@ -566,6 +566,9 @@ contextBridge.exposeInMainWorld("yo", {
   agentsIdAvailable: (id: string) => ipcRenderer.invoke("agents-id-available", id) as Promise<boolean>,
   /** Open a saved agent as a standalone panel (yo://agent?slug=<slug>). */
   agentsOpenAsApp: (slug: string) => ipcRenderer.invoke("agents:open-as-app", slug) as Promise<boolean>,
+  /** Agent defaults — seed values for new agents (~/yo/.agent-defaults.json). */
+  agentDefaultsGet: () => ipcRenderer.invoke("agent-defaults:get") as Promise<{ provider: string; model: string; permDefault: string; systemPrompt: string; mcpServers: string[] }>,
+  agentDefaultsSet: (d: unknown) => ipcRenderer.invoke("agent-defaults:set", d) as Promise<unknown>,
 
   // Vibes — persisted vibe-coding projects (~/yo/vibes/<id>/)
   vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<Record<string, unknown>>>,

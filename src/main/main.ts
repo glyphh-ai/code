@@ -84,6 +84,7 @@ import { McpManager } from "./mcp-manager";
 import { initRelayClient } from "./relay-client";
 import { installRelayHandlers } from "./relay-handlers";
 import { registerAgentInteractiveIpc } from "./agent-interactive";
+import { registerAgentDefaultsIpc } from "./agent-defaults";
 import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory, getWorkingDirRecents, setWorkingDirectory } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
@@ -2478,6 +2479,7 @@ async function boot() {
   const { registerVibeIpc, openVibe } = require("./vibe-ipc") as typeof import("./vibe-ipc");
   registerVibeIpc({ terminalManager });
   registerAgentInteractiveIpc();
+  registerAgentDefaultsIpc();
 
   /** Ensure the vibe panel exists, switch to it, and reload it so vibe-ready
    *  re-fires and the agent re-spawns in the (now-active) vibe's code dir. */

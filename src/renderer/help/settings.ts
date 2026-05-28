@@ -35,6 +35,59 @@ if (settingsSignOutBtn) {
   });
 }
 
+// ── Settings → Agent Defaults ────────────────────────────
+// Seed values for new agents created in the Agents app.
+(function wireAgentDefaults() {
+  const provider = document.getElementById("agent-default-provider") as HTMLSelectElement | null;
+  const model = document.getElementById("agent-default-model") as HTMLInputElement | null;
+  const perm = document.getElementById("agent-default-perm") as HTMLSelectElement | null;
+  const prompt = document.getElementById("agent-default-prompt") as HTMLTextAreaElement | null;
+  const mcp = document.getElementById("agent-default-mcp") as HTMLInputElement | null;
+  const save = document.getElementById("agent-defaults-save") as HTMLButtonElement | null;
+  const status = document.getElementById("agent-defaults-status") as HTMLElement | null;
+  if (!provider || !model || !perm || !prompt || !mcp || !save || !status) return;
+
+  const invoke = (window.yo as any).invoke || ((channel: string, ...args: unknown[]) =>
+    (window as any).electron?.ipcRenderer?.invoke?.(channel, ...args));
+
+  // Use the generic invoke surface — agent-defaults:get / :set are added in
+  // main but not (yet) on the typed window.yo bridge. They work via the
+  // global ipc bridge exposed by preload.
+  const ipc = {
+    get: () => (window.yo as any).agentDefaultsGet?.() ?? Promise.resolve(null),
+    set: (v: unknown) => (window.yo as any).agentDefaultsSet?.(v) ?? Promise.resolve(),
+  };
+
+  void (async () => {
+    try {
+      const d = await ipc.get();
+      if (!d) return;
+      provider.value = d.provider || "anthropic";
+      model.value = d.model || "";
+      perm.value = d.permDefault || "default";
+      prompt.value = d.systemPrompt || "";
+      mcp.value = Array.isArray(d.mcpServers) ? d.mcpServers.join(", ") : "";
+    } catch { /* ignore */ }
+  })();
+
+  save.addEventListener("click", async () => {
+    status.textContent = "Saving…";
+    try {
+      await ipc.set({
+        provider: provider.value,
+        model: model.value.trim(),
+        permDefault: perm.value as "default" | "plan" | "acceptEdits" | "bypassPermissions",
+        systemPrompt: prompt.value,
+        mcpServers: mcp.value.split(",").map((s) => s.trim()).filter(Boolean),
+      });
+      status.textContent = "Saved.";
+    } catch (err: any) {
+      status.textContent = `Error: ${err?.message || err}`;
+    }
+    setTimeout(() => { if (status) status.textContent = ""; }, 2000);
+  });
+})();
+
 
 async function refreshOfferUsageStatus() {
   const s = await window.yo.capabilitiesGetStatus();

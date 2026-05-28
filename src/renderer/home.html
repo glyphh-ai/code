@@ -1427,6 +1427,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <nav class="settings-nav">
               <button class="settings-nav-item active" data-sub="general">General</button>
               <button class="settings-nav-item" data-sub="agent">Agent</button>
+              <button class="settings-nav-item" data-sub="agent-defaults">Agent Defaults</button>
               <button class="settings-nav-item" data-sub="providers">Providers</button>
               <button class="settings-nav-item" data-sub="appearance">Appearance</button>
               <button class="settings-nav-item" data-sub="account">Account</button>
@@ -1486,6 +1487,47 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </div>
                 </div>
 
+              </div>
+
+              <!-- Agent Defaults: seed values for new agents created in the Agents app -->
+              <div class="settings-panel" data-sub="agent-defaults">
+                <h2>Agent Defaults</h2>
+                <p class="section-desc">
+                  Defaults applied when you create a new agent. Each saved
+                  agent can override any of these.
+                </p>
+                <div class="settings-form">
+                  <label class="settings-label">Default provider</label>
+                  <select id="agent-default-provider" class="settings-input settings-input-md">
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="google">Google (Gemini)</option>
+                    <option value="xai">xAI (Grok)</option>
+                    <option value="perplexity">Perplexity</option>
+                  </select>
+
+                  <label class="settings-label" style="margin-top:12px;">Default model</label>
+                  <input id="agent-default-model" type="text" class="settings-input settings-input-md" placeholder="claude-sonnet-4-6" spellcheck="false" />
+
+                  <label class="settings-label" style="margin-top:12px;">Default permission mode</label>
+                  <select id="agent-default-perm" class="settings-input settings-input-md">
+                    <option value="default">ask (default)</option>
+                    <option value="plan">plan</option>
+                    <option value="acceptEdits">auto (accept edits)</option>
+                    <option value="bypassPermissions">bypass</option>
+                  </select>
+
+                  <label class="settings-label" style="margin-top:12px;">Default system prompt (CLAUDE.md seed)</label>
+                  <textarea id="agent-default-prompt" class="settings-input" rows="8" spellcheck="false" placeholder="You are a yo agent…"></textarea>
+
+                  <label class="settings-label" style="margin-top:12px;">Default MCP servers (comma-separated)</label>
+                  <input id="agent-default-mcp" type="text" class="settings-input" placeholder="" spellcheck="false" />
+
+                  <div class="settings-actions" style="margin-top:16px;">
+                    <button id="agent-defaults-save" class="action-btn primary" type="button">Save defaults</button>
+                    <span id="agent-defaults-status"></span>
+                  </div>
+                </div>
               </div>
 
               <!-- Providers: BYOK keys for direct provider access -->
