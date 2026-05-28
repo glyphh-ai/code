@@ -235,35 +235,6 @@
       <div class="drip-picker-section" id="drip-picker-custom"></div>
     </div>
 
-    <!-- Working-directory bar — folder + branch + add-folder. Sits directly
-         above the composer; the folder button is the picker (popup with
-         recents + "Choose folder…"). Title attribute holds the full path. -->
-    <div class="yo-workdir-bar">
-      <button class="yo-workdir-btn" id="workdir-btn" title="Pick the working folder">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-        </svg>
-        <span id="workdir-name">Pick a folder</span>
-      </button>
-      <span class="yo-workdir-branch" id="workdir-branch-wrap" style="display:none;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="6" cy="6" r="2"/>
-          <circle cx="6" cy="18" r="2"/>
-          <circle cx="18" cy="8" r="2"/>
-          <path d="M6 8v8"/>
-          <path d="M18 10v1a4 4 0 0 1-4 4H8"/>
-        </svg>
-        <span id="workdir-branch"></span>
-      </span>
-      <button class="yo-workdir-add" id="workdir-add-btn" title="Add folder">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-          <line x1="12" y1="11" x2="12" y2="17"/>
-          <line x1="9" y1="14" x2="15" y2="14"/>
-        </svg>
-      </button>
-    </div>
-
     <div class="yo-panel-input-wrap">
       <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
       <button id="yo-panel-mic" class="yo-mic-btn" title="Voice input"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="1" y2="8"/><line x1="3.5" y1="5" x2="3.5" y2="11"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="8.5" y1="5" x2="8.5" y2="11"/><line x1="11" y1="2" x2="11" y2="14"/><line x1="13.5" y1="5" x2="13.5" y2="11"/></svg></button>

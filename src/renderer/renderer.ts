@@ -15,7 +15,6 @@ import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
 import { initYoPanel } from "./yo-panel-ui.js";
-import { initYoPanelWorkdir } from "./yo-panel-workdir.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
@@ -487,7 +486,6 @@ document.getElementById("splash-close")?.addEventListener("click", () => window.
 const { openYoPanel, closeYoPanel, isYoPanelOpen, yoScroll, showYoWelcome, hideYoWelcome, getYoPanelWidth } = initYoPanel({
   renderGridHandles: () => gridApi.renderGridHandles(),
 });
-initYoPanelWorkdir();
 
 // Right-rail toggle in the header — slides the yo agent panel in/out.
 document.getElementById("yo-rail-toggle")?.addEventListener("click", () => {

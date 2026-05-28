@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Welcome</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  html, body { height: 100%; }
+  body {
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+  }
+
+  .welcome-root {
+    min-height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center;
+    padding: 64px 32px 32px 32px;
+    gap: 48px;
+  }
+
+  /* Hero ─────────────────────────────────────────── */
+  .welcome-hero {
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .welcome-logo {
+    font-family: var(--font-mono);
+    font-size: 96px; font-weight: 800;
+    letter-spacing: -0.06em;
+    color: var(--text);
+    user-select: none;
+  }
+  .welcome-logo .dot { color: var(--accent); }
+  .welcome-tagline {
+    font-size: 16px; color: var(--text-2);
+    min-height: 22px;
+    text-align: center;
+    transition: opacity 240ms ease;
+  }
+
+  /* Two dev-plane cards ───────────────────────────── */
+  .plane-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; width: 100%; max-width: 720px;
+  }
+  .plane-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 20px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 120ms ease, transform 120ms ease;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .plane-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .plane-card:disabled { cursor: not-allowed; opacity: 0.55; }
+  .plane-card:disabled:hover { border-color: var(--border); transform: none; }
+  .plane-name {
+    font-family: var(--font-mono);
+    font-size: 22px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .plane-name .dot { color: var(--accent); }
+  .plane-desc { font-size: 13px; color: var(--text-2); }
+  .plane-soon {
+    margin-top: 6px;
+    font-size: 11px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
+  /* Recents ──────────────────────────────────────── */
+  .recents {
+    width: 100%; max-width: 720px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .recents-header {
+    font-size: 11px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 0 4px 4px 4px;
+  }
+  .recents-list {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .recent-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    background: transparent;
+    text-align: left;
+    color: var(--text);
+    font-family: inherit; font-size: 13px;
+  }
+  .recent-row:hover { background: var(--surface-2); border-color: var(--border); }
+  .recent-folder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent-empty {
+    padding: 16px;
+    color: var(--text-3);
+    font-size: 13px;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+  }
+
+  /* Footer ────────────────────────────────────────── */
+  .welcome-footer {
+    margin-top: auto;
+    padding-top: 32px;
+    color: var(--text-3); font-size: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .welcome-footer input { margin: 0; }
+</style>
+</head>
+<body>
+  <div class="welcome-root">
+    <div class="welcome-hero">
+      <div class="welcome-logo"><span class="dot">.</span>Yo</div>
+      <div class="welcome-tagline" id="welcome-tagline">your AI workspace</div>
+    </div>
+
+    <div class="plane-row">
+      <button class="plane-card" id="card-vibe" type="button">
+        <div class="plane-name"><span class="dot">.</span>Vibe</div>
+        <div class="plane-desc">Spec-driven coding with Claude in your repo.</div>
+      </button>
+      <button class="plane-card" id="card-spec" type="button" disabled>
+        <div class="plane-name"><span class="dot">.</span>Spec</div>
+        <div class="plane-desc">The other half of dev — design + spec authoring.</div>
+        <div class="plane-soon">Coming soon</div>
+      </button>
+    </div>
+
+    <div class="recents">
+      <div class="recents-header">Recent folders</div>
+      <div class="recents-list" id="recents-list">
+        <div class="recent-empty">No recent folders yet.</div>
+      </div>
+    </div>
+
+    <div class="welcome-footer">
+      <label>
+        <input type="checkbox" id="show-on-startup" checked />
+        Show on startup
+      </label>
+    </div>
+  </div>
+
+  <script>
+    (async () => {
+      const api = window.welcome;
+      if (api && api.getTheme) {
+        const t = await api.getTheme();
+        const resolved = t === "system"
+          ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+          : t;
+        document.documentElement.setAttribute("data-theme", resolved);
+      }
+      if (api && api.onThemeChanged) {
+        api.onThemeChanged((theme) => {
+          document.documentElement.setAttribute("data-theme", theme);
+        });
+      }
+    })();
+  </script>
+  <script src="./welcome.js"></script>
+</body>
+</html>

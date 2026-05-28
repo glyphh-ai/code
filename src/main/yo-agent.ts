@@ -15,6 +15,14 @@ import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
+
+/** The right-rail .Yo agent always operates at ~/yo/ — it spans all folders
+ *  the user touches, it doesn't follow per-app folder selection. */
+function rightRailCwd(): string {
+  const dir = path.join(os.homedir(), "yo");
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  return dir;
+}
 import { promptLog } from "./prompt-log";
 import { guardPrompt } from "./firewall";
 import { execSync } from "child_process";
@@ -244,7 +252,7 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
-      ...asarSafeQueryOptions(getWorkingDirectory() ?? undefined),
+      ...asarSafeQueryOptions(rightRailCwd()),
       // Headless: no UI to approve tool calls, so bypass permissions.
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
@@ -346,8 +354,9 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
-      // The .yo agent runs in the app-wide working directory.
-      ...asarSafeQueryOptions(getWorkingDirectory() ?? undefined),
+      // The right-rail .Yo agent always runs at ~/yo/ — it spans every
+      // folder the user touches and does not follow per-app folder picks.
+      ...asarSafeQueryOptions(rightRailCwd()),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {

@@ -69,6 +69,11 @@ export interface McpConfig {
   enabled: boolean;
 }
 
+/** Visibility tier. `user` apps show in the Apps registry + Layouts builder.
+ *  `system` apps only appear in the `+` picker and via `.dip` — they're the
+ *  former left-rail surfaces wrapped as panels. */
+export type AppKind = "user" | "system";
+
 export interface AppConfig {
   id: string;
   name: string;
@@ -83,6 +88,13 @@ export interface AppConfig {
     category?: string;
     capabilities: string[];
   };
+
+  /** Where this app shows up. Defaults to "user" (registry + layouts + `+`). */
+  kind?: AppKind;
+  /** True if the app needs a working folder. Folder-bound apps own a picker
+   *  in their header (unless mounted inside a folder-bound layout, which
+   *  hoists the picker to the layout). */
+  requiresFolder?: boolean;
 
   // ── Panel (UI-driven) ──
   connected: boolean;
@@ -156,13 +168,17 @@ export const CATEGORY_COMMANDS: Record<string, Array<{ key: string; description:
   ],
 };
 
-// Internal apps — these use yo:// protocol
+// Internal apps — these use yo:// protocol.
+// `kind: "system"` apps are hidden from the Apps registry + Layouts builder.
 const NO_CAPTURE: CapturePolicy = { type: "manual" };
-const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
-  { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE },
+const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy; kind?: AppKind; requiresFolder?: boolean }> = [
+  // Boot-time fallback shown when there's no panel state to restore.
+  { id: "welcome", name: "Welcome", url: "yo://welcome", capturePolicy: NO_CAPTURE, kind: "system" },
+  // Settings — opened from the header gear; no longer in the left rail.
+  { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
-  { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE },
-  { id: "term", name: "Terminal", url: "yo://terminal" },
+  { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE, requiresFolder: true },
+  { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
   { id: "browser", name: "Browser", url: "yo://browser" },
   { id: "context", name: "Context", url: "yo://context", capturePolicy: NO_CAPTURE },
 ];
@@ -283,12 +299,18 @@ export class AppConnector {
     for (const def of INTERNAL_APPS) {
       if (!this.apps.has(def.id)) {
         const app = this.add(def.id, def.name, def.url);
-        if (def.capturePolicy) { app.capturePolicy = def.capturePolicy; this.save(app); }
+        let dirty = false;
+        if (def.capturePolicy) { app.capturePolicy = def.capturePolicy; dirty = true; }
+        if (def.kind) { app.kind = def.kind; dirty = true; }
+        if (def.requiresFolder) { app.requiresFolder = def.requiresFolder; dirty = true; }
+        if (dirty) this.save(app);
       } else {
         const app = this.apps.get(def.id)!;
         let dirty = false;
         if (app.url !== def.url) { app.url = def.url; dirty = true; }
         if (def.capturePolicy && app.capturePolicy?.type !== def.capturePolicy.type) { app.capturePolicy = def.capturePolicy; dirty = true; }
+        if (def.kind && app.kind !== def.kind) { app.kind = def.kind; dirty = true; }
+        if (def.requiresFolder && app.requiresFolder !== def.requiresFolder) { app.requiresFolder = def.requiresFolder; dirty = true; }
         if (dirty) this.save(app);
       }
     }

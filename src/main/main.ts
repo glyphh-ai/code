@@ -84,7 +84,7 @@ import { McpManager } from "./mcp-manager";
 import { initRelayClient } from "./relay-client";
 import { installRelayHandlers } from "./relay-handlers";
 import { registerCodeIndexIpc } from "./code-index/ipc";
-import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
+import { registerWorkingDirectoryIpc, getWorkingDirectory, getWorkingDirRecents, setWorkingDirectory } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { startOverlay } from "./overlay-bridge";
 import { ConnectorManager } from "./connectors";
@@ -908,9 +908,13 @@ async function boot() {
   const councilPreload = path.join(__dirname, "council-preload.js");
   const vibeHtml = `file://${path.join(__dirname, "..", "renderer", "vibe.html")}`;
   const vibePreload = path.join(__dirname, "vibe-preload.js");
+  const welcomeHtml = `file://${path.join(__dirname, "..", "renderer", "welcome.html")}`;
+  const welcomePreload = path.join(__dirname, "welcome-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   for (const app of appConnector.list()) {
-    if (app.url === "yo://home") {
+    if (app.url === "yo://welcome") {
+      panelManager.addPanel(app.id, welcomeHtml, welcomePreload);
+    } else if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       // webviewTag: true so the <webview id="app-preview"> inside App detail can render
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
@@ -1269,9 +1273,15 @@ async function boot() {
         panelManager.switchTo(lastView.id, mainWindow);
       }
     } else if (mainWindow) {
-      // No persisted view — open the default app.
-      const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
-      panelManager.switchTo(firstApp?.id || "home", mainWindow);
+      // No persisted view — show Welcome (the boot fallback) unless the user
+      // has explicitly turned it off.
+      const showWelcome = getPreference<boolean>("welcomeOnStartup", true);
+      if (showWelcome) {
+        panelManager.switchTo("welcome", mainWindow);
+      } else {
+        const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
+        panelManager.switchTo(firstApp?.id || "home", mainWindow);
+      }
     }
 
     // Restore all saved tabs (not just those in the current view).
@@ -2456,6 +2466,34 @@ async function boot() {
   function openVibeById(id: string) {
     return openVibe(id, { showVibePanel });
   }
+
+  // ── Welcome app IPC ──
+  ipcMain.handle("welcome:recents", () => getWorkingDirRecents());
+  ipcMain.handle("welcome:open-vibe", () => {
+    if (mainWindow) {
+      if (!panelManager.hasPanel("vibe")) {
+        createPanelForApp("vibe", { id: "vibe", url: "yo://vibe" });
+      }
+      panelManager.switchTo("vibe", mainWindow);
+    }
+  });
+  ipcMain.handle("welcome:open-spec", () => {
+    // Spec is stubbed in Phase 2 — for now this is a no-op the renderer
+    // shows as a "coming soon" affordance on the card itself.
+  });
+  ipcMain.handle("welcome:open-folder", (_e, folder: string) => {
+    if (folder) setWorkingDirectory(folder);
+    if (mainWindow) {
+      const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
+      panelManager.switchTo(firstApp?.id || "home", mainWindow);
+    }
+  });
+  ipcMain.handle("welcome:get-show-on-startup", () =>
+    getPreference<boolean>("welcomeOnStartup", true),
+  );
+  ipcMain.handle("welcome:set-show-on-startup", (_e, v: boolean) => {
+    setPreference("welcomeOnStartup", !!v);
+  });
 
   // Approval system — pending approvals map + IPC
   const pendingApprovals = new Map<string, (approved: boolean) => void>();
