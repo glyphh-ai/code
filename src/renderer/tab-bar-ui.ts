@@ -334,10 +334,10 @@ export function initTabBar(deps: TabBarDeps): {
     divider.className = "tab-new-menu-divider";
     list.appendChild(divider);
 
-    // Group user apps first, then a divider, then system apps. System apps
-    // are the former left-rail surfaces (Dashboard, Apps, Agents, …).
-    const userApps = appsWithUrl.filter((a: any) => (a.kind ?? "user") !== "system");
-    const systemApps = appsWithUrl.filter((a: any) => a.kind === "system");
+    // One alpha-sorted list — user apps and former-left-rail "system" apps
+    // (Dashboard, Apps, Agents, …) live in the same namespace from the
+    // user's perspective, so don't split them.
+    const allApps = appsWithUrl.slice().sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     const renderAppBtn = (app: any) => {
       const btn = document.createElement("button");
@@ -359,14 +359,7 @@ export function initTabBar(deps: TabBarDeps): {
       return btn;
     };
 
-    for (const app of userApps) list.appendChild(renderAppBtn(app));
-
-    if (systemApps.length > 0 && userApps.length > 0) {
-      const sysDivider = document.createElement("div");
-      sysDivider.className = "tab-new-menu-divider";
-      list.appendChild(sysDivider);
-    }
-    for (const app of systemApps) list.appendChild(renderAppBtn(app));
+    for (const app of allApps) list.appendChild(renderAppBtn(app));
 
     menu.appendChild(list);
 

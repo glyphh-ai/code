@@ -32,6 +32,26 @@ contextBridge.exposeInMainWorld("wb", {
   gitDiff: (root: string) =>
     ipcRenderer.invoke("files:git-diff", root) as Promise<{ text: string; error?: string }>,
 
+  // Workbench terminal — per-id pty bridge.
+  termSpawn: (termId: string, cwd: string, cols: number, rows: number) =>
+    ipcRenderer.send("wb-term:spawn", termId, cwd, cols, rows),
+  termWrite: (termId: string, data: string) => ipcRenderer.send("wb-term:write", termId, data),
+  termResize: (termId: string, cols: number, rows: number) =>
+    ipcRenderer.send("wb-term:resize", termId, cols, rows),
+  termKill: (termId: string) => ipcRenderer.send("wb-term:kill", termId),
+  termOnData: (termId: string, cb: (data: string) => void) => {
+    const channel = `wb-term:data:${termId}`;
+    const handler = (_e: Electron.IpcRendererEvent, data: string) => cb(data);
+    ipcRenderer.on(channel, handler);
+    return () => { ipcRenderer.removeListener(channel, handler); };
+  },
+  termOnExit: (termId: string, cb: (code: number) => void) => {
+    const channel = `wb-term:exit:${termId}`;
+    const handler = (_e: Electron.IpcRendererEvent, code: number) => cb(code);
+    ipcRenderer.on(channel, handler);
+    return () => { ipcRenderer.removeListener(channel, handler); };
+  },
+
   getTheme: () => ipcRenderer.invoke("get-theme"),
   onThemeChanged: (cb: (theme: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, theme: string) => cb(theme);

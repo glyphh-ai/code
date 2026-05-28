@@ -197,6 +197,7 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   } catch {
     apps = [];
   }
+  apps.sort((a, b) => a.name.localeCompare(b.name));
   const options: PickerOption[] = apps.map((a) => ({ id: a.id, label: a.name }));
 
   const picker = document.createElement("div");

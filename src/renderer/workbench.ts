@@ -15,6 +15,11 @@
  * the two folder-bound apps feel identical.
  */
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import { formatMarkdown } from "./format-markdown.js";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+
 interface FileEntry { name: string; path: string; kind: "dir" | "file" }
 interface TreeNode extends FileEntry {
   depth: number;
@@ -35,6 +40,12 @@ interface WbApi {
   listDir: (dir: string) => Promise<{ entries: FileEntry[]; error?: string }>;
   readFile: (filePath: string) => Promise<{ content: string; error?: string }>;
   gitDiff: (root: string) => Promise<{ text: string; error?: string }>;
+  termSpawn: (termId: string, cwd: string, cols: number, rows: number) => void;
+  termWrite: (termId: string, data: string) => void;
+  termResize: (termId: string, cols: number, rows: number) => void;
+  termKill: (termId: string) => void;
+  termOnData: (termId: string, cb: (data: string) => void) => () => void;
+  termOnExit: (termId: string, cb: (code: number) => void) => () => void;
   getTheme: () => Promise<string>;
   onThemeChanged: (cb: (theme: string) => void) => () => void;
 }
@@ -42,21 +53,37 @@ declare global { interface Window { wb: WbApi } }
 
 type ViewKind = "files" | "terminal" | "diff" | "preview" | "monaco";
 
-interface MonacoTab { name: string; path: string; content: string }
+interface MonacoTab {
+  name: string; path: string; content: string;
+  /** For .md files: "preview" renders markdown, "code" shows raw Monaco
+   *  source. Non-markdown tabs ignore this and always render code. */
+  mode?: "preview" | "code";
+}
 interface MonacoSlot { id: number; view: "monaco"; tabs: MonacoTab[]; activeIdx: number }
 interface FilesSlot { id: number; view: "files"; root?: TreeNode | null }
+interface WbTerminal {
+  /** Stable id used as the IPC channel suffix (`wb-term:data:<id>`). */
+  ptyId: string;
+  /** xterm instance — kept alive across re-renders so scrollback survives. */
+  term?: Terminal;
+  fit?: FitAddon;
+  /** Detach functions for IPC subscriptions. */
+  detach?: () => void;
+}
 interface TermSlot {
   id: number; view: "terminal";
-  terminals: { id: number; shell: string; lines: string[] }[];
-  activeId: number;
-  nextId: number;
+  terminals: WbTerminal[];
+  activeIdx: number;
 }
 interface DiffSlot { id: number; view: "diff"; collapsed?: Set<string> }
 interface PreviewSlot { id: number; view: "preview" }
 type Slot = MonacoSlot | FilesSlot | TermSlot | DiffSlot | PreviewSlot;
 
-interface Rail { id: number; slots: Slot[] }
+interface Rail { id: number; slots: Slot[]; prefWidth?: number }
 
+function makeTermId(): string {
+  return `wbt-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+}
 function basename(p: string): string {
   return p.replace(/\/+$/, "").split("/").pop() || p;
 }
@@ -66,6 +93,9 @@ function homeShorten(p: string): string {
 
 const FOLDER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
 const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+// 4 outward arrows — expand to fullscreen. 4 inward arrows — restore.
+const MAXIMIZE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`;
+const RESTORE_SVG  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`;
 
 const VIEW_META: Record<string, { title: string; icon: string }> = {
   files:    { title: "Files",    icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>` },
@@ -100,6 +130,9 @@ function languageForFile(name: string): string {
 }
 function monacoTheme(): string {
   return (document.documentElement.dataset.theme || document.body.dataset.theme) === "dark" ? "vs-dark" : "vs";
+}
+function isMarkdown(name: string): boolean {
+  return /\.(md|mdx|markdown)$/i.test(name);
 }
 
 async function init(): Promise<void> {
@@ -206,6 +239,32 @@ async function init(): Promise<void> {
 
   // Drag state — set on dragstart, cleared on dragend/drop.
   let dragSlotId: number | null = null;
+  // Fullscreen state — when set, the rails container hides every other rail
+  // and every other slot in this slot's rail (via the .has-fullscreen +
+  // .fullscreen CSS classes). Toggled by the slot-header maximize button.
+  let maximizedSlotId: number | null = null;
+  function toggleMaximize(slotId: number): void {
+    maximizedSlotId = (maximizedSlotId === slotId) ? null : slotId;
+    paintFullscreenClasses();
+  }
+  function paintFullscreenClasses(): void {
+    const container = document.getElementById("right-rails");
+    if (!container) return;
+    container.classList.toggle("has-fullscreen", maximizedSlotId !== null);
+    container.querySelectorAll<HTMLElement>(".ws-right-rail").forEach((railEl) => {
+      const railHasMax = !!railEl.querySelector(`.ws-rail-slot[data-slot-id="${maximizedSlotId}"]`);
+      railEl.classList.toggle("rail-has-fullscreen", maximizedSlotId !== null && railHasMax);
+    });
+    container.querySelectorAll<HTMLElement>(".ws-rail-slot").forEach((el) => {
+      el.classList.toggle("fullscreen", Number(el.dataset.slotId) === maximizedSlotId);
+    });
+    // Repaint each maximize button so it shows the right icon for its state.
+    container.querySelectorAll<HTMLElement>(".ws-rail-slot .slot-maximize").forEach((btn) => {
+      const slotId = Number((btn.closest(".ws-rail-slot") as HTMLElement)?.dataset.slotId);
+      btn.innerHTML = (slotId === maximizedSlotId) ? RESTORE_SVG : MAXIMIZE_SVG;
+      (btn as HTMLButtonElement).title = (slotId === maximizedSlotId) ? "Restore" : "Maximize";
+    });
+  }
 
   // ── Layout persistence (per-cwd) ──
   // Persists the toggleable views' positions only (Files/Terminal/Diff/Preview).
@@ -216,13 +275,8 @@ async function init(): Promise<void> {
   function saveLayout(): void {
     try {
       const railEls = document.querySelectorAll<HTMLElement>(".ws-right-rail");
-      const widthByIdx = new Map<number, number>();
       const topHeightByIdx = new Map<number, number>();
       railEls.forEach((el, i) => {
-        const w = el.style.width ? parseInt(el.style.width, 10) : 0;
-        if (w > 0) widthByIdx.set(i, w);
-        // Top-slot height: pulled from the inline `flex: 0 0 Npx` we set on
-        // vsep drag. parseFloat skips the leading "0 0 ".
         const topSlot = el.querySelector(".ws-rail-slot") as HTMLElement | null;
         if (topSlot && topSlot.style.flex) {
           const m = topSlot.style.flex.match(/0 0 (\d+(?:\.\d+)?)px/);
@@ -231,7 +285,10 @@ async function init(): Promise<void> {
       });
       const data: SavedLayout = {
         rails: rails.map((r, i) => ({
-          width: widthByIdx.get(i),
+          // prefWidth is the user's intended/preferred width — saved + restored
+          // exactly. applyResponsiveWidths derives the *displayed* width from
+          // this when the container can't fit everything at preference.
+          width: r.prefWidth,
           topSlotHeight: r.slots.length === 2 ? topHeightByIdx.get(i) : undefined,
           views: r.slots.filter((s) => s.view !== "monaco").map((s) => s.view),
         })).filter((r) => r.views.length > 0),
@@ -253,19 +310,53 @@ async function init(): Promise<void> {
           slots.push(makeSlot(v));
         }
       }
-      if (slots.length) rails.push({ id: nextRailId++, slots });
+      if (slots.length) {
+        rails.push({ id: nextRailId++, slots, prefWidth: savedRail.width });
+      }
     }
     renderRails();
-    // Apply saved widths + top-slot heights after the DOM is up.
     requestAnimationFrame(() => {
+      applyResponsiveWidths();
       const railEls = document.querySelectorAll<HTMLElement>(".ws-right-rail");
       (data.rails || []).forEach((r, i) => {
-        if (r.width && railEls[i]) railEls[i].style.width = r.width + "px";
         if (r.topSlotHeight && railEls[i]) {
           const top = railEls[i].querySelector(".ws-rail-slot") as HTMLElement | null;
           if (top) top.style.flex = `0 0 ${r.topSlotHeight}px`;
         }
       });
+    });
+  }
+
+  /** Apportion displayed rail widths so the workbench reflows with the
+   *  available container width. Each rail wants its `prefWidth`; if the
+   *  container is too narrow, we shrink the rightmost rail first (down to
+   *  the 240px floor), then walk left. When space is restored, every rail
+   *  snaps back to its preferred width.
+   *
+   *  Called on app launch (after loadLayout / first render) and from a
+   *  ResizeObserver watching the rails container — so when the right-rail
+   *  .Yo panel toggles open/closed (or the BrowserView is otherwise
+   *  resized), the workbench reflows automatically. */
+  function applyResponsiveWidths(): void {
+    const container = document.getElementById("right-rails");
+    if (!container || rails.length === 0) return;
+    const containerW = container.getBoundingClientRect().width;
+    // (rails.length + 1) drop strips × 6px each.
+    const stripsW = (rails.length + 1) * 6;
+    const available = Math.max(0, containerW - stripsW);
+    const prefs = rails.map((r) => r.prefWidth ?? 320);
+    const widths = prefs.slice();
+    let total = widths.reduce((a, b) => a + b, 0);
+    for (let i = widths.length - 1; i >= 0 && total > available; i--) {
+      const slack = Math.min(widths[i] - 240, total - available);
+      if (slack > 0) {
+        widths[i] -= slack;
+        total -= slack;
+      }
+    }
+    const railEls = container.querySelectorAll<HTMLElement>(".ws-right-rail");
+    rails.forEach((_r, idx) => {
+      if (railEls[idx]) railEls[idx].style.width = widths[idx] + "px";
     });
   }
 
@@ -292,12 +383,15 @@ async function init(): Promise<void> {
    *  (as a new tab or focuses an existing one), otherwise spawns a new
    *  Monaco slot via the standard placeSlot path. */
   function openFileInMonaco(node: { name: string; path: string }, content: string): void {
+    // .md files default to rendered markdown; the user can flip to source
+    // via the </> button in the tab header.
+    const mode: "preview" | "code" | undefined = isMarkdown(node.name) ? "preview" : undefined;
     const existing = findMonacoSlot();
     if (existing) {
       const idx = existing.tabs.findIndex((t) => t.path === node.path);
       if (idx >= 0) existing.activeIdx = idx;
       else {
-        existing.tabs.push({ name: node.name, path: node.path, content });
+        existing.tabs.push({ name: node.name, path: node.path, content, mode });
         existing.activeIdx = existing.tabs.length - 1;
       }
       renderRails();
@@ -306,7 +400,7 @@ async function init(): Promise<void> {
     placeSlot({
       id: nextSlotId++,
       view: "monaco",
-      tabs: [{ name: node.name, path: node.path, content }],
+      tabs: [{ name: node.name, path: node.path, content, mode }],
       activeIdx: 0,
     });
   }
@@ -327,8 +421,8 @@ async function init(): Promise<void> {
     if (view === "terminal") {
       return {
         id, view,
-        terminals: [{ id: 1, shell: "zsh", lines: ["welcome to yo terminal", ""] }],
-        activeId: 1, nextId: 2,
+        terminals: [{ ptyId: makeTermId() }],
+        activeIdx: 0,
       };
     }
     if (view === "diff") return { id, view };
@@ -432,6 +526,11 @@ async function init(): Promise<void> {
     });
     container.appendChild(makeRailDropStrip(rails.length));
     paintSectionToggles();
+    // Re-apportion displayed widths after every (re)render — handles slot
+    // adds/closes/DnD that change the rail count and the drop-strip total.
+    applyResponsiveWidths();
+    // If a slot was maximized before the re-render, keep it so.
+    paintFullscreenClasses();
   }
 
   /** Vertical drop zone between rails (or at the far ends). Dropping a slot
@@ -493,10 +592,15 @@ async function init(): Promise<void> {
     wrap.className = "ws-rail-slot";
     wrap.dataset.slotId = String(slot.id);
     wrap.dataset.view = slot.view;
+    const isMax = (slot.id === maximizedSlotId);
+    if (isMax) wrap.classList.add("fullscreen");
     wrap.innerHTML = `
       <div class="ws-rail-slot-header" draggable="true" title="Drag to rearrange">
         ${icon}
         <span class="title"></span>
+        <button class="ws-icon-btn slot-maximize" title="${isMax ? "Restore" : "Maximize"}">
+          ${isMax ? RESTORE_SVG : MAXIMIZE_SVG}
+        </button>
         <button class="ws-icon-btn slot-close" title="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>
@@ -506,7 +610,14 @@ async function init(): Promise<void> {
       <div class="ws-rail-slot-body"></div>
     `;
     (wrap.querySelector(".title") as HTMLElement).textContent = title;
-    wrap.querySelector(".slot-close")!.addEventListener("click", () => closeSlot(slot.id));
+    wrap.querySelector(".slot-maximize")!.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      toggleMaximize(slot.id);
+    });
+    wrap.querySelector(".slot-close")!.addEventListener("click", () => {
+      if (maximizedSlotId === slot.id) maximizedSlotId = null;
+      closeSlot(slot.id);
+    });
 
     // ── Drag-and-drop ──
     const header = wrap.querySelector(".ws-rail-slot-header") as HTMLElement;
@@ -636,12 +747,25 @@ async function init(): Promise<void> {
   async function renderMonacoIntoSlot(body: HTMLElement, slot: MonacoSlot): Promise<void> {
     body.innerHTML = `
       <div class="ws-monaco-tabs"></div>
-      <div class="ws-monaco-path"></div>
+      <div class="ws-monaco-path">
+        <span class="ws-monaco-path-text"></span>
+        <span class="ws-monaco-path-spacer"></span>
+        <button class="ws-monaco-mode-btn ws-monaco-mode-preview" title="Rendered">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="ws-monaco-mode-btn ws-monaco-mode-code" title="Source">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </button>
+      </div>
       <div class="ws-monaco-host"></div>
+      <div class="ws-monaco-md-host"></div>
     `;
-    const tabsEl = body.querySelector(".ws-monaco-tabs") as HTMLElement;
-    const pathEl = body.querySelector(".ws-monaco-path") as HTMLElement;
-    const host   = body.querySelector(".ws-monaco-host") as HTMLElement;
+    const tabsEl   = body.querySelector(".ws-monaco-tabs") as HTMLElement;
+    const pathText = body.querySelector(".ws-monaco-path-text") as HTMLElement;
+    const previewBtn = body.querySelector(".ws-monaco-mode-preview") as HTMLButtonElement;
+    const codeBtn    = body.querySelector(".ws-monaco-mode-code") as HTMLButtonElement;
+    const host    = body.querySelector(".ws-monaco-host") as HTMLElement;
+    const mdHost  = body.querySelector(".ws-monaco-md-host") as HTMLElement;
 
     function paintTabs(): void {
       tabsEl.innerHTML = "";
@@ -671,8 +795,30 @@ async function init(): Promise<void> {
 
     async function mountActive(): Promise<void> {
       const tab = slot.tabs[slot.activeIdx];
-      if (!tab) { pathEl.textContent = ""; host.innerHTML = ""; return; }
-      pathEl.textContent = tab.path;
+      if (!tab) {
+        pathText.textContent = "";
+        host.innerHTML = ""; mdHost.innerHTML = "";
+        previewBtn.style.display = "none"; codeBtn.style.display = "none";
+        return;
+      }
+      pathText.textContent = tab.path;
+      const md = isMarkdown(tab.name);
+      // Mode buttons only visible for markdown files. Non-md tabs always
+      // render as source.
+      previewBtn.style.display = md ? "" : "none";
+      codeBtn.style.display    = md ? "" : "none";
+      const mode = md ? (tab.mode || "preview") : "code";
+      previewBtn.classList.toggle("active", md && mode === "preview");
+      codeBtn.classList.toggle("active", !md || mode === "code");
+
+      if (md && mode === "preview") {
+        host.style.display = "none";
+        mdHost.style.display = "";
+        mdHost.innerHTML = formatMarkdown(tab.content);
+        return;
+      }
+      mdHost.style.display = "none";
+      host.style.display = "";
       await ensureMonaco();
       const w = window as unknown as { monaco: any };
       const existing = (host as unknown as { __editor?: any }).__editor;
@@ -696,6 +842,19 @@ async function init(): Promise<void> {
       }
     }
 
+    previewBtn.addEventListener("click", () => {
+      const tab = slot.tabs[slot.activeIdx];
+      if (!tab || !isMarkdown(tab.name)) return;
+      tab.mode = "preview";
+      void mountActive();
+    });
+    codeBtn.addEventListener("click", () => {
+      const tab = slot.tabs[slot.activeIdx];
+      if (!tab || !isMarkdown(tab.name)) return;
+      tab.mode = "code";
+      void mountActive();
+    });
+
     paintTabs();
     await mountActive();
   }
@@ -705,6 +864,16 @@ async function init(): Promise<void> {
     body.innerHTML = `
       <div class="ws-diff-toolbar">
         <span class="ws-diff-summary">loading…</span>
+        <button class="ws-icon-btn ws-diff-expand" title="Expand all">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <button class="ws-icon-btn ws-diff-collapse" title="Collapse all">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="18 15 12 9 6 15"/>
+          </svg>
+        </button>
         <button class="ws-icon-btn ws-diff-refresh" title="Refresh">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -716,7 +885,21 @@ async function init(): Promise<void> {
     const summary = body.querySelector(".ws-diff-summary") as HTMLElement;
     const filesEl = body.querySelector(".ws-diff-files") as HTMLElement;
     const refreshBtn = body.querySelector(".ws-diff-refresh") as HTMLButtonElement;
+    const expandBtn = body.querySelector(".ws-diff-expand") as HTMLButtonElement;
+    const collapseBtn = body.querySelector(".ws-diff-collapse") as HTMLButtonElement;
     if (!slot.collapsed) slot.collapsed = new Set();
+    expandBtn.addEventListener("click", () => {
+      slot.collapsed = new Set();
+      body.querySelectorAll<HTMLElement>(".ws-diff-file").forEach((el) => el.classList.remove("collapsed"));
+    });
+    collapseBtn.addEventListener("click", () => {
+      const all = new Set<string>();
+      body.querySelectorAll<HTMLElement>(".ws-diff-file").forEach((el) => {
+        const name = el.querySelector(".ws-diff-file-name")?.textContent || "";
+        if (name) { all.add(name); el.classList.add("collapsed"); }
+      });
+      slot.collapsed = all;
+    });
 
     async function refresh(): Promise<void> {
       summary.textContent = "loading…";
@@ -816,34 +999,56 @@ async function init(): Promise<void> {
     `;
   }
 
-  // ── Terminal view (stub session — drops a "command not found" line) ──
+  // ── Terminal view (real xterm + pty over wb-term:* IPCs) ──
+  // Each tab owns a single pty (ptyId). xterm instances are kept on the
+  // WbTerminal across re-renders so scrollback persists when the slot is
+  // re-rendered (e.g. after DnD reorder). The xterm DOM element is moved
+  // back into the new body via appendChild so the editor isn't torn down.
+  function terminalTheme(): Record<string, string> {
+    const styles = getComputedStyle(document.body);
+    const bg = styles.getPropertyValue("--ws-bg-card").trim() || "#1e1e1e";
+    const fg = styles.getPropertyValue("--ws-text").trim() || "#d4d4d4";
+    const accent = styles.getPropertyValue("--ws-accent").trim() || "#25C75E";
+    return {
+      background: bg,
+      foreground: fg,
+      cursor: accent,
+      cursorAccent: bg,
+      selectionBackground: accent + "33",
+    };
+  }
   function renderTerminalIntoSlot(body: HTMLElement, slot: TermSlot): void {
     body.innerHTML = `
       <div class="ws-terminal">
         <div class="ws-terminal-tabs"></div>
-        <div class="ws-terminal-body"></div>
+        <div class="ws-terminal-host"></div>
       </div>
     `;
     const tabsEl = body.querySelector(".ws-terminal-tabs") as HTMLElement;
-    const bodyEl = body.querySelector(".ws-terminal-body") as HTMLElement;
-    renderTermTabs(tabsEl, bodyEl, slot);
-    renderTermBody(bodyEl, slot);
+    const hostEl = body.querySelector(".ws-terminal-host") as HTMLElement;
+    paintTermTabs(tabsEl, hostEl, slot);
+    mountTerminal(hostEl, slot);
   }
-  function renderTermTabs(tabsEl: HTMLElement, bodyEl: HTMLElement, slot: TermSlot): void {
+  function paintTermTabs(tabsEl: HTMLElement, hostEl: HTMLElement, slot: TermSlot): void {
     tabsEl.innerHTML = "";
     slot.terminals.forEach((t, i) => {
       const tab = document.createElement("div");
-      tab.className = "ws-terminal-tab" + (t.id === slot.activeId ? " active" : "");
+      tab.className = "ws-terminal-tab" + (i === slot.activeIdx ? " active" : "");
       tab.innerHTML = `<span class="name"></span><button class="close" title="Close terminal">×</button>`;
-      (tab.querySelector(".name") as HTMLElement).textContent = `${i + 1}. ${t.shell}`;
+      (tab.querySelector(".name") as HTMLElement).textContent = `${i + 1}. zsh`;
       tab.addEventListener("click", (ev) => {
         if ((ev.target as HTMLElement).closest(".close")) {
           ev.stopPropagation();
-          closeTermInSlot(t.id, slot, tabsEl, bodyEl);
-        } else if (t.id !== slot.activeId) {
-          slot.activeId = t.id;
-          renderTermTabs(tabsEl, bodyEl, slot);
-          renderTermBody(bodyEl, slot);
+          killTerminal(t);
+          slot.terminals.splice(i, 1);
+          if (slot.terminals.length === 0) slot.terminals.push({ ptyId: makeTermId() });
+          if (slot.activeIdx >= slot.terminals.length) slot.activeIdx = slot.terminals.length - 1;
+          paintTermTabs(tabsEl, hostEl, slot);
+          mountTerminal(hostEl, slot);
+        } else if (i !== slot.activeIdx) {
+          slot.activeIdx = i;
+          paintTermTabs(tabsEl, hostEl, slot);
+          mountTerminal(hostEl, slot);
         }
       });
       tabsEl.appendChild(tab);
@@ -853,48 +1058,52 @@ async function init(): Promise<void> {
     add.textContent = "+";
     add.title = "New terminal";
     add.addEventListener("click", () => {
-      const t = { id: slot.nextId++, shell: "zsh", lines: ["welcome to yo terminal", ""] };
-      slot.terminals.push(t);
-      slot.activeId = t.id;
-      renderTermTabs(tabsEl, bodyEl, slot);
-      renderTermBody(bodyEl, slot);
+      slot.terminals.push({ ptyId: makeTermId() });
+      slot.activeIdx = slot.terminals.length - 1;
+      paintTermTabs(tabsEl, hostEl, slot);
+      mountTerminal(hostEl, slot);
     });
     tabsEl.appendChild(add);
   }
-  function renderTermBody(bodyEl: HTMLElement, slot: TermSlot): void {
-    const t = slot.terminals.find((x) => x.id === slot.activeId);
-    if (!t) { bodyEl.innerHTML = ""; return; }
-    const history = t.lines.join("\n");
-    bodyEl.innerHTML = `<span></span><span class="prompt-row"><span class="ps1">$</span><input type="text" autocomplete="off" spellcheck="false" /></span>`;
-    (bodyEl.firstElementChild as HTMLElement).textContent = history;
-    const input = bodyEl.querySelector("input") as HTMLInputElement;
-    input.focus();
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        const cmd = input.value;
-        input.value = "";
-        t.lines.push("$ " + cmd);
-        if (cmd.trim()) t.lines.push(`yo: command not found: ${cmd.split(/\s+/)[0]}`);
-        t.lines.push("");
-        renderTermBody(bodyEl, slot);
-        bodyEl.scrollTop = bodyEl.scrollHeight;
-      }
-    });
-  }
-  function closeTermInSlot(termId: number, slot: TermSlot, tabsEl: HTMLElement, bodyEl: HTMLElement): void {
-    const idx = slot.terminals.findIndex((x) => x.id === termId);
-    if (idx < 0) return;
-    slot.terminals.splice(idx, 1);
-    if (slot.terminals.length === 0) {
-      const t = { id: slot.nextId++, shell: "zsh", lines: ["welcome to yo terminal", ""] };
-      slot.terminals.push(t);
-      slot.activeId = t.id;
-    } else if (slot.activeId === termId) {
-      slot.activeId = slot.terminals[Math.max(0, idx - 1)].id;
+  function mountTerminal(hostEl: HTMLElement, slot: TermSlot): void {
+    hostEl.innerHTML = "";
+    const wbt = slot.terminals[slot.activeIdx];
+    if (!wbt) return;
+    if (!wbt.term) {
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', Menlo, monospace",
+        fontSize: 12,
+        theme: terminalTheme(),
+        scrollback: 10_000,
+      });
+      const fit = new FitAddon();
+      term.loadAddon(fit);
+      term.open(hostEl);
+      requestAnimationFrame(() => {
+        try { fit.fit(); } catch { /* noop */ }
+        const { cols, rows } = term;
+        window.wb.termSpawn(wbt.ptyId, cwd || "", cols, rows);
+      });
+      term.onData((data) => window.wb.termWrite(wbt.ptyId, data));
+      term.onResize(({ cols, rows }) => window.wb.termResize(wbt.ptyId, cols, rows));
+      const off1 = window.wb.termOnData(wbt.ptyId, (data) => term.write(data));
+      const off2 = window.wb.termOnExit(wbt.ptyId, () => { /* leave the buffer up so the user can read it */ });
+      wbt.term = term;
+      wbt.fit = fit;
+      wbt.detach = () => { off1(); off2(); };
+    } else {
+      // Re-attach existing xterm instance to the new host element.
+      hostEl.appendChild(wbt.term.element!);
+      requestAnimationFrame(() => { try { wbt.fit?.fit(); } catch { /* noop */ } });
     }
-    renderTermTabs(tabsEl, bodyEl, slot);
-    renderTermBody(bodyEl, slot);
+    wbt.term.focus();
+  }
+  function killTerminal(t: WbTerminal): void {
+    t.detach?.();
+    window.wb.termKill(t.ptyId);
+    try { t.term?.dispose(); } catch { /* noop */ }
+    t.term = undefined; t.fit = undefined; t.detach = undefined;
   }
 
   // ── Resizers ──
@@ -904,16 +1113,41 @@ async function init(): Promise<void> {
       handle.classList.add("dragging");
       const startX = e.clientX;
       const startW = railEl.getBoundingClientRect().width;
+      // Resolve which rail this handle belongs to so we can update its
+      // preferred width in the model on drag end.
+      const railId = Number(railEl.dataset.railId);
+      const rail = rails.find((r) => r.id === railId);
+      const container = document.getElementById("right-rails");
+      // Compute how much room is available for THIS rail: the rails container's
+      // width minus the widths of every OTHER rail and the inter-rail drop
+      // strips. This naturally tracks the workbench's BrowserView viewport so
+      // when the right-rail .Yo panel is open (panel narrower) the drag
+      // stops earlier, and when closed it can grow to the full app width.
+      const containerW = container ? container.getBoundingClientRect().width : window.innerWidth;
+      let otherRailsW = 0;
+      let stripW = 0;
+      if (container) {
+        container.querySelectorAll<HTMLElement>(".ws-right-rail").forEach((el) => {
+          if (el !== railEl) otherRailsW += el.getBoundingClientRect().width;
+        });
+        container.querySelectorAll<HTMLElement>(".ws-rail-dropstrip").forEach((el) => {
+          stripW += el.getBoundingClientRect().width;
+        });
+      }
+      const maxW = Math.max(240, containerW - otherRailsW - stripW);
       const onMove = (ev: MouseEvent) => {
         const dx = ev.clientX - startX;
         // Handle is on the RIGHT edge: drag right (dx > 0) grows the rail.
-        const w = Math.max(240, Math.min(window.innerWidth - 200, startW + dx));
+        const w = Math.max(240, Math.min(maxW, startW + dx));
         railEl.style.width = w + "px";
       };
       const onUp = () => {
         handle.classList.remove("dragging");
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
+        // Persist the user's intent (preferred width). applyResponsiveWidths
+        // will derive the displayed width from this when needed.
+        if (rail) rail.prefWidth = parseInt(railEl.style.width, 10) || rail.prefWidth;
         saveLayout();
       };
       document.addEventListener("mousemove", onMove);
@@ -949,6 +1183,36 @@ async function init(): Promise<void> {
       else placeView(v);
     });
   });
+
+  // ── Container resize: reflow rails when the workbench panel itself is
+  // resized (right-rail .Yo opens/closes, left-rail opens/closes, window
+  // resize). The user's preferred widths are preserved; we only adjust
+  // displayed widths to fit the new container size, then snap back when
+  // space is restored. ──
+  const railsContainer = document.getElementById("right-rails");
+  if (railsContainer && typeof ResizeObserver !== "undefined") {
+    let scheduled = false;
+    const ro = new ResizeObserver(() => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        applyResponsiveWidths();
+        // Re-fit every live xterm so the pty's cols/rows track the slot size.
+        for (const rail of rails) {
+          for (const slot of rail.slots) {
+            if (slot.view === "terminal") {
+              const t = (slot as TermSlot).terminals[(slot as TermSlot).activeIdx];
+              if (t?.fit && t.term?.element?.isConnected) {
+                try { t.fit.fit(); } catch { /* noop */ }
+              }
+            }
+          }
+        }
+      });
+    });
+    ro.observe(railsContainer);
+  }
 
   // ── Initial paint + cwd change subscription ──
   void paintWorkdirBar(cwd);

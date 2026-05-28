@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <title>.Yo Workbench</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="xterm.css">
 <script src="monaco/loader.js"></script>
 <script>
   try {
@@ -52,6 +53,37 @@
   }
   .wb-header-title .dot { color: var(--accent); }
   .wb-header-spacer { flex: 1; }
+
+  /* The workdir controls were authored for their own row (.yo-workdir-bar)
+     where SVGs were constrained by `.yo-workdir-bar svg { width:13px }`.
+     We've moved them inline into the header — re-scope the same constraints
+     under .wb-header so the icons stay small, text doesn't wrap, and long
+     branch / folder names truncate with an ellipsis instead of pushing the
+     header into a multi-line layout. */
+  .wb-header .yo-workdir-btn,
+  .wb-header .yo-workdir-add,
+  .wb-header .yo-workdir-branch {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .wb-header .yo-workdir-btn span,
+  .wb-header .yo-workdir-branch span {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wb-header svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    stroke: currentColor;
+  }
+  /* Title's dot inherits the SVG rule otherwise — keep title icon-free. */
+  .wb-header-title svg { width: auto; height: auto; }
+  /* Section toggle icons are sized explicitly via .wb-section-btn svg; the
+     generic rule above would override them, so re-assert here. */
+  .wb-header .wb-section-btn svg { width: 16px; height: 16px; }
 
   /* Section toggle buttons (far-right): one icon per section. The icon
      lights up with the accent color when at least one slot of that view

@@ -278,6 +278,19 @@ export function registerWorkingDirectoryIpc(deps: {
     }
   });
 
+  // Write a text file, creating parent directories as needed. Used by the
+  // Plan app to persist phase .md files into <cwd>/.yo/plan/.
+  ipcMain.handle("files:write-file", async (_e, filePath: string, content: string) => {
+    if (typeof filePath !== "string" || !filePath) return { ok: false, error: "missing path" };
+    try {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, typeof content === "string" ? content : "", "utf8");
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   // Unified git diff of the working tree (staged + unstaged combined). The
   // Workbench Diff slot renders this; returns "" when the tree is clean.
   ipcMain.handle("files:git-diff", async (_e, root: string) => {

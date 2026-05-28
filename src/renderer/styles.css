@@ -8321,3 +8321,109 @@ select.settings-input {
   background: var(--ws-accent);
   pointer-events: none;
 }
+
+/* Diff expand/collapse-all buttons mirror the refresh button styling. */
+.ws-diff-expand,
+.ws-diff-collapse {
+  background: transparent; border: none; padding: 0;
+  width: 24px; height: 24px; border-radius: 4px;
+  color: var(--ws-text-faint); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.ws-diff-expand:hover,
+.ws-diff-collapse:hover { background: var(--hover); color: var(--ws-text); }
+.ws-diff-expand svg,
+.ws-diff-collapse svg { width: 13px; height: 13px; }
+
+/* ── Workbench Monaco markdown toggle ── */
+/* The path row is now a flex row: path on the left, spacer, then two
+   mode buttons (preview / code) on the right. Only shown for .md files. */
+.ws-monaco-path { display: flex; align-items: center; }
+.ws-monaco-path-text {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.ws-monaco-path-spacer { flex: 1; }
+.ws-monaco-mode-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: 20px; height: 20px;
+  border-radius: 4px;
+  color: var(--ws-text-faint);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.10s, color 0.10s;
+}
+.ws-monaco-mode-btn:hover { background: var(--hover); color: var(--ws-text); }
+.ws-monaco-mode-btn.active { color: var(--ws-accent); }
+.ws-monaco-mode-btn svg { width: 13px; height: 13px; }
+
+/* Markdown rendered host — same scrollable region as the code editor. */
+.ws-monaco-md-host {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 22px;
+  background: var(--ws-bg-card);
+  color: var(--ws-text);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.ws-monaco-md-host h1,
+.ws-monaco-md-host h2,
+.ws-monaco-md-host h3,
+.ws-monaco-md-host h4 { color: var(--ws-text); margin-top: 1.2em; }
+.ws-monaco-md-host pre,
+.ws-monaco-md-host code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--ws-bg-rail);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+.ws-monaco-md-host pre { padding: 10px 12px; overflow-x: auto; }
+.ws-monaco-md-host pre code { background: transparent; padding: 0; }
+.ws-monaco-md-host a { color: var(--ws-accent); }
+
+/* Workbench terminal — xterm host fills the rest of the slot. */
+.ws-terminal-host {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 8px;
+  background: var(--ws-bg-card);
+  position: relative;
+}
+.ws-terminal-host .xterm,
+.ws-terminal-host .xterm .xterm-viewport,
+.ws-terminal-host .xterm .xterm-screen { width: 100% !important; height: 100% !important; }
+
+/* ── Workbench slot maximize / restore ── */
+.ws-rail-slot-header .slot-maximize {
+  background: transparent; border: none; padding: 0;
+  width: 24px; height: 24px; border-radius: 4px;
+  color: var(--ws-text-faint); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.10s, color 0.10s;
+}
+.ws-rail-slot-header .slot-maximize:hover { background: var(--hover); color: var(--ws-text); }
+.ws-rail-slot-header .slot-maximize svg { width: 12px; height: 12px; }
+
+/* Fullscreen state: collapse everything except the maximized slot. The
+   maximized slot's rail expands to fill the container, and inside that
+   rail only the maximized slot is visible (its vsep + sibling slot hide). */
+.ws-right-rails.has-fullscreen .ws-right-rail:not(.rail-has-fullscreen),
+.ws-right-rails.has-fullscreen .ws-rail-dropstrip { display: none; }
+.ws-right-rails.has-fullscreen .ws-right-rail.rail-has-fullscreen {
+  width: auto !important;
+  flex: 1;
+}
+.ws-right-rails.has-fullscreen .ws-rail-slot:not(.fullscreen),
+.ws-right-rails.has-fullscreen .ws-rail-vsep { display: none; }
+.ws-right-rails.has-fullscreen .ws-rail-slot.fullscreen {
+  flex: 1 !important;
+}

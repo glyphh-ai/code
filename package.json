@@ -5,7 +5,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
-    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:council && npm run build:waz && npm run build:overlay && npm run build:prompt && npm run build:vibe && npm run build:welcome && npm run build:spec && npm run build:agent && npm run build:workbench",
+    "build": "npm run build:main && npm run build:renderer && npm run build:terminal && npm run build:monaco && npm run build:code-workspace && npm run build:council && npm run build:waz && npm run build:overlay && npm run build:prompt && npm run build:vibe && npm run build:welcome && npm run build:spec && npm run build:agent && npm run build:workbench && npm run build:plan",
     "build:main": "tsc",
     "build:overlay": "node scripts/build-overlay.js",
     "build:prompt": "esbuild src/renderer/prompt-renderer.ts --bundle --outfile=dist/renderer/prompt-bundle.js --platform=browser && esbuild src/renderer/prompt-preload.ts --bundle --outfile=dist/main/prompt-preload.js --platform=node --external:electron && shx cp src/renderer/prompt.html dist/renderer/",
@@ -18,7 +18,8 @@
     "build:welcome": "esbuild src/renderer/welcome.ts --bundle --outfile=dist/renderer/welcome.js --platform=browser && esbuild src/renderer/welcome-preload.ts --bundle --outfile=dist/main/welcome-preload.js --platform=node --external:electron && shx cp src/renderer/welcome.html dist/renderer/",
     "build:spec": "esbuild src/renderer/spec-preload.ts --bundle --outfile=dist/main/spec-preload.js --platform=node --external:electron && shx cp src/renderer/spec.html dist/renderer/",
     "build:agent": "esbuild src/renderer/agent.ts --bundle --outfile=dist/renderer/agent.js --platform=browser && esbuild src/renderer/agent-preload.ts --bundle --outfile=dist/main/agent-preload.js --platform=node --external:electron && shx cp src/renderer/agent.html dist/renderer/",
-    "build:workbench": "esbuild src/renderer/workbench.ts --bundle --outfile=dist/renderer/workbench.js --platform=browser && esbuild src/renderer/workbench-preload.ts --bundle --outfile=dist/main/workbench-preload.js --platform=node --external:electron && shx cp src/renderer/workbench.html dist/renderer/",
+    "build:workbench": "esbuild src/renderer/workbench.ts --bundle --outfile=dist/renderer/workbench.js --platform=browser && esbuild src/renderer/workbench-preload.ts --bundle --outfile=dist/main/workbench-preload.js --platform=node --external:electron && shx cp node_modules/@xterm/xterm/css/xterm.css src/renderer/workbench.html dist/renderer/",
+    "build:plan": "esbuild src/renderer/plan.ts --bundle --outfile=dist/renderer/plan.js --platform=browser && esbuild src/renderer/plan-preload.ts --bundle --outfile=dist/main/plan-preload.js --platform=node --external:electron && shx cp src/renderer/plan.html dist/renderer/",
     "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
     "bench:code-index": "npm run build:main && node dist/main/code-index/benchmark.js",
     "bench:code-index-ab": "npm run build:main && node dist/main/code-index/benchmark-ab.js",

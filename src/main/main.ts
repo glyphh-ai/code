@@ -84,6 +84,7 @@ import { McpManager } from "./mcp-manager";
 import { initRelayClient } from "./relay-client";
 import { installRelayHandlers } from "./relay-handlers";
 import { registerAgentInteractiveIpc } from "./agent-interactive";
+import { registerWorkbenchTerminalIpc } from "./wb-terminal";
 import { registerAgentDefaultsIpc } from "./agent-defaults";
 import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory, getWorkingDirRecents, setWorkingDirectory, addRecent } from "./working-directory";
@@ -918,6 +919,8 @@ async function boot() {
   const agentPreload = path.join(__dirname, "agent-preload.js");
   const workbenchHtml = `file://${path.join(__dirname, "..", "renderer", "workbench.html")}`;
   const workbenchPreload = path.join(__dirname, "workbench-preload.js");
+  const planHtml = `file://${path.join(__dirname, "..", "renderer", "plan.html")}`;
+  const planPreload = path.join(__dirname, "plan-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   // Slugs that map to home.html with ?section=<slug>. Each gets its own panel
   // so users can mount, e.g., a standalone Drips or Agents browser inside any
@@ -958,6 +961,8 @@ async function boot() {
       panelManager.addPanel(app.id, agentHtml, agentPreload);
     } else if (app.url === "yo://workbench") {
       panelManager.addPanel(app.id, workbenchHtml, workbenchPreload);
+    } else if (app.url === "yo://plan") {
+      panelManager.addPanel(app.id, planHtml, planPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -2548,6 +2553,7 @@ async function boot() {
   const { registerVibeIpc, openVibe } = require("./vibe-ipc") as typeof import("./vibe-ipc");
   registerVibeIpc({ terminalManager });
   registerAgentInteractiveIpc();
+  registerWorkbenchTerminalIpc();
   registerAgentDefaultsIpc();
 
   /** Ensure the vibe panel exists, switch to it, and reload it so vibe-ready
