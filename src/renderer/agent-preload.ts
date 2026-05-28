@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("agent", {
   stop: (instanceId: string) => ipcRenderer.invoke("agent:stop", instanceId),
   clear: (instanceId: string) => ipcRenderer.invoke("agent:clear", instanceId),
   dispose: (instanceId: string) => ipcRenderer.invoke("agent:dispose", instanceId),
+  rebind: (instanceId: string, cwd: string) => ipcRenderer.invoke("agent:rebind", instanceId, cwd),
 
   getCwd: () => ipcRenderer.invoke("working-dir:get"),
   pickCwd: () => ipcRenderer.invoke("working-dir:pick"),

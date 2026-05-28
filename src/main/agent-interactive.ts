@@ -193,4 +193,14 @@ export function registerAgentInteractiveIpc(): void {
     instances.delete(instanceId);
     return { ok: true };
   });
+
+  ipcMain.handle("agent:rebind", (_e, instanceId: string, cwd: string) => {
+    const instance = instances.get(instanceId);
+    if (!instance || typeof cwd !== "string" || !cwd) return { ok: false };
+    instance.cwd = cwd;
+    // Drop any in-flight turn so the next send runs against the new cwd.
+    instance.abortController?.abort();
+    instance.sessionId = null;
+    return { ok: true };
+  });
 }

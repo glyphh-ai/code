@@ -2,40 +2,194 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Agent</title>
+<title>.Yo .Agent</title>
 <link rel="stylesheet" href="styles.css">
+<script>
+  // Apply theme synchronously before first paint.
+  try {
+    var t = localStorage.getItem("yoTheme") || "light";
+    var r = t === "system"
+      ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+      : t;
+    document.documentElement.setAttribute("data-theme", r);
+  } catch (e) {}
+</script>
 <style>
   html, body { height: 100%; }
-  body { font-family: var(--font); font-size: 14px; background: var(--bg); color: var(--text); overflow: hidden; }
-  #agent-host { width: 100%; height: 100%; }
-  .agent-error {
-    padding: 32px;
+  body {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    background: var(--surface-2);
+    color: var(--text);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+  }
+  /* The Agent panel is mounted in its own window — promote the yo-panel
+     to take the full viewport (the right-rail's slide/resize chrome
+     doesn't apply here). */
+  #yo-panel {
+    position: static;
+    width: 100%;
+    height: 100%;
+    transform: none;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+  }
+  #yo-panel.hidden { display: flex !important; }
+  #yo-panel-resize { display: none; }
+
+  /* Folder picker bar above the agent chat. Picks the working folder
+     the agent runs in; rebinds the instance on pick. */
+  .agent-folder-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-2);
+    flex-shrink: 0;
+    background: var(--surface);
+  }
+  .agent-folder-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
     color: var(--text-2);
-    font-size: 13px;
-    line-height: 1.5;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+  .agent-folder-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .agent-folder-btn svg { flex-shrink: 0; }
+  .agent-folder-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+  }
+  .agent-folder-empty {
+    color: var(--text-3);
+    font-style: italic;
   }
 </style>
 </head>
 <body>
-  <div id="agent-host"></div>
 
-  <script>
-    (async () => {
-      const api = window.agent;
-      if (api && api.getTheme) {
-        const t = await api.getTheme();
-        const resolved = t === "system"
-          ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
-          : t;
-        document.documentElement.setAttribute("data-theme", resolved);
-      }
-      if (api && api.onThemeChanged) {
-        api.onThemeChanged((theme) => {
-          document.documentElement.setAttribute("data-theme", theme);
-        });
-      }
-    })();
-  </script>
+  <!-- Folder picker — Agent app is folder-bound; right-rail .Yo isn't.
+       This is the only chrome difference between the two surfaces. -->
+  <div class="agent-folder-bar">
+    <button id="agent-folder-btn" class="agent-folder-btn" type="button" title="Pick folder">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+      <span id="agent-folder-label" class="agent-folder-label agent-folder-empty">no folder bound</span>
+    </button>
+  </div>
+
+  <!-- Right-rail yo-panel replica (no drip picker; resize handle hidden via CSS). -->
+  <div id="yo-panel" class="yo-panel">
+    <div id="yo-panel-resize" class="yo-panel-resize"></div>
+    <div class="yo-panel-header">
+      <span class="yo-panel-title"><span class="yo-dot">.</span>Yo <span class="yo-dot">.</span>Agent</span>
+      <span class="yo-panel-header-spacer"></span>
+      <button id="yo-history-toggle" class="yo-history-toggle" title="Chat history">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+      </button>
+      <button id="yo-chat-new" class="yo-chat-new" title="New chat">+</button>
+      <div id="yo-history" class="yo-history hidden">
+        <input id="yo-history-search" class="yo-history-search" type="text" placeholder="Search history…" spellcheck="false" />
+        <div id="yo-history-list" class="yo-history-list"></div>
+      </div>
+    </div>
+    <div class="yo-panel-messages" id="yo-panel-messages"></div>
+    <button id="yo-scroll-btn" class="yo-scroll-btn" title="Scroll to bottom">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.5v9"/><path d="M3 8l4 4 4-4"/></svg>
+    </button>
+
+    <div class="yo-panel-input-wrap">
+      <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
+      <button id="yo-panel-mic" class="yo-mic-btn" title="Voice input"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="1" y2="8"/><line x1="3.5" y1="5" x2="3.5" y2="11"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="8.5" y1="5" x2="8.5" y2="11"/><line x1="11" y1="2" x2="11" y2="14"/><line x1="13.5" y1="5" x2="13.5" y2="11"/></svg></button>
+    </div>
+    <div class="yo-panel-controls">
+      <div id="yo-perm-dropdown" class="yo-mode-dropdown">
+        <button id="yo-perm-trigger" class="yo-mode-trigger" title="Permissions">
+          <span class="yo-perm-icon">&#x1F512;</span>
+          <span class="yo-perm-label">ask</span>
+          <span class="yo-mode-chevron">&#x25BE;</span>
+        </button>
+        <div id="yo-perm-menu" class="yo-mode-menu hidden">
+          <div class="yo-perm-option" data-value="default">
+            <span class="yo-mode-opt-icon">&#x1F512;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">ask</span>
+              <span class="yo-mode-opt-desc">confirms before acting</span>
+            </div>
+          </div>
+          <div class="yo-perm-option" data-value="plan">
+            <span class="yo-mode-opt-icon">&#x1F4CB;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">plan</span>
+              <span class="yo-mode-opt-desc">drafts a plan, no tool calls</span>
+            </div>
+          </div>
+          <div class="yo-perm-option" data-value="acceptEdits">
+            <span class="yo-mode-opt-icon">&#x26A1;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">auto</span>
+              <span class="yo-mode-opt-desc">runs safe tools, asks for risky</span>
+            </div>
+          </div>
+          <div class="yo-perm-option" data-value="bypassPermissions">
+            <span class="yo-mode-opt-icon">&#x1F525;</span>
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">bypass</span>
+              <span class="yo-mode-opt-desc">no prompts &mdash; use with care</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="yo-model-dropdown" class="yo-mode-dropdown">
+        <button id="yo-model-trigger" class="yo-mode-trigger" title="Model">
+          <span class="yo-model-label">Default</span>
+          <span class="yo-mode-chevron">&#x25BE;</span>
+        </button>
+        <div id="yo-model-menu" class="yo-mode-menu hidden">
+          <div class="yo-model-section-header">Claude</div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Default</span>
+              <span class="yo-mode-opt-desc">use the workspace default</span>
+            </div>
+          </div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="claude-sonnet-4-6">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Sonnet 4.6</span>
+              <span class="yo-mode-opt-desc">balanced quality + speed</span>
+            </div>
+          </div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="claude-opus-4-7">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Opus 4.7</span>
+              <span class="yo-mode-opt-desc">heaviest reasoning</span>
+            </div>
+          </div>
+          <div class="yo-model-option" data-provider="anthropic" data-value="claude-haiku-4-5">
+            <div class="yo-mode-opt-text">
+              <span class="yo-mode-opt-label">Haiku 4.5</span>
+              <span class="yo-mode-opt-desc">fastest, lightest</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button id="yo-panel-send">&uarr;</button>
+    </div>
+  </div>
+
   <script src="./agent.js"></script>
 </body>
 </html>
