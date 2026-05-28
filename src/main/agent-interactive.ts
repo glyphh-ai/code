@@ -56,6 +56,14 @@ async function ensureSDK(): Promise<any> {
 }
 
 async function runTurn(instance: RunningInstance, message: string, model: string, perm: PermMode): Promise<void> {
+  // Gate on Claude Code creds — pops the in-app sign-in modal if missing.
+  // Skip this turn; the next message after sign-in will succeed.
+  const { ensureCcAuth } = await import("./cc-bootstrap");
+  if (!ensureCcAuth()) {
+    emit(instance, "error", "Claude Code sign-in required. Pop opened — try again after authenticating.");
+    return;
+  }
+
   const sdk = await ensureSDK();
   const cfg = getAgent(instance.agentSlug);
   const systemPrompt = cfg?.systemPrompt || `You are an agent in the user's yo workspace.`;

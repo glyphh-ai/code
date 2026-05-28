@@ -1368,9 +1368,17 @@ async function boot() {
 
   function createPanelForApp(instanceId: string, app: { id: string; url?: string; forceWeb?: boolean }): void {
     if (!app.url) return;
-    if (app.url === "yo://home") {
+    if (app.url === "yo://welcome") {
+      panelManager.addPanel(instanceId, welcomeHtml, welcomePreload);
+    } else if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
+    } else if (app.url && HOME_SECTION_SLUGS[app.url]) {
+      // System-app wrappers (yo://dashboard, yo://apps, …) reuse home.html
+      // with ?section=<slug>. home.ts reads the query on boot.
+      const section = HOME_SECTION_SLUGS[app.url];
+      const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
+      panelManager.addPanel(instanceId, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
     } else if (app.url === "yo://council") {
@@ -1378,6 +1386,10 @@ async function boot() {
     } else if (app.url === "yo://vibe") {
       // webviewTag: true so the <webview id="vibe-preview"> live preview works.
       panelManager.addPanel(instanceId, vibeHtml, vibePreload, undefined, true);
+    } else if (app.url === "yo://spec") {
+      panelManager.addPanel(instanceId, specHtml, specPreload);
+    } else if (app.url === "yo://agent") {
+      panelManager.addPanel(instanceId, agentHtml, agentPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
