@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld("agent", {
 
   getCwd: () => ipcRenderer.invoke("working-dir:get"),
   pickCwd: () => ipcRenderer.invoke("working-dir:pick"),
+  setCwd: (dir: string) => ipcRenderer.invoke("working-dir:set", dir),
+  getCwdRecents: () => ipcRenderer.invoke("working-dir:recents"),
+  gitInfo: (root: string) => ipcRenderer.invoke("files:git-info", root),
+  onCwdChanged: (cb: (dir: string | null) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, dir: string | null) => cb(dir);
+    ipcRenderer.on("working-dir-changed", handler);
+    return () => { ipcRenderer.removeListener("working-dir-changed", handler); };
+  },
 
   /** Generic event subscription — used for agent:<id>:* channels. */
   onEvent: (channel: string, cb: (...args: unknown[]) => void) => {

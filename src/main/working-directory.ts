@@ -11,8 +11,12 @@
  */
 
 import { ipcMain, dialog, BrowserWindow } from "electron";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import os from "os";
 import { getPreference, setPreference } from "./preferences";
+
+const execFileP = promisify(execFile);
 
 type Broadcast = (channel: string, ...args: unknown[]) => void;
 
@@ -154,6 +158,24 @@ export function registerWorkingDirectoryIpc(deps: {
     return true;
   });
   ipcMain.handle("recents:clear", () => { clearRecents(); return true; });
+
+  // Lightweight git probe used by folder-bound app chrome (Agent app etc.)
+  // to surface the current branch when the working folder is a git repo.
+  ipcMain.handle("files:git-info", async (_e, root: string) => {
+    const result: { isRepo: boolean; branch?: string } = { isRepo: false };
+    if (typeof root !== "string" || !root) return result;
+    try {
+      const inside = await execFileP("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root });
+      if (inside.stdout.trim() !== "true") return result;
+      result.isRepo = true;
+      try {
+        const head = await execFileP("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root });
+        const branch = head.stdout.trim();
+        if (branch && branch !== "HEAD") result.branch = branch;
+      } catch { /* detached HEAD or other — leave branch undefined */ }
+    } catch { /* not a repo or git unavailable */ }
+    return result;
+  });
 
   // Set the current dir to an already-known path (e.g. picked from recents).
   ipcMain.handle("working-dir:set", (_e, dir: string) => {
