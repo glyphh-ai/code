@@ -684,11 +684,15 @@ initDownloads();
       window.yo.openHomeSection(btn.dataset.section!, btn.dataset.sub);
     });
   });
-  document.getElementById("files-rail-platform")!.addEventListener("click", () => {
+  document.getElementById("files-rail-platform")?.addEventListener("click", () => {
     void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
   });
-  document.getElementById("files-rail-logout")!.addEventListener("click", () => {
+  document.getElementById("files-rail-logout")?.addEventListener("click", () => {
     void window.yo.logout();
+  });
+  // Header gear → Settings → General. Replaces the rail Settings entry.
+  document.getElementById("header-settings-gear")?.addEventListener("click", () => {
+    window.yo.openHomeSection("settings", "general");
   });
 
   // Resize handle.

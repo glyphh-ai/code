@@ -163,6 +163,18 @@ contextBridge.exposeInMainWorld("yo", {
     commands: Record<string, { selector: string; action: string; description: string }>;
     meta?: { description: string; capabilities: string[] };
     forceWeb?: boolean; doNotRecord?: boolean;
+    kind?: "user" | "system"; requiresFolder?: boolean;
+    connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
+    mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+  }>>,
+  /** Includes system-kind apps (Dashboard, Apps, Agents, …). Used by the
+   *  panel `+` picker so users can mount any internal surface ad-hoc. */
+  appsListAll: () => ipcRenderer.invoke("apps-list-all") as Promise<Array<{
+    id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;
+    commands: Record<string, { selector: string; action: string; description: string }>;
+    meta?: { description: string; capabilities: string[] };
+    forceWeb?: boolean; doNotRecord?: boolean;
+    kind?: "user" | "system"; requiresFolder?: boolean;
     connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
     mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
   }>>,

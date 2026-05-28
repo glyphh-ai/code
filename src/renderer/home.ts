@@ -31,11 +31,27 @@ window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", as
 initHelp();
 window.yo.refreshAuth?.().catch(() => {});
 
-// Pick the startup section. Priority: an explicit pending nav (the rail asked
-// for a specific section) → the user's configured default ("homeStartupSection",
-// blank = "last viewed") → the last section they had open → dashboard.
-// (Fixes the app always opening on the dashboard.)
+// Pick the startup section. Priority: ?section=<slug> in the URL (system-app
+// panel mounted as its own section) → an explicit pending nav (the rail
+// asked for a specific section) → the user's configured default
+// ("homeStartupSection", blank = "last viewed") → the last section → dashboard.
 void (async () => {
+  // System-app panels (yo://apps, yo://agents, …) load home.html with a
+  // ?section=<slug> query. When set, this panel is locked to that section.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlSection = params.get("section");
+    if (urlSection) {
+      document.documentElement.setAttribute("data-home-scope", urlSection);
+      // Hide the left rail when this panel is locked to a single section —
+      // it's mounted as its own app (yo://<slug>), so no in-rail switching.
+      const style = document.createElement("style");
+      style.textContent = `[data-home-scope] .files-rail { display: none !important; } [data-home-scope] .help-main { margin-left: 0 !important; }`;
+      document.head.appendChild(style);
+      gotoSection(urlSection);
+      return;
+    }
+  } catch { /* fall through */ }
   try {
     const pending = await window.yo.getPendingSection?.();
     if (pending) { gotoSection(pending.section, pending.sub); return; }

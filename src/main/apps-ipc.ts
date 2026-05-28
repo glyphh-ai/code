@@ -18,6 +18,12 @@ interface AppsIpcDeps {
 
 const INTERNAL_APP_IDS = new Set(["home", "browser", "context"]);
 
+/** Hide system-kind apps from the Apps registry + Layouts cell picker.
+ *  They're still mountable via the `+` picker and `.dip`, just not catalogued. */
+function isUserKindApp(a: { kind?: "user" | "system" }): boolean {
+  return (a.kind ?? "user") !== "system";
+}
+
 export function registerAppsIpc(deps: AppsIpcDeps): void {
   const {
     appConnector,
@@ -91,8 +97,13 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
 
   // IPC: apps CRUD (panel apps)
   ipcMain.handle("apps-list", () =>
-    appConnector.list().filter(a => !INTERNAL_APP_IDS.has(a.id))
+    appConnector.list()
+      .filter((a) => !INTERNAL_APP_IDS.has(a.id))
+      .filter(isUserKindApp),
   );
+  // All apps including system. Used by the panel `+` picker so users can
+  // mount Dashboard/Apps/Agents/etc. as standalone panels.
+  ipcMain.handle("apps-list-all", () => appConnector.list());
   ipcMain.handle("apps-add", (_e, id: string, name: string, url?: string) => {
     const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;
     const gate = canAddApp(userApps);

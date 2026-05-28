@@ -25,6 +25,16 @@ const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-ur
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
 
+// Sign Out lives in Settings → General (relocated from the left rail).
+const settingsSignOutBtn = document.getElementById("settings-sign-out") as HTMLButtonElement | null;
+if (settingsSignOutBtn) {
+  settingsSignOutBtn.addEventListener("click", () => {
+    if (confirm("Sign out of yo on this device?")) {
+      void window.yo.logout();
+    }
+  });
+}
+
 
 async function refreshOfferUsageStatus() {
   const s = await window.yo.capabilitiesGetStatus();

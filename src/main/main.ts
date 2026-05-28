@@ -911,6 +911,21 @@ async function boot() {
   const welcomeHtml = `file://${path.join(__dirname, "..", "renderer", "welcome.html")}`;
   const welcomePreload = path.join(__dirname, "welcome-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
+  // Slugs that map to home.html with ?section=<slug>. Each gets its own panel
+  // so users can mount, e.g., a standalone Drips or Agents browser inside any
+  // layout (or via .dip <slug>).
+  const HOME_SECTION_SLUGS: Record<string, string> = {
+    "yo://dashboard": "dashboard",
+    "yo://apps":      "apps",
+    "yo://agents":    "agents",
+    "yo://vibes":     "vibes",
+    "yo://councils":  "councils",
+    "yo://schedules": "schedules",
+    "yo://layouts":   "layouts",
+    "yo://skills":    "skills",
+    "yo://drips":     "drips",
+    "yo://settings":  "settings",
+  };
   for (const app of appConnector.list()) {
     if (app.url === "yo://welcome") {
       panelManager.addPanel(app.id, welcomeHtml, welcomePreload);
@@ -918,6 +933,10 @@ async function boot() {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       // webviewTag: true so the <webview id="app-preview"> inside App detail can render
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
+    } else if (app.url && HOME_SECTION_SLUGS[app.url]) {
+      const section = HOME_SECTION_SLUGS[app.url];
+      const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
+      panelManager.addPanel(app.id, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://council") {

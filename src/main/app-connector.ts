@@ -181,6 +181,20 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
   { id: "browser", name: "Browser", url: "yo://browser" },
   { id: "context", name: "Context", url: "yo://context", capturePolicy: NO_CAPTURE },
+
+  // Left-rail surfaces — every section becomes its own mountable system app.
+  // These reuse home.html scoped to a single section via ?section=<slug>.
+  // Hidden from the Apps registry + Layouts builder; visible in `+` and `.dip`.
+  { id: "dashboard",     name: "Dashboard",      url: "yo://dashboard",      capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "apps-app",      name: "Apps",           url: "yo://apps",           capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "agents-app",    name: "Agents",         url: "yo://agents",         capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "vibes-app",     name: "Vibes",          url: "yo://vibes",          capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "councils-app",  name: "Councils",       url: "yo://councils",       capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "schedules-app", name: "Schedules",      url: "yo://schedules",      capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "layouts-app",   name: "Layouts",        url: "yo://layouts",        capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "skills-app",    name: "Skills",         url: "yo://skills",         capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "drips-app",     name: "Drips",          url: "yo://drips",          capturePolicy: NO_CAPTURE, kind: "system" },
+  { id: "settings-app",  name: "Settings",       url: "yo://settings",       capturePolicy: NO_CAPTURE, kind: "system" },
 ];
 
 // Default panel apps — seeded on first launch so the workspace isn't empty

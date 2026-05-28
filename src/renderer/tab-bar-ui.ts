@@ -252,8 +252,11 @@ export function initTabBar(deps: TabBarDeps): {
 
     if (tabNewMenu) { closeTabNewMenu(); return; }
 
-    const apps = await window.yo.appsList();
-    const appsWithUrl = apps.filter((a) => a.url);
+    // Use appsListAll so system-kind apps (Dashboard, Apps, Agents, …)
+    // appear in the panel `+` picker — they're hidden from the Apps
+    // registry + Layouts builder but mountable ad-hoc here.
+    const apps = await (window.yo as any).appsListAll?.() ?? await window.yo.appsList();
+    const appsWithUrl = apps.filter((a: any) => a.url);
 
     if (appsWithUrl.length === 0) {
       window.yo.tabNew();
@@ -286,7 +289,12 @@ export function initTabBar(deps: TabBarDeps): {
     divider.className = "tab-new-menu-divider";
     list.appendChild(divider);
 
-    for (const app of appsWithUrl) {
+    // Group user apps first, then a divider, then system apps. System apps
+    // are the former left-rail surfaces (Dashboard, Apps, Agents, …).
+    const userApps = appsWithUrl.filter((a: any) => (a.kind ?? "user") !== "system");
+    const systemApps = appsWithUrl.filter((a: any) => a.kind === "system");
+
+    const renderAppBtn = (app: any) => {
       const btn = document.createElement("button");
       btn.dataset.name = app.name.toLowerCase();
       let iconHtml = "";
@@ -302,8 +310,17 @@ export function initTabBar(deps: TabBarDeps): {
       }
       btn.innerHTML = `${iconHtml}<span>${app.name}</span>`;
       btn.addEventListener("click", () => { closeTabNewMenu(); window.yo.tabNewApp(app.id); });
-      list.appendChild(btn);
+      return btn;
+    };
+
+    for (const app of userApps) list.appendChild(renderAppBtn(app));
+
+    if (systemApps.length > 0 && userApps.length > 0) {
+      const sysDivider = document.createElement("div");
+      sysDivider.className = "tab-new-menu-divider";
+      list.appendChild(sysDivider);
     }
+    for (const app of systemApps) list.appendChild(renderAppBtn(app));
 
     menu.appendChild(list);
 
