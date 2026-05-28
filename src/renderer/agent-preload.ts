@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("agent", {
   setCwd: (dir: string) => ipcRenderer.invoke("working-dir:set", dir),
   getCwdRecents: () => ipcRenderer.invoke("working-dir:recents"),
   gitInfo: (root: string) => ipcRenderer.invoke("files:git-info", root),
+  gitBranches: (root: string) => ipcRenderer.invoke("files:git-branches", root),
+  gitCheckout: (root: string, branch: string) => ipcRenderer.invoke("files:git-checkout", root, branch),
   onCwdChanged: (cb: (dir: string | null) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, dir: string | null) => cb(dir);
     ipcRenderer.on("working-dir-changed", handler);

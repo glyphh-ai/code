@@ -6672,7 +6672,11 @@ select.settings-input {
   align-items: center;
   gap: 5px;
   padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.10s, color 0.10s;
 }
+.yo-workdir-branch:hover { background: var(--hover); color: var(--text); }
 .yo-workdir-bar svg {
   width: 13px;
   height: 13px;
@@ -6732,6 +6736,82 @@ select.settings-input {
   height: 1px;
   background: var(--border-2);
   margin: 4px 2px;
+}
+
+/* Branch picker — reuses the workdir-menu surface; list grows upward
+   and the search input sits at the bottom (closest to the click target). */
+.yo-branch-menu {
+  min-width: 240px;
+  max-width: 360px;
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+}
+.yo-branch-menu.open { display: flex; }
+.yo-branch-list {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.yo-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.yo-branch-item:hover { background: var(--hover); }
+.yo-branch-item .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.yo-branch-item .check {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.yo-branch-item .check svg { width: 14px; height: 14px; }
+.yo-branch-current .nm { color: var(--accent); }
+.yo-branch-empty {
+  padding: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+.yo-branch-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+}
+.yo-branch-search-icon { font-size: 11px; color: var(--text-3); }
+.yo-branch-search {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
 }
 
 .yo-panel-input-wrap {

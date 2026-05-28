@@ -24,6 +24,8 @@ interface AgentApi {
   setCwd: (dir: string) => Promise<string>;
   getCwdRecents: () => Promise<string[]>;
   gitInfo: (root: string) => Promise<{ isRepo: boolean; branch?: string }>;
+  gitBranches: (root: string) => Promise<{ branches: string[]; current?: string; error?: string }>;
+  gitCheckout: (root: string, branch: string) => Promise<{ ok: boolean; branch?: string; error?: string }>;
   onCwdChanged: (cb: (dir: string | null) => void) => () => void;
   onEvent: (channel: string, cb: (...args: unknown[]) => void) => void;
   getTheme: () => Promise<string>;
@@ -144,11 +146,98 @@ async function init(): Promise<void> {
     if (workdirBtn) {
       const r = workdirBtn.getBoundingClientRect();
       dropdown.style.left = `${r.left}px`;
-      dropdown.style.top = `${r.bottom + 4}px`;
-      dropdown.style.bottom = "auto";
+      // Opens UPWARD — anchored to the bottom edge of the button, growing up.
+      dropdown.style.top = "auto";
+      dropdown.style.bottom = `${window.innerHeight - r.top + 4}px`;
     }
     dropdown.classList.add("open");
   }
+
+  // ── Branch picker dropdown ──
+  const branchDropdown = document.createElement("div");
+  branchDropdown.className = "yo-workdir-menu yo-branch-menu";
+  document.body.appendChild(branchDropdown);
+
+  function closeBranchDropdown(): void { branchDropdown.classList.remove("open"); }
+  function isBranchDropdownOpen(): boolean { return branchDropdown.classList.contains("open"); }
+
+  async function openBranchDropdown(): Promise<void> {
+    if (!cwd) return;
+    const info = await window.agent.gitBranches(cwd).catch(() => ({ branches: [] as string[] }));
+    const branches = info.branches;
+    const current = info.current;
+
+    branchDropdown.innerHTML = "";
+    const listWrap = document.createElement("div");
+    listWrap.className = "yo-branch-list";
+    branchDropdown.appendChild(listWrap);
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "yo-branch-search-wrap";
+    searchWrap.innerHTML = `<span class="yo-branch-search-icon">🔍</span><input class="yo-branch-search" type="text" placeholder="Search branches…" spellcheck="false" />`;
+    branchDropdown.appendChild(searchWrap);
+    const search = searchWrap.querySelector(".yo-branch-search") as HTMLInputElement;
+
+    function paintList(filter = ""): void {
+      const q = filter.trim().toLowerCase();
+      listWrap.innerHTML = "";
+      const visible = q ? branches.filter((b) => b.toLowerCase().includes(q)) : branches;
+      if (visible.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "yo-branch-empty";
+        empty.textContent = q ? "No matching branches." : "No branches.";
+        listWrap.appendChild(empty);
+        return;
+      }
+      for (const b of visible) {
+        const item = document.createElement("button");
+        item.className = "yo-branch-item";
+        item.type = "button";
+        const isCurrent = b === current;
+        item.innerHTML = `<span class="nm"></span><span class="check">${isCurrent ? CHECK_SVG : ""}</span>`;
+        (item.querySelector(".nm") as HTMLElement).textContent = b;
+        if (isCurrent) item.classList.add("yo-branch-current");
+        item.addEventListener("click", async () => {
+          closeBranchDropdown();
+          if (b === current) return;
+          const res = await window.agent.gitCheckout(cwd, b);
+          if (res.ok) {
+            void paintWorkdirBar(cwd); // refresh git branch label
+          } else {
+            // Surface failure inline as a status row. Keep it simple — a
+            // toast would need extra plumbing.
+            alert(`git checkout ${b} failed:\n${res.error || "unknown error"}`);
+          }
+        });
+        listWrap.appendChild(item);
+      }
+    }
+    paintList("");
+    search.addEventListener("input", () => paintList(search.value));
+
+    if (branchWrap) {
+      const r = (branchWrap as HTMLElement).getBoundingClientRect();
+      branchDropdown.style.left = `${r.left}px`;
+      branchDropdown.style.top = "auto";
+      branchDropdown.style.bottom = `${window.innerHeight - r.top + 4}px`;
+    }
+    branchDropdown.classList.add("open");
+    setTimeout(() => search.focus(), 0);
+  }
+
+  branchWrap?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if ((branchWrap as HTMLElement).style.display === "none") return;
+    isBranchDropdownOpen() ? closeBranchDropdown() : void openBranchDropdown();
+  });
+  document.addEventListener("click", (e) => {
+    if (!isBranchDropdownOpen()) return;
+    if (branchDropdown.contains(e.target as Node)) return;
+    if (branchWrap?.contains(e.target as Node)) return;
+    closeBranchDropdown();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isBranchDropdownOpen()) closeBranchDropdown();
+  });
 
   workdirBtn?.addEventListener("click", (e) => {
     e.stopPropagation();

@@ -177,6 +177,42 @@ export function registerWorkingDirectoryIpc(deps: {
     return result;
   });
 
+  // List local branches in a repo, with the current one. Used by the
+  // Agent app's branch picker dropdown.
+  ipcMain.handle("files:git-branches", async (_e, root: string) => {
+    const result: { branches: string[]; current?: string; error?: string } = { branches: [] };
+    if (typeof root !== "string" || !root) return result;
+    try {
+      const list = await execFileP("git", ["branch", "--format=%(refname:short)"], { cwd: root });
+      result.branches = list.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+      try {
+        const head = await execFileP("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root });
+        const branch = head.stdout.trim();
+        if (branch && branch !== "HEAD") result.current = branch;
+      } catch { /* detached */ }
+    } catch (err) {
+      result.error = err instanceof Error ? err.message : String(err);
+    }
+    return result;
+  });
+
+  // Switch branches. Fails if the working tree is dirty — git surfaces a
+  // clear error, which the renderer can display.
+  ipcMain.handle("files:git-checkout", async (_e, root: string, branch: string) => {
+    if (typeof root !== "string" || !root || typeof branch !== "string" || !branch) {
+      return { ok: false, error: "Missing root or branch." };
+    }
+    try {
+      await execFileP("git", ["checkout", branch], { cwd: root });
+      return { ok: true, branch };
+    } catch (err) {
+      const msg = err instanceof Error
+        ? (err as Error & { stderr?: string }).stderr || err.message
+        : String(err);
+      return { ok: false, error: msg };
+    }
+  });
+
   // Set the current dir to an already-known path (e.g. picked from recents).
   ipcMain.handle("working-dir:set", (_e, dir: string) => {
     if (dir) setWorkingDirectory(dir);
