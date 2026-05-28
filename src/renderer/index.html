@@ -374,8 +374,14 @@
     <div id="rail-recents" class="rail-recents">
       <div class="rail-recents-header">
         <span class="rail-recents-title">Recents</span>
-        <input id="rail-recents-search" class="rail-recents-search" type="text" placeholder="Search…" spellcheck="false" />
+        <span class="rail-recents-spacer"></span>
+        <button id="rail-recents-add" class="rail-recents-add" type="button" title="New Vibe or Spec">+</button>
       </div>
+      <div id="rail-recents-add-menu" class="rail-recents-add-menu hidden">
+        <button type="button" data-app="vibe">.Vibe</button>
+        <button type="button" data-app="spec">.Spec</button>
+      </div>
+      <input id="rail-recents-search" class="rail-recents-search" type="text" placeholder="Search…" spellcheck="false" />
       <div id="rail-recents-list" class="rail-recents-list">
         <div class="rail-recents-empty">No recents yet.</div>
       </div>

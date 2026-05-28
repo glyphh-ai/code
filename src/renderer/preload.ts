@@ -468,6 +468,12 @@ contextBridge.exposeInMainWorld("yo", {
   filesRailWidthSave: (width: number) => ipcRenderer.send("files-rail-width-save", width),
   filesRailGetWidth: () => ipcRenderer.invoke("files-rail-get-width") as Promise<number>,
 
+  // Quick open for Vibe / Spec from the rail Recents "+" dropdown — same
+  // handlers Welcome uses, so the spawn semantics (reuse-on-match folder
+  // binding + tab) stay identical.
+  openVibe: () => ipcRenderer.invoke("welcome:open-vibe") as Promise<void>,
+  openSpec: () => ipcRenderer.invoke("welcome:open-spec") as Promise<void>,
+
   // Recents (rich: app/layout + folder pairs)
   recentsList: () => ipcRenderer.invoke("recents:list") as Promise<Array<{
     kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;

@@ -91,17 +91,54 @@
   .recents {
     width: 100%; max-width: 720px;
     display: flex; flex-direction: column; gap: 8px;
+    position: relative;
   }
   .recents-header {
     display: flex; align-items: center; gap: 8px;
-    padding: 0 4px 4px 4px;
+    padding: 0 4px;
   }
   .recents-title {
     font-size: 11px; color: var(--text-3);
     text-transform: uppercase; letter-spacing: 0.08em;
   }
+  .recents-spacer { flex: 1; }
+  .recents-add {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 14px; font-weight: 600; line-height: 1;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+  .recents-add:hover { border-color: var(--accent); color: var(--accent); }
+  .recents-add-menu {
+    position: absolute;
+    top: 32px; right: 4px;
+    min-width: 140px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px var(--overlay-bg);
+    padding: 4px;
+    z-index: 20;
+    display: flex; flex-direction: column;
+  }
+  .recents-add-menu.hidden { display: none; }
+  .recents-add-menu button {
+    background: transparent; border: none;
+    padding: 6px 10px;
+    text-align: left;
+    color: var(--text);
+    font-family: inherit; font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .recents-add-menu button:hover { background: var(--surface); color: var(--accent); }
   .recents-search {
-    flex: 1;
+    width: 100%; box-sizing: border-box;
     padding: 6px 10px;
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -203,8 +240,14 @@
     <div class="recents">
       <div class="recents-header">
         <span class="recents-title">Recents</span>
-        <input id="recents-search" class="recents-search" type="text" placeholder="Search…" spellcheck="false" />
+        <span class="recents-spacer"></span>
+        <button id="recents-add" class="recents-add" type="button" title="New Vibe or Spec">+</button>
       </div>
+      <div id="recents-add-menu" class="recents-add-menu hidden">
+        <button type="button" data-app="vibe">.Vibe</button>
+        <button type="button" data-app="spec">.Spec</button>
+      </div>
+      <input id="recents-search" class="recents-search" type="text" placeholder="Search…" spellcheck="false" />
       <div class="recents-list" id="recents-list">
         <div class="recent-empty">No recents yet — open Vibe or Spec on a folder to start.</div>
       </div>

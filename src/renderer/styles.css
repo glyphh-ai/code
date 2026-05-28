@@ -5256,6 +5256,7 @@ select.settings-input {
   border-top: 1px solid var(--border);
   padding: 8px;
   gap: 6px;
+  position: relative;
 }
 .rail-recents-header {
   display: flex;
@@ -5270,9 +5271,44 @@ select.settings-input {
   color: var(--text-3);
   white-space: nowrap;
 }
+.rail-recents-spacer { flex: 1; }
+.rail-recents-add {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px; font-weight: 600; line-height: 1;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.rail-recents-add:hover { border-color: var(--accent); color: var(--accent); }
+.rail-recents-add-menu {
+  position: absolute;
+  top: 32px; right: 8px;
+  min-width: 120px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 4px 16px var(--overlay-bg);
+  padding: 3px;
+  z-index: 20;
+  display: flex; flex-direction: column;
+}
+.rail-recents-add-menu.hidden { display: none; }
+.rail-recents-add-menu button {
+  background: transparent; border: none;
+  padding: 5px 8px;
+  text-align: left;
+  color: var(--text);
+  font-family: inherit; font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.rail-recents-add-menu button:hover { background: var(--surface); color: var(--accent); }
 .rail-recents-search {
-  flex: 1;
-  min-width: 0;
+  width: 100%; box-sizing: border-box;
   padding: 4px 8px;
   background: var(--surface);
   border: 1px solid var(--border);

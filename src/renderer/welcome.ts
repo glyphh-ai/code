@@ -164,6 +164,32 @@ async function init(): Promise<void> {
   document.getElementById("card-vibe")?.addEventListener("click", () => void api.openVibe());
   document.getElementById("card-spec")?.addEventListener("click", () => void api.openSpec());
 
+  // Recents "+" dropdown — quick Vibe/Spec spawn from the header.
+  const addBtn = document.getElementById("recents-add");
+  const addMenu = document.getElementById("recents-add-menu");
+  if (addBtn && addMenu) {
+    addBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      addMenu.classList.toggle("hidden");
+    });
+    addMenu.querySelectorAll<HTMLButtonElement>("button[data-app]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        addMenu.classList.add("hidden");
+        const slug = btn.dataset.app;
+        if (slug === "vibe") void api.openVibe();
+        else if (slug === "spec") void api.openSpec();
+      });
+    });
+    document.addEventListener("click", (e) => {
+      if (!addMenu.classList.contains("hidden") &&
+          !addMenu.contains(e.target as Node) &&
+          e.target !== addBtn) {
+        addMenu.classList.add("hidden");
+      }
+    });
+  }
+
   const cb = document.getElementById("show-on-startup") as HTMLInputElement | null;
   if (cb) {
     cb.checked = await api.getShowOnStartup();
