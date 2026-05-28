@@ -5673,7 +5673,8 @@ select.settings-input {
 .yo-panel-title .yo-dot {
   color: var(--accent);
 }
-/* Brand logo + ".Sup <name>" sit inside the panel title. */
+/* Brand logo + ".Sup <name>" sit inside the panel title. Favicons are
+   pre-designed marks — no padding/background, let them render as-is. */
 .yo-brand-logo {
   width: 20px;
   height: 20px;
@@ -5681,8 +5682,6 @@ select.settings-input {
   object-fit: contain;
   flex-shrink: 0;
   display: inline-block;
-  background: var(--white);
-  padding: 2px;
 }
 .yo-brand-logo[src=""],
 .yo-brand-logo:not([src]) { display: none; }

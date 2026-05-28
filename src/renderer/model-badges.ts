@@ -16,12 +16,16 @@ export function brandFor(provider: string): string {
   return "generic";
 }
 
+/** Pulls the official favicon from each brand's own site via Google's
+ *  S2 favicon service. These are the actual brand marks (claude.ai's
+ *  Claude burst, chatgpt.com's spiral, etc.) — not random CDN-hosted
+ *  approximations. */
 export const BRAND_LOGOS: Record<string, string> = {
-  anthropic: "https://assets.pipedream.net/s.v0/app_1dBhqA/logo/orig",
-  openai:    "https://assets.pipedream.net/s.v0/app_mWnhBo/logo/orig",
-  google:    "https://assets.pipedream.net/s.v0/app_ArhjGP/logo/orig",
-  xai:       "https://assets.pipedream.net/s.v0/app_9zh0ye/logo/orig",
-  perplexity:"https://assets.pipedream.net/s.v0/app_7Lho0v/logo/orig",
+  anthropic: "https://www.google.com/s2/favicons?domain=claude.ai&sz=64",
+  openai:    "https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64",
+  google:    "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=64",
+  xai:       "https://www.google.com/s2/favicons?domain=grok.com&sz=64",
+  perplexity:"https://www.google.com/s2/favicons?domain=perplexity.ai&sz=64",
 };
 
 /** Logo URL for a provider, or null when there's no brand logo. */
