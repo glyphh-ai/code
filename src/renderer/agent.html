@@ -18,7 +18,10 @@
   body {
     font-family: var(--font-sans);
     font-size: 14px;
-    background: var(--surface-2);
+    /* Match Welcome's body bg so the workspace area reads with the same
+       darker variation against the chrome (rail / titlebar / tab strip
+       are all surface-2). */
+    background: var(--bg);
     color: var(--text);
     overflow: hidden;
     display: flex;
