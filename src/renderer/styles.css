@@ -5666,9 +5666,28 @@ select.settings-input {
   font-weight: 700;
   color: var(--white);
   letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .yo-panel-title .yo-dot {
   color: var(--accent);
+}
+/* Brand logo + ".Sup <name>" sit inside the panel title. */
+.yo-brand-logo {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.yo-brand-logo[src=""],
+.yo-brand-logo:not([src]) { display: none; }
+.yo-brand-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .yo-panel-close {

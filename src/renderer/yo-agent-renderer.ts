@@ -16,6 +16,7 @@
  */
 
 import { formatMarkdown } from "./format-markdown.js";
+import { brandDisplayFor, brandForModel, logoUrlFor } from "./model-badges.js";
 
 export type PermMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
 
@@ -141,8 +142,13 @@ export class YoAgentRenderer {
   private modelTrigger!: HTMLElement;
   private modelMenu!: HTMLElement;
   private modelLabel!: HTMLElement;
+  private brandLogo: HTMLImageElement | null = null;
+  private brandName: HTMLElement | null = null;
   private dripBtn: HTMLElement | null = null;
   private micBtn: HTMLButtonElement | null = null;
+  /** When set, paintBrand() uses this in place of the auto-derived brand
+   *  display name (e.g. right-rail wants the user's firstName). */
+  private brandNameOverride: string | null = null;
 
   // State
   private perm: PermMode;
@@ -204,7 +210,42 @@ export class YoAgentRenderer {
     this.modelLabel = this.modelTrigger.querySelector(".yo-model-label") as HTMLElement;
     this.dripBtn = this.$opt("#yo-panel-drip");
     this.micBtn = this.$opt<HTMLButtonElement>("#yo-panel-mic");
+    this.brandLogo = this.$opt<HTMLImageElement>("#yo-brand-logo");
+    this.brandName = this.$opt("#yo-brand-name");
     void this.micBtn; // referenced for future voice wiring
+  }
+
+  /** Paint the brand chrome in the panel title: <logo> .Sup <name>. The
+   *  logo comes from logoUrlFor(brandForModel(model)); the name is the
+   *  brand display name (Claude / Gpt / …) UNLESS a name override has
+   *  been set (right-rail uses the user's first name). Called from
+   *  applyModel — but also re-callable from outside via setBrandNameOverride. */
+  private paintBrand(): void {
+    if (!this.brandLogo && !this.brandName) return;
+    const brand = brandForModel(this.model);
+    if (this.brandLogo) {
+      const url = logoUrlFor(brand);
+      if (url) {
+        this.brandLogo.src = url;
+        this.brandLogo.alt = brand;
+        this.brandLogo.style.display = "";
+      } else {
+        this.brandLogo.removeAttribute("src");
+        this.brandLogo.style.display = "none";
+      }
+    }
+    if (this.brandName) {
+      const name = this.brandNameOverride ?? brandDisplayFor(brand);
+      this.brandName.textContent = name;
+    }
+  }
+
+  /** Hosts call this when the displayed name should NOT be the brand
+   *  display (e.g. the right-rail wants the user's first name instead).
+   *  Pass null to revert to brand-display behavior. */
+  setBrandNameOverride(name: string | null): void {
+    this.brandNameOverride = name;
+    this.paintBrand();
   }
 
   private wireEvents(): void {
@@ -612,6 +653,7 @@ export class YoAgentRenderer {
     this.modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => {
       o.classList.toggle("active", o.dataset.value === m);
     });
+    this.paintBrand();
   }
 
   // ── History dropdown ──

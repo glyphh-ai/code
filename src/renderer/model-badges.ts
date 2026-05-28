@@ -29,6 +29,33 @@ export function logoUrlFor(provider: string): string | null {
   return BRAND_LOGOS[brandFor(provider)] || null;
 }
 
+/** Human display name for a brand — used in the yo-panel header
+ *  ("Sup Claude" / "Sup Gpt" etc.) and similar chrome labels. */
+const BRAND_DISPLAY: Record<string, string> = {
+  anthropic: "Claude",
+  openai: "Gpt",
+  google: "Gemini",
+  xai: "Grok",
+  perplexity: "Perplexity",
+  generic: "Yo",
+};
+export function brandDisplayFor(provider: string): string {
+  return BRAND_DISPLAY[brandFor(provider)] || "Yo";
+}
+
+/** Map a model slug to its brand key. Falls back to "anthropic" when no
+ *  model is set (default workspace model is currently Claude). */
+export function brandForModel(model: string): string {
+  if (!model) return "anthropic";
+  const m = model.toLowerCase();
+  if (m.startsWith("claude")) return "anthropic";
+  if (m.startsWith("gpt") || m.startsWith("codex")) return "openai";
+  if (m.startsWith("gemini")) return "google";
+  if (m.startsWith("grok")) return "xai";
+  if (m.startsWith("pplx")) return "perplexity";
+  return "generic";
+}
+
 /**
  * An <img> badge for a provider's brand logo, falling back to a single-letter
  * initial when the brand is unknown.

@@ -8,7 +8,7 @@
  */
 
 import { formatMarkdown } from "./format-markdown.js";
-import { badgeImgFor } from "./model-badges.js";
+import { badgeImgFor, brandForModel, logoUrlFor } from "./model-badges.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1634,6 +1634,24 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     if (!currentChatModel) { label.textContent = "Default"; return; }
     label.textContent = prettyModelLabel(currentChatModel);
   }
+  /** Brand chrome in the panel title: <logo> .Sup <firstName>. Logo
+   *  follows the active model's brand; the name addresses the user
+   *  (this is the right-rail; the Agent app uses the brand display
+   *  name instead — see yo-agent-renderer.paintBrand). */
+  function paintBrand(): void {
+    const logoEl = document.getElementById("yo-brand-logo") as HTMLImageElement | null;
+    const nameEl = document.getElementById("yo-brand-name");
+    const brand = brandForModel(currentChatModel);
+    if (logoEl) {
+      const url = logoUrlFor(brand);
+      if (url) { logoEl.src = url; logoEl.alt = brand; logoEl.style.display = ""; }
+      else { logoEl.removeAttribute("src"); logoEl.style.display = "none"; }
+    }
+    if (nameEl) {
+      const first = (yoAccountFirstName && yoAccountFirstName.trim()) || "there";
+      nameEl.textContent = first;
+    }
+  }
   if (modelTrigger && modelMenu) {
     modelTrigger.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1654,6 +1672,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       currentChatModel = newModel;
       modelOptions.forEach((o) => o.classList.toggle("active", o === opt));
       paintModelLabel();
+      paintBrand();
       // Persist via saveLLMConfig — provider is always anthropic until the
       // GPT loop ships. (The GPT items are disabled, so we never hit that
       // branch from this dropdown.)
@@ -1663,8 +1682,16 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   });
   paintModelLabel();
+  paintBrand();
   // Initial paint: highlight the active default.
   modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
+
+  // Also repaint when the account first-name resolves (async after init).
+  if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
+    (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
+      .then((info) => { yoAccountFirstName = info?.firstName || ""; paintBrand(); })
+      .catch(() => { yoAccountFirstName = ""; paintBrand(); });
+  }
 
   document.addEventListener("click", (e) => {
     if (!yoPermDropdown.contains(e.target as Node)) {
