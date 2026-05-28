@@ -1,13 +1,12 @@
 /**
- * AgentStore — file-based CRUD for the user's Agents registry.
+ * AgentStore — foldered storage for agent identities (the worker bees).
  *
- * Each agent is a definition (local or remote) saved as JSON at
- * ~/yo/agents/{id}.json. A "remote" agent additionally tracks an active
- * reservation handle on the server (created via /api/marketplace/reservations)
- * and applies guardrails to bound spend.
+ * Each agent lives at ~/yo/agents/<slug>/agent.json, alongside
+ * CLAUDE.md (editable system prompt) and optionally avatar.png.
  *
- * Mirrors the shape of AppConnector storage so the UI in help.ts can lift
- * the Apps patterns wholesale.
+ * Per-folder runtime (chat history) lives at <cwd>/.yo/agents/<slug>/
+ * — see history* helpers below. Identity follows the user; conversations
+ * stay with the folder they happened in.
  */
 
 import fs from "fs";
@@ -103,11 +102,24 @@ function ensureDir(): void {
   fs.mkdirSync(AGENTS_DIR, { recursive: true });
 }
 
-function pathFor(id: string): string {
+function validateId(id: string): void {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) {
     throw new Error("Invalid agent id (use letters, digits, _ or -; must start with a letter or digit)");
   }
-  return path.join(AGENTS_DIR, `${id}.json`);
+}
+
+/** ~/yo/agents/<slug>/ — the agent's own folder. */
+function dirFor(id: string): string {
+  validateId(id);
+  return path.join(AGENTS_DIR, id);
+}
+/** ~/yo/agents/<slug>/agent.json */
+function configPath(id: string): string {
+  return path.join(dirFor(id), "agent.json");
+}
+/** ~/yo/agents/<slug>/CLAUDE.md — editable system prompt. */
+export function claudeMdPath(id: string): string {
+  return path.join(dirFor(id), "CLAUDE.md");
 }
 
 function safeRead(file: string): AgentConfig | null {
@@ -123,12 +135,11 @@ function safeRead(file: string): AgentConfig | null {
 
 export function listAgents(): AgentConfig[] {
   ensureDir();
-  const files = fs
-    .readdirSync(AGENTS_DIR)
-    .filter((f) => f.endsWith(".json"));
+  const entries = fs.readdirSync(AGENTS_DIR, { withFileTypes: true });
   const out: AgentConfig[] = [];
-  for (const f of files) {
-    const cfg = safeRead(path.join(AGENTS_DIR, f));
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const cfg = safeRead(path.join(AGENTS_DIR, ent.name, "agent.json"));
     if (cfg) out.push(cfg);
   }
   out.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
@@ -137,7 +148,7 @@ export function listAgents(): AgentConfig[] {
 
 export function getAgent(id: string): AgentConfig | null {
   ensureDir();
-  return safeRead(pathFor(id));
+  try { return safeRead(configPath(id)); } catch { return null; }
 }
 
 const DEFAULT_GUARDRAILS: Guardrails = {
@@ -152,7 +163,8 @@ const DEFAULT_GUARDRAILS: Guardrails = {
 export function saveAgent(cfg: AgentConfig): AgentConfig {
   ensureDir();
   const now = new Date().toISOString();
-  const existing = safeRead(pathFor(cfg.id));
+  fs.mkdirSync(dirFor(cfg.id), { recursive: true });
+  const existing = safeRead(configPath(cfg.id));
   const merged: AgentConfig = {
     ...cfg,
     guardrails: cfg.guardrails ?? existing?.guardrails ?? DEFAULT_GUARDRAILS,
@@ -162,29 +174,110 @@ export function saveAgent(cfg: AgentConfig): AgentConfig {
       description: cfg.meta?.description,
     },
   };
-  fs.writeFileSync(pathFor(cfg.id), JSON.stringify(merged, null, 2), { mode: 0o600 });
+  fs.writeFileSync(configPath(cfg.id), JSON.stringify(merged, null, 2), { mode: 0o600 });
+  // Seed an editable CLAUDE.md alongside the config if one isn't there yet
+  // and the agent has a systemPrompt. Users edit this file directly.
+  const claudePath = claudeMdPath(cfg.id);
+  if (!fs.existsSync(claudePath) && cfg.systemPrompt) {
+    try { fs.writeFileSync(claudePath, cfg.systemPrompt, { mode: 0o600 }); } catch { /* ignore */ }
+  }
   return merged;
 }
 
 export function removeAgent(id: string): boolean {
   ensureDir();
   try {
-    fs.unlinkSync(pathFor(id));
+    fs.rmSync(dirFor(id), { recursive: true, force: true });
     return true;
   } catch {
     return false;
   }
 }
 
-/**
- * Returns true if the slug is available. Used by the UI to validate before
- * the user commits a "rename" action.
- */
+/** Returns true if the slug is available (no folder for it yet). */
 export function idAvailable(id: string): boolean {
   ensureDir();
   try {
-    return !fs.existsSync(pathFor(id));
+    return !fs.existsSync(dirFor(id));
   } catch {
     return false;
   }
+}
+
+// ── Per-folder runtime: chat history at <cwd>/.yo/agents/<slug>/ ──
+
+function runtimeDir(cwd: string, agentId: string): string {
+  validateId(agentId);
+  return path.join(cwd, ".yo", "agents", agentId);
+}
+
+function historyDir(cwd: string, agentId: string): string {
+  return path.join(runtimeDir(cwd, agentId), "history");
+}
+
+export function listChatHistory(cwd: string, agentId: string): Array<{ id: string; createdAt: string; title?: string }> {
+  try {
+    const dir = historyDir(cwd, agentId);
+    if (!fs.existsSync(dir)) return [];
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+    return files.map((f) => {
+      const id = f.replace(/\.jsonl$/, "");
+      const stat = fs.statSync(path.join(dir, f));
+      return { id, createdAt: stat.mtime.toISOString() };
+    }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch {
+    return [];
+  }
+}
+
+export function readChat(cwd: string, agentId: string, chatId: string): Array<Record<string, unknown>> {
+  try {
+    const file = path.join(historyDir(cwd, agentId), `${chatId}.jsonl`);
+    if (!fs.existsSync(file)) return [];
+    return fs.readFileSync(file, "utf-8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+      .filter((x): x is Record<string, unknown> => !!x);
+  } catch {
+    return [];
+  }
+}
+
+export function appendChatEntry(cwd: string, agentId: string, chatId: string, entry: Record<string, unknown>): void {
+  try {
+    fs.mkdirSync(historyDir(cwd, agentId), { recursive: true });
+    const file = path.join(historyDir(cwd, agentId), `${chatId}.jsonl`);
+    fs.appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
+  } catch { /* ignore */ }
+}
+
+export function deleteChat(cwd: string, agentId: string, chatId: string): boolean {
+  try {
+    fs.unlinkSync(path.join(historyDir(cwd, agentId), `${chatId}.jsonl`));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface AgentRuntimeState {
+  lastChatId?: string;
+}
+
+export function readRuntimeState(cwd: string, agentId: string): AgentRuntimeState {
+  try {
+    const f = path.join(runtimeDir(cwd, agentId), "state.json");
+    if (!fs.existsSync(f)) return {};
+    return JSON.parse(fs.readFileSync(f, "utf-8")) as AgentRuntimeState;
+  } catch {
+    return {};
+  }
+}
+
+export function writeRuntimeState(cwd: string, agentId: string, state: AgentRuntimeState): void {
+  try {
+    fs.mkdirSync(runtimeDir(cwd, agentId), { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir(cwd, agentId), "state.json"), JSON.stringify(state, null, 2), { mode: 0o600 });
+  } catch { /* ignore */ }
 }
