@@ -29,13 +29,17 @@
     margin: 0;
   }
   /* Promote yo-panel to fill the full viewport (right-rail slide/resize
-     chrome doesn't apply when mounted in its own panel). */
+     chrome doesn't apply when mounted in its own panel). Also drop the
+     default surface-2 panel bg so the body's var(--bg) shows through —
+     matches Welcome's workspace bg for chrome contrast. */
   #yo-panel {
     position: static;
     width: 100%;
     height: 100%;
     transform: none;
     box-shadow: none;
+    background: transparent;
+    border-left: none;
     display: flex;
     flex-direction: column;
   }
@@ -51,7 +55,7 @@
      between the two dropdowns. The styles.css base rule has it at
      flex:1 (right-rail wants that); here we cap it. */
   #yo-perm-dropdown { flex: 0 0 auto; }
-  #yo-perm-trigger { min-width: 96px; max-width: 120px; }
+  #yo-perm-trigger { min-width: 160px; max-width: 180px; }
 
   /* Far-right animated .Yo dot — mirrors the splash-screen dot-dance. */
   .agent-yo-mark {

@@ -191,6 +191,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "agent", name: "Agent", url: "yo://agent", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
+  { id: "workbench", name: "Workbench", url: "yo://workbench", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
   { id: "browser", name: "Browser", url: "yo://browser" },
 

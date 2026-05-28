@@ -16,7 +16,7 @@
  *   agent:<id>:error       — turn failed
  */
 
-import { ipcMain, BrowserWindow, type WebContents } from "electron";
+import { ipcMain, type WebContents } from "electron";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import { getShellPath } from "./shell-path";
 import { getPreference } from "./stores/preferences-db";
@@ -153,7 +153,10 @@ export function registerAgentInteractiveIpc(): void {
   ipcMain.handle("agent:start", (e, opts: InteractiveStartOpts) => {
     if (!opts?.instanceId) return { error: "instanceId required" };
     if (instances.has(opts.instanceId)) return { ok: true };
-    const wc = BrowserWindow.fromWebContents(e.sender)?.webContents || e.sender;
+    // e.sender IS the panel's webContents — do NOT resolve through BrowserWindow,
+    // which would return the host window's webContents instead and route
+    // agent:<id>:* events to the wrong renderer.
+    const wc = e.sender;
     instances.set(opts.instanceId, {
       instanceId: opts.instanceId,
       agentSlug: opts.agentSlug || "default",

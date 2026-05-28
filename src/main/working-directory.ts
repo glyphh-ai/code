@@ -13,6 +13,8 @@
 import { ipcMain, dialog, BrowserWindow } from "electron";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import fs from "fs/promises";
+import path from "path";
 import os from "os";
 import { getPreference, setPreference } from "./preferences";
 
@@ -235,5 +237,59 @@ export function registerWorkingDirectoryIpc(deps: {
     if (opts?.asDefault) setDefaultWorkingDirectory(picked);
     setWorkingDirectory(picked);
     return picked;
+  });
+
+  // Lazy directory listing for the Workbench file tree. Returns immediate
+  // children only — the tree fetches deeper levels on expand.
+  ipcMain.handle("files:list-dir", async (_e, dir: string) => {
+    if (typeof dir !== "string" || !dir) return { entries: [], error: "missing dir" };
+    try {
+      const items = await fs.readdir(dir, { withFileTypes: true });
+      const entries = items
+        .filter((d) => !d.name.startsWith("."))
+        .map((d) => ({
+          name: d.name,
+          path: path.join(dir, d.name),
+          kind: d.isDirectory() ? "dir" as const : "file" as const,
+        }))
+        .sort((a, b) => {
+          if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+      return { entries };
+    } catch (err) {
+      return { entries: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Read a file's text contents. Cap to ~1MB to avoid blowing up the renderer
+  // on accidental clicks into a giant binary.
+  ipcMain.handle("files:read-file", async (_e, filePath: string) => {
+    if (typeof filePath !== "string" || !filePath) return { content: "", error: "missing path" };
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.size > 1_000_000) {
+        return { content: "", error: `file too large (${(stat.size / 1024 / 1024).toFixed(1)}MB)` };
+      }
+      const content = await fs.readFile(filePath, "utf8");
+      return { content };
+    } catch (err) {
+      return { content: "", error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Unified git diff of the working tree (staged + unstaged combined). The
+  // Workbench Diff slot renders this; returns "" when the tree is clean.
+  ipcMain.handle("files:git-diff", async (_e, root: string) => {
+    if (typeof root !== "string" || !root) return { text: "", error: "missing root" };
+    try {
+      const { stdout } = await execFileP("git", ["diff", "HEAD"], { cwd: root, maxBuffer: 10 * 1024 * 1024 });
+      return { text: stdout };
+    } catch (err) {
+      const msg = err instanceof Error
+        ? (err as Error & { stderr?: string }).stderr || err.message
+        : String(err);
+      return { text: "", error: msg };
+    }
   });
 }

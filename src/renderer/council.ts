@@ -13,6 +13,7 @@
  */
 
 import { formatMarkdown } from "./format-markdown";
+import { badgeImgFor } from "./model-badges.js";
 
 interface CouncilEvent {
   council_id: string;
@@ -169,32 +170,6 @@ function wireCodeCopy(container: HTMLElement): void {
 const messageEls = new Map<string, HTMLElement>();
 
 // ── Form view ──────────────────────────────────────────
-
-function brandFor(provider: string): string {
-  const p = provider.toLowerCase();
-  if (p.startsWith("anthropic") || p === "claude") return "anthropic";
-  if (p.startsWith("openai") || p === "gpt") return "openai";
-  if (p.startsWith("google") || p === "gemini") return "google";
-  if (p.startsWith("xai") || p === "grok") return "xai";
-  if (p.startsWith("perplexity") || p === "pplx") return "perplexity";
-  return "generic";
-}
-
-const BRAND_LOGOS: Record<string, string> = {
-  anthropic: "https://assets.pipedream.net/s.v0/app_1dBhqA/logo/orig",
-  openai:    "https://assets.pipedream.net/s.v0/app_mWnhBo/logo/orig",
-  google:    "https://assets.pipedream.net/s.v0/app_ArhjGP/logo/orig",
-  xai:       "https://assets.pipedream.net/s.v0/app_9zh0ye/logo/orig",
-  perplexity:"https://assets.pipedream.net/s.v0/app_7Lho0v/logo/orig",
-};
-
-function badgeImgFor(provider: string, model: string): string {
-  const b = brandFor(provider);
-  const url = BRAND_LOGOS[b];
-  if (url) return `<img src="${url}" alt="${b}" />`;
-  const letter = (model || provider || "?").charAt(0).toUpperCase();
-  return `<span class="member-badge-initial">${letter}</span>`;
-}
 
 function renderMembers(): void {
   const list = $("cf-members");

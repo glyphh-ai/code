@@ -916,6 +916,8 @@ async function boot() {
   const specPreload = path.join(__dirname, "spec-preload.js");
   const agentHtml = `file://${path.join(__dirname, "..", "renderer", "agent.html")}`;
   const agentPreload = path.join(__dirname, "agent-preload.js");
+  const workbenchHtml = `file://${path.join(__dirname, "..", "renderer", "workbench.html")}`;
+  const workbenchPreload = path.join(__dirname, "workbench-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   // Slugs that map to home.html with ?section=<slug>. Each gets its own panel
   // so users can mount, e.g., a standalone Drips or Agents browser inside any
@@ -954,6 +956,8 @@ async function boot() {
       panelManager.addPanel(app.id, specHtml, specPreload);
     } else if (app.url === "yo://agent") {
       panelManager.addPanel(app.id, agentHtml, agentPreload);
+    } else if (app.url === "yo://workbench") {
+      panelManager.addPanel(app.id, workbenchHtml, workbenchPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -1419,6 +1423,32 @@ async function boot() {
     return app?.name || id;
   }
 
+  /** Brand favicon URL for an agent-<slug> panel based on its model. Pulls
+   *  the same Google S2 favicons used in model-badges.ts so the tab matches
+   *  the in-app .Sup <Brand> header. Returns null when the panel isn't an
+   *  agent panel or the brand has no mark. */
+  function agentPanelFavicon(id: string): string | null {
+    if (!id.startsWith("agent-")) return null;
+    const slug = id.slice("agent-".length);
+    const cfg = getAgent(slug);
+    const model = (cfg?.model_name || "").toLowerCase();
+    let brand = "generic";
+    if (!model || model.startsWith("claude")) brand = "anthropic";
+    else if (model.startsWith("gpt") || model.startsWith("codex")) brand = "openai";
+    else if (model.startsWith("gemini")) brand = "google";
+    else if (model.startsWith("grok")) brand = "xai";
+    else if (model.startsWith("pplx")) brand = "perplexity";
+    const hosts: Record<string, string> = {
+      anthropic: "claude.ai",
+      openai: "chatgpt.com",
+      google: "gemini.google.com",
+      xai: "grok.com",
+      perplexity: "perplexity.ai",
+    };
+    const host = hosts[brand];
+    return host ? `https://www.google.com/s2/favicons?domain=${host}&sz=64` : null;
+  }
+
   function buildTabState() {
     // Tabs are always shown now — the "Show Tabs" option was removed (closing
     // the last tab used to strand chrome like the URL bar). Kept as a const so
@@ -1453,14 +1483,17 @@ async function boot() {
       tabs = [
         { id: layoutTabId, name: layoutName, layoutFavicons },
         ...openTabs.filter((id) => !gridSet.has(id)).map((id) => ({
-          id, name: getTabName(id), favicon: panelFavicons[id] || "", url: urlForTab(id),
+          id,
+          name: getTabName(id),
+          favicon: panelFavicons[id] || agentPanelFavicon(id) || "",
+          url: urlForTab(id),
         })),
       ];
     } else {
       tabs = openTabs.map((id) => ({
         id,
         name: getTabName(id),
-        favicon: panelFavicons[id] || "",
+        favicon: panelFavicons[id] || agentPanelFavicon(id) || "",
         url: urlForTab(id),
       }));
     }
