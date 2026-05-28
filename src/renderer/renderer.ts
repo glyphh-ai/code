@@ -673,6 +673,18 @@ initDownloads();
 
   let railWidth = 240;
 
+  // Measure the chrome before #tab-bar inside #titlebar so the first tab can
+  // line up with the rail's right edge regardless of label width / font.
+  // Sets --tabbar-chrome-w which the #tab-bar's padding-left calc consumes.
+  function measureTabbarChromeWidth(): void {
+    const tabBarEl = document.getElementById("tab-bar");
+    if (!tabBarEl) return;
+    const r = tabBarEl.getBoundingClientRect();
+    document.body.style.setProperty("--tabbar-chrome-w", `${Math.round(r.left)}px`);
+  }
+  measureTabbarChromeWidth();
+  window.addEventListener("resize", measureTabbarChromeWidth);
+
   const setInset = (px: number) => {
     document.body.style.setProperty("--left-inset", `${px}px`);
     window.yo.filesRailResize(px);
