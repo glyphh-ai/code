@@ -248,7 +248,8 @@ export class YoAgent {
       // Headless: no UI to approve tool calls, so bypass permissions.
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
-      tools: [],
+      // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
+      tools: { type: "preset", preset: "claude_code" },
       mcpServers: { "yo": mcpServer },
       systemPrompt: this.buildSystemPrompt(),
       includePartialMessages: true,
@@ -362,7 +363,9 @@ export class YoAgent {
             : { behavior: "deny", message: "User denied tool call." };
         },
       }),
-      tools: [],
+      // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
+      // Permission gating is handled by canUseTool / permissionMode above.
+      tools: { type: "preset", preset: "claude_code" },
       mcpServers: { "yo": mcpServer },
       systemPrompt: this.buildSystemPrompt(),
       abortController: this.abortController,
@@ -550,7 +553,10 @@ export class YoAgent {
 
   // ── System prompt builder ────────────────────���─────────
 
-  private buildSystemPrompt(): string {
+  private buildSystemPrompt(): { type: "preset"; preset: "claude_code"; append: string } {
+    // Use Claude Code's built-in system prompt (drives the Claude-Code-style
+    // behavior: tool usage, conciseness, todos, etc.) and append our own
+    // context (yo identity, capture store, skills, apps, mode).
     let prompt = SYSTEM_PROMPT;
 
     if (this.captureStore) {
@@ -587,7 +593,7 @@ export class YoAgent {
       if (context) prompt += `\n\n${context}`;
     }
 
-    return prompt;
+    return { type: "preset", preset: "claude_code", append: prompt };
   }
 
   private buildContextRecovery(): string | null {
