@@ -910,6 +910,8 @@ async function boot() {
   const vibePreload = path.join(__dirname, "vibe-preload.js");
   const welcomeHtml = `file://${path.join(__dirname, "..", "renderer", "welcome.html")}`;
   const welcomePreload = path.join(__dirname, "welcome-preload.js");
+  const specHtml = `file://${path.join(__dirname, "..", "renderer", "spec.html")}`;
+  const specPreload = path.join(__dirname, "spec-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   // Slugs that map to home.html with ?section=<slug>. Each gets its own panel
   // so users can mount, e.g., a standalone Drips or Agents browser inside any
@@ -944,6 +946,8 @@ async function boot() {
     } else if (app.url === "yo://vibe") {
       // webviewTag: true so the <webview id="vibe-preview"> live preview works.
       panelManager.addPanel(app.id, vibeHtml, vibePreload, undefined, true);
+    } else if (app.url === "yo://spec") {
+      panelManager.addPanel(app.id, specHtml, specPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
