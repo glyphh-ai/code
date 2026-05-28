@@ -679,10 +679,15 @@ initDownloads();
 
   railToggle.addEventListener("click", () => applyOpen(!rail.classList.contains("open")));
 
-  // Nav: app sections + Settings, then Platform + Sign Out (pinned bottom).
+  // Nav: each rail button opens the matching yo://<slug> system app in a
+  // panel. The data-section value (dashboard, apps, agents, vibes, councils,
+  // schedules, layouts, skills, drips) IS the app slug — they're registered
+  // as INTERNAL_APPS with kind:"system" in app-connector.ts and routed in
+  // main.ts. Same mechanism .dip uses, so there's one entry point per app.
   rail.querySelectorAll<HTMLElement>(".files-rail-navitem[data-section]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      window.yo.openHomeSection(btn.dataset.section!, btn.dataset.sub);
+      const slug = btn.dataset.section;
+      if (slug) window.yo.tabNewApp(slug);
     });
   });
   document.getElementById("files-rail-platform")?.addEventListener("click", () => {
@@ -691,9 +696,9 @@ initDownloads();
   document.getElementById("files-rail-logout")?.addEventListener("click", () => {
     void window.yo.logout();
   });
-  // Header gear → Settings → General. Replaces the rail Settings entry.
+  // Header gear → yo://settings app. Same target as .dip settings.
   document.getElementById("header-settings-gear")?.addEventListener("click", () => {
-    window.yo.openHomeSection("settings", "general");
+    window.yo.tabNewApp("settings");
   });
 
   // Resize handle.
