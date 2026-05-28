@@ -16,10 +16,8 @@ interface AppsIpcDeps {
   PICKER_SCRIPT: string;
 }
 
-const INTERNAL_APP_IDS = new Set(["home", "browser"]);
-
-/** Hide system-kind apps from the Apps registry + Layouts cell picker.
- *  They're still mountable via the `+` picker and `.dip`, just not catalogued. */
+/** Hide system-kind apps from the Layouts cell picker.
+ *  They're still mountable via the `+` picker and `.dip`, just not in layouts. */
 function isUserKindApp(a: { kind?: "user" | "system" }): boolean {
   return (a.kind ?? "user") !== "system";
 }
@@ -103,15 +101,23 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     return dripManager.execute(recipe.split(/\s+/));
   });
 
-  // IPC: apps CRUD (panel apps)
+  // IPC: apps CRUD (panel apps).
+  // Apps registry shows ONLY user-owned apps — internal apps that ship
+  // with .Yo (Agent, Vibe, Spec, Council, Terminal, plus the system rail
+  // surfaces) are uneditable and hidden here. They're still openable from
+  // the `+` picker, `.dip`, and (where allowed) Layouts.
   ipcMain.handle("apps-list", () =>
-    appConnector.list()
-      .filter((a) => !INTERNAL_APP_IDS.has(a.id))
-      .filter(isUserKindApp),
+    appConnector.list().filter((a) => !a.internal),
   );
   // All apps including system. Used by the panel `+` picker so users can
   // mount Dashboard/Apps/Agents/etc. as standalone panels.
   ipcMain.handle("apps-list-all", () => appConnector.list());
+  // Mountable in Layouts: user apps + non-system internal apps (Agent,
+  // Vibe, Spec, Council, Terminal, Browser). System rail surfaces stay
+  // out per the design.
+  ipcMain.handle("apps-list-mountable", () =>
+    appConnector.list().filter(isUserKindApp),
+  );
   ipcMain.handle("apps-add", (_e, id: string, name: string, url?: string) => {
     const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;
     const gate = canAddApp(userApps);
@@ -120,22 +126,35 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     if (url) panelManager.addPanel(id, url);
     return app;
   });
-  ipcMain.handle("apps-remove", (_e, id: string) => appConnector.remove(id));
-  ipcMain.handle("apps-set-connection", (_e, id: string, pipedreamSlug: string) => appConnector.setConnection(id, { pipedreamSlug }));
-  ipcMain.handle("apps-remove-connection", (_e, id: string) => appConnector.removeConnection(id));
-  ipcMain.handle("apps-set-mcp", (_e, id: string, mcp: any) => appConnector.setMcp(id, mcp));
-  ipcMain.handle("apps-remove-mcp", (_e, id: string) => appConnector.removeMcp(id));
+  // Defense in depth — internal apps are ALL uneditable/undeletable via IPC.
+  // The Apps registry UI already filters them out (see apps-list), but a
+  // direct IPC call would otherwise still mutate them.
+  const refuseIfInternal = (id: string) => appConnector.isInternal(id);
+  ipcMain.handle("apps-remove", (_e, id: string) => refuseIfInternal(id) ? false : appConnector.remove(id));
+  ipcMain.handle("apps-set-connection", (_e, id: string, pipedreamSlug: string) =>
+    refuseIfInternal(id) ? false : appConnector.setConnection(id, { pipedreamSlug }));
+  ipcMain.handle("apps-remove-connection", (_e, id: string) =>
+    refuseIfInternal(id) ? false : appConnector.removeConnection(id));
+  ipcMain.handle("apps-set-mcp", (_e, id: string, mcp: any) =>
+    refuseIfInternal(id) ? false : appConnector.setMcp(id, mcp));
+  ipcMain.handle("apps-remove-mcp", (_e, id: string) =>
+    refuseIfInternal(id) ? false : appConnector.removeMcp(id));
   ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {
+    if (refuseIfInternal(oldId)) return false;
     const ok = appConnector.updateId(oldId, newId);
     if (ok) layoutManager.renamePanelId(oldId, newId);
     return ok;
   });
-  ipcMain.handle("apps-update-name", (_e, id: string, name: string) => appConnector.updateName(id, name));
-  ipcMain.handle("apps-update-url", (_e, id: string, url: string) => appConnector.updateUrl(id, url));
-  ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) => appConnector.updateForceWeb(id, forceWeb));
-  ipcMain.handle("apps-update-do-not-record", (_e, id: string, doNotRecord: boolean) => appConnector.updateDoNotRecord(id, doNotRecord));
+  ipcMain.handle("apps-update-name", (_e, id: string, name: string) =>
+    refuseIfInternal(id) ? false : appConnector.updateName(id, name));
+  ipcMain.handle("apps-update-url", (_e, id: string, url: string) =>
+    refuseIfInternal(id) ? false : appConnector.updateUrl(id, url));
+  ipcMain.handle("apps-update-force-web", (_e, id: string, forceWeb: boolean) =>
+    refuseIfInternal(id) ? false : appConnector.updateForceWeb(id, forceWeb));
+  ipcMain.handle("apps-update-do-not-record", (_e, id: string, doNotRecord: boolean) =>
+    refuseIfInternal(id) ? false : appConnector.updateDoNotRecord(id, doNotRecord));
   ipcMain.handle("apps-update-capture-policy", (_e, id: string, policy: { type: string; maxVersions?: number; windowHours?: number; minDeltaChars?: number }) =>
-    appConnector.updateCapturePolicy(id, policy as any));
+    refuseIfInternal(id) ? false : appConnector.updateCapturePolicy(id, policy as any));
   ipcMain.handle("apps-get-capture-policy", (_e, id: string) => appConnector.getCapturePolicy(id));
   ipcMain.handle("apps-set-connected-slug", () => false);
 

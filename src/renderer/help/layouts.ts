@@ -12,7 +12,7 @@ let allLayouts: Array<{ name: string; splits: Array<{ panelId: string; col?: num
 let appNameById: Record<string, string> = {};
 async function ensureAppNames(): Promise<void> {
   try {
-    const apps = await window.yo.appsList();
+    const apps = await window.yo.appsListMountable();
     const next: Record<string, string> = {};
     for (const a of apps) next[a.id] = a.name;
     appNameById = next;
@@ -43,7 +43,7 @@ const folderModeSelect = document.getElementById("layout-folder-mode") as HTMLSe
  *  requiresFolder). Shows/hides the folder-mode row accordingly. */
 async function refreshFolderModeRow(): Promise<void> {
   try {
-    const apps = await window.yo.appsList();
+    const apps = await window.yo.appsListMountable();
     const byId = new Map(apps.map((a) => [a.id, a]));
     const folderRequired = builderCells.some((c) => {
       if (!c.panelId) return false;
@@ -193,7 +193,7 @@ async function showCellPicker(cellIndex: number, anchor: HTMLElement) {
   type PickerOption = { id: string; label: string };
   let apps: Array<{ id: string; name: string; url?: string }>;
   try {
-    apps = (await window.yo.appsList()).filter((a: any) => a.url);
+    apps = (await window.yo.appsListMountable()).filter((a: any) => a.url);
   } catch {
     apps = [];
   }

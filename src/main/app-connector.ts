@@ -91,6 +91,12 @@ export interface AppConfig {
 
   /** Where this app shows up. Defaults to "user" (registry + layouts + `+`). */
   kind?: AppKind;
+  /** True if the app ships with .Yo (everything in INTERNAL_APPS). Internal
+   *  apps are NEVER captured (isDoNotRecord returns true), are HIDDEN from
+   *  the Apps registry (no CRUD — can't edit, rename, delete, or change
+   *  URL), and stay visible in the `+` picker, `.dip`, and Layouts. The
+   *  `kind: "system"` flag separately controls Layouts visibility. */
+  internal?: boolean;
   /** True if the app needs a working folder. Folder-bound apps own a picker
    *  in their header (unless mounted inside a folder-bound layout, which
    *  hoists the picker to the layout). */
@@ -171,6 +177,11 @@ export const CATEGORY_COMMANDS: Record<string, Array<{ key: string; description:
 // Internal apps — these use yo:// protocol.
 // `kind: "system"` apps are hidden from the Apps registry + Layouts builder.
 const NO_CAPTURE: CapturePolicy = { type: "manual" };
+// Every entry here gets `internal: true` applied below — they all ship
+// with .Yo and must never be CRUD-able in the Apps registry, never
+// captured, etc. `kind: "system"` is a separate axis controlling whether
+// the app appears in Layouts (rail surfaces don't; user-mountable
+// internal apps like Agent/Vibe/Spec do).
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy; kind?: AppKind; requiresFolder?: boolean }> = [
   // Boot-time fallback shown when there's no panel state to restore.
   { id: "welcome", name: "Welcome", url: "yo://welcome", capturePolicy: NO_CAPTURE, kind: "system" },
@@ -325,7 +336,8 @@ export class AppConnector {
     for (const def of INTERNAL_APPS) {
       if (!this.apps.has(def.id)) {
         const app = this.add(def.id, def.name, def.url);
-        let dirty = false;
+        app.internal = true;
+        let dirty = true; // we just set internal
         if (def.capturePolicy) { app.capturePolicy = def.capturePolicy; dirty = true; }
         if (def.kind) { app.kind = def.kind; dirty = true; }
         if (def.requiresFolder) { app.requiresFolder = def.requiresFolder; dirty = true; }
@@ -334,6 +346,7 @@ export class AppConnector {
         const app = this.apps.get(def.id)!;
         let dirty = false;
         if (app.url !== def.url) { app.url = def.url; dirty = true; }
+        if (!app.internal) { app.internal = true; dirty = true; }
         if (def.capturePolicy && app.capturePolicy?.type !== def.capturePolicy.type) { app.capturePolicy = def.capturePolicy; dirty = true; }
         if (def.kind && app.kind !== def.kind) { app.kind = def.kind; dirty = true; }
         if (def.requiresFolder && app.requiresFolder !== def.requiresFolder) { app.requiresFolder = def.requiresFolder; dirty = true; }
@@ -439,12 +452,24 @@ export class AppConnector {
 
   /** Check if a panel/URL should be excluded from recording. */
   isDoNotRecord(panelId: string): boolean {
-    // Direct app match
-    const app = this.apps.get(panelId);
+    // Resolve "<id>-2" / "<id>-3" instance suffixes back to the base app id
+    // so e.g. a second Browser panel still respects the base app's policy.
+    const baseId = panelId.replace(/-\d+$/, "");
+    const app = this.apps.get(panelId) || this.apps.get(baseId);
+    // Internal apps (everything in INTERNAL_APPS) are never captured.
+    if (app?.internal) return true;
     if (app?.doNotRecord) return true;
-    // Check domain blocklist against panel URL
+    // Domain blocklist against panel URL.
     if (app?.url) return DO_NOT_RECORD_DOMAINS.some((d) => app.url!.includes(d));
     return false;
+  }
+
+  /** True when the app ships with .Yo (INTERNAL_APPS). Hides it from the
+   *  Apps registry (no CRUD), suppresses capture, but it still mounts. */
+  isInternal(id: string): boolean {
+    const baseId = id.replace(/-\d+$/, "");
+    const app = this.apps.get(id) || this.apps.get(baseId);
+    return !!app?.internal;
   }
 
   /** Check if a panel is a conversational app (chat, messaging). */

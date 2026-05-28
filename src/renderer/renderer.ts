@@ -69,6 +69,10 @@ declare global {
         connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
         mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
       }>>;
+      appsListMountable: () => Promise<Array<{
+        id: string; name: string; url?: string; connected: boolean;
+        kind?: "user" | "system"; internal?: boolean; requiresFolder?: boolean;
+      }>>;
       appsAdd: (id: string, name: string, url?: string) => Promise<unknown>;
       appImport: () => Promise<{ ok: boolean; appId?: string; error?: string }>;
       appExport: (appId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
@@ -690,9 +694,6 @@ initDownloads();
       const slug = btn.dataset.section;
       if (slug) window.yo.tabNewApp(slug);
     });
-  });
-  document.getElementById("files-rail-platform")?.addEventListener("click", () => {
-    void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
   });
   document.getElementById("files-rail-logout")?.addEventListener("click", () => {
     void window.yo.logout();

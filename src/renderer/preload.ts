@@ -179,6 +179,12 @@ contextBridge.exposeInMainWorld("yo", {
     connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
     mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
   }>>,
+  /** Mountable in Layouts: user apps + non-system internal apps (Agent,
+   *  Vibe, Spec, Council, Terminal, Browser). System rail surfaces excluded. */
+  appsListMountable: () => ipcRenderer.invoke("apps-list-mountable") as Promise<Array<{
+    id: string; name: string; url?: string; connected: boolean;
+    kind?: "user" | "system"; internal?: boolean; requiresFolder?: boolean;
+  }>>,
   appsAdd: (id: string, name: string, url?: string) => ipcRenderer.invoke("apps-add", id, name, url),
   // yo app package (import / export)
   appImport: () => ipcRenderer.invoke("app-import") as Promise<{ ok: boolean; appId?: string; error?: string }>,
