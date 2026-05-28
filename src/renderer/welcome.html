@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <title>Welcome</title>
 <link rel="stylesheet" href="styles.css">
+<script>
+  // Apply theme synchronously before first paint (matches home.html).
+  // Reads from localStorage which the main renderer keeps in sync; falls
+  // back to light when unset (e.g. brand-new install before any preference
+  // has been written).
+  try {
+    var t = localStorage.getItem("yoTheme") || "light";
+    var r = t === "system"
+      ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+      : t;
+    document.documentElement.setAttribute("data-theme", r);
+  } catch (e) {}
+</script>
 <style>
   html, body { height: 100%; }
   body {
@@ -13,7 +26,7 @@
     overflow-x: hidden;
     background: var(--bg);
     color: var(--text);
-    font-family: var(--font);
+    font-family: var(--font-sans);
   }
 
   .welcome-root {
