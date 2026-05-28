@@ -564,6 +564,8 @@ contextBridge.exposeInMainWorld("yo", {
   agentsSave: (cfg: unknown) => ipcRenderer.invoke("agents-save", cfg) as Promise<unknown>,
   agentsRemove: (id: string) => ipcRenderer.invoke("agents-remove", id) as Promise<boolean>,
   agentsIdAvailable: (id: string) => ipcRenderer.invoke("agents-id-available", id) as Promise<boolean>,
+  /** Open a saved agent as a standalone panel (yo://agent?slug=<slug>). */
+  agentsOpenAsApp: (slug: string) => ipcRenderer.invoke("agents:open-as-app", slug) as Promise<boolean>,
 
   // Vibes — persisted vibe-coding projects (~/yo/vibes/<id>/)
   vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<Record<string, unknown>>>,

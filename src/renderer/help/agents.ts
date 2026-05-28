@@ -25,7 +25,19 @@ export interface AgentDef {
   model_name?: string;
   mode?: "full" | "readonly";
   guardrails?: AgentGuardrails;
+  avatar_url?: string;
+  bio?: string;
   meta?: { createdAt: string; updatedAt: string };
+}
+
+const OPEN_AS_APP_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+
+/** Hash a string to a stable HSL color — used as the identicon fallback
+ *  when an agent has no avatar_url. */
+function colorFromSlug(slug: string): string {
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360;
+  return `hsl(${h} 65% 50%)`;
 }
 
 const EDIT_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
@@ -93,17 +105,28 @@ function renderAgentsList(): void {
     meta.push(`<span style="font-family:var(--font-mono);">${escapeHtml(a.id)}</span>`);
     if (a.model_name) meta.push(escapeHtml(a.model_name));
 
+    const initial = (a.name || a.id || "?").charAt(0).toUpperCase();
+    const avatarHtml = a.avatar_url
+      ? `<img class="agent-avatar" src="${escapeHtml(a.avatar_url)}" alt="" />`
+      : `<div class="agent-avatar agent-avatar-initial" style="background:${colorFromSlug(a.id)};">${escapeHtml(initial)}</div>`;
+
     const card = document.createElement("div");
     card.className = "crud-card";
     card.innerHTML = `
+      ${avatarHtml}
       <div class="crud-card-info">
         <span class="crud-card-name">${escapeHtml(a.name || a.id)}</span>
         <span class="crud-card-meta">${meta.join(" · ")}</span>
       </div>
       <div class="crud-card-actions">
+        <button class="crud-card-btn crud-open-btn" title="Open as app">${OPEN_AS_APP_ICON}</button>
         <button class="crud-card-btn crud-edit-btn" title="Edit">${EDIT_ICON}</button>
         <button class="crud-card-btn danger crud-delete-btn" title="Delete">${DELETE_ICON}</button>
       </div>`;
+    card.querySelector(".crud-open-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void (window.yo as any).agentsOpenAsApp?.(a.id);
+    });
     card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => { e.stopPropagation(); openEditor(a); });
     card.querySelector(".crud-delete-btn")!.addEventListener("click", async (e) => {
       e.stopPropagation();

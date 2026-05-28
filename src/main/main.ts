@@ -2524,6 +2524,20 @@ async function boot() {
     setPreference("welcomeOnStartup", !!v);
   });
 
+  // Open a saved agent as a standalone panel: yo://agent?slug=<slug>.
+  // Each saved agent gets its own panel id (agent-<slug>) so multiple
+  // can coexist without crosstalk.
+  ipcMain.handle("agents:open-as-app", (_e, slug: string) => {
+    if (!mainWindow || typeof slug !== "string" || !slug) return false;
+    const panelId = `agent-${slug}`;
+    if (!panelManager.hasPanel(panelId)) {
+      const url = `${agentHtml}?slug=${encodeURIComponent(slug)}`;
+      panelManager.addPanel(panelId, url, agentPreload);
+    }
+    panelManager.switchTo(panelId, mainWindow);
+    return true;
+  });
+
   // Approval system — pending approvals map + IPC
   const pendingApprovals = new Map<string, (approved: boolean) => void>();
   let approvalCounter = 0;

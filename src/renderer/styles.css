@@ -2753,6 +2753,25 @@ ol.docs-list li::before {
   border-color: var(--border-2);
 }
 
+/* Agent identicon — used in the Agents list cards. */
+.agent-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.agent-avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+}
+
 .crud-card-info {
   flex: 1;
   min-width: 0;
