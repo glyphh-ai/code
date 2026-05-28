@@ -958,10 +958,6 @@ async function boot() {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
       panelManager.addPanel(app.id, browserHtmlUrl(browserUrl), undefined, undefined, true);
-    } else if (app.url === "yo://context") {
-      const contextHtml = `file://${path.join(__dirname, "..", "renderer", "context.html")}`;
-      const renderPreload = path.join(__dirname, "..", "renderer", "preload.js");
-      panelManager.addPanel(app.id, contextHtml, renderPreload);
     } else {
       panelManager.addPanel(app.id, app.url!, undefined, app.forceWeb);
     }
@@ -1407,10 +1403,6 @@ async function boot() {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
       panelManager.addPanel(instanceId, browserHtmlUrl(browserUrl), undefined, undefined, true);
-    } else if (app.url === "yo://context") {
-      const contextHtml = `file://${path.join(__dirname, "..", "renderer", "context.html")}`;
-      const renderPreload = path.join(__dirname, "..", "renderer", "preload.js");
-      panelManager.addPanel(instanceId, contextHtml, renderPreload);
     } else {
       panelManager.addPanel(instanceId, app.url!, undefined, app.forceWeb);
     }

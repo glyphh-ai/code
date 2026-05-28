@@ -16,7 +16,7 @@ interface AppsIpcDeps {
   PICKER_SCRIPT: string;
 }
 
-const INTERNAL_APP_IDS = new Set(["home", "browser", "context"]);
+const INTERNAL_APP_IDS = new Set(["home", "browser"]);
 
 /** Hide system-kind apps from the Apps registry + Layouts cell picker.
  *  They're still mountable via the `+` picker and `.dip`, just not catalogued. */

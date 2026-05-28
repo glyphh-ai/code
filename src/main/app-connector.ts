@@ -182,7 +182,6 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
   { id: "browser", name: "Browser", url: "yo://browser" },
-  { id: "context", name: "Context", url: "yo://context", capturePolicy: NO_CAPTURE },
 
   // Left-rail surfaces — every section becomes its own mountable system app.
   // Slug = panel id, so `.dip apps` and the panel id "apps" match naturally.
@@ -298,13 +297,23 @@ export class AppConnector {
 
   /** Seed internal + default apps on first launch */
   private ensureDefaults(): void {
-    // Purge internal apps removed from the build (The Drop, .Yo Editor,
-    // VS Code, the standalone Monaco panel). They were persisted to
-    // ~/yo/apps/<id>.json on a prior launch, so dropping them from
-    // INTERNAL_APPS alone leaves them in the app list. The Monaco
-    // editor library itself is still loaded — only the standalone app
-    // entry is gone.
-    for (const staleId of ["drop", "files", "vscode", "monaco"]) {
+    // Purge stale internal entries persisted to ~/yo/apps/<id>.json on a
+    // prior launch. Dropping them from INTERNAL_APPS alone leaves them in
+    // the app list, so we explicitly delete the entry + the file.
+    //   - drop, files, vscode, monaco, code, yo-editor  → removed builds
+    //   - context                                       → removed feature
+    //   - *-app suffixed ids                            → left over from
+    //     a Phase 0a rename where each left-rail section briefly used a
+    //     "<slug>-app" id alongside the cleaner "<slug>" id, leaving two
+    //     of every system app in the + picker on already-installed clients.
+    const STALE_IDS = [
+      "drop", "files", "vscode", "monaco", "code", "yo-editor",
+      "context",
+      "agents-app", "apps-app", "councils-app", "drips-app",
+      "layouts-app", "schedules-app", "settings-app", "skills-app",
+      "vibes-app", "dashboard-app",
+    ];
+    for (const staleId of STALE_IDS) {
       const stale = this.apps.get(staleId);
       if (stale && stale.url?.startsWith("yo://")) {
         this.apps.delete(staleId);
