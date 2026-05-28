@@ -677,7 +677,7 @@ body.account-locked #dl-btn-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0;
+  padding: 0 12px 0 0;
   z-index: 50;
   transition: right 0.2s ease;
   -webkit-app-region: no-drag;
