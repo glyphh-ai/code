@@ -2535,15 +2535,45 @@ async function boot() {
   // ── Welcome app IPC ──
   ipcMain.handle("welcome:recents", () => getWorkingDirRecents());
 
-  /** Welcome card → always opens a NEW instance of the named internal app.
-   *  Vibe and Spec are folder-bound; every click spawns its own panel +
-   *  tab (vibe, vibe-2, vibe-3 …) so the user can keep multiple work
-   *  surfaces side-by-side instead of clobbering one. If a folder is
-   *  currently set, records the mount in Recents. */
+  /** Per-instance (app, folder) bindings. Lets recents:open reuse an
+   *  already-open Vibe/Spec/etc panel that's bound to the same folder
+   *  instead of spawning a duplicate. Pruned lazily on lookup so a
+   *  closed tab's binding drops out. */
+  const instanceBindings = new Map<string, { appId: string; folder: string }>();
+
+  /** Find an existing panel bound to (appId, folder). Prunes dead
+   *  bindings as it goes. */
+  function findInstanceFor(appId: string, folder: string): string | null {
+    for (const [pid, b] of instanceBindings) {
+      if (!panelManager.hasPanel(pid)) {
+        instanceBindings.delete(pid);
+        continue;
+      }
+      if (b.appId === appId && b.folder === folder) return pid;
+    }
+    return null;
+  }
+
+  /** Open the named internal app — reuses an existing instance bound to
+   *  the same folder when one exists, otherwise spawns a fresh panel +
+   *  tab. Vibe and Spec are folder-bound; clicking Welcome's card with
+   *  no folder still spawns a stub. */
   function openFreshInternalApp(baseId: string): void {
     if (!mainWindow) return;
     const app = appConnector.get(baseId);
     if (!app?.url) return;
+    const folder = app.requiresFolder ? (getWorkingDirectory() || "") : "";
+
+    // Reuse-on-match: same app + same folder → slide to existing instance.
+    const existing = folder ? findInstanceFor(baseId, folder) : null;
+    if (existing) {
+      panelManager.switchTo(existing, mainWindow);
+      ensureTab(existing);
+      sendSplitState();
+      sendTabState();
+      return;
+    }
+
     let instanceId = baseId;
     if (panelManager.hasPanel(baseId)) {
       panelInstanceCounter++;
@@ -2554,12 +2584,13 @@ async function boot() {
     panelManager.switchTo(instanceId, mainWindow);
     sendSplitState();
     sendTabState();
-    // Record as a (app, folder) recent if we know the folder. Folder-bound
-    // apps without a bound folder yet (Vibe / Spec stubs) skip recording —
-    // they record when a folder is actually picked, in a later phase.
-    if (app.requiresFolder) {
-      const folder = getWorkingDirectory();
-      if (folder) addRecent({ kind: "app", id: baseId, name: app.name, folder });
+    // Record the (app, folder) binding + the Recents entry when we know
+    // the folder. Folder-bound apps without one yet (Vibe / Spec stubs
+    // launched with no working dir) skip both — recording happens later
+    // when a folder picker lands.
+    if (app.requiresFolder && folder) {
+      instanceBindings.set(instanceId, { appId: baseId, folder });
+      addRecent({ kind: "app", id: baseId, name: app.name, folder });
     }
   }
   ipcMain.handle("welcome:open-vibe", () => openFreshInternalApp("vibe"));

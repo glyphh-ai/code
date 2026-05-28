@@ -635,7 +635,10 @@ body.account-locked #dl-btn-wrap {
   align-items: center;
   padding: 0 16px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  /* Thin rail-color sliver between the tab strip and the app content area
+     so the active tab (also surface-2) flows into the workspace without a
+     dark divider line. Replaces the previous 1px var(--border) bottom. */
+  border-bottom: 4px solid var(--surface-2);
   -webkit-app-region: drag;
   gap: 12px;
 }
@@ -847,7 +850,7 @@ body.account-locked #dl-btn-wrap {
   gap: 6px;
   height: 26px;
   padding: 0 8px 0 12px;
-  background: var(--surface-2);
+  background: var(--surface-3);
   border: 1px solid var(--border-2);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -866,12 +869,13 @@ body.account-locked #dl-btn-wrap {
 
 .tab:hover { background: var(--hover); color: var(--text); }
 
-/* Active tab: rail surface color with a green accent ring (no green fill).
-   The 4px rail-color sliver below the titlebar (see #panel-container's
-   inset shadow) means the active tab visually flows into the workspace. */
+/* Active tab: lifted onto the rail surface color. No accent ring — just a
+   subtle neutral border. The 4px rail-color sliver below the titlebar
+   (see #titlebar border-bottom) means the tab flows visually into the
+   workspace before the app content begins. */
 .tab-active {
   background: var(--surface-2);
-  border-color: var(--accent);
+  border-color: var(--border-2);
   color: var(--text);
 }
 .tab-active:hover { background: var(--surface-2); color: var(--text); }
@@ -4219,12 +4223,10 @@ ol.docs-list li::before {
 /* ── Panel container ─────────────────────────────────────── */
 
 #panel-container {
-  height: calc(100vh - 38px);
+  /* 38px titlebar + 4px sliver border = 42px chrome above the workspace. */
+  height: calc(100vh - 42px);
   background: var(--bg);
   position: relative;
-  /* Thin rail-color sliver at the top so the active tab (also surface-2)
-     visually connects into the workspace before the app content begins. */
-  box-shadow: inset 0 4px 0 var(--surface-2);
 }
 
 /* ── Download toast ────────────────────────────────────── */
