@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Yo — Home</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="monaco/editor/editor.main.css">
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background: var(--bg); }
     #home-root { position: absolute; inset: 0; overflow: hidden; }
@@ -16,10 +15,7 @@
        buttons still drive section switching) but hide the sidebar. */
     #help-nav { display: none !important; }
   </style>
-  <!-- Chart.js must load BEFORE Monaco's AMD loader, otherwise Chart's UMD wrapper
-       registers as an AMD module instead of attaching to window.Chart. -->
   <script src="chart.umd.min.js"></script>
-  <script src="monaco/loader.js"></script>
   <script>
     // Apply theme synchronously before anything renders (avoids flash).
     // Reads from localStorage which the main renderer keeps in sync.
@@ -608,8 +604,6 @@ ${rootDir}/CLAUDE.md                           # dispatcher section (managed)
 ${rootDir}/.yo/agents/&lt;name&gt;.md                # per-agent role briefing
 ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
-              <h4>Embedded VS Code</h4>
-              <p>The built-in <code>vscode</code> panel is a <code>code serve-web</code> instance that runs your locally installed VS Code. On first launch, your Desktop VS Code <code>settings.json</code> and <code>keybindings.json</code> are copied into the embedded data dir so the editor inherits your preferences. Agents and the editor share <code>rootDir</code>, so file changes from agents appear live in the editor.</p>
             </div>
 
             <div class="docs-panel" data-doc="agent">
@@ -1699,14 +1693,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     <div class="toggle-info">
                       <span class="toggle-title">Remote</span>
                       <span class="toggle-desc">Control your desktop from your phone via <a href="https://platform.dotyo.dev/voice" target="_blank" style="color:var(--accent);">dotyo.dev/voice</a></span>
-                    </div>
-                  </label>
-                  <label class="settings-toggle">
-                    <input type="checkbox" id="toggle-vscode-server" />
-                    <span class="toggle-switch"></span>
-                    <div class="toggle-info">
-                      <span class="toggle-title">VS Code Server</span>
-                      <span class="toggle-desc">Run local <code>code serve-web</code> for full file access</span>
                     </div>
                   </label>
                   <label class="settings-toggle">

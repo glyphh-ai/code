@@ -3,11 +3,10 @@
  *
  * Electron on macOS launched from Finder/Dock inherits a sanitized PATH
  * (typically `/usr/bin:/bin:/usr/sbin:/sbin`). This breaks any spawned
- * subprocess that needs Homebrew, asdf, nvm, etc. — including VS Code Server's
- * git extension, which silently disables Source Control when `git` isn't on PATH.
+ * subprocess that needs Homebrew, asdf, nvm, etc.
  *
  * Terminals dodge this by spawning `zsh -il`, which loads the user's profile.
- * Direct spawns (vscode-server, future code-terminals) need an explicit fix.
+ * Direct spawns (PTYs, agent shells) need an explicit fix.
  *
  * This module runs the user's login+interactive shell once at app startup,
  * captures its PATH, and exposes it for spawn() callers to merge into env.

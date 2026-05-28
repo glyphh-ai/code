@@ -2,11 +2,6 @@
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
-// The .Yo brand badge (from yo-web/public/favicon.svg) — used as the app icon
-// for the .Yo Editor (yo://files) in the tab bar and the "+" new-tab menu.
-const YO_BADGE = `<svg viewBox="0 0 32 32" width="14" height="14" style="border-radius:3px;display:block;"><rect width="32" height="32" rx="6" fill="#0a0a0a"/><text x="1" y="25" font-family="system-ui,-apple-system,sans-serif" font-weight="700" font-size="18" fill="#25C75E">.</text><text x="7" y="25" font-family="system-ui,-apple-system,sans-serif" font-weight="700" font-size="18" fill="#ffffff">Yo</text></svg>`;
-const isFilesApp = (id: string) => id === "files" || id.startsWith("files-");
-
 /**
  * Callbacks that the tab bar needs from the rest of renderer.ts
  * to implement auto mode switching when the active tab changes.
@@ -135,11 +130,6 @@ export function initTabBar(deps: TabBarDeps): {
           stack.appendChild(img);
         }
         el.appendChild(stack);
-      } else if (isFilesApp(tab.id)) {
-        const icon = document.createElement("span");
-        icon.className = "tab-home-icon";
-        icon.innerHTML = YO_BADGE;
-        el.appendChild(icon);
       } else {
         const favicon = document.createElement("img");
         favicon.className = "tab-favicon";
@@ -300,9 +290,7 @@ export function initTabBar(deps: TabBarDeps): {
       const btn = document.createElement("button");
       btn.dataset.name = app.name.toLowerCase();
       let iconHtml = "";
-      if (isFilesApp(app.id)) {
-        iconHtml = YO_BADGE;
-      } else if (app.url!.startsWith("yo://")) {
+      if (app.url!.startsWith("yo://")) {
         iconHtml = `<span class="tab-new-menu-initial">${app.name.charAt(0).toUpperCase()}</span>`;
       } else {
         try {

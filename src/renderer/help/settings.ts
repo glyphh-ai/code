@@ -10,7 +10,6 @@ const settingsStatus = document.getElementById("settings-status")!;
 
 const toggleVoiceInput = document.getElementById("toggle-voice-input") as HTMLInputElement;
 const toggleRemote = document.getElementById("toggle-remote") as HTMLInputElement;
-const toggleVscodeServer = document.getElementById("toggle-vscode-server") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
 const offerUsageStatus = document.getElementById("offer-usage-status")!;
@@ -397,10 +396,6 @@ function initSettings() {
     window.yo.setPreference("remoteEnabled", toggleRemote.checked);
   });
 
-  toggleVscodeServer.addEventListener("change", () => {
-    window.yo.setPreference("enableVscodeServer", toggleVscodeServer.checked);
-    showRelaunch();
-  });
   toggleAutoUpdate.addEventListener("change", () => {
     window.yo.setPreference("autoUpdate", toggleAutoUpdate.checked);
     showRelaunch();
@@ -733,7 +728,6 @@ async function loadSettings() {
   toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;
   toggleRemote.checked = await window.yo.getPreference("remoteEnabled", false) as boolean;
-  toggleVscodeServer.checked = await window.yo.getPreference("enableVscodeServer", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
   await refreshOfferUsageStatus();
 

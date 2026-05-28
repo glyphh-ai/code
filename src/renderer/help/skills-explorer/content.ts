@@ -1,11 +1,10 @@
 /**
- * content.ts — the explorer's right pane (read-only; editing is in VS Code).
+ * content.ts — the explorer's right pane (read-only).
  *   • showSkill(name) — overview: name + description + rendered SKILL.md +
- *     actions (Run, Open in VS Code, Export, Delete) + enabled toggle.
+ *     actions (Run, Export, Delete) + enabled toggle.
  *   • showFile(name, rel) — markdown renders by default (toggle to source);
- *     code → read-only Monaco; media → player. Copy + open-in-VS-Code.
+ *     code → read-only <pre> block; media → player. Copy.
  *   • showCreate() — minimal new-skill form that hands off to the .Yo agent.
- * Ported from the v4 workspace skills explorer.
  */
 
 import { el } from "./dom.js";
@@ -14,31 +13,6 @@ import { RunConsole } from "./run-console.js";
 
 const renderMarkdown = (src: string | null | undefined): string => formatMarkdown(src || "");
 
-// ── Monaco (read-only) ──────────────────────────────────────
-let monacoReady: Promise<void> | null = null;
-function ensureMonaco(): Promise<void> {
-  if (monacoReady) return monacoReady;
-  monacoReady = new Promise<void>((resolve) => {
-    const w = window as unknown as { monaco?: unknown; require: any };
-    if (w.monaco) { resolve(); return; }
-    w.require.config({ paths: { vs: "monaco" } });
-    w.require(["vs/editor/editor.main"], () => resolve());
-  });
-  return monacoReady;
-}
-function languageForFile(rel: string): string {
-  const ext = rel.toLowerCase().split(".").pop() || "";
-  const map: Record<string, string> = {
-    js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
-    ts: "typescript", tsx: "typescript", json: "json", md: "markdown", mdx: "markdown",
-    markdown: "markdown", yaml: "yaml", yml: "yaml", html: "html", htm: "html",
-    css: "css", scss: "scss", less: "less", sh: "shell", bash: "shell", py: "python",
-    rb: "ruby", go: "go", rs: "rust", toml: "ini", ini: "ini", xml: "xml", svg: "xml",
-  };
-  return map[ext] || "plaintext";
-}
-const monacoTheme = () =>
-  (document.documentElement.dataset.theme || document.body.dataset.theme) === "dark" ? "vs-dark" : "vs";
 const isMarkdown = (f: string) => /\.(md|mdx|markdown)$/i.test(f);
 
 function mediaKind(rel: string): "image" | "audio" | "video" | null {
@@ -55,7 +29,6 @@ const CODE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 const COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 const CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 const PLAY = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20 6 4"/></svg>`;
-const VSCODE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 const TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 const KEBAB = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
 const EXPORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
@@ -76,8 +49,7 @@ export class SkillContent {
   readonly root: HTMLElement;
   private bar: HTMLElement;
   private body: HTMLElement;
-  private monaco: any = null;
-  private monacoHost: HTMLElement;
+  private codeHost: HTMLElement;
   private mdHost: HTMLElement;
   private runConsole = new RunConsole();
   private fileCache = new Map<string, string>();
@@ -85,10 +57,10 @@ export class SkillContent {
 
   constructor(private deps: SkillContentDeps) {
     this.bar = el("div", { class: "skill-content-bar" });
-    this.monacoHost = el("div", { class: "skill-monaco hidden" });
+    this.codeHost = el("pre", { class: "skill-code hidden" });
     this.mdHost = el("div", { class: "skill-md-render yo-md hidden" });
     this.runConsole.root.classList.add("hidden");
-    this.body = el("div", { class: "skill-content-body" }, [this.mdHost, this.monacoHost, this.runConsole.root]);
+    this.body = el("div", { class: "skill-content-body" }, [this.mdHost, this.codeHost, this.runConsole.root]);
     this.root = el("div", { class: "skill-content" }, [this.bar, this.body]);
     this.showEmpty();
   }
@@ -102,7 +74,7 @@ export class SkillContent {
 
   private hideAll(): void {
     this.mdHost.classList.add("hidden");
-    this.monacoHost.classList.add("hidden");
+    this.codeHost.classList.add("hidden");
     this.runConsole.root.classList.add("hidden");
   }
 
@@ -165,7 +137,6 @@ export class SkillContent {
     };
     const menu = el("div", { class: "ws-popover skill-kebab-menu open" }, [
       item(PLAY, "Run", false, () => { this.hideAll(); this.runConsole.root.classList.remove("hidden"); void this.runConsole.run(name); }),
-      item(VSCODE, "Open in VS Code", false, () => { void window.yo.skillsOpenInEditor(name); }),
       item(EXPORT, "Export", false, () => void this.exportSkill(name)),
       item(TRASH, "Delete", true, async () => {
         if (!(await this.deps.confirm(`Delete skill "${name}"?`))) return;
@@ -199,8 +170,6 @@ export class SkillContent {
       window.yo.copyToClipboard(this.fileCache.get(key) || "");
       copy.innerHTML = CHECK; setTimeout(() => { copy.innerHTML = COPY; }, 1200);
     });
-    const openFile = iconBtn(VSCODE, "Open in VS Code");
-    openFile.addEventListener("click", () => { void window.yo.skillsOpenFileInEditor?.(name, rel); });
 
     const toggleBtn = el("button", { class: "skill-icon-btn skill-md-toggle", html: CODE, attrs: { title: "View source" } });
     toggleBtn.addEventListener("click", () => {
@@ -211,7 +180,7 @@ export class SkillContent {
 
     this.bar.innerHTML = "";
     this.bar.append(el("span", { class: "skill-content-filename", text: rel }));
-    const actions = el("div", { class: "skill-content-actions" }, [copy, openFile]);
+    const actions = el("div", { class: "skill-content-actions" }, [copy]);
     if (md) actions.prepend(toggleBtn);
     this.bar.append(actions);
 
@@ -249,28 +218,12 @@ export class SkillContent {
       this.mdHost.classList.remove("hidden");
       this.mdHost.innerHTML = renderMarkdown(text);
     } else {
-      this.monacoHost.classList.remove("hidden");
-      await this.showSource(text, languageForFile(rel));
+      this.codeHost.classList.remove("hidden");
+      this.codeHost.textContent = text;
     }
   }
 
-  private async showSource(text: string, lang: string): Promise<void> {
-    await ensureMonaco();
-    const w = window as unknown as { monaco: any };
-    if (this.monaco) {
-      this.monaco.setModel(w.monaco.editor.createModel(text, lang));
-    } else {
-      this.monaco = w.monaco.editor.create(this.monacoHost, {
-        value: text, language: lang, theme: monacoTheme(), readOnly: true,
-        fontSize: 12, fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
-        minimap: { enabled: false }, wordWrap: "on", automaticLayout: true,
-        padding: { top: 8 }, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
-      });
-    }
-    setTimeout(() => this.monaco?.layout?.(), 0);
-  }
-
-  relayout(): void { this.monaco?.layout?.(); }
+  relayout(): void { /* no-op — plain <pre> needs no layout */ }
 
   // ── Create mode ──
   showCreate(): void {

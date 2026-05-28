@@ -156,44 +156,12 @@ export const CATEGORY_COMMANDS: Record<string, Array<{ key: string; description:
   ],
 };
 
-/** Script to extract all open editor content from VS Code via Monaco's AMD loader */
-const VSCODE_GRAB_SCRIPT = `
-  return await new Promise(function(resolve) {
-    if (!window.require) { resolve('VS Code editor not ready'); return; }
-    try {
-      window.require(['vs/editor/editor.main'], function(monaco) {
-        try {
-          var models = monaco.editor.getModels();
-          if (!models || models.length === 0) { resolve('No files open'); return; }
-          var parts = models.map(function(m) {
-            var uri = m.uri.toString();
-            // Clean up URI: file:///path/to/file.ts → path/to/file.ts
-            var name = uri.replace(/^file:\\/\\/\\//, '').replace(/^[^:]+:\\/\\//, '');
-            var lang = m.getLanguageId() || '';
-            var content = m.getValue();
-            return '## ' + name + (lang ? ' (' + lang + ')' : '') + '\\n\\n' +
-              '\\x60\\x60\\x60' + lang + '\\n' + content + '\\n\\x60\\x60\\x60';
-          });
-          resolve(parts.join('\\n\\n---\\n\\n'));
-        } catch(e) { resolve('Error reading editors: ' + e.message); }
-      });
-    } catch(e) { resolve('Monaco not available: ' + e.message); }
-    // Timeout fallback
-    setTimeout(function() { resolve('Monaco require timed out'); }, 5000);
-  });
-`;
-
 // Internal apps — these use yo:// protocol
-// Note: yo://cypher (the legacy Meet-style panel) was retired in favor of
-// The Drop's Workspace view. Source files (code-workspace.html/.ts/.preload)
-// are kept on disk for now as a reference to mine richer streaming UI from.
 const NO_CAPTURE: CapturePolicy = { type: "manual" };
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy }> = [
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
   { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE },
-  { id: "vscode", name: "VS Code", url: "yo://vscode" },
-  { id: "monaco", name: "Monaco", url: "yo://monaco" },
   { id: "term", name: "Terminal", url: "yo://terminal" },
   { id: "browser", name: "Browser", url: "yo://browser" },
   { id: "context", name: "Context", url: "yo://context", capturePolicy: NO_CAPTURE },
@@ -297,10 +265,11 @@ export class AppConnector {
 
   /** Seed internal + default apps on first launch */
   private ensureDefaults(): void {
-    // Purge internal apps removed from the build (The Drop, .Yo Editor).
-    // They were persisted to ~/yo/apps/<id>.json on a prior launch, so
-    // dropping them from INTERNAL_APPS alone leaves them in the app list.
-    for (const staleId of ["drop", "files"]) {
+    // Purge internal apps removed from the build (The Drop, .Yo Editor,
+    // VS Code, Monaco). They were persisted to ~/yo/apps/<id>.json on a
+    // prior launch, so dropping them from INTERNAL_APPS alone leaves
+    // them in the app list.
+    for (const staleId of ["drop", "files", "vscode", "monaco"]) {
       const stale = this.apps.get(staleId);
       if (stale && stale.url?.startsWith("yo://")) {
         this.apps.delete(staleId);
@@ -343,17 +312,6 @@ export class AppConnector {
     }
 
 
-    // Ensure VS Code has a grab command that uses Monaco API
-    const vscode = this.apps.get("vscode");
-    if (vscode && !vscode.commands.grab) {
-      vscode.commands.grab = {
-        selector: "",
-        action: "custom",
-        description: "Extract all open editor content via Monaco API",
-        script: VSCODE_GRAB_SCRIPT,
-      };
-      this.save(vscode);
-    }
   }
 
   /** Import a full app config (from exported JSON). Overwrites if same id exists. */

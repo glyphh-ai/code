@@ -1,9 +1,9 @@
 /**
  * Working directory — the single project folder the app is focused on.
  *
- * One explicit, persisted folder. The .Yo Editor opens it, the .yo agent runs
- * in it, and (todo) a cypher clones the repo into it. Changing it broadcasts
- * `working-dir-changed` to the main window and every panel so they re-point.
+ * One explicit, persisted folder. The .yo agent runs in it, and (todo) a
+ * cypher clones the repo into it. Changing it broadcasts `working-dir-changed`
+ * to the main window and every panel so they re-point.
  */
 
 import { ipcMain, dialog, BrowserWindow } from "electron";

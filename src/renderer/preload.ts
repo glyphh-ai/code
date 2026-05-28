@@ -144,7 +144,7 @@ contextBridge.exposeInMainWorld("yo", {
   },
   convertTabToApp: (tabId: string, appId: string) =>
     ipcRenderer.send("convert-tab-to-app", tabId, appId),
-  // Open a file in the .Yo Editor panel (from a file link in the yo panel).
+  // Open a file from a yo-panel file link — main hands it to the OS default app.
   openInEditor: (filePath: string) => ipcRenderer.send("open-in-editor", filePath),
 
   // Working directory — per-chat folder the agent + files view focus on.

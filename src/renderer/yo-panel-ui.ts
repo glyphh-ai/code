@@ -1190,6 +1190,20 @@ function sendYoPanelMessage() {
     return;
   }
 
+  // Dot-commands (.sup, .dip, .drip, .peace, …) run silently — they're a
+  // command DSL, not chat. They never appear in the panel output and never
+  // hit the agent. The one exception is `.yo`, which IS how you invoke the
+  // agent, so it falls through to the normal send path below.
+  if (text.startsWith(".")) {
+    const firstWord = text.slice(1).split(/\s+/)[0]?.toLowerCase() ?? "";
+    if (firstWord && firstWord !== "yo") {
+      yoPanelInput.value = "";
+      autoGrowYoInput();
+      window.yo.execCommand(text.slice(1)).catch(() => {});
+      return;
+    }
+  }
+
   // Agent busy → queue the message; it shows immediately and is sent when the
   // current turn finishes (see drainPendingYoMessages).
   if (yoThinking) {

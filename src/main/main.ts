@@ -51,24 +51,12 @@ import { Transcriber } from "./transcriber";
 import { VoiceRelay } from "./voice-relay";
 import { smartGrab } from "./smart-grab";
 import { scanPanel, formatScan } from "./dom-scanner";
-import { VSCodeServer } from "./vscode-server";
-import { openInVscode } from "./vscode-bridge";
 import { resolveShellPath } from "./shell-path";
 import { WorkspaceManager } from "./workspace-manager";
 import { EventLog } from "./event-log";
 // WorkspaceMcpServer removed — workspace tools merged into McpExpose
 import { InboxRouter } from "./inbox-router";
 import { autoUpdater } from "electron-updater";
-
-/** If a tool call touches a file, return its absolute path (else null). */
-function fileFromToolCall(name: string, input: unknown): string | null {
-  if (!input || typeof input !== "object") return null;
-  if (!/(read|edit|write|create)/i.test(name)) return null;
-  const o = input as Record<string, unknown>;
-  const raw = (o.file_path ?? o.path ?? o.filename ?? o.file) as unknown;
-  if (typeof raw !== "string" || !raw) return null;
-  return path.isAbsolute(raw) ? raw : path.join(os.homedir(), "yo", raw);
-}
 
 /** True if semver `latest` is strictly newer than `current` (major.minor.patch). */
 function isNewerVersion(latest: string, current: string): boolean {
@@ -95,7 +83,6 @@ import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { initRelayClient } from "./relay-client";
 import { installRelayHandlers } from "./relay-handlers";
-import { registerFilesIpc } from "./files-ipc";
 import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
@@ -130,7 +117,6 @@ let appConnector: AppConnector;
 
 let terminalManager: TerminalManager;
 let agentRunner: AgentRunner;
-let vscodeServer: VSCodeServer;
 let noteStore: NoteStore;
 let voiceRelay: VoiceRelay | null = null;
 let cloudSyncInstance: CloudSync | null = null;
@@ -290,7 +276,7 @@ async function boot() {
 
   // Resolve real shell PATH once — Electron on macOS launched from Finder
   // inherits a sanitized PATH that breaks Homebrew/asdf/nvm tools. Cached for
-  // all later spawns (vscode-server, future code-terminals, etc.).
+  // all later spawns (terminals, PTYs, agent shells).
   resolveShellPath();
 
   // Clear stale IndexedDB locks from previous crashes
@@ -788,8 +774,6 @@ async function boot() {
       yoInterceptor.activate(wc, id);
       // Track URL changes in browser tabs for persistence
       if (baseAppId === "browser") trackBrowserUrl(id, wc);
-      // Track VS Code folder for persistence across restarts
-      if (baseAppId === "vscode") trackVscodeFolder(wc);
     }
 
     // Track URL + favicon for URL bar and tab favicons
@@ -917,20 +901,6 @@ async function boot() {
     });
   }
 
-  function trackVscodeFolder(wc: Electron.WebContents): void {
-    const saveFolder = (navUrl: string) => {
-      try {
-        const u = new URL(navUrl);
-        const folder = u.searchParams.get("folder");
-        if (folder) setPreference("vscodeLastFolder", folder);
-      } catch {}
-    };
-    wc.on("did-navigate", (_e: unknown, url: string) => saveFolder(url));
-    wc.on("did-navigate-in-page", (_e: unknown, url: string, isMainFrame: boolean) => {
-      if (isMainFrame) saveFolder(url);
-    });
-  }
-
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
@@ -938,13 +908,7 @@ async function boot() {
   const councilPreload = path.join(__dirname, "council-preload.js");
   const vibeHtml = `file://${path.join(__dirname, "..", "renderer", "vibe.html")}`;
   const vibePreload = path.join(__dirname, "vibe-preload.js");
-  const monacoHtml = `file://${path.join(__dirname, "..", "renderer", "monaco.html")}`;
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
-  vscodeServer = new VSCodeServer();
-  // VS Code server defaults ON when a `code` binary is found on this machine,
-  // OFF otherwise. An explicit user preference always wins over the default.
-  const vscodePref = getPreference<boolean | undefined>("enableVscodeServer", undefined);
-  const enableVscode = vscodePref ?? vscodeServer.available;
   for (const app of appConnector.list()) {
     if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
@@ -957,8 +921,6 @@ async function boot() {
     } else if (app.url === "yo://vibe") {
       // webviewTag: true so the <webview id="vibe-preview"> live preview works.
       panelManager.addPanel(app.id, vibeHtml, vibePreload, undefined, true);
-    } else if (app.url === "yo://monaco") {
-      panelManager.addPanel(app.id, monacoHtml);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -967,52 +929,9 @@ async function boot() {
       const contextHtml = `file://${path.join(__dirname, "..", "renderer", "context.html")}`;
       const renderPreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(app.id, contextHtml, renderPreload);
-    } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
-      // VS Code uses local `code serve-web` for full file access
-      if (enableVscode && vscodeServer.available) {
-        panelManager.addPanel(app.id, VSCodeServer.expectedUrl());
-      } else {
-        // Show setup instructions instead of broken fallback
-        const reason = !enableVscode
-          ? "VS Code Server is disabled."
-          : "VS Code CLI not found on this machine.";
-        const infoPage = `data:text/html,${encodeURIComponent(`<html><head><style>
-          body{background:#0a0a0a;color:#999;font-family:-apple-system,system-ui,sans-serif;
-            display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-          .card{text-align:center;max-width:420px;padding:40px}
-          h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
-          p{font-size:14px;line-height:1.6;margin:8px 0}
-          .reason{color:#777;font-size:13px;margin-bottom:16px}
-          a{color:#25C75E;text-decoration:none;font-weight:500;cursor:pointer}
-          a:hover{text-decoration:underline}
-          .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
-          .steps li{padding:6px 0;font-size:13px;color:#888}
-          .steps li::before{content:"→ ";color:#25C75E}
-          code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
-            background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
-        </style></head><body><div class="card">
-          <h2>VS Code Server</h2>
-          <p class="reason">${reason}</p>
-          <ul class="steps">
-            <li>Install <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a></li>
-            <li>Run <code>Shell Command: Install 'code' in PATH</code> from the VS Code command palette</li>
-            <li>Enable <strong>VS Code Server</strong> in <a href="yo://open-settings">Settings</a></li>
-            <li>Restart the app</li>
-          </ul>
-        </div></body></html>`)}`;
-        panelManager.addPanel(app.id, infoPage);
-      }
     } else {
       panelManager.addPanel(app.id, app.url!, undefined, app.forceWeb);
     }
-  }
-
-  // Start VS Code server in the background if enabled and CLI is available
-  if (enableVscode && vscodeServer.available) {
-    // The embedded editor opens the app-wide working directory.
-    vscodeServer.start(getWorkingDirectory()).catch((err) => {
-      console.log("[vscode-server] failed to start:", err.message);
-    });
   }
 
   // Note store + memory store (flat files with keyword search)
@@ -1420,8 +1339,6 @@ async function boot() {
     } else if (app.url === "yo://vibe") {
       // webviewTag: true so the <webview id="vibe-preview"> live preview works.
       panelManager.addPanel(instanceId, vibeHtml, vibePreload, undefined, true);
-    } else if (app.url === "yo://monaco") {
-      panelManager.addPanel(instanceId, monacoHtml);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
@@ -1430,39 +1347,6 @@ async function boot() {
       const contextHtml = `file://${path.join(__dirname, "..", "renderer", "context.html")}`;
       const renderPreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(instanceId, contextHtml, renderPreload);
-    } else if (app.url === "yo://vscode" || app.url === "https://vscode.dev") {
-      if (enableVscode && vscodeServer.available) {
-        panelManager.addPanel(instanceId, VSCodeServer.expectedUrl());
-      } else {
-        const reason = !enableVscode
-          ? "VS Code Server is disabled."
-          : "VS Code CLI not found on this machine.";
-        const infoPage = `data:text/html,${encodeURIComponent(`<html><head><style>
-          body{background:#0a0a0a;color:#999;font-family:-apple-system,system-ui,sans-serif;
-            display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-          .card{text-align:center;max-width:420px;padding:40px}
-          h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
-          p{font-size:14px;line-height:1.6;margin:8px 0}
-          .reason{color:#777;font-size:13px;margin-bottom:16px}
-          a{color:#25C75E;text-decoration:none;font-weight:500;cursor:pointer}
-          a:hover{text-decoration:underline}
-          .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
-          .steps li{padding:6px 0;font-size:13px;color:#888}
-          .steps li::before{content:"→ ";color:#25C75E}
-          code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
-            background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
-        </style></head><body><div class="card">
-          <h2>VS Code Server</h2>
-          <p class="reason">${reason}</p>
-          <ul class="steps">
-            <li>Install <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a></li>
-            <li>Run <code>Shell Command: Install 'code' in PATH</code> from the VS Code command palette</li>
-            <li>Enable <strong>VS Code Server</strong> in <a href="yo://open-settings">Settings</a></li>
-            <li>Restart the app</li>
-          </ul>
-        </div></body></html>`)}`;
-        panelManager.addPanel(instanceId, infoPage);
-      }
     } else {
       panelManager.addPanel(instanceId, app.url!, undefined, app.forceWeb);
     }
@@ -1931,9 +1815,6 @@ async function boot() {
       } catch { return { content: "", binary: false }; }
     });
   }
-  // .Yo Editor app (yo://files) — folder explorer + Monaco + read-only git.
-  if (!ipcMain.listenerCount("files:pick-folder")) registerFilesIpc();
-
   // Lexical code index — code_search over the working directory.
   if (!ipcMain.listenerCount("code-index:status")) {
     registerCodeIndexIpc({ getWorkingDir: getWorkingDirectory });
@@ -1948,14 +1829,8 @@ async function boot() {
           try { wc.send(ch, ...args); } catch { /* ignore */ }
         }
       },
-      onWorkingDirChange: (dir) => {
-        // Re-point the running VS Code panel at the new folder.
-        if (enableVscode && vscodeServer.available) {
-          const v = panelManager.getView("vscode");
-          if (v && !v.webContents.isDestroyed()) {
-            v.webContents.loadURL(`${VSCodeServer.expectedUrl()}/?folder=${encodeURIComponent(dir)}`);
-          }
-        }
+      onWorkingDirChange: () => {
+        // VS Code surface removed — nothing to re-point anymore.
       },
     });
   }
@@ -2001,12 +1876,6 @@ async function boot() {
         if (!slug) return null;
         return await serverGetAuthed(`/api/projects/${encodeURIComponent(slug)}/items/${encodeURIComponent(itemId)}/detail`);
       } catch { return null; }
-    });
-  }
-  if (!ipcMain.listenerCount("cypher-open-vscode")) {
-    ipcMain.on("cypher-open-vscode", (_e, filePath: string) => {
-      const { exec } = require("child_process") as typeof import("child_process");
-      exec(`code "${filePath}"`);
     });
   }
   if (!ipcMain.listenerCount("cypher-open-jammer-preview")) {
@@ -2375,10 +2244,6 @@ async function boot() {
       },
       onToolUse: (id, name, input) => {
         wc.send("yo-panel-tool-use", id, name, input);
-        // Reveal the file the agent is touching: VS Code first (via the Yo
-        // Bridge extension — no reload), Monaco .Yo Editor as the fallback.
-        const fp = fileFromToolCall(name, input);
-        if (fp) revealFileInEditor(fp);
       },
       onToolResult: (id, detail) => {
         wc.send("yo-panel-tool-result", id, detail);
@@ -2395,40 +2260,15 @@ async function boot() {
     yoAgent.abort();
   });
 
-  // Reveal a file in the active editor surface — used to mirror the agent's
-  // file activity. VS Code first (once its panel exists, via the Yo Bridge
-  // extension — no reload); otherwise the Monaco .Yo Editor if it's open.
-  // Non-intrusive: never creates or switches a panel.
-  function revealFileInEditor(fp: string): void {
-    const monacoMirror = () => {
-      if (openTabs.some((t) => resolveAppId(t) === "files")) {
-        panelManager.getView("files")?.webContents.send("files:external-open", fp);
-      }
-    };
-    if (enableVscode && vscodeServer.available && panelManager.hasPanel("vscode")) {
-      void openInVscode(fp).then((ok) => { if (!ok) monacoMirror(); });
-      return;
-    }
-    monacoMirror();
-  }
-
-  // Open a file in the .Yo Editor (from a clickable file link in the yo panel).
+  // Open a file from a yo-panel file link — defers to the OS default app.
   ipcMain.on("open-in-editor", (_e, filePath: string) => {
-    if (!mainWindow || typeof filePath !== "string" || !filePath) return;
+    if (typeof filePath !== "string" || !filePath) return;
     const resolved = path.isAbsolute(filePath) ? filePath : path.join(os.homedir(), "yo", filePath);
-    const filesApp = appConnector.get("files");
-    if (filesApp && !panelManager.hasPanel("files")) createPanelForApp("files", filesApp);
-    ensureTab("files");
-    panelManager.switchTo("files", mainWindow);
-    sendSplitState();
-    sendTabState();
-    panelManager.getView("files")?.webContents.send("files:external-open", resolved);
+    void shell.openPath(resolved);
   });
 
-  // File-open router — the files left rail (or anything else) emits a path;
-  // route it to the app that handles its type. Code/text → VS Code when the
-  // server is enabled, else the Monaco .Yo Editor. PDFs / images / media →
-  // a browser tab. Everything else → the .Yo Editor.
+  // File-open router — media open in an internal browser tab; everything else
+  // hands off to the OS default app via shell.openPath.
   const BROWSER_EXTS = new Set([
     "pdf", "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico",
     "mp4", "webm", "mov", "mp3", "wav", "htm", "html",
@@ -2440,7 +2280,6 @@ async function boot() {
       : path.join(getWorkingDirectory(), filePath);
     const ext = path.extname(resolved).slice(1).toLowerCase();
 
-    // Media → a fresh browser tab.
     if (BROWSER_EXTS.has(ext)) {
       tabBrowserCounter++;
       const id = `browse-${tabBrowserCounter}`;
@@ -2452,29 +2291,7 @@ async function boot() {
       return;
     }
 
-    // Code/text → VS Code panel when the server is enabled and available.
-    if (enableVscode && vscodeServer.available) {
-      const vscodeApp = appConnector.get("vscode");
-      if (vscodeApp) {
-        if (!panelManager.hasPanel("vscode")) createPanelForApp("vscode", vscodeApp);
-        ensureTab("vscode");
-        panelManager.switchTo("vscode", mainWindow);
-        sendSplitState();
-        sendTabState();
-        // Open the exact file via the Yo Bridge extension (no reload).
-        void openInVscode(resolved);
-        return;
-      }
-    }
-
-    // Fallback → the Monaco .Yo Editor.
-    const filesApp = appConnector.get("files");
-    if (filesApp && !panelManager.hasPanel("files")) createPanelForApp("files", filesApp);
-    ensureTab("files");
-    panelManager.switchTo("files", mainWindow);
-    sendSplitState();
-    sendTabState();
-    panelManager.getView("files")?.webContents.send("files:external-open", resolved);
+    void shell.openPath(resolved);
   });
 
   // Left-rail nav → open the home panel (Settings/Dashboard/Apps/…) at a given
@@ -2685,8 +2502,8 @@ async function boot() {
 
   registerSkillsIpc({
     skillEngine, mcpManager, appConnector, skillScheduler, canCreateSkill, listBuiltinYoTools,
-    // Route the skill's SKILL.md through the same file-open path used by file
-    // links: VS Code (Yo Bridge) when enabled, else the Monaco .Yo Editor.
+    // Route the skill's SKILL.md through the shared file-open path
+    // (media → browser tab, everything else → OS default app).
     openSkillPath: (absPath: string) => { ipcMain.emit("file-open", null as never, absPath); },
   });
 
@@ -2934,11 +2751,6 @@ async function boot() {
 
   ipcMain.on("cw:agent:send", (e, agentName: string, message: string) => {
     agentRunner.sendMessage(e.sender.id, agentName, message);
-  });
-
-  ipcMain.handle("cw:vscode-url", () => {
-    if (vscodeServer?.available) return VSCodeServer.expectedUrl();
-    return null;
   });
 
   // ── Cypher binding (workspace slug → cypher id) ──────────
@@ -3231,7 +3043,6 @@ function cleanupAll() {
   terminalManager?.killAll();
   wazManager?.closeAll();
   // agentRunner instances are aborted when their webContents are destroyed
-  vscodeServer?.stop();
   mcpExpose?.stop();
   inboxRouter?.stop();
   mcpManager?.disconnectAll();

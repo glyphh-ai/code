@@ -29,13 +29,10 @@ const QUERIES: Array<{ q: string; answerFiles: string[] }> = [
   { q: "where are browser view panel bounds computed with the left inset", answerFiles: ["panel-manager.ts"] },
   { q: "how does the file-open router pick which app opens a file by extension", answerFiles: ["main.ts"] },
   { q: "where does the path gate enforce the trust boundary on tool calls", answerFiles: ["path-gate.ts"] },
-  { q: "how does the bridge extension open a file in VS Code without a reload", answerFiles: ["vscode-bridge.ts"] },
   { q: "where is the claude agent SDK cwd set to the working directory", answerFiles: ["yo-agent.ts"] },
   { q: "how are text embeddings produced with the ONNX model", answerFiles: ["embedder-worker.ts"] },
   { q: "where does the panel slide animation move the old view out", answerFiles: ["panel-manager.ts"] },
   { q: "how does run_command restrict shell commands to an allowlist", answerFiles: ["tools.ts"] },
-  { q: "where is the VS Code server spawned with serve-web", answerFiles: ["vscode-server.ts"] },
-  { q: "how does creating a new file or folder work over IPC", answerFiles: ["files-ipc.ts"] },
 ];
 
 /** Model the grep+read loop: a keyword grep, then Read the top matching files

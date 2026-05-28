@@ -1031,8 +1031,8 @@ const BUILTIN_TOOLS: ToolDef[] = [
         if (subCmd && destructive.has(subCmd)) return `Destructive git command not allowed: git ${subCmd}`;
       }
       // Default to the app-wide working directory so the yo agent's shell
-      // commands run where the .Yo Editor / cypher repo lives — falling back
-      // to ~ only when no working directory is set.
+      // commands run where the project lives — falling back to ~ only when
+      // no working directory is set.
       const base = getWorkingDirectory() || os.homedir();
       let cwd = (input.cwd as string) || base;
       if (!path.isAbsolute(cwd)) cwd = path.join(base, cwd);
@@ -1800,7 +1800,7 @@ export async function executeTool(name: string, input: Record<string, unknown>):
   if (!PATH_GATE_EXEMPT.has(name)) {
     const { checkToolCall } = await import("./path-gate.js");
     // The solo yo agent may also operate on the app-wide working directory —
-    // that's the folder the user pointed it at (.Yo Editor / project repo).
+    // that's the folder the user pointed it at (project repo).
     const wd = getWorkingDirectory();
     const violation = checkToolCall(input, wd ? { extraRoots: [wd] } : {});
     if (violation) {

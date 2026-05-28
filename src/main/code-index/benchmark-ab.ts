@@ -24,11 +24,8 @@ const TASKS: Array<{ task: string; answerFile: string }> = [
   { task: "Find where BrowserView panel bounds are computed with the left-rail inset.", answerFile: "panel-manager.ts" },
   { task: "Find the file-open router that picks which app opens a file by its extension.", answerFile: "main.ts" },
   { task: "Find where the path-gate enforces the trust boundary on tool calls.", answerFile: "path-gate.ts" },
-  { task: "Find how the app opens a file in VS Code without reloading the editor.", answerFile: "vscode-bridge.ts" },
   { task: "Find where the Claude agent SDK's cwd is set to the working directory.", answerFile: "yo-agent.ts" },
   { task: "Find how the run_command tool restricts shell commands to an allowlist.", answerFile: "tools.ts" },
-  { task: "Find where the VS Code server is spawned with serve-web.", answerFile: "vscode-server.ts" },
-  { task: "Find how creating a new file or folder works over IPC.", answerFile: "files-ipc.ts" },
 ];
 
 function codeSearchMcp(sdk: any): any {

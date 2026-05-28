@@ -16,10 +16,7 @@ interface AppsIpcDeps {
   PICKER_SCRIPT: string;
 }
 
-// `vscode` is intentionally NOT here: it's a real, user-addable panel app
-// (it has a yo:// URL and dedicated launch handling) and must appear in the
-// "+" new-tab menu, the Layouts page, and the Apps page.
-const INTERNAL_APP_IDS = new Set(["home", "monaco", "browser", "context"]);
+const INTERNAL_APP_IDS = new Set(["home", "browser", "context"]);
 
 export function registerAppsIpc(deps: AppsIpcDeps): void {
   const {

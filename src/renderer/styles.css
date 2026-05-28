@@ -518,7 +518,6 @@ body {
    visible and clickable above it. Hide it — the bare titlebar (drag region +
    window controls, so the user can still quit) is all that remains. */
 body.account-locked #tab-bar,
-body.account-locked #files-rail-toggle,
 body.account-locked #yo-rail-toggle,
 body.account-locked #titlebar-refresh,
 body.account-locked #dl-btn-wrap {
@@ -1468,9 +1467,19 @@ body.account-locked #dl-btn-wrap {
 .skill-tree-resize.dragging {
   background: var(--accent);
 }
-.skill-code-monaco {
+.skill-code {
   flex: 1;
   min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: var(--font-mono, "SF Mono", "Menlo", monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 2;
 }
 .skill-code-tree-header {
   display: flex;
@@ -1512,8 +1521,6 @@ body.account-locked #dl-btn-wrap {
   background: var(--hover);
   color: var(--text);
 }
-.skill-code-monaco { background: #1e1e1e; }
-
 /* Skill editor right-pane tabs (Code / Preview) */
 .skill-right-tabs {
   display: flex;
@@ -5060,272 +5067,6 @@ select.settings-input {
 }
 .yo-panel.hidden { display: none !important; }
 
-/* ── Files left rail ──────────────────────────────────────── */
-
-.files-rail-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 22px;
-  margin: 0 4px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 5px;
-  color: var(--text-2);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-.files-rail-toggle:hover { background: var(--surface-2); color: var(--text); }
-.files-rail-toggle.active { color: var(--accent); }
-
-.files-rail {
-  position: fixed;
-  top: 38px;
-  left: 0;
-  bottom: 0;
-  width: 240px;
-  background: var(--surface-2);
-  border-right: 1px solid var(--border-3);
-  display: flex;
-  flex-direction: column;
-  z-index: 60;
-  transform: translateX(-100%);
-  transition: transform 0.2s ease;
-}
-.files-rail.open { transform: translateX(0); }
-.files-rail.hidden { display: none !important; }
-
-.files-rail-resize {
-  position: absolute;
-  right: -4px;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  cursor: col-resize;
-  z-index: 1;
-}
-.files-rail-resize::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 3px;
-  height: 32px;
-  background: transparent;
-  border-radius: 2px;
-  transition: background 0.15s;
-}
-.files-rail-resize:hover::after { background: var(--border-3); }
-.files-rail-resize.dragging::after {
-  background: var(--accent);
-  height: 100%;
-  width: 2px;
-  border-radius: 0;
-}
-
-.files-rail-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.files-rail-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  height: 24px;
-  padding: 0 6px;
-  background: transparent;
-  border: none;
-  border-radius: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-2);
-  cursor: pointer;
-}
-.files-rail-title:hover { background: var(--surface); color: var(--text); }
-.files-rail-title svg { flex-shrink: 0; }
-.files-rail-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Bottom nav — app sections + Settings + Platform + Sign Out */
-.files-rail-nav {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  gap: 1px;
-}
-/* Pushes Platform + Sign Out to the bottom of the rail. */
-.files-rail-spacer { flex: 1 1 auto; min-height: 8px; }
-.files-rail-navitem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  background: transparent;
-  border: none;
-  border-radius: 5px;
-  font-size: 12.5px;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-.files-rail-navitem svg { flex-shrink: 0; color: var(--text-3); }
-.files-rail-navitem:hover { background: var(--surface); }
-.files-rail-navhead { margin-top: 4px; }
-.files-rail-navchevron {
-  margin-left: auto;
-  font-size: 9px;
-  color: var(--text-3);
-  transition: transform 0.12s;
-}
-.files-rail-navhead.open .files-rail-navchevron { transform: rotate(180deg); }
-.files-rail-navdanger { color: #d5635b; }
-.files-rail-navdanger svg { color: #d5635b; }
-.files-rail-navdanger:hover { background: rgba(213, 99, 91, 0.12); }
-.files-rail-settings-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.files-rail-settings-menu.hidden { display: none; }
-.files-rail-settings-menu .files-rail-navitem { height: 26px; font-size: 12px; }
-.files-rail-menu-divider {
-  height: 1px;
-  margin: 5px 8px;
-  background: var(--border);
-}
-
-/* Right-click context menu */
-.files-rail-ctx {
-  position: fixed;
-  z-index: 200;
-  min-width: 130px;
-  padding: 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-3);
-  border-radius: 6px;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.files-rail-ctx.hidden { display: none; }
-.files-rail-ctx button {
-  height: 26px;
-  padding: 0 10px;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  font-size: 12.5px;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-.files-rail-ctx button:hover { background: var(--surface); }
-.files-rail-ctx-sep {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
-}
-.files-rail-ctx-danger { color: #d5635b; }
-.files-rail-ctx-danger:hover { background: rgba(213, 99, 91, 0.12) !important; }
-.confirm-danger-btn {
-  background: #d5635b;
-  border-color: #d5635b;
-  color: #fff;
-}
-.confirm-danger-btn:hover { background: #c4514a; border-color: #c4514a; }
-
-/* Inline new file / folder input row */
-.files-rail-input {
-  flex: 1;
-  min-width: 0;
-  height: 18px;
-  padding: 0 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--accent);
-  border-radius: 3px;
-  font-size: 12.5px;
-  font-family: inherit;
-  color: var(--text);
-  outline: none;
-}
-.files-rail-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-3);
-  cursor: pointer;
-}
-.files-rail-btn:hover { background: var(--surface); color: var(--text); }
-
-.files-rail-tree {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0 12px;
-  font-size: 12.5px;
-  user-select: none;
-}
-.files-rail-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding-right: 8px;
-  cursor: pointer;
-  white-space: nowrap;
-  color: var(--text);
-}
-.files-rail-row:hover { background: var(--surface); }
-.files-rail-row.active { background: var(--accent-soft, rgba(37,199,94,0.14)); }
-.files-rail-caret {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  flex-shrink: 0;
-  color: var(--text-3);
-  transition: transform 0.12s;
-}
-.files-rail-caret.open { transform: rotate(90deg); }
-.files-rail-caret.leaf { visibility: hidden; }
-.files-rail-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.files-rail-icon { flex-shrink: 0; color: var(--text-3); }
-.files-rail-empty {
-  padding: 16px 12px;
-  font-size: 12px;
-  color: var(--text-3);
-  line-height: 1.5;
-}
-
-
 
 .yo-panel-header {
   display: flex;
@@ -6066,7 +5807,7 @@ select.settings-input {
   flex-shrink: 0;
 }
 
-/* File label that opens the file in the .Yo Editor on click */
+/* File label that opens the file in the OS default app on click */
 .yo-result-file.yo-file-link {
   cursor: pointer;
   text-decoration: underline;
@@ -7261,7 +7002,7 @@ select.settings-input {
 
 /* ── Tree: skill folders → files ── */
 .skill-tree-empty { padding: 16px 10px; color: var(--ws-text-faint); font-size: 12.5px; }
-.skill-tree-folder.hidden, .skill-tree-files.hidden, .skill-monaco.hidden, .skill-md-render.hidden,
+.skill-tree-folder.hidden, .skill-tree-files.hidden, .skill-code.hidden, .skill-md-render.hidden,
 .skill-run-pane.hidden, .skill-run-preview.hidden, .skill-form-error.hidden { display: none; }
 
 .skill-tree-folder-row, .skill-tree-file {
@@ -7316,7 +7057,6 @@ select.settings-input {
 .skill-icon-btn.active { color: var(--ws-accent); border-color: var(--ws-accent); }
 .skill-icon-btn svg { width: 15px; height: 15px; }
 
-.skill-monaco { min-height: 0; }
 .skill-md-render { overflow: auto; padding: 20px var(--skill-gut); color: var(--ws-text); font-size: 14px; line-height: 1.65; }
 
 /* create form */

@@ -117,7 +117,7 @@ export function registerSkillsIpc(deps: SkillsIpcDeps): void {
     skillEngine.writeSkillFile(name, rel, content),
   );
   ipcMain.handle("skills-delete-file", (_e, name: string, rel: string) => skillEngine.deleteSkillFile(name, rel));
-  // Open a skill's folder (falls back to its SKILL.md) in VS Code / the editor.
+  // Open a skill's SKILL.md via the shared file-open path (OS default app).
   ipcMain.handle("skills-open-in-editor", (_e, name: string) => {
     const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
     if (!safe) return false;
@@ -135,7 +135,7 @@ export function registerSkillsIpc(deps: SkillsIpcDeps): void {
     if (!safe || !safeRel) return "";
     return pathToFileURL(path.join(skillEngine.getSkillsDir(), safe, safeRel)).href;
   });
-  // Open a specific file within a skill's folder in VS Code / the editor.
+  // Open a specific file within a skill's folder via the OS default app.
   ipcMain.handle("skills-open-file-in-editor", (_e, name: string, rel: string) => {
     const safe = (name || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
     const safeRel = (rel || "").replace(/\.\.(\/|\\|$)/g, "").replace(/^[/\\]+/, "");
