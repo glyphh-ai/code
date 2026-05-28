@@ -80,10 +80,7 @@ interface LegacyLayout {
 // ── Constants ───────────────────────────────────────────────
 
 const LAYOUTS_FILE = path.join(os.homedir(), "yo", ".layouts");
-// 38px titlebar content + 4px surface-2 sliver border-bottom = 42px chrome
-// above every panel. Keep in sync with the same calc in panel-manager.ts and
-// the #panel-container height + #titlebar border-bottom in styles.css.
-const TITLEBAR_HEIGHT = 42;
+const TITLEBAR_HEIGHT = 38;
 const SPLIT_GAP = 8;
 const CELL_URL_HEIGHT = 22;
 

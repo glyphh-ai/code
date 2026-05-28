@@ -635,10 +635,7 @@ body.account-locked #dl-btn-wrap {
   align-items: center;
   padding: 0 12px;
   background: var(--surface);
-  /* Thin rail-color sliver between the tab strip and the app content area
-     so the active tab (also surface-2) flows into the workspace without a
-     dark divider line. Replaces the previous 1px var(--border) bottom. */
-  border-bottom: 4px solid var(--surface-2);
+  border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   gap: 6px;
 }
@@ -671,12 +668,10 @@ body.account-locked #dl-btn-wrap {
 
 .url-bar {
   position: fixed;
-  top: 42px;
+  top: 38px;
   left: var(--left-inset, 0px);
   right: var(--right-inset, 0px);
   height: 34px;
-  /* Matches the titlebar sliver + rail + active tab so the chrome strip
-     between the tab row and the workspace reads as one continuous band. */
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -4232,8 +4227,7 @@ ol.docs-list li::before {
 /* ── Panel container ─────────────────────────────────────── */
 
 #panel-container {
-  /* 38px titlebar + 4px sliver border = 42px chrome above the workspace. */
-  height: calc(100vh - 42px);
+  height: calc(100vh - 38px);
   background: var(--bg);
   position: relative;
 }
