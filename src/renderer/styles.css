@@ -670,13 +670,15 @@ body.account-locked #dl-btn-wrap {
   top: 38px;
   left: var(--left-inset, 0px);
   right: var(--right-inset, 0px);
-  height: 34px;
+  /* Snug to the children — no top/bottom padding gap. */
+  height: 28px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  /* No horizontal padding either — buttons + input run edge-to-edge. */
+  padding: 0;
   z-index: 50;
   transition: right 0.2s ease;
   -webkit-app-region: no-drag;
@@ -832,6 +834,10 @@ body.account-locked #dl-btn-wrap {
   overflow-y: hidden;
   -webkit-app-region: drag;
   scrollbar-width: none;
+  /* When the left rail is open, push the first tab right so it lines up
+     with the rail's right edge. 172px ≈ titlebar padding (16) + window
+     controls (52) + .Yo label + toggle + intervening gaps and margins. */
+  padding-left: max(0px, calc(var(--left-inset, 0px) - 172px));
 }
 
 #tab-bar .tab,
