@@ -24,7 +24,9 @@
     line-height: 1.5;
     overflow-y: auto;
     overflow-x: hidden;
-    background: var(--bg);
+    /* Match the chrome (rail + active tab + titlebar sliver) so the
+       page reads as a continuation of the top strip, not a dark gap. */
+    background: var(--surface-2);
     color: var(--text);
     font-family: var(--font-sans);
   }
