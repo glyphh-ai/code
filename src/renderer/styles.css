@@ -5675,12 +5675,14 @@ select.settings-input {
 }
 /* Brand logo + ".Sup <name>" sit inside the panel title. */
 .yo-brand-logo {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
   object-fit: contain;
   flex-shrink: 0;
   display: inline-block;
+  background: var(--white);
+  padding: 2px;
 }
 .yo-brand-logo[src=""],
 .yo-brand-logo:not([src]) { display: none; }

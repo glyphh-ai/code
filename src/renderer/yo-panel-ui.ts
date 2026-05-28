@@ -1538,9 +1538,19 @@ async function openYoPanel(query: string) {
       document.body.style.setProperty("--right-inset", `${savedWidth}px`);
       window.yo.yoPanelResize(savedWidth);
     }
-    const titleEl = document.querySelector(".yo-panel-title");
-    if (titleEl && account?.firstName) {
-      titleEl.innerHTML = `<span class="yo-dot">.</span>Yo <span class="yo-dot">.</span>Sup ${account.firstName}`;
+    // Update the brand chrome's name span without clobbering the new
+    // <brand-logo> .Sup <name> structure. paintBrand() already sets the
+    // logo from the active model — we just want to refresh the name now
+    // that the account first-name is in hand.
+    if (account?.firstName) {
+      yoAccountFirstName = account.firstName;
+      const nameEl = document.getElementById("yo-brand-name");
+      if (nameEl) nameEl.textContent = account.firstName;
+      const logoEl = document.getElementById("yo-brand-logo") as HTMLImageElement | null;
+      if (logoEl && (!logoEl.src || logoEl.style.display === "none")) {
+        const url = logoUrlFor(brandForModel(currentChatModel));
+        if (url) { logoEl.src = url; logoEl.style.display = ""; }
+      }
     }
   } catch { /* panel is already open — personalization is best-effort */ }
 }
