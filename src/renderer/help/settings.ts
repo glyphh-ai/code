@@ -9,13 +9,8 @@ const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonEl
 const settingsStatus = document.getElementById("settings-status")!;
 
 const toggleVoiceInput = document.getElementById("toggle-voice-input") as HTMLInputElement;
-const toggleRemote = document.getElementById("toggle-remote") as HTMLInputElement;
 const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
-const offerUsageStatus = document.getElementById("offer-usage-status")!;
-const offerUsageClientId = document.getElementById("offer-usage-client-id")!;
-const offerUsageTier = document.getElementById("offer-usage-tier")!;
-const offerUsageProviders = document.getElementById("offer-usage-providers")!;
 const mcpExposeStatus = document.getElementById("mcp-expose-status")!;
 const mcpExposePort = document.getElementById("mcp-expose-port") as HTMLInputElement;
 const mcpExposeTokensEl = document.getElementById("mcp-expose-tokens")!;
@@ -24,16 +19,6 @@ const settingsBrowserHome = document.getElementById("settings-browser-home") as 
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
-
-// Sign Out lives in Settings → General (relocated from the left rail).
-const settingsSignOutBtn = document.getElementById("settings-sign-out") as HTMLButtonElement | null;
-if (settingsSignOutBtn) {
-  settingsSignOutBtn.addEventListener("click", () => {
-    if (confirm("Sign out of yo on this device?")) {
-      void window.yo.logout();
-    }
-  });
-}
 
 // ── Settings → Agent Defaults ────────────────────────────
 // Seed values for new agents created in the Agents app.
@@ -88,17 +73,6 @@ if (settingsSignOutBtn) {
   });
 })();
 
-
-async function refreshOfferUsageStatus() {
-  const s = await window.yo.capabilitiesGetStatus();
-  offerUsageStatus.classList.toggle("hidden", !s.enabled);
-  if (!s.enabled) return;
-  offerUsageClientId.textContent = s.client_id || "—";
-  offerUsageTier.textContent = s.derived_tier || "pending — waiting for server…";
-  const report = s.report as { llm?: { providers?: Array<{ id: string }> } } | null;
-  const providers = report?.llm?.providers?.map((p) => p.id).filter(Boolean) ?? [];
-  offerUsageProviders.textContent = providers.length ? providers.join(", ") : "none detected";
-}
 
 async function refreshMcpExposeStatus() {
   const status = await window.yo.mcpExposeStatus();
@@ -455,10 +429,6 @@ function initSettings() {
     if (micBtn) micBtn.style.display = toggleVoiceInput.checked ? "" : "none";
   });
 
-  toggleRemote.addEventListener("change", () => {
-    window.yo.setPreference("remoteEnabled", toggleRemote.checked);
-  });
-
   toggleAutoUpdate.addEventListener("change", () => {
     window.yo.setPreference("autoUpdate", toggleAutoUpdate.checked);
     showRelaunch();
@@ -790,9 +760,7 @@ async function loadSettings() {
   // Load toggle states
   toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;
-  toggleRemote.checked = await window.yo.getPreference("remoteEnabled", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
-  await refreshOfferUsageStatus();
 
   const mcpSectionWrap = document.getElementById("mcp-section-wrap")!;
   const mcpProGate = document.getElementById("mcp-pro-gate")!;

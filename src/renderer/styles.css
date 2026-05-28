@@ -7254,6 +7254,15 @@ select.settings-input {
 /* The explorer is edge-to-edge: drop #help-content's padding while Skills is
    open so the tree/content toolbars sit flush (no negative-margin clipping). */
 #help-content:has(.help-section[data-section="skills"].active) { padding: 0; }
+
+/* Docs and About both render wide long-form content (policy text, command
+   tables, etc.). #help-content's 32px 40px padding leaves a visible right
+   gap with the vertical scrollbar floating in it. Drop the right padding
+   so content + scrollbar sit flush at the right edge of the page. */
+#help-content:has(.help-section[data-section="docs"].active),
+#help-content:has(.help-section[data-section="settings"].active .settings-panel[data-sub="about"].active) {
+  padding-right: 0;
+}
 .skills-explorer-host { flex: 1; min-height: 0; display: flex; }
 .skills.skills-explorer { flex: 1; min-height: 0; }
 
