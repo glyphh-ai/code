@@ -743,7 +743,7 @@ export class PanelManager {
     this.activePanel = id;
 
     const [w, h] = parent.getContentSize();
-    const yTop = 38 + this._topInset;
+    const yTop = 42 + this._topInset;
     const finalBounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
 
     // While hidden (onboarding/splash overlay) or locked (trial expired/disabled),
@@ -781,7 +781,7 @@ export class PanelManager {
         // Recompute bounds — rightInset may have changed during animation
         // (e.g. yo panel opened while slide was running)
         const [cw, ch] = parent.getContentSize();
-        const cy = 38 + this._topInset;
+        const cy = 42 + this._topInset;
         view.setBounds({ x: this._leftInset, y: cy, width: cw - this._rightInset - this._leftInset, height: ch - cy });
         view.setAutoResize({ width: true, height: true });
         view.webContents.focus();
@@ -906,7 +906,7 @@ export class PanelManager {
   resizeViews(parent: BrowserWindow): void {
     if (parent.isDestroyed() || this._hidden) return;
     const [w, h] = parent.getContentSize();
-    const yTop = 38 + this._topInset;
+    const yTop = 42 + this._topInset;
     const bounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
     for (const bv of parent.getBrowserViews()) {
       bv.setBounds(bounds);

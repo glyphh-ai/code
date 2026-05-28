@@ -634,7 +634,13 @@ body.account-locked #dl-btn-wrap {
   align-items: center;
   padding: 0 12px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  /* 4px rail-color band between the tab strip and the workspace below.
+     Content-box (the * reset no longer sets box-sizing: border-box) means
+     this border ADDS to the outer height — total titlebar = 42px. Keep
+     all offsets dependent on titlebar height in sync (url-bar top,
+     panel-container height, panel-manager yTop, layout-manager
+     TITLEBAR_HEIGHT). */
+  border-bottom: 4px solid var(--surface-2);
   -webkit-app-region: drag;
   gap: 6px;
 }
@@ -667,7 +673,7 @@ body.account-locked #dl-btn-wrap {
 
 .url-bar {
   position: fixed;
-  top: 38px;
+  top: 42px;
   left: var(--left-inset, 0px);
   right: var(--right-inset, 0px);
   height: 34px;
@@ -825,7 +831,7 @@ body.account-locked #dl-btn-wrap {
 #tab-bar {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 4px;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -4225,7 +4231,8 @@ ol.docs-list li::before {
 /* ── Panel container ─────────────────────────────────────── */
 
 #panel-container {
-  height: calc(100vh - 38px);
+  /* 38px titlebar content + 4px surface-2 sliver border-bottom = 42px chrome */
+  height: calc(100vh - 42px);
   background: var(--bg);
   position: relative;
 }

@@ -80,7 +80,11 @@ interface LegacyLayout {
 // ── Constants ───────────────────────────────────────────────
 
 const LAYOUTS_FILE = path.join(os.homedir(), "yo", ".layouts");
-const TITLEBAR_HEIGHT = 38;
+// 38px titlebar content + 4px surface-2 sliver border-bottom = 42px chrome.
+// Keep in sync with #titlebar (styles.css), panel-manager.yTop, and the
+// #panel-container height calc. The * reset uses content-box (no
+// box-sizing: border-box) so the border ADDS to the outer height.
+const TITLEBAR_HEIGHT = 42;
 const SPLIT_GAP = 8;
 const CELL_URL_HEIGHT = 22;
 
