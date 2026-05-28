@@ -18,7 +18,6 @@ const settingsTimezone = document.getElementById("settings-timezone") as HTMLSel
 const settingsBrowserHome = document.getElementById("settings-browser-home") as HTMLSelectElement;
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
-const settingsAgentMode = document.getElementById("settings-agent-mode") as HTMLSelectElement;
 
 // ── Settings → Agent Defaults ────────────────────────────
 // Seed values for new agents created in the Agents app.
@@ -643,15 +642,6 @@ function initSettings() {
     setInterval(refreshRelayStatus, 3_000);
   })();
 
-  // Agent mode
-  settingsAgentMode.addEventListener("change", () => {
-    window.yo.setAgentMode(settingsAgentMode.value);
-    // Sync the yo panel dropdown too
-    const yoModeEl = document.getElementById("yo-mode-select") as HTMLSelectElement;
-    if (yoModeEl) yoModeEl.value = settingsAgentMode.value;
-  });
-
-
   toggleShowUrlBar.addEventListener("change", () => {
     const show = toggleShowUrlBar.checked;
     window.yo.urlBarToggle(show);
@@ -770,11 +760,6 @@ async function loadSettings() {
   mcpExposePort.value = String(await window.yo.getPreference("mcpExposePort", 7860));
   await refreshMcpExposeStatus();
   await renderMcpTokens();
-
-  // Agent permission mode (the swarm overlay is controlled elsewhere).
-  const currentMode = await window.yo.getAgentMode();
-  settingsAgentMode.value = currentMode.perm;
-
 
   // Timezone dropdown
   const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;

@@ -65,7 +65,6 @@
           <button class="help-nav-item has-sub" data-section="settings">Settings</button>
           <div class="help-nav-sub">
             <button class="help-nav-sub-item" data-section="settings" data-sub="general">General</button>
-            <button class="help-nav-sub-item" data-section="settings" data-sub="agent">Agent</button>
             <button class="help-nav-sub-item" data-section="settings" data-sub="appearance">Appearance</button>
             <button class="help-nav-sub-item" data-section="settings" data-sub="account">Account</button>
             <button class="help-nav-sub-item" data-section="settings" data-sub="mcp">MCP Server</button>
@@ -1425,7 +1424,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
           <div class="settings-layout">
             <nav class="settings-nav">
               <button class="settings-nav-item active" data-sub="general">General</button>
-              <button class="settings-nav-item" data-sub="agent">Agent</button>
               <button class="settings-nav-item" data-sub="agent-defaults">Agent Defaults</button>
               <button class="settings-nav-item" data-sub="providers">Providers</button>
               <button class="settings-nav-item" data-sub="appearance">Appearance</button>
@@ -1483,25 +1481,6 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <button id="settings-save" class="action-btn primary">Save</button>
                   <span id="settings-status"></span>
                 </div>
-              </div>
-
-              <!-- Agent: Mode, Tool Permissions -->
-              <div class="settings-panel" data-sub="agent">
-                <h2>Agent</h2>
-                <p class="section-desc">Configure the .yo agent behavior.</p>
-                <div class="settings-form">
-                  <label class="settings-label">Permission Mode</label>
-                  <div class="settings-inline">
-                    <select id="settings-agent-mode" class="settings-input settings-input-md">
-                      <option value="default">Default</option>
-                      <option value="plan">Plan</option>
-                      <option value="acceptEdits">Accept Edits</option>
-                      <option value="bypassPermissions">Bypass Permissions</option>
-                    </select>
-                    <span class="settings-hint">default = ask for everything, plan = preview first, acceptEdits = auto-approve edits, bypass = full trust</span>
-                  </div>
-                </div>
-
               </div>
 
               <!-- Agent Defaults: seed values for new agents created in the Agents app -->
