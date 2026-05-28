@@ -5674,11 +5674,10 @@ select.settings-input {
   color: var(--accent);
 }
 /* Brand logo + ".Sup <name>" sit inside the panel title. Favicons are
-   pre-designed marks — no padding/background, let them render as-is. */
+   pre-designed square marks — no border-radius, no padding, no background. */
 .yo-brand-logo {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
   object-fit: contain;
   flex-shrink: 0;
   display: inline-block;
