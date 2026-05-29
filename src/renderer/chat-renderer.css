@@ -50,6 +50,39 @@
   align-self: stretch;
 }
 
+/* Queued user message — typed while the agent was busy, not yet sent. Dimmed
+   + dashed so it reads as "the agent hasn't seen this yet"; a delete X lets
+   the user pull it back before it's sent. Promoted to a normal bubble on send. */
+.yo-chat .interactive-item-container.yo-pending-turn {
+  position: relative;
+  opacity: 0.6;
+}
+.yo-chat .yo-pending-turn .value {
+  border-style: dashed;
+}
+.yo-chat .yo-pending-del {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+  background: var(--surface-3);
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.yo-chat .yo-pending-del:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
 /* ── Rendered markdown ────────────────────────────────────────────────────── */
 .yo-chat .value .rendered-markdown { line-height: 1.5; }
 .yo-chat .value .rendered-markdown > :first-child { margin-top: 0; }

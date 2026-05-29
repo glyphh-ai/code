@@ -122,6 +122,18 @@ export class ChatRenderer {
     this.current = null;
   }
 
+  /** Close the active turn *without* ending the working state. Used at an
+   *  interaction boundary (ask / approval just resolved): a marker row gets
+   *  appended to the bottom of the flow, so the pre-interaction turn now sits
+   *  ABOVE it. If we kept that turn current, resumed tokens would grow it
+   *  upward (content appears "up the page" while the spinner stays pinned at
+   *  the bottom). Sealing forces the next streamed text/tool into a fresh turn
+   *  appended below the marker. The spinner keeps running. */
+  sealCurrentTurn(): void {
+    if (this.current) this.removeThinking(this.current);
+    this.current = null;
+  }
+
   // ── Working spinner (also driven by the panel's send/stop paths) ───────────
 
   showWorking(): void {

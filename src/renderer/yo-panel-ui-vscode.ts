@@ -110,7 +110,10 @@ function prettyModelLabel(model: string): string {
 
 let yoThinking = false;
 // Messages typed while the agent is busy — sent one by one as turns finish.
-let pendingYoMessages: string[] = [];
+// Each keeps its DOM bubble so we can promote it (un-dim) when it's actually
+// sent, or remove it if the user deletes it before the agent sees it.
+interface PendingYoMessage { text: string; el: HTMLElement }
+let pendingYoMessages: PendingYoMessage[] = [];
 
 // Callback reference (set once at init)
 let _renderGridHandles: () => void;
@@ -359,6 +362,34 @@ function addYoUserMessage(text: string) {
   chat.addUserTurn(text);
 }
 
+/** A user message typed while the agent is busy. It's queued (not yet sent),
+ *  so we render it like a user bubble but dimmed + dashed with a delete X, so
+ *  it's clear the agent hasn't seen it yet. Returns the container element. */
+function addPendingUserBubble(text: string): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "interactive-item-container interactive-request yo-pending-turn";
+  const value = document.createElement("div");
+  value.className = "value";
+  value.textContent = text;
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "yo-pending-del";
+  del.title = "Remove — the agent hasn't seen this yet";
+  del.innerHTML =
+    `<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>`;
+  container.appendChild(del);
+  container.appendChild(value);
+  chat.appendRaw(container);
+  return container;
+}
+
+/** Promote a queued bubble to a normal user turn — it's being sent now, so the
+ *  agent will see it. Drops the dim/dashed treatment and the delete X. */
+function promotePendingBubble(el: HTMLElement): void {
+  el.classList.remove("yo-pending-turn");
+  el.querySelector(".yo-pending-del")?.remove();
+}
+
 // ── Swarm activity (inline) ────────────────────────────────────────────────
 // When a swarm is running, its bus events stream into the conversation as
 // lightweight rows — agent badge, who→who, kind, body.
@@ -426,6 +457,10 @@ function appendChatMarker(opts: {
   row.appendChild(icon);
   row.appendChild(text);
   chat.appendRaw(row);
+  // The marker now sits at the bottom of the flow. Seal the pre-interaction
+  // turn so the agent's resumed output starts a fresh turn BELOW the marker
+  // instead of growing the old turn upward.
+  chat.sealCurrentTurn();
 }
 
 // ── Helpers: status ────────────────────────────────────────────────────────
@@ -525,14 +560,21 @@ function sendYoPanelMessage() {
     }
   }
 
-  // Agent busy → queue the message; it shows immediately and is sent when the
-  // current turn finishes (see drainPendingYoMessages).
+  // Agent busy → queue the message. It shows immediately as a dimmed, deletable
+  // bubble (the agent hasn't seen it yet) and is sent when the current turn
+  // finishes (see drainPendingYoMessages).
   if (yoThinking) {
     hideYoWelcome();
     yoPanelInput.value = "";
     autoGrowYoInput();
-    addYoUserMessage(text);
-    pendingYoMessages.push(text);
+    const el = addPendingUserBubble(text);
+    const entry: PendingYoMessage = { text, el };
+    pendingYoMessages.push(entry);
+    el.querySelector(".yo-pending-del")?.addEventListener("click", () => {
+      const i = pendingYoMessages.indexOf(entry);
+      if (i >= 0) pendingYoMessages.splice(i, 1);
+      el.remove();
+    });
     return;
   }
 
@@ -553,10 +595,12 @@ function sendYoPanelMessage() {
 function drainPendingYoMessages() {
   if (pendingYoMessages.length === 0) return;
   const next = pendingYoMessages.shift()!;
+  // It's being sent now — the agent will see it. Un-dim the bubble.
+  promotePendingBubble(next.el);
   (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
   showYoStatus("");
   setYoThinking(true);
-  window.yo.yoPanelSend(next);
+  window.yo.yoPanelSend(next.text);
 }
 
 // ── Helpers: voice tones ───────────────────────────────────────────────────
@@ -1142,6 +1186,8 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       window.yo.yoPanelStop();
       clearYoStatus();
       setYoThinking(false);
+      // Discard queued messages — they were never sent. Remove their bubbles.
+      pendingYoMessages.forEach((m) => m.el.remove());
       pendingYoMessages = [];
       const quip = STOP_QUIPS[Math.floor(Math.random() * STOP_QUIPS.length)];
       const stopEl = document.createElement("div");
