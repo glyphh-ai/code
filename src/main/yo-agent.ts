@@ -597,18 +597,15 @@ export class YoAgent {
                     description: taskInput.prompt || taskInput.description,
                   });
                 }
-                // mcp__yo__call_agent — the saved-agent wrapper. Treat each
-                // call as a sub-agent so it surfaces in the same Workbench view.
-                if (block.name === "mcp__yo__call_agent") {
-                  const callInput = (block.input as { agent_id?: string; prompt?: string }) || {};
-                  cb.onSubAgent?.({
-                    id: block.id,
-                    kind: "spawn",
-                    source: "yo-agent",
-                    name: callInput.agent_id || "agent",
-                    description: callInput.prompt,
-                  });
-                }
+                // mcp__yo__call_agent / create_swarm surface in the Workbench
+                // Sub-Agents view too, but the panel tab + live transcript are
+                // driven by the swarm lifecycle in main.ts (runSwarm spawns a
+                // tab per roster agent keyed `swarm:<agentId>`, and the cypher
+                // bus streams each agent's activity into it). We deliberately
+                // do NOT spawn a tab here keyed by this tool_use_id — that
+                // would create an empty duplicate that never receives tokens,
+                // since the agent's work runs in the swarm process, not under
+                // this top-level tool block.
                 // ExitPlanMode — Claude Code's canonical plan-mode artifact
                 // hook. The agent calls it with { plan: "..." } when planning
                 // finishes; we route that markdown straight to .yo/plan.md so

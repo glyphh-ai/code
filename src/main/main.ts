@@ -1808,6 +1808,45 @@ async function boot() {
   // Resume capability publishing if the user had "Offer Usage" on
   void initCapabilities();
 
+  // Broadcast a sub-agent lifecycle event to every panel — any open Workbench
+  // Sub-Agents view picks it up. Single source used by the Task tool (via
+  // yoAgent.onSubAgent) AND the local swarm / call_agent path (via the bus
+  // below), so both kinds of sub-agent stream into the same panel.
+  const broadcastSubAgent = (evt: {
+    id: string;
+    kind: "spawn" | "token" | "result" | "error";
+    source?: "task" | "yo-agent";
+    name?: string;
+    description?: string;
+    text?: string;
+  }): void => {
+    for (const pwc of panelManager.getAllWebContents()) {
+      try { pwc.send("subagent:event", evt); } catch { /* noop */ }
+    }
+  };
+
+  // Render a bus event as a one-line transcript fragment for the Sub-Agents
+  // panel. Mirrors the inline feed's vocabulary (thinking / tool / status /
+  // coordination) but flattened to plain text since the panel streams a
+  // monospace transcript per agent.
+  const busEventToTranscript = (event: { kind: string; to?: string; body: string; meta?: Record<string, unknown> }): string | null => {
+    const body = (event.body || "").trim();
+    switch (event.kind) {
+      case "agent_thinking": return body ? `${body}\n` : null;
+      case "agent_tool_use": {
+        const tool = typeof event.meta?.tool_name === "string" ? event.meta.tool_name : "tool";
+        return `\n→ ${tool}${body ? ` ${body}` : ""}\n`;
+      }
+      case "status": return body ? `· ${body}\n` : null;
+      case "assign_task": return `\n⇢ assigned${event.to ? ` to ${event.to}` : ""}: ${body}\n`;
+      case "accept_task": return `✓ accepted: ${body}\n`;
+      case "complete_task": return `✓ completed: ${body}\n`;
+      case "request_review": return `⊙ review requested: ${body}\n`;
+      case "report_status": return `· ${body}\n`;
+      default: return body ? `${body}\n` : null;
+    }
+  };
+
   // Forward local swarm bus events into the yo panel as inline activity.
   // The bus is in-process — this is the single, immediate source (no server
   // round-trip, no SSE replay, no duplicates).
@@ -1836,6 +1875,21 @@ async function boot() {
     };
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("yo-panel-swarm-activity", activity);
+    }
+    // Also stream the agent's activity into the Workbench Sub-Agents panel,
+    // keyed by `swarm:<agentId>` so it lands in the tab spawned by runSwarm.
+    // This is what makes call_agent / create_swarm visible in the panel — the
+    // SDK's forwardSubagentText only covers the native Task tool.
+    if (event.from) {
+      const subId = `swarm:${event.from}`;
+      if (event.kind === "agent_result") {
+        broadcastSubAgent({ id: subId, kind: "result", text: busEventToTranscript(event) || undefined });
+      } else if (event.kind === "agent_error") {
+        broadcastSubAgent({ id: subId, kind: "error", text: event.body || undefined });
+      } else {
+        const frag = busEventToTranscript(event);
+        if (frag) broadcastSubAgent({ id: subId, kind: "token", text: frag });
+      }
     }
     // Persist into the active chat record so the thread restores in full.
     yoAgent.appendSwarmEntry("swarm", JSON.stringify(activity));
@@ -2332,9 +2386,7 @@ async function boot() {
       onSubAgent: (evt) => {
         // Broadcast to every panel so any open Workbench Sub-Agents
         // view picks it up (multiple workbenches in a layout all see it).
-        for (const pwc of panelManager.getAllWebContents()) {
-          try { pwc.send("subagent:event", evt); } catch { /* noop */ }
-        }
+        broadcastSubAgent(evt);
       },
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
@@ -2792,6 +2844,19 @@ async function boot() {
       }),
     };
     mainWindow.webContents.send("yo-panel-swarm-start", swarmStart);
+    // Spawn a Sub-Agents panel tab per roster agent, keyed `swarm:<agentId>`
+    // to match the bus activity routed in cypherBus.onPost above. This is the
+    // call_agent / create_swarm equivalent of the Task tool's spawn event.
+    for (const a of manifest.agents) {
+      const reg = library.find((r) => r.id === a.agentId);
+      broadcastSubAgent({
+        id: `swarm:${a.agentId}`,
+        kind: "spawn",
+        source: "yo-agent",
+        name: reg?.name || a.agentId,
+        description: g,
+      });
+    }
     // Persist the start marker so the thread restores with the swarm card.
     yoAgent.appendSwarmEntry("swarm-start", JSON.stringify(swarmStart));
     const res = await spawnSwarm(manifest, mainWindow.webContents);
