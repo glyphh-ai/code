@@ -41,6 +41,11 @@ export class ChatRenderer {
   // ── User + finalized turns (also used for history replay) ──────────────────
 
   addUserTurn(text: string): void {
+    // A user message closes any open assistant turn: whatever the agent says
+    // next is a reply that must appear BELOW this bubble. Without this, a stale
+    // `current` turn (sitting above the new bubble) gets reused and the reply
+    // grows upward — content appears "above the prompt."
+    this.sealCurrentTurn();
     const turn = this.makeTurn("user");
     // User input is shown verbatim (no markdown), matching the prior bubble.
     turn.value.textContent = text;
