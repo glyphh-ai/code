@@ -37,6 +37,7 @@ interface WbApi {
   gitBranches: (root: string) => Promise<{ branches: string[]; current?: string; error?: string }>;
   gitCheckout: (root: string, branch: string) => Promise<{ ok: boolean; branch?: string; error?: string }>;
   onCwdChanged: (cb: (dir: string | null) => void) => () => void;
+  onFileChanged: (cb: (absPath: string) => void) => () => void;
   listDir: (dir: string) => Promise<{ entries: FileEntry[]; error?: string }>;
   readFile: (filePath: string) => Promise<{ content: string; error?: string }>;
   gitDiff: (root: string) => Promise<{ text: string; error?: string }>;
@@ -1235,6 +1236,65 @@ async function init(): Promise<void> {
     }
     renderRails();
     saveLayout();
+  });
+
+  // ── Live file updates ──
+  // When anything writes under the cwd (commonly the agent during a spec
+  // workflow), refresh whatever views are affected:
+  //  - Monaco tabs whose path matches: re-read content, swap model
+  //  - Diff slot: re-fetch (anything in the tree might have moved)
+  //  - Files tree: invalidate loaded children of the dir containing the
+  //    changed path so the next render re-lists; lightweight repaint.
+  let filesRepaintTimer: ReturnType<typeof setTimeout> | null = null;
+  window.wb.onFileChanged(async (abs) => {
+    if (!cwd || !abs.startsWith(cwd)) return;
+    // Monaco viewer tabs — re-read any tab whose path matches.
+    for (const rail of rails) {
+      for (const slot of rail.slots) {
+        if (slot.view !== "monaco") continue;
+        const mslot = slot as MonacoSlot;
+        const tabIdx = mslot.tabs.findIndex((t) => t.path === abs);
+        if (tabIdx < 0) continue;
+        const res = await window.wb.readFile(abs);
+        const newContent = res.error ? `// error: ${res.error}` : res.content;
+        mslot.tabs[tabIdx].content = newContent;
+        // Only repaint the Monaco editor if this is the active tab — the
+        // others will pick up the new content on tab switch via setModel.
+        if (tabIdx === mslot.activeIdx) {
+          const slotEl = document.querySelector<HTMLElement>(`.ws-rail-slot[data-slot-id="${mslot.id}"]`);
+          const host = slotEl?.querySelector<HTMLElement>(".ws-monaco-host");
+          const existing = host && (host as unknown as { __editor?: any }).__editor;
+          if (existing) {
+            const w = window as unknown as { monaco: any };
+            existing.setModel(w.monaco.editor.createModel(newContent, languageForFile(mslot.tabs[tabIdx].name)));
+          }
+        }
+      }
+    }
+    // Files tree — invalidate the slot's cached tree so the next render
+    // re-fetches. Debounce so a burst of writes only triggers one repaint.
+    const filesAffected = rails.some((r) => r.slots.some((s) => s.view === "files"));
+    if (filesAffected) {
+      if (filesRepaintTimer) clearTimeout(filesRepaintTimer);
+      filesRepaintTimer = setTimeout(() => {
+        filesRepaintTimer = null;
+        for (const rail of rails) {
+          for (const slot of rail.slots) {
+            if (slot.view === "files") (slot as FilesSlot).root = null;
+          }
+        }
+        renderRails();
+      }, 150);
+    }
+    // Diff — if open, refresh.
+    for (const rail of rails) {
+      for (const slot of rail.slots) {
+        if (slot.view !== "diff") continue;
+        const slotEl = document.querySelector<HTMLElement>(`.ws-rail-slot[data-slot-id="${slot.id}"]`);
+        const btn = slotEl?.querySelector<HTMLButtonElement>(".ws-diff-refresh");
+        btn?.click();
+      }
+    }
   });
 }
 

@@ -21,6 +21,7 @@ interface AgentApi {
   clear: (instanceId: string) => Promise<unknown>;
   dispose: (instanceId: string) => Promise<unknown>;
   rebind: (instanceId: string, cwd: string) => Promise<unknown>;
+  askResolve: (instanceId: string, askId: string, value: string | null) => void;
   getCwd: () => Promise<string>;
   pickCwd: () => Promise<string | null>;
   setCwd: (dir: string) => Promise<string>;
@@ -272,6 +273,7 @@ async function init(): Promise<void> {
       loadChat: async () => { /* TODO */ },
       deleteChat: async () => { /* TODO */ },
       respondApproval: () => { /* TODO */ },
+      respondAsk: (askId, value) => { window.agent.askResolve(id, askId, value); },
       kindChanged: (kind) => { void window.agent.setKind(slug, kind); },
     },
   });
@@ -307,6 +309,9 @@ async function init(): Promise<void> {
   });
   window.agent.onEvent(`agent:${id}:error`, (err: unknown) => {
     renderer.showError(String(err));
+  });
+  window.agent.onEvent(`agent:${id}:ask`, (askId: unknown, question: unknown, options: unknown) => {
+    renderer.showAsk(String(askId), String(question || ""), Array.isArray(options) ? (options as Array<{ value: string; label: string; description?: string; recommended?: boolean }>) : []);
   });
 
   window.addEventListener("beforeunload", () => { void window.agent.dispose(id); });

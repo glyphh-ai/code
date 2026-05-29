@@ -22,6 +22,7 @@ interface PlanApi {
   getCwdRecents: () => Promise<string[]>;
   gitInfo: (root: string) => Promise<{ isRepo: boolean; branch?: string }>;
   onCwdChanged: (cb: (dir: string | null) => void) => () => void;
+  onFileChanged: (cb: (absPath: string) => void) => () => void;
   readFile: (path: string) => Promise<{ content: string; error?: string }>;
   writeFile: (path: string, content: string) => Promise<{ ok: boolean; error?: string }>;
   getTheme: () => Promise<string>;
@@ -266,6 +267,30 @@ async function init(): Promise<void> {
     models = {};
     void paintWorkdirBar();
     void loadActive();
+  });
+
+  // Live file updates: when the agent (or anything else) writes to the
+  // active phase's .md, re-read it silently so the user sees the change
+  // as it streams in. Skip if the user has uncommitted edits (saveState
+  // is "dirty" or "saving") to avoid clobbering their work.
+  window.plan.onFileChanged(async (abs) => {
+    if (!cwd || !editor) return;
+    if (abs !== planPath(cwd, activePhase)) return;
+    if (saveStateEl.textContent === "dirty" || saveStateEl.textContent === "saving") return;
+    const res = await window.plan.readFile(abs);
+    if (res.error) return;
+    const newText = res.content || "";
+    const m = models[activePhase];
+    if (!m) return;
+    if (m.getValue() === newText) return; // no-op when content hasn't changed
+    suppressChange = true;
+    // Preserve cursor + selection across the swap so a passive reader
+    // isn't yanked back to the top while content streams in.
+    const sel = editor.getSelections();
+    m.setValue(newText);
+    if (sel) editor.setSelections(sel);
+    suppressChange = false;
+    setSaveState("saved");
   });
 }
 

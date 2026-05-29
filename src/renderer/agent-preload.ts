@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld("agent", {
   clear: (instanceId: string) => ipcRenderer.invoke("agent:clear", instanceId),
   dispose: (instanceId: string) => ipcRenderer.invoke("agent:dispose", instanceId),
   rebind: (instanceId: string, cwd: string) => ipcRenderer.invoke("agent:rebind", instanceId, cwd),
+  /** Resolve a pending multi-choice ask. `value` is the picked option's
+   *  value, or null when the user cancelled. */
+  askResolve: (instanceId: string, askId: string, value: string | null) =>
+    ipcRenderer.send("agent:ask-resolve", instanceId, askId, value),
 
   getCwd: () => ipcRenderer.invoke("working-dir:get"),
   pickCwd: () => ipcRenderer.invoke("working-dir:pick"),

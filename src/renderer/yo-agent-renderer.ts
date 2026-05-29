@@ -42,11 +42,28 @@ export interface YoAgentCallbacks {
   listChats: () => Promise<ChatSummary[]>;
   /** Approval prompt response. */
   respondApproval: (id: string, approved: boolean) => void;
+  /** Multi-choice ask response — value is the picked option's `value`, or
+   *  null when the user cancelled. The agent engine consumes this to
+   *  decide what to do next (e.g. spec workflow advances, edits, retries,
+   *  or aborts based on a phase-approval pick). */
+  respondAsk?: (askId: string, value: string | null) => void;
   /** User picked a different workflow kind from the type dropdown. The
    *  current in-flight turn (if any) keeps its kind; the change applies
    *  from the next user message. Optional — surfaces that don't have a
    *  type dropdown leave this unset. */
   kindChanged?: (kind: AgentKind) => void;
+}
+
+export interface AskOption {
+  /** Stable id sent back to the engine on submit. */
+  value: string;
+  /** Bold row title. */
+  label: string;
+  /** Lighter row description. Optional. */
+  description?: string;
+  /** Marks the row as "Recommended" with the purple pill. Only one option
+   *  should normally carry this. */
+  recommended?: boolean;
 }
 
 export interface YoAgentRendererOptions {
@@ -92,6 +109,7 @@ const TYPE_LABELS: Record<AgentKind, string> = { standard: "standard", spec: "sp
 const MODEL_PRETTY: Record<string, string> = {
   "claude-sonnet-4-6": "Sonnet 4.6",
   "claude-opus-4-7": "Opus 4.7",
+  "claude-opus-4-8": "Opus 4.8",
   "claude-haiku-4-5": "Haiku 4.5",
   "gpt-5-codex": "GPT-5 Codex",
 };
@@ -451,6 +469,76 @@ export class YoAgentRenderer {
     el.className = "yo-msg yo-msg-error";
     el.textContent = msg || "Error.";
     this.messages.appendChild(el);
+    this.scrollToBottom();
+  }
+
+  /** Multi-choice ask card — the purple "Input required" component the
+   *  spec workflow uses between phase approvals. Also reusable for any
+   *  other multi-choice question the agent emits. The card replaces the
+   *  spinner if one is showing (since the agent is now blocked on the
+   *  user) and re-emerges below when the next turn starts. */
+  showAsk(askId: string, question: string, options: AskOption[]): void {
+    this.clearStatus(); // agent is blocked on user — drop the spinner
+    const card = document.createElement("div");
+    card.className = "yo-ask-card";
+    card.dataset.askId = askId;
+
+    // Pre-select the recommended option (or the first one) so the user
+    // can just hit Submit. Tracked in a closure so the click handlers
+    // can read + update.
+    const recommendedIdx = options.findIndex((o) => o.recommended);
+    let pickedIdx = recommendedIdx >= 0 ? recommendedIdx : 0;
+
+    card.innerHTML = `
+      <div class="yo-ask-header">
+        <svg class="yo-ask-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Input required</span>
+      </div>
+      <div class="yo-ask-question"></div>
+      <div class="yo-ask-options"></div>
+      <div class="yo-ask-actions">
+        <button type="button" class="yo-ask-btn yo-ask-cancel">Cancel</button>
+        <button type="button" class="yo-ask-btn yo-ask-submit">Submit answer</button>
+      </div>
+    `;
+    (card.querySelector(".yo-ask-question") as HTMLElement).textContent = question || "";
+    const optsEl = card.querySelector(".yo-ask-options") as HTMLElement;
+    options.forEach((opt, i) => {
+      const row = document.createElement("div");
+      row.className = "yo-ask-option" + (i === pickedIdx ? " selected" : "");
+      row.dataset.idx = String(i);
+      const badge = opt.recommended ? `<span class="yo-ask-recommended">Recommended</span>` : "";
+      row.innerHTML = `
+        <div class="yo-ask-option-head">
+          <span class="yo-ask-option-label"></span>
+          ${badge}
+        </div>
+        ${opt.description ? `<div class="yo-ask-option-desc"></div>` : ""}
+      `;
+      (row.querySelector(".yo-ask-option-label") as HTMLElement).textContent = opt.label;
+      const descEl = row.querySelector(".yo-ask-option-desc") as HTMLElement | null;
+      if (descEl && opt.description) descEl.textContent = opt.description;
+      row.addEventListener("click", () => {
+        pickedIdx = i;
+        optsEl.querySelectorAll(".yo-ask-option").forEach((el) => el.classList.remove("selected"));
+        row.classList.add("selected");
+      });
+      optsEl.appendChild(row);
+    });
+
+    const resolve = (value: string | null) => {
+      // Disable everything + visually fade so the user can't double-resolve.
+      card.classList.add("yo-ask-resolved");
+      card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      this.callbacks.respondAsk?.(askId, value);
+    };
+    card.querySelector(".yo-ask-cancel")!.addEventListener("click", () => resolve(null));
+    card.querySelector(".yo-ask-submit")!.addEventListener("click", () => {
+      const picked = options[pickedIdx];
+      resolve(picked ? picked.value : null);
+    });
+
+    this.messages.appendChild(card);
     this.scrollToBottom();
   }
 

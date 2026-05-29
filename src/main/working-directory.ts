@@ -14,6 +14,7 @@ import { ipcMain, dialog, BrowserWindow } from "electron";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
+import { watch, type FSWatcher } from "fs";
 import path from "path";
 import os from "os";
 import { getPreference, setPreference } from "./preferences";
@@ -121,6 +122,47 @@ function broadcastRecentsChanged(): void {
   broadcastToPanels("recents-changed", list);
 }
 
+// ── File watcher ─────────────────────────────────────────────
+// One recursive fs.watch on the current working directory. Fires
+// `workdir:file-changed` (absolute path) to every panel so the Plan app,
+// Workbench Files tree, open Monaco tabs, and Diff slot can refresh
+// live as the agent writes files. Debounced per-path so a single save
+// doesn't fan out to multiple broadcasts.
+let workdirWatcher: FSWatcher | null = null;
+const watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function stopWorkdirWatcher(): void {
+  if (workdirWatcher) {
+    try { workdirWatcher.close(); } catch { /* noop */ }
+    workdirWatcher = null;
+  }
+  for (const t of watcherTimers.values()) clearTimeout(t);
+  watcherTimers.clear();
+}
+function startWorkdirWatcher(dir: string): void {
+  stopWorkdirWatcher();
+  if (!dir) return;
+  try {
+    workdirWatcher = watch(dir, { recursive: true, persistent: false }, (_eventType, filename) => {
+      if (!filename) return;
+      // Skip noise that would saturate the IPC channel.
+      const f = String(filename);
+      if (f.includes("node_modules") || f.startsWith(".git/") || f.includes("/.git/")) return;
+      const abs = path.join(dir, f);
+      const prev = watcherTimers.get(abs);
+      if (prev) clearTimeout(prev);
+      watcherTimers.set(abs, setTimeout(() => {
+        watcherTimers.delete(abs);
+        broadcastToPanels("workdir:file-changed", abs);
+        getMainWindow()?.webContents.send("workdir:file-changed", abs);
+      }, 80));
+    });
+  } catch (err) {
+    // recursive isn't supported on Linux without polling — fall back silently
+    // rather than spamming console; the watcher will simply not fire.
+    console.warn("[workdir-watcher] could not watch", dir, err);
+  }
+}
+
 /** Set the working directory and notify the renderer + every panel. */
 export function setWorkingDirectory(dir: string | null): void {
   const value = dir || null;
@@ -129,6 +171,7 @@ export function setWorkingDirectory(dir: string | null): void {
   getMainWindow()?.webContents.send("working-dir-changed", value);
   broadcastToPanels("working-dir-changed", value);
   onWorkingDirChange(getWorkingDirectory());
+  startWorkdirWatcher(getWorkingDirectory());
 }
 
 export function registerWorkingDirectoryIpc(deps: {
@@ -142,6 +185,9 @@ export function registerWorkingDirectoryIpc(deps: {
   getMainWindow = deps.getMainWindow;
   broadcastToPanels = deps.broadcastToPanels;
   if (deps.onWorkingDirChange) onWorkingDirChange = deps.onWorkingDirChange;
+  // Start watching the current working dir on boot so file events flow
+  // before any explicit setWorkingDirectory call.
+  startWorkdirWatcher(getWorkingDirectory());
   if (deps.openRecent) openRecentEntry = deps.openRecent;
 
   ipcMain.handle("working-dir:get", () => getWorkingDirectory());

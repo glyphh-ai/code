@@ -23,6 +23,11 @@ contextBridge.exposeInMainWorld("wb", {
     ipcRenderer.on("working-dir-changed", handler);
     return () => { ipcRenderer.removeListener("working-dir-changed", handler); };
   },
+  onFileChanged: (cb: (absPath: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, abs: string) => cb(abs);
+    ipcRenderer.on("workdir:file-changed", handler);
+    return () => { ipcRenderer.removeListener("workdir:file-changed", handler); };
+  },
 
   // Workbench-specific: lazy file tree + file reader + diff.
   listDir: (dir: string) =>
