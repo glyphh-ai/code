@@ -584,16 +584,20 @@ export class YoAgent {
                 // message-end and would push every tool row below the text.
                 // The side effects below still read the fully-formed block
                 // input here (order-insensitive: they hit other views/files).
-                // Task tool = Claude's internal sub-agent. Surface it in the
-                // Workbench Sub-Agents view as a new tab. The result will
-                // close out the tab via "result" below.
-                if (block.name === "Task") {
-                  const taskInput = (block.input as { description?: string; prompt?: string }) || {};
+                // The SDK's internal sub-agent tool. Surface it in the Workbench
+                // Sub-Agents view as a new tab; the result closes the tab via
+                // "result" below. NOTE: the @anthropic-ai/claude-agent-sdk names
+                // this tool "Agent" (older Claude Code called it "Task") — match
+                // both so the panel actually spawns. This was the bug where the
+                // panel showed "No sub-agents running" forever: we only matched
+                // "Task" but the SDK emits "Agent".
+                if (block.name === "Agent" || block.name === "Task") {
+                  const taskInput = (block.input as { description?: string; prompt?: string; subagent_type?: string }) || {};
                   cb.onSubAgent?.({
                     id: block.id,
                     kind: "spawn",
                     source: "task",
-                    name: (taskInput.description?.slice(0, 40)) || "task",
+                    name: taskInput.subagent_type || (taskInput.description?.slice(0, 40)) || "agent",
                     description: taskInput.prompt || taskInput.description,
                   });
                 }
