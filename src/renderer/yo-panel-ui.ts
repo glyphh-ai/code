@@ -826,6 +826,16 @@ function startToolRow(id: string, name: string, input: unknown) {
   yoScroll();
 }
 
+function looksLikeMarkdown(text: string): boolean {
+  // Cheap heuristic — only switch to markdown rendering when there's clear
+  // signal. Otherwise prefer <pre> so command output keeps its whitespace.
+  return /```/.test(text)
+    || /^#+ /m.test(text)
+    || /^\* \S/m.test(text)
+    || /^- \S/m.test(text)
+    || /^\d+\. \S/m.test(text);
+}
+
 function cleanToolDetail(raw: string): string {
   let text = raw.trim();
   const stackIdx = text.indexOf("\n    at ");
@@ -872,7 +882,19 @@ function finishToolRow(id: string, detail: string) {
     if (trimmed) {
       const content = document.createElement("div");
       content.className = "yo-result-content";
-      content.textContent = trimmed;
+      // Render markdown so code fences in tool output become real <pre><code>
+      // blocks. Tool outputs that aren't markdown still degrade cleanly — the
+      // formatter passes plain text through. Wrapping non-fenced output in a
+      // <pre> preserves whitespace for things like Bash stdout.
+      if (looksLikeMarkdown(trimmed)) {
+        content.innerHTML = formatMarkdown(trimmed);
+        attachCopyHandlers(content);
+      } else {
+        const pre = document.createElement("pre");
+        pre.className = "yo-tool-output";
+        pre.textContent = trimmed;
+        content.appendChild(pre);
+      }
       block.appendChild(content);
       block.classList.add("yo-has-detail");
       // Click the stat line to expand / collapse the full output.
@@ -923,7 +945,23 @@ function clearYoStatus() {
 
 // ── Helpers: tool use/result ───────────────────────────────────────────────
 
+// SDK plumbing the user shouldn't see — deferred-tool loader + the synthetic
+// "select:Foo" lookups it spawns. These fire inside the Claude Code SDK while
+// it resolves a tool schema before the actual call, and they're noise in the
+// chat. Hide them entirely.
+const HIDDEN_TOOLS = new Set<string>(["ToolSearch"]);
+function isHiddenTool(name: string, input: unknown): boolean {
+  if (HIDDEN_TOOLS.has(name)) return true;
+  // ToolSearch invocations sometimes surface under different namespaces with a
+  // `query: "select:Foo"` shape — treat any select:* query as plumbing too.
+  const q = (input as { query?: string } | null)?.query;
+  if (typeof q === "string" && q.startsWith("select:")) return true;
+  return false;
+}
+
 function showYoToolUse(id: string, name: string, input: unknown) {
+  if (isHiddenTool(name, input)) return;
+
   yoToolsUsed = true;
 
   if (!yoStatusEl) showYoStatus("");
@@ -964,10 +1002,18 @@ function closeOpenTextBlock() {
 function appendYoToken(delta: string) {
   if (!delta) return;
   if (!yoResponseEl) {
-    clearYoStatus();
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant yo-msg-streaming";
     yoPanelMessages.appendChild(yoResponseEl);
+  }
+  // Keep the spinner pinned BELOW the streaming text so the user always sees
+  // a "still working" indicator even during long quiet stretches between
+  // token bursts. It only clears when finalizeYoMessage marks the turn done.
+  if (yoThinking) {
+    if (!yoStatusEl) showYoStatus("");
+    if (yoStatusEl && yoPanelMessages.lastElementChild !== yoStatusEl) {
+      yoPanelMessages.appendChild(yoStatusEl);
+    }
   }
   yoLastAssistantText += delta;
   yoTurnFullText += delta;

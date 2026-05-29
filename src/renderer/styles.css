@@ -6409,6 +6409,31 @@ select.settings-input {
 .yo-result-block.yo-expanded .yo-result-content {
   display: block;
 }
+/* When tool output is plain text wrapped in <pre>, normalize the inner block
+   so it inherits scrolling + width from the parent .yo-result-content host. */
+.yo-result-content .yo-tool-output {
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+/* Code fences inside tool output: actual rendered code blocks. */
+.yo-result-content pre code,
+.yo-result-content code {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+.yo-result-content pre {
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  overflow-x: auto;
+}
 
 /* ── Todo checklist ────────────────────────────── */
 .yo-todo-checklist {
