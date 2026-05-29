@@ -300,6 +300,13 @@ declare global {
       setToolOverride: (toolName: string, override: string) => void;
       onApprovalRequest: (cb: (id: string, toolName: string, toolLabel: string, input: unknown) => void) => void;
       approvalRespond: (id: string, approved: boolean) => void;
+      onYoAskRequest: (cb: (id: string, questions: Array<{
+        question: string;
+        header?: string;
+        options: Array<{ label: string; description?: string; recommended?: boolean; preview?: string }>;
+        multiSelect?: boolean;
+      }>) => void) => void;
+      respondYoAsk: (id: string, answers: Array<string | null>) => void;
       // Connectors (Pipedream Connect)
       connectorsGetApps: (search?: string, offset?: number) => Promise<{ apps: Array<{ id: string; name: string; description: string; icon?: string; categories?: string[] }>; hasMore: boolean }>;
       connectorsGetAccounts: () => Promise<Array<{ id: string; appSlug: string; appName: string; createdAt: string; healthy: boolean }>>;

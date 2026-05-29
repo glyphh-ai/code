@@ -52,6 +52,10 @@ const dynamicImport = new Function("specifier", "return import(specifier)") as
 
 export type ApprovalCallback = (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
 
+export type AskQuestionOption = { label: string; description?: string };
+export type AskQuestion = { question: string; header?: string; options: AskQuestionOption[]; multiSelect?: boolean };
+export type AskCallback = (questions: AskQuestion[]) => Promise<Array<string | null>>;
+
 export interface YoAgentCallbacks {
   onText: (delta: string) => void;
   onToolUse: (id: string, name: string, input: unknown) => void;
@@ -89,7 +93,8 @@ RULES:
 - grab_panel is EXPENSIVE (~10K tokens). Only when you need full page text.
 - For workspace arrangement use split_view, grid_layout, switch_panel.
 - For skills use create_skill, update_skill, read_skill.
-- For data stores use store_get, store_set, store_list, store_query.`;
+- For data stores use store_get, store_set, store_list, store_query.
+- For multi-choice questions to the user, ALWAYS use mcp__yo__ask_user_question — never the built-in AskUserQuestion. ours renders a proper "Input required" card with side-by-side code/markdown previews; the built-in is silently denied here. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -164,6 +169,8 @@ export class YoAgent {
     if (changed) this.sessionId = null;
   }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
+  private _askCallback: AskCallback | null = null;
+  setAskCallback(cb: AskCallback | null): void { this._askCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
   abort(): void {
@@ -191,9 +198,9 @@ export class YoAgent {
     return this.mcpServer;
   }
 
-  private buildSdkMcpTools(sdk: any): any[] {
+  private buildSdkMcpTools(_sdk: any): any[] {
     const toolSpecs = getAgentToolSpec();
-    return toolSpecs.map((spec) => ({
+    const substrateTools = toolSpecs.map((spec) => ({
       name: spec.name,
       description: spec.description,
       inputSchema: this.jsonSchemaToZod(spec.input_schema),
@@ -209,6 +216,42 @@ export class YoAgent {
         }
       },
     }));
+
+    // Custom ask tool — mirrors Claude Code's built-in AskUserQuestion shape
+    // but routes through our own renderer card (purple "Input required"). The
+    // handler blocks until the user picks; the returned content goes straight
+    // back into the model's next turn as the tool result.
+    const askTool = {
+      name: "ask_user_question",
+      description: "Ask the user a multiple-choice question and wait for their answer. Use this when you need a decision from the user that's better picked from a short list than typed out. Prefer it over plain text questions when there are clear, distinct options. The user sees a purple 'Input required' card with the question and choices; their answer comes back as the tool result.",
+      inputSchema: {
+        questions: z.array(z.object({
+          question: z.string().describe("The full question text shown to the user."),
+          header: z.string().optional().describe("Optional short tag/chip shown above the question."),
+          options: z.array(z.object({
+            label: z.string().describe("Short label shown on the option row."),
+            description: z.string().optional().describe("Subtitle explaining the option."),
+            recommended: z.boolean().optional().describe("Mark one option as the recommended default. Pre-selected on render so the user can just Submit."),
+            preview: z.string().optional().describe("Optional markdown preview shown side-by-side with the option list — use for code snippets, mockups, or layout comparisons that help the user choose."),
+          })).min(2).max(6),
+          multiSelect: z.boolean().optional().describe("Allow multiple selections (default false)."),
+        })).min(1),
+      },
+      handler: async (args: Record<string, unknown>) => {
+        const questions = (args.questions as AskQuestion[]) || [];
+        if (!this._askCallback) {
+          return { content: [{ type: "text" as const, text: "ask_user_question is not wired in this surface." }] };
+        }
+        const answers = await this._askCallback(questions);
+        // Mirror the AskUserQuestion built-in's result shape — a JSON object
+        // keyed by question text, value = the chosen option label (or null).
+        const result: Record<string, string | null> = {};
+        questions.forEach((q, i) => { result[q.question] = answers[i] ?? null; });
+        return { content: [{ type: "text" as const, text: JSON.stringify({ answers: result }, null, 2) }] };
+      },
+    };
+
+    return [...substrateTools, askTool];
   }
 
   private jsonSchemaToZod(schema: Record<string, unknown>): Record<string, any> {
@@ -646,12 +689,18 @@ export class YoAgent {
     if (this._mode === "plan") {
       const planPath = `${rightRailCwd().replace(/\/+$/, "")}/.yo/plan.md`;
       prompt += `\n\nMODE: PLAN
-You are planning, not building. Produce the plan, write it to disk, surface it briefly in chat, and stop. Two rules:
+You are planning, not building. Produce the plan, write it to disk, surface it briefly in chat, and stop.
 
-1. Save the plan to ${planPath}. Use the Write tool. Overwrite any existing file. Markdown body only — no preamble, no "here is the plan" wrapping. Sections: Context, Approach, Steps (numbered), Files, Verification.
-2. After writing, reply in chat with ONE short paragraph (3–4 sentences) summarizing the plan and end with: "Plan written to .yo/plan.md — switch to plan mode off (.yo) to proceed."
+WRITE THE PLAN TO EXACTLY THIS PATH (a single file, not a directory):
+${planPath}
 
-Do NOT call ExitPlanMode. Do NOT use the deferred plan-mode tool flow. Do NOT write to ~/.claude/plans/ — that path is wrong here. The Workbench Plan view watches ${planPath} and renders it live.`;
+Rules:
+1. Use the Write tool on the exact path above. Overwrite any existing file. Do NOT inspect the .yo/ folder first — do NOT branch into .yo/plan/plan.md or any other variant. The path above is authoritative. If a .yo/plan/ directory exists, ignore it — the canonical file lives at .yo/plan.md.
+2. The file is markdown body only — no preamble, no "here is the plan" wrapping. Sections: Context, Approach, Steps (numbered), Files, Verification.
+3. After writing, reply in chat with ONE short paragraph (3–4 sentences) summarizing the plan and end with: "Plan written to .yo/plan.md — switch off plan mode to proceed."
+4. Do NOT call ExitPlanMode. Do NOT use the deferred plan-mode tool flow. Do NOT write to ~/.claude/plans/.
+
+If you need a clarification from the user before planning, call mcp__yo__ask_user_question.`;
     }
 
     // Context recovery: when resuming a chat without a live SDK session,

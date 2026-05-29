@@ -1028,8 +1028,23 @@ async function init(): Promise<void> {
   // elsewhere in the Workbench re-reads silently when the file changes on
   // disk (e.g. the right-rail Yo agent wrote it). Matches Claude Desktop's
   // pattern — one plan doc, no phases.
+  /** Canonical plan path. Also accepts the legacy nested form
+   *  `.yo/plan/plan.md` so an agent that finds the older folder layout
+   *  isn't punished — see resolvePlanReadPath() for the read fallback. */
   function planFilePath(): string {
     return `${cwd.replace(/\/+$/, "")}/.yo/plan.md`;
+  }
+  function planFilePathNested(): string {
+    return `${cwd.replace(/\/+$/, "")}/.yo/plan/plan.md`;
+  }
+  async function resolvePlanReadPath(): Promise<string> {
+    const canonical = planFilePath();
+    const res = await window.wb.readFile(canonical);
+    if (!res.error && (res.content ?? "").length > 0) return canonical;
+    const nested = planFilePathNested();
+    const res2 = await window.wb.readFile(nested);
+    if (!res2.error && (res2.content ?? "").length > 0) return nested;
+    return canonical;
   }
   async function renderPlanIntoSlot(body: HTMLElement, slot: PlanSlot): Promise<void> {
     body.innerHTML = `
@@ -1108,13 +1123,14 @@ async function init(): Promise<void> {
       mdHost.innerHTML = formatMarkdown(m ? m.getValue() : "");
     }
 
+    let activePath = planFilePath();
     async function loadActive(): Promise<void> {
       if (!cwd) { pathEl.textContent = "Pick a working folder."; return; }
       await ensureEditor();
-      const fpath = planFilePath();
-      pathEl.textContent = fpath;
+      activePath = await resolvePlanReadPath();
+      pathEl.textContent = activePath;
       setSave("saved");
-      const res = await window.wb.readFile(fpath);
+      const res = await window.wb.readFile(activePath);
       const text = res.error ? "" : (res.content || "");
       suppressChange = true;
       const w = window as unknown as { monaco: any };
@@ -1129,7 +1145,7 @@ async function init(): Promise<void> {
       const m = editor.getModel();
       if (!m) return;
       setSave("saving");
-      const res = await window.wb.writeFile(planFilePath(), m.getValue());
+      const res = await window.wb.writeFile(activePath, m.getValue());
       setSave(res.ok ? "saved" : "error");
       if (!res.ok && res.error) saveStateEl.title = res.error;
     }
@@ -1142,9 +1158,14 @@ async function init(): Promise<void> {
     // the workdir; filter to plan.md only.
     const unsubscribeWatch = window.wb.onFileChanged(async (abs: string) => {
       if (!cwd) return;
-      if (abs !== planFilePath()) return;
+      // Accept either the canonical or legacy nested path. If the canonical
+      // file appears, switch to it; the writer (right-rail Yo) targets
+      // canonical, so a nested file is stale once canonical exists.
+      if (abs !== planFilePath() && abs !== planFilePathNested()) return;
       if (saveStateEl.classList.contains("plan-dirty")) return;
-      const res = await window.wb.readFile(planFilePath());
+      activePath = await resolvePlanReadPath();
+      pathEl.textContent = activePath;
+      const res = await window.wb.readFile(activePath);
       if (res.error) return;
       const m = editor?.getModel?.();
       if (!m) return;

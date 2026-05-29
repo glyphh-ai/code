@@ -8612,12 +8612,44 @@ select.settings-input {
   line-height: 1.35;
 }
 
+.yo-ask-body {
+  display: flex;
+  flex-direction: column;
+}
+.yo-ask-card.yo-ask-with-preview .yo-ask-body {
+  flex-direction: row;
+  align-items: stretch;
+}
 .yo-ask-options {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px 12px;
 }
+.yo-ask-card.yo-ask-with-preview .yo-ask-options {
+  flex: 0 0 42%;
+  border-right: 1px solid var(--border-2);
+}
+.yo-ask-preview {
+  flex: 1;
+  padding: 10px 12px 12px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+  overflow-x: auto;
+  max-height: 280px;
+}
+.yo-ask-preview pre {
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+}
+.yo-ask-preview code { font-family: var(--font-mono); color: var(--text); }
+.yo-ask-preview-empty { color: var(--text-faint); font-style: italic; padding: 6px 0; }
 .yo-ask-option {
   padding: 8px 10px;
   border: 1px solid var(--border-2);

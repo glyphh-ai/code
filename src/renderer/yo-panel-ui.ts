@@ -1147,9 +1147,10 @@ function showPlanActions() {
 /** Multi-choice "Input required" card — purple-bordered, matches the design
  *  used for any other question the agent surfaces (AskUserQuestion etc.).
  *  Pre-selects the recommended option so a quick Submit ships the default. */
-interface AskOption { value: string; label: string; description?: string; recommended?: boolean }
+interface AskOption { value: string; label: string; description?: string; recommended?: boolean; preview?: string }
 function showAskCard(opts: {
   question: string;
+  header?: string;
   options: AskOption[];
   onSubmit: (value: string | null) => void;
 }) {
@@ -1159,21 +1160,40 @@ function showAskCard(opts: {
 
   const recommendedIdx = opts.options.findIndex((o) => o.recommended);
   let pickedIdx = recommendedIdx >= 0 ? recommendedIdx : 0;
+  const hasPreviews = opts.options.some((o) => !!o.preview);
+  if (hasPreviews) card.classList.add("yo-ask-with-preview");
 
   card.innerHTML = `
     <div class="yo-ask-header">
       <svg class="yo-ask-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <span>Input required</span>
+      <span class="yo-ask-header-label"></span>
     </div>
     <div class="yo-ask-question"></div>
-    <div class="yo-ask-options"></div>
+    <div class="yo-ask-body">
+      <div class="yo-ask-options"></div>
+      ${hasPreviews ? `<div class="yo-ask-preview"></div>` : ""}
+    </div>
     <div class="yo-ask-actions">
       <button type="button" class="yo-ask-btn yo-ask-cancel">Cancel</button>
       <button type="button" class="yo-ask-btn yo-ask-submit">Submit answer</button>
     </div>
   `;
+  (card.querySelector(".yo-ask-header-label") as HTMLElement).textContent = opts.header || "Input required";
   (card.querySelector(".yo-ask-question") as HTMLElement).textContent = opts.question;
   const optsEl = card.querySelector(".yo-ask-options") as HTMLElement;
+  const previewEl = card.querySelector(".yo-ask-preview") as HTMLElement | null;
+
+  function paintPreview() {
+    if (!previewEl) return;
+    const opt = opts.options[pickedIdx];
+    if (opt?.preview) {
+      previewEl.innerHTML = formatMarkdown(opt.preview);
+      attachCopyHandlers(previewEl);
+    } else {
+      previewEl.innerHTML = `<div class="yo-ask-preview-empty">No preview for this option.</div>`;
+    }
+  }
+
   opts.options.forEach((opt, i) => {
     const row = document.createElement("div");
     row.className = "yo-ask-option" + (i === pickedIdx ? " selected" : "");
@@ -1192,9 +1212,11 @@ function showAskCard(opts: {
       pickedIdx = i;
       optsEl.querySelectorAll(".yo-ask-option").forEach((el) => el.classList.remove("selected"));
       row.classList.add("selected");
+      paintPreview();
     });
     optsEl.appendChild(row);
   });
+  paintPreview();
 
   const resolve = (value: string | null) => {
     card.classList.add("yo-ask-resolved");
@@ -2240,6 +2262,28 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoHistorySearch?.addEventListener("input", () => applyHistoryFilter(yoHistorySearch.value));
 
   yoChatNewBtn.addEventListener("click", () => { void startNewChat(); });
+
+  // -- Ask UI (mcp__yo__ask_user_question) --
+  window.yo.onYoAskRequest((id, questions) => {
+    // Currently render one question at a time; future-proof for multi.
+    const q = questions[0];
+    if (!q) { window.yo.respondYoAsk(id, []); return; }
+    showAskCard({
+      question: q.question,
+      header: q.header,
+      options: q.options.map((o) => ({
+        value: o.label,
+        label: o.label,
+        description: o.description,
+        recommended: (o as { recommended?: boolean }).recommended,
+        preview: (o as { preview?: string }).preview,
+      })),
+      onSubmit: (value) => {
+        const answers = questions.map((qq, i) => i === 0 ? value : null);
+        window.yo.respondYoAsk(id, answers);
+      },
+    });
+  });
 
   // -- Approval UI --
   window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {

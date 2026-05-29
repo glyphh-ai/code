@@ -420,6 +420,19 @@ contextBridge.exposeInMainWorld("yo", {
   },
   approvalRespond: (id: string, approved: boolean) => ipcRenderer.send("approval-respond", id, approved),
 
+  // mcp__yo__ask_user_question — purple "Input required" card. Main fires
+  // yo-ask-request with the questions; renderer replies via yo-ask-respond
+  // with an array of selected labels (one per question, null = cancelled).
+  onYoAskRequest: (cb: (id: string, questions: Array<{
+    question: string;
+    header?: string;
+    options: Array<{ label: string; description?: string; recommended?: boolean; preview?: string }>;
+    multiSelect?: boolean;
+  }>) => void) => {
+    ipcRenderer.on("yo-ask-request", (_e, id, questions) => cb(id, questions));
+  },
+  respondYoAsk: (id: string, answers: Array<string | null>) => ipcRenderer.send("yo-ask-respond", id, answers),
+
   // URL bar
   urlBarNavigate: (url: string) => ipcRenderer.send("url-bar-navigate", url),
   urlBarBack: () => ipcRenderer.send("url-bar-back"),

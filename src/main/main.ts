@@ -2472,6 +2472,27 @@ async function boot() {
     }
   });
 
+  // ── ask_user_question — purple "Input required" card ──
+  // Mirrors approvals but for multi-choice questions. The MCP tool blocks
+  // until the user picks an option (or cancels) in the Yo panel.
+  const pendingAsks = new Map<string, (answers: Array<string | null>) => void>();
+  let askCounter = 0;
+  yoAgent.setAskCallback(async (questions) => {
+    const id = `ask-${++askCounter}`;
+    mainWindow?.webContents.send("yo-ask-request", id, questions);
+    return new Promise<Array<string | null>>((resolve) => {
+      pendingAsks.set(id, resolve);
+      // No timeout — questions can be answered whenever the user gets back.
+    });
+  });
+  ipcMain.on("yo-ask-respond", (_e, id: string, answers: Array<string | null>) => {
+    const resolve = pendingAsks.get(id);
+    if (resolve) {
+      pendingAsks.delete(id);
+      resolve(Array.isArray(answers) ? answers : []);
+    }
+  });
+
 
   // ── Extracted IPC modules ──────────────────────────────
   registerSettingsIpc({
