@@ -1156,12 +1156,16 @@ async function init(): Promise<void> {
     // External writes (the right-rail Yo writing the plan) — reload from disk
     // unless the user is actively editing (dirty buffer). The watcher is on
     // the workdir; filter to plan.md only.
+    // Accept any path that looks like the plan file. fs.watch on macOS can
+    // fire with slightly normalized paths (resolved symlinks, trailing
+    // segments) so a strict equality check sometimes misses — endsWith is
+    // robust and the only plan files we care about are these two.
+    function isPlanPath(abs: string): boolean {
+      return abs.endsWith("/.yo/plan.md") || abs.endsWith("/.yo/plan/plan.md");
+    }
     const unsubscribeWatch = window.wb.onFileChanged(async (abs: string) => {
       if (!cwd) return;
-      // Accept either the canonical or legacy nested path. If the canonical
-      // file appears, switch to it; the writer (right-rail Yo) targets
-      // canonical, so a nested file is stale once canonical exists.
-      if (abs !== planFilePath() && abs !== planFilePathNested()) return;
+      if (!isPlanPath(abs)) return;
       if (saveStateEl.classList.contains("plan-dirty")) return;
       activePath = await resolvePlanReadPath();
       pathEl.textContent = activePath;

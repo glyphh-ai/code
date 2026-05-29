@@ -1012,6 +1012,14 @@ function closeOpenTextBlock() {
 function appendYoToken(delta: string) {
   if (!delta) return;
   if (!yoResponseEl) {
+    // Close out the prior tool timeline so the new text bubble is at the
+    // bottom and any subsequent tool calls start a FRESH timeline below the
+    // text — instead of getting tacked onto the previous timeline, which
+    // would render them above this just-streamed text.
+    if (yoTimelineEl) {
+      yoTimelineEl.classList.add("done");
+      yoTimelineEl = null;
+    }
     yoResponseEl = document.createElement("div");
     yoResponseEl.className = "yo-msg yo-msg-assistant yo-msg-streaming";
     yoPanelMessages.appendChild(yoResponseEl);
