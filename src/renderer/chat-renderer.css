@@ -291,6 +291,18 @@
 }
 .yo-chat .chat-confirmation-widget.collapsed .chat-confirmation-widget-message { display: none; }
 
+/* Sub-agent (Agent/Task) report output rendered as markdown rather than a raw
+   monospace dump — reads like the main output stream. */
+.yo-chat .chat-tool-output-md {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.yo-chat .chat-tool-output-md > :first-child { margin-top: 0; }
+.yo-chat .chat-tool-output-md > :last-child { margin-bottom: 0; }
+
 /* ── Progress step ────────────────────────────────────────────────────────── */
 .yo-chat .progress-step {
   display: flex;

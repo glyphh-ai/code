@@ -1283,12 +1283,17 @@ async function init(): Promise<void> {
           <span class="ws-subagents-status status-${active.status}">${active.status}</span>
         </div>
         ${active.description ? `<div class="ws-subagents-desc"></div>` : ""}
-        <pre class="ws-subagents-transcript"></pre>
+        <div class="ws-subagents-transcript"></div>
       `;
       const descEl = bodyEl.querySelector(".ws-subagents-desc") as HTMLElement | null;
       if (descEl && active.description) descEl.textContent = active.description;
       const transcriptEl = bodyEl.querySelector(".ws-subagents-transcript") as HTMLElement;
-      transcriptEl.textContent = active.transcript;
+      // Render the sub-agent transcript as markdown so it reads exactly like
+      // the .Yo agent output stream (headings, lists, code, rules) instead of
+      // a raw monospace dump.
+      transcriptEl.innerHTML = active.transcript
+        ? formatMarkdown(active.transcript)
+        : `<span class="ws-subagents-waiting">Waiting for output…</span>`;
       transcriptEl.scrollTop = transcriptEl.scrollHeight;
     }
 

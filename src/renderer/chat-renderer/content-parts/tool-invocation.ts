@@ -7,6 +7,11 @@
  */
 
 import type { PartRenderer, ToolPart } from "../types.js";
+import { renderMarkdown } from "../markdown.js";
+
+/** Sub-agent tools whose Output is prose/markdown (a report), not raw data —
+ *  render it like the main output stream instead of a monospace dump. */
+const PROSE_OUTPUT_TOOLS = new Set<string>(["Agent", "Task"]);
 
 const ICON_CHECK = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 4 6.5 12 3 8.5"/></svg>`;
 const ICON_ERROR = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="9"/><line x1="8" y1="11.5" x2="8" y2="11.5"/></svg>`;
@@ -28,6 +33,18 @@ function codeBlock(text: string): HTMLElement {
   code.textContent = text;
   pre.appendChild(code);
   return pre;
+}
+
+/** Output block: markdown-rendered prose for sub-agent reports, raw code
+ *  otherwise. Keeps tool I/O (JSON, file dumps) verbatim while making an
+ *  Agent's report read like the main yo output stream. */
+function outputBlock(part: ToolPart, text: string): HTMLElement {
+  if (PROSE_OUTPUT_TOOLS.has(part.name)) {
+    const md = renderMarkdown(text);
+    md.classList.add("chat-tool-output-md");
+    return md;
+  }
+  return codeBlock(text);
 }
 
 function inputText(input: unknown): string {
@@ -62,8 +79,8 @@ function ensureBody(node: HTMLElement, part: ToolPart): void {
     if (outWrap && part.output != null && !outWrap.dataset.filled) {
       outWrap.dataset.filled = "1";
       outWrap.style.display = "";
-      outWrap.querySelector("pre")?.remove();
-      outWrap.appendChild(codeBlock(part.output));
+      outWrap.querySelector("pre, .chat-tool-output-md")?.remove();
+      outWrap.appendChild(outputBlock(part, part.output));
     }
     return;
   }
@@ -82,7 +99,7 @@ function ensureBody(node: HTMLElement, part: ToolPart): void {
   outWrap.appendChild(outTitle);
   if (part.output != null) {
     outWrap.dataset.filled = "1";
-    outWrap.appendChild(codeBlock(part.output));
+    outWrap.appendChild(outputBlock(part, part.output));
   } else {
     outWrap.style.display = "none";
   }
