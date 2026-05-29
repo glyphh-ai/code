@@ -9,6 +9,10 @@
  * Wire formats per provider:
  *   • anthropic     — POST /v1/messages          (Anthropic SSE: `event: <type>\ndata: <json>`)
  *   • openai        — POST /v1/chat/completions  (OpenAI SSE: `data: <json>` + `data: [DONE]`)
+ *                     OR  POST /v1/responses      for GPT-5 / o-series reasoning
+ *                     models, which are NOT served by chat/completions (they 404
+ *                     with "only supported in v1/responses"). Different request
+ *                     + SSE shape (`event: response.output_text.delta`).
  *   • xai           — POST /v1/chat/completions  (OpenAI-compatible)
  *   • perplexity    — POST /chat/completions     (OpenAI-compatible)
  *   • google/gemini — POST /v1beta/models/<model>:streamGenerateContent?alt=sse
@@ -53,7 +57,34 @@ export async function runByokStream(
     provider === "openai"     ? "https://api.openai.com/v1" :
     provider === "xai"        ? "https://api.x.ai/v1" :
     /* perplexity */            "https://api.perplexity.ai";
+
+  if (provider === "openai") {
+    // GPT-5 and the o-series reasoning models are served ONLY by /v1/responses.
+    if (openAINeedsResponsesApi(req.model)) {
+      return runOpenAIResponses(baseUrl, key, req, sink, signal);
+    }
+    // Otherwise prefer chat/completions, but fall back to the Responses API if
+    // OpenAI rejects the model as Responses-only. The 404 lands before any text
+    // streams (res.ok is false), so retrying is safe — nothing was emitted yet.
+    try {
+      return await runChatCompletions(provider, baseUrl, key, req, sink, signal);
+    } catch (err) {
+      if (err instanceof Error && /only supported in v1\/responses/i.test(err.message)) {
+        return runOpenAIResponses(baseUrl, key, req, sink, signal);
+      }
+      throw err;
+    }
+  }
+
   return runChatCompletions(provider, baseUrl, key, req, sink, signal);
+}
+
+/** OpenAI model families served only by the Responses API (not chat/completions):
+ *  the GPT-5 line and the o-series reasoning models (o1/o3/o4). Matched loosely
+ *  by prefix so dated/suffixed ids (gpt-5-mini, o3-2025-…, o4-mini) are covered. */
+function openAINeedsResponsesApi(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  return /^(gpt-5|o1|o3|o4)\b/.test(m) || /^(gpt-5|o1|o3|o4)-/.test(m);
 }
 
 // ── Anthropic ──────────────────────────────────────────────────────────────
@@ -187,6 +218,79 @@ async function runChatCompletions(
     if (u) {
       if (u.prompt_tokens != null) usage.input_tokens = u.prompt_tokens;
       if (u.completion_tokens != null) usage.output_tokens = u.completion_tokens;
+    }
+  }, signal);
+
+  sink.onUsage?.({ ...usage, yos_amount: 0 });
+  return fullText;
+}
+
+// ── OpenAI Responses API (GPT-5 / o-series reasoning models) ───────────────
+
+async function runOpenAIResponses(
+  baseUrl: string,
+  apiKey: string,
+  req: AdapterTurnRequest,
+  sink: AdapterTurnSink,
+  signal?: AbortSignal,
+): Promise<string> {
+  // Responses API takes `input` (not `messages`); a system message maps to a
+  // "developer" role item, and the output cap is `max_output_tokens` (which for
+  // reasoning models also covers hidden reasoning tokens).
+  const input = req.messages.map((m) => ({
+    role: m.role === "system" ? "developer" : m.role,
+    content: m.content,
+  }));
+
+  const body: Record<string, unknown> = {
+    model: req.model,
+    stream: true,
+    input,
+  };
+  if (req.maxTokens != null) body.max_output_tokens = req.maxTokens;
+
+  const res = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`openai ${res.status}: ${text.slice(0, 300)}`);
+  }
+
+  let fullText = "";
+  const usage: UsageInfo = { input_tokens: 0, output_tokens: 0 };
+
+  await consumeSSE(res.body, (frame) => {
+    if (!frame.data || frame.data === "[DONE]") return;
+    let payload: Record<string, unknown>;
+    try { payload = JSON.parse(frame.data); } catch { return; }
+    const type = (payload.type as string) || frame.event;
+    if (type === "response.output_text.delta") {
+      const delta = (payload as { delta?: string }).delta;
+      if (typeof delta === "string" && delta.length > 0) {
+        fullText += delta;
+        sink.onText?.(delta);
+      }
+    } else if (type === "response.completed" || type === "response.incomplete") {
+      const u = (payload as { response?: { usage?: { input_tokens?: number; output_tokens?: number } } }).response?.usage;
+      if (u) {
+        if (u.input_tokens != null) usage.input_tokens = u.input_tokens;
+        if (u.output_tokens != null) usage.output_tokens = u.output_tokens;
+      }
+    } else if (type === "response.failed" || type === "error" || type === "response.error") {
+      const message =
+        (payload as { response?: { error?: { message?: string } } }).response?.error?.message ||
+        (payload as { error?: { message?: string } }).error?.message ||
+        "openai responses stream error";
+      sink.onError?.(message);
+      throw new Error(`openai: ${message}`);
     }
   }, signal);
 
