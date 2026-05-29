@@ -1304,7 +1304,19 @@ async function init(): Promise<void> {
   }
 
   // ── Preview view (stub — real dev-server preview can come later) ──
+  // Normalize a user-typed address into a loadable URL (default to http://).
+  function normalizePreviewUrl(raw: string): string {
+    const u = raw.trim();
+    if (!u) return "";
+    return /^[a-z]+:\/\//i.test(u) ? u : "http://" + u;
+  }
+
   async function renderPreviewIntoSlot(body: HTMLElement, slot: PreviewSlot): Promise<void> {
+    // In-DOM <iframe> rather than a native BrowserView overlay: it lays out,
+    // clips, scrolls, and z-orders with the rest of the workbench, so there's
+    // no bounds-syncing and nothing to "fly around" during resizes/animations.
+    // (Trade-off: sites that send X-Frame-Options/CSP frame-ancestors will
+    // refuse to load — fine for the localhost dev-server case.)
     body.innerHTML = `
       <div class="ws-preview-url">
         <input class="ws-preview-input" type="text" value="" spellcheck="false" placeholder="https:// or http://localhost:..." />
@@ -1312,76 +1324,51 @@ async function init(): Promise<void> {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
       </div>
-      <div class="ws-preview-body"></div>
+      <div class="ws-preview-body">
+        <iframe class="ws-preview-frame" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" hidden></iframe>
+        <div class="ws-preview-stub">
+          <div class="ws-preview-stub-title">No preview loaded</div>
+          <div class="ws-preview-stub-sub">Enter a URL above — e.g. http://localhost:3000</div>
+        </div>
+      </div>
     `;
     const urlInput = body.querySelector(".ws-preview-input") as HTMLInputElement;
     const reloadBtn = body.querySelector(".ws-preview-reload") as HTMLButtonElement;
-    const previewBody = body.querySelector(".ws-preview-body") as HTMLElement;
+    const frame = body.querySelector(".ws-preview-frame") as HTMLIFrameElement;
+    const stub = body.querySelector(".ws-preview-stub") as HTMLElement;
     urlInput.value = slot.url || "";
 
-    const viewKey = slot.viewKey || `wb-preview-${slot.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    slot.viewKey = viewKey;
-
-    const panelId = await window.wb.getPanelId();
-    if (!panelId) return; // not running inside a real workbench panel
-
-    function pageBoundsOf(el: HTMLElement): { x: number; y: number; width: number; height: number } {
-      const r = el.getBoundingClientRect();
-      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    function load(u: string): void {
+      if (!u) {
+        frame.hidden = true;
+        frame.removeAttribute("src");
+        stub.hidden = false;
+        return;
+      }
+      stub.hidden = true;
+      frame.hidden = false;
+      frame.src = u;
     }
 
-    // Mount the BrowserView at the body's bounds. Initial URL may be empty;
-    // user types or agent fires preview_url to populate.
-    await window.wb.previewMount(viewKey, panelId, slot.url || "", pageBoundsOf(previewBody));
+    // Initial paint from persisted URL (if any).
+    if (slot.url) load(normalizePreviewUrl(slot.url));
 
-    // Keep main in sync with the slot's pixel bounds as the rails / window
-    // resize. ResizeObserver covers slot resize; window resize is debounced
-    // via a 'resize' listener.
-    const ro = new ResizeObserver(() => {
-      window.wb.previewBounds(viewKey, pageBoundsOf(previewBody));
-    });
-    ro.observe(previewBody);
-    const onWinResize = () => window.wb.previewBounds(viewKey, pageBoundsOf(previewBody));
-    window.addEventListener("resize", onWinResize);
-
-    // Reflect URL changes back into the input (user clicked a link in the
-    // preview, or the agent navigated us elsewhere).
-    const unsubscribeUrl = window.wb.onPreviewUrlChanged(viewKey, (u) => {
+    function navigate(): void {
+      const u = normalizePreviewUrl(urlInput.value);
+      if (!u) return;
       urlInput.value = u;
       slot.url = u;
       saveLayout();
-    });
-
-    function navigate(): void {
-      let u = urlInput.value.trim();
-      if (!u) return;
-      if (!/^[a-z]+:\/\//i.test(u)) u = "http://" + u;
-      slot.url = u;
-      saveLayout();
-      window.wb.previewNavigate(viewKey, u);
+      load(u);
     }
     urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") navigate(); });
     urlInput.addEventListener("blur", () => navigate());
-    reloadBtn.addEventListener("click", () => window.wb.previewReload(viewKey));
-
-    // Tear down when the slot body is replaced (next renderRails clears it).
-    // MutationObserver on the parent fires removal; for safety we also clean
-    // up via a one-shot on the body itself.
-    const cleanup = () => {
-      try { ro.disconnect(); } catch { /* */ }
-      try { window.removeEventListener("resize", onWinResize); } catch { /* */ }
-      try { unsubscribeUrl(); } catch { /* */ }
-      try { window.wb.previewClose(viewKey); } catch { /* */ }
-    };
-    // When the body element gets removed/replaced, run cleanup.
-    const mo = new MutationObserver((muts) => {
-      for (const m of muts) {
-        for (const n of Array.from(m.removedNodes)) {
-          if (n === body) { mo.disconnect(); cleanup(); return; }
-        }
-      }
+    // Cross-origin frames block contentWindow.location.reload(); re-assigning
+    // src reloads regardless of origin.
+    reloadBtn.addEventListener("click", () => {
+      const cur = frame.getAttribute("src");
+      if (cur) { frame.src = cur; }
     });
-    if (body.parentElement) mo.observe(body.parentElement, { childList: true });
   }
 
   // ── Terminal view (real xterm + pty over wb-term:* IPCs) ──
@@ -1612,17 +1599,20 @@ async function init(): Promise<void> {
       for (const slot of rail.slots) {
         if (slot.view !== "preview") continue;
         const ps = slot as PreviewSlot;
-        ps.url = url;
-        if (ps.viewKey) {
-          window.wb.previewNavigate(ps.viewKey, url);
-        } else {
-          // Slot hasn't mounted yet — store the URL; renderPreviewIntoSlot
-          // will pick it up on next paint.
-        }
-        // Reflect into the input field if visible.
+        const normalized = normalizePreviewUrl(url);
+        ps.url = normalized;
+        // Drive the iframe directly if the slot is mounted; otherwise the
+        // stored url is picked up by renderPreviewIntoSlot on next paint.
         const slotEl = document.querySelector<HTMLElement>(`.ws-rail-slot[data-slot-id="${ps.id}"]`);
         const input = slotEl?.querySelector<HTMLInputElement>(".ws-preview-input");
-        if (input) input.value = url;
+        if (input) input.value = normalized;
+        const frame = slotEl?.querySelector<HTMLIFrameElement>(".ws-preview-frame");
+        const stub = slotEl?.querySelector<HTMLElement>(".ws-preview-stub");
+        if (frame) {
+          frame.hidden = false;
+          frame.src = normalized;
+          if (stub) stub.hidden = true;
+        }
         saveLayout();
         window.wb.previewAccepted(reqId);
         return;
