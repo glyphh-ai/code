@@ -128,6 +128,22 @@ export interface ChatMessage {
   tools?: Array<{ name: string; input?: unknown }>;
 }
 
+/** Pick a short, human-readable descriptor from a tool's input so the
+ *  Sub-Agents transcript can show "Read src/foo.ts" rather than raw JSON.
+ *  Falls back to the first stringy field, then empty. */
+function briefToolArg(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const o = input as Record<string, unknown>;
+  for (const key of ["file_path", "path", "command", "pattern", "query", "url", "description", "prompt"]) {
+    const v = o[key];
+    if (typeof v === "string" && v.trim()) {
+      const s = v.trim().replace(/\s+/g, " ");
+      return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+    }
+  }
+  return "";
+}
+
 export class YoAgent {
   private chatId: string | null = null;
   private chatTitle: string = "";
@@ -463,6 +479,12 @@ export class YoAgent {
       systemPrompt: this.buildSystemPrompt(),
       abortController: this.abortController,
       includePartialMessages: true,
+      // Forward sub-agent (Task / call_agent) text + thinking as assistant/user
+      // messages tagged with parent_tool_use_id. Without this the SDK only
+      // emits the sub-agent's tool_use/tool_result blocks, so the Workbench
+      // Sub-Agents panel can't show a live transcript. We route every parented
+      // message to cb.onSubAgent({ kind: "token" }) below.
+      forwardSubagentText: true,
       persistSession: true,
       todoFeatureEnabled: true,
       // Phase 4 of THE-PIVOT-BYOK: SDK calls api.anthropic.com directly
@@ -490,6 +512,12 @@ export class YoAgent {
     // assistant message so reloaded history shows the complete run
     // (not just the final answer text).
     const turnTools: Array<{ name: string; input?: unknown }> = [];
+    // Tool-use blocks tracked by streaming index for the current assistant
+    // message. Emitting onToolUse from the streaming events (in block order)
+    // — rather than from the buffered `assistant` message that lands at
+    // message-end — keeps tool rows interleaved with text in true stream
+    // order. Keyed by content-block index; reset at each message_start.
+    let toolBlocks = new Map<number, { id: string; name: string; inputJson: string }>();
 
     try {
       const gen = sdk.query({ prompt: message, options });
@@ -507,6 +535,25 @@ export class YoAgent {
           case "assistant": {
             const content = msg.message?.content;
             if (!Array.isArray(content)) break;
+            const asstParentId = (msg as any).parent_tool_use_id as string | null | undefined;
+            if (asstParentId) {
+              // Buffered sub-agent message. Its text already streamed as tokens
+              // via stream_event above; here we surface its tool calls (which
+              // don't arrive as text) so the panel transcript shows what the
+              // sub-agent actually did, in order.
+              for (const block of content as any[]) {
+                if (block.type === "tool_use") {
+                  const arg = briefToolArg(block.input);
+                  cb.onSubAgent?.({
+                    id: asstParentId,
+                    kind: "token",
+                    source: "task",
+                    text: `\n\n→ ${block.name}${arg ? ` ${arg}` : ""}\n`,
+                  });
+                }
+              }
+              break;
+            }
             for (const block of content) {
               if (block.type === "tool_use") {
                 if (block.name === "TodoWrite" && Array.isArray((block.input as any)?.todos)) {
@@ -514,7 +561,12 @@ export class YoAgent {
                 }
                 toolsUsed.add(block.name);
                 turnTools.push({ name: block.name, input: block.input });
-                cb.onToolUse(block.id, block.name, block.input);
+                // NOTE: cb.onToolUse is emitted from the streaming events
+                // (content_block_stop) so tool rows interleave with text in
+                // true stream order. The buffered `assistant` message lands at
+                // message-end and would push every tool row below the text.
+                // The side effects below still read the fully-formed block
+                // input here (order-insensitive: they hit other views/files).
                 // Task tool = Claude's internal sub-agent. Surface it in the
                 // Workbench Sub-Agents view as a new tab. The result will
                 // close out the tab via "result" below.
@@ -562,13 +614,46 @@ export class YoAgent {
           }
 
           case "stream_event": {
-            const event = msg.event;
+            const event = msg.event as any;
             if (!event) break;
-            if (event.type === "content_block_delta") {
-              const delta = (event as any).delta;
+            const subParentId = (msg as any).parent_tool_use_id as string | null | undefined;
+            if (subParentId) {
+              // Sub-agent streaming text → live tokens in the Sub-Agents panel.
+              // We deliberately do NOT track sub-agent tool blocks here; their
+              // tool activity is surfaced from the buffered `assistant` message
+              // below (formatted, in order). Keeping the sub-agent out of the
+              // top-level toolBlocks index space avoids clobbering it.
+              if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
+                cb.onSubAgent?.({ id: subParentId, kind: "token", source: "task", text: event.delta.text });
+              }
+              break;
+            }
+            if (event.type === "message_start") {
+              // New assistant message — block indices restart at 0.
+              toolBlocks = new Map();
+            } else if (event.type === "content_block_start") {
+              const block = event.content_block;
+              if (block?.type === "tool_use") {
+                toolBlocks.set(event.index, { id: block.id, name: block.name, inputJson: "" });
+              }
+            } else if (event.type === "content_block_delta") {
+              const delta = event.delta;
               if (delta?.type === "text_delta" && delta.text) {
                 fullText += delta.text;
                 cb.onText(delta.text);
+              } else if (delta?.type === "input_json_delta") {
+                const tb = toolBlocks.get(event.index);
+                if (tb) tb.inputJson += delta.partial_json || "";
+              }
+            } else if (event.type === "content_block_stop") {
+              // A tool-use block just finished streaming. Emit it now, in
+              // stream order, so its row lands before any text that follows.
+              const tb = toolBlocks.get(event.index);
+              if (tb) {
+                let input: unknown = {};
+                try { input = tb.inputJson ? JSON.parse(tb.inputJson) : {}; } catch { /* partial/empty — keep {} */ }
+                cb.onToolUse(tb.id, tb.name, input);
+                toolBlocks.delete(event.index);
               }
             }
             break;
@@ -577,6 +662,7 @@ export class YoAgent {
           case "user": {
             const content = msg.message?.content;
             if (!Array.isArray(content)) break;
+            const userParentId = (msg as any).parent_tool_use_id as string | null | undefined;
             for (const block of content as any[]) {
               if (block.type === "tool_result" && block.tool_use_id) {
                 const text = typeof block.content === "string"
@@ -584,6 +670,22 @@ export class YoAgent {
                   : Array.isArray(block.content)
                     ? block.content.map((c: any) => c.text || "").join("")
                     : "";
+                if (userParentId) {
+                  // A sub-agent's OWN internal tool result. Surface a short
+                  // confirmation in its transcript — do NOT close the parent
+                  // tab (that happens when the top-level Task tool_result lands
+                  // below, with parent_tool_use_id === null).
+                  const trimmed = text.trim();
+                  if (trimmed) {
+                    cb.onSubAgent?.({
+                      id: userParentId,
+                      kind: "token",
+                      source: "task",
+                      text: `   ✓ ${trimmed.slice(0, 160).replace(/\s+/g, " ")}\n`,
+                    });
+                  }
+                  continue;
+                }
                 cb.onToolResult?.(block.tool_use_id, text.slice(0, 500));
                 // Close out any sub-agent tab keyed by this tool_use_id (Task
                 // tool or mcp__yo__call_agent). The Sub-Agents view ignores

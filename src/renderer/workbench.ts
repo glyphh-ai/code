@@ -274,6 +274,54 @@ async function init(): Promise<void> {
   let nextRailId = 1;
   let nextSlotId = 1;
 
+  // ── Sub-agent state (shared across all Sub-Agents slots) ──
+  // Lives at the workbench level — NOT per-slot — so a spawn that arrives
+  // before the panel is open isn't lost: we stash it here, auto-open the
+  // panel, and the slot renders from this store. Multiple open slots all
+  // read the same store; each registers a painter so live tokens repaint
+  // every visible slot.
+  const subAgentStore: SubAgentEntry[] = [];
+  const subAgentPainters = new Set<() => void>();
+  function applySubAgentEvent(evt: {
+    id: string;
+    kind: "spawn" | "token" | "result" | "error";
+    source?: "task" | "yo-agent";
+    name?: string;
+    description?: string;
+    text?: string;
+  }): void {
+    const i = subAgentStore.findIndex((a) => a.id === evt.id);
+    if (evt.kind === "spawn") {
+      if (i >= 0) {
+        subAgentStore[i].description = evt.description || subAgentStore[i].description;
+        subAgentStore[i].status = "running";
+      } else {
+        subAgentStore.push({
+          id: evt.id,
+          source: evt.source || "task",
+          name: evt.name || (evt.source === "yo-agent" ? "agent" : "task"),
+          description: evt.description,
+          transcript: "",
+          status: "running",
+          startedAt: Date.now(),
+        });
+      }
+      // Surface the activity: open the Sub-Agents panel if it isn't already.
+      // placeView re-renders the rails, which paints the new slot from the
+      // store — so we don't also need to run the painters here.
+      if (!viewIsOpen("subagents")) { placeView("subagents"); return; }
+    } else if (evt.kind === "token" && i >= 0) {
+      subAgentStore[i].transcript += evt.text || "";
+    } else if (evt.kind === "result" && i >= 0) {
+      if (evt.text) subAgentStore[i].transcript += `\n${evt.text}`;
+      subAgentStore[i].status = "done";
+    } else if (evt.kind === "error" && i >= 0) {
+      if (evt.text) subAgentStore[i].transcript += `\n[error] ${evt.text}`;
+      subAgentStore[i].status = "error";
+    }
+    for (const paint of subAgentPainters) paint();
+  }
+
   // Drag state — set on dragstart, cleared on dragend/drop.
   let dragSlotId: number | null = null;
   // Fullscreen state — when set, the rails container hides every other rail
@@ -558,6 +606,10 @@ async function init(): Promise<void> {
   function renderRails(): void {
     const container = document.getElementById("right-rails");
     if (!container) return;
+    // Every body is about to be detached + rebuilt, so drop the sub-agent
+    // painters bound to the old DOM. Any Sub-Agents slot re-mounts below and
+    // re-registers a fresh painter synchronously via renderSubAgentsIntoSlot.
+    subAgentPainters.clear();
     container.innerHTML = "";
     rails.forEach((rail, idx) => {
       container.appendChild(makeRailDropStrip(idx));
@@ -1199,12 +1251,20 @@ async function init(): Promise<void> {
     const bodyEl = body.querySelector(".ws-subagents-body") as HTMLElement;
 
     function paint(): void {
+      // Read from the shared store (not slot.agents) so this slot reflects
+      // every agent regardless of when it was opened.
+      const agents = subAgentStore;
+      // Default selection: latest agent when the slot hasn't picked one yet
+      // (or its index went stale because agents were added/removed).
+      if (slot.activeIdx < 0 || slot.activeIdx >= agents.length) {
+        slot.activeIdx = agents.length - 1;
+      }
       tabsEl.innerHTML = "";
-      if (slot.agents.length === 0) {
+      if (agents.length === 0) {
         bodyEl.innerHTML = `<div class="ws-subagents-empty">No sub-agents running. When the .Yo agent spawns a Task or one of your saved agents, it'll appear here.</div>`;
         return;
       }
-      slot.agents.forEach((a, i) => {
+      agents.forEach((a, i) => {
         const tab = document.createElement("div");
         tab.className = "ws-subagents-tab" + (i === slot.activeIdx ? " active" : "") + ` status-${a.status}`;
         tab.title = a.description || a.name;
@@ -1215,7 +1275,7 @@ async function init(): Promise<void> {
         });
         tabsEl.appendChild(tab);
       });
-      const active = slot.agents[slot.activeIdx];
+      const active = agents[slot.activeIdx];
       if (!active) { bodyEl.innerHTML = ""; return; }
       bodyEl.innerHTML = `
         <div class="ws-subagents-meta">
@@ -1233,45 +1293,14 @@ async function init(): Promise<void> {
     }
 
     paint();
-    // Subscribe to live events that affect this slot's state. The handler
-    // is closed over `slot` so each rendered slot ends up with its own
-    // listener; that's fine, the handler is cheap and re-renders only
-    // affect this slot's DOM.
-    const off = window.wb.onSubAgentEvent((evt) => {
-      const i = slot.agents.findIndex((a) => a.id === evt.id);
-      if (evt.kind === "spawn") {
-        if (i >= 0) {
-          slot.agents[i].description = evt.description || slot.agents[i].description;
-          slot.agents[i].status = "running";
-        } else {
-          slot.agents.push({
-            id: evt.id,
-            source: evt.source || "task",
-            name: evt.name || (evt.source === "yo-agent" ? "agent" : "task"),
-            description: evt.description,
-            transcript: "",
-            status: "running",
-            startedAt: Date.now(),
-          });
-          if (slot.activeIdx < 0) slot.activeIdx = slot.agents.length - 1;
-        }
-      } else if (evt.kind === "token" && i >= 0) {
-        slot.agents[i].transcript += evt.text || "";
-      } else if (evt.kind === "result" && i >= 0) {
-        if (evt.text) slot.agents[i].transcript += `\n${evt.text}`;
-        slot.agents[i].status = "done";
-      } else if (evt.kind === "error" && i >= 0) {
-        if (evt.text) slot.agents[i].transcript += `\n[error] ${evt.text}`;
-        slot.agents[i].status = "error";
-      }
-      paint();
-    });
-    // Detach when the slot body is replaced (next renderRails call clears
-    // and re-mounts everything). We attach `off` to the body element so
-    // a MutationObserver could call it; simpler: store on body dataset
-    // and rely on the next renderSubAgentsIntoSlot call re-subscribing.
+    // Register this slot's painter so the shared applySubAgentEvent loop
+    // repaints us live. Deregister when the body is replaced (next
+    // renderRails clears + re-mounts), so we don't leak stale closures.
+    subAgentPainters.add(paint);
     (body as unknown as { __subAgentsOff?: () => void }).__subAgentsOff?.();
-    (body as unknown as { __subAgentsOff?: () => void }).__subAgentsOff = off;
+    (body as unknown as { __subAgentsOff?: () => void }).__subAgentsOff = () => {
+      subAgentPainters.delete(paint);
+    };
   }
 
   // ── Preview view (stub — real dev-server preview can come later) ──
@@ -1600,6 +1629,11 @@ async function init(): Promise<void> {
       }
     }
   });
+  // Sub-agent activity: one workbench-level subscription feeds the shared
+  // store + auto-opens the Sub-Agents panel on the first spawn. Per-slot
+  // painters (registered in renderSubAgentsIntoSlot) re-render live.
+  window.wb.onSubAgentEvent((evt) => applySubAgentEvent(evt));
+
   window.wb.onCwdChanged((dir) => {
     cwd = dir || "";
     void paintWorkdirBar(cwd);

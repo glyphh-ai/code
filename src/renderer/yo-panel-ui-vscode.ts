@@ -1372,6 +1372,132 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     });
   });
 
+  // ── ask_user_question — the purple "Input required" dialog ──────────────────
+  // The agent (mcp__yo__ask_user_question) blocks until the user answers. We
+  // render one selectable-option block per question, pre-select the recommended
+  // option (or the first), and reply with one chosen label per question
+  // (null = cancelled). Same card family + theme tokens as the approval card.
+  window.yo.onYoAskRequest((id, questions) => {
+    const list = Array.isArray(questions) ? questions : [];
+    if (list.length === 0) { window.yo.respondYoAsk(id, []); return; }
+
+    const card = document.createElement("div");
+    card.className = "yo-ask-card";
+    card.dataset.askId = id;
+    card.tabIndex = 0; // focusable so the card owns keyboard nav
+
+    const header = document.createElement("div");
+    header.className = "yo-ask-header";
+    header.innerHTML =
+      `<svg class="yo-ask-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` +
+      `<span></span>`;
+    (header.querySelector("span") as HTMLElement).textContent =
+      list.length === 1 && list[0].header ? list[0].header : "Input required";
+    card.appendChild(header);
+
+    // Per-question selected index, defaulting to the recommended option (or 0).
+    const picked: number[] = list.map((q) =>
+      Math.max(0, q.options.findIndex((o) => o.recommended)),
+    );
+    // Flat list of every option row, so ↑/↓ can walk across questions.
+    const flat: Array<{ qi: number; oi: number; row: HTMLElement }> = [];
+    let cursor = 0;
+
+    list.forEach((q, qi) => {
+      const qEl = document.createElement("div");
+      qEl.className = "yo-ask-question";
+      qEl.textContent = q.question || "";
+      card.appendChild(qEl);
+
+      const opts = document.createElement("div");
+      opts.className = "yo-ask-options";
+      q.options.forEach((opt, oi) => {
+        const row = document.createElement("div");
+        row.className = "yo-ask-option";
+        row.setAttribute("role", "radio");
+        const badge = opt.recommended ? `<span class="yo-ask-recommended">Recommended</span>` : "";
+        row.innerHTML =
+          `<span class="yo-ask-radio" aria-hidden="true"></span>` +
+          `<span class="yo-ask-option-main">` +
+            `<span class="yo-ask-option-head"><span class="yo-ask-option-label"></span>${badge}</span>` +
+            (opt.description ? `<span class="yo-ask-option-desc"></span>` : "") +
+          `</span>`;
+        (row.querySelector(".yo-ask-option-label") as HTMLElement).textContent = opt.label;
+        const desc = row.querySelector(".yo-ask-option-desc") as HTMLElement | null;
+        if (desc && opt.description) desc.textContent = opt.description;
+        const flatIdx = flat.length;
+        row.addEventListener("click", () => { setCursor(flatIdx); card.focus(); });
+        row.addEventListener("dblclick", () => { setCursor(flatIdx); submit(); });
+        opts.appendChild(row);
+        flat.push({ qi, oi, row });
+      });
+      card.appendChild(opts);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "yo-ask-actions";
+    actions.innerHTML =
+      `<span class="yo-ask-hint">↑↓ choose · enter submit · esc cancel</span>` +
+      `<button type="button" class="yo-ask-btn yo-ask-cancel">Cancel</button>` +
+      `<button type="button" class="yo-ask-btn yo-ask-submit">Submit answer</button>`;
+    card.appendChild(actions);
+
+    // Selecting a row = picking it for its question (radio behavior) and
+    // moving the keyboard cursor onto it.
+    function paint(): void {
+      flat.forEach(({ qi, oi, row }, i) => {
+        const isSel = picked[qi] === oi;
+        const isCur = i === cursor;
+        row.classList.toggle("selected", isSel);
+        row.classList.toggle("cursor", isCur);
+        row.setAttribute("aria-checked", isSel ? "true" : "false");
+      });
+    }
+    function setCursor(i: number): void {
+      cursor = Math.max(0, Math.min(flat.length - 1, i));
+      const { qi, oi, row } = flat[cursor];
+      picked[qi] = oi; // highlight implies selection for that question
+      paint();
+      row.scrollIntoView({ block: "nearest" });
+    }
+    // Start the cursor on the first question's default selection.
+    cursor = flat.findIndex((f) => f.qi === 0 && f.oi === picked[0]);
+    if (cursor < 0) cursor = 0;
+    paint();
+
+    let resolved = false;
+    function finish(answers: Array<string | null>): void {
+      if (resolved) return;
+      resolved = true;
+      card.classList.add("yo-ask-resolved");
+      card.removeAttribute("tabindex");
+      card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      window.yo.respondYoAsk(id, answers);
+    }
+    const submit = () => finish(list.map((q, qi) => q.options[picked[qi]]?.label ?? null));
+    const cancel = () => finish(list.map(() => null));
+    actions.querySelector(".yo-ask-cancel")!.addEventListener("click", cancel);
+    actions.querySelector(".yo-ask-submit")!.addEventListener("click", submit);
+
+    card.addEventListener("keydown", (e) => {
+      if (resolved) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); setCursor(cursor + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setCursor(cursor - 1); }
+      else if (e.key === "Enter") { e.preventDefault(); submit(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+      else if (/^[1-9]$/.test(e.key)) {
+        // Jump to the Nth option within the cursor's current question.
+        const qi = flat[cursor].qi;
+        const target = flat.findIndex((f) => f.qi === qi && f.oi === Number(e.key) - 1);
+        if (target >= 0) { e.preventDefault(); setCursor(target); }
+      }
+    });
+
+    chat.appendRaw(card);
+    yoScroll();
+    card.focus();
+  });
+
   // Set the rotating greeting on the empty-state block at startup so it's
   // live from app load (not just after opening the panel / a new session).
   if (!yoPanelMessages.children.length) showYoWelcome();

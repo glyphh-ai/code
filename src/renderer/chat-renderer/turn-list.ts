@@ -65,7 +65,11 @@ export class ChatRenderer {
       return;
     }
     this.current = this.makeTurn("assistant");
-    this.pushPart(this.current, { kind: "thinking" });
+    // The pinned working spinner ("thinking…/cooking…") is the single
+    // pre-output indicator. We deliberately do NOT push an inline "thinking"
+    // placeholder part here: having both meant the inline row was removed when
+    // the first token landed (jump up) and then text grew (jump down). One
+    // bottom-pinned indicator that only grows downward = no vertical thrash.
     this.spinner.show();
     this.scrollToBottom();
   }
@@ -74,7 +78,7 @@ export class ChatRenderer {
     if (!delta) return;
     const turn = this.ensureCurrent();
     this.removeThinking(turn);
-    let live = this.lastTextPart(turn);
+    let live = this.openTextPart(turn);
     if (!live) live = this.pushPart(turn, { kind: "text", text: "" });
     (live.part as TextPart).text += delta;
     rendererFor("text").update(live.part, live.node);
@@ -170,11 +174,14 @@ export class ChatRenderer {
     turn.parts.splice(idx, 1);
   }
 
-  private lastTextPart(turn: Turn): LivePart | undefined {
-    for (let i = turn.parts.length - 1; i >= 0; i--) {
-      if (turn.parts[i].part.kind === "text") return turn.parts[i];
-    }
-    return undefined;
+  /** The text part *currently open for appending* — i.e. the trailing part of
+   *  the turn, but only if it's text. Once a tool/progress/thinking part lands
+   *  after it, that text part is closed: subsequent text starts a NEW part
+   *  below the tool, so streaming text never grows a block that sits above an
+   *  already-rendered tool row (which would reorder + jump the view). */
+  private openTextPart(turn: Turn): LivePart | undefined {
+    const last = turn.parts[turn.parts.length - 1];
+    return last && last.part.kind === "text" ? last : undefined;
   }
 
   private findTool(id: string): LivePart | undefined {

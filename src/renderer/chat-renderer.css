@@ -15,6 +15,13 @@
   --vscode-textCodeBlock-background: rgba(127, 127, 127, 0.12);
   --vscode-textBlockQuote-border: var(--border-2);
 
+  /* Match the rest of the app: same family + size as the panel input and
+     the page's body copy (13px). Without this the chat subtree inherits the
+     browser default (16px) and reads oversized. Theme-aware via the tokens. */
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+
   display: flex;
   flex-direction: column;
 }
