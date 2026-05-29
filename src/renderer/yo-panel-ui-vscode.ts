@@ -382,6 +382,9 @@ function openInteraction(panel: HTMLElement): void {
   yoComposerHost.innerHTML = "";
   yoComposerHost.appendChild(panel);
   yoComposerHost.hidden = false;
+  // Suppress the absolutely-positioned scroll-to-bottom arrow so it doesn't
+  // float over the question.
+  yoComposerHost.closest(".yo-panel")?.classList.add("interaction-active");
   yoPanelInput.classList.add("yo-input-disabled");
   yoPanelInput.setAttribute("disabled", "true");
   // Let the panel own keyboard focus (arrow keys, enter, esc).
@@ -391,6 +394,7 @@ function openInteraction(panel: HTMLElement): void {
 function closeInteraction(): void {
   yoComposerHost.innerHTML = "";
   yoComposerHost.hidden = true;
+  yoComposerHost.closest(".yo-panel")?.classList.remove("interaction-active");
   yoPanelInput.classList.remove("yo-input-disabled");
   yoPanelInput.removeAttribute("disabled");
   yoPanelInput.focus();
@@ -1450,36 +1454,97 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     const list = Array.isArray(questions) ? questions : [];
     if (list.length === 0) { window.yo.respondYoAsk(id, []); return; }
 
+    const multi = list.length > 1;
+
     const panel = document.createElement("div");
     panel.className = "yo-ci-panel";
     panel.dataset.askId = id;
     panel.tabIndex = 0; // focusable so the panel owns keyboard nav
 
+    // Header: icon + title, plus step dots on the right when there's more than
+    // one question (wizard mode).
     const header = document.createElement("div");
     header.className = "yo-ci-header";
     header.innerHTML =
-      `<span class="yo-ci-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>` +
-      `<span class="yo-ci-title"></span>`;
-    (header.querySelector(".yo-ci-title") as HTMLElement).textContent =
-      list.length === 1 && list[0].header ? list[0].header : "Input required";
+      `<span class="yo-ci-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>` +
+      `<span class="yo-ci-title"></span>` +
+      (multi ? `<span class="yo-ci-steps"></span>` : "");
+    const titleEl = header.querySelector(".yo-ci-title") as HTMLElement;
     panel.appendChild(header);
+
+    const stepsEl = header.querySelector(".yo-ci-steps") as HTMLElement | null;
+    const stepDots: HTMLElement[] = [];
+    if (stepsEl) {
+      list.forEach(() => {
+        const dot = document.createElement("span");
+        dot.className = "yo-ci-step-dot";
+        stepsEl.appendChild(dot);
+        stepDots.push(dot);
+      });
+    }
+
+    // Body — rebuilt for each step (one question at a time).
+    const body = document.createElement("div");
+    body.className = "yo-ci-body";
+    panel.appendChild(body);
+
+    // Footer — hint + Back/Next (or Cancel/Submit).
+    const actions = document.createElement("div");
+    actions.className = "yo-ci-actions";
+    actions.innerHTML =
+      `<span class="yo-ci-hint"></span>` +
+      `<button type="button" class="yo-ci-btn yo-ci-back">Back</button>` +
+      `<button type="button" class="yo-ci-btn yo-ci-cancel">Cancel</button>` +
+      `<button type="button" class="yo-ci-btn primary yo-ci-next">Next</button>`;
+    panel.appendChild(actions);
+    const hintEl = actions.querySelector(".yo-ci-hint") as HTMLElement;
+    const backBtn = actions.querySelector(".yo-ci-back") as HTMLButtonElement;
+    const cancelBtn = actions.querySelector(".yo-ci-cancel") as HTMLButtonElement;
+    const nextBtn = actions.querySelector(".yo-ci-next") as HTMLButtonElement;
 
     // Per-question selected index, defaulting to the recommended option (or 0).
     const picked: number[] = list.map((q) =>
       Math.max(0, q.options.findIndex((o) => o.recommended)),
     );
-    // Flat list of every option row, so ↑/↓ can walk across questions.
-    const flat: Array<{ qi: number; oi: number; row: HTMLElement }> = [];
-    let cursor = 0;
+    let step = 0;          // which question is showing
+    let cursor = 0;        // keyboard cursor within the current question
+    let rows: HTMLElement[] = []; // option rows for the current step
 
-    list.forEach((q, qi) => {
+    function isLast(): boolean { return step === list.length - 1; }
+
+    function paintRows(): void {
+      rows.forEach((row, oi) => {
+        const isSel = picked[step] === oi;
+        const isCur = oi === cursor;
+        row.classList.toggle("selected", isSel);
+        row.classList.toggle("cursor", isCur);
+        row.setAttribute("aria-checked", isSel ? "true" : "false");
+      });
+    }
+    function setCursor(i: number): void {
+      cursor = Math.max(0, Math.min(rows.length - 1, i));
+      picked[step] = cursor; // highlight implies selection for this question
+      paintRows();
+      rows[cursor]?.scrollIntoView({ block: "nearest" });
+    }
+
+    // Render the question + options for the current step into the body.
+    function renderStep(): void {
+      const q = list[step];
+      body.innerHTML = "";
+      // re-trigger the step-fade animation
+      body.style.animation = "none";
+      void body.offsetWidth;
+      body.style.animation = "";
+
       const qEl = document.createElement("div");
       qEl.className = "yo-ci-question";
       qEl.textContent = q.question || "";
-      panel.appendChild(qEl);
+      body.appendChild(qEl);
 
       const opts = document.createElement("div");
       opts.className = "yo-ci-options";
+      rows = [];
       q.options.forEach((opt, oi) => {
         const row = document.createElement("div");
         row.className = "yo-ci-option";
@@ -1494,45 +1559,33 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
         (row.querySelector(".yo-ci-option-label") as HTMLElement).textContent = opt.label;
         const desc = row.querySelector(".yo-ci-option-desc") as HTMLElement | null;
         if (desc && opt.description) desc.textContent = opt.description;
-        const flatIdx = flat.length;
-        row.addEventListener("click", () => { setCursor(flatIdx); panel.focus(); });
-        row.addEventListener("dblclick", () => { setCursor(flatIdx); submit(); });
+        row.addEventListener("click", () => { setCursor(oi); panel.focus(); });
+        row.addEventListener("dblclick", () => { setCursor(oi); advance(); });
         opts.appendChild(row);
-        flat.push({ qi, oi, row });
+        rows.push(row);
       });
-      panel.appendChild(opts);
-    });
+      body.appendChild(opts);
 
-    const actions = document.createElement("div");
-    actions.className = "yo-ci-actions";
-    actions.innerHTML =
-      `<span class="yo-ci-hint">↑↓ choose · enter submit · esc cancel</span>` +
-      `<button type="button" class="yo-ci-btn yo-ci-cancel">Cancel</button>` +
-      `<button type="button" class="yo-ci-btn primary yo-ci-submit">Submit</button>`;
-    panel.appendChild(actions);
+      // Title reflects the current question's header (falls back per step).
+      titleEl.textContent = q.header || (multi ? `Question ${step + 1} of ${list.length}` : "Input required");
 
-    // Selecting a row = picking it for its question (radio behavior) and
-    // moving the keyboard cursor onto it.
-    function paint(): void {
-      flat.forEach(({ qi, oi, row }, i) => {
-        const isSel = picked[qi] === oi;
-        const isCur = i === cursor;
-        row.classList.toggle("selected", isSel);
-        row.classList.toggle("cursor", isCur);
-        row.setAttribute("aria-checked", isSel ? "true" : "false");
+      // Cursor starts on this question's current selection.
+      cursor = picked[step];
+      paintRows();
+
+      // Footer state.
+      backBtn.hidden = step === 0;
+      cancelBtn.hidden = step !== 0; // only offer Cancel on the first step
+      nextBtn.textContent = isLast() ? "Submit" : "Next";
+      hintEl.textContent = multi
+        ? (isLast() ? "↑↓ choose · enter submit · esc back" : "↑↓ choose · enter next · esc back")
+        : "↑↓ choose · enter submit · esc cancel";
+
+      stepDots.forEach((dot, i) => {
+        dot.classList.toggle("current", i === step);
+        dot.classList.toggle("done", i < step);
       });
     }
-    function setCursor(i: number): void {
-      cursor = Math.max(0, Math.min(flat.length - 1, i));
-      const { qi, oi, row } = flat[cursor];
-      picked[qi] = oi; // highlight implies selection for that question
-      paint();
-      row.scrollIntoView({ block: "nearest" });
-    }
-    // Start the cursor on the first question's default selection.
-    cursor = flat.findIndex((f) => f.qi === 0 && f.oi === picked[0]);
-    if (cursor < 0) cursor = 0;
-    paint();
 
     let resolved = false;
     function finish(answers: Array<string | null>, cancelled: boolean): void {
@@ -1552,23 +1605,42 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     }
     const submit = () => finish(list.map((q, qi) => q.options[picked[qi]]?.label ?? null), false);
     const cancel = () => finish(list.map(() => null), true);
-    actions.querySelector(".yo-ci-cancel")!.addEventListener("click", cancel);
-    actions.querySelector(".yo-ci-submit")!.addEventListener("click", submit);
+
+    // Advance: next step, or submit on the last one.
+    function advance(): void {
+      if (isLast()) { submit(); return; }
+      step += 1;
+      renderStep();
+    }
+    function back(): void {
+      if (step === 0) return;
+      step -= 1;
+      renderStep();
+    }
+
+    backBtn.addEventListener("click", back);
+    cancelBtn.addEventListener("click", cancel);
+    nextBtn.addEventListener("click", advance);
 
     panel.addEventListener("keydown", (e) => {
       if (resolved) return;
       if (e.key === "ArrowDown") { e.preventDefault(); setCursor(cursor + 1); }
       else if (e.key === "ArrowUp") { e.preventDefault(); setCursor(cursor - 1); }
-      else if (e.key === "Enter") { e.preventDefault(); submit(); }
-      else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); if (!isLast()) advance(); }
+      else if (e.key === "Enter") { e.preventDefault(); advance(); }
+      else if (e.key === "Escape") {
+        e.preventDefault();
+        // Esc steps back through the wizard; cancels from the first question.
+        if (step === 0) cancel(); else back();
+      }
       else if (/^[1-9]$/.test(e.key)) {
-        // Jump to the Nth option within the cursor's current question.
-        const qi = flat[cursor].qi;
-        const target = flat.findIndex((f) => f.qi === qi && f.oi === Number(e.key) - 1);
-        if (target >= 0) { e.preventDefault(); setCursor(target); }
+        const target = Number(e.key) - 1;
+        if (target < rows.length) { e.preventDefault(); setCursor(target); }
       }
     });
 
+    renderStep();
     openInteraction(panel);
   });
 
