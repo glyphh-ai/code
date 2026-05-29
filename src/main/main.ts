@@ -1712,11 +1712,15 @@ async function boot() {
   // below), so both kinds of sub-agent stream into the same panel.
   const broadcastSubAgent = (evt: {
     id: string;
-    kind: "spawn" | "token" | "result" | "error";
+    kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
     source?: "task" | "yo-agent";
     name?: string;
     description?: string;
     text?: string;
+    toolId?: string;
+    toolName?: string;
+    toolInput?: unknown;
+    toolOutput?: string;
   }): void => {
     for (const pwc of panelManager.getAllWebContents()) {
       try { pwc.send("subagent:event", evt); } catch { /* noop */ }

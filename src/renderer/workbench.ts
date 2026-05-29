@@ -17,6 +17,7 @@
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import { formatMarkdown } from "./format-markdown.js";
+import { ChatRenderer } from "./chat-renderer/index.js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 
@@ -88,16 +89,21 @@ interface TermSlot {
 interface DiffSlot { id: number; view: "diff"; collapsed?: Set<string> }
 interface PreviewSlot { id: number; view: "preview"; url?: string; viewKey?: string }
 
-/** A live transcript of a single sub-agent invocation. Same shape used
- *  whether the source is Claude's internal Task tool or one of our saved
- *  yo://agents we wrap as a tool. Transcript can grow over time as tokens
- *  stream; status flips terminal when the agent returns. */
+/** A live sub-agent invocation. Same shape whether the source is Claude's
+ *  internal Task/Agent tool or one of our saved yo://agents (swarm). Each
+ *  entry owns its OWN ChatRenderer (the exact renderer the main yo panel uses)
+ *  mounted on a persistent detached `el`; structured events drive it so the
+ *  panel output looks identical to the main stream — collapsible tool widgets,
+ *  braille spinner, markdown text. The element is moved into whichever slot is
+ *  showing this agent. Status flips terminal when the agent returns. */
 interface SubAgentEntry {
   id: string;                        // stable, dedup key
   source: "task" | "yo-agent";       // where it came from
   name: string;                      // short label for the tab
   description?: string;              // expanded prompt / task description
-  transcript: string;                // streamed text (tokens + tool summaries)
+  el: HTMLElement;                   // persistent ChatRenderer container
+  chat: ChatRenderer;                // drives el from structured events
+  gotContent: boolean;               // any text/tool seen (dedup result text)
   status: "running" | "done" | "error";
   startedAt: number;
 }
@@ -284,41 +290,79 @@ async function init(): Promise<void> {
   const subAgentPainters = new Set<() => void>();
   function applySubAgentEvent(evt: {
     id: string;
-    kind: "spawn" | "token" | "result" | "error";
+    kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
     source?: "task" | "yo-agent";
     name?: string;
     description?: string;
     text?: string;
+    toolId?: string;
+    toolName?: string;
+    toolInput?: unknown;
+    toolOutput?: string;
   }): void {
-    const i = subAgentStore.findIndex((a) => a.id === evt.id);
+    let i = subAgentStore.findIndex((a) => a.id === evt.id);
     if (evt.kind === "spawn") {
       if (i >= 0) {
         subAgentStore[i].description = evt.description || subAgentStore[i].description;
         subAgentStore[i].status = "running";
+        subAgentStore[i].chat.showWorking();
       } else {
+        // Build a detached ChatRenderer for this agent. It streams whether or
+        // not a slot is mounted (the spinner/observer run on the detached el),
+        // so spawns that arrive before the panel opens aren't lost.
+        const el = document.createElement("div");
+        el.className = "ws-subagents-chat";
+        const chat = new ChatRenderer(el);
+        chat.beginAssistantTurn();           // shows the braille working spinner
         subAgentStore.push({
           id: evt.id,
           source: evt.source || "task",
           name: evt.name || (evt.source === "yo-agent" ? "agent" : "task"),
           description: evt.description,
-          transcript: "",
+          el,
+          chat,
+          gotContent: false,
           status: "running",
           startedAt: Date.now(),
         });
       }
       // Surface the activity: open the Sub-Agents panel if it isn't already.
-      // placeView re-renders the rails, which paints the new slot from the
+      // placeView re-renders the rails, which mounts the new slot from the
       // store — so we don't also need to run the painters here.
       if (!viewIsOpen("subagents")) { placeView("subagents"); return; }
-    } else if (evt.kind === "token" && i >= 0) {
-      subAgentStore[i].transcript += evt.text || "";
-    } else if (evt.kind === "result" && i >= 0) {
-      if (evt.text) subAgentStore[i].transcript += `\n${evt.text}`;
-      subAgentStore[i].status = "done";
-    } else if (evt.kind === "error" && i >= 0) {
-      if (evt.text) subAgentStore[i].transcript += `\n[error] ${evt.text}`;
-      subAgentStore[i].status = "error";
+      for (const paint of subAgentPainters) paint();
+      return;
     }
+    if (i < 0) return;
+    const entry = subAgentStore[i];
+    switch (evt.kind) {
+      case "text":
+      case "token":
+        if (evt.text) { entry.chat.appendText(evt.text); entry.gotContent = true; }
+        return;                              // content-only: no tab repaint needed
+      case "tool":
+        if (evt.toolId) {
+          entry.chat.addTool(evt.toolId, evt.toolName || "tool", evt.toolInput ?? {});
+          entry.gotContent = true;
+        }
+        return;
+      case "tool_result":
+        if (evt.toolId) entry.chat.setToolResult(evt.toolId, evt.toolOutput || "");
+        return;
+      case "result":
+        // The final report usually already streamed as text; only append it if
+        // nothing came through, so we don't duplicate the whole transcript.
+        if (evt.text && !entry.gotContent) entry.chat.appendText(evt.text);
+        entry.chat.endAssistantTurn();       // hides the spinner
+        entry.status = "done";
+        break;
+      case "error":
+        if (evt.text) entry.chat.appendText(`\n\n**[error]** ${evt.text}`);
+        entry.chat.endAssistantTurn();
+        entry.status = "error";
+        break;
+    }
+    // Structural change (status flipped) → refresh tabs + meta on open slots.
     for (const paint of subAgentPainters) paint();
   }
 
@@ -1277,24 +1321,24 @@ async function init(): Promise<void> {
       });
       const active = agents[slot.activeIdx];
       if (!active) { bodyEl.innerHTML = ""; return; }
+      // Rebuild the lightweight chrome (meta + desc + chat host). The heavy
+      // streaming content lives in active.el — a persistent ChatRenderer node
+      // mutated directly by applySubAgentEvent — so we never wipe it here; we
+      // just move it into this slot's host. (If two Sub-Agents slots are open,
+      // the most-recently-painted one holds the live node.)
       bodyEl.innerHTML = `
         <div class="ws-subagents-meta">
           <span class="ws-subagents-source">${active.source === "task" ? "Task tool" : "yo://agent"}</span>
           <span class="ws-subagents-status status-${active.status}">${active.status}</span>
         </div>
         ${active.description ? `<div class="ws-subagents-desc"></div>` : ""}
-        <div class="ws-subagents-transcript"></div>
+        <div class="ws-subagents-chat-host"></div>
       `;
       const descEl = bodyEl.querySelector(".ws-subagents-desc") as HTMLElement | null;
       if (descEl && active.description) descEl.textContent = active.description;
-      const transcriptEl = bodyEl.querySelector(".ws-subagents-transcript") as HTMLElement;
-      // Render the sub-agent transcript as markdown so it reads exactly like
-      // the .Yo agent output stream (headings, lists, code, rules) instead of
-      // a raw monospace dump.
-      transcriptEl.innerHTML = active.transcript
-        ? formatMarkdown(active.transcript)
-        : `<span class="ws-subagents-waiting">Waiting for output…</span>`;
-      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+      const host = bodyEl.querySelector(".ws-subagents-chat-host") as HTMLElement;
+      host.appendChild(active.el);
+      active.chat.scrollToBottom();
     }
 
     paint();

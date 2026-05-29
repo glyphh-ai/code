@@ -29,19 +29,26 @@ contextBridge.exposeInMainWorld("wb", {
     return () => { ipcRenderer.removeListener("workdir:file-changed", handler); };
   },
   /** Sub-agent lifecycle events from any agent surface in the app. The
-   *  Workbench's Sub-Agents view subscribes to render tabs per agent and
-   *  stream their transcripts live. Cases:
-   *    - { kind: "spawn", id, source, name, description? }
-   *    - { kind: "token", id, text }
-   *    - { kind: "result", id, text? }
-   *    - { kind: "error",  id, text? } */
+   *  Workbench's Sub-Agents view subscribes to drive a per-agent ChatRenderer
+   *  (the same one the main yo panel uses) so the output stream looks identical:
+   *  collapsible tool widgets, braille spinner, markdown text. Cases:
+   *    - { kind: "spawn",       id, source, name, description? }
+   *    - { kind: "text",        id, text }            (alias: "token")
+   *    - { kind: "tool",        id, toolId, toolName, toolInput }
+   *    - { kind: "tool_result", id, toolId, toolOutput }
+   *    - { kind: "result",      id, text? }
+   *    - { kind: "error",       id, text? } */
   onSubAgentEvent: (cb: (evt: {
     id: string;
-    kind: "spawn" | "token" | "result" | "error";
+    kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
     source?: "task" | "yo-agent";
     name?: string;
     description?: string;
     text?: string;
+    toolId?: string;
+    toolName?: string;
+    toolInput?: unknown;
+    toolOutput?: string;
   }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, evt: any) => cb(evt);
     ipcRenderer.on("subagent:event", handler);

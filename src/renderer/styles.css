@@ -9123,32 +9123,25 @@ select.settings-input {
   max-height: 120px;
   overflow: auto;
 }
-.ws-subagents-transcript {
+/* Host wrapper that the active agent's persistent ChatRenderer node is moved
+   into. The node itself (.ws-subagents-chat, also .yo-chat) is the scroller. */
+.ws-subagents-chat-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--ws-bg-card);
+}
+.ws-subagents-chat {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 14px;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ws-text);
-  background: var(--ws-bg-card);
   /* Wrap long, unbroken tokens (file paths, URLs) so the panel never
      overruns the page horizontally. */
   overflow-wrap: anywhere;
   word-break: break-word;
-  margin: 0;
-}
-.ws-subagents-transcript .yo-md-pre,
-.ws-subagents-transcript pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.ws-subagents-waiting {
-  color: var(--ws-text-faint);
-  font-style: italic;
 }
 
 /* ── Workbench Plan view ── */

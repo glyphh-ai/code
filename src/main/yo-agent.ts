@@ -67,11 +67,19 @@ export interface YoAgentCallbacks {
    *  Workbench Sub-Agents view subscribes via the subagent:event IPC. */
   onSubAgent?: (evt: {
     id: string;
-    kind: "spawn" | "token" | "result" | "error";
+    /** Structured lifecycle so the Sub-Agents panel can drive the SAME
+     *  ChatRenderer the main yo panel uses (collapsible tool wrappers, braille
+     *  spinner, markdown text). `token` is kept as an alias for `text` for the
+     *  swarm/bus path that streams pre-flattened fragments. */
+    kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
     source: "task" | "yo-agent";
     name?: string;
     description?: string;
     text?: string;
+    toolId?: string;
+    toolName?: string;
+    toolInput?: unknown;
+    toolOutput?: string;
   }) => void;
   onDone: (fullText: string) => void;
   onError: (error: string) => void;
@@ -564,19 +572,22 @@ export class YoAgent {
               for (const block of content as any[]) {
                 if (block.type === "text" && block.text) {
                   if (!alreadyStreamed) {
-                    cb.onSubAgent?.({ id: asstParentId, kind: "token", source: "task", text: block.text });
+                    cb.onSubAgent?.({ id: asstParentId, kind: "text", source: "task", text: block.text });
                   }
                 } else if (block.type === "thinking" && block.thinking) {
                   if (!alreadyStreamed) {
-                    cb.onSubAgent?.({ id: asstParentId, kind: "token", source: "task", text: block.thinking });
+                    cb.onSubAgent?.({ id: asstParentId, kind: "text", source: "task", text: block.thinking });
                   }
                 } else if (block.type === "tool_use") {
-                  const arg = briefToolArg(block.input);
+                  // Structured tool event → the panel renders a real collapsible
+                  // tool widget (same as the main stream), not a "→ Read" line.
                   cb.onSubAgent?.({
                     id: asstParentId,
-                    kind: "token",
+                    kind: "tool",
                     source: "task",
-                    text: `\n\n→ ${block.name}${arg ? ` ${arg}` : ""}\n`,
+                    toolId: block.id,
+                    toolName: block.name,
+                    toolInput: block.input,
                   });
                 }
               }
@@ -655,7 +666,7 @@ export class YoAgent {
               // the buffered message (formatted, in order), and we keep the
               // sub-agent out of the top-level toolBlocks index space.
               if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
-                cb.onSubAgent?.({ id: subParentId, kind: "token", source: "task", text: event.delta.text });
+                cb.onSubAgent?.({ id: subParentId, kind: "text", source: "task", text: event.delta.text });
                 subAgentStreamed.add(subParentId);
               }
               break;
@@ -703,19 +714,17 @@ export class YoAgent {
                     ? block.content.map((c: any) => c.text || "").join("")
                     : "";
                 if (userParentId) {
-                  // A sub-agent's OWN internal tool result. Surface a short
-                  // confirmation in its transcript — do NOT close the parent
-                  // tab (that happens when the top-level Task tool_result lands
-                  // below, with parent_tool_use_id === null).
-                  const trimmed = text.trim();
-                  if (trimmed) {
-                    cb.onSubAgent?.({
-                      id: userParentId,
-                      kind: "token",
-                      source: "task",
-                      text: `   ✓ ${trimmed.slice(0, 160).replace(/\s+/g, " ")}\n`,
-                    });
-                  }
+                  // A sub-agent's OWN internal tool result. Attach it to the
+                  // matching tool widget in the panel (collapsible Output) — do
+                  // NOT close the parent tab (that happens when the top-level
+                  // Task tool_result lands below, with parent_tool_use_id null).
+                  cb.onSubAgent?.({
+                    id: userParentId,
+                    kind: "tool_result",
+                    source: "task",
+                    toolId: block.tool_use_id,
+                    toolOutput: text.slice(0, 2000),
+                  });
                   continue;
                 }
                 cb.onToolResult?.(block.tool_use_id, text.slice(0, 500));
