@@ -911,8 +911,6 @@ async function boot() {
   const councilPreload = path.join(__dirname, "council-preload.js");
   const vibeHtml = `file://${path.join(__dirname, "..", "renderer", "vibe.html")}`;
   const vibePreload = path.join(__dirname, "vibe-preload.js");
-  const welcomeHtml = `file://${path.join(__dirname, "..", "renderer", "welcome.html")}`;
-  const welcomePreload = path.join(__dirname, "welcome-preload.js");
   const specHtml = `file://${path.join(__dirname, "..", "renderer", "spec.html")}`;
   const specPreload = path.join(__dirname, "spec-preload.js");
   const agentHtml = `file://${path.join(__dirname, "..", "renderer", "agent.html")}`;
@@ -938,9 +936,7 @@ async function boot() {
     "yo://settings":  "settings",
   };
   for (const app of appConnector.list()) {
-    if (app.url === "yo://welcome") {
-      panelManager.addPanel(app.id, welcomeHtml, welcomePreload);
-    } else if (app.url === "yo://home") {
+    if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       // webviewTag: true so the <webview id="app-preview"> inside App detail can render
       panelManager.addPanel(app.id, homeHtml, homePreload, undefined, true);
@@ -981,9 +977,6 @@ async function boot() {
 
   layoutManager = new LayoutManager(panelManager);
   commandParser = new CommandParser(panelManager, skillEngine, layoutManager, appConnector, session);
-  commandParser.setWelcomeHandler(() => {
-    mainWindow?.webContents.send("show-welcome");
-  });
   let restoring = false;
 
   // LLM engine for inline yo/sup execution
@@ -1271,19 +1264,8 @@ async function boot() {
       createPanelForApp(id, app);
     }
 
-    // Welcome takes precedence over any restored view when the pref is on.
-    // The user explicitly unchecks "Show on startup" in Welcome's footer to
-    // bypass. lastView is still restored under the welcome panel — Cmd-W /
-    // .dip back / clicking a Recent jumps you into it.
-    const showWelcomeOnBoot = getPreference<boolean>("welcomeOnStartup", true);
-    if (showWelcomeOnBoot && mainWindow) {
-      if (!panelManager.hasPanel("welcome")) {
-        createPanelForApp("welcome", { id: "welcome", url: "yo://welcome" });
-      }
-      panelManager.switchTo("welcome", mainWindow);
-      // Don't fall through to lastView restoration when Welcome is showing.
-      return;
-    }
+    // Welcome app removed — boot directly into lastView or the first
+    // user app. No splash-style landing screen anymore.
     if (lastView && mainWindow) {
       if (lastView.type === "grid-full" && lastView.grid) {
         const allCellIds = lastView.grid.cells.map(c => c.panelId);
@@ -1320,15 +1302,9 @@ async function boot() {
         panelManager.switchTo(lastView.id, mainWindow);
       }
     } else if (mainWindow) {
-      // No persisted view — show Welcome (the boot fallback) unless the user
-      // has explicitly turned it off.
-      const showWelcome = getPreference<boolean>("welcomeOnStartup", true);
-      if (showWelcome) {
-        panelManager.switchTo("welcome", mainWindow);
-      } else {
-        const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
-        panelManager.switchTo(firstApp?.id || "home", mainWindow);
-      }
+      // No persisted view — land on the first user app.
+      const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
+      panelManager.switchTo(firstApp?.id || "home", mainWindow);
     }
 
     // Restore all saved tabs (not just those in the current view).
@@ -1386,9 +1362,7 @@ async function boot() {
 
   function createPanelForApp(instanceId: string, app: { id: string; url?: string; forceWeb?: boolean }): void {
     if (!app.url) return;
-    if (app.url === "yo://welcome") {
-      panelManager.addPanel(instanceId, welcomeHtml, welcomePreload);
-    } else if (app.url === "yo://home") {
+    if (app.url === "yo://home") {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(instanceId, homeHtml, homePreload, undefined, true);
     } else if (app.url && HOME_SECTION_SLUGS[app.url]) {
@@ -1539,9 +1513,10 @@ async function boot() {
     // change the global topInset or it will trigger restoreSplit and re-apply the grid,
     // stealing focus in a loop.
     if (!layoutManager.hasSplit) {
+      // Only the browser panel shows a URL bar. Internal yo:// apps
+      // (Agent / Plan / Workbench / …) don't have URLs.
       const isBrowser = resolveAppId(id) === "browser";
-      const urlBarPref = getPreference<boolean>("showUrlBar", false);
-      if (isBrowser || urlBarPref) {
+      if (isBrowser) {
         panelManager.setTopInset(URL_BAR_HEIGHT);
         mainWindow.webContents.send("url-bar-force", true);
       } else {
@@ -2577,9 +2552,6 @@ async function boot() {
     return openVibe(id, { showVibePanel });
   }
 
-  // ── Welcome app IPC ──
-  ipcMain.handle("welcome:recents", () => getWorkingDirRecents());
-
   /** Per-instance (app, folder) bindings. Lets recents:open reuse an
    *  already-open Vibe/Spec/etc panel that's bound to the same folder
    *  instead of spawning a duplicate. Pruned lazily on lookup so a
@@ -2638,21 +2610,10 @@ async function boot() {
       addRecent({ kind: "app", id: baseId, name: app.name, folder });
     }
   }
-  ipcMain.handle("welcome:open-vibe", () => openFreshInternalApp("vibe"));
-  ipcMain.handle("welcome:open-spec", () => openFreshInternalApp("spec"));
-  ipcMain.handle("welcome:open-folder", (_e, folder: string) => {
-    if (folder) setWorkingDirectory(folder);
-    if (mainWindow) {
-      const firstApp = appConnector.list().find(a => a.url && !a.url.startsWith("yo://"));
-      panelManager.switchTo(firstApp?.id || "home", mainWindow);
-    }
-  });
-  ipcMain.handle("welcome:get-show-on-startup", () =>
-    getPreference<boolean>("welcomeOnStartup", true),
-  );
-  ipcMain.handle("welcome:set-show-on-startup", (_e, v: boolean) => {
-    setPreference("welcomeOnStartup", !!v);
-  });
+  // Open Vibe / Spec panels from the home sections. Pre-Welcome these
+  // were `welcome:*` channels; renamed but the handlers stayed.
+  ipcMain.handle("apps:open-vibe", () => openFreshInternalApp("vibe"));
+  ipcMain.handle("apps:open-spec", () => openFreshInternalApp("spec"));
 
   // Open a saved agent as a standalone panel: yo://agent?slug=<slug>.
   // Each saved agent gets its own panel id (agent-<slug>) so multiple

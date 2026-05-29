@@ -15,6 +15,9 @@ interface AgentApi {
   ensureDefault: () => Promise<{ slug: string }>;
   getKind: (slug: string) => Promise<{ kind: "standard" | "spec" | "vibe" }>;
   setKind: (slug: string, kind: "standard" | "spec" | "vibe") => Promise<{ ok: boolean; error?: string }>;
+  getPrefs: (slug: string) => Promise<{ model: string; perm: string; kind: "standard" | "spec" | "vibe" }>;
+  setModel: (slug: string, model: string) => Promise<{ ok: boolean; error?: string }>;
+  setPerm: (slug: string, perm: string) => Promise<{ ok: boolean; error?: string }>;
   start: (opts: { instanceId: string; agentSlug: string; cwd: string }) => Promise<unknown>;
   send: (instanceId: string, message: string, model: string, perm: PermMode) => Promise<unknown>;
   stop: (instanceId: string) => Promise<unknown>;
@@ -22,6 +25,7 @@ interface AgentApi {
   dispose: (instanceId: string) => Promise<unknown>;
   rebind: (instanceId: string, cwd: string) => Promise<unknown>;
   askResolve: (instanceId: string, askId: string, value: string | null) => void;
+  approvalRespond: (instanceId: string, approvalId: string, approved: boolean) => void;
   getCwd: () => Promise<string>;
   pickCwd: () => Promise<string | null>;
   setCwd: (dir: string) => Promise<string>;
@@ -272,15 +276,22 @@ async function init(): Promise<void> {
       listChats: async (): Promise<ChatSummary[]> => [],
       loadChat: async () => { /* TODO */ },
       deleteChat: async () => { /* TODO */ },
-      respondApproval: () => { /* TODO */ },
+      respondApproval: (approvalId, approved) => { window.agent.approvalRespond(id, approvalId, approved); },
       respondAsk: (askId, value) => { window.agent.askResolve(id, askId, value); },
       kindChanged: (kind) => { void window.agent.setKind(slug, kind); },
+      modelChanged: (model) => { void window.agent.setModel(slug, model); },
+      permChanged: (perm) => { void window.agent.setPerm(slug, perm); },
     },
   });
 
-  // Seed the type dropdown from the saved AgentConfig.kind so the UI
-  // reflects what's actually persisted. Silent init — won't echo back.
-  void window.agent.getKind(slug).then(({ kind }) => renderer.initAgentKind(kind));
+  // Seed all three dropdowns from the saved AgentConfig in one round trip.
+  // Silent inits — won't echo the change back to the IPC and rewrite the
+  // same value.
+  void window.agent.getPrefs(slug).then(({ kind, model, perm }) => {
+    renderer.initAgentKind(kind);
+    renderer.initModel(model);
+    renderer.initPerm(perm as PermMode);
+  });
 
   // Initial paint + engine start.
   void paintWorkdirBar(cwd);
@@ -312,6 +323,9 @@ async function init(): Promise<void> {
   });
   window.agent.onEvent(`agent:${id}:ask`, (askId: unknown, question: unknown, options: unknown) => {
     renderer.showAsk(String(askId), String(question || ""), Array.isArray(options) ? (options as Array<{ value: string; label: string; description?: string; recommended?: boolean }>) : []);
+  });
+  window.agent.onEvent(`agent:${id}:approval-prompt`, (approvalId: unknown, toolName: unknown, toolLabel: unknown, input: unknown) => {
+    renderer.showApprovalPrompt(String(approvalId), String(toolName || ""), String(toolLabel || toolName || ""), input);
   });
 
   window.addEventListener("beforeunload", () => { void window.agent.dispose(id); });

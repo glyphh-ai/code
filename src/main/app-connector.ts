@@ -184,7 +184,6 @@ const NO_CAPTURE: CapturePolicy = { type: "manual" };
 // internal apps like Agent/Vibe/Spec do).
 const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolicy?: CapturePolicy; kind?: AppKind; requiresFolder?: boolean }> = [
   // Boot-time fallback shown when there's no panel state to restore.
-  { id: "welcome", name: "Welcome", url: "yo://welcome", capturePolicy: NO_CAPTURE, kind: "system" },
   // Settings — opened from the header gear; no longer in the left rail.
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },

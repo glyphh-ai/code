@@ -131,7 +131,6 @@ declare global {
       onAccountLocked: (callback: (info: { status: string; upgradeUrl: string }) => void) => void;
       onAccountUnlocked: (callback: () => void) => void;
       recheckAccount: () => Promise<{ status: string }>;
-      onShowWelcome: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
       onFocusInput: (callback: () => void) => void;
       onExecCommandFromPalette: (callback: (cmd: string) => void) => void;
@@ -646,8 +645,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 
-// yo help trigger from main process — open home tab
-window.yo.onShowWelcome(() => window.yo.tabNewApp("home"));
+// Open settings tab when main process signals (kept; welcome removed).
 window.yo.onOpenSettings(() => window.yo.tabNewApp("home"));
 
 

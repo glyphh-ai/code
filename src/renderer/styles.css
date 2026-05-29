@@ -633,9 +633,15 @@ body.account-locked #dl-btn-wrap {
   height: 38px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  /* Top padding leaves breathing room between the app header chrome
+     (window controls / .Yo label) and the tabs that sit below — the
+     tabs have `margin-top: auto` so they hug the bottom border. */
+  padding: 6px 16px 0;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  /* Rail-color band between the tab strip and the content area so the
+     active tab (also var(--surface-2)) flows continuously into the side
+     rails with no dark divider line. Theme-aware via the token. */
+  border-bottom: 4px solid var(--surface-2);
   -webkit-app-region: drag;
   gap: 12px;
 }
@@ -829,7 +835,7 @@ body.account-locked #dl-btn-wrap {
 #tab-bar {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 4px;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -855,7 +861,8 @@ body.account-locked #dl-btn-wrap {
   gap: 6px;
   height: 26px;
   padding: 0 8px 0 12px;
-  background: var(--surface-2);
+  /* Inactive tab matches the Dashboard page background. Theme-aware. */
+  background: var(--bg);
   border: 1px solid var(--border-2);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -875,11 +882,11 @@ body.account-locked #dl-btn-wrap {
 .tab:hover { background: var(--hover); color: var(--text); }
 
 .tab-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #000;
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  color: var(--text);
 }
-.tab-active:hover { background: var(--accent-hover); color: #000; }
+.tab-active:hover { background: var(--surface-2); color: var(--text); }
 
 .tab-favicon {
   width: 14px;
@@ -7583,12 +7590,15 @@ select.settings-input {
    ════════════════════════════════════════════════════════════════════ */
 
 /* Map the v4 workspace (--ws-*) tokens onto .yo tokens so the ported CSS
-   themes correctly and flips light/dark with the rest of the app. */
+   themes correctly and flips light/dark with the rest of the app. Both
+   "card" + "rail" bgs resolve to --surface so every panel inside the
+   Workbench (Files, Terminal, Diff, Preview, Monaco viewer) reads the
+   same color as the Plan body + Agent body + Token Metrics card. */
 :root {
   --ws-line: var(--border);
   --ws-line-soft: var(--border);
-  --ws-bg-card: var(--surface-2);
-  --ws-bg-rail: var(--surface-3);
+  --ws-bg-card: var(--surface);
+  --ws-bg-rail: var(--surface);
   --ws-text: var(--text);
   --ws-text-muted: var(--text-2);
   --ws-text-faint: var(--text-faint);
@@ -7859,6 +7869,10 @@ select.settings-input {
 }
 .ws-right-rail {
   background: var(--ws-bg-rail);
+  /* Right border on every rail so the column's right edge is visible
+     against the workbench body (same surface color). Inter-rail seams
+     are covered by the next rail's border-left so we don't double up. */
+  border-right: 1px solid var(--ws-line);
   border-left: 1px solid var(--ws-line);
   display: flex;
   flex-direction: column;

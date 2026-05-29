@@ -9,7 +9,6 @@ const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonEl
 const settingsStatus = document.getElementById("settings-status")!;
 
 const toggleVoiceInput = document.getElementById("toggle-voice-input") as HTMLInputElement;
-const toggleShowUrlBar = document.getElementById("toggle-show-url-bar") as HTMLInputElement;
 const toggleAutoUpdate = document.getElementById("toggle-auto-update") as HTMLInputElement;
 const mcpExposeStatus = document.getElementById("mcp-expose-status")!;
 const mcpExposePort = document.getElementById("mcp-expose-port") as HTMLInputElement;
@@ -642,13 +641,8 @@ function initSettings() {
     setInterval(refreshRelayStatus, 3_000);
   })();
 
-  toggleShowUrlBar.addEventListener("change", () => {
-    const show = toggleShowUrlBar.checked;
-    window.yo.urlBarToggle(show);
-    const urlBar = document.getElementById("url-bar");
-    if (urlBar) urlBar.classList.toggle("hidden", !show);
-    document.body.style.setProperty("--content-top", show ? "72px" : "38px");
-  });
+  // Show URL Bar toggle removed — only the Browser panel shows a URL bar
+  // now; everything else (Agent, Plan, Workbench, internal yo://) doesn't.
 
   // Timezone
   settingsTimezone.addEventListener("change", () => {
@@ -748,7 +742,6 @@ async function loadSettings() {
   }
 
   // Load toggle states
-  toggleShowUrlBar.checked = await window.yo.getPreference("showUrlBar", true) as boolean;
   toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;
   toggleAutoUpdate.checked = await window.yo.getPreference("autoUpdate", true) as boolean;
 

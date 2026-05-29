@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld("agent", {
     ipcRenderer.invoke("agent:get-kind", slug) as Promise<{ kind: "standard" | "spec" | "vibe" }>,
   setKind: (slug: string, kind: "standard" | "spec" | "vibe") =>
     ipcRenderer.invoke("agent:set-kind", slug, kind) as Promise<{ ok: boolean; error?: string }>,
+  getPrefs: (slug: string) =>
+    ipcRenderer.invoke("agent:get-prefs", slug) as Promise<{ model: string; perm: string; kind: "standard" | "spec" | "vibe" }>,
+  setModel: (slug: string, model: string) =>
+    ipcRenderer.invoke("agent:set-model", slug, model) as Promise<{ ok: boolean; error?: string }>,
+  setPerm: (slug: string, perm: string) =>
+    ipcRenderer.invoke("agent:set-perm", slug, perm) as Promise<{ ok: boolean; error?: string }>,
   start: (opts: { instanceId: string; agentSlug: string; cwd: string }) =>
     ipcRenderer.invoke("agent:start", opts),
   send: (instanceId: string, message: string, model: string, perm: string) =>
@@ -18,6 +24,8 @@ contextBridge.exposeInMainWorld("agent", {
    *  value, or null when the user cancelled. */
   askResolve: (instanceId: string, askId: string, value: string | null) =>
     ipcRenderer.send("agent:ask-resolve", instanceId, askId, value),
+  approvalRespond: (instanceId: string, approvalId: string, approved: boolean) =>
+    ipcRenderer.send("agent:approval-respond", instanceId, approvalId, approved),
 
   getCwd: () => ipcRenderer.invoke("working-dir:get"),
   pickCwd: () => ipcRenderer.invoke("working-dir:pick"),

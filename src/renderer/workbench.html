@@ -20,7 +20,8 @@
   body {
     font-family: var(--font-sans);
     font-size: 14px;
-    background: var(--bg);
+    /* Body matches the "Token Metrics" panel color (--surface, theme-aware). */
+    background: var(--surface);
     color: var(--text);
     overflow: hidden;
     display: flex;
@@ -37,7 +38,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    background: var(--bg);
+    /* Header matches the Yo agent (right-rail) header color (--surface-2). */
+    background: var(--surface-2);
     flex-shrink: 0;
   }
   .wb-header-title {
@@ -108,7 +110,9 @@
   .wb-section-btn:hover { background: var(--surface-3); color: var(--text); }
   .wb-section-btn.active {
     background: var(--accent-bg);
-    color: var(--accent);
+    /* Keep the icon contrast color (white in dark mode, dark in light) —
+       only the BORDER goes accent. */
+    color: var(--white);
     border-color: var(--accent);
   }
   .wb-section-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

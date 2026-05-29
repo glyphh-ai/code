@@ -124,9 +124,6 @@ contextBridge.exposeInMainWorld("yo", {
   relaunch: () => ipcRenderer.send("relaunch"),
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
   getPreference: (key: string, defaultVal?: unknown) => ipcRenderer.invoke("get-preference", key, defaultVal),
-  onShowWelcome: (callback: () => void) => {
-    ipcRenderer.on("show-welcome", () => callback());
-  },
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.on("open-settings", () => callback());
   },
@@ -471,8 +468,8 @@ contextBridge.exposeInMainWorld("yo", {
   // Quick open for Vibe / Spec from the rail Recents "+" dropdown — same
   // handlers Welcome uses, so the spawn semantics (reuse-on-match folder
   // binding + tab) stay identical.
-  openVibe: () => ipcRenderer.invoke("welcome:open-vibe") as Promise<void>,
-  openSpec: () => ipcRenderer.invoke("welcome:open-spec") as Promise<void>,
+  openVibe: () => ipcRenderer.invoke("apps:open-vibe") as Promise<void>,
+  openSpec: () => ipcRenderer.invoke("apps:open-spec") as Promise<void>,
 
   // Recents (rich: app/layout + folder pairs)
   recentsList: () => ipcRenderer.invoke("recents:list") as Promise<Array<{

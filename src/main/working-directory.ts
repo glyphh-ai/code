@@ -185,9 +185,12 @@ export function registerWorkingDirectoryIpc(deps: {
   getMainWindow = deps.getMainWindow;
   broadcastToPanels = deps.broadcastToPanels;
   if (deps.onWorkingDirChange) onWorkingDirChange = deps.onWorkingDirChange;
-  // Start watching the current working dir on boot so file events flow
-  // before any explicit setWorkingDirectory call.
-  startWorkdirWatcher(getWorkingDirectory());
+  // Defer watcher start to a setTimeout so any sync work in this fn doesn't
+  // get blocked behind fs.watch setup on a potentially-large dir. The
+  // watcher is best-effort — if it fails the rest of the app still works.
+  setTimeout(() => {
+    try { startWorkdirWatcher(getWorkingDirectory()); } catch { /* noop */ }
+  }, 0);
   if (deps.openRecent) openRecentEntry = deps.openRecent;
 
   ipcMain.handle("working-dir:get", () => getWorkingDirectory());
@@ -291,8 +294,11 @@ export function registerWorkingDirectoryIpc(deps: {
     if (typeof dir !== "string" || !dir) return { entries: [], error: "missing dir" };
     try {
       const items = await fs.readdir(dir, { withFileTypes: true });
+      // Show dotfiles. The user wants `.yo/` visible so they can see the
+      // plan files the agent is writing; .git is filtered explicitly since
+      // it's noisy and rarely useful in a file tree.
       const entries = items
-        .filter((d) => !d.name.startsWith("."))
+        .filter((d) => d.name !== ".git" && d.name !== "node_modules")
         .map((d) => ({
           name: d.name,
           path: path.join(dir, d.name),

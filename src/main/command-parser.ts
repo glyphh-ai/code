@@ -21,7 +21,6 @@ import type { YoChat } from "./yo-chat";
 export class CommandParser {
   private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace"]);
 
-  private onShowWelcome: (() => void) | null = null;
   private onDrip: ((effect: string) => void) | null = null;
   private dripManager: import("./drip-manager").DripManager | null = null;
 
@@ -48,11 +47,6 @@ export class CommandParser {
   /** Set the main window reference (used by dip commands). */
   setMainWindow(win: BrowserWindow): void {
     this.mainWindow = win;
-  }
-
-  /** Register callback for yo help */
-  setWelcomeHandler(fn: () => void) {
-    this.onShowWelcome = fn;
   }
 
   /** Register callback for drip effects */

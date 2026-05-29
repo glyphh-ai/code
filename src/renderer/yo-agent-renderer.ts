@@ -52,6 +52,12 @@ export interface YoAgentCallbacks {
    *  from the next user message. Optional — surfaces that don't have a
    *  type dropdown leave this unset. */
   kindChanged?: (kind: AgentKind) => void;
+  /** User picked a different model. Optional; when wired, the host
+   *  persists to AgentConfig.model_name so the dropdown restores on
+   *  next launch. */
+  modelChanged?: (model: string) => void;
+  /** User picked a different permission mode. */
+  permChanged?: (perm: PermMode) => void;
 }
 
 export interface AskOption {
@@ -782,7 +788,14 @@ export class YoAgentRenderer {
 
   // ── Perm + model dropdowns ──
 
-  private applyPerm(p: PermMode): void {
+  /** Silent perm init — used by the host to seed the dropdown from a
+   *  persisted AgentConfig.perm_mode without firing the change callback. */
+  initPerm(p: PermMode): void { this.applyPerm(p, /*silent=*/ true); }
+  /** Silent model init — used by the host to seed the dropdown from a
+   *  persisted AgentConfig.model_name. */
+  initModel(m: string): void { this.applyModel(m, /*silent=*/ true); }
+  private applyPerm(p: PermMode, silent = false): void {
+    const changed = this.perm !== p;
     this.perm = p;
     this.permIcon.innerHTML = PERM_ICONS[p] || PERM_ICONS.default;
     this.permLabel.textContent = PERM_LABELS[p] || "ask";
@@ -792,6 +805,7 @@ export class YoAgentRenderer {
     this.permMenu.querySelectorAll<HTMLElement>(".yo-perm-option").forEach((o) => {
       o.classList.toggle("active", o.dataset.value === p);
     });
+    if (changed && !silent) this.callbacks.permChanged?.(p);
   }
 
   /** Initialize the kind from a persisted config without firing the change
@@ -811,13 +825,15 @@ export class YoAgentRenderer {
     if (changed && !silent) this.callbacks.kindChanged?.(k);
   }
 
-  private applyModel(m: string): void {
+  private applyModel(m: string, silent = false): void {
+    const changed = this.model !== m;
     this.model = m;
     this.modelLabel.textContent = MODEL_PRETTY[m] || (m || "Default");
     this.modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => {
       o.classList.toggle("active", o.dataset.value === m);
     });
     this.paintBrand();
+    if (changed && !silent) this.callbacks.modelChanged?.(m);
   }
 
   // ── History dropdown ──

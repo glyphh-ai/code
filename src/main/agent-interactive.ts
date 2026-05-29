@@ -24,6 +24,7 @@ import { getShellPath } from "./shell-path";
 import { getPreference } from "./stores/preferences-db";
 import { getAgent, ensureDefaultAgent, saveAgent, type AgentConfig } from "./agent-store";
 import { addRecent } from "./working-directory";
+import { gate } from "./action-gate";
 
 export type PermMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
 
@@ -44,6 +45,11 @@ interface RunningInstance {
    *  posts agent:ask-resolve. The workflow engine awaits the promise to
    *  decide what to do next (advance phase, edit, abort, etc). */
   pendingAsks: Map<string, (value: string | null) => void>;
+  /** Pending per-tool approvals keyed by approvalId. Triggered when perm
+   *  mode is "ask" (default) or "auto" and the tool needs gating. The
+   *  renderer shows the approval prompt and resolves via the
+   *  agent:approval-respond IPC. */
+  pendingApprovals: Map<string, (approved: boolean) => void>;
 }
 
 const instances = new Map<string, RunningInstance>();
@@ -84,6 +90,43 @@ async function ensureSDK(): Promise<any> {
 /** One SDK pass — streams tokens / tool events to the renderer. Does NOT
  *  emit "done" so callers can chain multiple passes (e.g. the spec
  *  workflow phase loop). Returns the streamed text for downstream use. */
+/** Build the SDK MCP server that exposes the agent's "yo" custom tools —
+ *  the model can call these alongside the preset Claude Code toolset.
+ *  Today: one tool, `ask` — pops the purple "Input required" approval card
+ *  in the renderer and returns the user's pick. Reuses the same ask()
+ *  helper the spec workflow uses, so the model and the workflow share one
+ *  approval-card mechanism.
+ *
+ *  Follows the same createSdkMcpServer/tool() pattern as yo-agent.ts. */
+function buildYoMcpServer(sdk: any, instance: RunningInstance): any {
+  const { z } = require("zod");
+  const askTool = sdk.tool(
+    "ask",
+    "Ask the user a multi-choice question and wait for their pick. Use this whenever you need a decision from the user that has a discrete set of options (yes/no, A vs B, which of N, approve/reject, etc). The user sees a purple \"Input required\" card with the options; one can be marked recommended so it's preselected. Returns the picked option's `value` (or \"cancelled\" if the user dismissed the card).",
+    {
+      question: z.string().describe("The question text shown above the options. Should be short and direct."),
+      options: z.array(z.object({
+        value: z.string().describe("Stable identifier returned when this option is picked."),
+        label: z.string().describe("Bold row title shown to the user."),
+        description: z.string().optional().describe("Optional lighter row body. Keep it under one short sentence."),
+        recommended: z.boolean().optional().describe("If true, this row is preselected and gets a purple \"Recommended\" pill. At most one option should set this."),
+      })).min(2).describe("The choices shown to the user. At least two."),
+    },
+    async (args: { question: string; options: AskOption[] }) => {
+      const picked = await ask(instance, args.question, args.options);
+      return {
+        content: [{ type: "text" as const, text: picked === null ? "cancelled" : picked }],
+      };
+    },
+  );
+  return sdk.createSdkMcpServer({
+    name: "yo",
+    version: "1.0.0",
+    tools: [askTool],
+    alwaysLoad: true,
+  });
+}
+
 async function runSdkTurn(
   instance: RunningInstance,
   message: string,
@@ -100,13 +143,38 @@ async function runSdkTurn(
   instance.abortController = new AbortController();
 
   const isBypass = perm === "bypassPermissions";
+  const yoMcp = buildYoMcpServer(sdk, instance);
   const options: Record<string, any> = {
     model: model || cfg?.model_name || "claude-sonnet-4-6",
     maxTurns: getPreference<number>("maxTurns", 200),
     ...asarSafeQueryOptions(instance.cwd),
     permissionMode: perm,
     allowDangerouslySkipPermissions: isBypass,
+    // canUseTool routes risky tool calls through the inline Allow/Deny
+    // approval prompt when perm mode requires it. Without this the SDK's
+    // permissionMode does nothing in embedded use — there's no place to
+    // ask. Same gate() logic as yo-agent.ts uses for the right rail.
+    ...(isBypass ? {} : {
+      canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+        const mode = perm as "default" | "plan" | "acceptEdits" | "bypassPermissions";
+        const decision = gate(toolName, mode);
+        if (decision === "execute") return { behavior: "allow", updatedInput: input };
+        if (decision === "skip") return { behavior: "deny", message: `Tool "${toolName}" denied by mode "${mode}".` };
+        // needs_approval — pop the inline prompt and await user.
+        const approvalId = `app-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+        const approved = await new Promise<boolean>((resolve) => {
+          instance.pendingApprovals.set(approvalId, resolve);
+          emit(instance, "approval-prompt", approvalId, toolName, toolName, input);
+        });
+        return approved
+          ? { behavior: "allow", updatedInput: input }
+          : { behavior: "deny", message: "User denied tool call." };
+      },
+    }),
     tools: { type: "preset", preset: "claude_code" },
+    // Our custom MCP server adds the `ask` tool that surfaces the purple
+    // approval card. The model invokes it as `mcp__yo__ask`.
+    mcpServers: { yo: yoMcp },
     systemPrompt,
     abortController: instance.abortController,
     includePartialMessages: true,
@@ -358,6 +426,34 @@ export function registerAgentInteractiveIpc(): void {
     return { ok: true };
   });
 
+  // Read the saved model + perm + kind for an agent. Used by the renderer
+  // to seed dropdowns on mount so a restart preserves the last selection
+  // (falling back to "" / "default" / "standard" when unset).
+  ipcMain.handle("agent:get-prefs", (_e, slug: string) => {
+    const cfg = slug ? getAgent(slug) : null;
+    return {
+      model: cfg?.model_name || "",
+      perm: cfg?.perm_mode || "default",
+      kind: cfg?.kind || "standard",
+    };
+  });
+  // Persist the model selection from the model dropdown.
+  ipcMain.handle("agent:set-model", (_e, slug: string, model: string) => {
+    if (!slug) return { ok: false };
+    const cfg = getAgent(slug);
+    if (!cfg) return { ok: false, error: "agent not found" };
+    saveAgent({ ...cfg, model_name: model || "" });
+    return { ok: true };
+  });
+  // Persist the perm-mode selection from the perm dropdown.
+  ipcMain.handle("agent:set-perm", (_e, slug: string, perm: "default" | "plan" | "acceptEdits" | "bypassPermissions") => {
+    if (!slug) return { ok: false };
+    const cfg = getAgent(slug);
+    if (!cfg) return { ok: false, error: "agent not found" };
+    saveAgent({ ...cfg, perm_mode: perm });
+    return { ok: true };
+  });
+
   ipcMain.handle("agent:start", (e, opts: InteractiveStartOpts) => {
     if (!opts?.instanceId) return { error: "instanceId required" };
     if (instances.has(opts.instanceId)) return { ok: true };
@@ -373,6 +469,7 @@ export function registerAgentInteractiveIpc(): void {
       abortController: null,
       webContents: new WeakRef(wc),
       pendingAsks: new Map(),
+      pendingApprovals: new Map(),
     });
     return { ok: true };
   });
@@ -385,6 +482,16 @@ export function registerAgentInteractiveIpc(): void {
     if (!r) return;
     instance.pendingAsks.delete(askId);
     r(value);
+  });
+
+  // Resolve a pending per-tool approval (Allow / Deny on the inline prompt).
+  ipcMain.on("agent:approval-respond", (_e, instanceId: string, approvalId: string, approved: boolean) => {
+    const instance = instances.get(instanceId);
+    if (!instance) return;
+    const r = instance.pendingApprovals.get(approvalId);
+    if (!r) return;
+    instance.pendingApprovals.delete(approvalId);
+    r(!!approved);
   });
 
   ipcMain.handle("agent:send", async (_e, instanceId: string, message: string, model: string, perm: PermMode) => {
@@ -412,10 +519,12 @@ export function registerAgentInteractiveIpc(): void {
     const instance = instances.get(instanceId);
     if (!instance) return { ok: false };
     instance.abortController?.abort();
-    // Resolve any in-flight asks as cancelled so the workflow engine can
+    // Resolve any in-flight asks/approvals as cancelled so the engine can
     // unwind cleanly instead of leaking promises.
     for (const r of instance.pendingAsks.values()) r(null);
     instance.pendingAsks.clear();
+    for (const r of instance.pendingApprovals.values()) r(false);
+    instance.pendingApprovals.clear();
     instances.delete(instanceId);
     return { ok: true };
   });

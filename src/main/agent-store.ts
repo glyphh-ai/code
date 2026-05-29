@@ -68,6 +68,9 @@ export interface AgentConfig {
   /** Model used by this agent (provider + name). Falls back to global llmConfig if unset. */
   model_provider?: string;
   model_name?: string;
+  /** Last-used permission mode for the agent loop. Persisted so the
+   *  dropdown restores its prior state on restart. */
+  perm_mode?: "default" | "plan" | "acceptEdits" | "bypassPermissions";
 
   /**
    * How this agent runs inside a swarm:

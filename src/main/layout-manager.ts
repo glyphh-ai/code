@@ -102,9 +102,21 @@ export class LayoutManager {
     return TITLEBAR_HEIGHT;
   }
 
-  /** Whether per-cell URL bars should be shown in grid mode */
+  /** True if the active grid has any browser-type panel in its cells. */
+  private gridContainsBrowser(): boolean {
+    if (!this.activeGrid) return false;
+    return this.activeGrid.cells.some((c) => {
+      const id = c.panelId;
+      return id === "browser" || id.startsWith("browse-") || id.startsWith("browser-");
+    });
+  }
+
+  /** Whether per-cell URL bars should be shown in grid mode.
+   *  Only when the grid has at least one browser panel — internal yo://
+   *  apps (Agent / Plan / Workbench / …) don't have URLs to show, so
+   *  drawing empty URL bars above them is just chrome noise. */
   private get cellUrlBars(): boolean {
-    return this.panelManager.topInset > 0;
+    return this.gridContainsBrowser() && this.panelManager.topInset > 0;
   }
 
   // ── Split commands ──────────────────────────────────────
