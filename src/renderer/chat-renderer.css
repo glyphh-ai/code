@@ -316,7 +316,10 @@
   gap: 8px;
   padding: 6px 2px;
   font-size: 13px;
-  color: var(--text-faint);
+  /* --text-2 is high-contrast in both themes (dark in light mode, light in
+     dark mode) so the working indicator stays legible. --text-faint was too
+     washed out to read. */
+  color: var(--text-2);
 }
 .yo-chat .chat-working-spinner {
   font-family: var(--font-mono);

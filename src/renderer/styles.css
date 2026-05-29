@@ -6919,13 +6919,17 @@ select.settings-input {
 }
 
 /* ── Composer-area interaction (ask / approve takes over above the input) ──── */
-/* The prompt molds into the composer rather than floating as a popup: no drop
-   shadow, a soft mode-tinted surface, and an outline that picks up the active
-   permission-mode color (--yo-mode-color) so it reads as one piece with the
-   input below it. */
+/* The prompt is part of the panel, not a popup: no card, no tinted surface, no
+   drop shadow. It shares the panel's background so it reads as the composer
+   simply expanding upward. The only mode accent is the top divider (which lines
+   up with the input's own top border) and the borders of the selected option. */
 .yo-composer-interaction {
   flex-shrink: 0;
-  padding: 8px 22px 0;
+  /* Bottom padding = the gap between the question block and the input below. */
+  padding: 11px 22px 12px;
+  /* Top divider picks up the permission-mode color — the "top of the panel"
+     border the user sees when the composer expands for a question. */
+  border-top: 1px solid color-mix(in srgb, var(--yo-mode-color, var(--accent)) 55%, var(--border-2));
 }
 .yo-composer-interaction[hidden] { display: none; }
 
@@ -6933,11 +6937,17 @@ select.settings-input {
    question — suppress it while an interaction owns the composer. */
 .yo-panel.interaction-active .yo-scroll-btn { display: none !important; }
 
+/* When the composer is expanded for a question the interaction wrap already
+   carries the (mode-colored) top divider, so drop the input's own top border —
+   otherwise there'd be a second line between the question and the input,
+   breaking the "one expanded panel" look. No border on the bottom. */
+.yo-panel.interaction-active .yo-panel-input-wrap { border-top: none; }
+
 .yo-ci-panel {
-  background: color-mix(in srgb, var(--yo-mode-color, var(--accent)) 5%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--yo-mode-color, var(--accent)) 42%, var(--border));
-  border-radius: 10px;
-  padding: 11px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   outline: none;
   animation: yo-ci-rise 0.14s ease;
 }
@@ -7032,8 +7042,9 @@ select.settings-input {
   transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
 .yo-ci-option:hover { background: var(--hover); }
+/* Selection is shown by the mode-colored border + filled radio — no tinted
+   (green) fill, so the option keeps the panel's neutral surface. */
 .yo-ci-option.selected {
-  background: var(--active-bg);
   border-color: var(--yo-mode-color, var(--accent));
 }
 .yo-ci-option.cursor {
@@ -7082,8 +7093,8 @@ select.settings-input {
   padding: 1px 7px;
   border-radius: 999px;
   color: var(--yo-mode-color, var(--accent-dark));
-  background: color-mix(in srgb, var(--yo-mode-color, var(--accent)) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--yo-mode-color, var(--accent)) 35%, transparent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--yo-mode-color, var(--accent)) 45%, var(--border));
 }
 .yo-ci-actions {
   display: flex;
@@ -7109,13 +7120,18 @@ select.settings-input {
   transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
 }
 .yo-ci-btn:hover { background: var(--hover); color: var(--text); }
+/* Primary action follows the active permission mode rather than a fixed green,
+   so the whole interaction reads as one piece with the mode-tinted dividers. */
 .yo-ci-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--yo-mode-color, var(--accent));
+  border-color: var(--yo-mode-color, var(--accent));
   color: #04230f;
   font-weight: 600;
 }
-.yo-ci-btn.primary:hover { background: var(--accent-hover); color: #04230f; }
+.yo-ci-btn.primary:hover {
+  background: color-mix(in srgb, var(--yo-mode-color, var(--accent)) 85%, #000);
+  color: #04230f;
+}
 .yo-ci-btn.danger {
   border-color: color-mix(in srgb, var(--danger) 45%, var(--border-2));
   color: var(--danger);
@@ -7131,7 +7147,10 @@ select.settings-input {
   align-items: flex-end;
   gap: 6px;
   padding: 8px 22px 8px;
-  border-top: 1px solid var(--border-2);
+  /* The composer's top divider highlights to the active permission mode so the
+     whole input region reads as "in" that mode. Softened against the default
+     border so it's a tasteful accent line, not a hard rule. */
+  border-top: 1px solid color-mix(in srgb, var(--yo-mode-color, var(--accent)) 55%, var(--border-2));
   flex-shrink: 0;
 }
 
