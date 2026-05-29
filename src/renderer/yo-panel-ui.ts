@@ -1111,38 +1111,103 @@ function finalizeYoMessage(fullText: string) {
 // ── Helpers: plan actions ──────────────────────────────────────────────────
 
 function showPlanActions() {
+  // Render the plan-finish prompt as the standard "Input required" card so
+  // it matches every other multi-choice question the agent emits. The three
+  // existing actions become three card options the user picks between, with
+  // "Proceed" pre-selected as the recommended default.
+  showAskCard({
+    question: "Plan is ready. How do you want to proceed?",
+    options: [
+      { value: "proceed",      label: "Proceed",         description: "Execute the plan with your current permission setting.", recommended: true },
+      { value: "proceed-auto", label: "Proceed (auto)",  description: "Execute the plan and auto-accept edits — no per-tool prompts." },
+      { value: "edit",         label: "Edit the request", description: "Bring my previous message back into the input so I can refine it." },
+    ],
+    onSubmit: (value) => {
+      if (value === "proceed") {
+        window.yo.setAgentMode("default");
+        setPermValue("default");
+        showYoStatus("");
+        setYoThinking(true);
+        window.yo.yoPanelSend("Execute the plan above.");
+      } else if (value === "proceed-auto") {
+        window.yo.setAgentMode("acceptEdits");
+        setPermValue("acceptEdits");
+        showYoStatus("");
+        setYoThinking(true);
+        window.yo.yoPanelSend("Execute the plan above.");
+      } else if (value === "edit") {
+        yoPanelInput.value = yoLastUserText;
+        yoPanelInput.focus();
+        autoGrowYoInput();
+      }
+    },
+  });
+}
+
+/** Multi-choice "Input required" card — purple-bordered, matches the design
+ *  used for any other question the agent surfaces (AskUserQuestion etc.).
+ *  Pre-selects the recommended option so a quick Submit ships the default. */
+interface AskOption { value: string; label: string; description?: string; recommended?: boolean }
+function showAskCard(opts: {
+  question: string;
+  options: AskOption[];
+  onSubmit: (value: string | null) => void;
+}) {
+  clearYoStatus();
   const card = document.createElement("div");
-  card.className = "yo-plan-actions";
-  card.innerHTML =
-    `<button class="yo-plan-btn yo-plan-proceed">Proceed</button>` +
-    `<button class="yo-plan-btn yo-plan-auto">Proceed (auto)</button>` +
-    `<button class="yo-plan-btn yo-plan-edit">Edit</button>`;
+  card.className = "yo-ask-card";
+
+  const recommendedIdx = opts.options.findIndex((o) => o.recommended);
+  let pickedIdx = recommendedIdx >= 0 ? recommendedIdx : 0;
+
+  card.innerHTML = `
+    <div class="yo-ask-header">
+      <svg class="yo-ask-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span>Input required</span>
+    </div>
+    <div class="yo-ask-question"></div>
+    <div class="yo-ask-options"></div>
+    <div class="yo-ask-actions">
+      <button type="button" class="yo-ask-btn yo-ask-cancel">Cancel</button>
+      <button type="button" class="yo-ask-btn yo-ask-submit">Submit answer</button>
+    </div>
+  `;
+  (card.querySelector(".yo-ask-question") as HTMLElement).textContent = opts.question;
+  const optsEl = card.querySelector(".yo-ask-options") as HTMLElement;
+  opts.options.forEach((opt, i) => {
+    const row = document.createElement("div");
+    row.className = "yo-ask-option" + (i === pickedIdx ? " selected" : "");
+    const badge = opt.recommended ? `<span class="yo-ask-recommended">Recommended</span>` : "";
+    row.innerHTML = `
+      <div class="yo-ask-option-head">
+        <span class="yo-ask-option-label"></span>
+        ${badge}
+      </div>
+      ${opt.description ? `<div class="yo-ask-option-desc"></div>` : ""}
+    `;
+    (row.querySelector(".yo-ask-option-label") as HTMLElement).textContent = opt.label;
+    const descEl = row.querySelector(".yo-ask-option-desc") as HTMLElement | null;
+    if (descEl && opt.description) descEl.textContent = opt.description;
+    row.addEventListener("click", () => {
+      pickedIdx = i;
+      optsEl.querySelectorAll(".yo-ask-option").forEach((el) => el.classList.remove("selected"));
+      row.classList.add("selected");
+    });
+    optsEl.appendChild(row);
+  });
+
+  const resolve = (value: string | null) => {
+    card.classList.add("yo-ask-resolved");
+    card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+    opts.onSubmit(value);
+  };
+  card.querySelector(".yo-ask-cancel")!.addEventListener("click", () => resolve(null));
+  card.querySelector(".yo-ask-submit")!.addEventListener("click", () => {
+    resolve(opts.options[pickedIdx]?.value ?? null);
+  });
+
   yoPanelMessages.appendChild(card);
-
-  card.querySelector(".yo-plan-proceed")!.addEventListener("click", () => {
-    card.remove();
-    window.yo.setAgentMode("default");
-    setPermValue("default");
-    showYoStatus("");
-    setYoThinking(true);
-    window.yo.yoPanelSend("Execute the plan above.");
-  });
-
-  card.querySelector(".yo-plan-auto")!.addEventListener("click", () => {
-    card.remove();
-    window.yo.setAgentMode("acceptEdits");
-    setPermValue("acceptEdits");
-    showYoStatus("");
-    setYoThinking(true);
-    window.yo.yoPanelSend("Execute the plan above.");
-  });
-
-  card.querySelector(".yo-plan-edit")!.addEventListener("click", () => {
-    card.remove();
-    yoPanelInput.value = yoLastUserText;
-    yoPanelInput.focus();
-    autoGrowYoInput();
-  });
+  yoScroll();
 }
 
 // ── Helpers: copy/link handlers ────────────────────────────────────────────
