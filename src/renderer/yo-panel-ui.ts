@@ -164,10 +164,20 @@ const STOP_QUIPS = [
 
 function setYoThinking(thinking: boolean) {
   yoThinking = thinking;
-  yoPanelSendBtn.textContent = thinking ? "■" : "↑";
-  yoPanelSendBtn.classList.toggle("yo-stop", thinking);
   // Input stays enabled while the agent works — messages queue (drained as
   // each turn finishes), so the user is never blocked from typing.
+  paintSendButton();
+}
+
+/** Paint the send button based on (thinking × input has text). While the
+ *  agent works, the default action is ■ stop — but the moment the user
+ *  starts typing a follow-up, flip to ↑ so the click queues the message
+ *  instead of aborting the turn. */
+function paintSendButton() {
+  const hasText = !!yoPanelInput?.value.trim();
+  const showSend = !yoThinking || hasText;
+  yoPanelSendBtn.textContent = showSend ? "↑" : "■";
+  yoPanelSendBtn.classList.toggle("yo-stop", !showSend);
 }
 
 // ── Helpers: welcome screen ────────────────────────────────────────────────
@@ -1198,6 +1208,7 @@ function showYoError(err: string) {
 function autoGrowYoInput() {
   yoPanelInput.style.height = "40px";
   yoPanelInput.style.height = Math.min(yoPanelInput.scrollHeight, 160) + "px";
+  paintSendButton();
 }
 
 /** Move the caret to the end and resize the textarea. */
@@ -1914,8 +1925,12 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     window.yo.dripsPreview(recipe);
   });
   // -- Send/stop button --
+  // The button is "stop" (■) only when the agent is thinking AND the input is
+  // empty. Once the user types, it flips to "send" (↑) so click queues the
+  // follow-up instead of aborting the in-flight turn.
   yoPanelSendBtn.addEventListener("click", () => {
-    if (yoThinking) {
+    const isStopMode = yoThinking && !yoPanelInput.value.trim();
+    if (isStopMode) {
       window.yo.yoPanelStop();
       clearYoStatus();
       finishTimeline();
