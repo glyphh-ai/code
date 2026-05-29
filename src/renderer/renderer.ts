@@ -269,9 +269,6 @@ declare global {
       filesRailResize: (width: number) => void;
       filesRailWidthSave: (width: number) => void;
       filesRailGetWidth: () => Promise<number>;
-      // Quick open for Vibe / Spec
-      openVibe: () => Promise<void>;
-      openSpec: () => Promise<void>;
       // Recents (rich)
       recentsList: () => Promise<Array<{
         kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
@@ -850,32 +847,6 @@ initDownloads();
   });
   window.yo.onRecentsChanged(() => { void refreshRailRecents(); });
   void refreshRailRecents();
-
-  // Rail Recents "+" dropdown — quick Vibe/Spec spawn from the header.
-  const railRecentsAdd = document.getElementById("rail-recents-add");
-  const railRecentsAddMenu = document.getElementById("rail-recents-add-menu");
-  if (railRecentsAdd && railRecentsAddMenu) {
-    railRecentsAdd.addEventListener("click", (e) => {
-      e.stopPropagation();
-      railRecentsAddMenu.classList.toggle("hidden");
-    });
-    railRecentsAddMenu.querySelectorAll<HTMLButtonElement>("button[data-app]").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        railRecentsAddMenu.classList.add("hidden");
-        const slug = btn.dataset.app;
-        if (slug === "vibe") void window.yo.openVibe();
-        else if (slug === "spec") void window.yo.openSpec();
-      });
-    });
-    document.addEventListener("click", (e) => {
-      if (!railRecentsAddMenu.classList.contains("hidden") &&
-          !railRecentsAddMenu.contains(e.target as Node) &&
-          e.target !== railRecentsAdd) {
-        railRecentsAddMenu.classList.add("hidden");
-      }
-    });
-  }
 
   // ── Rail split: draggable divider between nav (top) and recents ──
   // Persisted as `leftRailSplit` (px of the nav pane height).

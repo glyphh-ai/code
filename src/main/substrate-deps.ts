@@ -14,8 +14,6 @@ import type { BrowserWindow } from "electron";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import type { SubstrateToolDeps } from "./substrate/tools";
-import { getCurrentCouncil } from "./current-council";
-import { renderCouncilStatus, summarizeCouncil, interjectCouncil } from "./council-session";
 
 // ── Deps interface ──────────────────────────────────────────────
 
@@ -47,15 +45,6 @@ export interface BuildSubstrateDepsArgs {
 
   // Local swarm — draft + spawn (returns a text status for the yo agent).
   swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
-
-  // Local council — convene a multi-LLM debate + open the Council app.
-  councilCreate: (config: {
-    council_prompt: string;
-    name?: string;
-    style?: string;
-    round_cap?: number;
-    members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
-  }) => Promise<string>;
 }
 
 // ── Builder ─────────────────────────────────────────────────────
@@ -76,7 +65,6 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     browserHtmlUrl,
     execCommand,
     swarmCreate,
-    councilCreate,
     agentRegistry,
   } = deps;
 
@@ -343,25 +331,6 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     },
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
-    },
-    council: {
-      create: (config) => councilCreate(config),
-      status: () => {
-        const id = getCurrentCouncil();
-        return id ? renderCouncilStatus(id) : "No council is currently open in the Council app.";
-      },
-      summarize: async () => {
-        const id = getCurrentCouncil();
-        if (!id) return "No council is currently open in the Council app.";
-        const r = await summarizeCouncil(id);
-        return r.ok ? (r.text || "(empty summary)") : `Summarize failed: ${r.error}`;
-      },
-      interject: (text: string) => {
-        const id = getCurrentCouncil();
-        if (!id) return "No council is currently open in the Council app.";
-        const r = interjectCouncil(id, text);
-        return r.ok ? "Moderator note queued for the council's next round." : `Failed: ${r.error}`;
-      },
     },
     agentRegistry,
   };

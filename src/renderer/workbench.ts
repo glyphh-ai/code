@@ -62,7 +62,6 @@ interface WbApi {
 declare global { interface Window { wb: WbApi } }
 
 type ViewKind = "files" | "terminal" | "diff" | "preview" | "monaco" | "subagents" | "plan";
-type PlanPhase = "requirements" | "design" | "tasks";
 
 interface MonacoTab {
   name: string; path: string; content: string;
@@ -109,7 +108,9 @@ interface SubAgentsSlot {
 }
 interface PlanSlot {
   id: number; view: "plan";
-  activePhase: PlanPhase;
+  /** "preview" renders the markdown (default; Plan is markdown-first),
+   *  "code" shows the raw Monaco editor for direct editing. */
+  mode: "preview" | "code";
 }
 type Slot = MonacoSlot | FilesSlot | TermSlot | DiffSlot | PreviewSlot | SubAgentsSlot | PlanSlot;
 
@@ -463,7 +464,7 @@ async function init(): Promise<void> {
     }
     if (view === "diff") return { id, view };
     if (view === "subagents") return { id, view, agents: [], activeIdx: 0 };
-    if (view === "plan") return { id, view, activePhase: "requirements" };
+    if (view === "plan") return { id, view, mode: "preview" };
     return { id, view: "preview" };
   }
   function closeSlot(slotId: number): void {
@@ -1022,29 +1023,35 @@ async function init(): Promise<void> {
   }
 
   // ── Plan view ──
-  // Three phase tabs (requirements → design → tasks) backed by markdown
-  // files at <cwd>/.yo/plan/<phase>.md. Single Monaco editor below the
-  // tabs; writable, auto-saves 800ms after the last keystroke. The same
-  // file watcher used elsewhere in the Workbench re-reads the active
-  // phase silently when the file changes on disk (e.g. the right-rail
-  // Yo agent wrote it). Replaces the standalone yo://plan app.
-  const PLAN_PHASES: PlanPhase[] = ["requirements", "design", "tasks"];
-  function planFilePath(phase: PlanPhase): string {
-    return `${cwd.replace(/\/+$/, "")}/.yo/plan/${phase}.md`;
+  // Single markdown file at <cwd>/.yo/plan.md. Writable Monaco editor with
+  // eye/code toggle so preview/source flips inline. Same file watcher used
+  // elsewhere in the Workbench re-reads silently when the file changes on
+  // disk (e.g. the right-rail Yo agent wrote it). Matches Claude Desktop's
+  // pattern — one plan doc, no phases.
+  function planFilePath(): string {
+    return `${cwd.replace(/\/+$/, "")}/.yo/plan.md`;
   }
   async function renderPlanIntoSlot(body: HTMLElement, slot: PlanSlot): Promise<void> {
     body.innerHTML = `
-      <div class="ws-plan-tabs"></div>
       <div class="ws-plan-status">
         <span class="ws-plan-path"></span>
         <span class="ws-plan-savestate plan-saved">saved</span>
+        <button class="ws-monaco-mode-btn ws-plan-mode-preview" title="Rendered">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="ws-monaco-mode-btn ws-plan-mode-code" title="Source">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </button>
       </div>
       <div class="ws-plan-host"></div>
+      <div class="ws-plan-md-host"></div>
     `;
-    const tabsEl = body.querySelector(".ws-plan-tabs") as HTMLElement;
     const pathEl = body.querySelector(".ws-plan-path") as HTMLElement;
     const saveStateEl = body.querySelector(".ws-plan-savestate") as HTMLElement;
     const host = body.querySelector(".ws-plan-host") as HTMLElement;
+    const mdHost = body.querySelector(".ws-plan-md-host") as HTMLElement;
+    const previewBtn = body.querySelector(".ws-plan-mode-preview") as HTMLButtonElement;
+    const codeBtn = body.querySelector(".ws-plan-mode-code") as HTMLButtonElement;
 
     let editor: any = null;
     let suppressChange = false;
@@ -1053,22 +1060,6 @@ async function init(): Promise<void> {
     function setSave(state: "saved" | "dirty" | "saving" | "error"): void {
       saveStateEl.textContent = state;
       saveStateEl.className = "ws-plan-savestate " + (state === "saved" ? "plan-saved" : "plan-dirty");
-    }
-    function paintTabs(): void {
-      tabsEl.innerHTML = "";
-      PLAN_PHASES.forEach((p) => {
-        const tab = document.createElement("div");
-        tab.className = "ws-plan-tab" + (p === slot.activePhase ? " active" : "");
-        tab.textContent = p;
-        tab.addEventListener("click", () => {
-          if (p === slot.activePhase) return;
-          if (saveTimer != null) { window.clearTimeout(saveTimer); saveTimer = null; void saveActive(); }
-          slot.activePhase = p;
-          paintTabs();
-          void loadActive();
-        });
-        tabsEl.appendChild(tab);
-      });
     }
     async function ensureEditor(): Promise<void> {
       if (editor) return;
@@ -1095,12 +1086,32 @@ async function init(): Promise<void> {
         setSave("dirty");
         if (saveTimer != null) window.clearTimeout(saveTimer);
         saveTimer = window.setTimeout(() => { saveTimer = null; void saveActive(); }, 800);
+        // Keep the (possibly hidden) markdown host in sync with the
+        // editor contents so a mode flip is instant.
+        paintMarkdown();
       });
     }
+    /** Paint the mode buttons' active state and toggle which body host
+     *  is visible. Editor stays mounted when hidden so any in-flight
+     *  edits / cursor position survives a mode flip. */
+    function paintMode(): void {
+      previewBtn.classList.toggle("active", slot.mode === "preview");
+      codeBtn.classList.toggle("active", slot.mode === "code");
+      mdHost.style.display = slot.mode === "preview" ? "" : "none";
+      host.style.display = slot.mode === "code" ? "" : "none";
+    }
+    /** Re-render the markdown host from whatever the editor currently
+     *  has in its model. Called on load + on every change so flipping
+     *  to preview always shows the latest content. */
+    function paintMarkdown(): void {
+      const m = editor?.getModel?.();
+      mdHost.innerHTML = formatMarkdown(m ? m.getValue() : "");
+    }
+
     async function loadActive(): Promise<void> {
       if (!cwd) { pathEl.textContent = "Pick a working folder."; return; }
       await ensureEditor();
-      const fpath = planFilePath(slot.activePhase);
+      const fpath = planFilePath();
       pathEl.textContent = fpath;
       setSave("saved");
       const res = await window.wb.readFile(fpath);
@@ -1110,18 +1121,22 @@ async function init(): Promise<void> {
       const model = w.monaco.editor.createModel(text, "markdown");
       editor.setModel(model);
       suppressChange = false;
+      paintMarkdown();
+      paintMode();
     }
     async function saveActive(): Promise<void> {
       if (!cwd || !editor) return;
       const m = editor.getModel();
       if (!m) return;
       setSave("saving");
-      const res = await window.wb.writeFile(planFilePath(slot.activePhase), m.getValue());
+      const res = await window.wb.writeFile(planFilePath(), m.getValue());
       setSave(res.ok ? "saved" : "error");
       if (!res.ok && res.error) saveStateEl.title = res.error;
     }
 
-    paintTabs();
+    previewBtn.addEventListener("click", () => { slot.mode = "preview"; paintMarkdown(); paintMode(); });
+    codeBtn.addEventListener("click", () => { slot.mode = "code"; paintMode(); });
+
     await loadActive();
   }
 

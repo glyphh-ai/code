@@ -16,8 +16,6 @@ import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
 import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed } from "./auth";
-import { listVibes, getVibe, createVibe, deleteVibe, type VibeMeta } from "./vibe-store";
-import { vibePlan, vibePlanWithCouncil, shipVibe, type VibePlanWithCouncilDeps } from "./vibe-ipc";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -28,65 +26,17 @@ interface HomeIpcDeps {
   promptLog: { list: (offset: number, limit: number) => unknown; search: (query: string, limit: number) => unknown; get: (id: string) => unknown; count: number };
   llmConfig: { provider: string; model: string };
   panelManager: PanelManager;
-  /** The apps registry — used by the vibe "Ship as app" flow. */
   appConnector: AppConnector;
   getMainWindow: () => import("electron").BrowserWindow | null;
   activeReminders: Map<string, { message: string; fireAt: number; timer: ReturnType<typeof setTimeout> }>;
-  /** Open a vibe by id: set it active + show/reload the vibe panel. Returns the vibe. */
-  openVibe: (id: string) => VibeMeta | null;
-  /** Run the seeded vibe-planner methodology against a goal (single-shot). */
-  runVibePlanner: (goal: string) => Promise<string>;
-  /**
-   * Phase-4 council deps: build a council config from a goal + the council
-   * lifecycle fns. Wired from main so home-ipc stays decoupled from council
-   * internals and the provider/member-builder.
-   */
-  vibeCouncil: Omit<VibePlanWithCouncilDeps, "runPlanner">;
 }
 
 export function registerHomeIpc(deps: HomeIpcDeps): void {
   const {
     mcpExpose, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
-    panelManager, appConnector, getMainWindow, activeReminders,
-    openVibe, runVibePlanner, vibeCouncil,
+    panelManager, getMainWindow, activeReminders,
   } = deps;
-
-  // ── Vibes registry CRUD + open ────────────────────────────
-  ipcMain.handle("vibes-list", () => listVibes());
-  ipcMain.handle("vibes-get", (_e, id: string) => getVibe(id));
-  ipcMain.handle("vibes-create", (_e, name: string, description?: string) => createVibe(name, description));
-  ipcMain.handle("vibes-delete", (_e, id: string) => deleteVibe(id));
-  // Open: set the vibe active and switch + reload the vibe panel (so the agent
-  // re-spawns in the new vibe's code dir). Returns the opened vibe.
-  ipcMain.handle("vibes-open", (_e, id: string) => openVibe(id));
-  // Generate plan.md + CLAUDE.md for a vibe from a goal via the vibe-planner skill.
-  ipcMain.handle("vibes-plan", (_e, id: string, goal: string) =>
-    vibePlan(id, goal, { runPlanner: runVibePlanner }));
-  // Phase 4 — optional council-backed planning: convene a headless multi-LLM
-  // council on the goal, feed its synthesis into the planner. Always resolves
-  // (the council path is slow + can error; we never let the IPC hang).
-  ipcMain.handle("vibes-plan-with-council", async (_e, id: string, goal: string) => {
-    try {
-      return await vibePlanWithCouncil(id, goal, { runPlanner: runVibePlanner, ...vibeCouncil });
-    } catch (err) {
-      return { ok: false, fellBack: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-  // Phase 5 — "Ship as app": register the vibe's output as a yo app (web app
-  // pointing at its dev server / default localhost) so it shows in Apps. Dedupes
-  // the id and records meta.outputAppId; also opens a panel for the new app.
-  ipcMain.handle("vibes-ship", (_e, id: string) => {
-    const res = shipVibe(id, {
-      addApp: (appId, name, url) => appConnector.add(appId, name, url),
-      hasApp: (appId) => appConnector.hasDirect(appId),
-    });
-    if (res.ok && res.appId) {
-      const app = appConnector.get(res.appId);
-      if (app?.url) panelManager.addPanel(res.appId, app.url);
-    }
-    return res;
-  });
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose.getTokens());
   ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));

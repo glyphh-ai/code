@@ -186,8 +186,6 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   // Boot-time fallback shown when there's no panel state to restore.
   // Settings — opened from the header gear; no longer in the left rail.
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE, kind: "system" },
-  { id: "council", name: "Council", url: "yo://council", capturePolicy: NO_CAPTURE },
-  { id: "vibe", name: "Vibe", url: "yo://vibe", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "workbench", name: "Workbench", url: "yo://workbench", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
@@ -200,8 +198,6 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "dashboard",  name: "Dashboard",  url: "yo://dashboard",  capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "apps",       name: "Apps",       url: "yo://apps",       capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "agents",     name: "Agents",     url: "yo://agents",     capturePolicy: NO_CAPTURE, kind: "system" },
-  { id: "vibes",      name: "Vibes",      url: "yo://vibes",      capturePolicy: NO_CAPTURE, kind: "system" },
-  { id: "councils",   name: "Councils",   url: "yo://councils",   capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "schedules",  name: "Schedules",  url: "yo://schedules",  capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "layouts",    name: "Layouts",    url: "yo://layouts",    capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "skills",     name: "Skills",     url: "yo://skills",     capturePolicy: NO_CAPTURE, kind: "system" },
@@ -322,6 +318,7 @@ export class AppConnector {
       "agents-app", "apps-app", "councils-app", "drips-app",
       "layouts-app", "schedules-app", "settings-app", "skills-app",
       "vibes-app", "dashboard-app",
+      "vibe", "vibes", "council", "councils", "spec", "welcome",
     ];
     for (const staleId of STALE_IDS) {
       const stale = this.apps.get(staleId);

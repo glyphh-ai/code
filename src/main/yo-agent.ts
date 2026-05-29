@@ -16,9 +16,16 @@ import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions } from "./sdk-llm";
 import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
 
-/** The right-rail .Yo agent always operates at ~/yo/ — it spans all folders
- *  the user touches, it doesn't follow per-app folder selection. */
+/** Working directory the right-rail .Yo agent runs in. Follows the user's
+ *  workdir pick (set via the workdir bar above the input), shared with
+ *  Workbench / file watchers / etc. Falls back to ~/yo only when no
+ *  folder has ever been picked. */
 function rightRailCwd(): string {
+  const picked = getWorkingDirectory();
+  if (picked) {
+    try { fs.mkdirSync(picked, { recursive: true }); } catch { /* ignore */ }
+    return picked;
+  }
   const dir = path.join(os.homedir(), "yo");
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
   return dir;
@@ -455,6 +462,18 @@ export class YoAgent {
                     description: taskInput.prompt || taskInput.description,
                   });
                 }
+                // mcp__yo__call_agent — the saved-agent wrapper. Treat each
+                // call as a sub-agent so it surfaces in the same Workbench view.
+                if (block.name === "mcp__yo__call_agent") {
+                  const callInput = (block.input as { agent_id?: string; prompt?: string }) || {};
+                  cb.onSubAgent?.({
+                    id: block.id,
+                    kind: "spawn",
+                    source: "yo-agent",
+                    name: callInput.agent_id || "agent",
+                    description: callInput.prompt,
+                  });
+                }
               }
             }
             break;
@@ -484,8 +503,9 @@ export class YoAgent {
                     ? block.content.map((c: any) => c.text || "").join("")
                     : "";
                 cb.onToolResult?.(block.tool_use_id, text.slice(0, 500));
-                // If this result is for a Task sub-agent, close out its
-                // Sub-Agents view tab with the final transcript.
+                // Close out any sub-agent tab keyed by this tool_use_id (Task
+                // tool or mcp__yo__call_agent). The Sub-Agents view ignores
+                // events with unknown ids, so emitting unconditionally is safe.
                 cb.onSubAgent?.({
                   id: block.tool_use_id,
                   kind: "result",

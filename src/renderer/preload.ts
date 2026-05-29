@@ -409,18 +409,6 @@ contextBridge.exposeInMainWorld("yo", {
   schedulesResume: (id: string) => ipcRenderer.invoke("schedules-resume", id) as Promise<void>,
   schedulesDeleteRuns: (name: string) => ipcRenderer.invoke("schedules-delete-runs", name) as Promise<number>,
 
-  // Saved councils — templates, run history, scheduling
-  councilsList: () => ipcRenderer.invoke("councils-list") as Promise<Array<Record<string, unknown>>>,
-  councilsGet: (id: string) => ipcRenderer.invoke("councils-get", id) as Promise<Record<string, unknown> | null>,
-  councilsSave: (cfg: Record<string, unknown>) => ipcRenderer.invoke("councils-save", cfg) as Promise<Record<string, unknown>>,
-  councilsDelete: (id: string) => ipcRenderer.invoke("councils-delete", id) as Promise<boolean>,
-  councilsRun: (id: string, live?: boolean) => ipcRenderer.invoke("councils-run", id, live) as Promise<{ ok: boolean; error?: string; message?: string; runId?: string }>,
-  councilsRuns: (id: string) => ipcRenderer.invoke("councils-runs", id) as Promise<Array<Record<string, unknown>>>,
-  councilsRunGet: (id: string, runId: string) => ipcRenderer.invoke("councils-run-get", id, runId) as Promise<Record<string, unknown> | null>,
-  councilsScheduleStatus: () => ipcRenderer.invoke("councils-schedule-status") as Promise<Array<{ id: string; schedule: string; paused: boolean }>>,
-  councilsPauseSchedule: (id: string) => ipcRenderer.invoke("councils-pause-schedule", id) as Promise<void>,
-  councilsResumeSchedule: (id: string) => ipcRenderer.invoke("councils-resume-schedule", id) as Promise<void>,
-
   // Agent mode + guardrails
   getAgentMode: () => ipcRenderer.invoke("get-agent-mode") as Promise<{ perm: string; swarm: boolean }>,
   setAgentMode: (mode: string) => ipcRenderer.send("set-agent-mode", mode),
@@ -464,12 +452,6 @@ contextBridge.exposeInMainWorld("yo", {
   filesRailResize: (width: number) => ipcRenderer.send("files-rail-resize", width),
   filesRailWidthSave: (width: number) => ipcRenderer.send("files-rail-width-save", width),
   filesRailGetWidth: () => ipcRenderer.invoke("files-rail-get-width") as Promise<number>,
-
-  // Quick open for Vibe / Spec from the rail Recents "+" dropdown — same
-  // handlers Welcome uses, so the spawn semantics (reuse-on-match folder
-  // binding + tab) stay identical.
-  openVibe: () => ipcRenderer.invoke("apps:open-vibe") as Promise<void>,
-  openSpec: () => ipcRenderer.invoke("apps:open-spec") as Promise<void>,
 
   // Recents (rich: app/layout + folder pairs)
   recentsList: () => ipcRenderer.invoke("recents:list") as Promise<Array<{
@@ -598,16 +580,6 @@ contextBridge.exposeInMainWorld("yo", {
   /** Agent defaults — seed values for new agents (~/yo/.agent-defaults.json). */
   agentDefaultsGet: () => ipcRenderer.invoke("agent-defaults:get") as Promise<{ provider: string; model: string; permDefault: string; systemPrompt: string; mcpServers: string[] }>,
   agentDefaultsSet: (d: unknown) => ipcRenderer.invoke("agent-defaults:set", d) as Promise<unknown>,
-
-  // Vibes — persisted vibe-coding projects (~/yo/vibes/<id>/)
-  vibesList: () => ipcRenderer.invoke("vibes-list") as Promise<Array<Record<string, unknown>>>,
-  vibesGet: (id: string) => ipcRenderer.invoke("vibes-get", id) as Promise<Record<string, unknown> | null>,
-  vibesCreate: (name: string, description?: string) => ipcRenderer.invoke("vibes-create", name, description) as Promise<Record<string, unknown>>,
-  vibesDelete: (id: string) => ipcRenderer.invoke("vibes-delete", id) as Promise<boolean>,
-  vibesOpen: (id: string) => ipcRenderer.invoke("vibes-open", id) as Promise<Record<string, unknown> | null>,
-  vibesPlan: (id: string, goal: string) => ipcRenderer.invoke("vibes-plan", id, goal) as Promise<{ ok: boolean; error?: string }>,
-  vibesPlanWithCouncil: (id: string, goal: string) => ipcRenderer.invoke("vibes-plan-with-council", id, goal) as Promise<{ ok: boolean; error?: string; fellBack?: boolean }>,
-  vibesShip: (id: string) => ipcRenderer.invoke("vibes-ship", id) as Promise<{ ok: boolean; appId?: string; error?: string }>,
 
   // yos wallet + rate cards
   yosBalance: () => ipcRenderer.invoke("yos-balance") as Promise<{ user_id: string; balance: number } | { error: string }>,

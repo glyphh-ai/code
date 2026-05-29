@@ -906,10 +906,6 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const councilHtml = `file://${path.join(__dirname, "..", "renderer", "council.html")}`;
-  const councilPreload = path.join(__dirname, "council-preload.js");
-  const vibeHtml = `file://${path.join(__dirname, "..", "renderer", "vibe.html")}`;
-  const vibePreload = path.join(__dirname, "vibe-preload.js");
   const specHtml = `file://${path.join(__dirname, "..", "renderer", "spec.html")}`;
   const specPreload = path.join(__dirname, "spec-preload.js");
   const workbenchHtml = `file://${path.join(__dirname, "..", "renderer", "workbench.html")}`;
@@ -922,8 +918,6 @@ async function boot() {
     "yo://dashboard": "dashboard",
     "yo://apps":      "apps",
     "yo://agents":    "agents",
-    "yo://vibes":     "vibes",
-    "yo://councils":  "councils",
     "yo://schedules": "schedules",
     "yo://layouts":   "layouts",
     "yo://skills":    "skills",
@@ -941,11 +935,6 @@ async function boot() {
       panelManager.addPanel(app.id, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://council") {
-      panelManager.addPanel(app.id, councilHtml, councilPreload);
-    } else if (app.url === "yo://vibe") {
-      // webviewTag: true so the <webview id="vibe-preview"> live preview works.
-      panelManager.addPanel(app.id, vibeHtml, vibePreload, undefined, true);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(app.id, specHtml, specPreload);
     } else if (app.url === "yo://workbench") {
@@ -1364,11 +1353,6 @@ async function boot() {
       panelManager.addPanel(instanceId, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://council") {
-      panelManager.addPanel(instanceId, councilHtml, councilPreload);
-    } else if (app.url === "yo://vibe") {
-      // webviewTag: true so the <webview id="vibe-preview"> live preview works.
-      panelManager.addPanel(instanceId, vibeHtml, vibePreload, undefined, true);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(instanceId, specHtml, specPreload);
     } else if (app.url === "yo://browser") {
@@ -1550,99 +1534,6 @@ async function boot() {
    * must guard on `members.length >= 2`. Reused by the agent-convened council
    * and the Phase-4 council-backed vibe planner.
    */
-  const buildCouncilMembers = (
-    explicit?: Array<{ provider: string; model: string; startup_prompt?: string }>,
-  ): import("./council-session").CouncilMemberConfig[] => {
-    let members = (explicit ?? []).filter((m) => m.provider && m.model);
-    if (members.length < 2) {
-      const configured = providerKeysModule.listStatus().filter((p) => p.configured).map((p) => p.provider);
-      members = configured
-        .map((p) => ({ provider: p, model: getDefaultProviderModel(p), startup_prompt: "" }))
-        .filter((m) => m.model);
-    }
-    return members.map((m, i) => ({
-      provider: m.provider as import("./council-session").CouncilMemberConfig["provider"],
-      model: m.model,
-      startup_prompt: (m.startup_prompt && m.startup_prompt.trim())
-        || `You are council member ${i + 1}. Bring your own distinct, expert perspective. Be concise and engage directly with the other members' points.`,
-    }));
-  };
-
-  /**
-   * Build a full headless CouncilCreateConfig from a vibe goal (Phase 4). The
-   * council debates *what to build and how*; its synthesis seeds the planner.
-   * Returns null when fewer than 2 members can be built (provider gate).
-   */
-  const buildVibeCouncilConfig = (
-    goal: string,
-  ): import("./council-session").CouncilCreateConfig | null => {
-    const members = buildCouncilMembers();
-    if (members.length < 2) return null;
-    const trimmed = goal.trim();
-    return {
-      name: `Plan: ${trimmed}`.slice(0, 48),
-      council_prompt: `We are planning how to build this software project:\n\n${trimmed}\n\nDebate the best architecture, tech stack, scope, and build sequence. Surface tradeoffs and risks. Converge on a concrete, buildable approach a coding agent can follow.`,
-      style: "debate",
-      round_cap: 2,
-      members,
-    };
-  };
-
-  const councilCreateFromAgent = async (config: {
-    council_prompt: string; name?: string; style?: string; round_cap?: number;
-    members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
-  }): Promise<string> => {
-    if (!mainWindow || mainWindow.isDestroyed()) return "No window available.";
-    const councilApp = appConnector.get("council");
-    if (!councilApp) return "Council app is not registered.";
-    const councilSession = require("./council-session") as typeof import("./council-session");
-    const { setCurrentCouncil } = require("./current-council") as typeof import("./current-council");
-
-    const members = buildCouncilMembers(config.members);
-    if (members.length < 2) {
-      return "A council needs at least 2 members. Add API keys for 2+ providers in Settings → Providers, or pass explicit members.";
-    }
-
-    const style: import("./council-session").CouncilStyle =
-      config.style === "free_for_all" || config.style === "debate" ? config.style : "chained";
-    const name = (config.name || config.council_prompt).slice(0, 48);
-    const fullConfig: import("./council-session").CouncilCreateConfig = {
-      name,
-      council_prompt: config.council_prompt,
-      style,
-      round_cap: config.round_cap && config.round_cap > 0 ? Math.min(20, config.round_cap) : 3,
-      members,
-    };
-
-    if (!panelManager.hasPanel("council")) createPanelForApp("council", councilApp);
-    ensureTab("council");
-    panelManager.switchTo("council", mainWindow);
-    sendTabState();
-
-    const r = councilSession.createCouncil(fullConfig, null);
-    if (!r.ok) return `Council failed to convene: ${r.error || "unknown"}`;
-    const councilId = r.council_id;
-    setCurrentCouncil(councilId);
-
-    // Hand the freshly-loaded panel its roster once it has subscribed; the
-    // renderer enters the layout view and kicks off the rounds.
-    setTimeout(() => {
-      const view = panelManager.getView("council");
-      if (!view || view.webContents.isDestroyed()) return;
-      councilSession.setCouncilForwardWc(councilId, view.webContents);
-      view.webContents.send("council-convened", {
-        council_id: councilId,
-        name: fullConfig.name,
-        council_prompt: fullConfig.council_prompt,
-        members: fullConfig.members.map((m) => ({ provider: m.provider, model: m.model })),
-        style: fullConfig.style,
-        round_cap: fullConfig.round_cap,
-      });
-    }, 800);
-
-    return `Council "${fullConfig.name}" convened in the Council app — ${fullConfig.members.length} members (${fullConfig.members.map((m) => m.provider).join(", ")}), ${fullConfig.style} style, up to ${fullConfig.round_cap} rounds. It runs in that panel; tell the user to watch the Council app.`;
-  };
-
   setSubstrateToolDeps(buildSubstrateDeps({
     mainWindow,
     panelManager,
@@ -1658,7 +1549,6 @@ async function boot() {
     browserHtmlUrl,
     execCommand,
     swarmCreate: runSwarm,
-    councilCreate: councilCreateFromAgent,
     agentRegistry: {
       list: () => listAgents().map((a) => ({
         id: a.id,
@@ -2483,69 +2373,11 @@ async function boot() {
     yoInterceptor.setAgentMode(mode);
   });
 
-  // ── Council app — standalone multi-LLM debate panel.
-  // Restored without the old yo-agent council mode plumbing. The panel
-  // self-drives: user fills the form, the page calls council-create here,
-  // and council-session streams events back via "council-event" IPC.
-  {
-    const { setCurrentCouncil } = require("./current-council") as typeof import("./current-council");
-    const councilModule = require("./council-session") as typeof import("./council-session");
-    ipcMain.handle("council-set-current", (_e, id: string | null) => {
-      setCurrentCouncil(id);
-      return { ok: true };
-    });
-    ipcMain.handle("council-create", async (e, config: import("./council-session").CouncilCreateConfig) => {
-      const r = councilModule.createCouncil(config, e.sender);
-      if (r.ok && r.council_id) setCurrentCouncil(r.council_id);
-      return r;
-    });
-    ipcMain.handle("council-stop", (_e, id: string) => councilModule.stopCouncil(id));
-    ipcMain.handle("council-end", (_e, id: string) => councilModule.endCouncil(id));
-    // Run all rounds to the cap — driven by the layout's "Start" button and by
-    // agent-convened councils once the panel has subscribed.
-    ipcMain.handle("council-run", (_e, id: string) => councilModule.runCouncilToCompletion(id));
-    // Summarize — emits a "summary" event into the panel + returns the text.
-    ipcMain.handle("council-summarize", (_e, id: string) => councilModule.summarizeCouncil(id));
-
-    // Saved council templates + run history + scheduling.
-    const { CouncilScheduler } = require("./council-scheduler") as typeof import("./council-scheduler");
-    const { registerCouncilsIpc } = require("./councils-ipc") as typeof import("./councils-ipc");
-    const councilScheduler = new CouncilScheduler();
-    registerCouncilsIpc({
-      scheduler: councilScheduler,
-      runLive: (tpl) => councilCreateFromAgent({
-        council_prompt: tpl.council_prompt,
-        name: tpl.name,
-        style: tpl.style,
-        round_cap: tpl.round_cap,
-        members: tpl.members,
-      }),
-    });
-    councilScheduler.start();
-  }
-
-  // ── Vibe app — standalone panel bound to a persisted Vibe project.
-  const { registerVibeIpc, openVibe } = require("./vibe-ipc") as typeof import("./vibe-ipc");
-  registerVibeIpc({ terminalManager });
+  // Council + Vibe apps removed. Multi-agent work is now done by the
+  // right-rail Yo invoking saved agents via the mcp__yo__call_agent tool,
+  // with each invocation surfacing in the Workbench Sub-Agents view.
   registerWorkbenchTerminalIpc();
   registerAgentDefaultsIpc();
-
-  /** Ensure the vibe panel exists, switch to it, and reload it so vibe-ready
-   *  re-fires and the agent re-spawns in the (now-active) vibe's code dir. */
-  function showVibePanel(): void {
-    if (!mainWindow) return;
-    if (!panelManager.hasPanel("vibe")) {
-      createPanelForApp("vibe", { id: "vibe", url: "yo://vibe" });
-    }
-    panelManager.switchTo("vibe", mainWindow);
-    const wc = panelManager.getWebContents("vibe");
-    if (wc && !wc.isDestroyed()) wc.reload();
-  }
-
-  /** Set the vibe active + show/reload the panel. Used by the Vibes home section. */
-  function openVibeById(id: string) {
-    return openVibe(id, { showVibePanel });
-  }
 
   /** Per-instance (app, folder) bindings. Lets recents:open reuse an
    *  already-open Vibe/Spec/etc panel that's bound to the same folder
@@ -2605,11 +2437,6 @@ async function boot() {
       addRecent({ kind: "app", id: baseId, name: app.name, folder });
     }
   }
-  // Open Vibe / Spec panels from the home sections. Pre-Welcome these
-  // were `welcome:*` channels; renamed but the handlers stayed.
-  ipcMain.handle("apps:open-vibe", () => openFreshInternalApp("vibe"));
-  ipcMain.handle("apps:open-spec", () => openFreshInternalApp("spec"));
-
   // yo://agent removed — the right-rail Yo is the only chat surface now.
   // The agents:open-as-app channel becomes a no-op so renderers don't
   // crash if they still try to call it.
@@ -2730,40 +2557,6 @@ async function boot() {
     mcpExpose: mcpExpose!, mcpManager, connectorManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, appConnector, getMainWindow: () => mainWindow, activeReminders,
-    openVibe: openVibeById,
-    // vibe-planner: run the seeded methodology single-shot against the goal.
-    // Uses the skill's editable SKILL.md body as the system prompt so a
-    // user-tuned methodology is honored; deterministic JSON output that
-    // vibePlan() parses + writes to plan.md / CLAUDE.md.
-    runVibePlanner: async (goal: string) => {
-      const skill = skillEngine.getSkill("vibe-planner");
-      const prompt = skill?.prompt?.trim();
-      if (prompt) return skillEngine.processWithPrompt(goal, prompt);
-      // Fallback if seeding somehow didn't run: go through the full agent.
-      const res = await yoAgent.runForResult(goal);
-      return res.text;
-    },
-    // Phase 4 — council-backed planning deps. Reuses the shared member-builder
-    // (buildVibeCouncilConfig) and the headless council lifecycle.
-    vibeCouncil: {
-      buildCouncilConfig: buildVibeCouncilConfig,
-      createCouncil: (cfg, fwd) => {
-        const cs = require("./council-session") as typeof import("./council-session");
-        return cs.createCouncil(cfg, fwd);
-      },
-      runCouncilToCompletion: (cid) => {
-        const cs = require("./council-session") as typeof import("./council-session");
-        return cs.runCouncilToCompletion(cid);
-      },
-      summarizeCouncil: (cid) => {
-        const cs = require("./council-session") as typeof import("./council-session");
-        return cs.summarizeCouncil(cid);
-      },
-      endCouncil: (cid) => {
-        const cs = require("./council-session") as typeof import("./council-session");
-        return cs.endCouncil(cid);
-      },
-    },
   });
 
   // ── Local swarm session (cypher-session.ts) ──────────────────────

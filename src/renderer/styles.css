@@ -8836,3 +8836,47 @@ select.settings-input {
 .ws-plan-host .monaco-editor .margin,
 .ws-plan-host .monaco-editor .overflow-guard,
 .ws-plan-host .monaco-scrollable-element { background: var(--ws-bg-card) !important; }
+
+/* ── Workbench Plan markdown host + mode toggle ── */
+.ws-plan-md-host {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 22px;
+  background: var(--ws-bg-card);
+  color: var(--ws-text);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.ws-plan-md-host h1,
+.ws-plan-md-host h2,
+.ws-plan-md-host h3,
+.ws-plan-md-host h4 { color: var(--ws-text); margin-top: 1.2em; }
+.ws-plan-md-host pre,
+.ws-plan-md-host code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--ws-bg-rail);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+.ws-plan-md-host pre { padding: 10px 12px; overflow-x: auto; }
+.ws-plan-md-host pre code { background: transparent; padding: 0; }
+.ws-plan-md-host a { color: var(--ws-accent); }
+
+/* Reuse the Monaco file viewer's mode-btn styles for Plan too. */
+.ws-plan-status .ws-monaco-mode-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  color: var(--ws-text-faint);
+  cursor: pointer;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.10s, color 0.10s;
+  margin-left: 4px;
+}
+.ws-plan-status .ws-monaco-mode-btn:hover { background: var(--hover); color: var(--ws-text); }
+.ws-plan-status .ws-monaco-mode-btn.active { color: var(--ws-accent); }
+.ws-plan-status .ws-monaco-mode-btn svg { width: 13px; height: 13px; }

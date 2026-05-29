@@ -99,22 +99,6 @@ export interface SubstrateToolDeps {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
     create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
   };
-  /** Convene + interact with a local council (multi-LLM debate). */
-  council?: {
-    create: (config: {
-      council_prompt: string;
-      name?: string;
-      style?: string;
-      round_cap?: number;
-      members?: Array<{ provider: string; model: string; startup_prompt?: string }>;
-    }) => Promise<string>;
-    /** Text status (members, round, last turns) of the active council. */
-    status: () => string;
-    /** Synthesize + return a summary of the active council. */
-    summarize: () => Promise<string>;
-    /** Queue a moderator note for the active council's next round. */
-    interject: (text: string) => string;
-  };
   /** User-created agent registry — surfaced as list_agents + call_agent
    *  so the .yo loop can delegate to a named agent without committing to a
    *  full multi-agent swarm. */
@@ -1626,90 +1610,6 @@ const BUILTIN_TOOLS: ToolDef[] = [
       return deps.apps.open(id);
     },
   },
-  {
-    name: "create_council",
-    namespace: "yo",
-    description: "Convene a LOCAL council — a panel of LLMs that debate a prompt over rounds — and open it in the Council app. This is the tool for \"convene a council / get a panel of models to debate X\" requests. You fill out the council from the user's prompt: pick 2–5 members across the configured providers, give each a distinct startup_prompt (its persona/role), and choose a style. The council then runs in its own UI panel.",
-    input_schema: {
-      type: "object",
-      properties: {
-        council_prompt: { type: "string", description: "The question/topic the council debates (use the user's own words)" },
-        name: { type: "string", description: "Short council name. Defaults from the prompt if omitted." },
-        style: { type: "string", enum: ["chained", "free_for_all", "debate"], description: "chained = take turns seeing prior turns; free_for_all = all answer in parallel; debate = adversarial. Default chained." },
-        round_cap: { type: "number", description: "Max rounds (1–20, default 3)" },
-        members: {
-          type: "array",
-          description: "2–10 members. Each: { provider, model, startup_prompt }. Omit to auto-pick one member per configured provider.",
-          items: {
-            type: "object",
-            properties: {
-              provider: { type: "string", description: "Provider id (anthropic, openai, google, xai, perplexity)" },
-              model: { type: "string", description: "Model id for that provider" },
-              startup_prompt: { type: "string", description: "This member's persona/role/system prompt" },
-            },
-            required: ["provider", "model"],
-          },
-        },
-      },
-      required: ["council_prompt"],
-    },
-    run: async (input) => {
-      if (!deps.council) return "Council driver not wired.";
-      const prompt = String(input.council_prompt || "").trim();
-      if (!prompt) return "A council_prompt is required.";
-      const members = Array.isArray(input.members)
-        ? (input.members as Array<Record<string, unknown>>).map((m) => ({
-            provider: String(m.provider || ""),
-            model: String(m.model || ""),
-            startup_prompt: m.startup_prompt ? String(m.startup_prompt) : undefined,
-          }))
-        : undefined;
-      return deps.council.create({
-        council_prompt: prompt,
-        name: input.name ? String(input.name) : undefined,
-        style: input.style ? String(input.style) : undefined,
-        round_cap: typeof input.round_cap === "number" ? input.round_cap : undefined,
-        members,
-      });
-    },
-  },
-  {
-    name: "council_status",
-    namespace: "yo",
-    description: "Inspect the council currently open in the Council app: its members, round progress, and recent turns. Use this to see what a running council is doing before summarizing or interjecting.",
-    input_schema: { type: "object", properties: {} },
-    run: async () => {
-      if (!deps.council) return "Council driver not wired.";
-      return deps.council.status();
-    },
-  },
-  {
-    name: "council_summarize",
-    namespace: "yo",
-    description: "Synthesize and return a structured summary of the active council's debate so far (positions, agreements, contention, conclusion). Also surfaces the summary in the Council app.",
-    input_schema: { type: "object", properties: {} },
-    run: async () => {
-      if (!deps.council) return "Council driver not wired.";
-      return deps.council.summarize();
-    },
-  },
-  {
-    name: "council_interject",
-    namespace: "yo",
-    description: "Add a moderator note/steer to the active council; it's injected into the next round so members take it into account.",
-    input_schema: {
-      type: "object",
-      properties: { text: { type: "string", description: "The moderator note to inject" } },
-      required: ["text"],
-    },
-    run: async (input) => {
-      if (!deps.council) return "Council driver not wired.";
-      const text = String(input.text || "").trim();
-      if (!text) return "A note is required.";
-      return deps.council.interject(text);
-    },
-  },
-
 ];
 
 // Map for fast lookup
