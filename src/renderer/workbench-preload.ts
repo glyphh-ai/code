@@ -78,30 +78,15 @@ contextBridge.exposeInMainWorld("wb", {
     return () => { ipcRenderer.removeListener(channel, handler); };
   },
 
-  // Workbench Preview BrowserView — main owns the BV; we just send the
-  // bounds + url and accept the agent's "preview this url" broadcasts.
-  previewMount: (viewKey: string, parentId: string, url: string, pageBounds: { x: number; y: number; width: number; height: number }) =>
-    ipcRenderer.invoke("wb-preview:mount", viewKey, parentId, url, pageBounds) as Promise<boolean>,
-  previewBounds: (viewKey: string, pageBounds: { x: number; y: number; width: number; height: number }) =>
-    ipcRenderer.send("wb-preview:bounds", viewKey, pageBounds),
-  previewNavigate: (viewKey: string, url: string) => ipcRenderer.send("wb-preview:navigate", viewKey, url),
-  previewReload: (viewKey: string) => ipcRenderer.send("wb-preview:reload", viewKey),
-  previewClose: (viewKey: string) => ipcRenderer.send("wb-preview:close", viewKey),
-  onPreviewUrlChanged: (viewKey: string, cb: (url: string) => void) => {
-    const channel = `wb-preview:url-changed:${viewKey}`;
-    const handler = (_e: Electron.IpcRendererEvent, url: string) => cb(url);
-    ipcRenderer.on(channel, handler);
-    return () => { ipcRenderer.removeListener(channel, handler); };
-  },
+  // Workbench Preview — the `preview_url` tool broadcasts a URL for the slot
+  // to load (in an in-DOM <iframe>); we accept it back so the tool resolves.
+  // (The old native-BrowserView overlay channels were removed as dead code.)
   onPreviewSetUrl: (cb: (reqId: string, url: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, reqId: string, url: string) => cb(reqId, url);
     ipcRenderer.on("wb-preview:set-url", handler);
     return () => { ipcRenderer.removeListener("wb-preview:set-url", handler); };
   },
   previewAccepted: (reqId: string) => ipcRenderer.send("wb-preview:accepted", reqId),
-  /** Parent panel id (the workbench's app id). Used so previewMount can
-   *  position the child BrowserView relative to this panel's bounds. */
-  getPanelId: () => ipcRenderer.invoke("wb-self:panel-id") as Promise<string | null>,
 
   getTheme: () => ipcRenderer.invoke("get-theme"),
   onThemeChanged: (cb: (theme: string) => void) => {
