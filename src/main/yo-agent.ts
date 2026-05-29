@@ -518,6 +518,12 @@ export class YoAgent {
     // message-end — keeps tool rows interleaved with text in true stream
     // order. Keyed by content-block index; reset at each message_start.
     let toolBlocks = new Map<number, { id: string; name: string; inputJson: string }>();
+    // Parent tool-use ids whose sub-agent text already arrived via partial
+    // stream events this message, so the buffered assistant message can skip
+    // re-emitting it. forwardSubagentText forwards sub-agent turns as buffered
+    // assistant/user messages; whether partials are *also* emitted per
+    // sub-agent isn't guaranteed, so we cover both paths and dedup here.
+    const subAgentStreamed = new Set<string>();
 
     try {
       const gen = sdk.query({ prompt: message, options });
@@ -537,12 +543,22 @@ export class YoAgent {
             if (!Array.isArray(content)) break;
             const asstParentId = (msg as any).parent_tool_use_id as string | null | undefined;
             if (asstParentId) {
-              // Buffered sub-agent message. Its text already streamed as tokens
-              // via stream_event above; here we surface its tool calls (which
-              // don't arrive as text) so the panel transcript shows what the
-              // sub-agent actually did, in order.
+              // Buffered sub-agent message (forwardSubagentText). Surface its
+              // text + tool calls in the Sub-Agents panel transcript. Text is
+              // emitted here UNLESS it already streamed token-by-token via
+              // stream_event above (dedup), so it shows up exactly once whether
+              // or not the SDK emits partials per sub-agent.
+              const alreadyStreamed = subAgentStreamed.has(asstParentId);
               for (const block of content as any[]) {
-                if (block.type === "tool_use") {
+                if (block.type === "text" && block.text) {
+                  if (!alreadyStreamed) {
+                    cb.onSubAgent?.({ id: asstParentId, kind: "token", source: "task", text: block.text });
+                  }
+                } else if (block.type === "thinking" && block.thinking) {
+                  if (!alreadyStreamed) {
+                    cb.onSubAgent?.({ id: asstParentId, kind: "token", source: "task", text: block.thinking });
+                  }
+                } else if (block.type === "tool_use") {
                   const arg = briefToolArg(block.input);
                   cb.onSubAgent?.({
                     id: asstParentId,
@@ -552,6 +568,7 @@ export class YoAgent {
                   });
                 }
               }
+              subAgentStreamed.delete(asstParentId);
               break;
             }
             for (const block of content) {
@@ -618,13 +635,15 @@ export class YoAgent {
             if (!event) break;
             const subParentId = (msg as any).parent_tool_use_id as string | null | undefined;
             if (subParentId) {
-              // Sub-agent streaming text → live tokens in the Sub-Agents panel.
-              // We deliberately do NOT track sub-agent tool blocks here; their
-              // tool activity is surfaced from the buffered `assistant` message
-              // below (formatted, in order). Keeping the sub-agent out of the
-              // top-level toolBlocks index space avoids clobbering it.
+              // Sub-agent streaming text → live tokens in the Sub-Agents panel
+              // (only when the SDK emits partials per sub-agent). We mark the
+              // parent as "streamed" so the buffered assistant message below
+              // doesn't re-emit the same text. Tool blocks are surfaced from
+              // the buffered message (formatted, in order), and we keep the
+              // sub-agent out of the top-level toolBlocks index space.
               if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
                 cb.onSubAgent?.({ id: subParentId, kind: "token", source: "task", text: event.delta.text });
+                subAgentStreamed.add(subParentId);
               }
               break;
             }

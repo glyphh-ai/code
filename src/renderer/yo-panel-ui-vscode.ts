@@ -42,6 +42,7 @@ let yoPanelMessages: HTMLElement;
 // VS Code-style chat renderer — owns the message-rendering layer.
 let chat: ChatRenderer;
 let yoPanelInput: HTMLTextAreaElement;
+let yoComposerHost: HTMLElement;
 let yoPanelSendBtn: HTMLElement;
 let yoPanelMicBtn: HTMLButtonElement | null;
 let yoScrollBtn: HTMLElement;
@@ -368,6 +369,59 @@ interface SwarmRosterEntry { position: string; provider?: string; model?: string
 function yoScroll() {
   yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
   yoScrollBtn.classList.remove("visible");
+}
+
+// ── Composer-area interaction host ─────────────────────────────────────────
+// When the agent needs the user (ask_user_question / tool approval), the
+// prompt takes over the slot above the input instead of dropping a card into
+// the transcript. The input is disabled while an interaction is live; once
+// answered we collapse the host, re-enable the input, and leave a compact
+// marker in the transcript so history still records what happened.
+
+function openInteraction(panel: HTMLElement): void {
+  yoComposerHost.innerHTML = "";
+  yoComposerHost.appendChild(panel);
+  yoComposerHost.hidden = false;
+  yoPanelInput.classList.add("yo-input-disabled");
+  yoPanelInput.setAttribute("disabled", "true");
+  // Let the panel own keyboard focus (arrow keys, enter, esc).
+  panel.focus();
+}
+
+function closeInteraction(): void {
+  yoComposerHost.innerHTML = "";
+  yoComposerHost.hidden = true;
+  yoPanelInput.classList.remove("yo-input-disabled");
+  yoPanelInput.removeAttribute("disabled");
+  yoPanelInput.focus();
+}
+
+/** Drop a one-line record of a resolved interaction into the transcript. */
+function appendChatMarker(opts: {
+  state: "allowed" | "denied" | "answered";
+  label: string;
+  value?: string;
+}): void {
+  const ICONS: Record<string, string> = {
+    allowed: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 4 6.5 12 3 8.5"/></svg>`,
+    denied: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>`,
+    answered: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 4 6.5 12 3 8.5"/></svg>`,
+  };
+  const row = document.createElement("div");
+  row.className =
+    "yo-chat-marker" +
+    (opts.state === "allowed" || opts.state === "answered" ? " is-allowed" : " is-denied");
+  const icon = document.createElement("span");
+  icon.className = "yo-chat-marker-icon";
+  icon.innerHTML = ICONS[opts.state];
+  const text = document.createElement("span");
+  const strong = document.createElement("strong");
+  strong.textContent = opts.label;
+  text.appendChild(strong);
+  if (opts.value) text.appendChild(document.createTextNode(` ${opts.value}`));
+  row.appendChild(icon);
+  row.appendChild(text);
+  chat.appendRaw(row);
 }
 
 // ── Helpers: status ────────────────────────────────────────────────────────
@@ -876,6 +930,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoPanelMessages = document.getElementById("yo-panel-messages")!;
   chat = new ChatRenderer(yoPanelMessages);
   yoPanelInput = document.getElementById("yo-panel-input") as HTMLTextAreaElement;
+  yoComposerHost = document.getElementById("yo-composer-interaction")!;
   yoPanelSendBtn = document.getElementById("yo-panel-send")!;
   yoPanelMicBtn = document.getElementById("yo-panel-mic") as HTMLButtonElement | null;
   yoScrollBtn = document.getElementById("yo-scroll-btn")!;
@@ -1321,8 +1376,8 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
 
   yoChatNewBtn.addEventListener("click", () => { void startNewChat(); });
 
-  // -- Approval UI --
-  window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
+  // -- Approval UI (composer-area takeover) --
+  window.yo.onApprovalRequest((id, _toolName, toolLabel, input) => {
     const inputObj = input as Record<string, unknown>;
     let detail = "";
     if (typeof inputObj.instruction === "string") detail = inputObj.instruction;
@@ -1335,65 +1390,79 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       if (typeof first === "string") detail = first;
     }
 
-    const card = document.createElement("div");
-    card.className = "yo-approval-card";
-    card.innerHTML =
-      `<div class="yo-approval-header">` +
-        `<span class="yo-approval-icon">?</span>` +
-        `<span class="yo-approval-title">${toolLabel}</span>` +
-      `</div>` +
-      (detail ? `<div class="yo-approval-detail">${detail.replace(/&/g, "&amp;").replace(/</g, "&lt;").slice(0, 200)}</div>` : "") +
-      `<div class="yo-approval-actions">` +
-        `<button class="yo-approval-btn yo-approval-allow">Allow</button>` +
-        `<button class="yo-approval-btn yo-approval-deny">Deny</button>` +
-      `</div>`;
+    const panel = document.createElement("div");
+    panel.className = "yo-ci-panel";
+    panel.tabIndex = 0;
 
-    chat.appendRaw(card);
-    yoScroll();
+    const header = document.createElement("div");
+    header.className = "yo-ci-header";
+    header.innerHTML =
+      `<span class="yo-ci-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>` +
+      `<span class="yo-ci-title">Permission required</span>`;
+    panel.appendChild(header);
 
-    card.querySelector(".yo-approval-allow")!.addEventListener("click", () => {
-      window.yo.approvalRespond(id, true);
-      card.classList.add("yo-approval-resolved", "yo-approval-allowed");
-      card.querySelector(".yo-approval-actions")!.remove();
-      const status = document.createElement("span");
-      status.className = "yo-approval-status allowed";
-      status.textContent = "allowed";
-      card.querySelector(".yo-approval-header")!.appendChild(status);
+    const q = document.createElement("div");
+    q.className = "yo-ci-question";
+    q.textContent = toolLabel;
+    panel.appendChild(q);
+
+    if (detail) {
+      const d = document.createElement("div");
+      d.className = "yo-ci-detail";
+      d.textContent = detail.slice(0, 400);
+      panel.appendChild(d);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "yo-ci-actions";
+    actions.innerHTML =
+      `<span class="yo-ci-hint">enter allow · esc deny</span>` +
+      `<button type="button" class="yo-ci-btn danger yo-ci-deny">Deny</button>` +
+      `<button type="button" class="yo-ci-btn primary yo-ci-allow">Allow</button>`;
+    panel.appendChild(actions);
+
+    let done = false;
+    function resolve(approved: boolean): void {
+      if (done) return;
+      done = true;
+      window.yo.approvalRespond(id, approved);
+      appendChatMarker({ state: approved ? "allowed" : "denied", label: toolLabel });
+      closeInteraction();
+    }
+    actions.querySelector(".yo-ci-allow")!.addEventListener("click", () => resolve(true));
+    actions.querySelector(".yo-ci-deny")!.addEventListener("click", () => resolve(false));
+    panel.addEventListener("keydown", (e) => {
+      if (done) return;
+      if (e.key === "Enter") { e.preventDefault(); resolve(true); }
+      else if (e.key === "Escape") { e.preventDefault(); resolve(false); }
     });
 
-    card.querySelector(".yo-approval-deny")!.addEventListener("click", () => {
-      window.yo.approvalRespond(id, false);
-      card.classList.add("yo-approval-resolved", "yo-approval-denied");
-      card.querySelector(".yo-approval-actions")!.remove();
-      const status = document.createElement("span");
-      status.className = "yo-approval-status denied";
-      status.textContent = "denied";
-      card.querySelector(".yo-approval-header")!.appendChild(status);
-    });
+    openInteraction(panel);
   });
 
-  // ── ask_user_question — the purple "Input required" dialog ──────────────────
-  // The agent (mcp__yo__ask_user_question) blocks until the user answers. We
-  // render one selectable-option block per question, pre-select the recommended
-  // option (or the first), and reply with one chosen label per question
-  // (null = cancelled). Same card family + theme tokens as the approval card.
+  // ── ask_user_question — composer-area "Input required" prompt ───────────────
+  // The agent (mcp__yo__ask_user_question) blocks until the user answers. The
+  // prompt takes over the slot above the input: one selectable-option block per
+  // question, pre-selecting the recommended option (or the first). We reply with
+  // one chosen label per question (null = cancelled) and leave a marker in the
+  // transcript recording the answer.
   window.yo.onYoAskRequest((id, questions) => {
     const list = Array.isArray(questions) ? questions : [];
     if (list.length === 0) { window.yo.respondYoAsk(id, []); return; }
 
-    const card = document.createElement("div");
-    card.className = "yo-ask-card";
-    card.dataset.askId = id;
-    card.tabIndex = 0; // focusable so the card owns keyboard nav
+    const panel = document.createElement("div");
+    panel.className = "yo-ci-panel";
+    panel.dataset.askId = id;
+    panel.tabIndex = 0; // focusable so the panel owns keyboard nav
 
     const header = document.createElement("div");
-    header.className = "yo-ask-header";
+    header.className = "yo-ci-header";
     header.innerHTML =
-      `<svg class="yo-ask-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` +
-      `<span></span>`;
-    (header.querySelector("span") as HTMLElement).textContent =
+      `<span class="yo-ci-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>` +
+      `<span class="yo-ci-title"></span>`;
+    (header.querySelector(".yo-ci-title") as HTMLElement).textContent =
       list.length === 1 && list[0].header ? list[0].header : "Input required";
-    card.appendChild(header);
+    panel.appendChild(header);
 
     // Per-question selected index, defaulting to the recommended option (or 0).
     const picked: number[] = list.map((q) =>
@@ -1405,42 +1474,42 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
 
     list.forEach((q, qi) => {
       const qEl = document.createElement("div");
-      qEl.className = "yo-ask-question";
+      qEl.className = "yo-ci-question";
       qEl.textContent = q.question || "";
-      card.appendChild(qEl);
+      panel.appendChild(qEl);
 
       const opts = document.createElement("div");
-      opts.className = "yo-ask-options";
+      opts.className = "yo-ci-options";
       q.options.forEach((opt, oi) => {
         const row = document.createElement("div");
-        row.className = "yo-ask-option";
+        row.className = "yo-ci-option";
         row.setAttribute("role", "radio");
-        const badge = opt.recommended ? `<span class="yo-ask-recommended">Recommended</span>` : "";
+        const badge = opt.recommended ? `<span class="yo-ci-recommended">Recommended</span>` : "";
         row.innerHTML =
-          `<span class="yo-ask-radio" aria-hidden="true"></span>` +
-          `<span class="yo-ask-option-main">` +
-            `<span class="yo-ask-option-head"><span class="yo-ask-option-label"></span>${badge}</span>` +
-            (opt.description ? `<span class="yo-ask-option-desc"></span>` : "") +
+          `<span class="yo-ci-radio" aria-hidden="true"></span>` +
+          `<span class="yo-ci-option-main">` +
+            `<span class="yo-ci-option-head"><span class="yo-ci-option-label"></span>${badge}</span>` +
+            (opt.description ? `<span class="yo-ci-option-desc"></span>` : "") +
           `</span>`;
-        (row.querySelector(".yo-ask-option-label") as HTMLElement).textContent = opt.label;
-        const desc = row.querySelector(".yo-ask-option-desc") as HTMLElement | null;
+        (row.querySelector(".yo-ci-option-label") as HTMLElement).textContent = opt.label;
+        const desc = row.querySelector(".yo-ci-option-desc") as HTMLElement | null;
         if (desc && opt.description) desc.textContent = opt.description;
         const flatIdx = flat.length;
-        row.addEventListener("click", () => { setCursor(flatIdx); card.focus(); });
+        row.addEventListener("click", () => { setCursor(flatIdx); panel.focus(); });
         row.addEventListener("dblclick", () => { setCursor(flatIdx); submit(); });
         opts.appendChild(row);
         flat.push({ qi, oi, row });
       });
-      card.appendChild(opts);
+      panel.appendChild(opts);
     });
 
     const actions = document.createElement("div");
-    actions.className = "yo-ask-actions";
+    actions.className = "yo-ci-actions";
     actions.innerHTML =
-      `<span class="yo-ask-hint">↑↓ choose · enter submit · esc cancel</span>` +
-      `<button type="button" class="yo-ask-btn yo-ask-cancel">Cancel</button>` +
-      `<button type="button" class="yo-ask-btn yo-ask-submit">Submit answer</button>`;
-    card.appendChild(actions);
+      `<span class="yo-ci-hint">↑↓ choose · enter submit · esc cancel</span>` +
+      `<button type="button" class="yo-ci-btn yo-ci-cancel">Cancel</button>` +
+      `<button type="button" class="yo-ci-btn primary yo-ci-submit">Submit</button>`;
+    panel.appendChild(actions);
 
     // Selecting a row = picking it for its question (radio behavior) and
     // moving the keyboard cursor onto it.
@@ -1466,20 +1535,27 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     paint();
 
     let resolved = false;
-    function finish(answers: Array<string | null>): void {
+    function finish(answers: Array<string | null>, cancelled: boolean): void {
       if (resolved) return;
       resolved = true;
-      card.classList.add("yo-ask-resolved");
-      card.removeAttribute("tabindex");
-      card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
       window.yo.respondYoAsk(id, answers);
+      if (cancelled) {
+        appendChatMarker({ state: "denied", label: "Cancelled" });
+      } else {
+        const summary = list
+          .map((q, qi) => q.options[picked[qi]]?.label)
+          .filter(Boolean)
+          .join(" · ");
+        appendChatMarker({ state: "answered", label: "Answered:", value: summary });
+      }
+      closeInteraction();
     }
-    const submit = () => finish(list.map((q, qi) => q.options[picked[qi]]?.label ?? null));
-    const cancel = () => finish(list.map(() => null));
-    actions.querySelector(".yo-ask-cancel")!.addEventListener("click", cancel);
-    actions.querySelector(".yo-ask-submit")!.addEventListener("click", submit);
+    const submit = () => finish(list.map((q, qi) => q.options[picked[qi]]?.label ?? null), false);
+    const cancel = () => finish(list.map(() => null), true);
+    actions.querySelector(".yo-ci-cancel")!.addEventListener("click", cancel);
+    actions.querySelector(".yo-ci-submit")!.addEventListener("click", submit);
 
-    card.addEventListener("keydown", (e) => {
+    panel.addEventListener("keydown", (e) => {
       if (resolved) return;
       if (e.key === "ArrowDown") { e.preventDefault(); setCursor(cursor + 1); }
       else if (e.key === "ArrowUp") { e.preventDefault(); setCursor(cursor - 1); }
@@ -1493,9 +1569,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       }
     });
 
-    chat.appendRaw(card);
-    yoScroll();
-    card.focus();
+    openInteraction(panel);
   });
 
   // Set the rotating greeting on the empty-state block at startup so it's

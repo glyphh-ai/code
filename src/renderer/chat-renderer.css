@@ -1,26 +1,21 @@
 /*
- * Chat renderer styles — lifted from VS Code's chat.css
- * (docs/_reference/vscode-chat/media/chat.css) and namespaced under `.yo-chat`
- * so they can't collide with existing yo styles. VS Code's `--vscode-*` tokens
- * are mapped to our theme tokens at the top of the scope; the inner class names
- * (.interactive-item-container, .value, .rendered-markdown, .chat-confirmation-
- * widget, …) are kept 1:1 with upstream so the DOM/CSS structure matches.
+ * Chat renderer styles — native yo skin.
+ *
+ * The DOM class names (.interactive-item-container, .value, .rendered-markdown,
+ * .chat-confirmation-widget, …) are inherited from the parts renderers, but the
+ * styling here is the app's own design language: theme tokens from styles.css
+ * (--surface, --border, --text, --accent, …), the app's sans/mono fonts, and
+ * the same understated card/row treatment used elsewhere in yo. No VS Code
+ * costume — everything reads as part of the app. Namespaced under `.yo-chat`.
  */
 
 .yo-chat {
-  --vscode-interactive-session-foreground: var(--text);
-  --vscode-descriptionForeground: var(--text-faint);
-  --vscode-textLink-foreground: var(--yo-mode-color, var(--accent));
-  --vscode-chat-requestBorder: var(--border-2);
-  --vscode-textCodeBlock-background: rgba(127, 127, 127, 0.12);
-  --vscode-textBlockQuote-border: var(--border-2);
-
   /* Match the rest of the app: same family + size as the panel input and
-     the page's body copy (13px). Without this the chat subtree inherits the
-     browser default (16px) and reads oversized. Theme-aware via the tokens. */
+     the page body copy (13px). Theme-aware via the tokens. */
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.5;
+  color: var(--text);
 
   display: flex;
   flex-direction: column;
@@ -30,23 +25,23 @@
 .yo-chat .interactive-item-container {
   display: flex;
   flex-direction: column;
-  color: var(--vscode-interactive-session-foreground);
   cursor: default;
   user-select: text;
   -webkit-user-select: text;
-  padding: 4px 0;
+  padding: 5px 0;
 }
 
+/* User turn — a right-aligned bubble matching the app's surfaces. */
 .yo-chat .interactive-item-container.interactive-request {
   align-self: flex-end;
   max-width: 85%;
 }
 .yo-chat .interactive-item-container.interactive-request .value {
-  background: var(--border-2);
+  background: var(--surface-3);
   color: var(--text);
-  padding: 10px 14px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
   border-radius: 14px 14px 4px 14px;
-  font-weight: 450;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -56,9 +51,7 @@
 }
 
 /* ── Rendered markdown ────────────────────────────────────────────────────── */
-.yo-chat .value .rendered-markdown {
-  line-height: 1.5;
-}
+.yo-chat .value .rendered-markdown { line-height: 1.5; }
 .yo-chat .value .rendered-markdown > :first-child { margin-top: 0; }
 .yo-chat .value .rendered-markdown > :last-child { margin-bottom: 0; }
 .yo-chat .value .rendered-markdown p { margin: 0 0 8px; }
@@ -71,6 +64,7 @@
   margin: 14px 0 6px;
   font-weight: 600;
   line-height: 1.3;
+  color: var(--text-bright);
 }
 .yo-chat .value .rendered-markdown h1 { font-size: 1.3em; }
 .yo-chat .value .rendered-markdown h2 { font-size: 1.2em; }
@@ -78,42 +72,47 @@
 .yo-chat .value .rendered-markdown ul,
 .yo-chat .value .rendered-markdown ol {
   margin: 0 0 8px;
-  padding-left: 24px;
+  padding-left: 22px;
 }
 .yo-chat .value .rendered-markdown li { margin: 2px 0; }
 .yo-chat .value .rendered-markdown strong { font-weight: 600; }
 .yo-chat .value .rendered-markdown a {
-  color: var(--vscode-textLink-foreground);
+  color: var(--accent);
   text-decoration: none;
 }
 .yo-chat .value .rendered-markdown a:hover { text-decoration: underline; }
 .yo-chat .value .rendered-markdown hr {
   border: none;
-  border-top: 1px solid var(--border-2);
+  border-top: 1px solid var(--border);
   margin: 12px 0;
 }
 .yo-chat .value .rendered-markdown blockquote {
   margin: 0 0 8px;
   padding: 2px 0 2px 12px;
-  border-left: 3px solid var(--vscode-textBlockQuote-border);
-  color: var(--text-faint);
+  border-left: 3px solid var(--border-2);
+  color: var(--text-3);
 }
 .yo-chat .value .rendered-markdown code {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.9em;
-  background: var(--vscode-textCodeBlock-background);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--code-inline);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 1px 4px;
+  padding: 0 4px;
 }
 .yo-chat .value .rendered-markdown pre {
   margin: 0 0 8px;
   padding: 10px 12px;
-  background: var(--vscode-textCodeBlock-background);
-  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   overflow-x: auto;
 }
 .yo-chat .value .rendered-markdown pre code {
   background: none;
+  border: none;
+  color: var(--text);
   padding: 0;
   font-size: 0.85em;
   line-height: 1.45;
@@ -124,7 +123,7 @@
 }
 .yo-chat .value .rendered-markdown td,
 .yo-chat .value .rendered-markdown th {
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--border);
   padding: 4px 8px;
 }
 
@@ -174,8 +173,9 @@
 /* ── Tool invocation (collapsible Input/Output) ───────────────────────────── */
 .yo-chat .chat-confirmation-widget-container { margin: 4px 0; }
 .yo-chat .chat-confirmation-widget {
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
   overflow: hidden;
 }
 .yo-chat .chat-confirmation-widget-title {
@@ -192,7 +192,7 @@
   text-align: left;
   cursor: pointer;
 }
-.yo-chat .chat-confirmation-widget-title:hover { background: rgba(127, 127, 127, 0.08); }
+.yo-chat .chat-confirmation-widget-title:hover { background: var(--hover); }
 .yo-chat .chat-tool-status-icon {
   display: inline-flex;
   align-items: center;
@@ -201,8 +201,8 @@
   width: 16px;
   height: 16px;
 }
-.yo-chat .chat-confirmation-widget.tool-done .chat-tool-status-icon { color: #25C75E; }
-.yo-chat .chat-confirmation-widget.tool-error .chat-tool-status-icon { color: #FF2D55; }
+.yo-chat .chat-confirmation-widget.tool-done .chat-tool-status-icon { color: var(--accent); }
+.yo-chat .chat-confirmation-widget.tool-error .chat-tool-status-icon { color: var(--danger); }
 .yo-chat .chat-confirmation-widget.tool-running .chat-tool-status-icon { color: var(--text-faint); }
 .yo-chat .chat-tool-spin { animation: chat-tool-spin 0.9s linear infinite; }
 @keyframes chat-tool-spin { to { transform: rotate(360deg); } }
@@ -216,7 +216,7 @@
 .yo-chat .chat-tool-name { font-weight: 600; flex-shrink: 0; }
 .yo-chat .chat-tool-subtitle {
   color: var(--text-faint);
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: 0.85em;
   white-space: nowrap;
   overflow: hidden;
@@ -234,7 +234,7 @@
 }
 .yo-chat .chat-confirmation-widget-message {
   padding: 4px 10px 10px;
-  border-top: 1px solid var(--border-2);
+  border-top: 1px solid var(--border);
 }
 .yo-chat .chat-confirmation-widget-message h3 {
   margin: 8px 0 4px;
@@ -246,10 +246,11 @@
 .yo-chat .chat-confirmation-widget-message pre {
   margin: 0;
   padding: 8px 10px;
-  background: var(--vscode-textCodeBlock-background);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
   border-radius: 6px;
   overflow-x: auto;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: 0.82em;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -285,7 +286,28 @@
   color: var(--text-faint);
 }
 .yo-chat .chat-working-spinner {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   width: 1em;
   display: inline-block;
 }
+
+/* ── Inline transcript markers (resolved ask / approval) ──────────────────── */
+/* Left behind in the flow when a composer interaction resolves, so the
+   transcript still records what was asked + answered. */
+.yo-chat .yo-chat-marker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 2px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.yo-chat .yo-chat-marker .yo-chat-marker-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+.yo-chat .yo-chat-marker.is-allowed .yo-chat-marker-icon { color: var(--accent); }
+.yo-chat .yo-chat-marker.is-denied .yo-chat-marker-icon { color: var(--danger); }
+.yo-chat .yo-chat-marker strong { color: var(--text-2); font-weight: 600; }

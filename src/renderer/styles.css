@@ -6918,6 +6918,180 @@ select.settings-input {
   font-size: 12.5px;
 }
 
+/* ── Composer-area interaction (ask / approve takes over above the input) ──── */
+.yo-composer-interaction {
+  flex-shrink: 0;
+  padding: 10px 22px 0;
+}
+.yo-composer-interaction[hidden] { display: none; }
+.yo-ci-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 12px 13px;
+  box-shadow: 0 2px 10px var(--shadow);
+  outline: none;
+  animation: yo-ci-rise 0.14s ease;
+}
+@keyframes yo-ci-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.yo-ci-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.yo-ci-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--yo-mode-color, var(--accent));
+}
+.yo-ci-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.yo-ci-detail {
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.yo-ci-question {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 2px 0 8px;
+}
+.yo-ci-question:not(:first-of-type) { margin-top: 12px; }
+.yo-ci-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.yo-ci-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.yo-ci-option:hover { background: var(--hover); }
+.yo-ci-option.selected {
+  background: var(--active-bg);
+  border-color: var(--yo-mode-color, var(--accent));
+}
+.yo-ci-option.cursor {
+  border-color: var(--yo-mode-color, var(--accent));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--yo-mode-color, var(--accent)) 25%, transparent);
+}
+.yo-ci-radio {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border: 1.5px solid var(--border-3);
+  border-radius: 50%;
+  transition: border-color 0.12s;
+}
+.yo-ci-option.selected .yo-ci-radio {
+  border-color: var(--yo-mode-color, var(--accent));
+  background:
+    radial-gradient(circle, var(--yo-mode-color, var(--accent)) 0 4px, transparent 5px);
+}
+.yo-ci-option-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.yo-ci-option-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.yo-ci-option-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.yo-ci-option-desc {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.yo-ci-recommended {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent-dark);
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.yo-ci-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.yo-ci-hint {
+  margin-right: auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.yo-ci-btn {
+  padding: 6px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+.yo-ci-btn:hover { background: var(--hover); color: var(--text); }
+.yo-ci-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #04230f;
+  font-weight: 600;
+}
+.yo-ci-btn.primary:hover { background: var(--accent-hover); color: #04230f; }
+.yo-ci-btn.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-2));
+  color: var(--danger);
+}
+.yo-ci-btn.danger:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.yo-ci-btn:disabled { opacity: 0.5; cursor: default; }
+
 .yo-panel-input-wrap {
   display: flex;
   align-items: flex-end;
