@@ -1137,6 +1137,24 @@ async function init(): Promise<void> {
     previewBtn.addEventListener("click", () => { slot.mode = "preview"; paintMarkdown(); paintMode(); });
     codeBtn.addEventListener("click", () => { slot.mode = "code"; paintMode(); });
 
+    // External writes (the right-rail Yo writing the plan) — reload from disk
+    // unless the user is actively editing (dirty buffer). The watcher is on
+    // the workdir; filter to plan.md only.
+    const unsubscribeWatch = window.wb.onFileChanged(async (abs: string) => {
+      if (!cwd) return;
+      if (abs !== planFilePath()) return;
+      if (saveStateEl.classList.contains("plan-dirty")) return;
+      const res = await window.wb.readFile(planFilePath());
+      if (res.error) return;
+      const m = editor?.getModel?.();
+      if (!m) return;
+      suppressChange = true;
+      m.setValue(res.content || "");
+      suppressChange = false;
+      paintMarkdown();
+    });
+    body.addEventListener("DOMNodeRemoved", () => { try { unsubscribeWatch(); } catch { /* */ } }, { once: true });
+
     await loadActive();
   }
 

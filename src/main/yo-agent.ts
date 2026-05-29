@@ -644,7 +644,14 @@ export class YoAgent {
     }
 
     if (this._mode === "plan") {
-      prompt += `\n\nMODE: PLAN\nYou are in plan mode. DO NOT call any tools. Instead, outline your plan as a concise numbered list.`;
+      const planPath = `${rightRailCwd().replace(/\/+$/, "")}/.yo/plan.md`;
+      prompt += `\n\nMODE: PLAN
+You are planning, not building. Produce the plan, write it to disk, surface it briefly in chat, and stop. Two rules:
+
+1. Save the plan to ${planPath}. Use the Write tool. Overwrite any existing file. Markdown body only — no preamble, no "here is the plan" wrapping. Sections: Context, Approach, Steps (numbered), Files, Verification.
+2. After writing, reply in chat with ONE short paragraph (3–4 sentences) summarizing the plan and end with: "Plan written to .yo/plan.md — switch to plan mode off (.yo) to proceed."
+
+Do NOT call ExitPlanMode. Do NOT use the deferred plan-mode tool flow. Do NOT write to ~/.claude/plans/ — that path is wrong here. The Workbench Plan view watches ${planPath} and renders it live.`;
     }
 
     // Context recovery: when resuming a chat without a live SDK session,
