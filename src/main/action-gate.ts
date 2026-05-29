@@ -99,8 +99,47 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   create_swarm:      "Spin up a local swarm of agents to work a goal",
 };
 
-export function getToolTier(toolName: string): ToolTier {
+/** Strip an `mcp__<server>__` prefix, if present, to the bare tool name. */
+function bareToolName(toolName: string): string {
+  const m = toolName.match(/^mcp__[^_]+__(.+)$/);
+  return m ? m[1] : toolName;
+}
+
+/**
+ * Three-way classification used by the gate. `isDestructiveTool` only knows the
+ * substrate (`yo.*`) tools, so the built-in claude_code preset tools must be
+ * classified explicitly here — otherwise Edit/Write/Bash fall through as
+ * "observe" and would auto-run in acceptEdits AND plan mode.
+ *   observe — read-only (safe to auto-run while planning / in acceptEdits)
+ *   edit    — file mutations (auto-accepted in acceptEdits; blocked while planning)
+ *   mutate  — runs code / kills processes / destructive (always prompts)
+ */
+export type ToolClass = "observe" | "edit" | "mutate";
+
+const OBSERVE_BUILTINS = new Set<string>([
+  "Read", "Grep", "Glob", "WebFetch", "WebSearch",
+  "BashOutput", "ListMcpResources", "ReadMcpResource", "TaskOutput",
+]);
+const EDIT_BUILTINS = new Set<string>([
+  "Edit", "Write", "NotebookEdit",
+]);
+const MUTATE_BUILTINS = new Set<string>([
+  "Bash", "KillShell", "KillBash", "TaskStop", "TodoWrite",
+]);
+
+export function classifyTool(toolName: string): ToolClass {
+  const bare = bareToolName(toolName);
+  if (OBSERVE_BUILTINS.has(bare)) return "observe";
+  if (EDIT_BUILTINS.has(bare)) return "edit";
+  if (MUTATE_BUILTINS.has(bare)) return "mutate";
+  // Substrate / MCP tools: destructive-flagged or name heuristic → mutate;
+  // everything else (search / list / get / read-style) → observe.
   return isDestructiveTool(toolName) ? "mutate" : "observe";
+}
+
+/** Back-compat 2-way tier: edit + mutate both count as "mutate". */
+export function getToolTier(toolName: string): ToolTier {
+  return classifyTool(toolName) === "observe" ? "observe" : "mutate";
 }
 
 /**
@@ -115,12 +154,6 @@ const ALWAYS_EXECUTE = new Set<string>([
   "preview_url",       // just loads a URL into the Workbench preview slot
 ]);
 
-/** Strip an `mcp__<server>__` prefix, if present, to the bare tool name. */
-function bareToolName(toolName: string): string {
-  const m = toolName.match(/^mcp__[^_]+__(.+)$/);
-  return m ? m[1] : toolName;
-}
-
 export function getAgentMode(): AgentMode {
   const raw = getPreference<string>("agentMode", "default");
   if (raw === "bypass") return "bypassPermissions";
@@ -129,13 +162,24 @@ export function getAgentMode(): AgentMode {
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {
+  const bare = bareToolName(toolName);
   // Interactive / inherently-safe tools run regardless of mode (even in plan
   // mode — asking the user a clarifying question is exactly what planning wants).
-  if (ALWAYS_EXECUTE.has(bareToolName(toolName))) return "execute";
-  if (mode === "plan") return "skip";
+  if (ALWAYS_EXECUTE.has(bare)) return "execute";
+  if (mode === "plan") {
+    // ExitPlanMode is how the agent presents its plan and asks to proceed —
+    // route it to approval so the user accepts the plan (and leaves plan mode).
+    if (bare === "ExitPlanMode") return "needs_approval";
+    // Read-only exploration is allowed while planning; mutations are blocked
+    // (skipped) so planning never changes anything.
+    return getToolTier(toolName) === "observe" ? "execute" : "skip";
+  }
   if (mode === "bypassPermissions") return "execute";
   if (mode === "acceptEdits") {
-    return getToolTier(toolName) === "observe" ? "execute" : "needs_approval";
+    // Auto-run read-only AND file-edit tools; still prompt for code execution
+    // / destructive tools (Bash, kill, etc.).
+    const cls = classifyTool(toolName);
+    return cls === "observe" || cls === "edit" ? "execute" : "needs_approval";
   }
   return "needs_approval";
 }

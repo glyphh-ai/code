@@ -95,7 +95,8 @@ RULES:
 - For workspace arrangement use split_view, grid_layout, switch_panel.
 - For skills use create_skill, update_skill, read_skill.
 - For data stores use store_get, store_set, store_list, store_query.
-- For multi-choice questions to the user, ALWAYS use mcp__yo__ask_user_question — never the built-in AskUserQuestion. ours renders a proper "Input required" card with side-by-side code/markdown previews; the built-in is silently denied here. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.`;
+- For multi-choice questions to the user, use mcp__yo__ask_user_question (the built-in AskUserQuestion is unavailable). It renders a proper "Input required" card with side-by-side code/markdown previews. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.
+- Run sub-agents (the Agent tool) in the FOREGROUND — do not set run_in_background. The Sub-Agents panel streams their work live and closes each tab when it finishes; backgrounded tasks would not stream there.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -475,12 +476,17 @@ export class YoAgent {
       // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
       // Permission gating is handled by canUseTool / permissionMode above.
       tools: { type: "preset", preset: "claude_code" },
-      // Remove the SDK's native AskUserQuestion from the model's context so it
-      // CANNOT be called — the model kept reaching for it despite the system
-      // prompt, and the native tool renders as a dead JSON card (no wizard,
-      // no answer routing). With it gone the model falls back to our
-      // mcp__yo__ask_user_question, which drives the composer wizard.
-      disallowedTools: ["AskUserQuestion"],
+      // Strip native tools that this surface can't honor, so the model can't
+      // reach for them (they'd render as dead cards or silently shift context
+      // with no UI). Removed from the model's context entirely:
+      //   - AskUserQuestion → use mcp__yo__ask_user_question (composer wizard).
+      //   - EnterWorktree / ExitWorktree → git worktrees have no UI in the
+      //     right-rail .Yo (it runs at ~/yo/); switching trees invisibly would
+      //     be deeply confusing. Sub-agents/Bash cover any real need.
+      // Everything else in the claude_code preset is either handled specially
+      // (Agent → Sub-Agents panel, ExitPlanMode → .yo/plan.md, TodoWrite →
+      // todo capture) or renders fine as a generic tool card.
+      disallowedTools: ["AskUserQuestion", "EnterWorktree", "ExitWorktree"],
       mcpServers: { "yo": mcpServer },
       systemPrompt: this.buildSystemPrompt(),
       abortController: this.abortController,
