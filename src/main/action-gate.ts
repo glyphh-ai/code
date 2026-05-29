@@ -103,6 +103,24 @@ export function getToolTier(toolName: string): ToolTier {
   return isDestructiveTool(toolName) ? "mutate" : "observe";
 }
 
+/**
+ * Tools that ARE the user interaction (or are harmless UI affordances) and so
+ * must never be gated behind an approval card — gating them would double-prompt
+ * the user (approve the tool, *then* answer the question it raises). Names can
+ * arrive bare or MCP-namespaced (`mcp__yo__<name>`), so we compare on the bare
+ * name.
+ */
+const ALWAYS_EXECUTE = new Set<string>([
+  "ask_user_question", // drives the composer wizard — the wizard is the consent
+  "preview_url",       // just loads a URL into the Workbench preview slot
+]);
+
+/** Strip an `mcp__<server>__` prefix, if present, to the bare tool name. */
+function bareToolName(toolName: string): string {
+  const m = toolName.match(/^mcp__[^_]+__(.+)$/);
+  return m ? m[1] : toolName;
+}
+
 export function getAgentMode(): AgentMode {
   const raw = getPreference<string>("agentMode", "default");
   if (raw === "bypass") return "bypassPermissions";
@@ -111,6 +129,9 @@ export function getAgentMode(): AgentMode {
 }
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {
+  // Interactive / inherently-safe tools run regardless of mode (even in plan
+  // mode — asking the user a clarifying question is exactly what planning wants).
+  if (ALWAYS_EXECUTE.has(bareToolName(toolName))) return "execute";
   if (mode === "plan") return "skip";
   if (mode === "bypassPermissions") return "execute";
   if (mode === "acceptEdits") {

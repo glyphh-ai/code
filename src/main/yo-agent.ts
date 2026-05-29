@@ -475,6 +475,12 @@ export class YoAgent {
       // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
       // Permission gating is handled by canUseTool / permissionMode above.
       tools: { type: "preset", preset: "claude_code" },
+      // Remove the SDK's native AskUserQuestion from the model's context so it
+      // CANNOT be called — the model kept reaching for it despite the system
+      // prompt, and the native tool renders as a dead JSON card (no wizard,
+      // no answer routing). With it gone the model falls back to our
+      // mcp__yo__ask_user_question, which drives the composer wizard.
+      disallowedTools: ["AskUserQuestion"],
       mcpServers: { "yo": mcpServer },
       systemPrompt: this.buildSystemPrompt(),
       abortController: this.abortController,
