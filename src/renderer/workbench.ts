@@ -38,8 +38,17 @@ interface WbApi {
   gitCheckout: (root: string, branch: string) => Promise<{ ok: boolean; branch?: string; error?: string }>;
   onCwdChanged: (cb: (dir: string | null) => void) => () => void;
   onFileChanged: (cb: (absPath: string) => void) => () => void;
+  onSubAgentEvent: (cb: (evt: {
+    id: string;
+    kind: "spawn" | "token" | "result" | "error";
+    source?: "task" | "yo-agent";
+    name?: string;
+    description?: string;
+    text?: string;
+  }) => void) => () => void;
   listDir: (dir: string) => Promise<{ entries: FileEntry[]; error?: string }>;
   readFile: (filePath: string) => Promise<{ content: string; error?: string }>;
+  writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>;
   gitDiff: (root: string) => Promise<{ text: string; error?: string }>;
   termSpawn: (termId: string, cwd: string, cols: number, rows: number) => void;
   termWrite: (termId: string, data: string) => void;
@@ -52,7 +61,8 @@ interface WbApi {
 }
 declare global { interface Window { wb: WbApi } }
 
-type ViewKind = "files" | "terminal" | "diff" | "preview" | "monaco";
+type ViewKind = "files" | "terminal" | "diff" | "preview" | "monaco" | "subagents" | "plan";
+type PlanPhase = "requirements" | "design" | "tasks";
 
 interface MonacoTab {
   name: string; path: string; content: string;
@@ -78,7 +88,30 @@ interface TermSlot {
 }
 interface DiffSlot { id: number; view: "diff"; collapsed?: Set<string> }
 interface PreviewSlot { id: number; view: "preview" }
-type Slot = MonacoSlot | FilesSlot | TermSlot | DiffSlot | PreviewSlot;
+
+/** A live transcript of a single sub-agent invocation. Same shape used
+ *  whether the source is Claude's internal Task tool or one of our saved
+ *  yo://agents we wrap as a tool. Transcript can grow over time as tokens
+ *  stream; status flips terminal when the agent returns. */
+interface SubAgentEntry {
+  id: string;                        // stable, dedup key
+  source: "task" | "yo-agent";       // where it came from
+  name: string;                      // short label for the tab
+  description?: string;              // expanded prompt / task description
+  transcript: string;                // streamed text (tokens + tool summaries)
+  status: "running" | "done" | "error";
+  startedAt: number;
+}
+interface SubAgentsSlot {
+  id: number; view: "subagents";
+  agents: SubAgentEntry[];
+  activeIdx: number;
+}
+interface PlanSlot {
+  id: number; view: "plan";
+  activePhase: PlanPhase;
+}
+type Slot = MonacoSlot | FilesSlot | TermSlot | DiffSlot | PreviewSlot | SubAgentsSlot | PlanSlot;
 
 interface Rail { id: number; slots: Slot[]; prefWidth?: number }
 
@@ -104,6 +137,8 @@ const VIEW_META: Record<string, { title: string; icon: string }> = {
   diff:     { title: "Diff",     icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><polyline points="8 7 4 11 8 15"/><polyline points="16 9 20 13 16 17"/></svg>` },
   preview:  { title: "Preview",  icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>` },
   monaco:   { title: "Editor",   icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>` },
+  subagents:{ title: "Sub-Agents", icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="11" r="2.5"/><circle cx="6" cy="17" r="2.5"/><path d="M9 10v3l-3 4"/><path d="M9 10l8 1"/></svg>` },
+  plan:     { title: "Plan",     icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>` },
 };
 
 // ── Monaco loader (AMD path: window.require + monaco/ assets in dist) ──
@@ -307,7 +342,7 @@ async function init(): Promise<void> {
     for (const savedRail of data.rails || []) {
       const slots: Slot[] = [];
       for (const v of (savedRail.views || []).slice(0, 2)) {
-        if (v === "files" || v === "terminal" || v === "diff" || v === "preview") {
+        if (v === "files" || v === "terminal" || v === "diff" || v === "preview" || v === "subagents" || v === "plan") {
           slots.push(makeSlot(v));
         }
       }
@@ -427,6 +462,8 @@ async function init(): Promise<void> {
       };
     }
     if (view === "diff") return { id, view };
+    if (view === "subagents") return { id, view, agents: [], activeIdx: 0 };
+    if (view === "plan") return { id, view, activePhase: "requirements" };
     return { id, view: "preview" };
   }
   function closeSlot(slotId: number): void {
@@ -665,6 +702,8 @@ async function init(): Promise<void> {
     else if (slot.view === "monaco")   void renderMonacoIntoSlot(body, slot);
     else if (slot.view === "diff")     void renderDiffIntoSlot(body, slot);
     else if (slot.view === "preview")  renderPreviewIntoSlot(body);
+    else if (slot.view === "subagents") renderSubAgentsIntoSlot(body, slot);
+    else if (slot.view === "plan") void renderPlanIntoSlot(body, slot);
     return wrap;
   }
 
@@ -980,6 +1019,201 @@ async function init(): Promise<void> {
       else current.lines.push({ kind: "context", text: line });
     });
     return files;
+  }
+
+  // ── Plan view ──
+  // Three phase tabs (requirements → design → tasks) backed by markdown
+  // files at <cwd>/.yo/plan/<phase>.md. Single Monaco editor below the
+  // tabs; writable, auto-saves 800ms after the last keystroke. The same
+  // file watcher used elsewhere in the Workbench re-reads the active
+  // phase silently when the file changes on disk (e.g. the right-rail
+  // Yo agent wrote it). Replaces the standalone yo://plan app.
+  const PLAN_PHASES: PlanPhase[] = ["requirements", "design", "tasks"];
+  function planFilePath(phase: PlanPhase): string {
+    return `${cwd.replace(/\/+$/, "")}/.yo/plan/${phase}.md`;
+  }
+  async function renderPlanIntoSlot(body: HTMLElement, slot: PlanSlot): Promise<void> {
+    body.innerHTML = `
+      <div class="ws-plan-tabs"></div>
+      <div class="ws-plan-status">
+        <span class="ws-plan-path"></span>
+        <span class="ws-plan-savestate plan-saved">saved</span>
+      </div>
+      <div class="ws-plan-host"></div>
+    `;
+    const tabsEl = body.querySelector(".ws-plan-tabs") as HTMLElement;
+    const pathEl = body.querySelector(".ws-plan-path") as HTMLElement;
+    const saveStateEl = body.querySelector(".ws-plan-savestate") as HTMLElement;
+    const host = body.querySelector(".ws-plan-host") as HTMLElement;
+
+    let editor: any = null;
+    let suppressChange = false;
+    let saveTimer: number | null = null;
+
+    function setSave(state: "saved" | "dirty" | "saving" | "error"): void {
+      saveStateEl.textContent = state;
+      saveStateEl.className = "ws-plan-savestate " + (state === "saved" ? "plan-saved" : "plan-dirty");
+    }
+    function paintTabs(): void {
+      tabsEl.innerHTML = "";
+      PLAN_PHASES.forEach((p) => {
+        const tab = document.createElement("div");
+        tab.className = "ws-plan-tab" + (p === slot.activePhase ? " active" : "");
+        tab.textContent = p;
+        tab.addEventListener("click", () => {
+          if (p === slot.activePhase) return;
+          if (saveTimer != null) { window.clearTimeout(saveTimer); saveTimer = null; void saveActive(); }
+          slot.activePhase = p;
+          paintTabs();
+          void loadActive();
+        });
+        tabsEl.appendChild(tab);
+      });
+    }
+    async function ensureEditor(): Promise<void> {
+      if (editor) return;
+      await ensureMonaco();
+      const w = window as unknown as { monaco: any };
+      editor = w.monaco.editor.create(host, {
+        value: "",
+        language: "markdown",
+        theme: monacoTheme(),
+        readOnly: false,
+        fontSize: 13,
+        fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', Menlo, monospace",
+        minimap: { enabled: false },
+        wordWrap: "on",
+        automaticLayout: true,
+        padding: { top: 10 },
+        scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+        lineNumbers: "off",
+        glyphMargin: false,
+        folding: false,
+      });
+      editor.onDidChangeModelContent(() => {
+        if (suppressChange) return;
+        setSave("dirty");
+        if (saveTimer != null) window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(() => { saveTimer = null; void saveActive(); }, 800);
+      });
+    }
+    async function loadActive(): Promise<void> {
+      if (!cwd) { pathEl.textContent = "Pick a working folder."; return; }
+      await ensureEditor();
+      const fpath = planFilePath(slot.activePhase);
+      pathEl.textContent = fpath;
+      setSave("saved");
+      const res = await window.wb.readFile(fpath);
+      const text = res.error ? "" : (res.content || "");
+      suppressChange = true;
+      const w = window as unknown as { monaco: any };
+      const model = w.monaco.editor.createModel(text, "markdown");
+      editor.setModel(model);
+      suppressChange = false;
+    }
+    async function saveActive(): Promise<void> {
+      if (!cwd || !editor) return;
+      const m = editor.getModel();
+      if (!m) return;
+      setSave("saving");
+      const res = await window.wb.writeFile(planFilePath(slot.activePhase), m.getValue());
+      setSave(res.ok ? "saved" : "error");
+      if (!res.ok && res.error) saveStateEl.title = res.error;
+    }
+
+    paintTabs();
+    await loadActive();
+  }
+
+  // ── Sub-Agents view ──
+  // Lists every currently-active sub-agent the right-rail Yo (or anything
+  // else) spawns — either Claude's internal Task tool, or one of our
+  // saved agents via a wrapper. Each entry is a tab whose body streams
+  // the agent's transcript live. Tabs persist after the agent finishes
+  // so the user can still scroll back. State lives on the slot itself
+  // so re-renders preserve scroll position via the cached DOM.
+  function renderSubAgentsIntoSlot(body: HTMLElement, slot: SubAgentsSlot): void {
+    body.innerHTML = `
+      <div class="ws-subagents-tabs"></div>
+      <div class="ws-subagents-body"></div>
+    `;
+    const tabsEl = body.querySelector(".ws-subagents-tabs") as HTMLElement;
+    const bodyEl = body.querySelector(".ws-subagents-body") as HTMLElement;
+
+    function paint(): void {
+      tabsEl.innerHTML = "";
+      if (slot.agents.length === 0) {
+        bodyEl.innerHTML = `<div class="ws-subagents-empty">No sub-agents running. When the .Yo agent spawns a Task or one of your saved agents, it'll appear here.</div>`;
+        return;
+      }
+      slot.agents.forEach((a, i) => {
+        const tab = document.createElement("div");
+        tab.className = "ws-subagents-tab" + (i === slot.activeIdx ? " active" : "") + ` status-${a.status}`;
+        tab.title = a.description || a.name;
+        tab.innerHTML = `<span class="dot"></span><span class="nm"></span>`;
+        (tab.querySelector(".nm") as HTMLElement).textContent = a.name;
+        tab.addEventListener("click", () => {
+          if (i !== slot.activeIdx) { slot.activeIdx = i; paint(); }
+        });
+        tabsEl.appendChild(tab);
+      });
+      const active = slot.agents[slot.activeIdx];
+      if (!active) { bodyEl.innerHTML = ""; return; }
+      bodyEl.innerHTML = `
+        <div class="ws-subagents-meta">
+          <span class="ws-subagents-source">${active.source === "task" ? "Task tool" : "yo://agent"}</span>
+          <span class="ws-subagents-status status-${active.status}">${active.status}</span>
+        </div>
+        ${active.description ? `<div class="ws-subagents-desc"></div>` : ""}
+        <pre class="ws-subagents-transcript"></pre>
+      `;
+      const descEl = bodyEl.querySelector(".ws-subagents-desc") as HTMLElement | null;
+      if (descEl && active.description) descEl.textContent = active.description;
+      const transcriptEl = bodyEl.querySelector(".ws-subagents-transcript") as HTMLElement;
+      transcriptEl.textContent = active.transcript;
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }
+
+    paint();
+    // Subscribe to live events that affect this slot's state. The handler
+    // is closed over `slot` so each rendered slot ends up with its own
+    // listener; that's fine, the handler is cheap and re-renders only
+    // affect this slot's DOM.
+    const off = window.wb.onSubAgentEvent((evt) => {
+      const i = slot.agents.findIndex((a) => a.id === evt.id);
+      if (evt.kind === "spawn") {
+        if (i >= 0) {
+          slot.agents[i].description = evt.description || slot.agents[i].description;
+          slot.agents[i].status = "running";
+        } else {
+          slot.agents.push({
+            id: evt.id,
+            source: evt.source || "task",
+            name: evt.name || (evt.source === "yo-agent" ? "agent" : "task"),
+            description: evt.description,
+            transcript: "",
+            status: "running",
+            startedAt: Date.now(),
+          });
+          if (slot.activeIdx < 0) slot.activeIdx = slot.agents.length - 1;
+        }
+      } else if (evt.kind === "token" && i >= 0) {
+        slot.agents[i].transcript += evt.text || "";
+      } else if (evt.kind === "result" && i >= 0) {
+        if (evt.text) slot.agents[i].transcript += `\n${evt.text}`;
+        slot.agents[i].status = "done";
+      } else if (evt.kind === "error" && i >= 0) {
+        if (evt.text) slot.agents[i].transcript += `\n[error] ${evt.text}`;
+        slot.agents[i].status = "error";
+      }
+      paint();
+    });
+    // Detach when the slot body is replaced (next renderRails call clears
+    // and re-mounts everything). We attach `off` to the body element so
+    // a MutationObserver could call it; simpler: store on body dataset
+    // and rely on the next renderSubAgentsIntoSlot call re-subscribing.
+    (body as unknown as { __subAgentsOff?: () => void }).__subAgentsOff?.();
+    (body as unknown as { __subAgentsOff?: () => void }).__subAgentsOff = off;
   }
 
   // ── Preview view (stub — real dev-server preview can come later) ──

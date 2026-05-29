@@ -57,11 +57,13 @@ let yoControlsInited = false;
 // when selected, it paints the trigger plan-blue.
 const PLAN_COLOR = "#4A9EFF";
 
+// Inline SVG icons matching yo-agent-renderer.PERM_ICONS so the right-rail
+// trigger renders the same glyphs as the Agent app (no more emoji 🔒).
 const PERM_ICONS: Record<string, string> = {
-  default: "🔒",
-  plan: "📋",
-  acceptEdits: "⚡",
-  bypassPermissions: "🔥",
+  default: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  plan: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>`,
+  acceptEdits: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  bypassPermissions: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
 };
 
 const PERM_COLORS: Record<string, string> = {
@@ -336,7 +338,9 @@ function setPermValue(perm: string) {
   planEnabled = perm === "plan";
   const icon = yoPermTrigger.querySelector(".yo-perm-icon")!;
   const label = yoPermTrigger.querySelector(".yo-perm-label")!;
-  icon.textContent = PERM_ICONS[perm] || PERM_ICONS.default;
+  // Inject SVG markup (not textContent) so the trigger renders the icon,
+  // not its raw HTML string.
+  icon.innerHTML = PERM_ICONS[perm] || PERM_ICONS.default;
   label.textContent = PERM_LABELS[perm] || perm;
   yoPermOptions.forEach((opt) => {
     opt.classList.toggle("active", (opt as HTMLElement).dataset.value === perm);
@@ -1575,6 +1579,107 @@ function isYoPanelOpen(): boolean {
   return yoPanel.classList.contains("open");
 }
 
+// ── Workdir bar (folder picker + git branch + add-folder) ──
+// Ported from the (removed) Agent app so the right-rail Yo follows the
+// user's current working folder. Shares the working-dir preference with
+// every other folder-bound surface (Workbench, etc.) via the existing
+// working-dir:* IPCs already on window.yo.
+
+function basenameOf(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() || p;
+}
+function homeShortenPath(p: string): string {
+  return p.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
+}
+
+let workdirCurrent = "";
+
+function wireWorkdirBar(): void {
+  const workdirBtn = document.getElementById("workdir-btn") as HTMLButtonElement | null;
+  const workdirName = document.getElementById("workdir-name");
+  const workdirAdd = document.getElementById("workdir-add-btn") as HTMLButtonElement | null;
+  const branchWrap = document.getElementById("workdir-branch-wrap");
+  const branchEl = document.getElementById("workdir-branch");
+  if (!workdirBtn || !workdirName) return;
+
+  const dropdown = document.createElement("div");
+  dropdown.className = "yo-workdir-menu";
+  dropdown.setAttribute("role", "menu");
+  document.body.appendChild(dropdown);
+  const closeDropdown = () => dropdown.classList.remove("open");
+  const isDropdownOpen = () => dropdown.classList.contains("open");
+
+  const FOLDER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
+  const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+  async function paintBar(dir: string): Promise<void> {
+    workdirCurrent = dir || "";
+    if (workdirName) workdirName.textContent = dir ? basenameOf(dir) : "Pick a folder";
+    if (workdirBtn) workdirBtn.title = dir ? `working directory: ${dir}` : "Pick a folder";
+    if (!dir) { if (branchWrap) (branchWrap as HTMLElement).style.display = "none"; return; }
+    try {
+      const info = await (window.yo as any).gitInfo?.(dir);
+      if (info?.isRepo && info.branch && branchWrap && branchEl) {
+        branchEl.textContent = info.branch;
+        (branchWrap as HTMLElement).style.display = "";
+      } else if (branchWrap) {
+        (branchWrap as HTMLElement).style.display = "none";
+      }
+    } catch { if (branchWrap) (branchWrap as HTMLElement).style.display = "none"; }
+  }
+
+  async function openDropdown(): Promise<void> {
+    const recents = await window.yo.getWorkingDirRecents().catch(() => [] as string[]);
+    dropdown.innerHTML = "";
+    const list = recents.length ? recents : (workdirCurrent ? [workdirCurrent] : []);
+    for (const dir of list) {
+      const item = document.createElement("button");
+      item.className = "yo-workdir-menu-item";
+      item.innerHTML =
+        `<span class="check">${dir === workdirCurrent ? CHECK_SVG : ""}</span>` +
+        `<span class="ic">${FOLDER_SVG}</span>` +
+        `<span class="nm"></span>`;
+      (item.querySelector(".nm") as HTMLElement).textContent = homeShortenPath(dir);
+      item.title = dir;
+      item.addEventListener("click", async () => {
+        closeDropdown();
+        if (dir !== workdirCurrent) await window.yo.setWorkingDir(dir);
+      });
+      dropdown.appendChild(item);
+    }
+    const sep = document.createElement("div");
+    sep.className = "yo-workdir-menu-sep";
+    dropdown.appendChild(sep);
+    const choose = document.createElement("button");
+    choose.className = "yo-workdir-menu-item";
+    choose.textContent = "Choose folder…";
+    choose.addEventListener("click", async () => { closeDropdown(); await window.yo.pickWorkingDir(); });
+    dropdown.appendChild(choose);
+    const r = workdirBtn!.getBoundingClientRect();
+    dropdown.style.left = `${r.left}px`;
+    dropdown.style.bottom = `${window.innerHeight - r.top + 4}px`;
+    dropdown.style.top = "auto";
+    dropdown.classList.add("open");
+  }
+
+  workdirBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    isDropdownOpen() ? closeDropdown() : void openDropdown();
+  });
+  workdirAdd?.addEventListener("click", (e) => { e.stopPropagation(); void window.yo.pickWorkingDir(); });
+  document.addEventListener("click", (e) => {
+    if (!isDropdownOpen()) return;
+    if (dropdown.contains(e.target as Node)) return;
+    if (workdirBtn.contains(e.target as Node)) return;
+    closeDropdown();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isDropdownOpen()) closeDropdown(); });
+
+  // Initial paint + react to changes from anywhere in the app.
+  void window.yo.getWorkingDir().then((d) => paintBar(d || ""));
+  window.yo.onWorkingDirChanged((d) => { void paintBar(d || ""); });
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 
 export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
@@ -1598,6 +1703,10 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoPermTrigger = document.getElementById("yo-perm-trigger")!;
   yoPermMenu = document.getElementById("yo-perm-menu")!;
   yoPermOptions = yoPermMenu.querySelectorAll(".yo-perm-option");
+
+  // -- Workdir bar (folder picker + git branch + add-folder) --
+  // Ported from the (removed) Agent app so the right-rail Yo is folder-bound.
+  wireWorkdirBar();
 
   // -- Scroll-to-bottom button --
   yoPanelMessages.addEventListener("scroll", () => {

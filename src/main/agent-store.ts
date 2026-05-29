@@ -68,9 +68,6 @@ export interface AgentConfig {
   /** Model used by this agent (provider + name). Falls back to global llmConfig if unset. */
   model_provider?: string;
   model_name?: string;
-  /** Last-used permission mode for the agent loop. Persisted so the
-   *  dropdown restores its prior state on restart. */
-  perm_mode?: "default" | "plan" | "acceptEdits" | "bypassPermissions";
 
   /**
    * How this agent runs inside a swarm:
@@ -79,15 +76,6 @@ export interface AgentConfig {
    */
   mode?: "full" | "readonly";
 
-  /**
-   * Workflow kind for the agent's chat loop:
-   *  - "standard" — freeform, no enforced workflow (default)
-   *  - "spec"     — phased: requirements → design → tasks, approval-card gates
-   *  - "vibe"     — single plan.md, inline plan mode
-   * Switchable per agent; persisted on save. Reflected in the type
-   * dropdown in the agent controls row.
-   */
-  kind?: "standard" | "spec" | "vibe";
 
   /** If true, this agent is published to yo-server and discoverable for cyphers. */
   joinable?: boolean;

@@ -28,12 +28,33 @@ contextBridge.exposeInMainWorld("wb", {
     ipcRenderer.on("workdir:file-changed", handler);
     return () => { ipcRenderer.removeListener("workdir:file-changed", handler); };
   },
+  /** Sub-agent lifecycle events from any agent surface in the app. The
+   *  Workbench's Sub-Agents view subscribes to render tabs per agent and
+   *  stream their transcripts live. Cases:
+   *    - { kind: "spawn", id, source, name, description? }
+   *    - { kind: "token", id, text }
+   *    - { kind: "result", id, text? }
+   *    - { kind: "error",  id, text? } */
+  onSubAgentEvent: (cb: (evt: {
+    id: string;
+    kind: "spawn" | "token" | "result" | "error";
+    source?: "task" | "yo-agent";
+    name?: string;
+    description?: string;
+    text?: string;
+  }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, evt: any) => cb(evt);
+    ipcRenderer.on("subagent:event", handler);
+    return () => { ipcRenderer.removeListener("subagent:event", handler); };
+  },
 
   // Workbench-specific: lazy file tree + file reader + diff.
   listDir: (dir: string) =>
     ipcRenderer.invoke("files:list-dir", dir) as Promise<{ entries: FileEntry[]; error?: string }>,
   readFile: (filePath: string) =>
     ipcRenderer.invoke("files:read-file", filePath) as Promise<{ content: string; error?: string }>,
+  writeFile: (filePath: string, content: string) =>
+    ipcRenderer.invoke("files:write-file", filePath, content) as Promise<{ ok: boolean; error?: string }>,
   gitDiff: (root: string) =>
     ipcRenderer.invoke("files:git-diff", root) as Promise<{ text: string; error?: string }>,
 

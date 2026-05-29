@@ -139,7 +139,9 @@ declare global {
       convertTabToApp: (tabId: string, appId: string) => void;
       openInEditor: (filePath: string) => void;
       getWorkingDir: () => Promise<string | null>;
-      pickWorkingDir: () => Promise<string | null>;
+      pickWorkingDir: (opts?: { asDefault?: boolean }) => Promise<string | null>;
+      setWorkingDir: (dir: string) => Promise<string>;
+      getWorkingDirRecents: () => Promise<string[]>;
       onWorkingDirChanged: (callback: (dir: string | null) => void) => void;
       onSplitState: (callback: (info: {
         panelIds: string[];

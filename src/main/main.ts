@@ -83,7 +83,6 @@ import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
 import { initRelayClient } from "./relay-client";
 import { installRelayHandlers } from "./relay-handlers";
-import { registerAgentInteractiveIpc } from "./agent-interactive";
 import { registerWorkbenchTerminalIpc } from "./wb-terminal";
 import { registerAgentDefaultsIpc } from "./agent-defaults";
 import { registerCodeIndexIpc } from "./code-index/ipc";
@@ -913,12 +912,8 @@ async function boot() {
   const vibePreload = path.join(__dirname, "vibe-preload.js");
   const specHtml = `file://${path.join(__dirname, "..", "renderer", "spec.html")}`;
   const specPreload = path.join(__dirname, "spec-preload.js");
-  const agentHtml = `file://${path.join(__dirname, "..", "renderer", "agent.html")}`;
-  const agentPreload = path.join(__dirname, "agent-preload.js");
   const workbenchHtml = `file://${path.join(__dirname, "..", "renderer", "workbench.html")}`;
   const workbenchPreload = path.join(__dirname, "workbench-preload.js");
-  const planHtml = `file://${path.join(__dirname, "..", "renderer", "plan.html")}`;
-  const planPreload = path.join(__dirname, "plan-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
   // Slugs that map to home.html with ?section=<slug>. Each gets its own panel
   // so users can mount, e.g., a standalone Drips or Agents browser inside any
@@ -953,12 +948,8 @@ async function boot() {
       panelManager.addPanel(app.id, vibeHtml, vibePreload, undefined, true);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(app.id, specHtml, specPreload);
-    } else if (app.url === "yo://agent") {
-      panelManager.addPanel(app.id, agentHtml, agentPreload);
     } else if (app.url === "yo://workbench") {
       panelManager.addPanel(app.id, workbenchHtml, workbenchPreload);
-    } else if (app.url === "yo://plan") {
-      panelManager.addPanel(app.id, planHtml, planPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -1380,8 +1371,6 @@ async function boot() {
       panelManager.addPanel(instanceId, vibeHtml, vibePreload, undefined, true);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(instanceId, specHtml, specPreload);
-    } else if (app.url === "yo://agent") {
-      panelManager.addPanel(instanceId, agentHtml, agentPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
@@ -2341,6 +2330,13 @@ async function boot() {
         wc.send("yo-panel-tool-result", id, detail);
       },
       onToolProgress: (id, status) => wc.send("yo-panel-tool-progress", id, status),
+      onSubAgent: (evt) => {
+        // Broadcast to every panel so any open Workbench Sub-Agents
+        // view picks it up (multiple workbenches in a layout all see it).
+        for (const pwc of panelManager.getAllWebContents()) {
+          try { pwc.send("subagent:event", evt); } catch { /* noop */ }
+        }
+      },
       onDone: (fullText) => {
         wc.send("yo-panel-done", fullText);
       },
@@ -2531,7 +2527,6 @@ async function boot() {
   // ── Vibe app — standalone panel bound to a persisted Vibe project.
   const { registerVibeIpc, openVibe } = require("./vibe-ipc") as typeof import("./vibe-ipc");
   registerVibeIpc({ terminalManager });
-  registerAgentInteractiveIpc();
   registerWorkbenchTerminalIpc();
   registerAgentDefaultsIpc();
 
@@ -2615,19 +2610,10 @@ async function boot() {
   ipcMain.handle("apps:open-vibe", () => openFreshInternalApp("vibe"));
   ipcMain.handle("apps:open-spec", () => openFreshInternalApp("spec"));
 
-  // Open a saved agent as a standalone panel: yo://agent?slug=<slug>.
-  // Each saved agent gets its own panel id (agent-<slug>) so multiple
-  // can coexist without crosstalk.
-  ipcMain.handle("agents:open-as-app", (_e, slug: string) => {
-    if (!mainWindow || typeof slug !== "string" || !slug) return false;
-    const panelId = `agent-${slug}`;
-    if (!panelManager.hasPanel(panelId)) {
-      const url = `${agentHtml}?slug=${encodeURIComponent(slug)}`;
-      panelManager.addPanel(panelId, url, agentPreload);
-    }
-    panelManager.switchTo(panelId, mainWindow);
-    return true;
-  });
+  // yo://agent removed — the right-rail Yo is the only chat surface now.
+  // The agents:open-as-app channel becomes a no-op so renderers don't
+  // crash if they still try to call it.
+  ipcMain.handle("agents:open-as-app", () => false);
 
   // Approval system — pending approvals map + IPC
   const pendingApprovals = new Map<string, (approved: boolean) => void>();

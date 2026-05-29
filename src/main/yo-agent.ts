@@ -50,6 +50,17 @@ export interface YoAgentCallbacks {
   onToolUse: (id: string, name: string, input: unknown) => void;
   onToolResult?: (id: string, detail: string) => void;
   onToolProgress?: (id: string, status: string) => void;
+  /** Fires for every sub-agent lifecycle event the loop emits — Task tool
+   *  spawns + their results, and (later) our saved-agent wrappers. The
+   *  Workbench Sub-Agents view subscribes via the subagent:event IPC. */
+  onSubAgent?: (evt: {
+    id: string;
+    kind: "spawn" | "token" | "result" | "error";
+    source: "task" | "yo-agent";
+    name?: string;
+    description?: string;
+    text?: string;
+  }) => void;
   onDone: (fullText: string) => void;
   onError: (error: string) => void;
 }
@@ -431,6 +442,19 @@ export class YoAgent {
                 toolsUsed.add(block.name);
                 turnTools.push({ name: block.name, input: block.input });
                 cb.onToolUse(block.id, block.name, block.input);
+                // Task tool = Claude's internal sub-agent. Surface it in the
+                // Workbench Sub-Agents view as a new tab. The result will
+                // close out the tab via "result" below.
+                if (block.name === "Task") {
+                  const taskInput = (block.input as { description?: string; prompt?: string }) || {};
+                  cb.onSubAgent?.({
+                    id: block.id,
+                    kind: "spawn",
+                    source: "task",
+                    name: (taskInput.description?.slice(0, 40)) || "task",
+                    description: taskInput.prompt || taskInput.description,
+                  });
+                }
               }
             }
             break;
@@ -460,6 +484,14 @@ export class YoAgent {
                     ? block.content.map((c: any) => c.text || "").join("")
                     : "";
                 cb.onToolResult?.(block.tool_use_id, text.slice(0, 500));
+                // If this result is for a Task sub-agent, close out its
+                // Sub-Agents view tab with the final transcript.
+                cb.onSubAgent?.({
+                  id: block.tool_use_id,
+                  kind: "result",
+                  source: "task",
+                  text,
+                });
               }
             }
             break;
