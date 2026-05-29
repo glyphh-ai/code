@@ -86,7 +86,7 @@ interface TermSlot {
   activeIdx: number;
 }
 interface DiffSlot { id: number; view: "diff"; collapsed?: Set<string> }
-interface PreviewSlot { id: number; view: "preview" }
+interface PreviewSlot { id: number; view: "preview"; url?: string; viewKey?: string }
 
 /** A live transcript of a single sub-agent invocation. Same shape used
  *  whether the source is Claude's internal Task tool or one of our saved
@@ -465,7 +465,7 @@ async function init(): Promise<void> {
     if (view === "diff") return { id, view };
     if (view === "subagents") return { id, view, agents: [], activeIdx: 0 };
     if (view === "plan") return { id, view, mode: "preview" };
-    return { id, view: "preview" };
+    return { id, view: "preview", url: "" };
   }
   function closeSlot(slotId: number): void {
     for (let i = 0; i < rails.length; i++) {
@@ -702,7 +702,7 @@ async function init(): Promise<void> {
     else if (slot.view === "terminal") renderTerminalIntoSlot(body, slot);
     else if (slot.view === "monaco")   void renderMonacoIntoSlot(body, slot);
     else if (slot.view === "diff")     void renderDiffIntoSlot(body, slot);
-    else if (slot.view === "preview")  renderPreviewIntoSlot(body);
+    else if (slot.view === "preview")  void renderPreviewIntoSlot(body, slot);
     else if (slot.view === "subagents") renderSubAgentsIntoSlot(body, slot);
     else if (slot.view === "plan") void renderPlanIntoSlot(body, slot);
     return wrap;
@@ -1275,21 +1275,84 @@ async function init(): Promise<void> {
   }
 
   // ── Preview view (stub — real dev-server preview can come later) ──
-  function renderPreviewIntoSlot(body: HTMLElement): void {
+  async function renderPreviewIntoSlot(body: HTMLElement, slot: PreviewSlot): Promise<void> {
     body.innerHTML = `
       <div class="ws-preview-url">
-        <input class="ws-preview-input" type="text" value="http://localhost:3000" spellcheck="false" />
+        <input class="ws-preview-input" type="text" value="" spellcheck="false" placeholder="https:// or http://localhost:..." />
         <button class="ws-icon-btn ws-preview-reload" title="Reload">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
       </div>
-      <div class="ws-preview-body">
-        <div class="ws-preview-stub">
-          <div class="ws-preview-stub-title">Preview</div>
-          <div class="ws-preview-stub-sub">Hosts the live app or a rendered file.</div>
-        </div>
-      </div>
+      <div class="ws-preview-body"></div>
     `;
+    const urlInput = body.querySelector(".ws-preview-input") as HTMLInputElement;
+    const reloadBtn = body.querySelector(".ws-preview-reload") as HTMLButtonElement;
+    const previewBody = body.querySelector(".ws-preview-body") as HTMLElement;
+    urlInput.value = slot.url || "";
+
+    const viewKey = slot.viewKey || `wb-preview-${slot.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    slot.viewKey = viewKey;
+
+    const panelId = await window.wb.getPanelId();
+    if (!panelId) return; // not running inside a real workbench panel
+
+    function pageBoundsOf(el: HTMLElement): { x: number; y: number; width: number; height: number } {
+      const r = el.getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    }
+
+    // Mount the BrowserView at the body's bounds. Initial URL may be empty;
+    // user types or agent fires preview_url to populate.
+    await window.wb.previewMount(viewKey, panelId, slot.url || "", pageBoundsOf(previewBody));
+
+    // Keep main in sync with the slot's pixel bounds as the rails / window
+    // resize. ResizeObserver covers slot resize; window resize is debounced
+    // via a 'resize' listener.
+    const ro = new ResizeObserver(() => {
+      window.wb.previewBounds(viewKey, pageBoundsOf(previewBody));
+    });
+    ro.observe(previewBody);
+    const onWinResize = () => window.wb.previewBounds(viewKey, pageBoundsOf(previewBody));
+    window.addEventListener("resize", onWinResize);
+
+    // Reflect URL changes back into the input (user clicked a link in the
+    // preview, or the agent navigated us elsewhere).
+    const unsubscribeUrl = window.wb.onPreviewUrlChanged(viewKey, (u) => {
+      urlInput.value = u;
+      slot.url = u;
+      saveLayout();
+    });
+
+    function navigate(): void {
+      let u = urlInput.value.trim();
+      if (!u) return;
+      if (!/^[a-z]+:\/\//i.test(u)) u = "http://" + u;
+      slot.url = u;
+      saveLayout();
+      window.wb.previewNavigate(viewKey, u);
+    }
+    urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") navigate(); });
+    urlInput.addEventListener("blur", () => navigate());
+    reloadBtn.addEventListener("click", () => window.wb.previewReload(viewKey));
+
+    // Tear down when the slot body is replaced (next renderRails clears it).
+    // MutationObserver on the parent fires removal; for safety we also clean
+    // up via a one-shot on the body itself.
+    const cleanup = () => {
+      try { ro.disconnect(); } catch { /* */ }
+      try { window.removeEventListener("resize", onWinResize); } catch { /* */ }
+      try { unsubscribeUrl(); } catch { /* */ }
+      try { window.wb.previewClose(viewKey); } catch { /* */ }
+    };
+    // When the body element gets removed/replaced, run cleanup.
+    const mo = new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const n of Array.from(m.removedNodes)) {
+          if (n === body) { mo.disconnect(); cleanup(); return; }
+        }
+      }
+    });
+    if (body.parentElement) mo.observe(body.parentElement, { childList: true });
   }
 
   // ── Terminal view (real xterm + pty over wb-term:* IPCs) ──
@@ -1510,6 +1573,33 @@ async function init(): Promise<void> {
   // ── Initial paint + cwd change subscription ──
   void paintWorkdirBar(cwd);
   loadLayout();
+
+  // Agent broadcast: "preview this URL in the workbench preview slot." The
+  // first Preview slot in the current layout accepts. If none exist the
+  // broadcast is ignored so the substrate tool can tell the agent to ask
+  // the user to add a Preview view.
+  window.wb.onPreviewSetUrl((reqId: string, url: string) => {
+    for (const rail of rails) {
+      for (const slot of rail.slots) {
+        if (slot.view !== "preview") continue;
+        const ps = slot as PreviewSlot;
+        ps.url = url;
+        if (ps.viewKey) {
+          window.wb.previewNavigate(ps.viewKey, url);
+        } else {
+          // Slot hasn't mounted yet — store the URL; renderPreviewIntoSlot
+          // will pick it up on next paint.
+        }
+        // Reflect into the input field if visible.
+        const slotEl = document.querySelector<HTMLElement>(`.ws-rail-slot[data-slot-id="${ps.id}"]`);
+        const input = slotEl?.querySelector<HTMLInputElement>(".ws-preview-input");
+        if (input) input.value = url;
+        saveLayout();
+        window.wb.previewAccepted(reqId);
+        return;
+      }
+    }
+  });
   window.wb.onCwdChanged((dir) => {
     cwd = dir || "";
     void paintWorkdirBar(cwd);

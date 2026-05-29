@@ -55,6 +55,7 @@ export type ApprovalCallback = (toolName: string, input: Record<string, unknown>
 export type AskQuestionOption = { label: string; description?: string };
 export type AskQuestion = { question: string; header?: string; options: AskQuestionOption[]; multiSelect?: boolean };
 export type AskCallback = (questions: AskQuestion[]) => Promise<Array<string | null>>;
+export type PreviewCallback = (url: string) => Promise<boolean>;
 
 export interface YoAgentCallbacks {
   onText: (delta: string) => void;
@@ -171,6 +172,8 @@ export class YoAgent {
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
   private _askCallback: AskCallback | null = null;
   setAskCallback(cb: AskCallback | null): void { this._askCallback = cb; }
+  private _previewCallback: PreviewCallback | null = null;
+  setPreviewCallback(cb: PreviewCallback | null): void { this._previewCallback = cb; }
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
   abort(): void {
@@ -251,7 +254,27 @@ export class YoAgent {
       },
     };
 
-    return [...substrateTools, askTool];
+    // preview_url — show a URL in the Workbench Preview slot. Same routing
+    // pattern as plan: agent calls the tool; host attaches a BrowserView at
+    // the active Preview slot's bounds.
+    const previewTool = {
+      name: "preview_url",
+      description: "Show a URL in the user's Workbench Preview panel (e.g. a local dev server, a docs page, the app you just built). Use this instead of opening a new browser panel — the URL appears inline alongside the user's code, not floating over the workspace. If no Preview panel is open, the user sees a hint to add one.",
+      inputSchema: {
+        url: z.string().describe("HTTP/HTTPS/file URL to load in the preview."),
+      },
+      handler: async (args: Record<string, unknown>) => {
+        const url = String(args.url ?? "").trim();
+        if (!url) return { content: [{ type: "text" as const, text: "Error: url is required" }], isError: true };
+        if (!this._previewCallback) {
+          return { content: [{ type: "text" as const, text: "Preview is not wired in this surface." }] };
+        }
+        const ok = await this._previewCallback(url);
+        return { content: [{ type: "text" as const, text: ok ? `Preview set to ${url}` : `No Workbench Preview panel is open. Tell the user to add one (Workbench app → split → Preview view).` }] };
+      },
+    };
+
+    return [...substrateTools, askTool, previewTool];
   }
 
   private jsonSchemaToZod(schema: Record<string, unknown>): Record<string, any> {
@@ -517,6 +540,22 @@ export class YoAgent {
                     description: callInput.prompt,
                   });
                 }
+                // ExitPlanMode — Claude Code's canonical plan-mode artifact
+                // hook. The agent calls it with { plan: "..." } when planning
+                // finishes; we route that markdown straight to .yo/plan.md so
+                // the Workbench Plan slot renders it automatically (same
+                // pattern Claude Code Desktop uses to surface plans in its
+                // plan panel — the host watches a known path).
+                if (block.name === "ExitPlanMode") {
+                  const planText = (block.input as { plan?: string } | null)?.plan || "";
+                  if (planText.trim()) {
+                    try {
+                      const planDir = path.join(rightRailCwd(), ".yo");
+                      fs.mkdirSync(planDir, { recursive: true });
+                      fs.writeFileSync(path.join(planDir, "plan.md"), planText, { mode: 0o600 });
+                    } catch { /* ignore — best-effort */ }
+                  }
+                }
               }
             }
             break;
@@ -616,10 +655,16 @@ export class YoAgent {
 
       cb.onDone(fullText);
     } catch (err: any) {
-      if (err.name === "AbortError") {
-        cb.onDone(fullText || "(stopped)");
+      // Treat anything abort-flavored as a clean stop. AbortError is the
+      // standard signal, but the SDK also surfaces text-only abort messages
+      // ("process aborted by user", "aborted") that aren't AbortError
+      // instances — those used to leak into the panel as red error rows.
+      const msg: string = err?.message || String(err || "");
+      const isAbort = err?.name === "AbortError" || /\b(abort(ed)?|cancell?ed)\b/i.test(msg);
+      if (isAbort) {
+        cb.onDone(fullText);
       } else {
-        cb.onError(err.message || String(err));
+        cb.onError(msg);
       }
     }
   }
@@ -657,60 +702,15 @@ export class YoAgent {
 
   // ── System prompt builder ────────────────────���─────────
 
-  private buildSystemPrompt(): { type: "preset"; preset: "claude_code"; append: string } {
-    // Use Claude Code's built-in system prompt (drives the Claude-Code-style
-    // behavior: tool usage, conciseness, todos, etc.) and append our own
-    // context (yo identity, capture store, skills, apps, mode).
-    let prompt = SYSTEM_PROMPT;
-
-    if (this.captureStore) {
-      const count = this.captureStore.count ?? 0;
-      if (count > 0) {
-        prompt += `\n\nCAPTURE STORE: ${count} entries indexed.`;
-      } else {
-        prompt += `\n\nCAPTURE STORE: empty — no captures yet.`;
-      }
-    }
-
-    if (this.skillEngine) {
-      const skills = this.skillEngine.listSkills();
-      if (skills.length > 0) {
-        prompt += `\n\nAVAILABLE SKILLS:\n${skills.map((s) => `- ${s}`).join("\n")}`;
-      }
-    }
-
-    if (this.appsProvider) {
-      const apps = this.appsProvider();
-      if (apps.length > 0) {
-        prompt += `\n\nUSER'S APPS (open with open_app by id):\n${apps.map((a) => `- ${a.id}: ${a.name}`).join("\n")}`;
-      }
-    }
-
-    if (this._mode === "plan") {
-      const planPath = `${rightRailCwd().replace(/\/+$/, "")}/.yo/plan.md`;
-      prompt += `\n\nMODE: PLAN
-You are planning, not building. Produce the plan, write it to disk, surface it briefly in chat, and stop.
-
-WRITE THE PLAN TO EXACTLY THIS PATH (a single file, not a directory):
-${planPath}
-
-Rules:
-1. Use the Write tool on the exact path above. Overwrite any existing file. Do NOT inspect the .yo/ folder first — do NOT branch into .yo/plan/plan.md or any other variant. The path above is authoritative. If a .yo/plan/ directory exists, ignore it — the canonical file lives at .yo/plan.md.
-2. The file is markdown body only — no preamble, no "here is the plan" wrapping. Sections: Context, Approach, Steps (numbered), Files, Verification.
-3. After writing, reply in chat with ONE short paragraph (3–4 sentences) summarizing the plan and end with: "Plan written to .yo/plan.md — switch off plan mode to proceed."
-4. Do NOT call ExitPlanMode. Do NOT use the deferred plan-mode tool flow. Do NOT write to ~/.claude/plans/.
-
-If you need a clarification from the user before planning, call mcp__yo__ask_user_question.`;
-    }
-
-    // Context recovery: when resuming a chat without a live SDK session,
-    // inject the last few turns so the model has continuity.
+  private buildSystemPrompt(): { type: "preset"; preset: "claude_code"; append?: string } {
+    // Stock Claude Code behavior. The only thing we ever append is the
+    // context-recovery block when resuming a chat without a live SDK session
+    // — without it the model has zero memory of prior turns in this thread.
     if (this.chatId && !this.sessionId) {
       const context = this.buildContextRecovery();
-      if (context) prompt += `\n\n${context}`;
+      if (context) return { type: "preset", preset: "claude_code", append: context };
     }
-
-    return { type: "preset", preset: "claude_code", append: prompt };
+    return { type: "preset", preset: "claude_code" };
   }
 
   private buildContextRecovery(): string | null {

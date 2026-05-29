@@ -7,8 +7,7 @@
  * system when the panel opens/closes without importing renderer internals.
  */
 
-import { formatMarkdown } from "./format-markdown.js";
-import { badgeImgFor, brandForModel, logoUrlFor } from "./model-badges.js";
+import { brandForModel, logoUrlFor } from "./model-badges.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -81,7 +80,6 @@ const PERM_LABELS: Record<string, string> = {
 };
 
 let currentPerm = "default";
-let planEnabled = false;
 let currentChatModel: string = "";          // empty = use workspace default
 
 // Shell-style input recall: ↑/↓ steps through previously sent prompts.
@@ -102,12 +100,7 @@ function prettyModelLabel(model: string): string {
 
 // ── Internal state ─────────────────────────────────────────────────────────
 
-let yoResponseEl: HTMLElement | null = null;
 let yoStatusEl: HTMLElement | null = null;
-let yoLastAssistantText = "";
-let yoTurnFullText = "";
-let yoLastUserText = "";
-let yoToolsUsed = false;
 let yoThinking = false;
 // Messages typed while the agent is busy — sent one by one as turns finish.
 let pendingYoMessages: string[] = [];
@@ -115,37 +108,11 @@ let pendingYoMessages: string[] = [];
 let yoSpinnerInterval: ReturnType<typeof setInterval> | null = null;
 let yoSpinnerFrame = 0;
 let yoSpinnerEl: HTMLElement | null = null;
-let yoTimelineEl: HTMLElement | null = null;
-
-let _mdRenderTimer: ReturnType<typeof setTimeout> | null = null;
-
-const yoToolRows = new Map<string, HTMLElement>();
-// Tool name + input stashed at use-time so finishToolRow can compute a stat.
-const yoToolMeta = new Map<string, { name: string; input: unknown }>();
-
-let yoTodoEl: HTMLElement | null = null;
 
 // Callback reference (set once at init)
 let _renderGridHandles: () => void;
 
 // ── Constants ──────────────────────────────────────────────────────────────
-
-const DELEGATION_DESC: Record<string, string> = {
-  delegate_navigate: "Navigating panels",
-  delegate_layout:   "Arranging layout",
-  delegate_build:    "Building",
-};
-
-const DIRECT_TOOL_DESC: Record<string, string> = {
-  search_captures: "Searching captures",
-  get_context:     "Reading session",
-  format:          "Formatting",
-  save_memory:     "Saving to memory",
-  search_notes:    "Searching notes",
-  read_file:       "Reading file",
-  list_files:      "Listing files",
-  run_command:     "Running command",
-};
 
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 const PHRASES = ["thinking", "cooking", "vibing", "brewing", "conjuring", "channeling"];
@@ -345,7 +312,6 @@ function showYoWelcome() {
 
 function setPermValue(perm: string) {
   currentPerm = perm;
-  planEnabled = perm === "plan";
   const icon = yoPermTrigger.querySelector(".yo-perm-icon")!;
   const label = yoPermTrigger.querySelector(".yo-perm-label")!;
   // Inject SVG markup (not textContent) so the trigger renders the icon,
@@ -401,145 +367,6 @@ function addYoUserMessage(text: string) {
 // lightweight rows — agent badge, who→who, kind, body.
 
 interface SwarmRosterEntry { position: string; provider?: string; model?: string }
-const swarmRoster = new Map<string, SwarmRosterEntry>();
-// True while a swarm is running in the background — keeps the yo spinner
-// alive after the agent's own turn ends, so the panel never looks idle.
-let swarmActive = false;
-// Backstop: if a swarm goes fully silent this long we assume it finished (or
-// stalled) and drop the spinner — not every swarm emits a leader complete_task.
-const SWARM_IDLE_MS = 180_000;
-let swarmIdleTimer: ReturnType<typeof setTimeout> | null = null;
-// Keeps the spinner pinned as the last child while a swarm runs, even as the
-// yo agent's own messages and tool rows land below it.
-let swarmPinObserver: MutationObserver | null = null;
-
-/** Reset the idle backstop — called on every swarm signal. */
-function bumpSwarmIdle(): void {
-  if (swarmIdleTimer) clearTimeout(swarmIdleTimer);
-  swarmIdleTimer = setTimeout(() => { if (swarmActive) finishSwarm(); }, SWARM_IDLE_MS);
-}
-
-/** Keep the thinking spinner pinned to the bottom of the message list. */
-function pinSwarmSpinner(): void {
-  if (!swarmActive) return;
-  if (!yoStatusEl) showYoStatus("");
-  // Move it only when it isn't already last — the guard stops the
-  // MutationObserver from re-triggering itself forever.
-  if (yoStatusEl && yoPanelMessages.lastElementChild !== yoStatusEl) {
-    yoPanelMessages.appendChild(yoStatusEl);
-  }
-}
-
-/** A swarm finished (or stalled) — drop the persistent spinner + watchers. */
-function finishSwarm(): void {
-  swarmActive = false;
-  if (swarmIdleTimer) { clearTimeout(swarmIdleTimer); swarmIdleTimer = null; }
-  if (swarmPinObserver) { swarmPinObserver.disconnect(); swarmPinObserver = null; }
-  if (!yoThinking) clearYoStatus();
-}
-
-const SWARM_KIND_META: Record<string, { label: string; color: string }> = {
-  assign_task:    { label: "assign",   color: "#A855F7" },
-  accept_task:    { label: "accept",   color: "#4caf50" },
-  complete_task:  { label: "done",     color: "#4caf50" },
-  report_status:  { label: "report",   color: "#64b5f6" },
-  post:           { label: "post",     color: "#8a8a92" },
-  post_to:        { label: "to",       color: "#8a8a92" },
-  chat:           { label: "chat",     color: "#8a8a92" },
-  agent_tool_use: { label: "tool",     color: "#ffb400" },
-  agent_thinking: { label: "thinking", color: "#64b5f6" },
-  agent_result:   { label: "result",   color: "#4caf50" },
-  agent_error:    { label: "error",    color: "#f44" },
-  status:         { label: "status",   color: "#4caf50" },
-};
-function swarmKindMeta(kind: string): { label: string; color: string } {
-  return SWARM_KIND_META[kind] || { label: kind.replace(/^agent_/, ""), color: "#8a8a92" };
-}
-function swarmEsc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function swarmBadge(agentId: string): string {
-  const reg = swarmRoster.get(agentId);
-  if (reg?.provider) return badgeImgFor(reg.provider, reg.model || "");
-  const letter = (agentId || "?").charAt(0).toUpperCase();
-  return `<span class="member-badge-initial">${swarmEsc(letter)}</span>`;
-}
-
-// `restore` = replaying saved history; render the DOM but skip the live
-// side-effects (spinner, idle backstop, marking the swarm active).
-function addSwarmStart(info: { title: string; goal: string; agents: Array<{ id: string; position: string; provider?: string; model?: string }> }, restore = false): void {
-  swarmRoster.clear();
-  for (const a of info.agents) {
-    swarmRoster.set(a.id, { position: a.position, provider: a.provider, model: a.model });
-  }
-  hideYoWelcome();
-  const el = document.createElement("div");
-  el.className = "yo-msg yo-msg-swarm-start";
-  const roster = info.agents
-    .map((a) => `<span class="swarm-roster-chip"><span class="swarm-badge">${swarmBadge(a.id)}</span>${swarmEsc(a.id)}${a.position === "leader" ? " ·lead" : ""}</span>`)
-    .join("");
-  el.innerHTML =
-    `<div class="swarm-start-title">🐝 Swarm started — ${swarmEsc(info.title)}</div>` +
-    `<div class="swarm-start-goal">${swarmEsc(info.goal)}</div>` +
-    `<div class="swarm-start-roster">${roster}</div>`;
-  yoPanelMessages.appendChild(el);
-  if (restore) return;
-  // The swarm now works in the background — keep the spinner alive (with the
-  // usual "thinking…" phrase above it) until the leader reports it's done.
-  swarmActive = true;
-  bumpSwarmIdle();
-  if (!swarmPinObserver) {
-    swarmPinObserver = new MutationObserver(() => pinSwarmSpinner());
-    swarmPinObserver.observe(yoPanelMessages, { childList: true });
-  }
-  pinSwarmSpinner();
-  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
-}
-
-// Bodies longer than this collapse behind a "Show more" toggle.
-const SWARM_COLLAPSE_CHARS = 320;
-
-function addSwarmActivity(e: { from: string; to?: string; kind: string; body: string; ts: number }, restore = false): void {
-  if (!e.from || !e.body?.trim()) return;
-  if (e.from === "orchestrator" || e.from === "unknown") return;
-  const meta = swarmKindMeta(e.kind);
-  const body = e.body.trim().slice(0, 6000);
-  const long = body.length > SWARM_COLLAPSE_CHARS;
-  const el = document.createElement("div");
-  el.className = long ? "yo-msg yo-msg-swarm swarm-collapsible" : "yo-msg yo-msg-swarm";
-  el.innerHTML =
-    `<span class="swarm-badge">${swarmBadge(e.from)}</span>` +
-    `<div class="swarm-body">` +
-      `<div class="swarm-meta">` +
-        `<span class="swarm-from">${swarmEsc(e.from)}</span>` +
-        `${e.to ? `<span class="swarm-to">→ ${swarmEsc(e.to)}</span>` : ""}` +
-        `<span class="swarm-kind" style="background:${meta.color}22;color:${meta.color}">${swarmEsc(meta.label)}</span>` +
-      `</div>` +
-      `<div class="swarm-text yo-md">${formatMarkdown(body)}</div>` +
-      (long ? `<button class="swarm-toggle" type="button">Show more</button>` : "") +
-    `</div>`;
-  if (long) {
-    const toggle = el.querySelector(".swarm-toggle") as HTMLButtonElement;
-    toggle.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const expanded = el.classList.toggle("swarm-expanded");
-      toggle.textContent = expanded ? "Show less" : "Show more";
-      if (!expanded) el.scrollIntoView({ block: "nearest" });
-    });
-  }
-  const atBottom = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight < 80;
-  yoPanelMessages.appendChild(el);
-  if (restore) return; // replaying history — no live spinner / idle logic
-  // The leader signing off (complete_task) means the swarm is done.
-  if (e.kind === "complete_task" && swarmRoster.get(e.from)?.position === "leader") {
-    finishSwarm();
-  } else {
-    bumpSwarmIdle();
-    pinSwarmSpinner();
-  }
-  if (atBottom) yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
-}
-
 // ── Helpers: scroll ────────────────────────────────────────────────────────
 
 function yoScroll() {
@@ -593,344 +420,6 @@ function removeSpinner() {
   if (yoSpinnerEl) { yoSpinnerEl.remove(); yoSpinnerEl = null; }
 }
 
-// ── Helpers: timeline ──────────────────────────────────────────────────────
-
-function ensureTimeline() {
-  if (yoTimelineEl) return;
-  yoTimelineEl = document.createElement("div");
-  yoTimelineEl.className = "yo-ag-timeline";
-  yoPanelMessages.appendChild(yoTimelineEl);
-}
-
-function finishTimeline() {
-  removeSpinner();
-  if (yoTimelineEl) {
-    yoTimelineEl.classList.add("done");
-    yoTimelineEl = null;
-  }
-}
-
-// ── Helpers: tool display names ────────────────────────────────────────────
-
-function formatToolDisplayName(name: string): string {
-  if (DELEGATION_DESC[name]) return DELEGATION_DESC[name];
-  if (DIRECT_TOOL_DESC[name]) return DIRECT_TOOL_DESC[name];
-  if (name.startsWith("skill_")) return dedupeLeadingToken(name.slice(6)).replace(/_/g, " ");
-  const mcpMatch = name.match(/^mcp__[^_]+__(.+)$/);
-  if (mcpMatch) return dedupeLeadingToken(mcpMatch[1]).replace(/_/g, " ");
-  const cleaned = dedupeLeadingToken(name);
-  const parts = cleaned.split("_");
-  if (parts.length >= 2) {
-    const app = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
-    const action = parts.slice(1).join(" ");
-    return `${app}: ${action}`;
-  }
-  return cleaned.replace(/_/g, " ");
-}
-
-/**
- * Pipedream connectors (and a handful of MCP servers) emit tool names like
- * "gmail_gmail_find_email" — the connector slug prepended onto a tool name
- * that already starts with the same slug. Strip the duplicate so the label
- * renders as "Gmail: find email" instead of "Gmail: gmail find email".
- *
- * Two patterns handled:
- *   single underscore: "gmail_gmail_find_email" -> "gmail_find_email"
- *   double underscore: "gmail__gmail_find_email" -> "gmail_find_email"
- *     (this comes from the <server>__<tool> short-name encoding in
- *     mcpRouter.resolveAll(), which collides with the leading token of
- *     hyphen-converted Pipedream tool names like gmail-find-email.)
- */
-function dedupeLeadingToken(s: string): string {
-  const dblMatch = s.match(/^([^_]+)__\1(_|$)/);
-  if (dblMatch) return s.slice(dblMatch[1].length + 2);
-  const parts = s.split("_");
-  if (parts.length >= 2 && parts[0] && parts[0] === parts[1]) {
-    return parts.slice(1).join("_");
-  }
-  return s;
-}
-
-// ── Helpers: tool input summary ────────────────────────────────────────────
-
-function toolInputSummary(name: string, input: unknown): string {
-  if (!input || typeof input !== "object") return "";
-  const obj = input as Record<string, unknown>;
-  if (name === "delegate_skill") {
-    const parts: string[] = [];
-    if (typeof obj.skill_name === "string") parts.push(obj.skill_name);
-    if (typeof obj.instruction === "string") parts.push(obj.instruction);
-    return parts.join(": ");
-  }
-  if (name.startsWith("delegate_") && typeof obj.instruction === "string") {
-    return obj.instruction;
-  }
-  if (name === "inject_text" && typeof obj.text === "string") return obj.text;
-  if (name === "run_command" && typeof obj.command === "string") return obj.command;
-  if (name === "save_memory") {
-    if (typeof obj.content === "string") return obj.content;
-    if (typeof obj.text === "string") return obj.text;
-  }
-  const firstStr = Object.values(obj).find((v) => typeof v === "string");
-  return typeof firstStr === "string" ? firstStr : "";
-}
-
-// ── Helpers: TodoWrite checklist ───────────────────────────────────────────
-
-function renderTodoChecklist(input: unknown): void {
-  const todos = (input as any)?.todos;
-  if (!Array.isArray(todos)) return;
-  ensureTimeline();
-  if (!yoTodoEl) {
-    yoTodoEl = document.createElement("div");
-    yoTodoEl.className = "yo-todo-checklist";
-    yoTimelineEl!.appendChild(yoTodoEl);
-  }
-  yoTodoEl.innerHTML = "";
-  for (const item of todos) {
-    const row = document.createElement("div");
-    row.className = "yo-todo-item";
-    const icon = document.createElement("span");
-    icon.className = "yo-todo-icon";
-    if (item.status === "completed") {
-      icon.textContent = "✓";
-      icon.classList.add("yo-todo-done");
-    } else if (item.status === "in_progress") {
-      icon.textContent = "○";
-      icon.classList.add("yo-todo-active");
-    } else {
-      icon.textContent = "○";
-    }
-    const label = document.createElement("span");
-    label.className = "yo-todo-label";
-    if (item.status === "completed") label.classList.add("yo-todo-label-done");
-    label.textContent = item.content || "";
-    row.appendChild(icon);
-    row.appendChild(label);
-    yoTodoEl.appendChild(row);
-  }
-  yoScroll();
-}
-
-// ── Helpers: tool rows ─────────────────────────────────────────────────────
-
-function findToolRowByName(toolName: string): HTMLElement | null {
-  for (const [, el] of yoToolRows) {
-    if (el.dataset.tool === toolName) return el;
-  }
-  return null;
-}
-
-/** Last path segment, for the compact header file label. */
-function toolBasename(p: string): string {
-  const clean = p.split(/[?#]/)[0].replace(/[/\\]+$/, "");
-  const seg = clean.split(/[/\\]/).pop() || clean;
-  return seg || p;
-}
-
-/** Is this a file-path tool (read/edit/write/create)? */
-function isFileTool(name: string): boolean {
-  return /(read|edit|write|create|notebook)/i.test(name) && !name.startsWith("delegate_");
-}
-
-/**
- * A one-line stat for a finished tool — Claude-Code style:
- *   Edit  → "+12 −3"      Write → "+40"      Read → "42 lines"
- *   Bash  → "8 lines"     other → "" (or line count when multi-line)
- */
-function computeToolStat(name: string, input: unknown, detail: string): string {
-  const obj = (input && typeof input === "object") ? input as Record<string, unknown> : {};
-  const lc = (s: unknown) => (typeof s === "string" && s.length) ? s.split("\n").length : 0;
-  const n = name.toLowerCase();
-  const detailLines = detail.trim() ? detail.trim().split("\n").length : 0;
-  if (/edit/.test(n)) {
-    const add = lc(obj.new_string); const del = lc(obj.old_string);
-    if (add || del) return `+${add} −${del}`;
-  }
-  if (/write|create/.test(n)) {
-    const add = lc(obj.content) || lc(obj.text);
-    if (add) return `+${add}`;
-  }
-  if (/read|notebook/.test(n) && detailLines) {
-    return `${detailLines} line${detailLines === 1 ? "" : "s"}`;
-  }
-  if (/command|bash|shell/.test(n)) {
-    return detailLines ? `${detailLines} line${detailLines === 1 ? "" : "s"} output` : "done";
-  }
-  return detailLines > 1 ? `${detailLines} lines` : "";
-}
-
-function startToolRow(id: string, name: string, input: unknown) {
-  ensureTimeline();
-  yoToolMeta.set(id, { name, input });
-  const block = document.createElement("div");
-  block.className = "yo-result-block yo-active";
-  block.dataset.tool = name;
-
-  const header = document.createElement("div");
-  header.className = "yo-result-header";
-
-  const dot = document.createElement("span");
-  dot.className = "yo-ag-dot";
-  header.appendChild(dot);
-
-  const headings = document.createElement("div");
-  headings.className = "yo-result-headings";
-
-  // Title line — "<Tool>  <file/arg>" on a single row.
-  const titleLine = document.createElement("div");
-  titleLine.className = "yo-result-titleline";
-  const nameEl = document.createElement("span");
-  nameEl.className = "yo-result-name";
-  nameEl.textContent = formatToolDisplayName(name);
-  titleLine.appendChild(nameEl);
-  headings.appendChild(titleLine);
-
-  const isDelegate = name.startsWith("delegate_");
-  const subtitleText = toolInputSummary(name, input);
-
-  if (isDelegate && subtitleText) {
-    const instrBox = document.createElement("div");
-    instrBox.className = "yo-delegate-instruction";
-    const preview = document.createElement("div");
-    preview.className = "yo-delegate-preview";
-    preview.textContent = subtitleText.length > 120 ? subtitleText.slice(0, 120) + "..." : subtitleText;
-    instrBox.appendChild(preview);
-    if (subtitleText.length > 120) {
-      const full = document.createElement("div");
-      full.className = "yo-delegate-full hidden";
-      full.textContent = subtitleText;
-      instrBox.appendChild(full);
-      instrBox.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const isExpanded = !full.classList.contains("hidden");
-        full.classList.toggle("hidden");
-        preview.classList.toggle("hidden");
-        instrBox.classList.toggle("yo-delegate-expanded", !isExpanded);
-      });
-    }
-    headings.appendChild(instrBox);
-  } else if (subtitleText) {
-    const sub = document.createElement("span");
-    sub.className = "yo-result-file";
-    if (isFileTool(name)) {
-      // Show the basename inline; full path on hover; click opens it.
-      sub.textContent = toolBasename(subtitleText);
-      sub.title = subtitleText;
-      sub.classList.add("yo-file-link");
-      sub.addEventListener("click", (e) => {
-        e.stopPropagation();
-        window.yo.openInEditor(subtitleText);
-      });
-    } else {
-      sub.textContent = subtitleText;
-      sub.title = subtitleText;
-    }
-    titleLine.appendChild(sub);
-  }
-  header.appendChild(headings);
-  block.appendChild(header);
-
-  yoTimelineEl!.appendChild(block);
-  yoToolRows.set(id, block);
-  yoScroll();
-}
-
-function looksLikeMarkdown(text: string): boolean {
-  // Cheap heuristic — only switch to markdown rendering when there's clear
-  // signal. Otherwise prefer <pre> so command output keeps its whitespace.
-  return /```/.test(text)
-    || /^#+ /m.test(text)
-    || /^\* \S/m.test(text)
-    || /^- \S/m.test(text)
-    || /^\d+\. \S/m.test(text);
-}
-
-function cleanToolDetail(raw: string): string {
-  let text = raw.trim();
-  const stackIdx = text.indexOf("\n    at ");
-  if (stackIdx > 0) text = text.slice(0, stackIdx).trim();
-  const traceIdx = text.indexOf("\nstack:");
-  if (traceIdx > 0) text = text.slice(0, traceIdx).trim();
-  text = text.replace(/^(Error|ConfigurationError|TypeError|ReferenceError):\s*/i, "");
-  const msgMatch = text.match(/"message"\s*:\s*"([^"]+)"/);
-  if (msgMatch) text = msgMatch[1];
-  const seeMore = text.indexOf("[See more information here]");
-  if (seeMore > 0) text = text.slice(0, seeMore).trim();
-  return text;
-}
-
-function finishToolRow(id: string, detail: string) {
-  const block = yoToolRows.get(id);
-  const meta = yoToolMeta.get(id);
-  yoToolRows.delete(id);
-  yoToolMeta.delete(id);
-  if (!block) return;
-  block.classList.remove("yo-active");
-  block.classList.add("yo-done");
-
-  const trimmed = cleanToolDetail(detail);
-
-  // Stat line — "+12 −3" / "42 lines" — the always-visible one-line summary,
-  // and the click target that expands the full output.
-  const stat = meta ? computeToolStat(meta.name, meta.input, detail) : "";
-  if (stat || trimmed) {
-    const statLine = document.createElement("div");
-    statLine.className = "yo-tool-stat";
-    const statText = document.createElement("span");
-    statText.className = "yo-tool-stat-text";
-    statText.textContent = stat || "output";
-    statLine.appendChild(statText);
-    if (trimmed) {
-      const chevron = document.createElement("span");
-      chevron.className = "yo-tool-stat-chevron";
-      chevron.textContent = "▸";
-      statLine.appendChild(chevron);
-    }
-    block.appendChild(statLine);
-
-    if (trimmed) {
-      const content = document.createElement("div");
-      content.className = "yo-result-content";
-      // Render markdown so code fences in tool output become real <pre><code>
-      // blocks. Tool outputs that aren't markdown still degrade cleanly — the
-      // formatter passes plain text through. Wrapping non-fenced output in a
-      // <pre> preserves whitespace for things like Bash stdout.
-      if (looksLikeMarkdown(trimmed)) {
-        content.innerHTML = formatMarkdown(trimmed);
-        attachCopyHandlers(content);
-      } else {
-        const pre = document.createElement("pre");
-        pre.className = "yo-tool-output";
-        pre.textContent = trimmed;
-        content.appendChild(pre);
-      }
-      block.appendChild(content);
-      block.classList.add("yo-has-detail");
-      // Click the stat line to expand / collapse the full output.
-      statLine.addEventListener("click", (e) => {
-        e.stopPropagation();
-        block.classList.toggle("yo-expanded");
-      });
-    }
-  }
-  yoScroll();
-}
-
-function updateToolProgress(id: string, status: string) {
-  const block = yoToolRows.get(id);
-  if (!block) return;
-  const titleLine = block.querySelector(".yo-result-titleline");
-  if (!titleLine) return;
-  let sub = titleLine.querySelector(".yo-result-progress") as HTMLElement | null;
-  if (!sub) {
-    sub = document.createElement("span");
-    sub.className = "yo-result-progress";
-    titleLine.appendChild(sub);
-  }
-  sub.textContent = status;
-}
-
 // ── Helpers: status ────────────────────────────────────────────────────────
 
 function showYoStatus(_toolText: string) {
@@ -943,14 +432,30 @@ function showYoStatus(_toolText: string) {
     `<span class="yo-ag-phrase">${phrase}...</span>`;
   yoPanelMessages.appendChild(yoStatusEl);
   startSpinner(yoStatusEl);
+  startSpinnerPin();
 }
 
 function clearYoStatus() {
-  // While a swarm runs in the background, the spinner stays put — the
-  // agent's own turn ending doesn't mean the panel is idle.
-  if (swarmActive) return;
   stopSpinner();
+  stopSpinnerPin();
   if (yoStatusEl) { yoStatusEl.remove(); yoStatusEl = null; }
+}
+
+// Keep the spinner pinned as the last child of the message list. As new
+// phase rows / streamed text / tool indicators land above it, an observer
+// moves it back to the bottom — without recursing on its own moves.
+let spinnerPinObserver: MutationObserver | null = null;
+function startSpinnerPin() {
+  if (spinnerPinObserver) return;
+  spinnerPinObserver = new MutationObserver(() => {
+    if (!yoStatusEl) return;
+    if (yoPanelMessages.lastElementChild === yoStatusEl) return;
+    yoPanelMessages.appendChild(yoStatusEl);
+  });
+  spinnerPinObserver.observe(yoPanelMessages, { childList: true });
+}
+function stopSpinnerPin() {
+  if (spinnerPinObserver) { spinnerPinObserver.disconnect(); spinnerPinObserver = null; }
 }
 
 // ── Helpers: tool use/result ───────────────────────────────────────────────
@@ -969,333 +474,12 @@ function isHiddenTool(name: string, input: unknown): boolean {
   return false;
 }
 
-function showYoToolUse(id: string, name: string, input: unknown) {
-  if (isHiddenTool(name, input)) return;
-
-  yoToolsUsed = true;
-
-  if (!yoStatusEl) showYoStatus("");
-
-  closeOpenTextBlock();
-
-  if (name === "TodoWrite") {
-    renderTodoChecklist(input);
-    return;
-  }
-
-  startToolRow(id, name, input);
-
-  if (yoStatusEl) yoPanelMessages.appendChild(yoStatusEl);
+function showYoToolUse(_id: string, _name: string, _input: unknown) {
+  // Render only what the model returns as text. Tool calls happen silently.
 }
 
-function showYoToolResult(id: string, detail: string) {
-  finishToolRow(id, detail);
-  if (yoThinking && !yoStatusEl) showYoStatus("");
-  if (yoStatusEl) yoPanelMessages.appendChild(yoStatusEl);
-}
-
-// ── Helpers: text streaming ────────────────────────────────────────────────
-
-function closeOpenTextBlock() {
-  if (_mdRenderTimer) { clearTimeout(_mdRenderTimer); _mdRenderTimer = null; }
-  if (yoResponseEl && yoLastAssistantText.trim()) {
-    yoResponseEl.classList.remove("yo-msg-streaming");
-    yoResponseEl.innerHTML = formatMarkdown(yoLastAssistantText);
-    attachCopyHandlers(yoResponseEl);
-  } else if (yoResponseEl && !yoLastAssistantText.trim()) {
-    yoResponseEl.remove();
-  }
-  yoResponseEl = null;
-  yoLastAssistantText = "";
-}
-
-function appendYoToken(delta: string) {
-  if (!delta) return;
-  if (!yoResponseEl) {
-    // Close out the prior tool timeline so the new text bubble is at the
-    // bottom and any subsequent tool calls start a FRESH timeline below the
-    // text — instead of getting tacked onto the previous timeline, which
-    // would render them above this just-streamed text.
-    if (yoTimelineEl) {
-      yoTimelineEl.classList.add("done");
-      yoTimelineEl = null;
-    }
-    yoResponseEl = document.createElement("div");
-    yoResponseEl.className = "yo-msg yo-msg-assistant yo-msg-streaming";
-    yoPanelMessages.appendChild(yoResponseEl);
-  }
-  // Keep the spinner pinned BELOW the streaming text so the user always sees
-  // a "still working" indicator even during long quiet stretches between
-  // token bursts. It only clears when finalizeYoMessage marks the turn done.
-  if (yoThinking) {
-    if (!yoStatusEl) showYoStatus("");
-    if (yoStatusEl && yoPanelMessages.lastElementChild !== yoStatusEl) {
-      yoPanelMessages.appendChild(yoStatusEl);
-    }
-  }
-  yoLastAssistantText += delta;
-  yoTurnFullText += delta;
-
-  if (!_mdRenderTimer) {
-    _mdRenderTimer = setTimeout(() => {
-      _mdRenderTimer = null;
-      if (yoResponseEl && yoLastAssistantText) {
-        yoResponseEl.innerHTML = formatMarkdown(yoLastAssistantText);
-        yoScroll();
-      }
-    }, 80);
-  }
-}
-
-// ── Helpers: finalize message ──────────────────────────────────────────────
-
-function finalizeYoMessage(fullText: string) {
-  clearYoStatus();
-  setYoThinking(false);
-  finishTimeline();
-
-  if (!yoResponseEl && fullText && fullText.trim()) {
-    yoResponseEl = document.createElement("div");
-    yoResponseEl.className = "yo-msg yo-msg-assistant";
-    yoPanelMessages.appendChild(yoResponseEl);
-    yoLastAssistantText = fullText;
-    yoTurnFullText += fullText;
-  }
-
-  const text = yoTurnFullText || yoLastAssistantText || fullText;
-
-  if (yoResponseEl) {
-    yoResponseEl.classList.remove("yo-msg-streaming");
-    yoResponseEl.innerHTML = formatMarkdown(yoLastAssistantText || fullText);
-    attachCopyHandlers(yoResponseEl);
-  }
-
-  if (yoResponseEl && text.trim()) {
-    const actions = document.createElement("div");
-    actions.className = "yo-msg-actions";
-    const copyBtn = document.createElement("button");
-    copyBtn.className = "yo-msg-copy-btn";
-    copyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span>`;
-    copyBtn.addEventListener("click", () => {
-      const doCopy = () => {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      };
-      try {
-        if (window.yo.copyToClipboard) {
-          window.yo.copyToClipboard(text);
-        } else {
-          doCopy();
-        }
-      } catch { doCopy(); }
-      copyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>Copied</span>`;
-      copyBtn.classList.add("yo-copied");
-      setTimeout(() => {
-        copyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span>`;
-        copyBtn.classList.remove("yo-copied");
-      }, 2000);
-    });
-    actions.appendChild(copyBtn);
-    yoResponseEl.appendChild(actions);
-  }
-
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
-  yoResponseEl = null;
-
-  if (planEnabled && yoLastUserText) {
-    showPlanActions();
-  }
-
-  yoScroll();
-  yoPanelInput.focus();
-}
-
-// ── Helpers: plan actions ──────────────────────────────────────────────────
-
-function showPlanActions() {
-  // Render the plan-finish prompt as the standard "Input required" card so
-  // it matches every other multi-choice question the agent emits. The three
-  // existing actions become three card options the user picks between, with
-  // "Proceed" pre-selected as the recommended default.
-  showAskCard({
-    question: "Plan is ready. How do you want to proceed?",
-    options: [
-      { value: "proceed",      label: "Proceed",         description: "Execute the plan with your current permission setting.", recommended: true },
-      { value: "proceed-auto", label: "Proceed (auto)",  description: "Execute the plan and auto-accept edits — no per-tool prompts." },
-      { value: "edit",         label: "Edit the request", description: "Bring my previous message back into the input so I can refine it." },
-    ],
-    onSubmit: (value) => {
-      if (value === "proceed") {
-        window.yo.setAgentMode("default");
-        setPermValue("default");
-        showYoStatus("");
-        setYoThinking(true);
-        window.yo.yoPanelSend("Execute the plan above.");
-      } else if (value === "proceed-auto") {
-        window.yo.setAgentMode("acceptEdits");
-        setPermValue("acceptEdits");
-        showYoStatus("");
-        setYoThinking(true);
-        window.yo.yoPanelSend("Execute the plan above.");
-      } else if (value === "edit") {
-        yoPanelInput.value = yoLastUserText;
-        yoPanelInput.focus();
-        autoGrowYoInput();
-      }
-    },
-  });
-}
-
-/** Multi-choice "Input required" card — purple-bordered, matches the design
- *  used for any other question the agent surfaces (AskUserQuestion etc.).
- *  Pre-selects the recommended option so a quick Submit ships the default. */
-interface AskOption { value: string; label: string; description?: string; recommended?: boolean; preview?: string }
-function showAskCard(opts: {
-  question: string;
-  header?: string;
-  options: AskOption[];
-  onSubmit: (value: string | null) => void;
-}) {
-  clearYoStatus();
-  const card = document.createElement("div");
-  card.className = "yo-ask-card";
-
-  const recommendedIdx = opts.options.findIndex((o) => o.recommended);
-  let pickedIdx = recommendedIdx >= 0 ? recommendedIdx : 0;
-  const hasPreviews = opts.options.some((o) => !!o.preview);
-  if (hasPreviews) card.classList.add("yo-ask-with-preview");
-
-  card.innerHTML = `
-    <div class="yo-ask-header">
-      <svg class="yo-ask-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <span class="yo-ask-header-label"></span>
-    </div>
-    <div class="yo-ask-question"></div>
-    <div class="yo-ask-body">
-      <div class="yo-ask-options"></div>
-      ${hasPreviews ? `<div class="yo-ask-preview"></div>` : ""}
-    </div>
-    <div class="yo-ask-actions">
-      <button type="button" class="yo-ask-btn yo-ask-cancel">Cancel</button>
-      <button type="button" class="yo-ask-btn yo-ask-submit">Submit answer</button>
-    </div>
-  `;
-  (card.querySelector(".yo-ask-header-label") as HTMLElement).textContent = opts.header || "Input required";
-  (card.querySelector(".yo-ask-question") as HTMLElement).textContent = opts.question;
-  const optsEl = card.querySelector(".yo-ask-options") as HTMLElement;
-  const previewEl = card.querySelector(".yo-ask-preview") as HTMLElement | null;
-
-  function paintPreview() {
-    if (!previewEl) return;
-    const opt = opts.options[pickedIdx];
-    if (opt?.preview) {
-      previewEl.innerHTML = formatMarkdown(opt.preview);
-      attachCopyHandlers(previewEl);
-    } else {
-      previewEl.innerHTML = `<div class="yo-ask-preview-empty">No preview for this option.</div>`;
-    }
-  }
-
-  opts.options.forEach((opt, i) => {
-    const row = document.createElement("div");
-    row.className = "yo-ask-option" + (i === pickedIdx ? " selected" : "");
-    const badge = opt.recommended ? `<span class="yo-ask-recommended">Recommended</span>` : "";
-    row.innerHTML = `
-      <div class="yo-ask-option-head">
-        <span class="yo-ask-option-label"></span>
-        ${badge}
-      </div>
-      ${opt.description ? `<div class="yo-ask-option-desc"></div>` : ""}
-    `;
-    (row.querySelector(".yo-ask-option-label") as HTMLElement).textContent = opt.label;
-    const descEl = row.querySelector(".yo-ask-option-desc") as HTMLElement | null;
-    if (descEl && opt.description) descEl.textContent = opt.description;
-    row.addEventListener("click", () => {
-      pickedIdx = i;
-      optsEl.querySelectorAll(".yo-ask-option").forEach((el) => el.classList.remove("selected"));
-      row.classList.add("selected");
-      paintPreview();
-    });
-    optsEl.appendChild(row);
-  });
-  paintPreview();
-
-  const resolve = (value: string | null) => {
-    card.classList.add("yo-ask-resolved");
-    card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
-    opts.onSubmit(value);
-  };
-  card.querySelector(".yo-ask-cancel")!.addEventListener("click", () => resolve(null));
-  card.querySelector(".yo-ask-submit")!.addEventListener("click", () => {
-    resolve(opts.options[pickedIdx]?.value ?? null);
-  });
-
-  yoPanelMessages.appendChild(card);
-  yoScroll();
-}
-
-// ── Helpers: copy/link handlers ────────────────────────────────────────────
-
-function attachCopyHandlers(container: HTMLElement) {
-  container.querySelectorAll<HTMLButtonElement>(".yo-md-copy-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const codeId = btn.dataset.codeId;
-      if (!codeId) return;
-      const block = container.querySelector(`.yo-md-codeblock[data-code-id="${codeId}"] code`);
-      if (!block) return;
-      window.yo.copyToClipboard(block.textContent || "");
-      btn.textContent = "Copied";
-      btn.classList.add("yo-copied");
-      setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("yo-copied"); }, 2000);
-    });
-  });
-  container.querySelectorAll<HTMLElement>(".yo-md-cmd").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const cmd = el.dataset.cmd || el.textContent || "";
-      window.yo.copyToClipboard(cmd);
-      el.classList.add("yo-cmd-copied");
-      const orig = el.textContent;
-      el.textContent = "Copied!";
-      setTimeout(() => { el.textContent = orig; el.classList.remove("yo-cmd-copied"); }, 1500);
-    });
-  });
-  container.querySelectorAll<HTMLAnchorElement>(".yo-md-link").forEach((a) => {
-    a.addEventListener("click", (e) => {
-      e.preventDefault();
-      const href = a.getAttribute("href");
-      if (href) window.yo.openExternal(href);
-    });
-  });
-}
-
-// ── Helpers: error display ─────────────────────────────────────────────────
-
-function showYoError(err: string) {
-  clearYoStatus();
-  setYoThinking(false);
-  pendingYoMessages = [];
-  finishTimeline();
-  if (yoResponseEl) { yoResponseEl.remove(); yoResponseEl = null; }
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
-  const cleaned = err
-    .replace(/Claude Code/gi, ".Yo")
-    .replace(/Claude/gi, ".Yo")
-    .replace(/Anthropic/gi, ".Yo");
-  const el = document.createElement("div");
-  el.className = "yo-msg yo-msg-error";
-  el.textContent = cleaned;
-  yoPanelMessages.appendChild(el);
-  yoScroll();
-  yoPanelInput.focus();
+function showYoToolResult(_id: string, _detail: string) {
+  // No-op.
 }
 
 // ── Helpers: input management ──────────────────────────────────────────────
@@ -1371,20 +555,14 @@ function sendYoPanelMessage() {
   }
 
   hideYoWelcome();
-  closeOpenTextBlock();
   yoPanelInput.value = "";
   autoGrowYoInput();
-  yoToolsUsed = false;
-  yoTimelineEl = null;
-  yoTodoEl = null;
   yoSpinnerEl = null;
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
-  yoLastUserText = text;
   addYoUserMessage(text);
   if (/\.yo\b/i.test(text)) {
     window.yo.dripsPreview("cat");
   }
+  (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
   showYoStatus("");
   setYoThinking(true);
   window.yo.yoPanelSend(text);
@@ -1394,14 +572,8 @@ function sendYoPanelMessage() {
 function drainPendingYoMessages() {
   if (pendingYoMessages.length === 0) return;
   const next = pendingYoMessages.shift()!;
-  closeOpenTextBlock();
-  yoToolsUsed = false;
-  yoTimelineEl = null;
-  yoTodoEl = null;
   yoSpinnerEl = null;
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
-  yoLastUserText = next;
+  (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
   showYoStatus("");
   setYoThinking(true);
   window.yo.yoPanelSend(next);
@@ -1434,21 +606,13 @@ async function loadChatById(id: string): Promise<void> {
   const messages = await window.yo.yoChatsLoad(id);
   if (!messages) return;
   yoPanelMessages.innerHTML = "";
-  yoResponseEl = null;
   yoStatusEl = null;
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
   if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
 
   for (const msg of messages) {
     // Swarm activity is persisted into the thread — replay it inline.
     if (msg.role === "swarm-start" || msg.role === "swarm") {
-      try {
-        const data = JSON.parse(msg.text);
-        if (msg.role === "swarm-start") addSwarmStart(data, true);
-        else addSwarmActivity(data, true);
-      } catch { /* skip a malformed swarm entry */ }
-      continue;
+      continue; // swarm rendering removed
     }
     // Run marker — the header atop a persisted task-run conversation. Clicking
     // it slides open the owning scheduled task (handled in the workspace shell).
@@ -1496,37 +660,6 @@ async function loadChatById(id: string): Promise<void> {
       yoPanelMessages.appendChild(marker);
       continue;
     }
-    if (msg.role === "assistant" && msg.tools && msg.tools.length > 0) {
-      const timeline = document.createElement("div");
-      timeline.className = "yo-ag-timeline done";
-      for (const tool of msg.tools) {
-        const block = document.createElement("div");
-        block.className = "yo-result-block yo-done";
-        const header = document.createElement("div");
-        header.className = "yo-result-header";
-        const dot = document.createElement("span");
-        dot.className = "yo-ag-dot";
-        header.appendChild(dot);
-        const headings = document.createElement("div");
-        headings.className = "yo-result-headings";
-        const nameEl = document.createElement("span");
-        nameEl.className = "yo-result-name";
-        nameEl.textContent = formatToolDisplayName(tool.name);
-        headings.appendChild(nameEl);
-        const sub = toolInputSummary(tool.name, tool.input);
-        if (sub) {
-          const subEl = document.createElement("span");
-          subEl.className = "yo-result-subtitle";
-          subEl.textContent = sub;
-          headings.appendChild(subEl);
-        }
-        header.appendChild(headings);
-        block.appendChild(header);
-        timeline.appendChild(block);
-      }
-      yoPanelMessages.appendChild(timeline);
-    }
-
     const el = document.createElement("div");
     if (msg.role === "user") {
       el.className = "yo-msg yo-msg-user";
@@ -1534,13 +667,10 @@ async function loadChatById(id: string): Promise<void> {
     } else {
       if (!msg.text) continue;
       el.className = "yo-msg yo-msg-assistant";
-      el.innerHTML = formatMarkdown(msg.text);
-      attachCopyHandlers(el);
+      el.textContent = msg.text;
     }
     yoPanelMessages.appendChild(el);
   }
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
   yoScroll();
 }
 
@@ -1548,10 +678,7 @@ async function loadChatById(id: string): Promise<void> {
 async function startNewChat(): Promise<void> {
   await window.yo.yoChatNew();
   yoPanelMessages.innerHTML = "";
-  yoResponseEl = null;
   yoStatusEl = null;
-  yoLastAssistantText = "";
-  yoTurnFullText = "";
   if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
   showYoWelcome();
   yoPanelInput.focus();
@@ -1668,8 +795,6 @@ async function openYoPanel(query: string) {
   yoPanel.classList.remove("hidden");
   void yoPanel.offsetHeight;
   yoPanel.classList.add("open");
-  yoToolsUsed = false;
-  yoTimelineEl = null;
   yoSpinnerEl = null;
   if (query) {
     hideYoWelcome();
@@ -1717,11 +842,7 @@ function closeYoPanel() {
   setTimeout(() => {
     yoPanel.classList.add("hidden");
     yoPanelMessages.innerHTML = "";
-    yoResponseEl = null;
     yoStatusEl = null;
-    yoLastAssistantText = "";
-    yoTurnFullText = "";
-    yoTimelineEl = null;
     yoSpinnerEl = null;
     _renderGridHandles();
   }, 200);
@@ -1996,12 +1117,53 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     addYoUserMessage(prompt);
     setYoThinking(true);
   });
-  window.yo.onYoPanelToken((delta) => appendYoToken(delta));
-  window.yo.onYoPanelToolUse((id, name, input) => showYoToolUse(id, name, input));
-  window.yo.onYoPanelToolResult((id, detail) => showYoToolResult(id, detail));
-  window.yo.onYoPanelToolProgress((id, status) => updateToolProgress(id, status));
-  window.yo.onYoPanelDone((fullText) => { finalizeYoMessage(fullText); drainPendingYoMessages(); });
-  window.yo.onYoPanelError((err) => showYoError(err));
+  // Agent response — token streaming + phase indicators ("Thinking…",
+  // "Actioning…"). Phase rows append inline once per turn; tokens stream
+  // into a single assistant div per turn.
+  let assistantEl: HTMLDivElement | null = null;
+  let thinkingShown = false;
+  let actioningShown = false;
+
+  function appendPhase(kind: "thinking" | "actioning", label: string) {
+    const row = document.createElement("div");
+    row.className = `yo-phase yo-phase-${kind}`;
+    row.innerHTML = `<span class="yo-phase-icon"></span><span class="yo-phase-label"></span>`;
+    (row.querySelector(".yo-phase-label") as HTMLElement).textContent = label;
+    yoPanelMessages.appendChild(row);
+    yoScroll();
+  }
+
+  function startTurnPhase() {
+    if (thinkingShown) return;
+    thinkingShown = true;
+    appendPhase("thinking", "Thinking...");
+  }
+  // Public so sendYoPanelMessage can flag the start of a turn.
+  (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase = startTurnPhase;
+
+  window.yo.onYoPanelToken((delta) => {
+    if (!delta) return;
+    if (!assistantEl) {
+      assistantEl = document.createElement("div");
+      assistantEl.className = "yo-msg yo-msg-assistant";
+      yoPanelMessages.appendChild(assistantEl);
+    }
+    assistantEl.textContent = (assistantEl.textContent || "") + delta;
+    yoScroll();
+  });
+  window.yo.onYoPanelToolUse(() => {
+    if (actioningShown) return;
+    actioningShown = true;
+    appendPhase("actioning", "Actioning...");
+  });
+  window.yo.onYoPanelDone(() => {
+    assistantEl = null;
+    thinkingShown = false;
+    actioningShown = false;
+    clearYoStatus();
+    setYoThinking(false);
+    drainPendingYoMessages();
+  });
   window.yo.onYoPanelClose(() => closeYoPanel());
   window.yo.onYoPanelRefocus(() => yoPanelInput.focus());
   window.yo.onYoPanelPrefill((text) => {
@@ -2013,12 +1175,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   });
   window.yo.onYoPanelLoadChat((id) => { void loadChatById(id); });
 
-  // Swarm activity streams inline into the conversation.
-  window.yo.onYoPanelSwarmStart((info) => addSwarmStart(info));
-  window.yo.onYoPanelSwarmActivity((event) => addSwarmActivity(event));
-  window.yo.onYoPanelDripEffect((recipe) => {
-    window.yo.dripsPreview(recipe);
-  });
+  // Swarm rendering removed.
   // -- Send/stop button --
   // The button is "stop" (■) only when the agent is thinking AND the input is
   // empty. Once the user types, it flips to "send" (↑) so click queues the
@@ -2028,7 +1185,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     if (isStopMode) {
       window.yo.yoPanelStop();
       clearYoStatus();
-      finishTimeline();
       setYoThinking(false);
       pendingYoMessages = [];
       const quip = STOP_QUIPS[Math.floor(Math.random() * STOP_QUIPS.length)];
@@ -2036,7 +1192,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       stopEl.className = "yo-msg yo-msg-stopped";
       stopEl.innerHTML = `<em>${quip}</em>`;
       yoPanelMessages.appendChild(stopEl);
-      yoResponseEl = null;
       yoScroll();
     } else {
       sendYoPanelMessage();
@@ -2271,28 +1426,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
 
   yoChatNewBtn.addEventListener("click", () => { void startNewChat(); });
 
-  // -- Ask UI (mcp__yo__ask_user_question) --
-  window.yo.onYoAskRequest((id, questions) => {
-    // Currently render one question at a time; future-proof for multi.
-    const q = questions[0];
-    if (!q) { window.yo.respondYoAsk(id, []); return; }
-    showAskCard({
-      question: q.question,
-      header: q.header,
-      options: q.options.map((o) => ({
-        value: o.label,
-        label: o.label,
-        description: o.description,
-        recommended: (o as { recommended?: boolean }).recommended,
-        preview: (o as { preview?: string }).preview,
-      })),
-      onSubmit: (value) => {
-        const answers = questions.map((qq, i) => i === 0 ? value : null);
-        window.yo.respondYoAsk(id, answers);
-      },
-    });
-  });
-
   // -- Approval UI --
   window.yo.onApprovalRequest((id, toolName, toolLabel, input) => {
     const inputObj = input as Record<string, unknown>;
@@ -2320,10 +1453,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
         `<button class="yo-approval-btn yo-approval-deny">Deny</button>` +
       `</div>`;
 
-    const toolRow = findToolRowByName(toolName);
-    if (toolRow) {
-      toolRow.appendChild(card);
-    } else if (yoStatusEl) {
+    if (yoStatusEl) {
       yoStatusEl.before(card);
     } else {
       yoPanelMessages.appendChild(card);

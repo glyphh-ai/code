@@ -6027,6 +6027,38 @@ select.settings-input {
   position: relative;
 }
 
+/* ── Agent phase indicators ("Thinking…" / "Actioning…") ─────────────── */
+.yo-phase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+.yo-phase-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.yo-phase-thinking .yo-phase-icon::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  opacity: 0.65;
+}
+.yo-phase-actioning .yo-phase-icon::before {
+  content: "✱";
+  color: #FF2D55;
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* ── Task-run marker (top of a persisted scheduled/manual run) ───────────── */
 .yo-run-marker {
   align-self: stretch;

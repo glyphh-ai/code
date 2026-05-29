@@ -19,7 +19,7 @@ try {
   process.chdir(os.homedir());
 }
 
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
+import { app, BrowserView, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
 import path from "path";
 import fs from "fs";
 import { PanelManager } from "./panel-manager";
@@ -1563,6 +1563,114 @@ async function boot() {
     },
   }));
 
+  // ── Workbench preview BrowserView manager ──────────────────
+  // Each Workbench Preview slot renders as a real BrowserView positioned at
+  // the slot's page bounds. The slot's renderer sends bounds updates as the
+  // slot moves/resizes; we translate them into window-relative coords by
+  // adding the parent (workbench panel) BrowserView's offset, then call
+  // setBounds. When the parent panel loses focus, the child views detach so
+  // they don't bleed onto whatever panel becomes active.
+  interface PreviewView { bv: BrowserView; parentId: string; pageBounds: { x: number; y: number; width: number; height: number }; attached: boolean }
+  const previewViews = new Map<string, PreviewView>();
+
+  function applyPreviewBounds(pv: PreviewView): void {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const parent = panelManager.getView(pv.parentId);
+    if (!parent) return;
+    const pb = parent.getBounds();
+    pv.bv.setBounds({
+      x: Math.round(pb.x + pv.pageBounds.x),
+      y: Math.round(pb.y + pv.pageBounds.y),
+      width: Math.max(1, Math.round(pv.pageBounds.width)),
+      height: Math.max(1, Math.round(pv.pageBounds.height)),
+    });
+  }
+
+  function attachPreview(pv: PreviewView): void {
+    if (!mainWindow || mainWindow.isDestroyed() || pv.attached) return;
+    mainWindow.addBrowserView(pv.bv);
+    pv.attached = true;
+    applyPreviewBounds(pv);
+  }
+  function detachPreview(pv: PreviewView): void {
+    if (!mainWindow || mainWindow.isDestroyed() || !pv.attached) return;
+    try { mainWindow.removeBrowserView(pv.bv); } catch { /* */ }
+    pv.attached = false;
+  }
+
+  // Whenever the active panel changes, refresh every preview view: attach
+  // those whose parent is now visible, detach the rest.
+  function refreshPreviewAttachments(): void {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const grid = layoutManager?.getGridInfo();
+    const visible = new Set<string>();
+    if (grid && grid.panelIds.length > 0) {
+      grid.panelIds.forEach((id) => visible.add(id));
+    } else if (panelManager.activePanelId) {
+      visible.add(panelManager.activePanelId);
+    }
+    for (const pv of previewViews.values()) {
+      if (visible.has(pv.parentId)) attachPreview(pv);
+      else detachPreview(pv);
+    }
+  }
+
+  ipcMain.handle("wb-preview:mount", (e, viewKey: string, parentId: string, url: string, pageBounds: { x: number; y: number; width: number; height: number }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    // Idempotent — if a mount already exists for this key, just navigate.
+    const existing = previewViews.get(viewKey);
+    if (existing) {
+      existing.pageBounds = pageBounds;
+      applyPreviewBounds(existing);
+      if (url) { try { void existing.bv.webContents.loadURL(url); } catch { /* */ } }
+      return true;
+    }
+    const bv = new BrowserView({
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    const pv: PreviewView = { bv, parentId, pageBounds, attached: false };
+    previewViews.set(viewKey, pv);
+    if (url) { try { void bv.webContents.loadURL(url); } catch { /* */ } }
+    // Forward navigation events back to the slot so the URL bar follows
+    // (e.g. user clicks an in-page link).
+    bv.webContents.on("did-navigate", (_evt, navUrl) => {
+      e.sender.send(`wb-preview:url-changed:${viewKey}`, navUrl);
+    });
+    bv.webContents.on("did-navigate-in-page", (_evt, navUrl) => {
+      e.sender.send(`wb-preview:url-changed:${viewKey}`, navUrl);
+    });
+    refreshPreviewAttachments();
+    return true;
+  });
+  ipcMain.on("wb-preview:bounds", (_e, viewKey: string, pageBounds: { x: number; y: number; width: number; height: number }) => {
+    const pv = previewViews.get(viewKey);
+    if (!pv) return;
+    pv.pageBounds = pageBounds;
+    if (pv.attached) applyPreviewBounds(pv);
+  });
+  ipcMain.on("wb-preview:navigate", (_e, viewKey: string, url: string) => {
+    const pv = previewViews.get(viewKey);
+    if (!pv) return;
+    try { void pv.bv.webContents.loadURL(url); } catch { /* */ }
+  });
+  ipcMain.on("wb-preview:reload", (_e, viewKey: string) => {
+    const pv = previewViews.get(viewKey);
+    if (!pv) return;
+    try { pv.bv.webContents.reload(); } catch { /* */ }
+  });
+  ipcMain.on("wb-preview:close", (_e, viewKey: string) => {
+    const pv = previewViews.get(viewKey);
+    if (!pv) return;
+    detachPreview(pv);
+    try { (pv.bv.webContents as any).close?.(); } catch { /* */ }
+    try { (pv.bv as any).webContents?.destroy?.(); } catch { /* */ }
+    previewViews.delete(viewKey);
+  });
+
   // Hook into panel focus events — add tab when panel becomes active
   let lastFocusedPanel: string | null = null;
   panelManager.setOnPanelFocused((id: string) => {
@@ -1580,6 +1688,7 @@ async function boot() {
     }
     sendTabState();
     sendUrlUpdate();
+    refreshPreviewAttachments();
   });
 
   // When a browser panel's webview guest attaches, focus it so clicks pass through
@@ -2491,6 +2600,55 @@ async function boot() {
       pendingAsks.delete(id);
       resolve(Array.isArray(answers) ? answers : []);
     }
+  });
+
+  // ── preview_url tool wiring ──
+  // Broadcast the URL to every Workbench panel. The first one whose Preview
+  // slot is open (or the user's selected default Preview) accepts and
+  // confirms by replying via wb-preview:accepted. The tool resolves true if
+  // any accepted; false otherwise so the agent can tell the user to add a
+  // Preview slot.
+  const pendingPreview = new Map<string, (ok: boolean) => void>();
+  let previewCounter = 0;
+  yoAgent.setPreviewCallback(async (url) => {
+    const reqId = `preview-${++previewCounter}`;
+    // Broadcast only to workbench panels.
+    const workbenchPanelIds: string[] = [];
+    for (const app of appConnector.list()) {
+      if (app.url === "yo://workbench") workbenchPanelIds.push(app.id);
+    }
+    if (workbenchPanelIds.length === 0) return false;
+    for (const id of workbenchPanelIds) {
+      const wc = panelManager.getWebContents(id);
+      if (wc && !wc.isDestroyed()) {
+        try { wc.send("wb-preview:set-url", reqId, url); } catch { /* */ }
+      }
+    }
+    return new Promise<boolean>((resolve) => {
+      pendingPreview.set(reqId, resolve);
+      setTimeout(() => {
+        if (pendingPreview.has(reqId)) {
+          pendingPreview.delete(reqId);
+          resolve(false);
+        }
+      }, 1500);
+    });
+  });
+  ipcMain.on("wb-preview:accepted", (_e, reqId: string) => {
+    const resolve = pendingPreview.get(reqId);
+    if (resolve) {
+      pendingPreview.delete(reqId);
+      resolve(true);
+    }
+  });
+  // Reverse-lookup the panel id from the caller's webContents — so a
+  // workbench renderer can ask "what's my id?" to wire previewMount.
+  ipcMain.handle("wb-self:panel-id", (e) => {
+    for (const app of appConnector.list()) {
+      const wc = panelManager.getWebContents(app.id);
+      if (wc && wc.id === e.sender.id) return app.id;
+    }
+    return null;
   });
 
 

@@ -14,7 +14,7 @@ import { initDownloads } from "./downloads-ui.js";
 import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
-import { initYoPanel } from "./yo-panel-ui.js";
+import { initYoPanel } from "./yo-panel-ui-vscode.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
