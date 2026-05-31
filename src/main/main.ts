@@ -293,6 +293,16 @@ async function boot() {
     }
   } catch { /* non-critical */ }
 
+  // Start the adaL bridge — a loopback HTTP surface so external Claude Code
+  // hooks can route memory into the in-process cognitive substrate. Safe no-op
+  // on failure (in-process memory still works).
+  try {
+    const { ensureAdalBridge } = require("./adal/bridge") as typeof import("./adal/bridge");
+    ensureAdalBridge();
+  } catch (err) {
+    console.warn("[adaL bridge] init skipped:", err instanceof Error ? err.message : err);
+  }
+
   // Initialize local SQLite database (agents, layouts, preferences)
   initLocalDb();
   const migrationResult = migrateFromFiles();
