@@ -770,11 +770,9 @@ async function boot() {
         console.log(`[terminal] did-finish-load panel="${id}" wcId=${wc.id} — spawning pty`);
         terminalManager.spawn(wc);
       });
-      yoInterceptor.activateBarOnly(wc, id);
     } else if (baseAppId === "adaL") {
       // adaL app = the terminal surface booting an in-process adaL REPL.
       wc.on("did-finish-load", () => terminalManager.spawnAdaL(wc));
-      yoInterceptor.activateBarOnly(wc, id);
     } else if (baseAppId === "code") {
       // Code-terminal: spawn the named agent CLI (claude) with role env vars
       const cfg = panelIdToAgentConfig.get(id);
@@ -784,7 +782,6 @@ async function boot() {
         console.warn(`[code-terminal] no agent config for panel "${id}" — falling back to plain terminal`);
         wc.on("did-finish-load", () => terminalManager.spawn(wc));
       }
-      yoInterceptor.activateBarOnly(wc, id);
     } else {
       // Activate interceptor so yo/dip/sup work on app panels
       yoInterceptor.activate(wc, id);
