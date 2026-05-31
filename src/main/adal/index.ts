@@ -18,6 +18,22 @@ import { GlyphDreamLoop } from "./dream";
 import type { SerInsight } from "./dream/protocol";
 import { adalEnabled } from "./gate";
 
+/** adaL's own REPL banner / recall dumps carry these signatures. Absorbing them
+ *  creates a feedback loop: a pasted debug session is itself a `/think` dump, so
+ *  the substrate eats its own output and amplifies it on every recall. The write
+ *  path drops anything bearing these markers — this is self-reference hygiene,
+ *  not a size cap (giant legitimate pastes still absorb fine). */
+const ECHO_MARKERS = [
+  "adaL remembers:",
+  "adaL ›",
+  "cognitive substrate v",
+  "associative recall (grounded constellation)",
+  "## adaL substrate recall",
+];
+function isAdalEcho(text: string): boolean {
+  return ECHO_MARKERS.some((m) => text.includes(m));
+}
+
 export interface AdalThought {
   id: string;
   content: string;
@@ -112,6 +128,7 @@ export class Adal {
    *  content-cosine recall path, but persisted for introspection and the LLM
    *  seams. Use `tellSmart` for LLM-grade structure. */
   tell(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
+    if (isAdalEcho(text)) return null;
     const structured = heuristicEnrich(text);
     const stored = this.space.absorb(text, speaker, this.factMetadata(structured), key);
     if (stored) this.dream.notifyAbsorb();
@@ -120,6 +137,7 @@ export class Adal {
 
   /** Raw ingestion — no enrichment, no structure metadata. */
   tellRaw(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
+    if (isAdalEcho(text)) return null;
     const stored = this.space.absorb(text, speaker, {}, key);
     if (stored) this.dream.notifyAbsorb();
     return stored ? stored.thoughtId : null;
@@ -128,6 +146,7 @@ export class Adal {
   /** LLM-enriched ingestion (ada's HaikuEnricher/UniversalEnricher seam, routed
    *  through yo's LLM). Falls back to heuristic structure on LLM failure. */
   async tellSmart(text: string, speaker: Speaker = "incoming", key: string | null = null): Promise<string | null> {
+    if (isAdalEcho(text)) return null;
     const structured = await enrichFact(text);
     const stored = this.space.absorb(text, speaker, this.factMetadata(structured), key);
     if (stored) this.dream.notifyAbsorb();
