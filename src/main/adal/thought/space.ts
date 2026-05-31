@@ -12,6 +12,13 @@
 import { cosineSimilarity } from "../core/ops";
 import { ThoughtGlyphEncoder, ThoughtGlyph, LAYER_WEIGHTS } from "./encoder";
 
+// Short HDC content vectors carry a high noise floor (~0.17–0.19 cosine for
+// fully unrelated short texts), so a low absolute eps can't separate signal
+// from noise. The content gate instead demands either lexical overlap (a shared
+// content word) or a cosine clearly above that noise floor (genuine semantic
+// resonance). Below SEMANTIC_FLOOR with no shared word, a hit is noise.
+const SEMANTIC_FLOOR = 0.3;
+
 export type Speaker = "incoming" | "outgoing" | "schema" | "curriculum";
 
 export interface ThoughtRow {
@@ -142,12 +149,19 @@ export class ThoughtGlyphSpace {
 
   // ── Recall ──────────────────────────────────────────────────────────────
 
-  recall(query: string, topK = 5, minSimilarity = 0.01, speaker: Speaker = "incoming"): RecallResult[] {
+  recall(
+    query: string,
+    topK = 5,
+    minSimilarity = 0.01,
+    speaker: Speaker = "incoming",
+    opts: { contentGate?: boolean; relativeFloor?: number } = {},
+  ): RecallResult[] {
     if (this.thoughts.size === 0) return [];
 
     const q = this.encoder.encodeThought(query, speaker);
     const qNorm = query.trim().toLowerCase().replace(/[?.! ]+$/, "");
     const qActivated = new Set(q.activatedAttrs);
+    const qContentWords = new Set(q.contentWords);
     const nContent = q.contentWords.length;
 
     let wContent: number, wRole: number, wStruct: number;
@@ -161,6 +175,16 @@ export class ThoughtGlyphSpace {
       if (sNorm === qNorm) continue;
 
       const contentSim = Math.max(0, cosineSimilarity(q.contentVector, stored.glyph.contentVector));
+
+      // Content gate — when the query carries real content words, a hit that
+      // matches only on speaker-role + recency is noise, not memory. Keep it
+      // only if it shares a content word or resonates semantically above the
+      // short-text noise floor, so a contentful /think doesn't dredge up
+      // unrelated greetings that happen to share a speaker.
+      if (opts.contentGate && nContent >= 2) {
+        const sharesWord = stored.glyph.contentWords.some((w) => qContentWords.has(w));
+        if (!sharesWord && contentSim < SEMANTIC_FLOOR) continue;
+      }
 
       // Layer similarity — weighted per-layer cortex cosine over query-activated layers.
       const sActivated = new Set(stored.glyph.activatedAttrs);
@@ -197,6 +221,14 @@ export class ThoughtGlyphSpace {
     }
 
     results.sort((a, b) => b.similarity - a.similarity);
+
+    // Relative floor — once there's a clear top hit, trim the long tail of weak
+    // matches that sit far below it. Adapts to the query instead of a fixed
+    // absolute cutoff, which is unreliable given strength/recency multipliers.
+    if (opts.relativeFloor && results.length > 1) {
+      const cutoff = results[0].similarity * opts.relativeFloor;
+      return results.filter((r) => r.similarity >= cutoff).slice(0, topK);
+    }
     return results.slice(0, topK);
   }
 

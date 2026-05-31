@@ -70,7 +70,10 @@ export class Adal {
 
   /** Associative wave — surface the constellation of related thoughts. */
   think(input: string, topK = 8): AdalActivation {
-    const results = this.space.recall(input, topK);
+    const results = this.space.recall(input, topK, 0.01, "incoming", {
+      contentGate: true,
+      relativeFloor: 0.6,
+    });
     const thoughts: AdalThought[] = results.map((r) => ({
       id: r.thought.thoughtId,
       content: r.thought.content,
