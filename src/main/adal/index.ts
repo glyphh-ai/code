@@ -14,6 +14,8 @@
 import { ThoughtGlyphSpace, ThoughtStore, Speaker } from "./thought/space";
 import { ThoughtGlyphEncoder } from "./thought/encoder";
 import { enrichFact, heuristicEnrich, renderAnswer, type StructuredFact } from "./llm";
+import { GlyphDreamLoop } from "./dream";
+import type { SerInsight } from "./dream/protocol";
 
 export interface AdalThought {
   id: string;
@@ -40,15 +42,28 @@ export interface AdalAnswer {
 
 export class Adal {
   readonly space: ThoughtGlyphSpace;
+  readonly dream: GlyphDreamLoop;
   private minConfidence: number;
 
   constructor(store: ThoughtStore | null = null, minConfidence = 0.35) {
     this.space = new ThoughtGlyphSpace(new ThoughtGlyphEncoder(), store);
+    this.dream = new GlyphDreamLoop(this.space);
     this.minConfidence = minConfidence;
   }
 
   get count(): number {
     return this.space.count;
+  }
+
+  /** Begin the background dream loop. Safe to call repeatedly (idempotent) and a
+   *  no-op when worker_threads are unavailable. */
+  startDream(): void {
+    this.dream.start();
+  }
+
+  /** Drain accumulated dream insights (FIFO). */
+  drainInsights(): SerInsight[] {
+    return this.dream.drainInsights();
   }
 
   /** Associative wave — surface the constellation of related thoughts. */
@@ -94,12 +109,14 @@ export class Adal {
   tell(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
     const structured = heuristicEnrich(text);
     const stored = this.space.absorb(text, speaker, this.factMetadata(structured), key);
+    if (stored) this.dream.notifyAbsorb();
     return stored ? stored.thoughtId : null;
   }
 
   /** Raw ingestion — no enrichment, no structure metadata. */
   tellRaw(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
     const stored = this.space.absorb(text, speaker, {}, key);
+    if (stored) this.dream.notifyAbsorb();
     return stored ? stored.thoughtId : null;
   }
 
@@ -108,6 +125,7 @@ export class Adal {
   async tellSmart(text: string, speaker: Speaker = "incoming", key: string | null = null): Promise<string | null> {
     const structured = await enrichFact(text);
     const stored = this.space.absorb(text, speaker, this.factMetadata(structured), key);
+    if (stored) this.dream.notifyAbsorb();
     return stored ? stored.thoughtId : null;
   }
 
@@ -168,5 +186,13 @@ export function getAdal(): Adal {
     store = null;
   }
   _adal = new Adal(store);
+  // Kick off the background dream loop. Degrades to a no-op if worker_threads
+  // aren't available, so this never hard-fails substrate init.
+  try {
+    _adal.startDream();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[adaL] dream loop failed to start:", err instanceof Error ? err.message : err);
+  }
   return _adal;
 }
