@@ -757,6 +757,20 @@ async function boot() {
     }
   }
 
+  // Live apps reload — watch ~/yo/apps so an app dropped on disk (e.g. a
+  // packaged app's <id>.json) shows up in the registry + `+` picker without a
+  // restart. Fans the refresh to the main window and every panel webContents
+  // (the Apps registry runs inside the yo://apps panel, not the main window).
+  appConnector.setOnChange(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("apps-changed");
+    }
+    for (const wc of panelManager.getAllWebContents()) {
+      wc.send("apps-changed");
+    }
+  });
+  appConnector.startWatching();
+
   // Track code-terminal panels (Phase 2): panel id → spawn config used when
   // the panel's webContents finishes loading.
   const panelIdToAgentConfig = new Map<string, AgentSpawnConfig>();

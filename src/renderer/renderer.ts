@@ -450,6 +450,7 @@ declare global {
       mcpSetToolOverride: (serverId: string, toolName: string, override: string) => void;
       mcpSetServerOverride: (serverId: string, override: string) => void;
       onMcpChanged: (cb: () => void) => void;
+      onAppsChanged: (cb: () => void) => void;
       // Schedules (skill-runs history + keep-awake)
       runsList: (skillName?: string) => Promise<Array<{ id: string; skillName: string; title: string; created: string; trigger: string; ok: boolean }>>;
       setKeepAwake: (on: boolean) => void;

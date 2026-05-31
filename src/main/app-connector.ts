@@ -294,12 +294,80 @@ function inferCapturePolicy(source: string, url?: string): CapturePolicy {
 export class AppConnector {
   private apps: Map<string, AppConfig> = new Map();
   private appsDir: string;
+  private onChange: (() => void) | null = null;
+  private watcher: fs.FSWatcher | null = null;
+  private syncTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.appsDir = path.join(os.homedir(), "yo", "apps");
     fs.mkdirSync(this.appsDir, { recursive: true });
     this.loadAll();
     this.ensureDefaults();
+  }
+
+  /** Register a callback fired (debounced) whenever the apps directory changes
+   *  on disk. Lets the main process broadcast a refresh to the renderer so an
+   *  app dropped into ~/yo/apps appears without restarting yo. */
+  setOnChange(cb: () => void): void {
+    this.onChange = cb;
+  }
+
+  /** Begin watching ~/yo/apps for added/changed/removed app json files. Safe to
+   *  call once (idempotent); a burst of writes is debounced into one reload. */
+  startWatching(): void {
+    if (this.watcher) return;
+    try {
+      this.watcher = fs.watch(this.appsDir, { persistent: false }, () => {
+        if (this.syncTimer) clearTimeout(this.syncTimer);
+        this.syncTimer = setTimeout(() => {
+          this.syncTimer = null;
+          if (this.syncFromDisk()) this.onChange?.();
+        }, 150);
+      });
+    } catch (err) {
+      console.warn("[app-connector] failed to watch apps dir:", (err as Error).message);
+    }
+  }
+
+  /** Stop the apps-dir watcher (e.g. on shutdown). */
+  stopWatching(): void {
+    if (this.syncTimer) { clearTimeout(this.syncTimer); this.syncTimer = null; }
+    this.watcher?.close();
+    this.watcher = null;
+  }
+
+  /** Re-read the apps directory, picking up added / changed / removed json
+   *  files. Read-only (never writes) so it can't trigger its own watcher.
+   *  Returns true if the in-memory map actually changed. */
+  private syncFromDisk(): boolean {
+    if (!fs.existsSync(this.appsDir)) return false;
+    let changed = false;
+    const onDisk = new Set<string>();
+    for (const file of fs.readdirSync(this.appsDir)) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const raw = fs.readFileSync(path.join(this.appsDir, file), "utf-8");
+        const app: AppConfig = JSON.parse(raw);
+        if (!app?.id) continue;
+        onDisk.add(app.id);
+        const prev = this.apps.get(app.id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(app)) {
+          this.apps.set(app.id, app);
+          changed = true;
+        }
+      } catch {
+        // Skip corrupt / mid-write files — the next watcher tick re-reads them.
+      }
+    }
+    // Drop user apps whose backing file was deleted. Never drop internal apps:
+    // they're re-seeded from INTERNAL_APPS and may be momentarily mid-rewrite.
+    for (const [id, app] of [...this.apps]) {
+      if (!onDisk.has(id) && !app.internal) {
+        this.apps.delete(id);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   /** Seed internal + default apps on first launch */

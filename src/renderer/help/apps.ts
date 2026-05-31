@@ -1291,6 +1291,15 @@ function initApps() {
     }
   });
 
+  // Apps dir changed on disk (e.g. an app dropped into ~/yo/apps) — refresh the
+  // registry list live when it's the visible view, so new apps appear without a
+  // restart. Skip while a detail/form is open to avoid yanking the user away.
+  window.yo.onAppsChanged(() => {
+    if (!appsList.classList.contains("hidden") && appDetail.classList.contains("hidden") && appAddForm.classList.contains("hidden")) {
+      loadApps();
+    }
+  });
+
   // Draggable split divider
   const divider = document.getElementById("app-builder-divider")!;
   const controls = document.querySelector(".app-builder-controls") as HTMLElement;
