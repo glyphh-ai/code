@@ -32,8 +32,10 @@ let dashHistoryChart: any = null;
 let dashIntakeChart: any = null;
 let dashFlowChart: any = null;
 let dashAdalChart: any = null;
+let dashAdalTrendChart: any = null;
 let dashRangeMode: "7" | "30" = "7";
 let storeRangeMode: "7" | "30" = "7";
+let adalRangeMode: "7" | "30" = "7";
 
 // Phase 7 of THE-PIVOT-BYOK rewires the dashboard's token stats to
 // the local UsageTracker (yo-server's /api/usage/summary is gone).
@@ -90,6 +92,7 @@ export async function loadDashboard() {
   renderDashFlowChart(captureStats);
   renderDashIntakeChart();
   renderDashAdalChart(adalStats);
+  renderDashAdalTrendChart();
 }
 
 // Modal-scoped lists load lazily on open, keeping the dashboard landing clean.
@@ -145,6 +148,49 @@ function renderDashAdalChart(adalStats: { factCount: number; episodicCount: numb
             },
           },
         },
+      },
+    },
+  });
+}
+
+// Substrate growth trend — mirrors the Usage History line chart: new thoughts
+// absorbed per day, split incoming (the user) vs outgoing (adaL). Gives the
+// adaL card the same "trend under the doughnut" shape as the other two cards.
+async function renderDashAdalTrendChart() {
+  const days = parseInt(adalRangeMode);
+  const history = await window.yo.adalDailyHistory(days);
+  const canvas = document.getElementById("dash-chart-adal-trend") as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  const labels = history.map((d) => {
+    const dt = new Date(d.date + "T00:00:00");
+    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  });
+  const incomingData = history.map((d) => d.incoming);
+  const outgoingData = history.map((d) => d.outgoing);
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashAdalTrendChart) dashAdalTrendChart.destroy();
+
+  dashAdalTrendChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Incoming", data: incomingData, borderColor: "#25C75E", backgroundColor: "rgba(37,199,94,0.1)",  fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+        { label: "Outgoing", data: outgoingData, borderColor: "#cc5de8", backgroundColor: "rgba(204,93,232,0.05)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
+        y: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, precision: 0 }, grid: { color: cssVar("--border") }, beginAtZero: true },
+      },
+      plugins: {
+        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${c.parsed.y} thought${c.parsed.y === 1 ? "" : "s"}` } },
       },
     },
   });
@@ -477,6 +523,19 @@ export function initDashboardEvents() {
     document.getElementById("store-range-30")!.classList.add("active");
     document.getElementById("store-range-7")!.classList.remove("active");
     renderDashIntakeChart();
+  });
+
+  document.getElementById("adal-range-7")?.addEventListener("click", () => {
+    adalRangeMode = "7";
+    document.getElementById("adal-range-7")!.classList.add("active");
+    document.getElementById("adal-range-30")!.classList.remove("active");
+    renderDashAdalTrendChart();
+  });
+  document.getElementById("adal-range-30")?.addEventListener("click", () => {
+    adalRangeMode = "30";
+    document.getElementById("adal-range-30")!.classList.add("active");
+    document.getElementById("adal-range-7")!.classList.remove("active");
+    renderDashAdalTrendChart();
   });
 
   const promptSearch = document.getElementById("dash-prompts-search") as HTMLInputElement;

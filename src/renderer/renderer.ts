@@ -196,6 +196,7 @@ declare global {
       capturesDailyHistoryForSource: (source: string, days?: number) => Promise<Array<{ date: string; count: number; bytes: number }>>;
       // adaL substrate
       adalStats: () => Promise<{ count: number; avgStrength: number; bySpeaker: Record<string, number>; factCount: number; episodicCount: number; oldestTs: number; newestTs: number }>;
+      adalDailyHistory: (days?: number) => Promise<Array<{ date: string; incoming: number; outgoing: number; total: number }>>;
       adalThoughtsList: (offset: number, limit: number) => Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic" }>>;
       adalThoughtsSearch: (query: string, limit: number) => Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic"; score: number }>>;
       adalThoughtsDelete: (id: string) => Promise<boolean>;

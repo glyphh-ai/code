@@ -376,6 +376,33 @@ export class ThoughtGlyphSpace {
     };
   }
 
+  /** Daily growth of the substrate over the last `days` days. Buckets thoughts
+   *  by creation day (local time) and splits incoming (the user) vs outgoing
+   *  (adaL) so the dashboard can trend how much is being absorbed. Mirrors the
+   *  CaptureStore.dailyHistory shape used by the other metric cards. */
+  dailyHistory(days = 30): Array<{ date: string; incoming: number; outgoing: number; total: number }> {
+    const now = new Date();
+    const buckets = new Map<string, { incoming: number; outgoing: number }>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      buckets.set(d.toISOString().slice(0, 10), { incoming: 0, outgoing: 0 });
+    }
+    const cutoff = now.getTime() - days * 86400000;
+    for (const t of this.thoughts.values()) {
+      const ms = t.createdAt * 1000;
+      if (ms < cutoff) continue;
+      const key = new Date(ms).toISOString().slice(0, 10);
+      const b = buckets.get(key);
+      if (!b) continue;
+      if (t.speaker === "incoming") b.incoming++;
+      else b.outgoing++;
+    }
+    return Array.from(buckets.entries()).map(([date, v]) => ({
+      date, incoming: v.incoming, outgoing: v.outgoing, total: v.incoming + v.outgoing,
+    }));
+  }
+
   // ── Dashboard management ───────────────────────────────────────────────────
 
   /** Paginated browse, newest first. Returns serializable rows (no glyph). */

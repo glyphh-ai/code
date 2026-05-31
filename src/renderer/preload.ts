@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld("yo", {
 
   // adaL substrate (curated memory tier)
   adalStats: () => ipcRenderer.invoke("adal-stats") as Promise<{ count: number; avgStrength: number; bySpeaker: Record<string, number>; factCount: number; episodicCount: number; oldestTs: number; newestTs: number }>,
+  adalDailyHistory: (days?: number) => ipcRenderer.invoke("adal-daily-history", days) as Promise<Array<{ date: string; incoming: number; outgoing: number; total: number }>>,
   adalThoughtsList: (offset: number, limit: number) => ipcRenderer.invoke("adal-thoughts-list", offset, limit) as Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic" }>>,
   adalThoughtsSearch: (query: string, limit: number) => ipcRenderer.invoke("adal-thoughts-search", query, limit) as Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic"; score: number }>>,
   adalThoughtsDelete: (id: string) => ipcRenderer.invoke("adal-thoughts-delete", id) as Promise<boolean>,

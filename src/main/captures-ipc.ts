@@ -34,6 +34,7 @@ export function registerCapturesIpc({
 
   // IPC: adaL substrate (the curated memory tier, federated alongside captures)
   ipcMain.handle("adal-stats", () => getAdal().space.stats());
+  ipcMain.handle("adal-daily-history", (_e, days: number) => getAdal().space.dailyHistory(days));
   ipcMain.handle("adal-thoughts-list", (_e, offset: number, limit: number) => getAdal().space.listThoughts(offset, limit));
   ipcMain.handle("adal-thoughts-search", (_e, query: string, limit: number) => getAdal().space.searchThoughts(query, limit));
   ipcMain.handle("adal-thoughts-delete", (_e, id: string) => getAdal().space.deleteThought(id));
