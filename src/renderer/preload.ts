@@ -109,6 +109,14 @@ contextBridge.exposeInMainWorld("yo", {
   capturesListForSource: (source: string, offset: number, limit: number) => ipcRenderer.invoke("captures-list-source", source, offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>,
   capturesDailyHistoryForSource: (source: string, days?: number) => ipcRenderer.invoke("captures-daily-history-source", source, days) as Promise<Array<{ date: string; count: number; bytes: number }>>,
 
+  // adaL substrate (curated memory tier)
+  adalStats: () => ipcRenderer.invoke("adal-stats") as Promise<{ count: number; avgStrength: number; bySpeaker: Record<string, number>; factCount: number; episodicCount: number; oldestTs: number; newestTs: number }>,
+  adalThoughtsList: (offset: number, limit: number) => ipcRenderer.invoke("adal-thoughts-list", offset, limit) as Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic" }>>,
+  adalThoughtsSearch: (query: string, limit: number) => ipcRenderer.invoke("adal-thoughts-search", query, limit) as Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic"; score: number }>>,
+  adalThoughtsDelete: (id: string) => ipcRenderer.invoke("adal-thoughts-delete", id) as Promise<boolean>,
+  adalThoughtsEdit: (id: string, text: string) => ipcRenderer.invoke("adal-thoughts-edit", id, text) as Promise<boolean>,
+  adalThoughtsPromote: (id: string, on: boolean) => ipcRenderer.invoke("adal-thoughts-promote", id, on) as Promise<boolean>,
+
   // Grid resize
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
     ipcRenderer.send("grid-drag-end", type, index, fraction),

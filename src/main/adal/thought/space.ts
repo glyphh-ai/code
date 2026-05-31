@@ -50,6 +50,35 @@ export interface RecallResult {
   layerSimilarities: Record<string, number>;
 }
 
+/** Serializable thought row for the dashboard (no HDC glyph). */
+export interface ThoughtView {
+  thoughtId: string;
+  content: string;
+  speaker: Speaker;
+  strength: number;
+  createdAt: number;
+  lastAccessed: number;
+  accessCount: number;
+  tier: "fact" | "episodic";
+}
+
+function isFact(t: ThoughtRow): boolean {
+  return (t.metadata as Record<string, unknown>)?._tier === "fact";
+}
+
+function toView(t: StoredThought): ThoughtView {
+  return {
+    thoughtId: t.thoughtId,
+    content: t.content,
+    speaker: t.speaker,
+    strength: t.strength,
+    createdAt: t.createdAt,
+    lastAccessed: t.lastAccessed,
+    accessCount: t.accessCount,
+    tier: isFact(t) ? "fact" : "episodic",
+  };
+}
+
 function nowSec(): number {
   return Date.now() / 1000;
 }
@@ -218,7 +247,9 @@ export class ThoughtGlyphSpace {
       const idleHours = (nowSec() - stored.lastAccessed) / 3600;
       const strengthMod = 1 + 0.2 * Math.tanh(stored.strength - 1);
       const recencyMod = 0.9 + 0.1 * Math.exp(-0.05 * idleHours);
-      const combined = Math.min(1, similarity * strengthMod * recencyMod);
+      // Promoted facts get a modest, bounded edge over raw episodic turns.
+      const tierMod = isFact(stored) ? 1.15 : 1;
+      const combined = Math.min(1, similarity * strengthMod * recencyMod * tierMod);
 
       if (combined >= minSimilarity) {
         results.push({ thought: stored, similarity: combined, layerSimilarities: layerSims });
@@ -280,6 +311,7 @@ export class ThoughtGlyphSpace {
   decayAll(factor = 0.98, idleThresholdHours = 1.0): number {
     let archived = 0;
     for (const [id, t] of [...this.thoughts]) {
+      if (isFact(t)) continue; // promoted facts are durable — never decay/archive
       const idleHours = (nowSec() - t.lastAccessed) / 3600;
       if (idleHours > idleThresholdHours) t.strength = Math.max(0, t.strength * factor);
       if (t.strength < 0.05) {
@@ -310,13 +342,97 @@ export class ThoughtGlyphSpace {
     return this.thoughts.get(id);
   }
 
-  stats(): { count: number; avgStrength: number; primitives: unknown } {
+  stats(): {
+    count: number;
+    avgStrength: number;
+    bySpeaker: Record<string, number>;
+    factCount: number;
+    episodicCount: number;
+    oldestTs: number;
+    newestTs: number;
+    primitives: unknown;
+  } {
     const arr = [...this.thoughts.values()];
+    const bySpeaker: Record<string, number> = {};
+    let factCount = 0;
+    let oldest = 0;
+    let newest = 0;
+    for (const t of arr) {
+      bySpeaker[t.speaker] = (bySpeaker[t.speaker] ?? 0) + 1;
+      if (isFact(t)) factCount++;
+      const ms = t.createdAt * 1000;
+      if (!oldest || ms < oldest) oldest = ms;
+      if (ms > newest) newest = ms;
+    }
     return {
       count: arr.length,
       avgStrength: arr.length ? arr.reduce((s, t) => s + t.strength, 0) / arr.length : 0,
+      bySpeaker,
+      factCount,
+      episodicCount: arr.length - factCount,
+      oldestTs: oldest,
+      newestTs: newest,
       primitives: { lexicon: true },
     };
+  }
+
+  // ── Dashboard management ───────────────────────────────────────────────────
+
+  /** Paginated browse, newest first. Returns serializable rows (no glyph). */
+  listThoughts(offset = 0, limit = 20): ThoughtView[] {
+    return [...this.thoughts.values()]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(offset, offset + limit)
+      .map(toView);
+  }
+
+  /** Search for the dashboard — looser than think() recall (no content gate) so
+   *  the user can find anything they typed. */
+  searchThoughts(query: string, limit = 20): (ThoughtView & { score: number })[] {
+    return this.recall(query, limit).map((r) => ({ ...toView(r.thought), score: r.similarity }));
+  }
+
+  deleteThought(id: string): boolean {
+    const t = this.thoughts.get(id);
+    if (!t) return false;
+    this.thoughts.delete(id);
+    this.absorbedTexts.delete(t.content.trim().toLowerCase());
+    if (t.key) {
+      const chain = this.historyByKey.get(t.key);
+      if (chain) {
+        const next = chain.filter((c) => c.thoughtId !== id);
+        if (next.length) this.historyByKey.set(t.key, next);
+        else this.historyByKey.delete(t.key);
+      }
+    }
+    this.store?.delete(id);
+    return true;
+  }
+
+  /** Replace a thought's text in place — re-encodes the glyph, keeps the id. */
+  editThought(id: string, text: string): boolean {
+    const t = this.thoughts.get(id);
+    const next = text.trim();
+    if (!t || !next) return false;
+    this.absorbedTexts.delete(t.content.trim().toLowerCase());
+    t.content = next;
+    t.glyph = this.encoder.encodeThought(next, t.speaker, t.metadata);
+    t.lastAccessed = nowSec();
+    this.absorbedTexts.add(next.toLowerCase());
+    this.store?.upsert(t);
+    return true;
+  }
+
+  /** Promote an episodic thought into the durable fact tier — it ranks higher
+   *  and resists decay. Idempotent. */
+  promoteThought(id: string, on = true): boolean {
+    const t = this.thoughts.get(id);
+    if (!t) return false;
+    t.metadata = { ...t.metadata, _tier: on ? "fact" : "episodic" };
+    if (on) t.strength = Math.max(t.strength, 2.0);
+    t.lastAccessed = nowSec();
+    this.store?.upsert(t);
+    return true;
   }
 
   formatRecall(results: RecallResult[], maxResults = 5): string {

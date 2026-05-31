@@ -47,6 +47,8 @@ export class SqliteThoughtStore implements ThoughtStore {
           (thought_id, content, speaker, strength, created_at, last_accessed, access_count, key, version, metadata_json)
         VALUES (@thoughtId, @content, @speaker, @strength, @createdAt, @lastAccessed, @accessCount, @key, @version, @metadataJson)
         ON CONFLICT(thought_id) DO UPDATE SET
+          content=excluded.content,
+          speaker=excluded.speaker,
           strength=excluded.strength,
           last_accessed=excluded.last_accessed,
           access_count=excluded.access_count,

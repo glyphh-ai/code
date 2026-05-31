@@ -7,6 +7,10 @@ import {
   buildPaginationBar, formatDuration, confirmAction,
 } from "./shared.js";
 import { loadData, closeDataDetail, deleteDataEntry, clearData, dataSearchDebounce } from "./data-store.js";
+import {
+  loadAdal, closeAdalDetail, deleteAdalThought, promoteAdalThought,
+  beginAdalEdit, saveAdalEdit, cancelAdalEdit, adalSearchDebounce,
+} from "./adal-store.js";
 
 declare const Chart: any;
 
@@ -27,6 +31,7 @@ let dashAgentChart: any = null;
 let dashHistoryChart: any = null;
 let dashIntakeChart: any = null;
 let dashFlowChart: any = null;
+let dashAdalChart: any = null;
 let dashRangeMode: "7" | "30" = "7";
 let storeRangeMode: "7" | "30" = "7";
 
@@ -45,11 +50,12 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 export async function loadDashboard() {
-  const [today, allTime, llmInfo, captureStats] = await Promise.all([
+  const [today, allTime, llmInfo, captureStats, adalStats] = await Promise.all([
     window.yo.dashboardToday(),
     window.yo.dashboardAllTime(),
     window.yo.dashboardLLMInfo(),
     window.yo.capturesStats(),
+    window.yo.adalStats(),
   ]);
 
   document.getElementById("dash-provider")!.textContent = `${llmInfo.provider} / ${llmInfo.model}`;
@@ -72,12 +78,60 @@ export async function loadDashboard() {
   document.getElementById("dash-oldest")!.textContent = relativeTime(captureStats.oldestTs);
   document.getElementById("dash-newest")!.textContent = relativeTime(captureStats.newestTs);
 
+  document.getElementById("adal-count")!.textContent = String(adalStats.count);
+  document.getElementById("adal-facts")!.textContent = String(adalStats.factCount);
+  document.getElementById("adal-episodic")!.textContent = String(adalStats.episodicCount);
+
   renderDashAgentChart(allTime);
   renderDashHistoryChart();
   renderDashFlowChart(captureStats);
   renderDashIntakeChart();
+  renderDashAdalChart(adalStats);
   renderDashPrompts();
   loadData();
+  loadAdal();
+}
+
+function renderDashAdalChart(adalStats: { factCount: number; episodicCount: number }) {
+  const canvas = document.getElementById("dash-chart-adal") as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashAdalChart) dashAdalChart.destroy();
+
+  const facts = adalStats.factCount || 0;
+  const episodic = adalStats.episodicCount || 0;
+  const hasData = facts > 0 || episodic > 0;
+
+  dashAdalChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: hasData ? ["Facts", "Episodic"] : ["No thoughts yet"],
+      datasets: [{
+        data: hasData ? [facts, episodic] : [1],
+        backgroundColor: hasData ? ["#25C75E", cssVar("--border-3")] : [cssVar("--border")],
+        borderColor: hasData ? ["#1a8a40", cssVar("--border")] : [cssVar("--border")],
+        borderWidth: 2,
+        hoverOffset: 6,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "60%",
+      plugins: {
+        legend: { position: "right", labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 10, padding: 12 } },
+        tooltip: {
+          callbacks: {
+            label: (c: any) => {
+              if (!hasData) return "No data yet";
+              const total = (c.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
+              const pct = total > 0 ? ((c.parsed / total) * 100).toFixed(0) : "0";
+              return `${c.label}: ${c.parsed} (${pct}%)`;
+            },
+          },
+        },
+      },
+    },
+  });
 }
 
 function renderDashAgentChart(allTime: { agents: Record<string, { input: number; output: number; calls: number }>; total: any } | null) {
@@ -414,4 +468,14 @@ export function initDashboardEvents() {
   document.getElementById("data-clear-btn")?.addEventListener("click", () => clearData());
   const dataSearchInput = document.getElementById("data-search") as HTMLInputElement;
   dataSearchInput?.addEventListener("input", () => dataSearchDebounce());
+
+  // adaL substrate (right column)
+  document.getElementById("adal-back-link")?.addEventListener("click", () => closeAdalDetail());
+  document.getElementById("adal-delete-btn")?.addEventListener("click", () => deleteAdalThought());
+  document.getElementById("adal-promote-btn")?.addEventListener("click", () => promoteAdalThought());
+  document.getElementById("adal-edit-btn")?.addEventListener("click", () => beginAdalEdit());
+  document.getElementById("adal-edit-save")?.addEventListener("click", () => saveAdalEdit());
+  document.getElementById("adal-edit-cancel")?.addEventListener("click", () => cancelAdalEdit());
+  const adalSearchInput = document.getElementById("adal-search") as HTMLInputElement;
+  adalSearchInput?.addEventListener("input", () => adalSearchDebounce());
 }

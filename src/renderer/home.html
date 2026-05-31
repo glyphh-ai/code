@@ -250,6 +250,53 @@
                 <div id="data-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
                 <pre id="data-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
               </div>
+
+              <div class="dash-split-subhead">adaL Substrate</div>
+              <div class="dash-stat-row">
+                <div class="dash-stat-card">
+                  <div class="dash-stat-label">Memory</div>
+                  <div class="dash-stat-values">
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num green" id="adal-count">—</div>
+                      <div class="dash-stat-sub">Thoughts</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="adal-facts">—</div>
+                      <div class="dash-stat-sub">Facts</div>
+                    </div>
+                    <div class="dash-stat-item">
+                      <div class="dash-stat-num" id="adal-episodic">—</div>
+                      <div class="dash-stat-sub">Episodic</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="dash-chart-container" style="flex:1;">
+                  <div class="dash-stat-label">Composition</div>
+                  <div class="dash-chart-box"><canvas id="dash-chart-adal"></canvas></div>
+                </div>
+              </div>
+
+              <div id="adal-toolbar" class="crud-toolbar">
+                <input id="adal-search" type="text" class="crud-search" placeholder="Search thoughts..." spellcheck="false" autocomplete="off" />
+              </div>
+              <div id="adal-list" class="crud-cards"></div>
+
+              <div id="adal-detail" class="crud-inline-form hidden">
+                <div class="crud-inline-header">
+                  <a class="crud-breadcrumb-back" id="adal-back-link">&larr; adaL</a>
+                  <div class="crud-spacer"></div>
+                  <button id="adal-promote-btn" class="action-btn">Promote to fact</button>
+                  <button id="adal-edit-btn" class="action-btn">Edit</button>
+                  <button id="adal-delete-btn" class="action-btn danger">Delete</button>
+                </div>
+                <div id="adal-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
+                <pre id="adal-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
+                <textarea id="adal-edit-text" class="crud-search hidden" style="width:100%;min-height:120px;resize:vertical;font-family:var(--mono);" spellcheck="false"></textarea>
+                <div id="adal-edit-actions" class="settings-actions hidden" style="margin-top:8px;">
+                  <button id="adal-edit-save" class="action-btn primary">Save</button>
+                  <button id="adal-edit-cancel" class="action-btn">Cancel</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

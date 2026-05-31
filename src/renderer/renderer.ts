@@ -194,6 +194,13 @@ declare global {
       capturesStatsForSource: (source: string) => Promise<{ count: number; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number }>;
       capturesListForSource: (source: string, offset: number, limit: number) => Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>;
       capturesDailyHistoryForSource: (source: string, days?: number) => Promise<Array<{ date: string; count: number; bytes: number }>>;
+      // adaL substrate
+      adalStats: () => Promise<{ count: number; avgStrength: number; bySpeaker: Record<string, number>; factCount: number; episodicCount: number; oldestTs: number; newestTs: number }>;
+      adalThoughtsList: (offset: number, limit: number) => Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic" }>>;
+      adalThoughtsSearch: (query: string, limit: number) => Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic"; score: number }>>;
+      adalThoughtsDelete: (id: string) => Promise<boolean>;
+      adalThoughtsEdit: (id: string, text: string) => Promise<boolean>;
+      adalThoughtsPromote: (id: string, on: boolean) => Promise<boolean>;
       // LLM config
       getLLMConfig: () => Promise<{ provider: string; model: string }>;
       getLLMPresets: () => Promise<Record<string, { name: string; models: string[]; defaultModel: string }>>;
