@@ -18,6 +18,26 @@ import { adalEnabled, ADAL_DISABLED_MESSAGE } from "./gate";
 const PROMPT = "\x1b[36madaL\x1b[0m \x1b[90m›\x1b[0m ";
 const NL = "\r\n";
 
+// Braille "ada" wordmark (ported from ada's REPL), pink→purple→blue gradient.
+const BANNER = [
+  " ⣼⢻⡄ ⣿⠛⠛⢻⡄ ⣼⢻⡄",
+  "⣼⠃ ⢻⡄⣿  ⢸⡇⣼⠃ ⢻⡄",
+  "⣿⠛⠛⢻⡇⣿  ⢸⡇⣿⠛⠛⢻⡇",
+  "⠛  ⠘⠃⠛⠛⠛⠛ ⠛  ⠘⠃",
+];
+const GRAD = ["\x1b[38;5;204m", "\x1b[38;5;177m", "\x1b[38;5;141m", "\x1b[38;5;111m"];
+const DIM = "\x1b[38;5;244m";
+const RESET = "\x1b[0m";
+
+function appVersion(): string {
+  try {
+    const { app } = require("electron") as typeof import("electron");
+    return app.getVersion();
+  } catch {
+    return "4.x";
+  }
+}
+
 const HELP = [
   "adaL REPL — cognitive substrate commands",
   "",
@@ -43,9 +63,13 @@ export class AdalRepl {
 
   /** Print banner + first prompt. Call once after the renderer is ready. */
   start(): void {
-    this.write(
-      `\x1b[1madaL\x1b[0m substrate REPL — type \x1b[33m/help\x1b[0m for commands.${NL}${NL}`,
-    );
+    let out = NL;
+    for (let i = 0; i < BANNER.length; i++) {
+      out += `  ${GRAD[Math.min(i, GRAD.length - 1)]}\x1b[1m${BANNER[i]}${RESET}${NL}`;
+    }
+    out += `  ${DIM}adaL · cognitive substrate v${appVersion()}${RESET}${NL}${NL}`;
+    out += `  ${DIM}type ${RESET}\x1b[33m/help${RESET}${DIM} for commands${RESET}${NL}${NL}`;
+    this.write(out);
     this.prompt();
   }
 
