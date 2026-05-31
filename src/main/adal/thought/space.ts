@@ -210,10 +210,15 @@ export class ThoughtGlyphSpace {
 
       const similarity = contentSim * wContent + roleSim * wRole + structural * wStruct;
 
-      const strengthBoost = 1.0 + Math.log(1.0 + stored.strength);
+      // Strength and recency only NUDGE ranking — bounded modulation keeps the
+      // score anchored to semantic similarity in [0,1], so one over-reinforced
+      // or very recent thought can't tower over genuinely-similar ones (and blow
+      // out the relative floor that protects real memories). Previously these
+      // were unbounded multipliers that pushed scores past 1.9.
       const idleHours = (nowSec() - stored.lastAccessed) / 3600;
-      const recencyBoost = 0.3 + 0.7 * Math.exp(-0.05 * idleHours);
-      const combined = similarity * strengthBoost * recencyBoost;
+      const strengthMod = 1 + 0.2 * Math.tanh(stored.strength - 1);
+      const recencyMod = 0.9 + 0.1 * Math.exp(-0.05 * idleHours);
+      const combined = Math.min(1, similarity * strengthMod * recencyMod);
 
       if (combined >= minSimilarity) {
         results.push({ thought: stored, similarity: combined, layerSimilarities: layerSims });
