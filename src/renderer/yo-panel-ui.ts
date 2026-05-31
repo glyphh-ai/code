@@ -9,6 +9,7 @@
 
 import { brandForModel, logoUrlFor } from "./model-badges.js";
 import { renderMarkdown } from "./chat-renderer/markdown.js";
+import { yoConfirm } from "./yo-modal.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1061,7 +1062,12 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       // If a chat is in progress, warn before resetting. Empty messages =
       // welcome screen = safe to change silently.
       const inChat = yoPanelMessages.children.length > 0 && !yoPanelMessages.querySelector(".yo-panel-welcome");
-      if (inChat && !confirm("Changing the model will start a new chat — context will be lost. Continue?")) return;
+      if (inChat && !(await yoConfirm({
+        title: "Change model?",
+        message: "Changing the model will start a new chat — context will be lost.",
+        confirmText: "Change model",
+        cancelText: "Cancel",
+      }))) return;
       currentChatModel = newModel;
       modelOptions.forEach((o) => o.classList.toggle("active", o === opt));
       paintModelLabel();

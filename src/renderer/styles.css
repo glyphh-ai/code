@@ -3121,6 +3121,30 @@ ol.docs-list li::before {
 .dash-modal-x { margin-left: auto; font-size: 14px; line-height: 1; padding: 4px 8px; }
 .dash-modal-body { padding: 16px 18px; overflow-y: auto; flex: 1 1 auto; }
 
+/* yo-modal — theme-aware confirm dialog (replaces native confirm()). */
+.yo-modal { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; }
+.yo-modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+.yo-modal-panel {
+  position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  width: min(420px, 90vw); padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45); animation: yo-modal-in 120ms ease-out;
+}
+@keyframes yo-modal-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+.yo-modal-title { font-size: 15px; font-weight: 600; color: var(--text-bright); }
+.yo-modal-message { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.yo-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.yo-modal-btn {
+  font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); transition: background 120ms, border-color 120ms;
+}
+.yo-modal-btn-cancel { background: var(--surface-2); color: var(--text); }
+.yo-modal-btn-cancel:hover { background: var(--surface-3); border-color: var(--border-2); }
+.yo-modal-btn-confirm { background: var(--accent); color: #fff; border-color: var(--accent); }
+.yo-modal-btn-confirm:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.yo-modal-btn-confirm:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+.yo-modal-btn-danger { background: #e5484d; border-color: #e5484d; }
+.yo-modal-btn-danger:hover { background: #d93a3f; border-color: #d93a3f; }
+
 .pagination-bar {
   display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0;
 }
