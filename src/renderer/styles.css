@@ -3090,18 +3090,13 @@ ol.docs-list li::before {
 .dash-split-col .crud-inline-form { padding: 0; }
 .dash-split-col .crud-inline-header { margin-bottom: 10px; }
 
-/* adaL hero — full-width primary memory tier above the split columns */
-.dash-adal-hero {
-  background: var(--surface); border: 1px solid rgba(37, 199, 94, 0.27); border-radius: 10px;
-  padding: 18px; margin-bottom: 16px;
-}
-.dash-adal-hero-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.dash-adal-hero-title { font-size: 14px; font-weight: 600; color: var(--accent); letter-spacing: 0.3px; }
-.dash-adal-hero-sub { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.dash-adal-hero-body { display: grid; grid-template-columns: 240px 1fr; gap: 18px; align-items: center; }
-.dash-adal-stats { display: flex; flex-direction: column; gap: 12px; }
-.dash-adal-stats .dash-stat-item { flex-direction: row; align-items: baseline; gap: 8px; justify-content: space-between; }
-.dash-adal-chart-box { height: 180px; position: relative; }
+/* adaL card — same card structure as the split columns, but spans full width
+   above them as the primary memory tier (green accent border to signal that). */
+.dash-adal-col { margin-bottom: 16px; border-color: rgba(37, 199, 94, 0.27); }
+.dash-adal-col .dash-stat-num { font-size: 18px; }
+.dash-adal-col .dash-stat-values { gap: 14px; }
+.dash-adal-col .dash-chart-container { padding: 14px; }
+.dash-adal-col .dash-chart-box { height: 160px; }
 
 /* Dashboard data triggers — subheads that open a modal */
 .dash-data-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

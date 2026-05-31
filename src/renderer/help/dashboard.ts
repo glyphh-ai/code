@@ -81,6 +81,9 @@ export async function loadDashboard() {
   document.getElementById("adal-count")!.textContent = String(adalStats.count);
   document.getElementById("adal-facts")!.textContent = String(adalStats.factCount);
   document.getElementById("adal-episodic")!.textContent = String(adalStats.episodicCount);
+  document.getElementById("adal-strength")!.textContent = adalStats.count > 0 ? adalStats.avgStrength.toFixed(2) : "—";
+  document.getElementById("adal-oldest")!.textContent = relativeTime(adalStats.oldestTs);
+  document.getElementById("adal-newest")!.textContent = relativeTime(adalStats.newestTs);
 
   renderDashAgentChart(allTime);
   renderDashHistoryChart();

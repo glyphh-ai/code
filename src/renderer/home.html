@@ -90,29 +90,58 @@
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
 
-          <!-- adaL Substrate — primary memory tier, spans the full width above both columns -->
-          <div class="dash-adal-hero">
-            <div class="dash-adal-hero-head">
-              <div class="dash-adal-hero-title">adaL Substrate</div>
-              <span class="dash-adal-hero-sub">primary memory tier</span>
-              <button id="adal-manage-btn" class="action-btn" data-modal-open="adal-modal" style="margin-left:auto;">Manage thoughts</button>
-            </div>
-            <div class="dash-adal-hero-body">
-              <div class="dash-adal-stats">
-                <div class="dash-stat-item">
-                  <div class="dash-stat-num green" id="adal-count">—</div>
-                  <div class="dash-stat-sub">Thoughts</div>
-                </div>
-                <div class="dash-stat-item">
-                  <div class="dash-stat-num" id="adal-facts">—</div>
-                  <div class="dash-stat-sub">Facts</div>
-                </div>
-                <div class="dash-stat-item">
-                  <div class="dash-stat-num" id="adal-episodic">—</div>
-                  <div class="dash-stat-sub">Episodic</div>
+          <!-- adaL Substrate — primary memory tier, spans the full width above both columns.
+               Same card structure as the two metric columns below: header → stat row → chart. -->
+          <div class="dash-split-col dash-adal-col">
+            <div class="dash-split-header">adaL Substrate</div>
+
+            <div class="dash-stat-row">
+              <div class="dash-stat-card">
+                <div class="dash-stat-label">Substrate</div>
+                <div class="dash-stat-values">
+                  <div class="dash-stat-item">
+                    <div class="dash-stat-num green" id="adal-count">—</div>
+                    <div class="dash-stat-sub">Thoughts</div>
+                  </div>
+                  <div class="dash-stat-item">
+                    <div class="dash-stat-num" id="adal-facts">—</div>
+                    <div class="dash-stat-sub">Facts</div>
+                  </div>
+                  <div class="dash-stat-item">
+                    <div class="dash-stat-num" id="adal-episodic">—</div>
+                    <div class="dash-stat-sub">Episodic</div>
+                  </div>
                 </div>
               </div>
-              <div class="dash-adal-chart-box"><canvas id="dash-chart-adal"></canvas></div>
+              <div class="dash-stat-card">
+                <div class="dash-stat-label">Substrate Info</div>
+                <div class="dash-stat-values">
+                  <div class="dash-stat-item">
+                    <div class="dash-stat-num" id="adal-strength">—</div>
+                    <div class="dash-stat-sub">Avg strength</div>
+                  </div>
+                  <div class="dash-stat-item">
+                    <div class="dash-stat-num" id="adal-oldest">—</div>
+                    <div class="dash-stat-sub">Oldest</div>
+                  </div>
+                  <div class="dash-stat-item">
+                    <div class="dash-stat-num" id="adal-newest">—</div>
+                    <div class="dash-stat-sub">Newest</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dash-chart-stack">
+              <div class="dash-chart-container">
+                <div class="dash-stat-label">Facts vs Episodic</div>
+                <div class="dash-chart-box"><canvas id="dash-chart-adal"></canvas></div>
+              </div>
+            </div>
+
+            <div class="dash-split-subhead dash-data-trigger">
+              <span>Thoughts</span>
+              <button class="action-btn" data-modal-open="adal-modal">Manage</button>
             </div>
           </div>
 
