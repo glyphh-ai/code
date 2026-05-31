@@ -189,6 +189,7 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "workbench", name: "Workbench", url: "yo://workbench", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
+  { id: "adaL", name: "adaL", url: "yo://adaL", capturePolicy: NO_CAPTURE },
   { id: "browser", name: "Browser", url: "yo://browser" },
 
   // Left-rail surfaces — every section becomes its own mountable system app.

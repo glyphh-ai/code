@@ -12,6 +12,7 @@ import * as pty from "node-pty";
 import { ipcMain, WebContents } from "electron";
 import os from "os";
 import { getShellPath } from "./shell-path";
+import { AdalRepl } from "./adal/repl";
 
 /** Marker wrapping command output from injected shell functions */
 const CMD_MARKER_START = "\x1b]7770;";
@@ -32,6 +33,10 @@ export interface AgentSpawnConfig {
 export class TerminalManager {
   private processes = new Map<number, pty.IPty>();
   private pendingSpawns = new Map<number, (...args: any[]) => void>();
+  // In-process adaL REPL sessions keyed by webContents id. These ride the same
+  // xterm surface + IPC channels as a pty, but run the cognitive substrate
+  // directly in the main process instead of spawning a shell.
+  private adalSessions = new Map<number, AdalRepl>();
   private onCommand: TerminalCommandHandler | null = null;
 
   /** Set handler for yo/sup/dip commands typed in the terminal. */
@@ -42,14 +47,27 @@ export class TerminalManager {
   /** Register IPC handlers for terminal communication. */
   init(): void {
     ipcMain.on("terminal:write", (e, data: string) => {
+      const repl = this.adalSessions.get(e.sender.id);
+      if (repl) { repl.feed(data); return; }
       this.processes.get(e.sender.id)?.write(data);
     });
     ipcMain.on("terminal:resize", (e, cols: number, rows: number) => {
+      if (this.adalSessions.has(e.sender.id)) return; // REPL is reflow-agnostic
       const proc = this.processes.get(e.sender.id);
       if (proc) {
         try { proc.resize(cols, rows); } catch { /* ignore invalid sizes */ }
       }
     });
+  }
+
+  /** Boot an in-process adaL REPL onto the xterm surface for this webContents. */
+  spawnAdaL(wc: WebContents): void {
+    this.kill(wc.id);
+    const repl = new AdalRepl((data) => {
+      if (!wc.isDestroyed()) wc.send("terminal:data", data);
+    });
+    this.adalSessions.set(wc.id, repl);
+    repl.start();
   }
 
   /** Spawn a new pty process and wire it to a webContents. */
@@ -269,8 +287,9 @@ export class TerminalManager {
     }
   }
 
-  /** Kill a pty process by webContents id. */
+  /** Kill a pty process (or tear down an adaL REPL) by webContents id. */
   kill(wcId: number): void {
+    this.adalSessions.delete(wcId);
     const proc = this.processes.get(wcId);
     if (proc) {
       proc.kill();
@@ -280,6 +299,7 @@ export class TerminalManager {
 
   /** Kill all pty processes (app shutdown). */
   killAll(): void {
+    this.adalSessions.clear();
     for (const [, proc] of this.processes) proc.kill();
     this.processes.clear();
     for (const [, proc] of this.agentProcesses) proc.kill();

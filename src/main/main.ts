@@ -761,6 +761,10 @@ async function boot() {
         terminalManager.spawn(wc);
       });
       yoInterceptor.activateBarOnly(wc, id);
+    } else if (baseAppId === "adaL") {
+      // adaL app = the terminal surface booting an in-process adaL REPL.
+      wc.on("did-finish-load", () => terminalManager.spawnAdaL(wc));
+      yoInterceptor.activateBarOnly(wc, id);
     } else if (baseAppId === "code") {
       // Code-terminal: spawn the named agent CLI (claude) with role env vars
       const cfg = panelIdToAgentConfig.get(id);
@@ -934,6 +938,8 @@ async function boot() {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(app.id, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
+      panelManager.addPanel(app.id, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://adaL") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(app.id, specHtml, specPreload);
@@ -1352,6 +1358,8 @@ async function boot() {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(instanceId, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
+      panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
+    } else if (app.url === "yo://adaL") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(instanceId, specHtml, specPreload);
