@@ -103,7 +103,8 @@ function makeAdalCard(id: string, speaker: string, created: number, content: str
 
   const timeSpan = document.createElement("span");
   timeSpan.style.cssText = "font-size:10px;color:var(--text-muted);flex-shrink:0;";
-  timeSpan.textContent = relativeTime(created);
+  // adaL stores createdAt in seconds; relativeTime/Date expect epoch millis.
+  timeSpan.textContent = relativeTime(created * 1000);
   nameRow.appendChild(timeSpan);
 
   if (score !== undefined) {
@@ -141,7 +142,7 @@ function makeAdalCard(id: string, speaker: string, created: number, content: str
 
 function openAdalDetail(id: string, speaker: string, created: number, content: string, tier: "fact" | "episodic") {
   viewing = { id, tier };
-  adalDetailMeta.textContent = `${tier} · ${speaker} · ${new Date(created).toLocaleString()} · ${id}`;
+  adalDetailMeta.textContent = `${tier} · ${speaker} · ${new Date(created * 1000).toLocaleString()} · ${id}`;
   adalDetailContent.textContent = content || "(empty)";
   adalPromoteBtn.textContent = tier === "fact" ? "Demote to episodic" : "Promote to fact";
 
