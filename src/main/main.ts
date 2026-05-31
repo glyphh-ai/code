@@ -1726,6 +1726,15 @@ async function boot() {
   // Sub-Agents view picks it up. Single source used by the Task tool (via
   // yoAgent.onSubAgent) AND the local swarm / call_agent path (via the bus
   // below), so both kinds of sub-agent stream into the same panel.
+  // Replayable per-agent event log so a Workbench opened AFTER an agent started
+  // can fetch a snapshot and reconstruct the live stream (late-join). The store
+  // inside the workbench already survives view open/close within a window, but a
+  // window that didn't exist when the spawn was broadcast missed it entirely —
+  // this log is what the new window replays. Keyed by sub-agent id; the spawn is
+  // always kept at index 0, finished agents are dropped so only running ones
+  // replay, and the tail is bounded so a long transcript can't grow unbounded.
+  const liveSubAgentLog = new Map<string, any[]>();
+  const SUBAGENT_LOG_CAP = 4000;
   const broadcastSubAgent = (evt: {
     id: string;
     kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
@@ -1738,10 +1747,28 @@ async function boot() {
     toolInput?: unknown;
     toolOutput?: string;
   }): void => {
+    if (evt.kind === "spawn") {
+      liveSubAgentLog.set(evt.id, [evt]);
+    } else {
+      const log = liveSubAgentLog.get(evt.id);
+      if (log) {
+        log.push(evt);
+        // Bound memory: always keep the spawn (index 0) + most recent events.
+        if (log.length > SUBAGENT_LOG_CAP) log.splice(1, log.length - SUBAGENT_LOG_CAP);
+        // Terminal event: stop retaining so only still-running agents replay.
+        if (evt.kind === "result" || evt.kind === "error") liveSubAgentLog.delete(evt.id);
+      }
+    }
     for (const pwc of panelManager.getAllWebContents()) {
       try { pwc.send("subagent:event", evt); } catch { /* noop */ }
     }
   };
+  // Snapshot of every sub-agent still running, as ordered event logs. A Workbench
+  // replays these on mount so its Sub-Agents view attaches to in-flight agents
+  // regardless of whether the window was open when they spawned.
+  if (!ipcMain.listenerCount("subagent:list-running")) {
+    ipcMain.handle("subagent:list-running", () => Array.from(liveSubAgentLog.values()).map((log) => log.slice()));
+  }
 
   // Detached background agents the yo agent spawned via spawn_background. We
   // accumulate each one's streamed transcript (agent_result on the bus only

@@ -47,6 +47,18 @@ interface WbApi {
     description?: string;
     text?: string;
   }) => void) => () => void;
+  getRunningSubAgents: () => Promise<Array<Array<{
+    id: string;
+    kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
+    source?: "task" | "yo-agent";
+    name?: string;
+    description?: string;
+    text?: string;
+    toolId?: string;
+    toolName?: string;
+    toolInput?: unknown;
+    toolOutput?: string;
+  }>>>;
   listDir: (dir: string) => Promise<{ entries: FileEntry[]; error?: string }>;
   readFile: (filePath: string) => Promise<{ content: string; error?: string }>;
   writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1681,7 +1693,28 @@ async function init(): Promise<void> {
   // Sub-agent activity: one workbench-level subscription feeds the shared
   // store + auto-opens the Sub-Agents panel on the first spawn. Per-slot
   // painters (registered in renderSubAgentsIntoSlot) re-render live.
-  window.wb.onSubAgentEvent((evt) => applySubAgentEvent(evt));
+  //
+  // Late-join: if this Workbench window opened AFTER an agent spawned, it never
+  // received that spawn (the broadcast went to no one here), so its events would
+  // all drop at the `i < 0` guard. We fetch a snapshot of still-running agents
+  // and replay it first. To avoid dropping or double-applying events during the
+  // async fetch, live events are queued until replay finishes, then flushed —
+  // and since main builds the snapshot only after this listener is attached,
+  // there is no overlap between snapshot and queued events.
+  let subAgentReplaying = true;
+  const subAgentLiveQueue: Parameters<typeof applySubAgentEvent>[0][] = [];
+  window.wb.onSubAgentEvent((evt) => {
+    if (subAgentReplaying) { subAgentLiveQueue.push(evt); return; }
+    applySubAgentEvent(evt);
+  });
+  void (async () => {
+    try {
+      const running = await window.wb.getRunningSubAgents();
+      for (const events of running) for (const evt of events) applySubAgentEvent(evt);
+    } catch { /* older main without the snapshot handler — degrade to live-only */ }
+    subAgentReplaying = false;
+    for (const evt of subAgentLiveQueue.splice(0)) applySubAgentEvent(evt);
+  })();
 
   window.wb.onCwdChanged((dir) => {
     cwd = dir || "";

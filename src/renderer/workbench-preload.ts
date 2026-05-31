@@ -54,6 +54,22 @@ contextBridge.exposeInMainWorld("wb", {
     ipcRenderer.on("subagent:event", handler);
     return () => { ipcRenderer.removeListener("subagent:event", handler); };
   },
+  /** Snapshot of sub-agents still running, as ordered event logs (each the same
+   *  shape onSubAgentEvent delivers). The Workbench replays these on mount so a
+   *  window opened after an agent spawned still attaches to its live stream. */
+  getRunningSubAgents: () =>
+    ipcRenderer.invoke("subagent:list-running") as Promise<Array<Array<{
+      id: string;
+      kind: "spawn" | "text" | "token" | "tool" | "tool_result" | "result" | "error";
+      source?: "task" | "yo-agent";
+      name?: string;
+      description?: string;
+      text?: string;
+      toolId?: string;
+      toolName?: string;
+      toolInput?: unknown;
+      toolOutput?: string;
+    }>>>,
 
   // Workbench-specific: lazy file tree + file reader + diff.
   listDir: (dir: string) =>
