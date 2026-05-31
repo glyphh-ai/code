@@ -8,10 +8,21 @@
 
 import type { ToolDef } from "../substrate/tools";
 import { getAdal } from "./index";
+import { adalEnabled, ADAL_DISABLED_MESSAGE } from "./gate";
 
 export const ADAL_TOOL_PREFIX = "adaL_";
 
-export const ADAL_TOOLS: ToolDef[] = [
+/** Refuse cleanly when the account isn't entitled to adaL, rather than touching
+ *  the substrate. Applied to every adaL_* tool below. */
+function gated(tool: ToolDef): ToolDef {
+  const run = tool.run;
+  return {
+    ...tool,
+    run: async (input) => (adalEnabled() ? run(input) : ADAL_DISABLED_MESSAGE),
+  };
+}
+
+const ADAL_TOOL_DEFS: ToolDef[] = [
   {
     name: "adaL_think",
     namespace: "yo",
@@ -152,3 +163,5 @@ export const ADAL_TOOLS: ToolDef[] = [
     },
   },
 ];
+
+export const ADAL_TOOLS: ToolDef[] = ADAL_TOOL_DEFS.map(gated);

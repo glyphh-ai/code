@@ -13,6 +13,7 @@
  */
 
 import { getAdal } from "./index";
+import { adalEnabled, ADAL_DISABLED_MESSAGE } from "./gate";
 
 const PROMPT = "\x1b[36madaL\x1b[0m \x1b[90m›\x1b[0m ";
 const NL = "\r\n";
@@ -99,6 +100,12 @@ export class AdalRepl {
   }
 
   private async dispatch(input: string): Promise<string> {
+    // /help and /clear are inert (no substrate touch); everything else requires
+    // an active adaL entitlement.
+    const lower = input.trim().toLowerCase();
+    if (lower !== "/help" && lower !== "/clear" && !adalEnabled()) {
+      return ADAL_DISABLED_MESSAGE;
+    }
     const adal = getAdal();
     if (!input.startsWith("/")) {
       // Bare text → associative recall.

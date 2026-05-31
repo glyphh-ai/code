@@ -46,6 +46,7 @@ import type { NoteStore } from "./note-store";
 import { getAgentMode, gate } from "./action-gate";
 import type { AgentMode } from "./action-gate";
 import { getAdal } from "./adal";
+import { adalEnabled } from "./adal/gate";
 import { getPreference } from "./preferences";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
@@ -484,8 +485,10 @@ export class YoAgent {
     // generates against remembered context. Never hard-fails the turn.
     let groundedContext = "";
     try {
-      const act = getAdal().think(message);
-      if (act.thoughts.length > 0) groundedContext = act.groundedContext;
+      if (adalEnabled()) {
+        const act = getAdal().think(message);
+        if (act.thoughts.length > 0) groundedContext = act.groundedContext;
+      }
     } catch (err: any) {
       console.warn("[adaL] think failed:", err?.message || err);
     }
@@ -811,9 +814,11 @@ export class YoAgent {
       // Enrichment / fact-extraction is rerouted through yo's LLM in Phase 3;
       // for now we persist the raw turn text. Never hard-fails the turn.
       try {
-        const adal = getAdal();
-        if (message.trim()) adal.tell(message.trim(), "incoming");
-        if (fullText.trim()) adal.tell(fullText.trim(), "outgoing");
+        if (adalEnabled()) {
+          const adal = getAdal();
+          if (message.trim()) adal.tell(message.trim(), "incoming");
+          if (fullText.trim()) adal.tell(fullText.trim(), "outgoing");
+        }
       } catch (err: any) {
         console.warn("[adaL] tell failed:", err?.message || err);
       }

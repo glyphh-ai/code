@@ -688,6 +688,8 @@ export class CommandParser {
   //   .ada schema            → substrate summary
   private handleAda(args: string[]): string {
     // Lazy require so non-adaL command-bar paths don't pull the substrate in.
+    const { adalEnabled, ADAL_DISABLED_MESSAGE } = require("./adal/gate") as typeof import("./adal/gate");
+    if (!adalEnabled()) return ADAL_DISABLED_MESSAGE;
     const { getAdal } = require("./adal") as typeof import("./adal");
     const adal = getAdal();
     const SUBS = new Set(["think", "ask", "tell", "history", "drift", "schema"]);

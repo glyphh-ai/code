@@ -16,6 +16,7 @@ import { ThoughtGlyphEncoder } from "./thought/encoder";
 import { enrichFact, heuristicEnrich, renderAnswer, type StructuredFact } from "./llm";
 import { GlyphDreamLoop } from "./dream";
 import type { SerInsight } from "./dream/protocol";
+import { adalEnabled } from "./gate";
 
 export interface AdalThought {
   id: string;
@@ -55,9 +56,10 @@ export class Adal {
     return this.space.count;
   }
 
-  /** Begin the background dream loop. Safe to call repeatedly (idempotent) and a
-   *  no-op when worker_threads are unavailable. */
+  /** Begin the background dream loop. Safe to call repeatedly (idempotent), a
+   *  no-op when worker_threads are unavailable, and gated on adaL entitlement. */
   startDream(): void {
+    if (!adalEnabled()) return;
     this.dream.start();
   }
 
