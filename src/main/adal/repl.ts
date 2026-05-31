@@ -22,6 +22,7 @@ const HELP = [
   "",
   "  /think <text>      associative recall (grounded constellation)",
   "  /ask <question>    targeted retrieval (honest refusal if unsure)",
+  "  /answer <question> LLM-rendered grounded answer (yo's LLM)",
   "  /tell <text>       absorb a fact",
   "  /tell_raw <text>   absorb verbatim (no enrichment)",
   "  /history <key>     version chain for a keyed concept",
@@ -91,18 +92,13 @@ export class AdalRepl {
       return;
     }
     this.busy = true;
-    let out = "";
-    try {
-      out = this.dispatch(input);
-    } catch (err: any) {
-      out = `\x1b[31merror:\x1b[0m ${err?.message || String(err)}`;
-    }
-    if (out) this.write(out.replace(/\n/g, NL) + NL);
-    this.busy = false;
-    this.prompt();
+    this.dispatch(input)
+      .then((out) => { if (out) this.write(out.replace(/\n/g, NL) + NL); })
+      .catch((err: any) => { this.write(`\x1b[31merror:\x1b[0m ${err?.message || String(err)}` + NL); })
+      .finally(() => { this.busy = false; this.prompt(); });
   }
 
-  private dispatch(input: string): string {
+  private async dispatch(input: string): Promise<string> {
     const adal = getAdal();
     if (!input.startsWith("/")) {
       // Bare text → associative recall.
@@ -130,6 +126,11 @@ export class AdalRepl {
         return a.refused
           ? `I don't know. (confidence ${a.confidence.toFixed(2)})`
           : `${a.answer}\n(confidence ${a.confidence.toFixed(2)})`;
+      }
+      case "/answer": {
+        if (!arg) return "usage: /answer <question>";
+        const a = await adal.answer(arg);
+        return a.refused ? "I don't know." : a.answer;
       }
       case "/tell": {
         if (!arg) return "usage: /tell <text>";

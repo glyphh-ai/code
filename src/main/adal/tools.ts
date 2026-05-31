@@ -49,6 +49,23 @@ export const ADAL_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "adaL_answer",
+    namespace: "yo",
+    description:
+      "adaL grounded answer. Recalls substrate context for a question, then renders a concise natural-language answer using ONLY recalled memories (or honest refusal). Use when you want a phrased answer rather than raw recalled facts.",
+    input_schema: {
+      type: "object",
+      properties: { question: { type: "string", description: "The question to answer from the substrate" } },
+      required: ["question"],
+    },
+    async run(input) {
+      const q = String(input.question || "").trim();
+      if (!q) return "No question provided.";
+      const a = await getAdal().answer(q);
+      return a.refused ? "I don't know." : a.answer;
+    },
+  },
+  {
     name: "adaL_tell",
     namespace: "yo",
     description:

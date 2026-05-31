@@ -5,13 +5,15 @@
  * retrieval with honest refusal) plus the write path (tell). This is the single
  * entrypoint the agent loop, the adaL_* tools, and the REPL all call.
  *
- * `tell` currently stores via plain absorb (no LLM enrichment — that seam is
- * rerouted into yo's LLM in Phase 3). think/ask ride on the substrate's
- * content-cosine recall.
+ * `tell` attaches an offline heuristic structure parse to the stored row's
+ * metadata. `tellSmart` and `answer` reach into yo's LLM (sdkComplete) for the
+ * richer enrich / render seams ported from ada, degrading gracefully when the
+ * LLM is unavailable. think/ask ride on the substrate's content-cosine recall.
  */
 
 import { ThoughtGlyphSpace, ThoughtStore, Speaker } from "./thought/space";
 import { ThoughtGlyphEncoder } from "./thought/encoder";
+import { enrichFact, heuristicEnrich, renderAnswer, type StructuredFact } from "./llm";
 
 export interface AdalThought {
   id: string;
@@ -85,15 +87,47 @@ export class Adal {
     };
   }
 
-  /** Absorb a fact into the substrate. Returns the stored id, or null if dup. */
+  /** Absorb a fact into the substrate. Returns the stored id, or null if dup.
+   *  Attaches an offline heuristic structure parse to metadata — inert for the
+   *  content-cosine recall path, but persisted for introspection and the LLM
+   *  seams. Use `tellSmart` for LLM-grade structure. */
   tell(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
+    const structured = heuristicEnrich(text);
+    const stored = this.space.absorb(text, speaker, this.factMetadata(structured), key);
+    return stored ? stored.thoughtId : null;
+  }
+
+  /** Raw ingestion — no enrichment, no structure metadata. */
+  tellRaw(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
     const stored = this.space.absorb(text, speaker, {}, key);
     return stored ? stored.thoughtId : null;
   }
 
-  /** Raw ingestion — identical to tell until the enricher seam lands (Phase 3). */
-  tellRaw(text: string, speaker: Speaker = "incoming", key: string | null = null): string | null {
-    return this.tell(text, speaker, key);
+  /** LLM-enriched ingestion (ada's HaikuEnricher/UniversalEnricher seam, routed
+   *  through yo's LLM). Falls back to heuristic structure on LLM failure. */
+  async tellSmart(text: string, speaker: Speaker = "incoming", key: string | null = null): Promise<string | null> {
+    const structured = await enrichFact(text);
+    const stored = this.space.absorb(text, speaker, this.factMetadata(structured), key);
+    return stored ? stored.thoughtId : null;
+  }
+
+  /** Grounded natural-language answer (ada's generate.py renderer seam). Recalls
+   *  context, then renders via yo's LLM; falls back to the top recalled fact
+   *  (or honest refusal) when the LLM is unavailable. */
+  async answer(question: string, topK = 5): Promise<{ answer: string; refused: boolean; rendered: boolean }> {
+    const results = this.space.recall(question, topK);
+    if (results.length === 0 || results[0].similarity < this.minConfidence) {
+      return { answer: "I don't know.", refused: true, rendered: false };
+    }
+    const context = this.space.formatRecall(results, topK);
+    const rendered = await renderAnswer(context, question);
+    if (rendered) return { answer: rendered, refused: false, rendered: true };
+    return { answer: results[0].thought.content, refused: false, rendered: false };
+  }
+
+  private factMetadata(f: StructuredFact): Record<string, unknown> {
+    if (!f.subject && !f.predicate && !f.object) return {};
+    return { structured: { subject: f.subject, predicate: f.predicate, object: f.object, topic: f.topic } };
   }
 
   history(key: string): Array<{ version: number | null; content: string }> {
