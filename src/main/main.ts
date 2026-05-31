@@ -1549,6 +1549,7 @@ async function boot() {
     browserHtmlUrl,
     execCommand,
     swarmCreate: runSwarm,
+    spawnBackground: runBackground,
     agentRegistry: {
       list: () => listAgents().map((a) => ({
         id: a.id,
@@ -1727,6 +1728,13 @@ async function boot() {
     }
   };
 
+  // Detached background agents the yo agent spawned via spawn_background. We
+  // accumulate each one's streamed transcript (agent_result on the bus only
+  // carries a "completed N turns" summary, not the agent's actual output), and
+  // when it finishes we hand that transcript back to the yo conversation as a
+  // follow-up turn so the agent can act on the result. Keyed by agent id.
+  const backgroundSpawns = new Map<string, { name: string; transcript: string }>();
+
   // Render a bus event as a one-line transcript fragment for the Sub-Agents
   // panel. Mirrors the inline feed's vocabulary (thinking / tool / status /
   // coordination) but flattened to plain text since the panel streams a
@@ -1784,13 +1792,30 @@ async function boot() {
     // SDK's forwardSubagentText only covers the native Task tool.
     if (event.from) {
       const subId = `swarm:${event.from}`;
+      const bg = backgroundSpawns.get(event.from);
       if (event.kind === "agent_result") {
         broadcastSubAgent({ id: subId, kind: "result", text: busEventToTranscript(event) || undefined });
+        if (bg) {
+          backgroundSpawns.delete(event.from);
+          const summary = bg.transcript.trim().slice(-6000) || "(the agent produced no text output)";
+          mainWindow?.webContents.send("yo-panel-background-result", {
+            id: event.from, name: bg.name, ok: true, text: summary,
+          });
+        }
       } else if (event.kind === "agent_error") {
         broadcastSubAgent({ id: subId, kind: "error", text: event.body || undefined });
+        if (bg) {
+          backgroundSpawns.delete(event.from);
+          mainWindow?.webContents.send("yo-panel-background-result", {
+            id: event.from, name: bg.name, ok: false, text: event.body || "the agent failed",
+          });
+        }
       } else {
         const frag = busEventToTranscript(event);
-        if (frag) broadcastSubAgent({ id: subId, kind: "token", text: frag });
+        if (frag) {
+          broadcastSubAgent({ id: subId, kind: "token", text: frag });
+          if (bg) bg.transcript += frag;
+        }
       }
     }
     // Persist into the active chat record so the thread restores in full.
@@ -2684,7 +2709,7 @@ async function boot() {
   });
 
   // ── Local swarm session (cypher-session.ts) ──────────────────────
-  const { spawnSwarm } = createCypherSession({
+  const { spawnSwarm, spawnEphemeral } = createCypherSession({
     agentRunner,
     workspaceManager,
     mcpExpose: mcpExpose!,
@@ -2762,6 +2787,40 @@ async function boot() {
   }
 
   mcpExpose!.setSwarmRunner(runSwarm);
+
+  // runBackground — the spawn_background substrate tool. Launches ONE detached
+  // ephemeral agent (not from the library), returns immediately, and registers
+  // it for result hand-back so the yo agent hears back when it finishes.
+  async function runBackground(prompt: string, role?: string): Promise<string> {
+    const p = (prompt || "").trim();
+    if (!p) return "A prompt (the task) is required.";
+    if (!mainWindow || mainWindow.isDestroyed()) return "Workspace window unavailable.";
+    const id = `bg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const name = (role || "").trim() || "helper";
+    // Share the .yo project folder — make sure CLAUDE.md + MCP config exist
+    // before the agent starts (same prep runSwarm does).
+    const ws = workspaceManager.getActive();
+    try { ensureProjectClaudeMd(ws); } catch { /* best-effort */ }
+    if (mcpExpose?.isRunning) {
+      const mcpUrl = `http://127.0.0.1:${mcpExpose.getPort()}/mcp`;
+      const tokens = mcpExpose.getTokens();
+      const token = tokens.length > 0 ? tokens[0].token : mcpExpose.generateToken("workspace-agent").token;
+      try { ensureProjectMcpJson(ws, mcpUrl, token); } catch { /* best-effort */ }
+    }
+    // Spawn the Sub-Agents panel tab (keyed `swarm:<id>` to match the bus
+    // activity routed in cypherBus.onPost) and register for hand-back.
+    broadcastSubAgent({ id: `swarm:${id}`, kind: "spawn", source: "yo-agent", name, description: p });
+    backgroundSpawns.set(id, { name, transcript: "" });
+    const res = await spawnEphemeral(mainWindow.webContents, { id, role, prompt: p });
+    if (!res.ok) {
+      backgroundSpawns.delete(id);
+      broadcastSubAgent({ id: `swarm:${id}`, kind: "error", text: res.error || "failed to start" });
+      return `Background agent failed to start: ${res.error || "unknown error"}`;
+    }
+    return `Background agent "${name}" started (id ${id}). It runs detached — its activity streams into the `
+      + `Sub-Agents panel and its result is handed back to you as a new message when it finishes. Tell the user `
+      + `it's running; do not poll for it or claim to watch a panel yourself.`;
+  }
 
   ipcMain.handle("cypher-thread-load-agent", (_e, cypherId: string, agentName: string) => {
     return threadStore.loadAgent(cypherId, agentName);

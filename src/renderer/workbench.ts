@@ -104,6 +104,7 @@ interface SubAgentEntry {
   el: HTMLElement;                   // persistent ChatRenderer container
   chat: ChatRenderer;                // drives el from structured events
   gotContent: boolean;               // any text/tool seen (dedup result text)
+  promptShown: boolean;              // prompt rendered as the first chat turn
   status: "running" | "done" | "error";
   startedAt: number;
 }
@@ -303,9 +304,15 @@ async function init(): Promise<void> {
     let i = subAgentStore.findIndex((a) => a.id === evt.id);
     if (evt.kind === "spawn") {
       if (i >= 0) {
-        subAgentStore[i].description = evt.description || subAgentStore[i].description;
-        subAgentStore[i].status = "running";
-        subAgentStore[i].chat.showWorking();
+        const e = subAgentStore[i];
+        e.description = evt.description || e.description;
+        e.status = "running";
+        // Seed the prompt as the first turn if it only arrived now.
+        if (!e.promptShown && e.description) {
+          e.chat.addUserTurn(e.description);
+          e.promptShown = true;
+        }
+        e.chat.beginAssistantTurn();         // idempotent: reopens turn / spinner
       } else {
         // Build a detached ChatRenderer for this agent. It streams whether or
         // not a slot is mounted (the spinner/observer run on the detached el),
@@ -313,6 +320,9 @@ async function init(): Promise<void> {
         const el = document.createElement("div");
         el.className = "ws-subagents-chat";
         const chat = new ChatRenderer(el);
+        // Render the prompt as the first turn so it lives in the single chat
+        // scroll region (no separate description box / second scrollbar).
+        if (evt.description) chat.addUserTurn(evt.description);
         chat.beginAssistantTurn();           // shows the braille working spinner
         subAgentStore.push({
           id: evt.id,
@@ -322,6 +332,7 @@ async function init(): Promise<void> {
           el,
           chat,
           gotContent: false,
+          promptShown: !!evt.description,
           status: "running",
           startedAt: Date.now(),
         });
@@ -1326,16 +1337,15 @@ async function init(): Promise<void> {
       // mutated directly by applySubAgentEvent — so we never wipe it here; we
       // just move it into this slot's host. (If two Sub-Agents slots are open,
       // the most-recently-painted one holds the live node.)
+      // Meta header (fixed) + a single chat scroll region. The prompt is the
+      // first turn inside the chat, so there's no separate scrolling box.
       bodyEl.innerHTML = `
         <div class="ws-subagents-meta">
           <span class="ws-subagents-source">${active.source === "task" ? "Task tool" : "yo://agent"}</span>
           <span class="ws-subagents-status status-${active.status}">${active.status}</span>
         </div>
-        ${active.description ? `<div class="ws-subagents-desc"></div>` : ""}
         <div class="ws-subagents-chat-host"></div>
       `;
-      const descEl = bodyEl.querySelector(".ws-subagents-desc") as HTMLElement | null;
-      if (descEl && active.description) descEl.textContent = active.description;
       const host = bodyEl.querySelector(".ws-subagents-chat-host") as HTMLElement;
       host.appendChild(active.el);
       active.chat.scrollToBottom();

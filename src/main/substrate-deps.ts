@@ -45,6 +45,8 @@ export interface BuildSubstrateDepsArgs {
 
   // Local swarm — draft + spawn (returns a text status for the yo agent).
   swarmCreate: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+  // Detached ephemeral background agent (returns a text status immediately).
+  spawnBackground: (prompt: string, role?: string) => Promise<string>;
 }
 
 // ── Builder ─────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     browserHtmlUrl,
     execCommand,
     swarmCreate,
+    spawnBackground,
     agentRegistry,
   } = deps;
 
@@ -331,6 +334,7 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
     },
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),
+      spawnBackground: (prompt: string, role?: string) => spawnBackground(prompt, role),
     },
     agentRegistry,
   };

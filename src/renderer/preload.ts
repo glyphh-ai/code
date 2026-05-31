@@ -349,6 +349,11 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelDone: (cb: (fullText: string) => void) => {
     ipcRenderer.on("yo-panel-done", (_e, text) => cb(text));
   },
+  // A detached background agent (spawn_background) finished — its result is
+  // handed back to the yo conversation as a follow-up turn.
+  onYoPanelBackgroundResult: (cb: (r: { id: string; name: string; ok: boolean; text: string }) => void) => {
+    ipcRenderer.on("yo-panel-background-result", (_e, r) => cb(r));
+  },
   onYoPanelError: (cb: (err: string) => void) => {
     ipcRenderer.on("yo-panel-error", (_e, err) => cb(err));
   },

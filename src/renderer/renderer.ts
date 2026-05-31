@@ -248,6 +248,7 @@ declare global {
       onYoPanelToolResult: (cb: (id: string, detail: string) => void) => void;
       onYoPanelToolProgress: (cb: (id: string, status: string) => void) => void;
       onYoPanelDone: (cb: (fullText: string) => void) => void;
+      onYoPanelBackgroundResult: (cb: (r: { id: string; name: string; ok: boolean; text: string }) => void) => void;
       onYoPanelError: (cb: (err: string) => void) => void;
       onYoPanelClose: (cb: () => void) => void;
       onYoPanelRefocus: (cb: () => void) => void;

@@ -98,6 +98,8 @@ export interface SubstrateToolDeps {
   swarm?: {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
     create: (goal: string, agentIds?: string[], size?: number) => Promise<string>;
+    /** Spawn one detached ephemeral background agent. Returns immediately. */
+    spawnBackground?: (prompt: string, role?: string) => Promise<string>;
   };
   /** User-created agent registry — surfaced as list_agents + call_agent
    *  so the .yo loop can delegate to a named agent without committing to a
@@ -1523,11 +1525,41 @@ const BUILTIN_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "spawn_background",
+    namespace: "yo",
+    description: "Spawn ONE detached, ad-hoc background agent to handle a task without blocking the user. "
+      + "Use this when the work is long-running or independent and the user shouldn't wait, or when you want to "
+      + "keep helping with other things while it runs. Unlike the in-turn Task tool (which blocks your current turn "
+      + "until it returns), this returns IMMEDIATELY: the agent runs the full agent loop with tools, its activity "
+      + "streams into the Sub-Agents panel, and when it finishes its result is handed back to you as a new message "
+      + "so you can follow up. Use call_agent instead to delegate to one of the user's SAVED library agents, or "
+      + "create_swarm for a multi-agent team. Use the in-turn Task tool only when you need the result to finish the "
+      + "very response you're writing right now.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "The full task for the background agent, in plain language. It should be self-contained — the agent has no other context." },
+        role: { type: "string", description: "Optional short label for the agent (e.g. \"researcher\", \"test-runner\"), shown in the Sub-Agents panel." },
+      },
+      required: ["prompt"],
+    },
+    run: async (input) => {
+      if (!deps.swarm?.spawnBackground) return "Background agent runner not wired.";
+      const prompt = String(input.prompt || "").trim();
+      if (!prompt) return "prompt is required.";
+      const role = input.role != null ? String(input.role).trim() : undefined;
+      return deps.swarm.spawnBackground(prompt, role || undefined);
+    },
+  },
+  {
     name: "call_agent",
     namespace: "yo",
     description: "Delegate a single task to one of the user's local agents (use list_agents to discover ids). "
-      + "Spawns the named agent with the given prompt; its activity streams inline into this conversation. "
-      + "Prefer this over create_swarm when you only need ONE agent — swarms are for multi-agent collaboration.",
+      + "Runs in the BACKGROUND (detached): returns immediately so you and the user are NOT blocked, the agent's "
+      + "activity streams into the Sub-Agents panel, and its result is handed back to you as a new message when it "
+      + "finishes. Use this for a saved library agent when the work shouldn't block the user. "
+      + "Prefer this over create_swarm when you only need ONE agent — swarms are for multi-agent collaboration. "
+      + "For an ad-hoc (non-library) helper, use spawn_background instead.",
     input_schema: {
       type: "object",
       properties: {
@@ -1562,6 +1594,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
       + "the others execute and report back. Pass specific agent ids from the Agents "
       + "library, or a `size` to auto-pick that many. This is the tool for any "
       + "\"create a swarm / spin up N agents to do X / convene a team to debate X\" request. "
+      + "Runs in the BACKGROUND (detached): returns immediately so you and the user are NOT blocked. "
       + "The swarm's activity streams inline into this conversation — there is no separate "
       + "swarm panel, so don't tell the user to open or watch one.",
     input_schema: {

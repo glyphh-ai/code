@@ -8,6 +8,7 @@
  */
 
 import { brandForModel, logoUrlFor } from "./model-badges.js";
+import { renderMarkdown } from "./chat-renderer/markdown.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -667,7 +668,7 @@ async function loadChatById(id: string): Promise<void> {
     } else {
       if (!msg.text) continue;
       el.className = "yo-msg yo-msg-assistant";
-      el.textContent = msg.text;
+      renderMarkdown(msg.text, el);
     }
     yoPanelMessages.appendChild(el);
   }
@@ -1121,6 +1122,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   // "Actioning…"). Phase rows append inline once per turn; tokens stream
   // into a single assistant div per turn.
   let assistantEl: HTMLDivElement | null = null;
+  let assistantBuf = "";
   let thinkingShown = false;
   let actioningShown = false;
 
@@ -1146,9 +1148,13 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     if (!assistantEl) {
       assistantEl = document.createElement("div");
       assistantEl.className = "yo-msg yo-msg-assistant";
+      assistantBuf = "";
       yoPanelMessages.appendChild(assistantEl);
     }
-    assistantEl.textContent = (assistantEl.textContent || "") + delta;
+    assistantBuf += delta;
+    // Re-render the whole buffer as markdown each token. renderMarkdown diffs
+    // against the last HTML and skips the DOM swap when nothing changed.
+    renderMarkdown(assistantBuf, assistantEl);
     yoScroll();
   });
   window.yo.onYoPanelToolUse(() => {
@@ -1158,6 +1164,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   });
   window.yo.onYoPanelDone(() => {
     assistantEl = null;
+    assistantBuf = "";
     thinkingShown = false;
     actioningShown = false;
     clearYoStatus();
@@ -1174,6 +1181,25 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     yoPanelInput.setSelectionRange(text.length, text.length);
   });
   window.yo.onYoPanelLoadChat((id) => { void loadChatById(id); });
+
+  // A background sub-agent finished. Hand its result back to the yo agent as a
+  // follow-up turn. We route through the same pending-message queue used for
+  // user follow-ups so it serializes cleanly with any in-flight turn instead of
+  // racing the SDK loop.
+  window.yo.onYoPanelBackgroundResult((r) => {
+    const header = r.ok
+      ? `[Background agent "${r.name}" finished]`
+      : `[Background agent "${r.name}" failed]`;
+    const framed = `${header}\n\n${r.text}`;
+    if (yoThinking) {
+      pendingYoMessages.push(framed);
+      return;
+    }
+    (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
+    showYoStatus("");
+    setYoThinking(true);
+    window.yo.yoPanelSend(framed);
+  });
 
   // Swarm rendering removed.
   // -- Send/stop button --

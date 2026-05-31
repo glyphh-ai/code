@@ -100,14 +100,66 @@ export function renderMarkdownHtml(text: string): string {
       continue;
     }
 
-    // unordered list
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        items.push(`<li>${inline(lines[i].replace(/^\s*[-*+]\s+/, ""))}</li>`);
+    // GFM table — header row, then a delimiter row (|---|:--:|), then body
+    if (
+      line.includes("|") &&
+      i + 1 < lines.length &&
+      /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/.test(lines[i + 1])
+    ) {
+      const cells = (row: string): string[] => {
+        let r = row.trim();
+        if (r.startsWith("|")) r = r.slice(1);
+        if (r.endsWith("|")) r = r.slice(0, -1);
+        return r.split("|").map((c) => c.trim());
+      };
+      const headers = cells(line);
+      const aligns = cells(lines[i + 1]).map((c) => {
+        const l = c.startsWith(":");
+        const r = c.endsWith(":");
+        return l && r ? "center" : r ? "right" : l ? "left" : "";
+      });
+      const at = (idx: number) => (aligns[idx] ? ` style="text-align:${aligns[idx]}"` : "");
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        rows.push(cells(lines[i]));
         i++;
       }
-      out.push(`<ul>${items.join("")}</ul>`);
+      const thead = `<thead><tr>${headers
+        .map((h, idx) => `<th${at(idx)}>${inline(h)}</th>`)
+        .join("")}</tr></thead>`;
+      const tbody = `<tbody>${rows
+        .map(
+          (row) =>
+            `<tr>${headers
+              .map((_, idx) => `<td${at(idx)}>${inline(row[idx] ?? "")}</td>`)
+              .join("")}</tr>`,
+        )
+        .join("")}</tbody>`;
+      out.push(`<table>${thead}${tbody}</table>`);
+      continue;
+    }
+
+    // unordered list (incl. GFM task-list checkboxes: `- [ ]` / `- [x]`)
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items: string[] = [];
+      let hasTask = false;
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        const content = lines[i].replace(/^\s*[-*+]\s+/, "");
+        const task = content.match(/^\[([ xX])\]\s+(.*)$/);
+        if (task) {
+          hasTask = true;
+          const checked = task[1].toLowerCase() === "x" ? " checked" : "";
+          items.push(
+            `<li class="task-list-item"><input type="checkbox" disabled${checked}>${inline(task[2])}</li>`,
+          );
+        } else {
+          items.push(`<li>${inline(content)}</li>`);
+        }
+        i++;
+      }
+      const cls = hasTask ? ' class="contains-task-list"' : "";
+      out.push(`<ul${cls}>${items.join("")}</ul>`);
       continue;
     }
 

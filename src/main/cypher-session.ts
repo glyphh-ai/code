@@ -277,5 +277,74 @@ export function createCypherSession(deps: CypherSessionDeps) {
     return { ok: true, spawned, skipped };
   }
 
-  return { spawnSwarm };
+  /**
+   * Spawn ONE detached ephemeral agent (not from the registry) on the
+   * AgentRunner. Same machinery as a one-member swarm, but the agent is
+   * ad-hoc: a generic background helper given a single task. It runs the full
+   * agent loop (tools + workspace MCP), streams its activity onto the bus
+   * (so it shows in the Sub-Agents panel), and posts agent_result on finish.
+   * Returns as soon as it's launched — the caller does not block on it.
+   */
+  async function spawnEphemeral(
+    wc: WebContents,
+    opts: { id: string; role?: string; prompt: string },
+  ): Promise<{ ok: boolean; error?: string }> {
+    const prompt = (opts.prompt || "").trim();
+    if (!prompt) return { ok: false, error: "A prompt is required." };
+
+    const active = workspaceManager.getActive();
+    const wsSlug = active.slug;
+    const cwd = active.rootDir;
+
+    // Local yo-workspace MCP wiring so the helper has the coordination toolkit.
+    const mcpUrl = mcpExpose?.isRunning ? `http://127.0.0.1:${mcpExpose.getPort()}/mcp` : null;
+    let mcpToken: string | undefined;
+    if (mcpUrl && mcpExpose) {
+      const toks = mcpExpose.getTokens();
+      mcpToken = toks.length > 0 ? toks[0].token : mcpExpose.generateToken("bg").token;
+    }
+
+    const system = [
+      `# BACKGROUND AGENT: ${opts.id}`,
+      opts.role ? `Role: ${opts.role}` : "",
+      ``,
+      `You are an autonomous background helper spawned by the user's main assistant to handle ONE task without blocking the user.`,
+      `Do exactly the task you are given, using your tools as needed. When you finish, end your final message with a concise, self-contained summary of what you found or did — that summary is handed back to the main assistant, so it must stand on its own.`,
+    ].filter(Boolean).join("\n");
+
+    const config: RunnerAgentConfig = {
+      name: opts.id,
+      role: opts.role || "background",
+      cwd,
+      prompt: system,
+      startPrompt: prompt,
+      workspace: wsSlug,
+      swarm: true,
+      ...(mcpUrl && mcpToken ? {
+        mcpServers: {
+          "yo-workspace": {
+            type: "http",
+            url: mcpUrl,
+            headers: {
+              "X-Yo-Agent": opts.id,
+              "X-Yo-Workspace": wsSlug,
+              "Authorization": `Bearer ${mcpToken}`,
+            },
+          },
+        },
+      } : {}),
+    };
+
+    try {
+      // Fire-and-forget: start the loop, return immediately. Failures surface
+      // on the bus as agent_error (and to the console here).
+      agentRunner.startAgent(wc, config).catch((e) =>
+        console.error(`[spawn-ephemeral] ${opts.id} start failed:`, e instanceof Error ? e.message : e));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  return { spawnSwarm, spawnEphemeral };
 }

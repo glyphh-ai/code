@@ -108,6 +108,26 @@ RULES:
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
+// Appended to every yo-agent turn. Teaches the model that delegation has two
+// modes — in-turn (blocking) vs detached (non-blocking) — and when to pick
+// each. Without this the model defaults to the in-turn Task tool for
+// everything, so the user is blocked even on long, independent work.
+const DELEGATION_GUIDANCE = `# Delegating to sub-agents — foreground vs background
+
+You can delegate work two ways. Choose deliberately:
+
+FOREGROUND (in-turn) — the \`Task\` tool.
+- Runs the sub-agent INSIDE your current turn; you are blocked until it returns.
+- Its result comes straight back to you as the tool result, so you can reason over it and keep going in the same turn.
+- Use when you NEED the output to continue (research you must synthesize, a sub-task whose answer shapes your next step) AND it's short enough that the user waiting is fine.
+
+BACKGROUND (detached) — \`spawn_background\` (one ephemeral agent), \`call_agent\` (one of the user's saved agents), or \`create_swarm\` (a team).
+- Launches the agent(s) and returns IMMEDIATELY with a "started" acknowledgement; your turn finishes right away so the user can keep chatting.
+- Their live activity streams into the Workbench Sub-Agents panel. When a background agent finishes, its result is delivered back to you as a new message so you can follow up.
+- Use when the work is long-running or independent, when the user shouldn't be blocked, or when you can keep helping with other things while it runs.
+
+Default to BACKGROUND for anything that will take a while or that the user doesn't need answered before they continue. Use FOREGROUND only when the sub-agent's output is required to finish the very response you're writing. Do not block the user on long delegations.`;
+
 export interface ChatSummary {
   id: string;
   title: string;
@@ -846,14 +866,16 @@ export class YoAgent {
   // ── System prompt builder ────────────────────���─────────
 
   private buildSystemPrompt(): { type: "preset"; preset: "claude_code"; append?: string } {
-    // Stock Claude Code behavior. The only thing we ever append is the
-    // context-recovery block when resuming a chat without a live SDK session
-    // — without it the model has zero memory of prior turns in this thread.
+    // Stock Claude Code behavior plus our delegation guidance (foreground vs
+    // background sub-agents). On a resumed chat without a live SDK session we
+    // also append context recovery — without it the model has zero memory of
+    // prior turns in this thread.
+    const parts: string[] = [DELEGATION_GUIDANCE];
     if (this.chatId && !this.sessionId) {
       const context = this.buildContextRecovery();
-      if (context) return { type: "preset", preset: "claude_code", append: context };
+      if (context) parts.push(context);
     }
-    return { type: "preset", preset: "claude_code" };
+    return { type: "preset", preset: "claude_code", append: parts.join("\n\n") };
   }
 
   private buildContextRecovery(): string | null {
