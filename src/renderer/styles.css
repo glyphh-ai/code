@@ -3090,6 +3090,42 @@ ol.docs-list li::before {
 .dash-split-col .crud-inline-form { padding: 0; }
 .dash-split-col .crud-inline-header { margin-bottom: 10px; }
 
+/* adaL hero — full-width primary memory tier above the split columns */
+.dash-adal-hero {
+  background: var(--surface); border: 1px solid rgba(37, 199, 94, 0.27); border-radius: 10px;
+  padding: 18px; margin-bottom: 16px;
+}
+.dash-adal-hero-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.dash-adal-hero-title { font-size: 14px; font-weight: 600; color: var(--accent); letter-spacing: 0.3px; }
+.dash-adal-hero-sub { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.dash-adal-hero-body { display: grid; grid-template-columns: 240px 1fr; gap: 18px; align-items: center; }
+.dash-adal-stats { display: flex; flex-direction: column; gap: 12px; }
+.dash-adal-stats .dash-stat-item { flex-direction: row; align-items: baseline; gap: 8px; justify-content: space-between; }
+.dash-adal-chart-box { height: 180px; position: relative; }
+
+/* Dashboard data triggers — subheads that open a modal */
+.dash-data-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dash-data-trigger .action-btn { font-size: 11px; padding: 3px 10px; }
+
+/* Dashboard modals — keep the data lists out of the main view */
+.dash-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; }
+.dash-modal.hidden { display: none; }
+.dash-modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); }
+.dash-modal-panel {
+  position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  width: min(760px, 92vw); max-height: 86vh; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.dash-modal-head {
+  display: flex; align-items: center; gap: 10px; padding: 14px 18px;
+  border-bottom: 1px solid var(--border); flex: 0 0 auto;
+}
+.dash-modal-title {
+  font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px;
+}
+.dash-modal-x { margin-left: auto; font-size: 14px; line-height: 1; padding: 4px 8px; }
+.dash-modal-body { padding: 16px 18px; overflow-y: auto; flex: 1 1 auto; }
+
 .pagination-bar {
   display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0;
 }

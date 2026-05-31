@@ -90,6 +90,32 @@
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
 
+          <!-- adaL Substrate — primary memory tier, spans the full width above both columns -->
+          <div class="dash-adal-hero">
+            <div class="dash-adal-hero-head">
+              <div class="dash-adal-hero-title">adaL Substrate</div>
+              <span class="dash-adal-hero-sub">primary memory tier</span>
+              <button id="adal-manage-btn" class="action-btn" data-modal-open="adal-modal" style="margin-left:auto;">Manage thoughts</button>
+            </div>
+            <div class="dash-adal-hero-body">
+              <div class="dash-adal-stats">
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num green" id="adal-count">—</div>
+                  <div class="dash-stat-sub">Thoughts</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="adal-facts">—</div>
+                  <div class="dash-stat-sub">Facts</div>
+                </div>
+                <div class="dash-stat-item">
+                  <div class="dash-stat-num" id="adal-episodic">—</div>
+                  <div class="dash-stat-sub">Episodic</div>
+                </div>
+              </div>
+              <div class="dash-adal-chart-box"><canvas id="dash-chart-adal"></canvas></div>
+            </div>
+          </div>
+
           <div class="dash-split-row">
             <!-- Left: Token Metrics (input/output, no yos billing) -->
             <div class="dash-split-col">
@@ -149,25 +175,9 @@
                 </div>
               </div>
 
-              <div class="dash-split-subhead">Prompts</div>
-              <div id="dash-prompts-toolbar" class="crud-toolbar">
-                <input id="dash-prompts-search" type="text" class="crud-search" placeholder="Search prompts..." spellcheck="false" autocomplete="off" />
-              </div>
-              <div id="dash-prompts-list" class="crud-cards"></div>
-
-              <div id="dash-prompt-detail" class="crud-inline-form hidden">
-                <div class="crud-inline-header">
-                  <a class="crud-breadcrumb-back" id="dash-prompt-back">&larr; Prompts</a>
-                  <div class="crud-spacer"></div>
-                </div>
-                <div class="dash-prompt-meta-grid" id="dash-prompt-meta"></div>
-                <label class="settings-label" style="margin-top:12px;">Prompt</label>
-                <pre id="dash-prompt-text" class="dash-pre-block"></pre>
-                <label class="settings-label" style="margin-top:12px;">Response</label>
-                <pre id="dash-prompt-response" class="dash-pre-block"></pre>
-                <div class="settings-actions" style="margin-top:12px;">
-                  <button id="dash-prompt-cancel" class="action-btn">Cancel</button>
-                </div>
+              <div class="dash-split-subhead dash-data-trigger">
+                <span>Prompts</span>
+                <button class="action-btn" data-modal-open="dash-prompts-modal">View all</button>
               </div>
             </div>
 
@@ -229,72 +239,102 @@
                 </div>
               </div>
 
-              <div class="dash-split-subhead">Data Store</div>
-              <div id="data-toolbar" class="crud-toolbar">
-                <input id="data-search" type="text" class="crud-search" placeholder="Search captures..." spellcheck="false" autocomplete="off" />
-                <div class="data-clear-group">
-                  <select id="data-clear-select" class="data-clear-select">
-                    <option value="__all__">All sources</option>
-                  </select>
-                  <button id="data-clear-btn" class="action-btn danger">Clear</button>
-                </div>
+              <div class="dash-split-subhead dash-data-trigger">
+                <span>Data Store</span>
+                <button class="action-btn" data-modal-open="data-modal">Browse</button>
               </div>
-              <div id="data-list" class="crud-cards"></div>
+            </div>
+          </div>
 
-              <div id="data-detail" class="crud-inline-form hidden">
-                <div class="crud-inline-header">
-                  <a class="crud-breadcrumb-back" id="data-back-link">&larr; Data Store</a>
-                  <div class="crud-spacer"></div>
-                  <button id="data-delete-btn" class="action-btn danger">Delete</button>
-                </div>
-                <div id="data-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
-                <pre id="data-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
+          <!-- Data sections open in modals to keep the dashboard clean -->
+          <div id="adal-modal" class="dash-modal hidden">
+            <div class="dash-modal-backdrop" data-modal-close="adal-modal"></div>
+            <div class="dash-modal-panel">
+              <div class="dash-modal-head">
+                <span class="dash-modal-title">adaL Thoughts</span>
+                <button class="action-btn dash-modal-x" data-modal-close="adal-modal">✕</button>
               </div>
-
-              <div class="dash-split-subhead">adaL Substrate</div>
-              <div class="dash-stat-row">
-                <div class="dash-stat-card">
-                  <div class="dash-stat-label">Memory</div>
-                  <div class="dash-stat-values">
-                    <div class="dash-stat-item">
-                      <div class="dash-stat-num green" id="adal-count">—</div>
-                      <div class="dash-stat-sub">Thoughts</div>
-                    </div>
-                    <div class="dash-stat-item">
-                      <div class="dash-stat-num" id="adal-facts">—</div>
-                      <div class="dash-stat-sub">Facts</div>
-                    </div>
-                    <div class="dash-stat-item">
-                      <div class="dash-stat-num" id="adal-episodic">—</div>
-                      <div class="dash-stat-sub">Episodic</div>
-                    </div>
+              <div class="dash-modal-body">
+                <div id="adal-toolbar" class="crud-toolbar">
+                  <input id="adal-search" type="text" class="crud-search" placeholder="Search thoughts..." spellcheck="false" autocomplete="off" />
+                </div>
+                <div id="adal-list" class="crud-cards"></div>
+                <div id="adal-detail" class="crud-inline-form hidden">
+                  <div class="crud-inline-header">
+                    <a class="crud-breadcrumb-back" id="adal-back-link">&larr; adaL</a>
+                    <div class="crud-spacer"></div>
+                    <button id="adal-promote-btn" class="action-btn">Promote to fact</button>
+                    <button id="adal-edit-btn" class="action-btn">Edit</button>
+                    <button id="adal-delete-btn" class="action-btn danger">Delete</button>
+                  </div>
+                  <div id="adal-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
+                  <pre id="adal-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
+                  <textarea id="adal-edit-text" class="crud-search hidden" style="width:100%;min-height:120px;resize:vertical;font-family:var(--mono);" spellcheck="false"></textarea>
+                  <div id="adal-edit-actions" class="settings-actions hidden" style="margin-top:8px;">
+                    <button id="adal-edit-save" class="action-btn primary">Save</button>
+                    <button id="adal-edit-cancel" class="action-btn">Cancel</button>
                   </div>
                 </div>
-                <div class="dash-chart-container" style="flex:1;">
-                  <div class="dash-stat-label">Composition</div>
-                  <div class="dash-chart-box"><canvas id="dash-chart-adal"></canvas></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="data-modal" class="dash-modal hidden">
+            <div class="dash-modal-backdrop" data-modal-close="data-modal"></div>
+            <div class="dash-modal-panel">
+              <div class="dash-modal-head">
+                <span class="dash-modal-title">Data Store</span>
+                <button class="action-btn dash-modal-x" data-modal-close="data-modal">✕</button>
+              </div>
+              <div class="dash-modal-body">
+                <div id="data-toolbar" class="crud-toolbar">
+                  <input id="data-search" type="text" class="crud-search" placeholder="Search captures..." spellcheck="false" autocomplete="off" />
+                  <div class="data-clear-group">
+                    <select id="data-clear-select" class="data-clear-select">
+                      <option value="__all__">All sources</option>
+                    </select>
+                    <button id="data-clear-btn" class="action-btn danger">Clear</button>
+                  </div>
+                </div>
+                <div id="data-list" class="crud-cards"></div>
+                <div id="data-detail" class="crud-inline-form hidden">
+                  <div class="crud-inline-header">
+                    <a class="crud-breadcrumb-back" id="data-back-link">&larr; Data Store</a>
+                    <div class="crud-spacer"></div>
+                    <button id="data-delete-btn" class="action-btn danger">Delete</button>
+                  </div>
+                  <div id="data-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
+                  <pre id="data-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
                 </div>
               </div>
+            </div>
+          </div>
 
-              <div id="adal-toolbar" class="crud-toolbar">
-                <input id="adal-search" type="text" class="crud-search" placeholder="Search thoughts..." spellcheck="false" autocomplete="off" />
+          <div id="dash-prompts-modal" class="dash-modal hidden">
+            <div class="dash-modal-backdrop" data-modal-close="dash-prompts-modal"></div>
+            <div class="dash-modal-panel">
+              <div class="dash-modal-head">
+                <span class="dash-modal-title">Prompts</span>
+                <button class="action-btn dash-modal-x" data-modal-close="dash-prompts-modal">✕</button>
               </div>
-              <div id="adal-list" class="crud-cards"></div>
-
-              <div id="adal-detail" class="crud-inline-form hidden">
-                <div class="crud-inline-header">
-                  <a class="crud-breadcrumb-back" id="adal-back-link">&larr; adaL</a>
-                  <div class="crud-spacer"></div>
-                  <button id="adal-promote-btn" class="action-btn">Promote to fact</button>
-                  <button id="adal-edit-btn" class="action-btn">Edit</button>
-                  <button id="adal-delete-btn" class="action-btn danger">Delete</button>
+              <div class="dash-modal-body">
+                <div id="dash-prompts-toolbar" class="crud-toolbar">
+                  <input id="dash-prompts-search" type="text" class="crud-search" placeholder="Search prompts..." spellcheck="false" autocomplete="off" />
                 </div>
-                <div id="adal-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
-                <pre id="adal-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
-                <textarea id="adal-edit-text" class="crud-search hidden" style="width:100%;min-height:120px;resize:vertical;font-family:var(--mono);" spellcheck="false"></textarea>
-                <div id="adal-edit-actions" class="settings-actions hidden" style="margin-top:8px;">
-                  <button id="adal-edit-save" class="action-btn primary">Save</button>
-                  <button id="adal-edit-cancel" class="action-btn">Cancel</button>
+                <div id="dash-prompts-list" class="crud-cards"></div>
+                <div id="dash-prompt-detail" class="crud-inline-form hidden">
+                  <div class="crud-inline-header">
+                    <a class="crud-breadcrumb-back" id="dash-prompt-back">&larr; Prompts</a>
+                    <div class="crud-spacer"></div>
+                  </div>
+                  <div class="dash-prompt-meta-grid" id="dash-prompt-meta"></div>
+                  <label class="settings-label" style="margin-top:12px;">Prompt</label>
+                  <pre id="dash-prompt-text" class="dash-pre-block"></pre>
+                  <label class="settings-label" style="margin-top:12px;">Response</label>
+                  <pre id="dash-prompt-response" class="dash-pre-block"></pre>
+                  <div class="settings-actions" style="margin-top:12px;">
+                    <button id="dash-prompt-cancel" class="action-btn">Cancel</button>
+                  </div>
                 </div>
               </div>
             </div>

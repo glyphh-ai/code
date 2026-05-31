@@ -87,9 +87,22 @@ export async function loadDashboard() {
   renderDashFlowChart(captureStats);
   renderDashIntakeChart();
   renderDashAdalChart(adalStats);
-  renderDashPrompts();
-  loadData();
-  loadAdal();
+}
+
+// Modal-scoped lists load lazily on open, keeping the dashboard landing clean.
+const MODAL_LOADERS: Record<string, () => void> = {
+  "adal-modal": () => loadAdal(),
+  "data-modal": () => loadData(),
+  "dash-prompts-modal": () => { dashPromptsOffset = 0; renderDashPrompts(); },
+};
+
+function openDashModal(id: string) {
+  document.getElementById(id)?.classList.remove("hidden");
+  MODAL_LOADERS[id]?.();
+}
+
+function closeDashModal(id: string) {
+  document.getElementById(id)?.classList.add("hidden");
 }
 
 function renderDashAdalChart(adalStats: { factCount: number; episodicCount: number }) {
@@ -426,6 +439,16 @@ let dashPromptSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function initDashboardEvents() {
   document.getElementById("dash-refresh")?.addEventListener("click", () => loadDashboard());
+
+  // Delegated modal open/close — triggers carry data-modal-open / data-modal-close.
+  document.addEventListener("click", (e) => {
+    const target = (e.target as HTMLElement)?.closest("[data-modal-open],[data-modal-close]") as HTMLElement | null;
+    if (!target) return;
+    const openId = target.getAttribute("data-modal-open");
+    const closeId = target.getAttribute("data-modal-close");
+    if (openId) openDashModal(openId);
+    if (closeId) closeDashModal(closeId);
+  });
 
   document.getElementById("dash-range-7")?.addEventListener("click", () => {
     dashRangeMode = "7";
