@@ -354,6 +354,11 @@ contextBridge.exposeInMainWorld("yo", {
   onYoPanelBackgroundResult: (cb: (r: { id: string; name: string; ok: boolean; text: string }) => void) => {
     ipcRenderer.on("yo-panel-background-result", (_e, r) => cb(r));
   },
+  // Live count of in-flight background agents — drives the persistent
+  // "N running" indicator in the main panel.
+  onYoPanelBgCount: (cb: (count: number) => void) => {
+    ipcRenderer.on("yo-panel-bg-count", (_e, count: number) => cb(count));
+  },
   onYoPanelError: (cb: (err: string) => void) => {
     ipcRenderer.on("yo-panel-error", (_e, err) => cb(err));
   },

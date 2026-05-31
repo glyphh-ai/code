@@ -165,6 +165,17 @@ export function createCypherSession(deps: CypherSessionDeps) {
       void cypherBus.post(wsSlug, { from: a.agentId, kind: "agent_thinking", body: "Thinking…" });
       try {
         let acc = "";
+        // Stream the BYOK response onto the bus in throttled chunks so the
+        // Sub-Agents panel shows live deltas (the full-loop runner streams
+        // natively; read-only agents would otherwise sit silent until the end).
+        let buf = "";
+        let lastFlush = Date.now();
+        const flush = () => {
+          if (!buf) return;
+          void cypherBus.post(wsSlug, { from: a.agentId, kind: "agent_thinking", body: buf });
+          buf = "";
+          lastFlush = Date.now();
+        };
         await runByokStream(
           reg.model_provider as LLMProvider,
           {
@@ -174,8 +185,14 @@ export function createCypherSession(deps: CypherSessionDeps) {
               { role: "user", content: briefing },
             ],
           },
-          { onText: (d) => { acc += d; } },
+          { onText: (d) => {
+            acc += d; buf += d;
+            if (Date.now() - lastFlush > 250) flush();
+          } },
         );
+        flush();
+        // The result body carries the full clean text — the hand-back path
+        // prefers it over the chunked transcript for read-only agents.
         void cypherBus.post(wsSlug, {
           from: a.agentId, kind: "agent_result",
           body: acc.trim() || "(no response)",

@@ -1201,6 +1201,20 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     window.yo.yoPanelSend(framed);
   });
 
+  // Persistent "N background agent(s) running" chip. Stays up while detached
+  // agents work, independent of the main turn spinner.
+  window.yo.onYoPanelBgCount((count) => {
+    const chip = document.getElementById("yo-bg-indicator");
+    const label = document.getElementById("yo-bg-indicator-label");
+    if (!chip || !label) return;
+    if (count > 0) {
+      label.textContent = `${count} background agent${count === 1 ? "" : "s"} running`;
+      chip.hidden = false;
+    } else {
+      chip.hidden = true;
+    }
+  });
+
   // Swarm rendering removed.
   // -- Send/stop button --
   // The button is "stop" (■) only when the agent is thinking AND the input is

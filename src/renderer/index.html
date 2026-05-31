@@ -277,6 +277,12 @@
          collapses back. Empty + hidden when idle. -->
     <div id="yo-composer-interaction" class="yo-composer-interaction" hidden></div>
 
+    <!-- Persistent indicator: shows while detached background agents are still
+         running (the main turn spinner clears as soon as the spawning turn ends). -->
+    <div id="yo-bg-indicator" class="yo-bg-indicator" hidden>
+      <span class="yo-bg-dot"></span><span id="yo-bg-indicator-label" class="yo-bg-indicator-label"></span>
+    </div>
+
     <div class="yo-panel-input-wrap">
       <textarea id="yo-panel-input" rows="1" placeholder=".yo ..."></textarea>
       <button id="yo-panel-mic" class="yo-mic-btn" title="Voice input"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="1" y2="8"/><line x1="3.5" y1="5" x2="3.5" y2="11"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="8.5" y1="5" x2="8.5" y2="11"/><line x1="11" y1="2" x2="11" y2="14"/><line x1="13.5" y1="5" x2="13.5" y2="11"/></svg></button>

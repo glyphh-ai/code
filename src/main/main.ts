@@ -1734,6 +1734,14 @@ async function boot() {
   // when it finishes we hand that transcript back to the yo conversation as a
   // follow-up turn so the agent can act on the result. Keyed by agent id.
   const backgroundSpawns = new Map<string, { name: string; transcript: string }>();
+  // Push the live count of in-flight background agents to the yo panel so it can
+  // show a persistent "N running" indicator (the main turn spinner clears as
+  // soon as the spawning turn ends, even while detached agents keep working).
+  const notifyBgCount = (): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("yo-panel-bg-count", backgroundSpawns.size);
+    }
+  };
 
   // Render a bus event as a one-line transcript fragment for the Sub-Agents
   // panel. Mirrors the inline feed's vocabulary (thinking / tool / status /
@@ -1794,10 +1802,21 @@ async function boot() {
       const subId = `swarm:${event.from}`;
       const bg = backgroundSpawns.get(event.from);
       if (event.kind === "agent_result") {
-        broadcastSubAgent({ id: subId, kind: "result", text: busEventToTranscript(event) || undefined });
+        // Hand-back text: a full-loop agent's result body is just a turn-count
+        // summary ("Completed turn (N turns…)"), so its real output is the
+        // streamed transcript. A read-only agent's full output IS the body.
+        const body = (event.body || "").trim();
+        const isTurnSummary = /^Completed turn/i.test(body);
+        const transcript = bg ? bg.transcript.trim() : "";
+        const final = isTurnSummary ? transcript : (body || transcript);
+        // Avoid duplicating text in the panel: if we already streamed deltas
+        // (transcript non-empty), the result line adds nothing — just close it.
+        const panelText = transcript ? undefined : (busEventToTranscript(event) || undefined);
+        broadcastSubAgent({ id: subId, kind: "result", text: panelText });
         if (bg) {
           backgroundSpawns.delete(event.from);
-          const summary = bg.transcript.trim().slice(-6000) || "(the agent produced no text output)";
+          notifyBgCount();
+          const summary = final.slice(-6000) || "(the agent produced no text output)";
           mainWindow?.webContents.send("yo-panel-background-result", {
             id: event.from, name: bg.name, ok: true, text: summary,
           });
@@ -1806,6 +1825,7 @@ async function boot() {
         broadcastSubAgent({ id: subId, kind: "error", text: event.body || undefined });
         if (bg) {
           backgroundSpawns.delete(event.from);
+          notifyBgCount();
           mainWindow?.webContents.send("yo-panel-background-result", {
             id: event.from, name: bg.name, ok: false, text: event.body || "the agent failed",
           });
@@ -2767,14 +2787,19 @@ async function boot() {
     // call_agent / create_swarm equivalent of the Task tool's spawn event.
     for (const a of manifest.agents) {
       const reg = library.find((r) => r.id === a.agentId);
+      const nm = reg?.name || a.agentId;
       broadcastSubAgent({
         id: `swarm:${a.agentId}`,
         kind: "spawn",
         source: "yo-agent",
-        name: reg?.name || a.agentId,
+        name: nm,
         description: g,
       });
+      // Register for result hand-back so the yo agent hears each agent's
+      // outcome (call_agent / create_swarm), the same way spawn_background does.
+      backgroundSpawns.set(a.agentId, { name: nm, transcript: "" });
     }
+    notifyBgCount();
     // Persist the start marker so the thread restores with the swarm card.
     yoAgent.appendSwarmEntry("swarm-start", JSON.stringify(swarmStart));
     const res = await spawnSwarm(manifest, mainWindow.webContents);
@@ -2811,9 +2836,11 @@ async function boot() {
     // activity routed in cypherBus.onPost) and register for hand-back.
     broadcastSubAgent({ id: `swarm:${id}`, kind: "spawn", source: "yo-agent", name, description: p });
     backgroundSpawns.set(id, { name, transcript: "" });
+    notifyBgCount();
     const res = await spawnEphemeral(mainWindow.webContents, { id, role, prompt: p });
     if (!res.ok) {
       backgroundSpawns.delete(id);
+      notifyBgCount();
       broadcastSubAgent({ id: `swarm:${id}`, kind: "error", text: res.error || "failed to start" });
       return `Background agent failed to start: ${res.error || "unknown error"}`;
     }

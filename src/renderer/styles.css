@@ -6933,6 +6933,32 @@ select.settings-input {
 }
 .yo-composer-interaction[hidden] { display: none; }
 
+/* Persistent background-agent indicator — sits just above the input. */
+.yo-bg-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 22px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.yo-bg-indicator[hidden] { display: none; }
+.yo-bg-indicator-label { letter-spacing: 0.01em; }
+.yo-bg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--yo-mode-color, var(--accent));
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--yo-mode-color, var(--accent)) 60%, transparent);
+  animation: yo-bg-pulse 1.4s ease-in-out infinite;
+}
+@keyframes yo-bg-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--yo-mode-color, var(--accent)) 55%, transparent); opacity: 1; }
+  70%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--yo-mode-color, var(--accent)) 0%, transparent); opacity: 0.6; }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--yo-mode-color, var(--accent)) 0%, transparent); opacity: 1; }
+}
+
 /* The scroll-to-bottom arrow is absolutely positioned and would float over the
    question — suppress it while an interaction owns the composer. */
 .yo-panel.interaction-active .yo-scroll-btn { display: none !important; }
