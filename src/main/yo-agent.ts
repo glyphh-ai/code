@@ -380,6 +380,19 @@ export class YoAgent {
 
     const shellPath = getShellPath();
     const model = this.llmConfig?.model || "claude-sonnet-4-6";
+
+    // adaL associative recall — same grounded-context prefix as the interactive
+    // loop, so headless one-shots also generate against remembered context.
+    let groundedContext = "";
+    try {
+      if (adalEnabled()) {
+        const act = getAdal().think(prompt);
+        if (act.thoughts.length > 0) groundedContext = act.groundedContext;
+      }
+    } catch (err: any) {
+      console.warn("[adaL] think failed:", err?.message || err);
+    }
+
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
@@ -390,7 +403,7 @@ export class YoAgent {
       // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
       tools: { type: "preset", preset: "claude_code" },
       mcpServers: { "yo": mcpServer },
-      systemPrompt: this.buildSystemPrompt(),
+      systemPrompt: this.buildSystemPrompt(groundedContext),
       includePartialMessages: true,
       env: {
         ...process.env,
@@ -417,6 +430,18 @@ export class YoAgent {
     } catch (err: any) {
       return { text, error: err?.message || String(err) };
     }
+
+    // adaL write-back — absorb the one-shot turn so future turns recall it.
+    try {
+      if (adalEnabled()) {
+        const adal = getAdal();
+        if (prompt.trim()) adal.tell(prompt.trim(), "incoming");
+        if (text.trim()) adal.tell(text.trim(), "outgoing");
+      }
+    } catch (err: any) {
+      console.warn("[adaL] tell failed:", err?.message || err);
+    }
+
     return { text: text.trim() };
   }
 
