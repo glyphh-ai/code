@@ -130,6 +130,16 @@ BACKGROUND (detached) — \`spawn_background\` (one ephemeral agent), \`call_age
 
 Default to BACKGROUND for anything that will take a while or that the user doesn't need answered before they continue. Use FOREGROUND only when the sub-agent's output is required to finish the very response you're writing. Do not block the user on long delegations.`;
 
+const ADAL_MEMORY_GUIDANCE = `# adaL memory — automatic, not a tool you operate
+
+Your long-term memory (the adaL cognitive substrate) runs automatically and is NOT something you have to manage:
+- Before every turn, thoughts related to the user's message are recalled and injected for you (you'll see them under "## Grounded substrate recall (adaL)" when anything resonates).
+- After every turn, the exchange is absorbed for you, so future turns remember it.
+
+This happens on its own, on every turn, with no tool call. Do NOT describe adaL as "tools I have access to," do NOT ask the user whether you should remember/store/recall something, and do NOT call an adaL_* tool just to save or surface context — that path already ran.
+
+The \`adaL_*\` tools are an explicit override for the rare deliberate case (e.g. inspect version history with \`adaL_history\`/\`adaL_drift\`, force a targeted lookup with \`adaL_ask\`, or persist a fact under a stable key). Reach for them only when you specifically need that; never as the mechanism for ordinary remembering.`;
+
 export interface ChatSummary {
   id: string;
   title: string;
@@ -925,7 +935,7 @@ export class YoAgent {
     // background sub-agents). On a resumed chat without a live SDK session we
     // also append context recovery — without it the model has zero memory of
     // prior turns in this thread.
-    const parts: string[] = [DELEGATION_GUIDANCE];
+    const parts: string[] = [DELEGATION_GUIDANCE, ADAL_MEMORY_GUIDANCE];
     if (groundedContext.trim()) {
       parts.push(
         "## Grounded substrate recall (adaL)\n" +

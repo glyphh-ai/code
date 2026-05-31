@@ -27,7 +27,7 @@ const ADAL_TOOL_DEFS: ToolDef[] = [
     name: "adaL_think",
     namespace: "yo",
     description:
-      "adaL associative recall. Surfaces the constellation of substrate thoughts related to an input — grounded context for generation. No question framing; returns what resonates.",
+      "EXPLICIT OVERRIDE — recall runs automatically every turn (see the 'adaL memory' guidance); you do NOT need this to remember. Use only to deliberately re-probe the substrate for thoughts related to a DIFFERENT input than the user's message (e.g. exploring a tangent). Returns the constellation that resonates.",
     input_schema: {
       type: "object",
       properties: { input: { type: "string", description: "What to think about" } },
@@ -80,7 +80,7 @@ const ADAL_TOOL_DEFS: ToolDef[] = [
     name: "adaL_tell",
     namespace: "yo",
     description:
-      "Absorb a fact into the adaL substrate so future turns recall it. Optionally pass a stable `key` to version a concept over time (queryable via adaL_history / adaL_drift).",
+      "EXPLICIT OVERRIDE — the turn (user message + your reply) is absorbed automatically; you do NOT need this for ordinary remembering. Use only to deliberately persist a specific standalone fact, especially under a stable `key` to version a concept over time (queryable via adaL_history / adaL_drift).",
     input_schema: {
       type: "object",
       properties: {
