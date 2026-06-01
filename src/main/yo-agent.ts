@@ -48,6 +48,7 @@ import type { AgentMode } from "./action-gate";
 import { getAdal } from "./adal";
 import { adalEnabled } from "./adal/gate";
 import { getPreference } from "./preferences";
+import { getKey as getProviderKey } from "./provider-keys";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
   (specifier: string) => Promise<any>;
@@ -583,16 +584,23 @@ export class YoAgent {
       forwardSubagentText: true,
       persistSession: true,
       todoFeatureEnabled: true,
-      // Phase 4 of THE-PIVOT-BYOK: SDK calls api.anthropic.com directly
-      // using the user's Claude Code OAuth creds at ~/.claude/.credentials.json
-      // (or platform equivalent). yo-server is no longer in the inference
-      // path. ANTHROPIC_API_KEY / BASE_URL deliberately NOT set so the SDK
-      // auto-discovers the CC credentials.
-      env: {
-        ...process.env,
-        PATH: shellPath,
-        CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
-      },
+      // BYOK first, Claude Code OAuth second.
+      // If the user has pasted an Anthropic API key into Settings →
+      // Providers, pass it as ANTHROPIC_API_KEY so the SDK calls
+      // api.anthropic.com with that key. Otherwise the SDK falls back to
+      // the Claude Code OAuth creds at ~/.claude/.credentials.json — kept
+      // for users who already had CC set up before we shipped BYOK and
+      // for any path where the OAuth flow is still the easier on-ramp.
+      env: (() => {
+        const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
+        const base: Record<string, string | undefined> = {
+          ...process.env,
+          PATH: shellPath,
+          CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
+        };
+        if (byok) base.ANTHROPIC_API_KEY = byok;
+        return base;
+      })(),
     };
 
     if (this.sessionId) {

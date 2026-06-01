@@ -464,20 +464,44 @@
   <!-- Claude Code bootstrap modal — gates app use behind a CC sign-in.
        Hidden by default; shown by renderer.ts when CC creds are missing. -->
   <div id="cc-bootstrap-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
-    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:520px;width:90%;font-family:var(--font);">
-      <h2 style="margin:0 0 8px 0;font-size:20px;">Sign in to Claude Code</h2>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:560px;width:90%;font-family:var(--font);">
+      <h2 style="margin:0 0 8px 0;font-size:20px;">Connect an Anthropic provider</h2>
       <p id="cc-bootstrap-body" style="margin:0 0 18px 0;color:var(--text-2);font-size:14px;line-height:1.5;">
-        Yo runs your agent loop on your own Claude Code subscription.
-        We've opened the login window — finish there and we'll detect it automatically.
+        Yo's agent calls api.anthropic.com directly. Paste your own Anthropic API key
+        (recommended — stays on this machine, encrypted) or sign in to a Claude
+        Code subscription. Either works; you only need one.
       </p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button id="cc-bootstrap-open" class="action-btn primary">Reopen login window</button>
-        <button id="cc-bootstrap-recheck" class="action-btn">I've signed in — recheck</button>
+
+      <!-- Primary path: BYOK API key. Stored encrypted in ~/yo/.providers.json
+           and used as ANTHROPIC_API_KEY by the SDK. -->
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-2);">Anthropic API key</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="cc-bootstrap-byok-key" class="settings-input" type="password" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" style="flex:1;font-family:var(--font-mono);font-size:12px;" />
+          <button id="cc-bootstrap-byok-save" class="action-btn primary">Save key</button>
+        </div>
+        <p style="margin:2px 0 0;font-size:11px;color:var(--text-3);">
+          Get one at <code style="font-family:var(--font-mono);">console.anthropic.com</code>. Never sent to yo's servers.
+        </p>
+      </div>
+
+      <!-- Alt path: Claude Code OAuth. Kept for users who already had it set
+           up before BYOK shipped. Anthropic is phasing out CLI-based auth so
+           BYOK is the long-term path. -->
+      <details style="margin-bottom:12px;">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-3);">Or sign in to Claude Code (legacy)</summary>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button id="cc-bootstrap-open" class="action-btn">Open login window</button>
+          <button id="cc-bootstrap-recheck" class="action-btn">I've signed in — recheck</button>
+        </div>
+        <p style="margin:8px 0 0;font-size:11px;color:var(--text-3);">
+          Or run <code style="font-family:var(--font-mono);background:var(--surface-2);padding:1px 5px;border-radius:3px;">claude /login</code> manually in any terminal.
+        </p>
+      </details>
+
+      <div style="display:flex;gap:8px;">
         <button id="cc-bootstrap-quit" class="action-btn" style="margin-left:auto;">Quit Yo</button>
       </div>
-      <p style="margin:12px 0 0;font-size:11px;color:var(--text-3);">
-        Or run <code style="font-family:var(--font-mono);background:var(--surface-2);padding:1px 5px;border-radius:3px;">claude /login</code> manually in any terminal.
-      </p>
       <div id="cc-bootstrap-error" style="margin-top:12px;color:#d44a4a;font-size:12px;font-family:var(--font-mono, monospace);"></div>
     </div>
   </div>

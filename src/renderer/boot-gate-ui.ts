@@ -201,6 +201,36 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
     }
   }
 
+  // BYOK path — paste an Anthropic API key, save it, recheck. Once saved
+  // ccStatus.found flips true (provider-keys.hasKey is OR'd in), and the
+  // modal dismisses immediately without round-tripping through the
+  // OAuth flow.
+  const byokInput = document.getElementById("cc-bootstrap-byok-key") as HTMLInputElement | null;
+  const byokSaveBtn = document.getElementById("cc-bootstrap-byok-save") as HTMLButtonElement | null;
+  byokSaveBtn?.addEventListener("click", async () => {
+    const key = (byokInput?.value || "").trim();
+    if (!key) { errEl.textContent = "paste your Anthropic API key first"; return; }
+    if (!key.startsWith("sk-ant-")) { errEl.textContent = "that doesn't look like an Anthropic key (should start with sk-ant-)"; return; }
+    errEl.textContent = "";
+    byokSaveBtn.disabled = true;
+    byokSaveBtn.textContent = "Saving…";
+    try {
+      const result = await window.yo.providerKeysSet("anthropic", key);
+      if (!result?.ok) {
+        errEl.textContent = result?.error || "couldn't save the key — try again";
+        byokSaveBtn.disabled = false;
+        byokSaveBtn.textContent = "Save key";
+        return;
+      }
+      cleanupPoll();
+      dismissModal();
+    } catch (err) {
+      errEl.textContent = err instanceof Error ? err.message : "couldn't save the key";
+      byokSaveBtn.disabled = false;
+      byokSaveBtn.textContent = "Save key";
+    }
+  });
+
   document.getElementById("cc-bootstrap-open")!.onclick = async () => {
     errEl.textContent = "";
     const r = await window.yo.ccLoginOpenTerminal();

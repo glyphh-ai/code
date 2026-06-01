@@ -602,6 +602,7 @@ contextBridge.exposeInMainWorld("yo", {
   // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
   ccStatus: () => ipcRenderer.invoke("cc-status") as Promise<{
     found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
+    byokAnthropic?: boolean;
   }>,
   ccLoginOpenTerminal: () => ipcRenderer.invoke("cc-login-open-terminal") as Promise<{ ok: boolean; error?: string }>,
   onCcShowModal: (callback: () => void) => {

@@ -55,8 +55,8 @@ export function loadSkills(): void {
   const treePanel = el("div", { class: "skill-tree-panel" }, [
     el("div", { class: "skill-tree-toolbar" }, [
       el("span", { class: "skill-tree-title", text: "Skills" }),
-      newBtn,
       refreshBtn,
+      newBtn,
     ]),
     el("div", { class: "skill-tree-searchrow" }, [
       el("span", { class: "skill-search", html: SEARCH }, [searchInput]),

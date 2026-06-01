@@ -8265,11 +8265,11 @@ select.settings-input {
   border-right: 1px solid var(--ws-line);
 }
 .skill-tree-toolbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center;
   gap: 8px; padding: 8px 10px 8px var(--skill-gut); min-height: 44px;
   border-bottom: 1px solid var(--ws-line-soft);
 }
-.skill-tree-title { font-size: 14px; font-weight: 600; color: var(--ws-text); }
+.skill-tree-title { font-size: 14px; font-weight: 600; color: var(--ws-text); margin-right: auto; }
 .skill-tree-searchrow { padding: 8px 10px 8px var(--skill-gut); }
 .skill-search {
   flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;

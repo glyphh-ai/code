@@ -27,20 +27,31 @@ import * as path from "path";
 import { BrowserWindow, ipcMain, type IpcMainEvent } from "electron";
 import { getShellPath } from "./shell-path";
 import { findCcCredentials, findClaudeCli, type CcCredsResult } from "./cc-creds";
+import { hasKey as hasProviderKey } from "./provider-keys";
 
 export interface BootstrapStatus extends CcCredsResult {
   /** Absolute path to `claude` CLI, or null if not installed. */
   claudePath: string | null;
+  /** True when the user has a BYOK Anthropic API key configured under
+   *  Settings → Providers. When set, the SDK uses that key instead of the
+   *  Claude Code OAuth creds, and the CC-bootstrap modal is suppressed. */
+  byokAnthropic: boolean;
 }
 
 export function bootstrapStatus(): BootstrapStatus {
-  return { ...findCcCredentials(), claudePath: findClaudeCli() };
+  const cc = findCcCredentials();
+  let byok = false;
+  try { byok = hasProviderKey("anthropic"); } catch { /* */ }
+  // Either path counts as "found" from the caller's perspective — both
+  // result in the SDK being able to call api.anthropic.com.
+  return { ...cc, found: cc.found || byok, claudePath: findClaudeCli(), byokAnthropic: byok };
 }
 
 /**
- * If Claude Code creds are present, return true. Otherwise tell the
- * renderer to show the gating bootstrap modal (which auto-triggers
- * spawnCcLogin) and return false.
+ * Returns true when SOME auth path is configured (Claude Code OAuth or BYOK
+ * Anthropic key). Otherwise tells the renderer to show the gating bootstrap
+ * modal and returns false. With BYOK now an accepted path, users who don't
+ * have a Claude subscription can still use the agent.
  */
 export function ensureCcAuth(): boolean {
   if (bootstrapStatus().found) return true;
