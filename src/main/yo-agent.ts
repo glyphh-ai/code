@@ -906,9 +906,23 @@ export class YoAgent {
       const isAbort = err?.name === "AbortError" || /\b(abort(ed)?|cancell?ed)\b/i.test(msg);
       if (isAbort) {
         cb.onDone(fullText);
-      } else {
-        cb.onError(msg);
+        return;
       }
+      // SDK's session storage expired on its side ("No conversation found
+      // with session ID: …"). Our cached sessionId is now stale — drop it
+      // so the next turn starts fresh (the SDK will mint a new session),
+      // and retry this turn once without --resume so the user doesn't have
+      // to send it again. The context-recovery block in buildSystemPrompt
+      // fills in the recent history from disk for the fresh session.
+      if (this.sessionId && /No conversation found with session ID/i.test(msg)) {
+        console.log(`[yo-agent] stale session ${this.sessionId} — dropping + retrying without resume`);
+        this.sessionId = null;
+        try {
+          await this.send(message, cb);
+          return;
+        } catch { /* fall through to error path below */ }
+      }
+      cb.onError(msg);
     }
   }
 
