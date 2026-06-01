@@ -297,6 +297,9 @@ function renderLayoutsList() {
         <span class="crud-card-meta">${panels || "empty"}</span>
       </div>
       <div class="crud-card-actions">
+        <button class="crud-card-btn crud-open-btn" title="Open layout">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"/><polyline points="13 6 19 12 13 18"/></svg>
+        </button>
         <button class="crud-card-btn crud-edit-btn" title="Edit">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
         </button>
@@ -304,6 +307,14 @@ function renderLayoutsList() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </button>
       </div>`;
+
+    card.querySelector(".crud-open-btn")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Same path .dip <layout> takes — execCommand routes through
+      // commandParser → layout-manager + closes the help overlay.
+      void window.yo.execCommand(`dip ${layout.name}`);
+      closeHelp();
+    });
 
     card.querySelector(".crud-edit-btn")!.addEventListener("click", (e) => {
       e.stopPropagation();

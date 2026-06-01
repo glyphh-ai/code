@@ -62,8 +62,8 @@ let yoPermOptions: NodeListOf<Element>;
 let yoControlsInited = false;
 
 // Color is driven by PERMISSION. Plan is one of the permission options —
-// when selected, it paints the trigger plan-blue.
-const PLAN_COLOR = "#4A9EFF";
+// when selected, it paints the trigger plan-purple.
+const PLAN_COLOR = "#8B5CF6";
 
 // Inline SVG icons matching yo-agent-renderer.PERM_ICONS so the right-rail
 // trigger renders the same glyphs as the Agent app (no more emoji 🔒).

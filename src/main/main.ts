@@ -2673,6 +2673,22 @@ async function boot() {
     }
   });
 
+  // ExitPlanMode means the agent has finished planning and the user wants to
+  // proceed. The SDK exits its own plan-mode state, but our `agentMode` pref
+  // (which `gate()` consults) stays "plan" until something rewrites it. That
+  // left subsequent Edit/Write calls in the same turn returning "skip" with
+  // a "stale plan-mode permission" — the bug Chris reported. Drop the mode
+  // back to "default" the moment the SDK fires the ExitPlanMode tool so the
+  // gate releases in lockstep with the SDK.
+  yoAgent.onToolUseSeen?.((toolName) => {
+    if (toolName === "ExitPlanMode" && yoAgent.getMode() === "plan") {
+      yoAgent.setMode("default");
+      setPreference("agentMode", "default");
+      mainWindow?.webContents.send("agent-mode-changed", "default");
+      yoInterceptor.setAgentMode("default");
+    }
+  });
+
   // ── ask_user_question — purple "Input required" card ──
   // Mirrors approvals but for multi-choice questions. The MCP tool blocks
   // until the user picks an option (or cancels) in the Yo panel.

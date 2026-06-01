@@ -228,6 +228,11 @@ export class YoAgent {
     if (changed) this.sessionId = null;
   }
   setApprovalCallback(cb: ApprovalCallback | null): void { this._approvalCallback = cb; }
+  /** Hook fired for every tool_use block the agent emits. Used by main to
+   *  side-effect on specific tools (e.g. drop out of plan mode the moment
+   *  ExitPlanMode is called, so the gate releases in lockstep with the SDK). */
+  private _toolUseSeen: ((toolName: string, input: unknown) => void) | null = null;
+  onToolUseSeen(cb: (toolName: string, input: unknown) => void): void { this._toolUseSeen = cb; }
   private _askCallback: AskCallback | null = null;
   setAskCallback(cb: AskCallback | null): void { this._askCallback = cb; }
   private _previewCallback: PreviewCallback | null = null;
@@ -767,6 +772,7 @@ export class YoAgent {
                 let input: unknown = {};
                 try { input = tb.inputJson ? JSON.parse(tb.inputJson) : {}; } catch { /* partial/empty — keep {} */ }
                 cb.onToolUse(tb.id, tb.name, input);
+                try { this._toolUseSeen?.(tb.name, input); } catch { /* hook is best-effort */ }
                 toolBlocks.delete(event.index);
               }
             }
