@@ -1963,21 +1963,18 @@ async function boot() {
       onWorkingDirChange: () => {
         // VS Code surface removed — nothing to re-point anymore.
       },
-      // Re-open a recent entry by spawning a fresh instance of its app or
-      // layout at the captured folder. For apps we reuse openFreshInternalApp's
-      // sibling for user apps (just spawn via tab-new-app's logic). Layouts
-      // call into layoutManager.loadByName + setWorkingDirectory.
+      // Re-open a recent entry. Folder-bound entries restore the captured
+      // workdir first; non-folder apps leave the current workdir alone.
+      // Apps go through `dip <id>` (the canonical open path) so single-
+      // instance apps switch to the existing panel instead of spawning a
+      // duplicate. Layouts route to the layouts picker for now.
       openRecent: (entry) => {
         if (!mainWindow) return;
-        setWorkingDirectory(entry.folder);
+        if (entry.folder) setWorkingDirectory(entry.folder);
         if (entry.kind === "app") {
-          openFreshInternalApp(entry.id);
+          execCommand(`dip ${entry.id}`).catch(() => {});
         } else if (entry.kind === "layout") {
-          // Layout open path: the existing tab-new-app handles "open layout
-          // by name" via the __layout__ id, but it's keyed by id. For now
-          // route the user to a panel that shows the layout; a fuller
-          // implementation lands with Phase 1 folder-bound layouts.
-          openFreshInternalApp("layouts");
+          execCommand(`dip layouts`).catch(() => {});
         }
       },
     });
