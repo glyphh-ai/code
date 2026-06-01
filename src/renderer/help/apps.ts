@@ -1154,6 +1154,14 @@ function initApps() {
   // App detail back button
   document.getElementById("app-detail-close")!.addEventListener("click", () => closeAppDetail());
 
+  // App detail "Open app" — opens the app as a panel (same path .dip uses)
+  // and closes the Settings overlay so the panel is visible.
+  document.getElementById("app-detail-open")!.addEventListener("click", () => {
+    if (!currentAppId) return;
+    void window.yo.execCommand(`dip ${currentAppId}`);
+    closeAppDetail();
+  });
+
   // Panel tab: "Pick Element" — start the element picker on the app preview.
   document.getElementById("app-pick-btn")?.addEventListener("click", () => { void pickElement(); });
 
