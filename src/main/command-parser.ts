@@ -19,7 +19,7 @@ import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "ada"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "ada", "waz"]);
 
   private onDrip: ((effect: string) => void) | null = null;
   private dripManager: import("./drip-manager").DripManager | null = null;
@@ -85,6 +85,12 @@ export class CommandParser {
     this.instanceCreator = fn;
   }
 
+  /** Set the .waz spawner — disposable agent popup that runs a prompt
+   *  outside the right-rail .Yo session. Used by `.waz <prompt>` directly
+   *  and by `.dip <app> .waz <panel-cmd> <prompt>` chains. */
+  private wazSpawner: ((prompt: string) => void) | null = null;
+  setWazSpawner(fn: (prompt: string) => void): void { this.wazSpawner = fn; }
+
   /** Set callback that opens the cypher workspace bound to a specific cypher slug. */
   setCypherOpener(fn: (slug: string) => Promise<boolean>): void {
     this.cypherOpener = fn;
@@ -131,9 +137,47 @@ export class CommandParser {
         return this.handlePeace(args);
       case "ada":
         return this.handleAda(args);
+      case "waz":
+        return this.handleWaz(args, sourcePanelId);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or ada.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, ada, or waz.`;
     }
+  }
+
+  /** .waz [<panel-cmd>] <prompt>
+   *
+   *  Bare form (`.waz <prompt>`) just spawns a disposable agent popup with
+   *  the prompt — same as the inline interceptor path.
+   *
+   *  Chained form (`.dip <app> .waz <panel-cmd> <prompt>`) runs the named
+   *  mapped command against the active panel first, then spawns waz with
+   *  the remaining prompt. The panel command is whatever the app maps
+   *  (`new`, `compose`, `read-latest`, etc). If the first arg doesn't
+   *  match a mapped command on the active panel, the whole tail is
+   *  treated as the prompt instead.
+   */
+  private async handleWaz(args: string[], _sourcePanelId?: string): Promise<string> {
+    if (!this.wazSpawner) return ".waz is not wired in this surface.";
+    if (args.length === 0) return "Usage: .waz [<panel-command>] <prompt>";
+
+    const activeId = this.panels.activePanelId;
+    const app = activeId ? this.appConnector.get(activeId) : null;
+    const wc = activeId ? this.wcGetter?.(activeId) : null;
+    const firstKey = args[0].toLowerCase();
+    const mapping = app?.commands[firstKey];
+    let prompt: string;
+    if (mapping && wc && !wc.isDestroyed()) {
+      // Panel command first, then prompt — give the app a beat to settle
+      // (the command may open a compose window etc).
+      try { await executeCommand(wc, mapping); } catch { /* swallow — waz still runs */ }
+      await new Promise((r) => setTimeout(r, 300));
+      prompt = args.slice(1).join(" ").trim();
+    } else {
+      prompt = args.join(" ").trim();
+    }
+    if (!prompt) return ".waz needs a prompt.";
+    this.wazSpawner(prompt);
+    return ".waz spawned";
   }
 
   /** Parse and execute a command string (supports chaining). */
@@ -141,7 +185,7 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|ada)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|ada|waz)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);

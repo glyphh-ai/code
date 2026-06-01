@@ -1079,13 +1079,9 @@ async function boot() {
   const callbacks = { openYoPanel: null as ((query: string) => void) | null };
 
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
-    // .waz — spawn a disposable agent popup
-    if (/^waz\b/i.test(cmd)) {
-      const prompt = cmd.replace(/^waz\s*/i, "").trim();
-      wazManager?.spawn(prompt);
-      return ".waz spawned";
-    }
-
+    // .waz is now handled by commandParser.execute (so chained forms like
+    // `.dip gmail .waz new <prompt>` work too); the inline shim that used
+    // to short-circuit bare `waz <prompt>` is no longer needed.
     const result = await commandParser.execute(cmd, sourcePanelId);
 
     // .yo always opens the agent side panel
@@ -1159,6 +1155,9 @@ async function boot() {
     return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t;
   });
   yoInterceptor.setWazSpawner((prompt) => wazManager?.spawn(prompt));
+  // Same hook on the command-parser path so chained .waz works
+  // (e.g. `.dip gmail .waz new <prompt>`).
+  commandParser.setWazSpawner((prompt) => wazManager?.spawn(prompt));
   yoInterceptor.setFaviconsGetter(() => panelFavicons);
   yoInterceptor.setLayoutsGetter(() => layoutManager.listLayouts());
 
