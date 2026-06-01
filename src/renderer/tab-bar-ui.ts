@@ -46,6 +46,7 @@ export interface TabBarDeps {
 export function initTabBar(deps: TabBarDeps): {
   renderTabs: (tabs: TabInfo[], activeId: string) => void;
   autoSwitchModeForActiveTab: (tabs: TabInfo[], activeId: string) => void;
+  refreshEmptyState: () => void;
 } {
   const tabBar = document.getElementById("tab-bar")!;
   const tabNewBtn = document.getElementById("tab-new-btn")!;
@@ -275,12 +276,19 @@ export function initTabBar(deps: TabBarDeps): {
     tabBar.appendChild(tabNewBtn);
   }
 
+  /** Shown only when there are no tabs AND neither rail is open. Either
+   *  rail (left files rail or right yo panel) being open is itself "content"
+   *  for the user, so the placeholder is redundant. */
+  let lastTabCount = 0;
   function updateEmptyState(tabs: TabInfo[]) {
-    if (tabs.length === 0) {
-      emptyState.classList.remove("hidden");
-    } else {
-      emptyState.classList.add("hidden");
-    }
+    lastTabCount = tabs.length;
+    refreshEmptyState();
+  }
+  function refreshEmptyState() {
+    const leftRailOpen = !!document.getElementById("files-rail")?.classList.contains("open");
+    const yoPanelOpen = !!document.getElementById("yo-panel")?.classList.contains("open");
+    const showEmpty = lastTabCount === 0 && !leftRailOpen && !yoPanelOpen;
+    emptyState.classList.toggle("hidden", !showEmpty);
   }
 
   // Swarm mode is controlled solely by the .yo mode dropdown — there is no
@@ -443,5 +451,5 @@ export function initTabBar(deps: TabBarDeps): {
     updateEmptyState(state.tabs);
   });
 
-  return { renderTabs, autoSwitchModeForActiveTab };
+  return { renderTabs, autoSwitchModeForActiveTab, refreshEmptyState };
 }

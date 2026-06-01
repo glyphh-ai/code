@@ -1965,16 +1965,16 @@ async function boot() {
       },
       // Re-open a recent entry. Folder-bound entries restore the captured
       // workdir first; non-folder apps leave the current workdir alone.
-      // Apps go through `dip <id>` (the canonical open path) so single-
-      // instance apps switch to the existing panel instead of spawning a
-      // duplicate. Layouts route to the layouts picker for now.
+      // openFreshInternalApp now reuses the existing panel for non-folder
+      // apps and only spawns a fresh instance when one doesn't exist (or
+      // when a folder-bound app is opened with a different folder).
       openRecent: (entry) => {
         if (!mainWindow) return;
         if (entry.folder) setWorkingDirectory(entry.folder);
         if (entry.kind === "app") {
-          execCommand(`dip ${entry.id}`).catch(() => {});
+          openFreshInternalApp(entry.id);
         } else if (entry.kind === "layout") {
-          execCommand(`dip layouts`).catch(() => {});
+          openFreshInternalApp("layouts");
         }
       },
     });
@@ -2580,8 +2580,13 @@ async function boot() {
     if (!app?.url) return;
     const folder = app.requiresFolder ? (getWorkingDirectory() || "") : "";
 
-    // Reuse-on-match: same app + same folder → slide to existing instance.
-    const existing = folder ? findInstanceFor(baseId, folder) : null;
+    // Reuse-on-match. Folder-bound: same (app, folder) → slide to that
+    // instance. Non-folder: if the base panel exists, switch to it instead
+    // of spawning a duplicate (Dashboard, Apps, Settings, etc. are
+    // single-instance from the user's perspective).
+    const existing = folder
+      ? findInstanceFor(baseId, folder)
+      : (panelManager.hasPanel(baseId) ? baseId : null);
     if (existing) {
       panelManager.switchTo(existing, mainWindow);
       ensureTab(existing);

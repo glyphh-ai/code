@@ -530,6 +530,8 @@ document.getElementById("yo-rail-toggle")?.addEventListener("click", () => {
     window.yo.yoPanelOpen("");
     openYoPanel("");
   }
+  // Yo panel open/close is also rail "content" — re-evaluate empty state.
+  setTimeout(() => tabApi.refreshEmptyState(), 250);
 });
 
 // -- Tab bar (extracted to tab-bar-ui.ts) --
@@ -720,6 +722,7 @@ initDownloads();
       setTimeout(() => rail.classList.add("hidden"), 200);
     }
     try { localStorage.setItem("filesRailOpen", open ? "1" : "0"); } catch {}
+    tabApi.refreshEmptyState();
   }
 
   railToggle.addEventListener("click", () => applyOpen(!rail.classList.contains("open")));
