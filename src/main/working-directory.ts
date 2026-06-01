@@ -90,13 +90,14 @@ export function getRecents(): RecentEntry[] {
 
 /** Record a (kind, id, name, folder) recent. Deduped on the (kind, id,
  *  folder) triple so the same mount bubbles to the top rather than piling
- *  up. Newest first, capped at 20. */
+ *  up. Non-folder-bound apps (Browser, ChatGPT, etc.) pass folder="" and
+ *  dedupe by (kind, id). Newest first, capped at 20. */
 export function addRecent(entry: Omit<RecentEntry, "ts">): void {
-  if (!entry.folder) return;
+  const folder = entry.folder || "";
   const recents = getRecents().filter(
-    (r) => !(r.kind === entry.kind && r.id === entry.id && r.folder === entry.folder),
+    (r) => !(r.kind === entry.kind && r.id === entry.id && r.folder === folder),
   );
-  recents.unshift({ ...entry, ts: Date.now() });
+  recents.unshift({ ...entry, folder, ts: Date.now() });
   setPreference("recents", recents.slice(0, RECENTS_CAP));
   broadcastRecentsChanged();
 }

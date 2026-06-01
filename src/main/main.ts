@@ -1615,6 +1615,17 @@ async function boot() {
     if (!gridInfo || gridInfo.panelIds.length <= 1) {
       setPreference("lastView", { type: "panel", id });
     }
+    // Recents: any app focused (open / switch / dip / reopen / tab click)
+    // bubbles to the top of the left-rail Recents grid. Resolves multi-
+    // instance panel ids (e.g. workbench-2) back to the base app id.
+    const appId = resolveAppId(id);
+    if (appId) {
+      const app = appConnector.get(appId);
+      if (app) {
+        const folder = instanceBindings.get(id)?.folder || "";
+        addRecent({ kind: "app", id: appId, name: app.name, folder });
+      }
+    }
     sendTabState();
     sendUrlUpdate();
   });
@@ -2592,13 +2603,12 @@ async function boot() {
     panelManager.switchTo(instanceId, mainWindow);
     sendSplitState();
     sendTabState();
-    // Record the (app, folder) binding + the Recents entry when we know
-    // the folder. Folder-bound apps without one yet (Vibe / Spec stubs
-    // launched with no working dir) skip both — recording happens later
-    // when a folder picker lands.
+    // Folder-bound apps (Workbench, Vibe, Spec) record the instance->folder
+    // binding so a subsequent re-open from Recents restores the same folder.
+    // The Recents entry itself is added by the panel-focused hook (covers
+    // every open path — spawn, dip, tab click, reopen).
     if (app.requiresFolder && folder) {
       instanceBindings.set(instanceId, { appId: baseId, folder });
-      addRecent({ kind: "app", id: baseId, name: app.name, folder });
     }
   }
   // yo://agent removed — the right-rail Yo is the only chat surface now.
