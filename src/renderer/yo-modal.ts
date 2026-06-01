@@ -23,6 +23,35 @@ export function yoConfirm(opts: YoConfirmOpts): Promise<boolean> {
     // Guard against stacking — if a dialog is already up, dismiss it first.
     document.querySelectorAll(".yo-modal").forEach((el) => el.remove());
 
+    // Hide BrowserView panels while the modal is up — they render ABOVE
+    // the renderer's HTML in Electron, so a DOM modal sits underneath them
+    // and the user can't see/click it. Take a freeze-frame screenshot in
+    // their place so the workspace doesn't visually disappear.
+    let panelsWereHidden = false;
+    const screenshots = document.getElementById("panel-screenshots");
+    void (async () => {
+      try {
+        const yo = (window as unknown as { yo?: {
+          capturePanels?: () => Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>;
+          panelsHide?: () => void;
+        } }).yo;
+        if (!yo?.capturePanels || !yo?.panelsHide || !screenshots) return;
+        const caps = await yo.capturePanels();
+        for (const cap of caps) {
+          const div = document.createElement("div");
+          div.className = "panel-screenshot yo-modal-panel-screenshot";
+          div.style.left = `${cap.bounds.x}px`;
+          div.style.top = `${cap.bounds.y}px`;
+          div.style.width = `${cap.bounds.width}px`;
+          div.style.height = `${cap.bounds.height}px`;
+          div.style.backgroundImage = `url(${cap.dataUrl})`;
+          screenshots.appendChild(div);
+        }
+        yo.panelsHide();
+        panelsWereHidden = true;
+      } catch { /* best-effort — modal still shows even if hiding fails */ }
+    })();
+
     const overlay = document.createElement("div");
     overlay.className = "yo-modal";
 
@@ -67,6 +96,14 @@ export function yoConfirm(opts: YoConfirmOpts): Promise<boolean> {
     function close(result: boolean): void {
       overlay.remove();
       document.removeEventListener("keydown", onKey, true);
+      // Restore panels + drop freeze-frames the modal painted on its way in.
+      if (panelsWereHidden) {
+        const yo = (window as unknown as { yo?: { panelsShow?: () => void } }).yo;
+        try { yo?.panelsShow?.(); } catch { /* */ }
+      }
+      if (screenshots) {
+        screenshots.querySelectorAll(".yo-modal-panel-screenshot").forEach((el) => el.remove());
+      }
       resolve(result);
     }
     function onKey(e: KeyboardEvent): void {
