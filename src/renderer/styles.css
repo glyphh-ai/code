@@ -4509,7 +4509,7 @@ ol.docs-list li::before {
 .settings-panels {
   flex: 1;
   min-width: 0;
-  padding: 8px 0 8px 28px;
+  padding: 8px 28px 8px 28px;
   overflow-y: auto;
 }
 
@@ -8135,12 +8135,11 @@ select.settings-input {
 
 /* Docs + About render long-form prose where the right page padding adds
    visible whitespace next to the scrollbar; drop it for those two only.
-   Providers used to be here too — that pushed the provider cards to the
-   absolute right edge with no gutter, which read as broken. Keep the
-   default 40px right padding for Providers so the cards still fill the
-   available width but with proper page breathing room. */
+   The Settings page also drops the right page padding — its inner
+   .settings-panels has its own 28px right gutter, so the page reads as
+   filled-but-padded. */
 #help-content:has(.help-section[data-section="docs"].active),
-#help-content:has(.help-section[data-section="settings"].active .settings-panel[data-sub="about"].active) {
+#help-content:has(.help-section[data-section="settings"].active) {
   padding-right: 0;
 }
 

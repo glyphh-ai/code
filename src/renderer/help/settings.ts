@@ -4,7 +4,6 @@
 
 // ── Settings ─────────────────────────────────────────────
 
-const settingsModelSelect = document.getElementById("settings-model-select") as HTMLSelectElement;
 const settingsSaveBtn = document.getElementById("settings-save") as HTMLButtonElement;
 const settingsStatus = document.getElementById("settings-status")!;
 
@@ -47,11 +46,22 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
       if (!d) return;
       provider.value = d.provider || "anthropic";
       model.value = d.model || "";
-      perm.value = d.permDefault || "default";
       prompt.value = d.systemPrompt || "";
       mcp.value = Array.isArray(d.mcpServers) ? d.mcpServers.join(", ") : "";
     } catch { /* ignore */ }
+    // Perm is the SAME store the right-rail .Yo agent reads at boot. Reading
+    // from agentMode here (instead of permDefault on disk) means whatever the
+    // user picked anywhere — Settings → Agent or the right-rail dropdown —
+    // shows up consistently AND survives restart.
+    try {
+      const m = await window.yo.getAgentMode();
+      perm.value = m?.perm || "default";
+    } catch { /* ignore */ }
   })();
+  // Reflect external perm changes (right-rail dropdown, command palette) live.
+  window.yo.onAgentModeChanged?.((mode: string) => {
+    if (perm) perm.value = mode || "default";
+  });
 
   save.addEventListener("click", async () => {
     status.textContent = "Saving…";
@@ -63,6 +73,9 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
         systemPrompt: prompt.value,
         mcpServers: mcp.value.split(",").map((s) => s.trim()).filter(Boolean),
       });
+      // Perm dropdown also writes through to the agentMode pref so the
+      // right-rail .Yo agent picks it up on restart (single source of truth).
+      window.yo.setAgentMode(perm.value);
       status.textContent = "Saved.";
     } catch (err: any) {
       status.textContent = `Error: ${err?.message || err}`;
@@ -686,41 +699,7 @@ function initSettings() {
 
 async function loadSettings() {
   settingsStatus.textContent = "";
-  const [config, accountInfo] = await Promise.all([
-    window.yo.getLLMConfig(),
-    window.yo.getAccountInfo(),
-  ]);
-
-  // Populate model dropdown — SDK agent only supports Anthropic models
-  const modelsResult = await window.yo.modelsList().catch(() => null);
-  settingsModelSelect.innerHTML = "";
-  const sdkModels = modelsResult && "models" in modelsResult
-    ? modelsResult.models.filter((m: any) => m.provider === "anthropic")
-    : [];
-  if (sdkModels.length > 0) {
-    for (const m of sdkModels) {
-      const opt = document.createElement("option");
-      opt.value = `${m.provider}::${m.model}`;
-      opt.textContent = m.display_name;
-      settingsModelSelect.appendChild(opt);
-    }
-  } else {
-    for (const fallback of [
-      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
-      { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-    ]) {
-      const opt = document.createElement("option");
-      opt.value = `${fallback.provider}::${fallback.model}`;
-      opt.textContent = fallback.label;
-      settingsModelSelect.appendChild(opt);
-    }
-  }
-  settingsModelSelect.value = `${config.provider || "anthropic"}::${config.model}`;
-  const hintEl = document.getElementById("settings-model-hint");
-  if (hintEl && modelsResult && "default_model" in modelsResult && modelsResult.default_model) {
-    hintEl.textContent = `Org default: ${modelsResult.default_model}`;
-  }
+  const accountInfo = await window.yo.getAccountInfo();
 
   // Account info
   const emailEl = document.getElementById("account-email")!;
@@ -781,26 +760,17 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const val = settingsModelSelect.value;
-  const [provider, model] = val.includes("::") ? val.split("::") : ["anthropic", val];
-
+  // Model selection moved to Agent Defaults — General now only owns timezone +
+  // toggles, which save inline via their own change handlers. The Save button
+  // is kept as a no-op confirmation for now.
   settingsSaveBtn.disabled = true;
-  settingsSaveBtn.textContent = "Saving...";
-  settingsStatus.textContent = "";
-
-  const config = { provider, model };
-
-  const result = await window.yo.saveLLMConfig(config);
-  settingsSaveBtn.disabled = false;
-  settingsSaveBtn.textContent = "Save";
-
-  if (result.ok) {
-    settingsStatus.textContent = "Saved!";
-    settingsStatus.className = "settings-success";
-  } else {
-    settingsStatus.textContent = result.error || "Save failed";
-    settingsStatus.className = "settings-error";
-  }
+  settingsSaveBtn.textContent = "Saved!";
+  settingsStatus.textContent = "Saved!";
+  settingsStatus.className = "settings-success";
+  setTimeout(() => {
+    settingsSaveBtn.disabled = false;
+    settingsSaveBtn.textContent = "Save";
+  }, 1000);
 }
 
 export { loadSettings, initSettings };
