@@ -66,7 +66,10 @@ export function resolveAgentSdkBinary(): string | undefined {
   return undefined;
 }
 
-export function asarSafeQueryOptions(cwd?: string): Record<string, any> {
+export function asarSafeQueryOptions(
+  cwd?: string,
+  onProcessExit?: (info: { code: number | null; signal: string | null; stderr: string }) => void,
+): Record<string, any> {
   const sdkBinary = resolveAgentSdkBinary();
   const safeCwd = cwd || os.homedir();
   return {
@@ -89,8 +92,9 @@ export function asarSafeQueryOptions(cwd?: string): Record<string, any> {
       });
       let stderrBuf = "";
       child.stderr?.on("data", (chunk: Buffer) => { stderrBuf += chunk.toString(); });
-      child.on("exit", (code: number | null) => {
-        if (code && code !== 0) console.error(`[sdk-llm] CC exited code=${code} stderr=${stderrBuf.slice(0, 500)}`);
+      child.on("exit", (code: number | null, signal: string | null) => {
+        if (code && code !== 0) console.error(`[sdk-llm] CC exited code=${code} signal=${signal} stderr=${stderrBuf.slice(0, 500)}`);
+        onProcessExit?.({ code, signal, stderr: stderrBuf });
       });
       return { stdin: child.stdin, stdout: child.stdout, get killed() { return child.killed; }, get exitCode() { return child.exitCode; }, kill: child.kill.bind(child), on: child.on.bind(child), once: child.once.bind(child), off: child.off.bind(child) };
     },

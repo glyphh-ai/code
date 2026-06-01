@@ -25,6 +25,9 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
   const perm = document.getElementById("agent-default-perm") as HTMLSelectElement | null;
   const prompt = document.getElementById("agent-default-prompt") as HTMLTextAreaElement | null;
   const mcp = document.getElementById("agent-default-mcp") as HTMLInputElement | null;
+  const compactEnabled = document.getElementById("agent-autocompact-enabled") as HTMLInputElement | null;
+  const compactWindow = document.getElementById("agent-autocompact-window") as HTMLInputElement | null;
+  const compactPrompt = document.getElementById("agent-compact-prompt") as HTMLTextAreaElement | null;
   const save = document.getElementById("agent-defaults-save") as HTMLButtonElement | null;
   const status = document.getElementById("agent-defaults-status") as HTMLElement | null;
   if (!provider || !model || !perm || !prompt || !mcp || !save || !status) return;
@@ -57,6 +60,16 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
       const m = await window.yo.getAgentMode();
       perm.value = m?.perm || "default";
     } catch { /* ignore */ }
+    // Compaction prefs live in the preference store (read by the right-rail
+    // .Yo agent at turn start), not the agent-defaults seed record.
+    try {
+      if (compactEnabled) compactEnabled.checked = (await window.yo.getPreference("autoCompactEnabled", true)) as boolean;
+      if (compactWindow) {
+        const w = (await window.yo.getPreference("autoCompactWindow", 0)) as number;
+        compactWindow.value = w > 0 ? String(w) : "";
+      }
+      if (compactPrompt) compactPrompt.value = (await window.yo.getPreference("compactPrompt", "")) as string;
+    } catch { /* ignore */ }
   })();
   // Reflect external perm changes (right-rail dropdown, command palette) live.
   window.yo.onAgentModeChanged?.((mode: string) => {
@@ -76,6 +89,13 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
       // Perm dropdown also writes through to the agentMode pref so the
       // right-rail .Yo agent picks it up on restart (single source of truth).
       window.yo.setAgentMode(perm.value);
+      // Compaction prefs → preference store (read by yo-agent at turn start).
+      if (compactEnabled) window.yo.setPreference("autoCompactEnabled", compactEnabled.checked);
+      if (compactWindow) {
+        const w = parseInt(compactWindow.value, 10);
+        window.yo.setPreference("autoCompactWindow", Number.isFinite(w) && w > 0 ? w : 0);
+      }
+      if (compactPrompt) window.yo.setPreference("compactPrompt", compactPrompt.value.trim());
       status.textContent = "Saved.";
     } catch (err: any) {
       status.textContent = `Error: ${err?.message || err}`;

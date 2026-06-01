@@ -2407,8 +2407,20 @@ async function boot() {
     const wc = mainWindow?.webContents;
     if (!wc || mainWindow!.isDestroyed()) return;
 
+    // `compact` / `/compact [extra]` → manual compaction. The CC binary
+    // interprets the /compact slash command; we fold in the user's saved
+    // custom compaction prompt (Settings → Agent Defaults) plus any inline
+    // instructions so the summary is shaped how they want.
+    let agentMessage = trimmed;
+    if (/^\/?compact(\s|$)/i.test(trimmed)) {
+      const extra = trimmed.replace(/^\/?compact\s*/i, "").trim();
+      const saved = getPreference<string>("compactPrompt", "");
+      const instructions = [saved, extra].filter(Boolean).join("\n").trim();
+      agentMessage = instructions ? `/compact ${instructions}` : "/compact";
+    }
+
     // Everything goes to the yo agent (in swarm mode it defaults to create_swarm).
-    yoAgent.send(trimmed, {
+    yoAgent.send(agentMessage, {
       onText: (delta) => {
         wc.send("yo-panel-token", delta);
       },

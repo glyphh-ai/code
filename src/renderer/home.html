@@ -1586,6 +1586,26 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <label class="settings-label" style="margin-top:12px;">Default MCP servers (comma-separated)</label>
                   <input id="agent-default-mcp" type="text" class="settings-input" placeholder="" spellcheck="false" />
 
+                  <h3 style="margin-top:20px;margin-bottom:4px;">Context &amp; compaction</h3>
+                  <p class="section-desc" style="margin-top:0;">
+                    When a conversation grows past the window, older turns are
+                    summarized so the agent keeps going instead of erroring out.
+                  </p>
+                  <label class="settings-toggle" style="margin-top:4px;padding:8px 12px;">
+                    <input type="checkbox" id="agent-autocompact-enabled" checked />
+                    <span class="toggle-switch"></span>
+                    <div class="toggle-info">
+                      <span class="toggle-title">Auto-compact when context fills</span>
+                      <span class="toggle-desc">Summarize older turns automatically before the window overflows</span>
+                    </div>
+                  </label>
+
+                  <label class="settings-label" style="margin-top:12px;">Context window before compaction (tokens)</label>
+                  <input id="agent-autocompact-window" type="number" min="0" step="1000" class="settings-input settings-input-md" placeholder="default (leave blank / 0)" spellcheck="false" />
+
+                  <label class="settings-label" style="margin-top:12px;">Custom compaction prompt (optional)</label>
+                  <textarea id="agent-compact-prompt" class="settings-input" rows="4" spellcheck="false" placeholder="How should the agent summarize the conversation when compacting? Leave blank for the default summary."></textarea>
+
                   <div class="settings-actions" style="margin-top:16px;">
                     <button id="agent-defaults-save" class="action-btn primary" type="button">Save defaults</button>
                     <span id="agent-defaults-status"></span>

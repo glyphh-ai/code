@@ -48,6 +48,11 @@ import type { AgentMode } from "./action-gate";
 import { getAdal } from "./adal";
 import { adalEnabled } from "./adal/gate";
 import { getPreference } from "./preferences";
+// Compaction prefs read from the SQLite store — the same one the renderer's
+// window.yo.setPreference writes to (main's get/set-preference IPC → preferences-db).
+// The file-based getPreference above is a separate store, so reading these from
+// it would never see what the user saved in Settings.
+import { getPreference as getDbPreference } from "./stores/preferences-db";
 import { getKey as getProviderKey } from "./provider-keys";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as
@@ -537,12 +542,19 @@ export class YoAgent {
 
     const model = this.llmConfig?.model || "claude-sonnet-4-6";
     const isBypass = this._mode === "bypassPermissions";
+    // Captures a hard CC process crash so a turn that dies without throwing
+    // (stream just ends) still surfaces an error instead of a silent no-op.
+    // SIGTERM/SIGINT are how abort() stops the process, so those are ignored.
+    let processExit: { code: number | null; signal: string | null; stderr: string } | null = null;
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
       // The right-rail .Yo agent always runs at ~/yo/ — it spans every
       // folder the user touches and does not follow per-app folder picks.
-      ...asarSafeQueryOptions(rightRailCwd()),
+      ...asarSafeQueryOptions(rightRailCwd(), (info) => {
+        const aborted = info.signal === "SIGTERM" || info.signal === "SIGINT" || info.code === 143 || info.code === 130;
+        if (!aborted && info.code && info.code !== 0) processExit = info;
+      }),
       permissionMode: isBypass ? "bypassPermissions" : this._mode,
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {
@@ -584,6 +596,18 @@ export class YoAgent {
       forwardSubagentText: true,
       persistSession: true,
       todoFeatureEnabled: true,
+      // Context compaction — user-configurable in Settings → Agent Defaults.
+      // autoCompactWindow is the token budget the conversation may grow to
+      // before the SDK auto-summarizes older turns. Only forwarded when the
+      // user set a value; otherwise the SDK applies its own default.
+      settings: (() => {
+        const s: Record<string, unknown> = {
+          autoCompactEnabled: getDbPreference<boolean>("autoCompactEnabled", true),
+        };
+        const win = getDbPreference<number>("autoCompactWindow", 0);
+        if (win && win > 0) s.autoCompactWindow = win;
+        return s;
+      })(),
       // BYOK first, Claude Code OAuth second.
       // If the user has pasted an Anthropic API key into Settings →
       // Providers, pass it as ANTHROPIC_API_KEY so the SDK calls
@@ -853,6 +877,15 @@ export class YoAgent {
         }
       }
 
+      // The CC process crashed mid-turn without the stream throwing — the
+      // loop just drained empty. Surface it instead of a silent dead turn.
+      if (processExit && !fullText.trim() && !this.abortController.signal.aborted) {
+        const ex = processExit as { code: number | null; signal: string | null; stderr: string };
+        const tail = ex.stderr.trim().split("\n").slice(-3).join("\n").slice(0, 300);
+        cb.onError(`The agent process exited unexpectedly (code ${ex.code}).${tail ? `\n${tail}` : ""}`);
+        return;
+      }
+
       // Mark that the plan was delivered — next user message triggers transition.
       if (this._mode === "plan") {
         this._planDelivered = true;
@@ -922,7 +955,11 @@ export class YoAgent {
           return;
         } catch { /* fall through to error path below */ }
       }
-      cb.onError(msg);
+      // A bare/opaque SDK error often means the CC child died — fold in its
+      // stderr tail so the panel shows something actionable, not just "Error".
+      const ex = processExit as { code: number | null; signal: string | null; stderr: string } | null;
+      const tail = ex?.stderr?.trim().split("\n").slice(-3).join("\n").slice(0, 300);
+      cb.onError(tail && msg.length < 40 ? `${msg}\n${tail}` : msg);
     }
   }
 

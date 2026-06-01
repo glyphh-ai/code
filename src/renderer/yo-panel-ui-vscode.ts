@@ -1170,6 +1170,16 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     setYoThinking(false);
     drainPendingYoMessages();
   });
+  window.yo.onYoPanelError((err) => {
+    clearYoStatus();
+    setYoThinking(false);
+    const el = document.createElement("div");
+    el.className = "yo-msg yo-msg-error";
+    el.textContent = err || "The agent hit an error.";
+    chat.appendRaw(el);
+    yoScroll();
+    drainPendingYoMessages();
+  });
   window.yo.onYoPanelClose(() => closeYoPanel());
   window.yo.onYoPanelRefocus(() => yoPanelInput.focus());
   window.yo.onYoPanelPrefill((text) => {
