@@ -200,13 +200,13 @@ export function registerWorkingDirectoryIpc(deps: {
   // ── Recents (rich) ──
   ipcMain.handle("recents:list", () => getRecents());
   ipcMain.handle("recents:open", (_e, entry: RecentEntry) => {
-    if (!entry?.kind || !entry?.id || !entry?.folder) return false;
-    openRecentEntry(entry);
+    if (!entry?.kind || !entry?.id) return false;
+    openRecentEntry({ ...entry, folder: entry.folder || "" });
     return true;
   });
   ipcMain.handle("recents:remove", (_e, entry: Pick<RecentEntry, "kind" | "id" | "folder">) => {
-    if (!entry?.kind || !entry?.id || !entry?.folder) return false;
-    removeRecent(entry);
+    if (!entry?.kind || !entry?.id) return false;
+    removeRecent({ ...entry, folder: entry.folder || "" });
     return true;
   });
   ipcMain.handle("recents:clear", () => { clearRecents(); return true; });

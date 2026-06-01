@@ -141,6 +141,7 @@ declare global {
       getWorkingDir: () => Promise<string | null>;
       pickWorkingDir: (opts?: { asDefault?: boolean }) => Promise<string | null>;
       setWorkingDir: (dir: string) => Promise<string>;
+      gitInfo: (root: string) => Promise<{ isRepo: boolean; branch?: string; defaultBranch?: string }>;
       getWorkingDirRecents: () => Promise<string[]>;
       onWorkingDirChanged: (callback: (dir: string | null) => void) => void;
       onSplitState: (callback: (info: {
@@ -869,40 +870,165 @@ initDownloads();
   window.yo.onRecentsChanged(() => { void refreshRailRecents(); });
   void refreshRailRecents();
 
-  // ── Rail split: draggable divider between nav (top) and recents ──
-  // Persisted as `leftRailSplit` (px of the nav pane height).
+  // ── Workspaces section — last 20 folders the yo agent has worked in ──
+  // Folder name + git branch on top row; full path beneath. Click sets the
+  // agent's workdir and opens the Workbench at that folder. Data source is
+  // the same `workingDirRecents` pref the agent's folder picker uses.
+  const railWorkspaces = document.getElementById("rail-workspaces");
+  const railWsList = document.getElementById("rail-workspaces-list");
+  const railWsSearch = document.getElementById("rail-workspaces-search") as HTMLInputElement | null;
+  const railWsSplit = document.getElementById("rail-ws-split-handle");
+  const WS_LIMIT = 20;
+  let wsAll: string[] = [];
+  let wsBranches = new Map<string, string>();
+  let wsQuery = "";
+
+  function basenameOf(p: string): string {
+    const clean = p.replace(/\/+$/, "");
+    const i = clean.lastIndexOf("/");
+    return i >= 0 ? clean.slice(i + 1) : clean;
+  }
+  function wsFiltered(): string[] {
+    const q = wsQuery.trim().toLowerCase();
+    const list = wsAll.slice(0, WS_LIMIT);
+    if (!q) return list;
+    return list.filter((p) => p.toLowerCase().includes(q));
+  }
+  function renderRailWorkspaces(): void {
+    if (!railWsList) return;
+    const list = wsFiltered();
+    railWsList.innerHTML = "";
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "rail-recents-empty";
+      empty.textContent = wsQuery
+        ? `No workspaces matching "${wsQuery}".`
+        : "No workspaces yet.";
+      railWsList.appendChild(empty);
+      return;
+    }
+    for (const folder of list) {
+      const row = document.createElement("button");
+      row.className = "rail-ws-row";
+      row.type = "button";
+      row.title = folder;
+      const branch = wsBranches.get(folder) || "";
+      row.innerHTML = `
+        <div class="rail-ws-head">
+          <span class="rail-ws-folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            </svg>
+            <span class="rail-ws-folder-name"></span>
+          </span>
+          ${branch ? `
+          <span class="rail-ws-branch">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="8" r="2"/>
+              <path d="M6 8v8"/><path d="M18 10v1a4 4 0 0 1-4 4H8"/>
+            </svg>
+            <span class="rail-ws-branch-name"></span>
+          </span>` : ""}
+        </div>
+        <div class="rail-ws-path"></div>
+      `;
+      (row.querySelector(".rail-ws-folder-name") as HTMLElement).textContent = basenameOf(folder);
+      const branchEl = row.querySelector(".rail-ws-branch-name");
+      if (branchEl) branchEl.textContent = branch;
+      (row.querySelector(".rail-ws-path") as HTMLElement).textContent = folder.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
+      row.addEventListener("click", () => { void openWorkspace(folder); });
+      railWsList.appendChild(row);
+    }
+  }
+  async function openWorkspace(folder: string): Promise<void> {
+    // Sets the yo agent's workdir AND opens Workbench at that folder. We
+    // route through the same `recentsOpen` flow so all the dip + folder-
+    // bind side effects happen consistently.
+    await window.yo.setWorkingDir(folder);
+    void window.yo.recentsOpen({ kind: "app", id: "workbench", name: "Workbench", folder, ts: Date.now() });
+  }
+  async function refreshRailWorkspaces(): Promise<void> {
+    try {
+      wsAll = await window.yo.getWorkingDirRecents();
+    } catch { wsAll = []; }
+    // Branch probes — best effort, fire in parallel.
+    const top = wsAll.slice(0, WS_LIMIT);
+    const probes = top.map(async (p) => {
+      try {
+        const info = await window.yo.gitInfo(p);
+        if (info?.branch) wsBranches.set(p, info.branch);
+        else wsBranches.delete(p);
+      } catch { /* not a repo or unreachable */ }
+    });
+    await Promise.allSettled(probes);
+    renderRailWorkspaces();
+  }
+  railWsSearch?.addEventListener("input", () => {
+    wsQuery = railWsSearch.value;
+    renderRailWorkspaces();
+  });
+  window.yo.onWorkingDirChanged(() => { void refreshRailWorkspaces(); });
+  void refreshRailWorkspaces();
+  void railWorkspaces;
+
+  // ── Rail splits: two draggable dividers ──
+  //  - leftRailSplit (px): height of the top nav pane
+  //  - leftRailRecentsSplit (px): height of the middle Recents pane
   let navH = 280;
-  let splitDragging = false;
+  let recentsH = 200;
+  let splitDragging: "nav" | "recents" | null = null;
   function applyNavHeight(px: number): void {
     rail.style.setProperty("--rail-nav-h", `${Math.max(80, px)}px`);
   }
+  function applyRecentsHeight(px: number): void {
+    rail.style.setProperty("--rail-recents-h", `${Math.max(80, px)}px`);
+  }
   void (async () => {
-    const saved = await window.yo.getPreference("leftRailSplit", 280);
-    if (typeof saved === "number" && saved > 0) navH = saved;
+    const savedNav = await window.yo.getPreference("leftRailSplit", 280);
+    if (typeof savedNav === "number" && savedNav > 0) navH = savedNav;
     applyNavHeight(navH);
+    const savedRec = await window.yo.getPreference("leftRailRecentsSplit", 200);
+    if (typeof savedRec === "number" && savedRec > 0) recentsH = savedRec;
+    applyRecentsHeight(recentsH);
   })();
   railSplitHandle.addEventListener("mousedown", (e) => {
     e.preventDefault();
-    splitDragging = true;
+    splitDragging = "nav";
     railSplitHandle.classList.add("dragging");
+    document.body.style.cursor = "row-resize";
+  });
+  railWsSplit?.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    splitDragging = "recents";
+    railWsSplit.classList.add("dragging");
     document.body.style.cursor = "row-resize";
   });
   document.addEventListener("mousemove", (e) => {
     if (!splitDragging) return;
     const railRect = rail.getBoundingClientRect();
-    // Relative y inside the rail. Clamp to keep both panes usable.
     const relY = e.clientY - railRect.top;
-    const minTop = 80;
-    const minBottom = 120;
-    navH = Math.max(minTop, Math.min(railRect.height - minBottom, relY));
-    applyNavHeight(navH);
+    if (splitDragging === "nav") {
+      const minTop = 80;
+      const minBottom = 240; // leave room for both recents + workspaces
+      navH = Math.max(minTop, Math.min(railRect.height - minBottom, relY));
+      applyNavHeight(navH);
+    } else {
+      const recentsTop = navH; // recents starts directly below nav
+      const minRecents = 80;
+      const minWs = 120;
+      recentsH = Math.max(minRecents, Math.min(railRect.height - navH - minWs, relY - recentsTop));
+      applyRecentsHeight(recentsH);
+    }
   });
   document.addEventListener("mouseup", () => {
     if (!splitDragging) return;
-    splitDragging = false;
+    const which = splitDragging;
+    splitDragging = null;
     railSplitHandle.classList.remove("dragging");
+    railWsSplit?.classList.remove("dragging");
     document.body.style.cursor = "";
-    void window.yo.setPreference("leftRailSplit", navH);
+    if (which === "nav") void window.yo.setPreference("leftRailSplit", navH);
+    else void window.yo.setPreference("leftRailRecentsSplit", recentsH);
   });
 
   // Silence the unused-var warning for railNav / railRecents — referenced

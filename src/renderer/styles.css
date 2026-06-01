@@ -5305,9 +5305,10 @@ select.settings-input {
 .rail-split-handle:hover::after { background: var(--border-3); height: 2px; }
 .rail-split-handle.dragging::after { background: var(--accent); height: 2px; }
 
-/* Bottom: Recents — folder-bound app/layout instances. */
+/* Middle: Recents — app-centric grid. Fixed height (resizable via the
+   split handle below it); Workspaces takes the remaining space. */
 .rail-recents {
-  flex: 1 1 0;
+  flex: 0 0 var(--rail-recents-h, 200px);
   min-height: 80px;
   display: flex;
   flex-direction: column;
@@ -5315,6 +5316,88 @@ select.settings-input {
   padding: 8px;
   gap: 6px;
   position: relative;
+}
+/* Bottom: Workspaces — last 20 folders the agent has worked in. */
+.rail-workspaces {
+  flex: 1 1 0;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  gap: 6px;
+  position: relative;
+}
+.rail-workspaces-list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px;
+}
+.rail-ws-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font-family: inherit;
+  min-width: 0;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.rail-ws-row:hover { background: var(--surface); border-color: var(--border); }
+.rail-ws-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.rail-ws-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+.rail-ws-folder svg { width: 13px; height: 13px; color: var(--text-2); flex-shrink: 0; }
+.rail-ws-folder-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-ws-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.rail-ws-branch svg { width: 11px; height: 11px; color: var(--text-3); }
+.rail-ws-branch-name {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-ws-path {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rail-recents-header {
   display: flex;
