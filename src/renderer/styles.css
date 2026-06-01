@@ -8133,15 +8133,26 @@ select.settings-input {
    open so the tree/content toolbars sit flush (no negative-margin clipping). */
 #help-content:has(.help-section[data-section="skills"].active) { padding: 0; }
 
-/* Docs, About, and Providers all render wide content (policy text, command
-   tables, the full-width provider cards). #help-content's 32px 40px padding
-   leaves a visible right gap with the vertical scrollbar floating in it. Drop
-   the right padding so content + scrollbar sit flush at the right edge of the
-   page. (Providers regressed here — its cards were left stopping ~40px short.) */
+/* Docs + About render long-form prose where the right page padding adds
+   visible whitespace next to the scrollbar; drop it for those two only.
+   Providers used to be here too — that pushed the provider cards to the
+   absolute right edge with no gutter, which read as broken. Keep the
+   default 40px right padding for Providers so the cards still fill the
+   available width but with proper page breathing room. */
 #help-content:has(.help-section[data-section="docs"].active),
-#help-content:has(.help-section[data-section="settings"].active .settings-panel[data-sub="about"].active),
-#help-content:has(.help-section[data-section="settings"].active .settings-panel[data-sub="providers"].active) {
+#help-content:has(.help-section[data-section="settings"].active .settings-panel[data-sub="about"].active) {
   padding-right: 0;
+}
+
+/* Wide settings panels — the 420px .settings-form clamp is right for narrow
+   input rows but too tight for compound panels (provider cards, MCP
+   tokens + connectors). Let these fill the available width so the user
+   doesn't have to scroll a tall column of inputs. */
+.settings-panel[data-sub="mcp"] .settings-form,
+.settings-panel[data-sub="providers"] .settings-form,
+#mcp-section-wrap,
+#provider-keys-list {
+  max-width: none;
 }
 .skills-explorer-host { flex: 1; min-height: 0; display: flex; }
 .skills.skills-explorer { flex: 1; min-height: 0; }
