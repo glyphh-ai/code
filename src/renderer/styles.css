@@ -5413,6 +5413,30 @@ select.settings-input {
   white-space: nowrap;
 }
 .rail-recents-spacer { flex: 1; }
+/* Per-section clear button on Recents + Workspaces headers (far right).
+   Ghost icon button; reveals on header hover. */
+.rail-section-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.rail-recents-header:hover .rail-section-clear { opacity: 0.7; }
+.rail-section-clear:hover {
+  opacity: 1;
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
 .rail-recents-add {
   width: 20px; height: 20px;
   display: flex; align-items: center; justify-content: center;

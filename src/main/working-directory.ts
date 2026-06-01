@@ -117,6 +117,16 @@ export function clearRecents(): void {
   broadcastRecentsChanged();
 }
 
+/** Clear the workdir-recents list (the Workspaces section in the left rail).
+ *  Doesn't touch the current working directory — the user stays in whatever
+ *  folder they're working in. */
+export function clearWorkingDirRecents(): void {
+  setPreference("workingDirRecents", []);
+  // Reuse the working-dir-changed signal to nudge the renderer to refresh
+  // (it triggers refreshRailWorkspaces in the left rail).
+  getMainWindow()?.webContents.send("working-dir-changed", getPreference<string | null>("workingDirectory", null));
+}
+
 function broadcastRecentsChanged(): void {
   const list = getRecents();
   getMainWindow()?.webContents.send("recents-changed", list);
@@ -210,6 +220,7 @@ export function registerWorkingDirectoryIpc(deps: {
     return true;
   });
   ipcMain.handle("recents:clear", () => { clearRecents(); return true; });
+  ipcMain.handle("working-dir:clear-recents", () => { clearWorkingDirRecents(); return true; });
 
   // Lightweight git probe used by folder-bound app chrome (Agent app etc.)
   // to surface the current branch when the working folder is a git repo.

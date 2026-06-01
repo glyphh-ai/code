@@ -502,6 +502,7 @@ contextBridge.exposeInMainWorld("yo", {
   recentsRemove: (entry: { kind: "app" | "layout"; id: string; folder: string }) =>
     ipcRenderer.invoke("recents:remove", entry) as Promise<boolean>,
   recentsClear: () => ipcRenderer.invoke("recents:clear") as Promise<boolean>,
+  workingDirRecentsClear: () => ipcRenderer.invoke("working-dir:clear-recents") as Promise<boolean>,
   onRecentsChanged: (cb: (list: Array<{
     kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
   }>) => void) => {

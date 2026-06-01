@@ -15,6 +15,7 @@ import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
 import { initYoPanel } from "./yo-panel-ui-vscode.js";
+import { yoConfirm } from "./yo-modal.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
 
@@ -288,6 +289,7 @@ declare global {
       recentsOpen: (entry: { kind: "app" | "layout"; id: string; name: string; folder: string; ts: number }) => Promise<boolean>;
       recentsRemove: (entry: { kind: "app" | "layout"; id: string; folder: string }) => Promise<boolean>;
       recentsClear: () => Promise<boolean>;
+      workingDirRecentsClear: () => Promise<boolean>;
       onRecentsChanged: (cb: (list: Array<{
         kind: "app" | "layout"; id: string; name: string; folder: string; ts: number;
       }>) => void) => () => void;
@@ -868,6 +870,15 @@ initDownloads();
     railRecentsQuery = railRecentsSearch.value;
     renderRailRecents();
   });
+  document.getElementById("rail-recents-clear")?.addEventListener("click", async () => {
+    const ok = await yoConfirm({
+      title: "Clear Recents",
+      message: "This removes every recently opened app from the list. Your apps themselves aren't affected — only the history shown here.",
+      confirmText: "Clear",
+      danger: true,
+    });
+    if (ok) void window.yo.recentsClear();
+  });
   window.yo.onRecentsChanged(() => { void refreshRailRecents(); });
   void refreshRailRecents();
 
@@ -967,6 +978,18 @@ initDownloads();
   railWsSearch?.addEventListener("input", () => {
     wsQuery = railWsSearch.value;
     renderRailWorkspaces();
+  });
+  document.getElementById("rail-workspaces-clear")?.addEventListener("click", async () => {
+    const ok = await yoConfirm({
+      title: "Clear Workspaces",
+      message: "This removes every folder from the Workspaces list. Your current working directory and the folders themselves aren't affected — only the history shown here.",
+      confirmText: "Clear",
+      danger: true,
+    });
+    if (ok) {
+      await window.yo.workingDirRecentsClear();
+      void refreshRailWorkspaces();
+    }
   });
   window.yo.onWorkingDirChanged(() => { void refreshRailWorkspaces(); });
   void refreshRailWorkspaces();
