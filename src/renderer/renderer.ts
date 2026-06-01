@@ -774,93 +774,93 @@ initDownloads();
   })();
 
   // ── Rail Recents (bottom pane) ───────────────────────────────────
+  // App-centric: shows the last 10 distinct apps the user has opened, with the
+  // app's icon (favicon for web apps, initial for yo:// internal). Grid
+  // layout — at least 2 wide, expands to fill the rail's width.
   type RailRecent = { kind: "app" | "layout"; id: string; name: string; folder: string; ts: number };
-  const PAGE = 10;
+  type AppMeta = { id: string; name: string; url?: string };
+  const RECENT_LIMIT = 10;
   const railNav = document.getElementById("files-rail-nav")!;
   const railRecents = document.getElementById("rail-recents")!;
   const railRecentsList = document.getElementById("rail-recents-list")!;
   const railRecentsSearch = document.getElementById("rail-recents-search") as HTMLInputElement | null;
   const railRecentsMore = document.getElementById("rail-recents-more") as HTMLButtonElement | null;
   const railSplitHandle = document.getElementById("rail-split-handle")!;
+  if (railRecentsMore) railRecentsMore.style.display = "none"; // grid shows all <=10; no paginator needed
 
   let railRecentsAll: RailRecent[] = [];
   let railRecentsQuery = "";
-  let railRecentsPage = 0;
+  let railAppsById = new Map<string, AppMeta>();
 
-  function homeShorten(p: string): string {
-    return p.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
+  /** Most-recent entry per app id, sorted newest first, capped at RECENT_LIMIT. */
+  function railRecentsDedup(): RailRecent[] {
+    const seen = new Map<string, RailRecent>();
+    for (const r of railRecentsAll) {
+      if (r.kind !== "app") continue;
+      const prev = seen.get(r.id);
+      if (!prev || r.ts > prev.ts) seen.set(r.id, r);
+    }
+    return [...seen.values()].sort((a, b) => b.ts - a.ts).slice(0, RECENT_LIMIT);
   }
   function railRecentsFiltered(): RailRecent[] {
     const q = railRecentsQuery.trim().toLowerCase();
-    if (!q) return railRecentsAll;
-    return railRecentsAll.filter(
-      (r) => r.name.toLowerCase().includes(q) || r.folder.toLowerCase().includes(q),
-    );
+    const list = railRecentsDedup();
+    if (!q) return list;
+    return list.filter((r) => r.name.toLowerCase().includes(q));
+  }
+  function iconHtml(app: RailRecent, meta?: AppMeta): string {
+    const initial = (meta?.name || app.name).charAt(0).toUpperCase();
+    const url = meta?.url || "";
+    const isWeb = url && !url.startsWith("yo://") && !url.startsWith("file://");
+    if (isWeb) {
+      try {
+        const host = new URL(url).hostname;
+        const fav = `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
+        return `<img class="rail-recents-icon-img" src="${fav}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><span class="rail-recents-icon-initial" style="display:none">${initial}</span>`;
+      } catch { /* malformed URL — fall through */ }
+    }
+    return `<span class="rail-recents-icon-initial">${initial}</span>`;
   }
   function renderRailRecents(): void {
-    const all = railRecentsFiltered();
-    const shown = all.slice(0, (railRecentsPage + 1) * PAGE);
+    const list = railRecentsFiltered();
     railRecentsList.innerHTML = "";
-    if (shown.length === 0) {
+    if (list.length === 0) {
       const empty = document.createElement("div");
       empty.className = "rail-recents-empty";
       empty.textContent = railRecentsQuery
         ? `No recents matching "${railRecentsQuery}".`
         : "No recents yet.";
       railRecentsList.appendChild(empty);
-      if (railRecentsMore) railRecentsMore.style.display = "none";
       return;
     }
-    for (const entry of shown) {
-      const row = document.createElement("button");
-      row.className = "rail-recents-row";
-      row.type = "button";
-      row.title = entry.folder;
-      const content = document.createElement("div");
-      content.className = "rail-recents-content";
-      const nameEl = document.createElement("div");
-      nameEl.className = "rail-recents-app";
-      nameEl.textContent = entry.name;
-      const folderEl = document.createElement("div");
-      folderEl.className = "rail-recents-folder";
-      folderEl.textContent = homeShorten(entry.folder);
-      content.append(nameEl, folderEl);
-      const dismiss = document.createElement("button");
-      dismiss.className = "rail-recents-dismiss";
-      dismiss.type = "button";
-      dismiss.title = "Remove";
-      dismiss.textContent = "×";
-      dismiss.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void window.yo.recentsRemove({ kind: entry.kind, id: entry.id, folder: entry.folder });
-      });
-      row.append(content, dismiss);
-      row.addEventListener("click", () => { void window.yo.recentsOpen(entry); });
-      railRecentsList.appendChild(row);
+    for (const entry of list) {
+      const meta = railAppsById.get(entry.id);
+      const cell = document.createElement("button");
+      cell.className = "rail-recents-cell";
+      cell.type = "button";
+      cell.title = meta?.name || entry.name;
+      cell.innerHTML = `
+        <div class="rail-recents-icon">${iconHtml(entry, meta)}</div>
+        <div class="rail-recents-name"></div>
+      `;
+      (cell.querySelector(".rail-recents-name") as HTMLElement).textContent = meta?.name || entry.name;
+      cell.addEventListener("click", () => { void window.yo.recentsOpen(entry); });
+      railRecentsList.appendChild(cell);
     }
-    if (railRecentsMore) {
-      if (shown.length < all.length) {
-        railRecentsMore.style.display = "";
-        const remaining = Math.min(PAGE, all.length - shown.length);
-        railRecentsMore.textContent = `Show ${remaining} more`;
-      } else {
-        railRecentsMore.style.display = "none";
-      }
-    }
+  }
+  async function refreshRailApps(): Promise<void> {
+    try {
+      const apps = await window.yo.appsList();
+      railAppsById = new Map(apps.map((a) => [a.id, { id: a.id, name: a.name, url: a.url }]));
+    } catch { /* leave map as-is */ }
   }
   async function refreshRailRecents(): Promise<void> {
     railRecentsAll = (await window.yo.recentsList().catch(() => [])) as RailRecent[];
-    const maxPage = Math.max(0, Math.ceil(railRecentsFiltered().length / PAGE) - 1);
-    if (railRecentsPage > maxPage) railRecentsPage = maxPage;
+    await refreshRailApps();
     renderRailRecents();
   }
   railRecentsSearch?.addEventListener("input", () => {
     railRecentsQuery = railRecentsSearch.value;
-    railRecentsPage = 0;
-    renderRailRecents();
-  });
-  railRecentsMore?.addEventListener("click", () => {
-    railRecentsPage += 1;
     renderRailRecents();
   });
   window.yo.onRecentsChanged(() => { void refreshRailRecents(); });

@@ -5382,48 +5382,69 @@ select.settings-input {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Grid of app cells — fits at least 2 across, expands as the rail widens. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+  padding: 2px;
+  align-content: start;
+}
+.rail-recents-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-.rail-recents-row {
-  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 6px;
-  border-radius: 5px;
+  gap: 4px;
+  padding: 6px 4px;
+  border-radius: 6px;
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
-  text-align: left;
   color: var(--text);
   font-family: inherit;
-  position: relative;
+  min-width: 0;
+  transition: background 120ms ease, border-color 120ms ease;
 }
-.rail-recents-row:hover { background: var(--surface); border-color: var(--border); }
-.rail-recents-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.rail-recents-app {
-  font-size: 12px;
+.rail-recents-cell:hover { background: var(--surface); border-color: var(--border); }
+.rail-recents-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.rail-recents-icon-img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+.rail-recents-icon-initial {
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-2);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
-.rail-recents-folder {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.rail-recents-name {
+  font-size: 10.5px;
+  color: var(--text-2);
+  text-align: center;
+  line-height: 1.2;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.rail-recents-dismiss {
-  width: 18px; height: 18px;
-  border: none; border-radius: 3px;
-  background: transparent; color: var(--text-3);
-  cursor: pointer; font-size: 13px; line-height: 1;
-  opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
-}
-.rail-recents-row:hover .rail-recents-dismiss { opacity: 1; }
-.rail-recents-dismiss:hover { background: var(--surface-2); color: var(--text); }
+.rail-recents-cell:hover .rail-recents-name { color: var(--text); }
+/* Empty-state row spans the whole grid so it isn't squished into one cell. */
+.rail-recents-empty { grid-column: 1 / -1; }
 .rail-recents-empty {
   padding: 12px 8px;
   font-size: 11px;
