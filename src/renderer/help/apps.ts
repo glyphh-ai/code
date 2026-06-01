@@ -924,48 +924,24 @@ function reloadPanelApps(apps: Array<PanelApp>) {
 // so the save handler can convert that tab into the new app.
 let pendingOriginTab: string | null = null;
 
-/** Generate a unique slug. If the base already exists, suffix -2, -3, … */
-function uniqueAppSlug(base: string, existing: Set<string>): string {
-  const cleaned = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "app";
-  if (!existing.has(cleaned)) return cleaned;
-  let n = 2;
-  while (existing.has(`${cleaned}-${n}`)) n++;
-  return `${cleaned}-${n}`;
-}
-
-/** Create a stub app immediately and open the unified edit form for it.
- *  Used by the + New button and the browser-tab "Create App" deep-link —
- *  there is only one form (the detail panel), so both paths land in the
- *  same editor. Optional name + url prefill the new app. */
-async function createAndOpenNewApp(opts: { name?: string; url?: string } = {}): Promise<void> {
-  const apps = await window.yo.appsList();
-  const existing = new Set(apps.map((a) => a.id));
-  let host = "";
-  try { if (opts.url) host = new URL(opts.url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
-  const initialName = opts.name?.trim() || host || "Untitled app";
-  const slugBase = initialName === "Untitled app" ? "app" : initialName;
-  const id = uniqueAppSlug(slugBase, existing);
-  await window.yo.appsAdd(id, initialName, opts.url);
-  const refreshed = await window.yo.appsList();
-  reloadPanelApps(refreshed);
-  const created = refreshed.find((a) => a.id === id);
-  if (created) {
-    await openPanelAppDetail({
-      id: created.id, name: created.name, url: created.url,
-      connectedSlug: created.connectedSlug, forceWeb: created.forceWeb,
-      doNotRecord: created.doNotRecord,
-      commands: created.commands, connection: created.connection, mcp: created.mcp,
-    });
-  } else {
-    loadApps();
-  }
-}
-
-/** Browser-tab "Create App" deep-link entry. Routes through the same
- *  create-stub + open-detail flow as the + New button. */
+/**
+ * Open the New App form, prefilled. Used by the browser-tab "Create App"
+ * deep-link. Clicks the + New button to open the form, then fills the fields.
+ */
 export function openNewAppForm(url = "", name = "", tabId: string | null = null): void {
   pendingOriginTab = tabId;
-  void createAndOpenNewApp({ name, url });
+  document.getElementById("apps-add-btn")?.click(); // opens + clears the form
+  const nameInput = document.getElementById("app-add-name") as HTMLInputElement | null;
+  const slugInput = document.getElementById("app-add-slug") as HTMLInputElement | null;
+  const urlInput = document.getElementById("app-add-url") as HTMLInputElement | null;
+  if (!nameInput || !urlInput) return;
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* noop */ }
+  const finalName = name || host || "";
+  nameInput.value = finalName;
+  if (slugInput) slugInput.value = finalName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  urlInput.value = url;
+  nameInput.focus();
 }
 
 /** Red warning modal shown when the user is about to ENABLE capture for an
@@ -1028,6 +1004,26 @@ function initApps() {
     if (!ok) addDoNotRecord.checked = true;
   });
 
+  // URL → live preview sync in the detail form. Editing the URL field
+  // navigates the embedded panel preview to the new address so the user
+  // sees their change without having to Save + reopen. Debounced to ride
+  // out fast typing; only fires for well-formed URLs.
+  let urlSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  appDetailUrl?.addEventListener("input", () => {
+    if (urlSyncTimer) clearTimeout(urlSyncTimer);
+    urlSyncTimer = setTimeout(() => {
+      const u = appDetailUrl.value.trim();
+      if (!u) return;
+      let normalized = u;
+      try { normalized = new URL(u).toString(); } catch { return; /* not yet a full URL */ }
+      if (appPreview && appPreview.src !== normalized) {
+        appPreview.partition = "persist:yo";
+        appPreview.src = normalized;
+        panelLoaded = true;
+      }
+    }, 400);
+  });
+
   // Slug helpers
   const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   let slugTouched = false;
@@ -1036,18 +1032,22 @@ function initApps() {
     if (!slugTouched) addSlugInput.value = slugify(addNameInput.value);
   });
 
-  // + New — creates a stub app on the spot and opens the unified edit
-  // form for it. No separate "add" form: the detail form is the only
-  // editor in the app, so the user lands directly in the place they're
-  // going to spend their time filling things out. The empty-URL + Untitled
-  // stub is harmless — if the user closes without filling it out, they
-  // can delete it from the detail panel's Delete button.
-  document.getElementById("apps-add-btn")!.addEventListener("click", async () => {
-    await createAndOpenNewApp();
+  // + New — opens the simple App add form (name → auto-slug → URL).
+  // The old "Add App | Add MCP Server" dropdown is gone; the form
+  // already lets the user wire MCP in the detail view after creating.
+  document.getElementById("apps-add-btn")!.addEventListener("click", () => {
+    addNameInput.value = "";
+    addSlugInput.value = "";
+    slugTouched = false;
+    addUrlInput.value = "";
+    addForceWeb.checked = false;
+    addDoNotRecord.checked = true; // privacy default: capture off
+    appFormError.classList.add("hidden");
+    appsList.classList.add("hidden");
+    appsToolbar.classList.add("hidden");
+    appAddForm.classList.remove("hidden");
+    addNameInput.focus();
   });
-
-  // Slug helpers — keep silenced for the deep-link path (openNewAppForm).
-  void addNameInput; void addSlugInput; void addUrlInput; void addForceWeb; void addDoNotRecord;
 
   // MCP add form transport toggle
   document.getElementById("mcp-add-transport")!.addEventListener("change", () => {
