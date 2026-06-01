@@ -331,6 +331,16 @@ export function buildSubstrateDeps(deps: BuildSubstrateDepsArgs): SubstrateToolD
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.focus();
         return result;
       },
+      has: (id: string) => appConnector.hasDirect(id),
+      register: (id: string, name: string, url: string, description?: string) => {
+        const app = appConnector.add(id, name, url);
+        if (description) {
+          // Description is stored on the app meta; AppConnector#add doesn't
+          // accept it directly, so update via a save-through.
+          (app as { description?: string }).description = description;
+        }
+        return true;
+      },
     },
     swarm: {
       create: (goal: string, agentIds?: string[], size?: number) => swarmCreate(goal, agentIds, size),

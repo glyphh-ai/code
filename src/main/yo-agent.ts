@@ -106,6 +106,7 @@ RULES:
 - For skills use create_skill, update_skill, read_skill.
 - For data stores use store_get, store_set, store_list, store_query.
 - For multi-choice questions to the user, use mcp__yo__ask_user_question (the built-in AskUserQuestion is unavailable). It renders a proper "Input required" card with side-by-side code/markdown previews. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.
+- When the user asks you to "build me an X" or "make a tool that does Y" and a single-page web app fits, use create_app — it scaffolds a static HTML bundle under ~/yo/apps/<id>/, registers it in the Apps list, and the file watcher makes it appear without restart. Then open it with open_app to show the user. For follow-up edits use write_app_file. Prefer vanilla HTML/CSS/JS or React-via-CDN; no build step.
 - Run sub-agents (the Agent tool) in the FOREGROUND — do not set run_in_background. The Sub-Agents panel streams their work live and closes each tab when it finishes; backgrounded tasks would not stream there.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");

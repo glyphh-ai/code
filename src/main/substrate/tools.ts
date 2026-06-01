@@ -95,6 +95,12 @@ export interface SubstrateToolDeps {
   apps?: {
     list: () => Array<{ id: string; name: string; url?: string; description?: string }>;
     open: (id: string) => Promise<string>;
+    /** Register an app with the AppConnector — appears in the Apps list +
+     *  is openable via `dip <id>`. Used by the create_app tool after
+     *  scaffolding files. */
+    register?: (id: string, name: string, url: string, description?: string) => boolean;
+    /** Check whether an app id is already taken. */
+    has?: (id: string) => boolean;
   };
   swarm?: {
     /** Draft + spawn a local swarm. Returns a text status for the agent. */
@@ -1642,6 +1648,82 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const id = String(input.app_id || "").trim();
       if (!id) return "An app_id is required.";
       return deps.apps.open(id);
+    },
+  },
+  {
+    name: "create_app",
+    namespace: "yo",
+    description: "Build a brand-new yo app and register it. The app is a static HTML bundle under ~/yo/apps/<id>/ — single-page apps work great here (vanilla, React via CDN, anything that runs in a browser). The file watcher picks it up automatically and it appears in list_apps + the Apps registry without restart. Use this whenever the user asks you to \"build me an app for X\", \"make a tool for Y\", etc. After creating, you can open it with open_app.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id:          { type: "string", description: "Slug (lowercase letters, digits, hyphens). Must be unique." },
+        name:        { type: "string", description: "Display name shown in the Apps list." },
+        description: { type: "string", description: "One-line description (optional)." },
+        html:        { type: "string", description: "Full <!DOCTYPE html> document. Link styles.css and app.js with relative paths if you also provide them." },
+        css:         { type: "string", description: "Optional CSS — written to styles.css next to index.html." },
+        js:          { type: "string", description: "Optional JS — written to app.js next to index.html." },
+      },
+      required: ["id", "name", "html"],
+    },
+    run: async (input) => {
+      const id = String(input.id || "").trim().toLowerCase();
+      const name = String(input.name || "").trim();
+      const html = String(input.html || "");
+      const css = input.css == null ? "" : String(input.css);
+      const js = input.js == null ? "" : String(input.js);
+      const description = input.description ? String(input.description) : undefined;
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) return "Invalid app id — use lowercase letters, digits, and hyphens (must start with a letter/digit).";
+      if (!name) return "A display name is required.";
+      if (!html.trim()) return "An html document is required (full <!DOCTYPE html>).";
+      if (deps.apps?.has?.(id)) return `An app with id "${id}" already exists. Pick a different id or call write_app_file to update it.`;
+      const appsDir = path.join(os.homedir(), "yo", "apps");
+      const dir = path.join(appsDir, id);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, "index.html"), html);
+        if (css) fs.writeFileSync(path.join(dir, "styles.css"), css);
+        if (js) fs.writeFileSync(path.join(dir, "app.js"), js);
+      } catch (err) {
+        return `Failed to write app files: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      const url = `file://${path.join(dir, "index.html")}`;
+      if (deps.apps?.register) {
+        deps.apps.register(id, name, url, description);
+      }
+      return `Created app "${id}" at ${dir}. It's registered in the Apps list and openable with open_app({app_id:"${id}"}).`;
+    },
+  },
+  {
+    name: "write_app_file",
+    namespace: "yo",
+    description: "Write a file inside an existing app's folder under ~/yo/apps/<id>/. Use this to update index.html / styles.css / app.js after create_app, or to add assets (.json data, .svg, additional .js modules). Pass an existing app id from list_apps.",
+    input_schema: {
+      type: "object",
+      properties: {
+        app_id: { type: "string", description: "App id (from list_apps)." },
+        file:   { type: "string", description: "Filename or relative path inside the app folder (e.g. \"index.html\", \"styles.css\", \"data/notes.json\"). No leading slash; no \"..\"." },
+        content: { type: "string", description: "Full file contents (replaces any existing file)." },
+      },
+      required: ["app_id", "file", "content"],
+    },
+    run: async (input) => {
+      const id = String(input.app_id || "").trim().toLowerCase();
+      const rel = String(input.file || "").trim().replace(/^\/+/, "");
+      const content = String(input.content ?? "");
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) return "Invalid app_id.";
+      if (!rel) return "A file path is required.";
+      if (rel.includes("..")) return "Path may not contain \"..\".";
+      const dir = path.join(os.homedir(), "yo", "apps", id);
+      if (!fs.existsSync(dir)) return `App "${id}" does not exist. Use create_app first.`;
+      const dest = path.join(dir, rel);
+      try {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, content);
+      } catch (err) {
+        return `Failed to write ${rel}: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      return `Wrote ${rel} in app "${id}".`;
     },
   },
   // ── adaL substrate tools (think/ask/tell/...) ────────────────
