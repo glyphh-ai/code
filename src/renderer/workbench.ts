@@ -448,13 +448,21 @@ async function init(): Promise<void> {
       localStorage.setItem(layoutKey(), JSON.stringify(data));
     } catch { /* localStorage may be unavailable in some contexts */ }
   }
+  /** Default first-time layout for a folder that has no saved layout yet —
+   *  three narrow rails (Files / Plan / Terminal) so the user sees content
+   *  on first visit instead of a blank page. */
+  function pushDefaultLayout(): void {
+    rails.push({ id: nextRailId++, slots: [makeSlot("files")] });
+    rails.push({ id: nextRailId++, slots: [makeSlot("plan")] });
+    rails.push({ id: nextRailId++, slots: [makeSlot("terminal")] });
+  }
   function loadLayout(): void {
     rails.length = 0;
     let raw: string | null = null;
     try { raw = localStorage.getItem(layoutKey()); } catch { /* noop */ }
-    if (!raw) { renderRails(); return; }
+    if (!raw) { pushDefaultLayout(); renderRails(); return; }
     let data: SavedLayout;
-    try { data = JSON.parse(raw); } catch { renderRails(); return; }
+    try { data = JSON.parse(raw); } catch { pushDefaultLayout(); renderRails(); return; }
     for (const savedRail of data.rails || []) {
       const slots: Slot[] = [];
       for (const v of (savedRail.views || []).slice(0, 2)) {
@@ -466,6 +474,7 @@ async function init(): Promise<void> {
         rails.push({ id: nextRailId++, slots, prefWidth: savedRail.width });
       }
     }
+    if (rails.length === 0) pushDefaultLayout();
     renderRails();
     requestAnimationFrame(() => {
       applyResponsiveWidths();
@@ -1716,24 +1725,23 @@ async function init(): Promise<void> {
     for (const evt of subAgentLiveQueue.splice(0)) applySubAgentEvent(evt);
   })();
 
+  let lastCwd = cwd;
   window.wb.onCwdChanged((dir) => {
-    cwd = dir || "";
+    const next = dir || "";
+    if (next === lastCwd) return;
+    // Persist the current rails to the OLD folder's key before switching
+    // (so the user's arrangement is preserved per-folder), then load the
+    // NEW folder's saved layout — or its default if none exists.
+    if (lastCwd) {
+      const prevCwd = cwd;
+      cwd = lastCwd;
+      try { saveLayout(); } catch { /* noop */ }
+      cwd = prevCwd;
+    }
+    cwd = next;
+    lastCwd = next;
     void paintWorkdirBar(cwd);
-    // Mid-session folder switch: keep the user's current layout structure,
-    // but everything inside refers to the OLD folder. Drop Monaco slots
-    // (their tabs are file paths from the old root) and force-refresh the
-    // remaining views so Files re-roots and Diff re-fetches.
-    for (let i = rails.length - 1; i >= 0; i--) {
-      rails[i].slots = rails[i].slots.filter((s) => s.view !== "monaco");
-      if (rails[i].slots.length === 0) rails.splice(i, 1);
-    }
-    for (const rail of rails) {
-      for (const slot of rail.slots) {
-        if (slot.view === "files") (slot as FilesSlot).root = null;
-      }
-    }
-    renderRails();
-    saveLayout();
+    loadLayout();
   });
 
   // ── Live file updates ──
