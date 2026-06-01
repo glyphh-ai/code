@@ -1384,6 +1384,8 @@ async function boot() {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(instanceId, specHtml, specPreload);
+    } else if (app.url === "yo://workbench") {
+      panelManager.addPanel(instanceId, workbenchHtml, workbenchPreload);
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();
