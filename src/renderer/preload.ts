@@ -50,6 +50,14 @@ contextBridge.exposeInMainWorld("yo", {
   onSkillProgress: (cb: (data: { runId: string; event: any }) => void) => {
     ipcRenderer.on("skill-progress", (_e, data) => cb(data));
   },
+  /** Skills directory changed (CRUD via skillEngine OR the agent writing
+   *  files directly under ~/.claude/skills). The Skills explorer
+   *  subscribes to auto-reload its tree. */
+  onSkillsChanged: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("skills-changed", handler);
+    return () => { ipcRenderer.removeListener("skills-changed", handler); };
+  },
   onSkillAskUser: (cb: (data: { runId: string; qid: string; question: string }) => void) => {
     ipcRenderer.on("skill-ask-user", (_e, data) => cb(data));
   },

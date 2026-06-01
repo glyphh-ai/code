@@ -286,6 +286,11 @@ export class SkillContent {
         `\nInstructions:\n${instr}\n\n` +
         `Create the skill folder under ~/.claude/skills with a SKILL.md, and add a SKILL.js runner if it needs to execute code or call tools. Wire any tools/apps it needs.`;
       this.deps.buildWithAgent(prompt);
+      // Close the form — the prompt is now in the .Yo agent panel, and the
+      // skill itself will materialize in the tree via the skills-changed
+      // watcher as the agent writes files. Drop back to the empty state so
+      // the user can watch the agent work.
+      this.showEmpty();
     });
     this.bar.innerHTML = "";
     this.bar.append(el("span", { class: "skill-content-title", text: "New skill" }));

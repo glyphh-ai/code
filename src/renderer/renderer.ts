@@ -60,6 +60,7 @@ declare global {
       skillsResumeSchedule: (name: string) => Promise<void>;
       onSkillProgress: (cb: (data: { runId: string; event: any }) => void) => void;
       onSkillAskUser: (cb: (data: { runId: string; qid: string; question: string }) => void) => void;
+      onSkillsChanged: (cb: () => void) => () => void;
       // Apps
       appsList: () => Promise<Array<{
         id: string; name: string; url?: string; connected: boolean; connectedSlug?: string;

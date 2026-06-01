@@ -13,6 +13,7 @@ import { createSkillTree, type SkillMeta } from "./skills-explorer/tree.js";
 import { SkillContent } from "./skills-explorer/content.js";
 
 const PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+const REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>`;
 const SKILLS_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 const MENU_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
 const MENU_UPLOAD = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`;
@@ -48,11 +49,14 @@ export function loadSkills(): void {
   searchInput.addEventListener("input", () => tree.filter(searchInput.value));
   const newBtn = el("button", { class: "skill-new-btn", html: PLUS, attrs: { title: "New skill" } });
   newBtn.addEventListener("click", (e) => { e.stopPropagation(); openCreateMenu(newBtn); });
+  const refreshBtn = el("button", { class: "skill-new-btn", html: REFRESH, attrs: { title: "Refresh skill list" } });
+  refreshBtn.addEventListener("click", (e) => { e.stopPropagation(); void load(); });
 
   const treePanel = el("div", { class: "skill-tree-panel" }, [
     el("div", { class: "skill-tree-toolbar" }, [
       el("span", { class: "skill-tree-title", text: "Skills" }),
       newBtn,
+      refreshBtn,
     ]),
     el("div", { class: "skill-tree-searchrow" }, [
       el("span", { class: "skill-search", html: SEARCH }, [searchInput]),
@@ -148,6 +152,10 @@ export function loadSkills(): void {
   }
 
   void load();
+
+  // Auto-reload when anything changes the skills directory — the .Yo agent
+  // dropping files via Write, an external editor, drag-and-drop import, etc.
+  window.yo.onSkillsChanged?.(() => { void load(); });
 }
 
 function wireDivider(divider: HTMLElement, panel: HTMLElement, onResize: () => void): void {

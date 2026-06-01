@@ -371,6 +371,30 @@ async function boot() {
   // Seed bundled built-in skills (e.g. vibe-planner) if absent. Never
   // clobbers a user-edited copy; safe + idempotent on every boot.
   try { skillEngine.seedBuiltinSkills(); } catch (err) { console.log("[skills] seed failed:", (err as Error).message); }
+  // Broadcast a `skills-changed` event whenever anything touches the
+  // skills directory — covers both the skillEngine API path (CRUD via
+  // the Skills app) AND the agent writing skill files directly via its
+  // Write tool. Renderer subscribes via window.yo.onSkillsChanged.
+  let skillsBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  const broadcastSkillsChanged = () => {
+    if (skillsBroadcastTimer) clearTimeout(skillsBroadcastTimer);
+    skillsBroadcastTimer = setTimeout(() => {
+      try { mainWindow?.webContents.send("skills-changed"); } catch { /* */ }
+      for (const wc of panelManager?.getAllWebContents() ?? []) {
+        try { wc.send("skills-changed"); } catch { /* */ }
+      }
+    }, 120);
+  };
+  skillEngine.onChange(broadcastSkillsChanged);
+  try {
+    fs.watch(skillEngine.getSkillsDir(), { recursive: true, persistent: false }, () => {
+      broadcastSkillsChanged();
+    });
+  } catch (err) {
+    // recursive isn't supported on Linux without polling — fall back
+    // silently; the skillEngine.onChange path still fires for in-app CRUD.
+    console.warn("[skills-watch] could not watch", skillEngine.getSkillsDir(), err);
+  }
   appConnector = new AppConnector();
 
   // Embedder + capture store
