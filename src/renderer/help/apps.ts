@@ -944,12 +944,65 @@ export function openNewAppForm(url = "", name = "", tabId: string | null = null)
   nameInput.focus();
 }
 
+/** Red warning modal shown when the user is about to ENABLE capture for an
+ *  app (unchecking "Do Not Capture"). Returns true if the user confirmed,
+ *  false on cancel. Async so the caller can `await` and revert on cancel. */
+function confirmEnableCapture(appName: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "capture-warning-overlay";
+    overlay.innerHTML = `
+      <div class="capture-warning-card">
+        <div class="capture-warning-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Enable capture for ${appName}?</span>
+        </div>
+        <div class="capture-warning-body">
+          <p>Capture lets the LLM read and learn from the content inside this app's panel — your conversations, documents, dashboards, whatever you have on screen.</p>
+          <p><strong>Stored in plain text on this machine.</strong> Captured content lands in the local capture store. We make every effort to filter passwords and obvious PII (emails, SSNs, card numbers), but the filter is not perfect — anything sensitive you read or type in this app may end up on disk in clear text.</p>
+          <p>You can turn capture back off any time from this app's detail panel.</p>
+        </div>
+        <div class="capture-warning-actions">
+          <button type="button" class="capture-warning-cancel">Cancel</button>
+          <button type="button" class="capture-warning-confirm">Enable capture</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const cleanup = (result: boolean) => { overlay.remove(); resolve(result); };
+    overlay.querySelector(".capture-warning-cancel")!.addEventListener("click", () => cleanup(false));
+    overlay.querySelector(".capture-warning-confirm")!.addEventListener("click", () => cleanup(true));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
+  });
+}
+
 function initApps() {
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addSlugInput = document.getElementById("app-add-slug") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
   const addForceWeb = document.getElementById("app-add-force-web") as HTMLInputElement;
   const addDoNotRecord = document.getElementById("app-add-do-not-record") as HTMLInputElement;
+  // Privacy default: "Do Not Capture" is on for every new app. The user
+  // must explicitly turn it off (= enable capture), which triggers the
+  // red warning modal below.
+  if (addDoNotRecord) addDoNotRecord.checked = true;
+
+  // Detail toggle — show the warning modal when the user is about to
+  // ENABLE capture (going from "Do Not Capture: on" to "off"). Cancel
+  // reverts the checkbox.
+  appDoNotRecord?.addEventListener("change", async () => {
+    if (appDoNotRecord.checked) return; // still on — nothing to warn about
+    const name = appDetailName.value.trim() || "this app";
+    const ok = await confirmEnableCapture(name);
+    if (!ok) appDoNotRecord.checked = true;
+  });
+  // Same warning on the New App form.
+  addDoNotRecord?.addEventListener("change", async () => {
+    if (addDoNotRecord.checked) return;
+    const name = addNameInput.value.trim() || "this app";
+    const ok = await confirmEnableCapture(name);
+    if (!ok) addDoNotRecord.checked = true;
+  });
 
   // Slug helpers
   const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -959,47 +1012,21 @@ function initApps() {
     if (!slugTouched) addSlugInput.value = slugify(addNameInput.value);
   });
 
-  // + New dropdown
-  document.getElementById("apps-add-btn")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    document.getElementById("apps-add-menu")!.classList.toggle("hidden");
-  });
-  document.addEventListener("click", () => {
-    document.getElementById("apps-add-menu")?.classList.add("hidden");
-  });
-
-  // Add App
-  document.getElementById("apps-add-app")!.addEventListener("click", () => {
-    document.getElementById("apps-add-menu")!.classList.add("hidden");
+  // + New — opens the unified app form directly. The form's "Add MCP
+  // server to this app" section covers the standalone MCP case, so the
+  // old two-step dropdown is redundant.
+  document.getElementById("apps-add-btn")!.addEventListener("click", () => {
     addNameInput.value = "";
     addSlugInput.value = "";
     slugTouched = false;
     addUrlInput.value = "";
     addForceWeb.checked = false;
-    addDoNotRecord.checked = false;
+    addDoNotRecord.checked = true; // privacy default: capture off
     appFormError.classList.add("hidden");
     appsList.classList.add("hidden");
     appsToolbar.classList.add("hidden");
     appAddForm.classList.remove("hidden");
     addNameInput.focus();
-  });
-
-  // Add MCP Server
-  document.getElementById("apps-add-mcp")!.addEventListener("click", () => {
-    document.getElementById("apps-add-menu")!.classList.add("hidden");
-    (document.getElementById("mcp-add-name") as HTMLInputElement).value = "";
-    (document.getElementById("mcp-add-transport") as HTMLSelectElement).value = "stdio";
-    (document.getElementById("mcp-add-command") as HTMLInputElement).value = "";
-    (document.getElementById("mcp-add-args") as HTMLInputElement).value = "";
-    (document.getElementById("mcp-add-env") as HTMLTextAreaElement).value = "";
-    (document.getElementById("mcp-add-url") as HTMLInputElement).value = "";
-    document.getElementById("mcp-form-error")!.classList.add("hidden");
-    document.getElementById("mcp-add-stdio-fields")!.classList.remove("hidden");
-    document.getElementById("mcp-add-sse-fields")!.classList.add("hidden");
-    appsList.classList.add("hidden");
-    appsToolbar.classList.add("hidden");
-    mcpAddForm.classList.remove("hidden");
-    (document.getElementById("mcp-add-name") as HTMLInputElement).focus();
   });
 
   // MCP add form transport toggle

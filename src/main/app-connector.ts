@@ -466,6 +466,12 @@ export class AppConnector {
       name,
       connected: false,
       commands: {},
+      // Privacy-first default: every new app starts with capture OFF. The
+      // user must explicitly enable it from the app's detail panel, which
+      // also prompts a warning modal about plain-text local storage of
+      // captured content. Internal apps (yo://...) override this back to
+      // their own policy in the INTERNAL_APPS seed loop.
+      doNotRecord: true,
       ...(url ? { url } : {}),
       ...(forceWeb ? { forceWeb } : {}),
     };

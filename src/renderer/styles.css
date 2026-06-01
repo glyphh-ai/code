@@ -8133,6 +8133,79 @@ select.settings-input {
    open so the tree/content toolbars sit flush (no negative-margin clipping). */
 #help-content:has(.help-section[data-section="skills"].active) { padding: 0; }
 
+/* ── Capture-enable warning modal ────────────────────────────────────────
+   Red-accented confirmation shown when the user is about to enable capture
+   for an app (turning "Do Not Capture" off). Tells them the risk: captured
+   content lands in plain text on the local capture store. */
+.capture-warning-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: capture-fade-in 120ms ease;
+}
+@keyframes capture-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.capture-warning-card {
+  width: min(480px, 90vw);
+  background: var(--surface-2);
+  border: 1px solid #e53935;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  color: var(--text);
+}
+.capture-warning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #e53935;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+}
+.capture-warning-header svg { width: 16px; height: 16px; flex-shrink: 0; }
+.capture-warning-body {
+  padding: 14px 16px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.capture-warning-body p { margin: 0; }
+.capture-warning-body strong { color: #e53935; }
+.capture-warning-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 14px 14px;
+}
+.capture-warning-cancel,
+.capture-warning-confirm {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--text-2);
+  transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+.capture-warning-cancel:hover { background: var(--hover); color: var(--text); }
+.capture-warning-confirm {
+  background: #e53935;
+  border-color: #e53935;
+  color: #fff;
+}
+.capture-warning-confirm:hover { background: #c62828; border-color: #c62828; }
+
 /* Docs + About render long-form prose where the right page padding adds
    visible whitespace next to the scrollbar; drop it for those two only.
    The Settings page also drops the right page padding — its inner
