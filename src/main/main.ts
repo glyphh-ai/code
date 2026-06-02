@@ -52,6 +52,7 @@ import { VoiceRelay } from "./voice-relay";
 import { smartGrab } from "./smart-grab";
 import { scanPanel, formatScan } from "./dom-scanner";
 import { resolveShellPath } from "./shell-path";
+import { VSCodeServer } from "./vscode-server";
 import { WorkspaceManager } from "./workspace-manager";
 import { EventLog } from "./event-log";
 // WorkspaceMcpServer removed — workspace tools merged into McpExpose
@@ -960,6 +961,48 @@ async function boot() {
   const workbenchHtml = `file://${path.join(__dirname, "..", "renderer", "workbench.html")}`;
   const workbenchPreload = path.join(__dirname, "workbench-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
+  // VS Code embed — spawns `code serve-web` and the yo://vscode panel loads
+  // its localhost URL. The server defaults ON when the `code` CLI is on
+  // PATH, OFF otherwise. An explicit `enableVscodeServer` preference wins
+  // when set so the user can override either way.
+  const vscodeServer = new VSCodeServer();
+  const vscodePref = getPreference<boolean | undefined>("enableVscodeServer", undefined);
+  const enableVscode = vscodePref ?? vscodeServer.available;
+  if (enableVscode && vscodeServer.available) {
+    vscodeServer.start(getWorkingDirectory()).catch((err) => {
+      console.log("[vscode-server] failed to start:", err?.message || err);
+    });
+  }
+  function vscodePanelUrl(): string {
+    if (enableVscode && vscodeServer.available) return VSCodeServer.expectedUrl();
+    // No-CLI fallback page: a tiny status card pointing users to install VS Code.
+    const reason = !enableVscode
+      ? "VS Code Server is disabled."
+      : "VS Code CLI not found on this machine.";
+    return `data:text/html,${encodeURIComponent(`<html><head><style>
+        body{background:#0a0a0a;color:#999;font-family:-apple-system,system-ui,sans-serif;
+          display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+        .card{text-align:center;max-width:420px;padding:40px}
+        h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
+        p{font-size:14px;line-height:1.6;margin:8px 0}
+        .reason{color:#777;font-size:13px;margin-bottom:16px}
+        a{color:#25C75E;text-decoration:none;font-weight:500}
+        a:hover{text-decoration:underline}
+        .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
+        .steps li{padding:6px 0;font-size:13px;color:#888}
+        .steps li::before{content:"→ ";color:#25C75E}
+        code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
+          background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
+      </style></head><body><div class="card">
+        <h2>VS Code Server</h2>
+        <p class="reason">${reason}</p>
+        <ul class="steps">
+          <li>Install <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a></li>
+          <li>Run <code>Shell Command: Install 'code' in PATH</code> from the VS Code command palette</li>
+          <li>Restart Glyphh</li>
+        </ul>
+      </div></body></html>`)}`;
+  }
   // Slugs that map to home.html with ?section=<slug>. Each gets its own panel
   // so users can mount, e.g., a standalone Drips or Agents browser inside any
   // layout (or via .dip <slug>).
@@ -990,6 +1033,8 @@ async function boot() {
       panelManager.addPanel(app.id, specHtml, specPreload);
     } else if (app.url === "yo://workbench") {
       panelManager.addPanel(app.id, workbenchHtml, workbenchPreload);
+    } else if (app.url === "yo://vscode") {
+      panelManager.addPanel(app.id, vscodePanelUrl());
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[app.id] || resolveBrowserHome();
@@ -1409,6 +1454,8 @@ async function boot() {
       panelManager.addPanel(instanceId, specHtml, specPreload);
     } else if (app.url === "yo://workbench") {
       panelManager.addPanel(instanceId, workbenchHtml, workbenchPreload);
+    } else if (app.url === "yo://vscode") {
+      panelManager.addPanel(instanceId, vscodePanelUrl());
     } else if (app.url === "yo://browser") {
       const savedBrowserUrls = getPreference<Record<string, string>>("browserTabUrls", {});
       const browserUrl = savedBrowserUrls[instanceId] || resolveBrowserHome();

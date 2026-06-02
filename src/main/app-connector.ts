@@ -188,6 +188,10 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE, kind: "system" },
   { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "workbench", name: "Workbench", url: "yo://workbench", capturePolicy: NO_CAPTURE, requiresFolder: true },
+  // VS Code panel — auto-detected. If the `code` CLI is on PATH, VSCodeServer
+  // spawns `code serve-web` and the panel loads its localhost URL. Otherwise
+  // the panel shows a "install VS Code" hint.
+  { id: "vscode", name: "VS Code", url: "yo://vscode", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
   { id: "adaL", name: "adaL", url: "yo://adaL", capturePolicy: NO_CAPTURE },
   { id: "browser", name: "Browser", url: "yo://browser" },
@@ -382,7 +386,7 @@ export class AppConnector {
     //     "<slug>-app" id alongside the cleaner "<slug>" id, leaving two
     //     of every system app in the + picker on already-installed clients.
     const STALE_IDS = [
-      "drop", "files", "vscode", "monaco", "code", "yo-editor",
+      "drop", "files", "monaco", "code", "yo-editor",
       "context",
       "agents-app", "apps-app", "councils-app", "drips-app",
       "layouts-app", "schedules-app", "settings-app", "skills-app",
