@@ -147,21 +147,12 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
   if (status.found) return;
 
   const errEl = document.getElementById("cc-bootstrap-error")!;
-  const bodyEl = document.getElementById("cc-bootstrap-body")!;
-  if (!status.claudePath) {
-    bodyEl.innerHTML = `Yo's agent loop runs on Claude Code. You don't have <code>claude</code> on your PATH yet — install it first via the <a href="https://docs.claude.com/en/docs/claude-code/quickstart" target="_blank">Claude Code installer</a>, then come back.`;
-    (document.getElementById("cc-bootstrap-open") as HTMLButtonElement).disabled = true;
-  }
 
   // BrowserView panels are native and paint over HTML. Hide them while
-  // the modal is up, then restore them when CC creds land. The flag also
-  // tells dismissSplash() to skip its own panelsShow() if it fires later.
+  // the modal is up so the gate is actually visible.
   ccModalShowing = true;
   cb.hidePanels();
   modal.style.display = "flex";
-
-  let pollHandle: number | null = null;
-  const cleanupPoll = () => { if (pollHandle) { clearInterval(pollHandle); pollHandle = null; } };
 
   const dismissModal = () => {
     ccModalShowing = false;
@@ -169,42 +160,9 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
     cb.showPanels();
   };
 
-  const startPolling = () => {
-    cleanupPoll();
-    let ticks = 0;
-    pollHandle = window.setInterval(async () => {
-      ticks++;
-      const ok = await recheckAndClose(false);
-      if (ok || ticks > 150) cleanupPoll(); // 150 * 2s = 5 min
-    }, 2000);
-  };
-
-  const recheckAndClose = async (showErrIfMissing: boolean) => {
-    const s = await window.yo.ccStatus();
-    if (s.found) {
-      cleanupPoll();
-      dismissModal();
-      return true;
-    }
-    if (showErrIfMissing) errEl.textContent = "still not signed in — finish in the login window first";
-    return false;
-  };
-
-  // Auto-trigger the OAuth window so the user doesn't have to click. The
-  // modal stays visible behind it as a status surface (recheck / skip).
-  if (status.claudePath) {
-    const r = await window.yo.ccLoginOpenTerminal();
-    if (!r.ok) {
-      errEl.textContent = r.error || "couldn't open the login window — try the button or run `claude /login` in any shell";
-    } else {
-      startPolling();
-    }
-  }
-
-  // BYOK path — paste an Anthropic API key, save it, recheck. Once saved
-  // ccStatus.found flips true (provider-keys.hasKey is OR'd in), and the
-  // modal dismisses immediately without round-tripping through the
-  // OAuth flow.
+  // BYOK is the only path now. Paste an Anthropic API key, save it to the
+  // local encrypted store, dismiss the modal. ccStatus.found flips true on
+  // the next read.
   const byokInput = document.getElementById("cc-bootstrap-byok-key") as HTMLInputElement | null;
   const byokSaveBtn = document.getElementById("cc-bootstrap-byok-save") as HTMLButtonElement | null;
   byokSaveBtn?.addEventListener("click", async () => {
@@ -222,7 +180,6 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
         byokSaveBtn.textContent = "Save key";
         return;
       }
-      cleanupPoll();
       dismissModal();
     } catch (err) {
       errEl.textContent = err instanceof Error ? err.message : "couldn't save the key";
@@ -230,21 +187,6 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
       byokSaveBtn.textContent = "Save key";
     }
   });
-
-  document.getElementById("cc-bootstrap-open")!.onclick = async () => {
-    errEl.textContent = "";
-    const r = await window.yo.ccLoginOpenTerminal();
-    if (!r.ok) {
-      errEl.textContent = r.error || "couldn't open the login window — run `claude /login` manually in any shell";
-      return;
-    }
-    startPolling();
-  };
-
-  document.getElementById("cc-bootstrap-recheck")!.onclick = async () => {
-    errEl.textContent = "";
-    await recheckAndClose(true);
-  };
 
   document.getElementById("cc-bootstrap-quit")!.onclick = () => {
     window.yo.windowClose();

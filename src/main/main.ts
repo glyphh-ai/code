@@ -43,7 +43,7 @@ import { getPreference, setPreference } from "./stores/preferences-db";
 import { YoInterceptor } from "./yo-interceptor";
 import { YoChat } from "./yo-chat";
 import * as providerKeysModule from "./provider-keys";
-import { bootstrapStatus as ccBootstrapStatus, spawnCcLogin } from "./cc-bootstrap";
+import { bootstrapStatus as ccBootstrapStatus } from "./cc-bootstrap";
 import { SessionCache } from "./session-cache";
 import { NoteStore } from "./note-store";
 import { MemoryStore } from "./memory-store";
@@ -2770,7 +2770,7 @@ async function boot() {
     getAccountInfo, getAuthStatus, refreshHeartbeat, logout,
     llmConfig, saveLLMConfig, applyLLMConfig, fetchServerModels,
     mcpExpose: mcpExpose!, session, sendSessionState,
-    providerKeys: providerKeysModule, ccBootstrapStatus, spawnCcLogin,
+    providerKeys: providerKeysModule, ccBootstrapStatus,
     transcriber, cloudSyncInstance, execCommand,
     getMainWindow: () => mainWindow, panelManager, yoAgent,
   });

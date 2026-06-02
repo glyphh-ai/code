@@ -600,11 +600,10 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.invoke("provider-models-reset", provider) as Promise<{ default: string; models: string[] }>,
 
   // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
+  // BYOK gate status — true when an Anthropic API key is configured.
   ccStatus: () => ipcRenderer.invoke("cc-status") as Promise<{
-    found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
-    byokAnthropic?: boolean;
+    found: boolean; byokAnthropic: boolean;
   }>,
-  ccLoginOpenTerminal: () => ipcRenderer.invoke("cc-login-open-terminal") as Promise<{ ok: boolean; error?: string }>,
   onCcShowModal: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on("cc-show-modal", handler);

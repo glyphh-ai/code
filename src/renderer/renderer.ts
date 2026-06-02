@@ -365,11 +365,8 @@ declare global {
       providerModelsSet: (provider: string, models: string[], def?: string) => Promise<{ default: string; models: string[] }>;
       providerModelsReset: (provider: string) => Promise<{ default: string; models: string[] }>;
 
-      // Claude Code bootstrap (Phase 2 of THE-PIVOT-BYOK)
-      ccStatus: () => Promise<{
-        found: boolean; location: string | null; kind: "file" | "keychain" | null; claudePath: string | null;
-      }>;
-      ccLoginOpenTerminal: () => Promise<{ ok: boolean; error?: string }>;
+      // BYOK gate — Anthropic API key configured under Settings → Providers.
+      ccStatus: () => Promise<{ found: boolean; byokAnthropic: boolean }>;
       onCcShowModal: (callback: () => void) => () => void;
       // Capability Offer
       capabilitiesSetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; derived_tier?: string; client_id?: string; error?: string }>;

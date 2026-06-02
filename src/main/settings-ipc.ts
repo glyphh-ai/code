@@ -30,7 +30,6 @@ interface SettingsIpcDeps {
   sendSessionState: () => void;
   providerKeys: typeof providerKeysModule;
   ccBootstrapStatus: () => unknown;
-  spawnCcLogin: () => unknown;
   transcriber: Transcriber;
   cloudSyncInstance: CloudSync | null;
   execCommand: (cmd: string, sourcePanelId?: string) => Promise<string>;
@@ -49,7 +48,7 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
     getAccountInfo, getAuthStatus, refreshHeartbeat, logout,
     llmConfig, saveLLMConfig, applyLLMConfig, fetchServerModels,
     mcpExpose, session, sendSessionState,
-    providerKeys, ccBootstrapStatus, spawnCcLogin,
+    providerKeys, ccBootstrapStatus,
     transcriber, cloudSyncInstance,
     getMainWindow, panelManager,
   } = deps;
@@ -257,7 +256,6 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   }
 
   ipcMain.handle("cc-status", () => ccBootstrapStatus());
-  ipcMain.handle("cc-login-open-terminal", () => spawnCcLogin());
 
   ipcMain.handle("yo-chats-list", () => deps.yoAgent.listChats());
   ipcMain.handle("yo-chats-load", (_e, id: string) => deps.yoAgent.loadChat(id));

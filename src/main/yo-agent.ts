@@ -608,13 +608,11 @@ export class YoAgent {
         if (win && win > 0) s.autoCompactWindow = win;
         return s;
       })(),
-      // BYOK first, Claude Code OAuth second.
-      // If the user has pasted an Anthropic API key into Settings →
-      // Providers, pass it as ANTHROPIC_API_KEY so the SDK calls
-      // api.anthropic.com with that key. Otherwise the SDK falls back to
-      // the Claude Code OAuth creds at ~/.claude/.credentials.json — kept
-      // for users who already had CC set up before we shipped BYOK and
-      // for any path where the OAuth flow is still the easier on-ramp.
+      // BYOK only. The user pastes their Anthropic API key into the boot
+      // gate (or Settings → Providers); we pass it as ANTHROPIC_API_KEY
+      // and the SDK calls api.anthropic.com with that key directly. The
+      // previous Claude Code OAuth fallback was removed because hosting
+      // that flow inside our app violates Anthropic's Terms of Service.
       env: (() => {
         const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
         const base: Record<string, string | undefined> = {
