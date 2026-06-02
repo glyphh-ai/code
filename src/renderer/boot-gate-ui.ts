@@ -191,6 +191,13 @@ async function maybeShowCcBootstrapModal(cb: BootGateCallbacks): Promise<void> {
   document.getElementById("cc-bootstrap-quit")!.onclick = () => {
     window.yo.windowClose();
   };
+  // The "get one at console.anthropic.com/settings/keys" link must open
+  // in the user's default browser — anchor hrefs inside an Electron
+  // renderer otherwise navigate the renderer itself.
+  document.getElementById("cc-bootstrap-key-link")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    window.yo.openExternal("https://console.anthropic.com/settings/keys");
+  });
 }
 
 // ── Splash dismiss ──────────────────────────────────────────────────────────
