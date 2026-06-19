@@ -1,212 +1,22 @@
 /**
- * Onboarding — license key + API key gate with matrix animation.
- *
- * Ported from glyphh-studio MatrixParticles (Three.js → Canvas2D).
+ * Onboarding — inline email auth gate styled to match the yo-platform
+ * web register/login page (auth-shell). Clean centered card on a black
+ * background; no animation. All IPC wiring is preserved.
  */
-
-// ── Matrix animation ─────────────────────────────────────
-
-// ── 3D→2D projection matching web hero (Three.js camera: pos=[0,0,6], fov=60) ──
-
-const CAM_Z = 6;
-const FOV_RAD = (60 / 2) * Math.PI / 180; // half-fov in radians
-
-// Wall params (matching web MatrixParticles exactly)
-const W_ROWS = 28;
-const W_COLS = 18;
-const WALL_HEIGHT = 8;
-const WALL_DEPTH = 14;
-const CORRIDOR_OUTER = 6;
-const CORRIDOR_INNER = 1.0;
-
-// Stream params
-const S_COLS = 7;
-const S_PER_COL = 30;
-const S_SPACING = 0.6;
-const S_HEIGHT = 12;
-const S_Z = -8;
-
-interface WallParticle {
-  row: number; col: number; tOffset: number; speed: number;
-  brightness: number; flickerRate: number; side: number;
-}
-interface StreamParticle {
-  col: number; yOffset: number; speed: number; direction: number;
-  brightness: number; flickerRate: number; size: number;
-}
-
-function project(x3: number, y3: number, z3: number, hw: number, hh: number) {
-  const d = CAM_Z - z3;
-  const scale = 1 / (d * Math.tan(FOV_RAD));
-  return { sx: hw + x3 * hw * scale, sy: hh - y3 * hh * scale, scale: hw * scale };
-}
-
-function isLightTheme(): boolean {
-  return document.documentElement.getAttribute("data-theme") === "light";
-}
-
-function initAnimation(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d")!;
-
-  function resize() {
-    canvas.width = canvas.offsetWidth * devicePixelRatio;
-    canvas.height = canvas.offsetHeight * devicePixelRatio;
-  }
-  resize();
-  window.addEventListener("resize", resize);
-
-  // Build wall particles (left + right)
-  const walls: WallParticle[] = [];
-  for (const side of [-1, 1]) {
-    for (let r = 0; r < W_ROWS; r++) {
-      for (let c = 0; c < W_COLS; c++) {
-        walls.push({
-          row: r, col: c, side,
-          tOffset: Math.random() * 20,
-          speed: 0.6 + Math.random() * 0.8,
-          brightness: 0.4 + Math.random() * 0.6,
-          flickerRate: 1.5 + Math.random() * 3,
-        });
-      }
-    }
-  }
-
-  // Build stream particles
-  const streams: StreamParticle[] = [];
-  for (let c = 0; c < S_COLS; c++) {
-    const dir = c % 2 === 0 ? 1 : -1;
-    for (let p = 0; p < S_PER_COL; p++) {
-      streams.push({
-        col: c, direction: dir,
-        yOffset: Math.random() * S_HEIGHT,
-        speed: 0.4 + Math.random() * 0.6,
-        brightness: 0.15 + Math.random() * 0.2,
-        flickerRate: 1 + Math.random() * 3,
-        size: 0.08 + Math.random() * 0.04,
-      });
-    }
-  }
-
-  let running = true;
-  const start = performance.now();
-
-  function draw() {
-    if (!running) return;
-    const t = (performance.now() - start) / 1000;
-    const w = canvas.width;
-    const h = canvas.height;
-    const hw = w / 2;
-    const hh = h / 2;
-
-    ctx.clearRect(0, 0, w, h);
-    const light = isLightTheme();
-
-    // Draw walls
-    for (const wp of walls) {
-      const yNorm = wp.row / (W_ROWS - 1);
-      const y3 = (yNorm - 0.5) * WALL_HEIGHT;
-      const cycle = ((t * wp.speed + wp.tOffset) % 4) / 4;
-      const x3 = wp.side * (CORRIDOR_OUTER - cycle * (CORRIDOR_OUTER - CORRIDOR_INNER));
-      const zNorm = wp.col / (W_COLS - 1);
-      const z3 = -zNorm * WALL_DEPTH + 3;
-      const jy = Math.sin(t * 1.5 + wp.tOffset * 3) * 0.03;
-
-      const { sx, sy, scale } = project(x3, y3 + jy, z3, hw, hh);
-      const depthScale = 0.4 + (1 - zNorm) * 0.6;
-      const pulse = 1 + Math.sin(t * wp.flickerRate + wp.tOffset) * 0.1;
-      const sz = 0.07 * depthScale * pulse * scale;
-
-      const headBright = 0.2 + (1 - cycle) * 0.8;
-      const depthDim = 0.35 + (1 - zNorm) * 0.65;
-      const b = headBright * wp.brightness * depthDim;
-      const flicker = Math.sin(t * wp.flickerRate * 2 + wp.tOffset * 5) * 0.5 + 0.5;
-      const isHead = cycle < 0.15;
-      const isBright = flicker > 0.7 && b > 0.3;
-
-      let r: number, g: number, bl: number, a: number;
-      if (light) {
-        // Light: soft green tints that don't fight dark text
-        const lb = b * 0.45;
-        if (isHead) {
-          r = 150 + lb * 80; g = 210 + lb * 40; bl = 150 + lb * 80;
-        } else if (isBright) {
-          r = 170 + lb * 60; g = 220 + lb * 30; bl = 170 + lb * 60;
-        } else {
-          r = 190 + lb * 40; g = 225 + lb * 20; bl = 190 + lb * 40;
-        }
-        a = 0.35 + b * 0.15;
-      } else {
-        if (isHead) {
-          r = (0.8 * b + 0.2) * 255; g = (0.85 * b + 0.22) * 255; bl = (0.8 * b + 0.2) * 255;
-        } else if (isBright) {
-          r = 0.55 * b * 255; g = 0.65 * b * 255; bl = 0.55 * b * 255;
-        } else {
-          r = 0.4 * b * 255; g = 0.48 * b * 255; bl = 0.4 * b * 255;
-        }
-        a = 0.85;
-      }
-
-      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},${a})`;
-      ctx.fillRect(sx - sz * 0.5, sy - sz * 0.75, sz, sz * 1.5);
-    }
-
-    // Draw streams
-    for (const sp of streams) {
-      const x3 = (sp.col - (S_COLS - 1) / 2) * S_SPACING;
-      const rawY = (sp.yOffset + t * sp.speed * sp.direction) % S_HEIGHT;
-      const y3 = ((rawY + S_HEIGHT) % S_HEIGHT) - S_HEIGHT / 2;
-
-      const { sx, sy, scale } = project(x3, y3, S_Z, hw, hh);
-      const sz = sp.size * scale;
-
-      const flicker = Math.sin(t * sp.flickerRate + sp.yOffset * 2) * 0.5 + 0.5;
-      const b = sp.brightness * (0.6 + flicker * 0.4);
-      const normY = ((rawY + S_HEIGHT) % S_HEIGHT) / S_HEIGHT;
-      const headGlow = normY < 0.1 ? 1.5 : 1;
-      const finalB = Math.min(b * headGlow, 0.7);
-
-      let r: number, g: number, bl: number, sa: number;
-      if (light) {
-        const lb = finalB * 0.5;
-        r = 180 + lb * 60; g = 220 + lb * 30; bl = 180 + lb * 60;
-        sa = 0.15 + finalB * 0.1;
-      } else {
-        const whiteChance = flicker > 0.85 && finalB > 0.25;
-        if (whiteChance) {
-          r = finalB * 1.2 * 255; g = finalB * 1.3 * 255; bl = finalB * 1.2 * 255;
-        } else if (sp.col % 3 === 0) {
-          r = finalB * 0.7 * 255; g = finalB * 0.85 * 255; bl = finalB * 0.7 * 255;
-        } else {
-          r = finalB * 0.5 * 255; g = finalB * 0.6 * 255; bl = finalB * 0.5 * 255;
-        }
-        sa = 0.35;
-      }
-
-      ctx.fillStyle = `rgba(${Math.min(255, r) | 0},${Math.min(255, g) | 0},${Math.min(255, bl) | 0},${sa})`;
-      ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
-    }
-
-    requestAnimationFrame(draw);
-  }
-
-  draw();
-
-  return () => { running = false; };
-}
 
 // ── Onboarding UI logic ──────────────────────────────────
 // The onboarding HTML only exists in index.html (main renderer) — NOT in home.html.
 // Guard the top-level bindings so this module is safely importable from home.ts.
 
 const overlay = document.getElementById("onboarding-overlay");
-const canvas = document.getElementById("onboarding-canvas") as HTMLCanvasElement | null;
 const stepAuth = document.getElementById("onboarding-step-auth");
 const statusEl = document.getElementById("onboarding-status");
-const trialInfo = document.getElementById("onboarding-trial");
 
 const ONBOARDING_AVAILABLE = !!overlay;
 
-let stopAnimation: (() => void) | null = null;
+const TERMS_URL = "https://dotyo.dev/terms";
+const PRIVACY_URL = "https://dotyo.dev/privacy";
+const REFUND_URL = "https://dotyo.dev/refund";
 
 const closeBtn = document.getElementById("onboarding-close");
 if (closeBtn) {
@@ -216,18 +26,14 @@ if (closeBtn) {
 }
 
 export function showOnboarding(_needsAuth?: boolean) {
-  if (!overlay || !trialInfo || !stepAuth) return;
+  if (!overlay || !stepAuth) return;
   overlay.classList.remove("hidden");
-  trialInfo.textContent = "Sign in to your account or create one to get started.";
-  stepAuth.classList.remove("hidden");
   renderAuthStep("login");
-  if (canvas) stopAnimation = initAnimation(canvas);
 }
 
 export function hideOnboarding() {
   if (!overlay) return;
   overlay.classList.add("hidden");
-  if (stopAnimation) { stopAnimation(); stopAnimation = null; }
 }
 
 function setStatus(msg: string, isError = false) {
@@ -249,132 +55,364 @@ function completeOnboarding() {
 type AuthMode = "login" | "register-email" | "register-code" | "register-profile";
 let regEmail = "";
 
-function fieldInput(type: string, placeholder: string, autofocus = false): HTMLInputElement {
-  const i = document.createElement("input");
-  i.type = type;
-  i.placeholder = placeholder;
-  i.autocomplete = "off";
-  i.autocapitalize = "off";
-  if (autofocus) setTimeout(() => i.focus(), 60);
-  return i;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// ── DOM builders that emit the platform auth-shell structure ──
+
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className?: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function title(text: string): HTMLHeadingElement {
+  return el("h1", "auth-shell-title", text);
+}
+
+function lede(text: string): HTMLParagraphElement {
+  return el("p", "auth-shell-lede", text);
+}
+
+function ledeEmail(prefix: string, email: string, suffix: string): HTMLParagraphElement {
+  const p = el("p", "auth-shell-lede");
+  p.append(document.createTextNode(prefix));
+  const strong = el("strong");
+  strong.style.color = "var(--white)";
+  strong.textContent = email;
+  p.append(strong, document.createTextNode(suffix));
+  return p;
+}
+
+interface FieldOpts {
+  id: string;
+  label: string;
+  type: string;
+  placeholder?: string;
+  autofocus?: boolean;
+  optional?: boolean;
+}
+
+interface Field {
+  wrap: HTMLDivElement;
+  input: HTMLInputElement;
+  setError: (msg: string | null) => void;
+}
+
+function field(opts: FieldOpts): Field {
+  const wrap = el("div", "auth-shell-field");
+  const label = el("label", "auth-shell-label", opts.label);
+  label.htmlFor = opts.id;
+  if (opts.optional) {
+    label.append(el("span", "auth-shell-label-aside", "optional"));
+  }
+  const input = el("input", "auth-shell-input");
+  input.id = opts.id;
+  input.type = opts.type;
+  if (opts.placeholder) input.placeholder = opts.placeholder;
+  input.autocomplete = "off";
+  input.autocapitalize = "off";
+  if (opts.autofocus) setTimeout(() => input.focus(), 60);
+
+  const errEl = el("p", "auth-shell-field-error");
+  errEl.style.display = "none";
+
+  const setError = (msg: string | null) => {
+    if (msg) {
+      input.classList.add("has-error");
+      input.setAttribute("aria-invalid", "true");
+      errEl.textContent = msg;
+      errEl.style.display = "";
+    } else {
+      input.classList.remove("has-error");
+      input.removeAttribute("aria-invalid");
+      errEl.textContent = "";
+      errEl.style.display = "none";
+    }
+  };
+
+  input.addEventListener("input", () => {
+    if (input.classList.contains("has-error")) setError(null);
+  });
+
+  wrap.append(label, input, errEl);
+  return { wrap, input, setError };
 }
 
 function primaryButton(label: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "onboarding-signin-btn";
-  b.textContent = label;
+  const b = el("button", "btn btn-primary btn-lg btn-full", label);
+  b.type = "submit";
   return b;
 }
 
-function linkButton(label: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement("button");
+function secondaryButton(label: string): HTMLButtonElement {
+  const b = el("button", "btn btn-secondary btn-lg btn-full", label);
   b.type = "button";
-  b.className = "onboarding-link-btn";
-  b.textContent = label;
-  b.addEventListener("click", onClick);
   return b;
 }
 
-function onEnter(el: HTMLElement, fn: () => void): void {
-  el.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") fn(); });
+function actions(...children: HTMLElement[]): HTMLDivElement {
+  const wrap = el("div", "auth-shell-actions");
+  wrap.append(...children);
+  return wrap;
+}
+
+function formError(): { el: HTMLParagraphElement; show: (msg: string) => void; clear: () => void } {
+  const p = el("p", "auth-shell-error");
+  p.style.display = "none";
+  return {
+    el: p,
+    show: (msg: string) => { p.textContent = msg; p.style.display = ""; },
+    clear: () => { p.textContent = ""; p.style.display = "none"; },
+  };
+}
+
+function metaLink(prefix: string, linkText: string, onClick: () => void): HTMLParagraphElement {
+  const p = el("p", "auth-shell-meta");
+  p.append(document.createTextNode(prefix + " "));
+  const a = el("a", undefined, linkText);
+  a.href = "#";
+  a.addEventListener("click", (e) => { e.preventDefault(); onClick(); });
+  p.append(a);
+  return p;
+}
+
+function legal(): HTMLParagraphElement {
+  const p = el("p", "auth-shell-legal");
+  p.append(document.createTextNode("By creating an account, you agree to our "));
+  const mk = (text: string, url: string) => {
+    const a = el("a", undefined, text);
+    a.href = "#";
+    a.addEventListener("click", (e) => { e.preventDefault(); window.yo.openExternal(url); });
+    return a;
+  };
+  p.append(
+    mk("Terms of Service", TERMS_URL),
+    document.createTextNode(", "),
+    mk("Privacy Policy", PRIVACY_URL),
+    document.createTextNode(", and "),
+    mk("Refund Policy", REFUND_URL),
+    document.createTextNode("."),
+  );
+  return p;
+}
+
+// ── 6-digit code input, mirroring the platform CodeInput behavior ──
+
+function codeInput(onComplete: (code: string) => void): { grid: HTMLDivElement; focus: () => void } {
+  const length = 6;
+  const grid = el("div", "code-input-grid");
+  const boxes: HTMLInputElement[] = [];
+
+  for (let i = 0; i < length; i++) {
+    const box = el("input", "code-input-box");
+    box.type = "text";
+    box.inputMode = "numeric";
+    box.maxLength = 1;
+    box.autocomplete = "one-time-code";
+    boxes.push(box);
+    grid.append(box);
+  }
+
+  const fire = () => {
+    const full = boxes.map((b) => b.value).join("");
+    if (full.length === length && !boxes.some((b) => b.value === "")) {
+      onComplete(full);
+    }
+  };
+
+  boxes.forEach((box, i) => {
+    box.addEventListener("input", () => {
+      const val = box.value.replace(/\D/g, "");
+      if (!val) { box.value = ""; return; }
+      box.value = val[0];
+      if (i < length - 1) boxes[i + 1].focus();
+      fire();
+    });
+
+    box.addEventListener("keydown", (e) => {
+      const ev = e as KeyboardEvent;
+      if (ev.key === "Backspace") {
+        ev.preventDefault();
+        if (box.value) {
+          box.value = "";
+        } else if (i > 0) {
+          boxes[i - 1].value = "";
+          boxes[i - 1].focus();
+        }
+      } else if (ev.key === "ArrowLeft" && i > 0) {
+        boxes[i - 1].focus();
+      } else if (ev.key === "ArrowRight" && i < length - 1) {
+        boxes[i + 1].focus();
+      }
+    });
+  });
+
+  boxes[0].addEventListener("paste", (e) => {
+    e.preventDefault();
+    const pasted = (e.clipboardData?.getData("text") || "").replace(/\D/g, "").slice(0, length);
+    if (!pasted) return;
+    for (let i = 0; i < pasted.length; i++) boxes[i].value = pasted[i];
+    const focusIdx = Math.min(pasted.length, length - 1);
+    boxes[focusIdx].focus();
+    fire();
+  });
+
+  return { grid, focus: () => boxes[0].focus() };
 }
 
 function renderAuthStep(mode: AuthMode): void {
   if (!stepAuth) return;
   setStatus("");
   stepAuth.innerHTML = "";
-  const fields = document.createElement("div");
-  fields.className = "onboarding-fields";
-  stepAuth.appendChild(fields);
 
   if (mode === "login") {
-    const email = fieldInput("email", "Email", true);
-    const pw = fieldInput("password", "Password");
+    stepAuth.append(title("Welcome back"));
+    stepAuth.append(lede("Sign in to your workspace."));
+
+    const form = el("form", "auth-shell-form");
+    form.noValidate = true;
+    const email = field({ id: "ob-login-email", label: "Email", type: "email", placeholder: "you@example.com", autofocus: true });
+    const pw = field({ id: "ob-login-password", label: "Password", type: "password" });
+    const err = formError();
     const btn = primaryButton("Sign in");
-    const submit = async () => {
-      if (!email.value.trim() || !pw.value) { setStatus("Enter your email and password", true); return; }
-      btn.disabled = true; btn.textContent = "Signing in…"; setStatus("");
-      const r = await window.yo.authLogin(email.value.trim(), pw.value);
+
+    const submit = async (e?: Event) => {
+      e?.preventDefault();
+      err.clear();
+      let bad = false;
+      if (!email.input.value.trim()) { email.setError("Email is required"); bad = true; }
+      else if (!EMAIL_RE.test(email.input.value.trim())) { email.setError("Enter a valid email address"); bad = true; }
+      if (!pw.input.value) { pw.setError("Password is required"); bad = true; }
+      if (bad) return;
+      btn.disabled = true; btn.textContent = "Signing in…";
+      const r = await window.yo.authLogin(email.input.value.trim(), pw.input.value);
       btn.disabled = false; btn.textContent = "Sign in";
-      if (r.ok) { completeOnboarding(); } else { setStatus(r.error || "Sign in failed", true); }
+      if (r.ok) completeOnboarding();
+      else err.show(r.error || "Sign in failed");
     };
-    btn.addEventListener("click", submit);
-    onEnter(email, () => pw.focus());
-    onEnter(pw, submit);
-    fields.append(email, pw, btn, linkButton("Need an account? Create one", () => renderAuthStep("register-email")));
+
+    form.addEventListener("submit", submit);
+    form.append(email.wrap, pw.wrap, err.el, actions(btn));
+    stepAuth.append(form);
+    stepAuth.append(metaLink("Need an account?", "Create one", () => renderAuthStep("register-email")));
   } else if (mode === "register-email") {
-    const desc = document.createElement("p");
-    desc.className = "onboarding-desc";
-    desc.textContent = "Enter your email — we'll send you a 6-digit code.";
-    const email = fieldInput("email", "Email", true);
+    stepAuth.append(title("Create your account"));
+    stepAuth.append(lede("One workspace. Every tool. Get started in under a minute."));
+
+    const form = el("form", "auth-shell-form");
+    form.noValidate = true;
+    const email = field({ id: "ob-reg-email", label: "Work email", type: "email", placeholder: "you@example.com", autofocus: true });
+    const err = formError();
     const btn = primaryButton("Continue");
-    const submit = async () => {
-      if (!email.value.trim()) { setStatus("Enter your email", true); return; }
-      btn.disabled = true; btn.textContent = "Sending…"; setStatus("");
-      const r = await window.yo.authRegister(email.value.trim());
+
+    const submit = async (e?: Event) => {
+      e?.preventDefault();
+      err.clear();
+      if (!email.input.value.trim()) { email.setError("Email is required"); return; }
+      if (!EMAIL_RE.test(email.input.value.trim())) { email.setError("Enter a valid email address"); return; }
+      btn.disabled = true; btn.textContent = "Sending…";
+      const r = await window.yo.authRegister(email.input.value.trim());
       btn.disabled = false; btn.textContent = "Continue";
-      if (r.ok) { regEmail = email.value.trim(); renderAuthStep("register-code"); }
-      else { setStatus(r.error || "Could not send code", true); }
+      if (r.ok) { regEmail = email.input.value.trim(); renderAuthStep("register-code"); }
+      else err.show(r.error || "Registration failed");
     };
-    btn.addEventListener("click", submit);
-    onEnter(email, submit);
-    fields.append(desc, email, btn, linkButton("Have an account? Sign in", () => renderAuthStep("login")));
+
+    form.addEventListener("submit", submit);
+    form.append(email.wrap, err.el, actions(btn));
+    stepAuth.append(form);
+    stepAuth.append(metaLink("Already have an account?", "Sign in", () => renderAuthStep("login")));
+    stepAuth.append(legal());
   } else if (mode === "register-code") {
-    const desc = document.createElement("p");
-    desc.className = "onboarding-desc";
-    desc.textContent = `Enter the 6-digit code sent to ${regEmail}.`;
-    const code = fieldInput("text", "6-digit code", true);
-    code.maxLength = 6;
-    code.inputMode = "numeric";
-    const btn = primaryButton("Verify");
-    const submit = async () => {
-      if (!code.value.trim()) { setStatus("Enter the code", true); return; }
-      btn.disabled = true; btn.textContent = "Verifying…"; setStatus("");
-      const r = await window.yo.authVerifyCode(regEmail, code.value.trim());
-      btn.disabled = false; btn.textContent = "Verify";
-      if (r.ok) { renderAuthStep("register-profile"); } else { setStatus(r.error || "Invalid code", true); }
-    };
-    btn.addEventListener("click", submit);
-    onEnter(code, submit);
-    fields.append(desc, code, btn, linkButton("Use a different email", () => renderAuthStep("register-email")));
+    stepAuth.append(title("Check your email"));
+    stepAuth.append(ledeEmail("We sent a 6-digit code to ", regEmail, "."));
+
+    const err = formError();
+    const loadingEl = el("p", "auth-shell-loading", "Verifying…");
+    loadingEl.style.display = "none";
+    loadingEl.style.marginTop = "1rem";
+    err.el.style.marginTop = "1rem";
+
+    const resend = secondaryButton("Resend code");
+
+    const ci = codeInput(async (code) => {
+      err.clear();
+      loadingEl.style.display = "";
+      resend.disabled = true;
+      const r = await window.yo.authVerifyCode(regEmail, code);
+      loadingEl.style.display = "none";
+      resend.disabled = false;
+      if (r.ok) renderAuthStep("register-profile");
+      else err.show(r.error || "Verification failed");
+    });
+
+    resend.addEventListener("click", async () => {
+      err.clear();
+      resend.disabled = true;
+      const prev = resend.textContent;
+      resend.textContent = "Sending…";
+      const r = await window.yo.authRegister(regEmail);
+      resend.disabled = false;
+      resend.textContent = prev;
+      if (!r.ok) err.show(r.error || "Failed to resend code");
+    });
+
+    const resendWrap = actions(resend);
+    resendWrap.style.marginTop = "1.5rem";
+
+    stepAuth.append(ci.grid, err.el, loadingEl, resendWrap);
+    stepAuth.append(metaLink("Wrong email?", "Use a different one", () => renderAuthStep("register-email")));
+    setTimeout(() => ci.focus(), 60);
   } else {
-    const first = fieldInput("text", "First name", true);
-    const last = fieldInput("text", "Last name");
-    const pw = fieldInput("password", "Password (8+ characters)");
-    const pw2 = fieldInput("password", "Confirm password");
-    const org = fieldInput("text", "Organization name (optional)");
+    stepAuth.append(title("Complete your profile"));
+    stepAuth.append(lede("A few details and you're in."));
+
+    const form = el("form", "auth-shell-form");
+    form.noValidate = true;
+
+    const row = el("div", "auth-shell-field-row");
+    const first = field({ id: "ob-first", label: "First name", type: "text", autofocus: true });
+    const last = field({ id: "ob-last", label: "Last name", type: "text" });
+    row.append(first.wrap, last.wrap);
+
+    const pw = field({ id: "ob-pw", label: "Password", type: "password", placeholder: "At least 8 characters" });
+    const pw2 = field({ id: "ob-pw2", label: "Confirm password", type: "password" });
+    const org = field({ id: "ob-org", label: "Organization", type: "text", placeholder: "Your company or team", optional: true });
+
+    const err = formError();
     const btn = primaryButton("Create account");
-    const submit = async () => {
-      if (!first.value.trim() || !last.value.trim()) { setStatus("Enter your first and last name", true); return; }
-      if (pw.value.length < 8) { setStatus("Password must be at least 8 characters", true); return; }
-      if (pw.value !== pw2.value) { setStatus("Passwords do not match", true); return; }
-      btn.disabled = true; btn.textContent = "Creating…"; setStatus("");
+
+    const submit = async (e?: Event) => {
+      e?.preventDefault();
+      err.clear();
+      let bad = false;
+      if (!first.input.value.trim()) { first.setError("First name is required"); bad = true; }
+      if (!last.input.value.trim()) { last.setError("Last name is required"); bad = true; }
+      if (!pw.input.value) { pw.setError("Password is required"); bad = true; }
+      else if (pw.input.value.length < 8) { pw.setError("Password must be at least 8 characters"); bad = true; }
+      if (!pw2.input.value) { pw2.setError("Please confirm your password"); bad = true; }
+      else if (pw.input.value && pw.input.value !== pw2.input.value) { pw2.setError("Passwords do not match"); bad = true; }
+      if (bad) return;
+      btn.disabled = true; btn.textContent = "Creating…";
       const r = await window.yo.authCompleteProfile({
         email: regEmail,
-        firstName: first.value.trim(),
-        lastName: last.value.trim(),
-        password: pw.value,
-        confirmPassword: pw2.value,
-        orgName: org.value.trim() || undefined,
+        firstName: first.input.value.trim(),
+        lastName: last.input.value.trim(),
+        password: pw.input.value,
+        confirmPassword: pw2.input.value,
+        orgName: org.input.value.trim() || undefined,
       });
       btn.disabled = false; btn.textContent = "Create account";
-      if (r.ok) { completeOnboarding(); } else { setStatus(r.error || "Account creation failed", true); }
+      if (r.ok) completeOnboarding();
+      else err.show(r.error || "Account creation failed");
     };
-    btn.addEventListener("click", submit);
-    onEnter(org, submit);
-    fields.append(first, last, pw, pw2, org, btn);
-  }
-}
 
-if (ONBOARDING_AVAILABLE) {
-  document.getElementById("onboarding-terms-link")?.addEventListener("click", () => {
-    window.yo.openExternal("https://dotyo.dev/terms");
-  });
-  document.getElementById("onboarding-privacy-link")?.addEventListener("click", () => {
-    window.yo.openExternal("https://dotyo.dev/privacy");
-  });
-  document.getElementById("onboarding-refund-link")?.addEventListener("click", () => {
-    window.yo.openExternal("https://dotyo.dev/refund");
-  });
+    form.addEventListener("submit", submit);
+    form.append(row, pw.wrap, pw2.wrap, org.wrap, err.el, actions(btn));
+    stepAuth.append(form);
+  }
 }

@@ -135,7 +135,7 @@ export class SkillContent {
       `</div>` +
       `<div class="skill-desc-block"><div class="skill-desc-label">Description` +
         `<button class="skill-desc-help" type="button" aria-label="About description">${INFO}</button>` +
-        `<span class="skill-desc-tip hidden">.Yo uses this to help pick the right tool during chat</span>` +
+        `<span class="skill-desc-tip hidden">Glyphh uses this to help pick the right tool during chat</span>` +
       `</div>` +
       `<p class="skill-desc-text">${desc ? escapeHtml(desc) : "<em>No description.</em>"}</p></div>` +
       `<hr class="skill-divider"/>` +
@@ -271,9 +271,9 @@ export class SkillContent {
   showCreate(): void {
     const nameInput = el("input", { class: "settings-input", attrs: { type: "text", placeholder: "skill-name", spellcheck: "false" } }) as HTMLInputElement;
     const descInput = el("input", { class: "settings-input", attrs: { type: "text", placeholder: "Short description", spellcheck: "false" } }) as HTMLInputElement;
-    const instrInput = el("textarea", { class: "settings-input skill-create-instr", attrs: { rows: "8", placeholder: "Describe what the skill should do — steps, tools/apps it uses, inputs, outputs. The .Yo agent turns this into a working skill." } }) as HTMLTextAreaElement;
+    const instrInput = el("textarea", { class: "settings-input skill-create-instr", attrs: { rows: "8", placeholder: "Describe what the skill should do — steps, tools/apps it uses, inputs, outputs. The Glyphh agent turns this into a working skill." } }) as HTMLTextAreaElement;
     const err = el("div", { class: "skill-form-error hidden" });
-    const build = el("button", { class: "action-btn primary", text: "Build with .Yo" });
+    const build = el("button", { class: "action-btn primary", text: "Build with Glyphh" });
     build.addEventListener("click", () => {
       const name = nameInput.value.trim();
       const instr = instrInput.value.trim();
@@ -281,7 +281,7 @@ export class SkillContent {
       if (!instr) { err.textContent = "Instructions are required."; err.classList.remove("hidden"); return; }
       const desc = descInput.value.trim();
       const prompt =
-        `Build a new .Yo skill (not a plain Claude skill) named "${name}".\n` +
+        `Build a new Glyphh skill (not a plain Claude skill) named "${name}".\n` +
         (desc ? `Description: ${desc}\n` : "") +
         `\nInstructions:\n${instr}\n\n` +
         `Create the skill folder under ~/.claude/skills with a SKILL.md, and add a SKILL.js runner if it needs to execute code or call tools. Wire any tools/apps it needs.`;
@@ -302,7 +302,7 @@ export class SkillContent {
       el("label", { class: "skill-create-label", text: "Description" }), descInput,
       el("label", { class: "skill-create-label", text: "Instructions" }), instrInput,
       err, el("div", { class: "skill-create-actions" }, [build]),
-      el("p", { class: "skill-create-hint", text: "Your instructions go through the .Yo agent loop, which builds the skill for you. You can refine the prompt before sending." }),
+      el("p", { class: "skill-create-hint", text: "Your instructions go through the Glyphh agent loop, which builds the skill for you. You can refine the prompt before sending." }),
     ]));
     nameInput.focus();
   }

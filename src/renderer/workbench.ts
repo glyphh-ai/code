@@ -1337,7 +1337,7 @@ async function init(): Promise<void> {
       }
       tabsEl.innerHTML = "";
       if (agents.length === 0) {
-        bodyEl.innerHTML = `<div class="ws-subagents-empty">No sub-agents running. When the .Yo agent spawns a Task or one of your saved agents, it'll appear here.</div>`;
+        bodyEl.innerHTML = `<div class="ws-subagents-empty">No sub-agents running. When the Glyphh agent spawns a Task or one of your saved agents, it'll appear here.</div>`;
         return;
       }
       agents.forEach((a, i) => {

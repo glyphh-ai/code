@@ -14,6 +14,32 @@
   src: url(fonts/JetBrainsMono-latin.woff2) format('woff2');
 }
 
+/* ── Glyphh brand assets ───────────────────────────────────
+   Full logo (character + wordmark) swaps by theme: black on light,
+   white on dark. Implemented as two stacked <img> tags; CSS shows the
+   one that reads on the active background. The character mark is a black
+   creature on transparent — inverted on dark surfaces so it stays visible. */
+.glyphh-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+/* glyphh-logo-black = dark mode, glyphh-logo-white = light mode. */
+.glyphh-logo--black { display: none; }
+.glyphh-logo--white { display: block; }
+html[data-theme="dark"] .glyphh-logo--white { display: none; }
+html[data-theme="dark"] .glyphh-logo--black { display: block; }
+
+.glyphh-mark {
+  display: block;
+  width: auto;
+  height: auto;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
 :root,
 [data-theme="light"] {
   color-scheme: light;
@@ -186,25 +212,13 @@ body {
   animation: splash-in 0.6s ease-out;
 }
 
+/* Splash background follows the theme (var(--bg)) — let the logo swap. */
 .splash-logo {
-  font-family: var(--font-mono);
-  font-size: 120px;
-  font-weight: 800;
-  color: var(--white);
-  letter-spacing: -0.035em;
   margin-bottom: 24px;
+  display: flex;
+  justify-content: center;
 }
-
-.splash-logo .splash-dot {
-  display: inline-block;
-  font-size: 96px;
-  vertical-align: baseline;
-  animation: dot-dance 3s ease-in-out infinite;
-}
-
-.splash-dot {
-  color: var(--accent);
-}
+.splash-logo .glyphh-logo { height: 140px; }
 
 .splash-tagline {
   font-size: 18px;
@@ -303,18 +317,10 @@ body {
 .empty-state.hidden { display: none; }
 
 .empty-state-logo {
-  font-family: var(--font-mono);
-  font-size: 72px;
-  font-weight: 800;
-  color: var(--white);
-  letter-spacing: -0.035em;
+  display: flex;
+  justify-content: center;
 }
-
-.empty-state-dot {
-  color: var(--accent);
-  display: inline-block;
-  animation: dot-dance 3s ease-in-out infinite;
-}
+.empty-state-logo .glyphh-logo { height: 84px; }
 
 .empty-state-hint {
   font-size: 13px;
@@ -332,23 +338,39 @@ body {
   border-radius: 4px;
 }
 
-/* ── Onboarding ─────────────────────────────────────────── */
+/* ── Onboarding ─────────────────────────────────────────────
+   The onboarding overlay copies the yo-platform web auth page
+   (the `auth-shell` system) verbatim. To match it pixel-for-pixel
+   without disturbing the rest of the app, the platform color
+   variables (--accent, --white, --text, --border, etc.) are
+   re-declared scoped to #onboarding-overlay using the platform's
+   literal :root hex values. Everything below consumes those
+   scoped vars, so the styles render identically to the website
+   regardless of the app's own (possibly light) theme. */
 
 #onboarding-overlay {
   position: fixed;
   inset: 0;
   z-index: 9500;
-  background: var(--bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
-#onboarding-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  /* Platform :root values, scoped to the overlay. */
+  --accent:      #25C75E;
+  --accent-hover:#2dd868;
+  --white:       #f5f5f7;
+  --text:        #e3e3e6;
+  --text-2:      #9a9aa1;
+  --text-3:      #6a6a72;
+  --text-muted:  #4a4a52;
+  --border:      #1f1f24;
+  --border-2:    #2a2a30;
+  --surface:     #141418;
+  --surface-2:   #1a1a1f;
+  --danger:      #f87171;
+  --radius:      10px;
+  --radius-sm:   8px;
+  --font-sans:   'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:   'JetBrains Mono', 'SF Mono', monospace;
+  --transition:  160ms ease;
 }
 
 #onboarding-close {
@@ -366,133 +388,299 @@ body {
   transition: color 0.15s;
   -webkit-app-region: no-drag;
 }
-
 #onboarding-close:hover { color: var(--white); }
 
-#onboarding-content {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-  max-width: 380px;
-  width: 100%;
-  padding: 0 24px;
+#onboarding-status { display: none; }
+.onboarding-error { color: var(--danger); }
+.onboarding-success { color: var(--accent); }
+
+/* ── auth-shell (ported from yo-platform globals.css) ──────── */
+
+#onboarding-overlay .auth-shell {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  color: var(--text);
+  font-family: var(--font-sans);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  letter-spacing: -0.005em;
 }
 
-.onboarding-title {
-  font-family: var(--font-mono);
-  font-size: 64px;
-  font-weight: 800;
-  color: var(--white);
-  letter-spacing: -0.035em;
-  margin-bottom: 8px;
+#onboarding-overlay .auth-shell-header {
+  display: flex;
+  justify-content: flex-start;
+  padding: 1rem 2.5rem 0;
+  -webkit-app-region: drag;
 }
 
-.onboarding-dot {
-  color: var(--accent);
-  -webkit-text-fill-color: var(--accent);
-}
-
-.onboarding-sub {
-  font-size: 13px;
-  color: var(--text-3);
-  margin-bottom: 32px;
-}
-
-.onboarding-sub.expired { color: var(--danger); }
-
-.onboarding-fields {
+#onboarding-overlay .auth-shell-brand {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 0.5rem;
+  -webkit-app-region: no-drag;
 }
 
-.onboarding-fields input {
-  height: 40px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-3);
-  border-radius: 8px;
-  padding: 0 14px;
-  color: var(--text);
-  font-size: 14px;
-  font-family: var(--font-mono);
-  outline: none;
-  backdrop-filter: blur(8px);
+/* Onboarding overlay has a black background — always use the on-dark logo. */
+#onboarding-overlay .onboarding-wordmark .glyphh-logo { display: block; height: 56px; }
+
+#onboarding-overlay .auth-shell-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 1.5rem;
 }
 
-.onboarding-fields input:focus { border-color: var(--accent); }
-.onboarding-fields input::placeholder { color: var(--text-3); }
-
-#onboarding-activate {
-  height: 40px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-  border: none;
-  border-radius: 8px;
-  color: #000;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  margin-top: 4px;
+#onboarding-overlay .auth-shell-content {
+  width: 100%;
+  max-width: 420px;
 }
 
-#onboarding-activate:hover { opacity: 0.9; }
-#onboarding-activate:disabled { opacity: 0.5; cursor: default; }
-
-#onboarding-status {
-  margin-top: 12px;
-  font-size: 12px;
-  min-height: 18px;
+#onboarding-overlay .auth-shell-title {
+  font-family: var(--font-sans);
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  color: var(--white);
+  margin-bottom: 0.75rem;
 }
 
-.onboarding-error { color: var(--danger); }
-.onboarding-success { color: var(--success); }
-
-.onboarding-desc {
-  font-size: 13px;
+#onboarding-overlay .auth-shell-lede {
+  font-size: 0.9375rem;
   color: var(--text-2);
-  margin: 0 0 8px;
+  line-height: 1.55;
+  margin-bottom: 2.5rem;
 }
 
-.onboarding-signin-btn {
-  height: 44px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-  border: none;
-  border-radius: 8px;
-  color: #000;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
+#onboarding-overlay .auth-shell-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
 }
-.onboarding-signin-btn:hover { opacity: 0.9; }
-.onboarding-signin-btn:disabled { opacity: 0.5; cursor: default; }
 
-.onboarding-register-btn {
-  height: 40px;
-  background: none;
-  border: 1px solid var(--border-3);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 14px;
+#onboarding-overlay .auth-shell-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+}
+
+#onboarding-overlay .auth-shell-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+#onboarding-overlay .auth-shell-label {
+  font-size: 0.75rem;
   font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  color: var(--text-2);
+  letter-spacing: 0.01em;
 }
-.onboarding-register-btn:hover { border-color: var(--accent); color: var(--text); }
-.onboarding-register-btn:disabled { opacity: 0.5; cursor: default; }
 
-.onboarding-link-btn {
-  background: none;
-  border: none;
+#onboarding-overlay .auth-shell-label .auth-shell-label-aside {
   color: var(--text-3);
-  font-size: 13px;
-  cursor: pointer;
-  padding: 6px 0 0;
-  margin-top: 2px;
-  text-align: center;
-  transition: color 0.15s;
+  font-weight: 400;
+  margin-left: 0.375rem;
 }
-.onboarding-link-btn:hover { color: var(--accent); }
+
+#onboarding-overlay .auth-shell-input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--white);
+  font-size: 0.9375rem;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+#onboarding-overlay .auth-shell-input:focus {
+  border-color: var(--accent);
+  background: rgba(37, 199, 94, 0.04);
+}
+#onboarding-overlay .auth-shell-input.has-error {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.05);
+}
+#onboarding-overlay .auth-shell-input.has-error:focus {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.06);
+}
+#onboarding-overlay .auth-shell-input::placeholder { color: var(--text-muted); }
+#onboarding-overlay .auth-shell-input:disabled { opacity: 0.5; cursor: not-allowed; }
+#onboarding-overlay .auth-shell-input:-webkit-autofill,
+#onboarding-overlay .auth-shell-input:-webkit-autofill:hover,
+#onboarding-overlay .auth-shell-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--white);
+  -webkit-box-shadow: 0 0 0 1000px #000 inset;
+  border-color: var(--border);
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+#onboarding-overlay .auth-shell-field-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+  margin-top: 0.375rem;
+}
+
+#onboarding-overlay .auth-shell-error {
+  font-size: 0.8125rem;
+  color: var(--danger);
+  margin-top: -0.25rem;
+}
+
+#onboarding-overlay .auth-shell-loading {
+  font-size: 0.8125rem;
+  color: var(--text-2);
+}
+
+#onboarding-overlay .auth-shell-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+#onboarding-overlay .auth-shell-meta {
+  margin-top: 1.75rem;
+  font-size: 0.8125rem;
+  color: var(--text-3);
+}
+#onboarding-overlay .auth-shell-meta a {
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  border-bottom: 1px solid var(--text-3);
+  transition: border-color 200ms ease, color 200ms ease;
+}
+#onboarding-overlay .auth-shell-meta a:hover {
+  color: var(--white);
+  border-bottom-color: var(--white);
+}
+
+#onboarding-overlay .auth-shell-legal {
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+#onboarding-overlay .auth-shell-legal a {
+  color: var(--text-2);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+#onboarding-overlay .auth-shell-legal a:hover { color: var(--white); }
+
+#onboarding-overlay .auth-shell-footer {
+  padding: 1.5rem 2.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  #onboarding-overlay .auth-shell-header { padding: 0.75rem 1.5rem 0; }
+  #onboarding-overlay .auth-shell-body { padding: 2.5rem 1.5rem; }
+  #onboarding-overlay .auth-shell-field-row { grid-template-columns: 1fr; }
+}
+
+/* ── Buttons (ported from yo-platform globals.css) ─────────── */
+
+#onboarding-overlay .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), opacity var(--transition);
+}
+#onboarding-overlay .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#onboarding-overlay .btn-full { width: 100%; }
+#onboarding-overlay .btn-lg {
+  padding: 0.875rem 1.25rem;
+  font-size: 0.9375rem;
+  border-radius: 10px;
+}
+
+#onboarding-overlay .btn-primary {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  transition: color 220ms ease, border-color var(--transition), opacity var(--transition);
+}
+#onboarding-overlay .btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: #ffffff;
+  transform: translateX(-100%);
+  transition: none;
+}
+#onboarding-overlay .btn-primary:hover:not(:disabled)::before,
+#onboarding-overlay .btn-primary:active:not(:disabled)::before,
+#onboarding-overlay .btn-primary:focus-visible:not(:disabled)::before {
+  transform: translateX(0);
+  transition: transform 280ms ease;
+}
+#onboarding-overlay .btn-primary:disabled::before {
+  transform: translateX(0);
+  transition: none;
+}
+#onboarding-overlay .btn-primary:hover:not(:disabled),
+#onboarding-overlay .btn-primary:active:not(:disabled),
+#onboarding-overlay .btn-primary:focus-visible:not(:disabled) {
+  color: #000;
+}
+
+#onboarding-overlay .btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+#onboarding-overlay .btn-secondary:hover:not(:disabled) {
+  border-color: var(--white);
+  box-shadow: 0 0 0 1px var(--white);
+}
+
+/* ── Code input (ported from yo-platform globals.css) ──────── */
+
+#onboarding-overlay .code-input-grid {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+#onboarding-overlay .code-input-box {
+  width: 3rem;
+  height: 3.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--white);
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+}
+#onboarding-overlay .code-input-box:focus { border-color: var(--accent); }
 
 /* ── Lockout gate (trial expired / account disabled) ─────────── */
 
@@ -563,6 +751,51 @@ body.account-locked #dl-btn-wrap {
   transition: color 0.15s;
 }
 .lockout-link:hover { color: var(--text); }
+
+/* Lockout shares the old onboarding wordmark + button styling. These
+   rules used to be global onboarding-* classes; the onboarding overlay
+   was rebuilt on the platform auth-shell, so they're scoped here to the
+   lockout screen which still uses the original markup classes. */
+#lockout-overlay .onboarding-title {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+#lockout-overlay .onboarding-title .glyphh-logo { height: 72px; }
+
+#lockout-overlay .onboarding-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#lockout-overlay .onboarding-signin-btn {
+  height: 44px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  border: none;
+  border-radius: 8px;
+  color: #000;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+#lockout-overlay .onboarding-signin-btn:hover { opacity: 0.9; }
+#lockout-overlay .onboarding-signin-btn:disabled { opacity: 0.5; cursor: default; }
+
+#lockout-overlay .onboarding-register-btn {
+  height: 40px;
+  background: none;
+  border: 1px solid var(--border-3);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+#lockout-overlay .onboarding-register-btn:hover { border-color: var(--accent); color: var(--text); }
+#lockout-overlay .onboarding-register-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Window controls ─────────────────────────────────────── */
 
@@ -647,23 +880,16 @@ body.account-locked #dl-btn-wrap {
 }
 
 #titlebar-label {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-3);
-  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: color 0.15s;
   user-select: none;
 }
 
 #titlebar-label:hover { color: var(--text); }
 
-#titlebar-label .dot {
-  color: var(--accent);
-  -webkit-text-fill-color: var(--accent);
-}
+#titlebar-label .glyphh-mark { height: 24px; }
 
 /* ── User menu ────────────────────────────────────────── */
 
@@ -2181,18 +2407,11 @@ body.account-locked #dl-btn-wrap {
 }
 
 .help-brand {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--white);
   padding: 0 20px;
   margin-bottom: 24px;
-  letter-spacing: -0.03em;
 }
 
-.help-brand .dot {
-  color: var(--accent);
-  -webkit-text-fill-color: var(--accent);
-}
+.help-brand .glyphh-logo { height: 28px; }
 
 .help-nav-item {
   background: none;
@@ -4840,14 +5059,10 @@ select.settings-input {
 }
 
 .about-logo {
-  font-size: 48px;
-  font-weight: 700;
-  color: var(--white);
-  letter-spacing: -2px;
   margin-bottom: 8px;
 }
 
-.about-dot { color: var(--accent); }
+.about-logo .glyphh-logo { height: 56px; }
 
 .about-version {
   font-size: 13px;
@@ -4950,24 +5165,6 @@ select.settings-input {
 .policy-content li {
   margin-bottom: 4px;
 }
-
-/* ── Onboarding policies ──────────────────────────────────── */
-
-.onboarding-policies {
-  margin-top: 20px;
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.onboarding-policies a {
-  color: var(--text-3);
-  text-decoration: underline;
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.onboarding-policies a:hover { color: var(--accent); }
 
 /* ── License info (settings) ──────────────────────────────── */
 
@@ -5957,14 +6154,12 @@ select.settings-input {
   animation: yo-welcome-in 0.4s ease-out;
 }
 .yo-welcome-logo {
-  font-family: var(--font-mono);
-  font-size: 48px;
-  font-weight: 800;
-  color: var(--white);
-  letter-spacing: -0.035em;
-  margin-bottom: 2px;
+  margin-bottom: 6px;
+  /* The logo PNG carries transparent padding on its left, so the visible mark
+     sits indented from the greeting text below. Nudge it left to align. */
+  margin-left: -6px;
 }
-.yo-welcome-dot { color: var(--accent); }
+.yo-welcome-logo .glyphh-logo { height: 72px; }
 .yo-welcome-tagline {
   font-size: 13px;
   color: var(--text-3);
@@ -6046,14 +6241,12 @@ select.settings-input {
 .tutorial-close:hover { color: var(--white); }
 
 .tutorial-logo {
-  font-size: 56px;
-  font-weight: 700;
-  color: var(--white);
-  letter-spacing: -2px;
-  text-align: center;
+  display: flex;
+  justify-content: center;
   margin-bottom: 4px;
 }
-.tutorial-dot { color: var(--accent); }
+.tutorial-logo .glyphh-logo { height: 64px; }
+/* .tutorial-dot-sm still styles the dot in the .yo/.sup/.dip command demos. */
 .tutorial-dot-sm { color: var(--accent); }
 
 .tutorial-sub {

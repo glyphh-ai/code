@@ -294,7 +294,7 @@ function showYoWelcome() {
   const w = document.createElement("div");
   w.id = "yo-panel-welcome";
   w.className = "yo-panel-welcome";
-  w.innerHTML = `<div class="yo-welcome-logo"><span class="yo-welcome-dot">.</span>Yo</div>
+  w.innerHTML = `<div class="yo-welcome-logo"><img class="glyphh-logo glyphh-logo--black" src="brand/glyphh-logo-black.png" alt="Glyphh" /><img class="glyphh-logo glyphh-logo--white" src="brand/glyphh-logo-white.png" alt="Glyphh" /></div>
     <div class="yo-welcome-tagline" id="yo-welcome-greeting"></div>`;
   const greetingEl = w.querySelector<HTMLElement>("#yo-welcome-greeting");
   if (greetingEl) greetingEl.textContent = fillGreeting(template);

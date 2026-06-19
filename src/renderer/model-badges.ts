@@ -41,10 +41,10 @@ const BRAND_DISPLAY: Record<string, string> = {
   google: "Gemini",
   xai: "Grok",
   perplexity: "Perplexity",
-  generic: "Yo",
+  generic: "Glyphh",
 };
 export function brandDisplayFor(provider: string): string {
-  return BRAND_DISPLAY[brandFor(provider)] || "Yo";
+  return BRAND_DISPLAY[brandFor(provider)] || "Glyphh";
 }
 
 /** Map a model slug to its brand key. Falls back to "anthropic" when no

@@ -131,7 +131,7 @@ async function loadAbout() {
 
 const TERMS_OF_USE = `
 <p><strong>Effective Date:</strong> January 1, 2026</p>
-<p>These Terms of Use ("Terms") govern your access to and use of .Yo, a desktop application and related services ("Service") provided by Glyphh AI LLC ("Company", "we", "us"). By installing, accessing, or using the Service, you agree to be bound by these Terms.</p>
+<p>These Terms of Use ("Terms") govern your access to and use of Glyphh, a desktop application and related services ("Service") provided by Glyphh AI LLC ("Company", "we", "us"). By installing, accessing, or using the Service, you agree to be bound by these Terms.</p>
 
 <p><strong>1. Eligibility</strong></p>
 <p>You must be at least 13 years old to use the Service. If you are under 18, you represent that your parent or legal guardian has reviewed and agreed to these Terms on your behalf.</p>
@@ -170,7 +170,7 @@ const TERMS_OF_USE = `
 <p>The Service, including all software, designs, trademarks, and content, is the intellectual property of Glyphh AI LLC. Your license grants a limited, non-exclusive, non-transferable, revocable right to use the Service for personal or internal business purposes only.</p>
 
 <p><strong>5. Third-Party Services</strong></p>
-<p>.Yo integrates with third-party AI services (e.g., Anthropic, OpenAI, Google AI). Your use of those services is governed by their respective terms and privacy policies. You are responsible for providing your own API keys and complying with third-party terms. Glyphh AI LLC is not responsible for the availability, accuracy, or conduct of third-party services.</p>
+<p>Glyphh integrates with third-party AI services (e.g., Anthropic, OpenAI, Google AI). Your use of those services is governed by their respective terms and privacy policies. You are responsible for providing your own API keys and complying with third-party terms. Glyphh AI LLC is not responsible for the availability, accuracy, or conduct of third-party services.</p>
 
 <p><strong>6. User Content</strong></p>
 <p>You retain ownership of all content you create, capture, or process using the Service. We do not claim any ownership over your data. You are solely responsible for the content you process through the Service and for ensuring that your use complies with applicable laws and third-party rights.</p>
@@ -199,7 +199,7 @@ const TERMS_OF_USE = `
 
 const PRIVACY_POLICY = `
 <p><strong>Effective Date:</strong> January 1, 2026</p>
-<p>This Privacy Policy describes how Glyphh AI LLC ("Company", "we", "us") collects, uses, and protects your information when you use .Yo ("Service").</p>
+<p>This Privacy Policy describes how Glyphh AI LLC ("Company", "we", "us") collects, uses, and protects your information when you use Glyphh ("Service").</p>
 
 <p><strong>1. Information We Collect</strong></p>
 <p><strong>Account Information:</strong> When you register or purchase a license, we collect your email address, license key, and payment information (processed by Stripe). We do not store your full payment card details.</p>
@@ -216,7 +216,7 @@ const PRIVACY_POLICY = `
 </ul>
 
 <p><strong>3. Local-First Architecture</strong></p>
-<p>.Yo is designed with a local-first architecture. Your data — including captured context, skills, layouts, preferences, and API keys — is stored exclusively on your local machine in the <code>~/yo/</code> directory. If you enable Cloud Sync (Basic plan and above), your library data is encrypted and synced to our servers. You can disable Cloud Sync at any time, and request deletion of cloud-stored data.</p>
+<p>Glyphh is designed with a local-first architecture. Your data — including captured context, skills, layouts, preferences, and API keys — is stored exclusively on your local machine in the <code>~/yo/</code> directory. If you enable Cloud Sync (Basic plan and above), your library data is encrypted and synced to our servers. You can disable Cloud Sync at any time, and request deletion of cloud-stored data.</p>
 
 <p><strong>4. How We Use Information</strong></p>
 <ul>
@@ -228,7 +228,7 @@ const PRIVACY_POLICY = `
 </ul>
 
 <p><strong>5. Third-Party Services</strong></p>
-<p>When you use .Yo with third-party AI providers (Anthropic, OpenAI, Google AI, etc.), your prompts and data are sent directly from your machine to those providers using your own API keys. We do not proxy, intercept, or store this data. Please review the privacy policies of those providers.</p>
+<p>When you use Glyphh with third-party AI providers (Anthropic, OpenAI, Google AI, etc.), your prompts and data are sent directly from your machine to those providers using your own API keys. We do not proxy, intercept, or store this data. Please review the privacy policies of those providers.</p>
 <p>We use Stripe for payment processing. Stripe's handling of your payment information is governed by <a href="https://stripe.com/privacy" style="color:#25C75E">Stripe's Privacy Policy</a>.</p>
 
 <p><strong>6. Data Security</strong></p>
@@ -263,10 +263,10 @@ const PRIVACY_POLICY = `
 
 const REFUND_POLICY = `
 <p><strong>Effective Date:</strong> January 1, 2026</p>
-<p>This Refund Policy applies to paid subscriptions for .Yo offered by Glyphh AI LLC.</p>
+<p>This Refund Policy applies to paid subscriptions for Glyphh offered by Glyphh AI LLC.</p>
 
 <p><strong>1. Free Tier</strong></p>
-<p>The free tier of .Yo is available at no cost and requires no payment. No refund applies.</p>
+<p>The free tier of Glyphh is available at no cost and requires no payment. No refund applies.</p>
 
 <p><strong>2. Paid Subscriptions (Basic, Advanced)</strong></p>
 <p>Paid plans are billed on a monthly subscription basis. You may cancel your subscription at any time.</p>
@@ -287,7 +287,7 @@ const REFUND_POLICY = `
 <p>If your license is revoked due to a violation of our Terms of Use, no refund will be issued.</p>
 
 <p><strong>8. How to Cancel</strong></p>
-<p>You can cancel your subscription at any time through the Settings section of the .Yo application. Alternatively, contact support@dotyo.dev. Cancellation takes effect at the end of your current billing period.</p>
+<p>You can cancel your subscription at any time through the Settings section of the Glyphh application. Alternatively, contact support@dotyo.dev. Cancellation takes effect at the end of your current billing period.</p>
 
 <p><strong>9. Contact</strong></p>
 <p>For billing or refund questions, contact us at support@dotyo.dev.</p>

@@ -95,7 +95,7 @@ export function loadSkills(): void {
       return b;
     };
     menu = el("div", { class: "ws-popover skill-create-menu open" }, [
-      item(SKILLS_ICON, "Create with .Yo", () => handToAgent("Create a new .Yo skill that ")),
+      item(SKILLS_ICON, "Create with Glyphh", () => handToAgent("Create a new Glyphh skill that ")),
       item(MENU_EDIT, "Write instructions", () => { tree.setActive(null); content.showCreate(); }),
       item(MENU_UPLOAD, "Upload a skill", () => uploadSkill()),
     ]);

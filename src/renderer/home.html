@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Yo — Home</title>
+  <title>Glyphh — Home</title>
+  <link rel="icon" href="brand/glyphh-mark.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="monaco/editor/editor.main.css">
   <style>
@@ -37,7 +38,10 @@
     <div id="help-overlay">
     <div id="help-layout">
       <nav id="help-nav">
-        <div class="help-brand"><span class="dot">.</span>Yo</div>
+        <div class="help-brand">
+          <img class="glyphh-logo glyphh-logo--black" src="brand/glyphh-logo-black.png" alt="Glyphh" />
+          <img class="glyphh-logo glyphh-logo--white" src="brand/glyphh-logo-white.png" alt="Glyphh" />
+        </div>
         <button class="help-nav-item active" data-section="dashboard">Dashboard</button>
         <div class="help-nav-group">
           <button class="help-nav-item has-sub" data-section="docs">Docs</button>
@@ -411,7 +415,7 @@
             <h3>Shortcuts</h3>
             <div class="cmd-row">
               <code>&#8984;.</code>
-              <span>Show / hide Yo agent panel</span>
+              <span>Show / hide Glyphh agent panel</span>
             </div>
             <div class="cmd-row">
               <code>&#8984;&gt;</code>
@@ -446,7 +450,7 @@
             <div class="settings-panels docs-panels">
             <div class="docs-panel active" data-doc="navigation">
               <h3>Navigation</h3>
-              <p>.Yo is a multi-panel workspace. You can view one app at a time, or split the screen into a grid of panels. Every panel is a live web app running inside .Yo.</p>
+              <p>Glyphh is a multi-panel workspace. You can view one app at a time, or split the screen into a grid of panels. Every panel is a live web app running inside Glyphh.</p>
 
               <h4>Switching panels</h4>
               <p>Use the <strong>.dip</strong> command to switch between panels. Type it in the command bar (Cmd+&gt;) or the agent panel.</p>
@@ -464,7 +468,7 @@
               <p>The URL bar at the top shows the current panel's address. You can type any URL to navigate, or use it as a search bar (searches Google by default). Use <strong>Cmd+L</strong> to focus it.</p>
 
               <h4>Keyboard shortcuts</h4>
-              <div class="cmd-row"><code>&#8984;.</code><span>Toggle the .Yo agent panel</span></div>
+              <div class="cmd-row"><code>&#8984;.</code><span>Toggle the Glyphh agent panel</span></div>
               <div class="cmd-row"><code>&#8984;&gt;</code><span>Open the command bar</span></div>
               <div class="cmd-row"><code>&#8984;L</code><span>Focus the URL bar</span></div>
               <div class="cmd-row"><code>&#8984;R</code><span>Refresh the active panel</span></div>
@@ -475,7 +479,7 @@
 
             <div class="docs-panel" data-doc="commands">
               <h3>Commands</h3>
-              <p>Commands are the core of .Yo. Type them in the command bar (Cmd+&gt;), inside any panel, or chain them together. Every command starts with a dot.</p>
+              <p>Commands are the core of Glyphh. Type them in the command bar (Cmd+&gt;), inside any panel, or chain them together. Every command starts with a dot.</p>
 
               <h4>.yo — Agent</h4>
               <p>Opens the AI agent panel. The agent can search your captures, run shell commands, navigate panels, and more. Works from any panel.</p>
@@ -521,10 +525,10 @@
 
             <div class="docs-panel" data-doc="apps">
               <h3>Apps</h3>
-              <p>Apps are web applications that run inside .Yo panels. Each app has an ID, a URL, and a set of mapped commands that the agent can execute.</p>
+              <p>Apps are web applications that run inside Glyphh panels. Each app has an ID, a URL, and a set of mapped commands that the agent can execute.</p>
 
               <h4>Pre-configured apps</h4>
-              <p>.Yo ships with pre-configured apps including ChatGPT, Claude, Gemini, Gmail, Slack, GitHub, Linear, Notion, Grok, Perplexity, YouTube, Reddit, Google Docs, and X. Each has commands mapped to their specific UI elements.</p>
+              <p>Glyphh ships with pre-configured apps including ChatGPT, Claude, Gemini, Gmail, Slack, GitHub, Linear, Notion, Grok, Perplexity, YouTube, Reddit, Google Docs, and X. Each has commands mapped to their specific UI elements.</p>
 
               <h4>Adding apps</h4>
               <p>Open the <strong>Apps</strong> page in this help panel and click <strong>+ New</strong>. Give it an ID (used in commands like <code>.dip myapp</code>), a name, and a URL. You can optionally map commands.</p>
@@ -638,7 +642,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             </div>
 
             <div class="docs-panel" data-doc="agent">
-              <h3>The .Yo Agent</h3>
+              <h3>The Glyphh Agent</h3>
               <p>The agent is your AI assistant that lives in the side panel. It searches your captures, runs shell commands, and executes workspace operations — all through natural language.</p>
 
               <h4>What it can do</h4>
@@ -684,11 +688,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
             <div class="docs-panel" data-doc="mcp">
               <h3>MCP (Model Context Protocol)</h3>
-              <p>.Yo supports MCP in two ways: as a <strong>server</strong> that exposes your captures to external tools, and as a way to configure <strong>local MCP servers</strong> for the agent to use.</p>
+              <p>Glyphh supports MCP in two ways: as a <strong>server</strong> that exposes your captures to external tools, and as a way to configure <strong>local MCP servers</strong> for the agent to use.</p>
 
-              <h4>Yo MCP Server (expose captures)</h4>
+              <h4>Glyphh MCP Server (expose captures)</h4>
               <p>Enable in <strong>Settings &gt; General &gt; MCP Server</strong>. This runs a local MCP server that lets external AI tools search your capture store — your ambient captures, .sup snapshots, and notes.</p>
-              <p>Use this when you want Claude Desktop, Cursor, Windsurf, or other MCP-compatible tools to access everything you've captured in .Yo. The server runs on your machine and uses bearer tokens for auth.</p>
+              <p>Use this when you want Claude Desktop, Cursor, Windsurf, or other MCP-compatible tools to access everything you've captured in Glyphh. The server runs on your machine and uses bearer tokens for auth.</p>
 
               <h4>Connecting from Claude Desktop</h4>
               <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
@@ -717,13 +721,13 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 }</pre>
 
               <h4>Cloud vs Local tokens</h4>
-              <p>The Yo MCP Server runs <strong>locally</strong> on your machine. External tools connect to it over localhost. No data leaves your computer — the MCP server just gives other tools a way to search your captures using the same vector index the .yo agent uses.</p>
+              <p>The Glyphh MCP Server runs <strong>locally</strong> on your machine. External tools connect to it over localhost. No data leaves your computer — the MCP server just gives other tools a way to search your captures using the same vector index the .yo agent uses.</p>
               <p>The tokens generated in Settings are <strong>local access tokens</strong> — they authenticate MCP clients connecting to your local server. These are separate from your LLM API keys (Anthropic, OpenAI, etc.) which are used by the .yo agent to generate responses.</p>
               <ul class="docs-list">
-                <li><strong>MCP tokens</strong> — authenticate external tools connecting to your local Yo server. Free, no API costs.</li>
+                <li><strong>MCP tokens</strong> — authenticate external tools connecting to your local Glyphh server. Free, no API costs.</li>
                 <li><strong>LLM API keys</strong> — power the .yo agent's responses. Costs depend on your provider.</li>
               </ul>
-              <p>When Claude Desktop or Cursor calls your Yo MCP server, the search is local (no LLM tokens spent). But if those tools then use the search results in a prompt, that prompt uses <em>their</em> configured LLM — and those tokens come from <em>your</em> API key in that tool.</p>
+              <p>When Claude Desktop or Cursor calls your Glyphh MCP server, the search is local (no LLM tokens spent). But if those tools then use the search results in a prompt, that prompt uses <em>their</em> configured LLM — and those tokens come from <em>your</em> API key in that tool.</p>
 
               <h4>Available MCP tools</h4>
               <p>When connected, external tools can use:</p>
@@ -1356,7 +1360,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <input type="text" id="schedule-desc" class="settings-input" placeholder="Short summary of what it does" spellcheck="false" autocomplete="off" />
 
             <label class="settings-label">Instructions</label>
-            <textarea id="schedule-prompt" class="settings-input" rows="6" placeholder="What should .Yo do each time this runs?"></textarea>
+            <textarea id="schedule-prompt" class="settings-input" rows="6" placeholder="What should Glyphh do each time this runs?"></textarea>
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
               <div style="flex:1;min-width:160px;">
@@ -1578,7 +1582,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <!-- Account -->
               <div class="settings-panel" data-sub="account">
                 <h2>Account</h2>
-                <p class="section-desc">Your .Yo account and subscription.</p>
+                <p class="section-desc">Your Glyphh account and subscription.</p>
                 <div id="account-card" class="license-card">
                   <div class="license-row">
                     <span class="license-label">Email</span>
@@ -1667,7 +1671,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                     <div style="margin-bottom:8px;">
                       <h3 class="settings-subheading" style="margin:0 0 4px;">Remote Relay</h3>
                       <p style="font-size:12px;color:var(--text-2);margin:0 0 10px;">
-                        Let external LLMs (Claude code, Claude UI, ChatGPT) drive your .Yo instance through the cloud — list and switch panels, click / type / read DOM, take screenshots. Your sign-in pairs this device to the relay; generate one or more <em>server tokens</em> below and paste them into your external tool's MCP config.
+                        Let external LLMs (Claude code, Claude UI, ChatGPT) drive your Glyphh instance through the cloud — list and switch panels, click / type / read DOM, take screenshots. Your sign-in pairs this device to the relay; generate one or more <em>server tokens</em> below and paste them into your external tool's MCP config.
                       </p>
                       <label class="settings-toggle" style="margin-bottom:10px;">
                         <input type="checkbox" id="relay-enabled-toggle" />
@@ -1744,7 +1748,10 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
               <div class="settings-panel" data-sub="about">
           <h2>About</h2>
           <div class="about-header">
-            <div class="about-logo"><span class="about-dot">.</span>Yo</div>
+            <div class="about-logo">
+              <img class="glyphh-logo glyphh-logo--black" src="brand/glyphh-logo-black.png" alt="Glyphh" />
+              <img class="glyphh-logo glyphh-logo--white" src="brand/glyphh-logo-white.png" alt="Glyphh" />
+            </div>
             <div class="about-version" id="about-version">Version 2.1.3</div>
             <div class="about-copyright">&copy; 2026 Glyphh AI LLC. All rights reserved.</div>
             <!-- Check for Updates hidden for now -->

@@ -299,7 +299,7 @@ function showLockout(cb: BootGateCallbacks, info?: { status?: string; upgradeUrl
   if (msgEl) {
     msgEl.textContent = disabled
       ? "This account has been deactivated. Reactivate your plan to get back into your workspace — your data is safe."
-      : "Upgrade to keep using Yo. Your workspace, agents, and settings are all saved — they'll be exactly where you left them.";
+      : "Upgrade to keep using Glyphh. Your workspace, agents, and settings are all saved — they'll be exactly where you left them.";
   }
   const statusEl = document.getElementById("lockout-status");
   if (statusEl) statusEl.textContent = "";
