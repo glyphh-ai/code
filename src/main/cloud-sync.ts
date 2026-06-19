@@ -1,5 +1,5 @@
 /**
- * CloudSync — polls api.dotyo.dev/api/pending, pulls new items
+ * CloudSync — polls api.glyphh.ai/api/pending, pulls new items
  * to local stores, then ACKs so the cloud deletes them.
  *
  * Cloud is transient. Local is source of truth.
@@ -17,7 +17,7 @@ interface PendingItem {
 }
 
 const POLL_INTERVAL_MS = 7_000; // ~7 seconds
-const DEFAULT_SERVER = "https://api.dotyo.dev";
+const DEFAULT_SERVER = "https://api.glyphh.ai";
 
 export class CloudSync {
   private noteStore: NoteStore;

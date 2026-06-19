@@ -1,7 +1,7 @@
 {
   "name": "yo",
-  "version": "4.4.2",
-  "description": "Yo. Sup. — Your AI workspace.",
+  "version": "5.0.0",
+  "description": "Glyphh — Your AI workspace.",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "npm run build && ELECTRON_RUN_AS_NODE= electron .",

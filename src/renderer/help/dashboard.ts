@@ -27,7 +27,9 @@ let dashAgentChart: any = null;
 let dashHistoryChart: any = null;
 let dashIntakeChart: any = null;
 let dashFlowChart: any = null;
+let dashActivityChart: any = null;
 let dashRangeMode: "7" | "30" = "7";
+let dashActivityRange: "7" | "30" = "7";
 let storeRangeMode: "7" | "30" = "7";
 
 // Phase 7 of THE-PIVOT-BYOK rewires the dashboard's token stats to
@@ -72,6 +74,7 @@ export async function loadDashboard() {
   document.getElementById("dash-oldest")!.textContent = relativeTime(captureStats.oldestTs);
   document.getElementById("dash-newest")!.textContent = relativeTime(captureStats.newestTs);
 
+  renderDashActivityChart();
   renderDashAgentChart(allTime);
   renderDashHistoryChart();
   renderDashFlowChart(captureStats);
@@ -116,6 +119,71 @@ function renderDashAgentChart(allTime: { agents: Record<string, { input: number;
       plugins: {
         legend: { position: "right", labels: { color: cssVar("--text-2"), font: { size: 11 }, padding: 10, usePointStyle: true, pointStyleWidth: 8 } },
         tooltip: { callbacks: { label: (c: any) => `${c.label}: ${formatTokens(c.parsed)} tokens` } },
+      },
+    },
+  });
+}
+
+async function renderDashActivityChart() {
+  const days = parseInt(dashActivityRange);
+  const tz = await getTimezone();
+  const canvas = document.getElementById("dash-chart-activity") as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  const [history, captures] = await Promise.all([
+    window.yo.dashboardHistory(days, tz),
+    window.yo.capturesDailyHistory(days),
+  ]);
+  const histMap = new Map((history || []).map((d: any) => [d.date, d]));
+  const capMap = new Map((captures || []).map((d: any) => [d.date, d]));
+
+  const labels: string[] = [];
+  const tokensData: number[] = [];
+  const promptsData: number[] = [];
+  const capturesData: number[] = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = dateKeyInTz(d, tz);
+    labels.push(d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" }));
+    const h: any = histMap.get(key);
+    tokensData.push((h?.total?.input || 0) + (h?.total?.output || 0));
+    promptsData.push(h?.total?.calls || 0);
+    capturesData.push((capMap.get(key) as any)?.count || 0);
+  }
+
+  const ctx = canvas.getContext("2d")!;
+  if (dashActivityChart) dashActivityChart.destroy();
+
+  const mkLine = (label: string, data: number[], axis: string, color: string, fillAlpha: number) => ({
+    label, data, yAxisID: axis,
+    borderColor: color,
+    backgroundColor: fillAlpha ? color.replace("rgb", "rgba").replace(")", `,${fillAlpha})`) : "transparent",
+    fill: fillAlpha > 0, tension: 0.35, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, pointHitRadius: 12,
+  });
+
+  dashActivityChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        mkLine("Tokens", tokensData, "y", "rgb(37,199,94)", 0.12),
+        mkLine("Prompts", promptsData, "y1", "rgb(72,219,251)", 0),
+        mkLine("Captures", capturesData, "y1", "rgb(204,93,232)", 0),
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { color: cssVar("--border") } },
+        y: { position: "left", beginAtZero: true, ticks: { color: cssVar("--accent"), font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: cssVar("--border") }, title: { display: true, text: "Tokens", color: cssVar("--text-3"), font: { size: 10 } } },
+        y1: { position: "right", beginAtZero: true, ticks: { color: cssVar("--text-3"), font: { size: 10 }, precision: 0 }, grid: { drawOnChartArea: false }, title: { display: true, text: "Activity", color: cssVar("--text-3"), font: { size: 10 } } },
+      },
+      plugins: {
+        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
+        tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Tokens" ? `Tokens: ${formatTokens(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } },
       },
     },
   });
@@ -407,6 +475,19 @@ export function initDashboardEvents() {
     document.getElementById("dash-range-30")!.classList.add("active");
     document.getElementById("dash-range-7")!.classList.remove("active");
     renderDashHistoryChart();
+  });
+
+  document.getElementById("dash-activity-range-7")?.addEventListener("click", () => {
+    dashActivityRange = "7";
+    document.getElementById("dash-activity-range-7")!.classList.add("active");
+    document.getElementById("dash-activity-range-30")!.classList.remove("active");
+    renderDashActivityChart();
+  });
+  document.getElementById("dash-activity-range-30")?.addEventListener("click", () => {
+    dashActivityRange = "30";
+    document.getElementById("dash-activity-range-30")!.classList.add("active");
+    document.getElementById("dash-activity-range-7")!.classList.remove("active");
+    renderDashActivityChart();
   });
 
   document.getElementById("store-range-7")?.addEventListener("click", () => {

@@ -88,7 +88,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
       : {};
     mcpServers["yo-relay"] = {
       type: "http",
-      url: "https://api.dotyo.dev/mcp",
+      url: "https://api.glyphh.ai/mcp",
       headers: { Authorization: `Bearer ${token}` },
     };
     existing.mcpServers = mcpServers;

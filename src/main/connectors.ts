@@ -8,7 +8,7 @@
  *   4. After OAuth, refreshes MCP connection to discover new tools
  *   5. Connected accounts stored in Pipedream, queried via yo-server
  *
- * All Pipedream API calls go through yo-server (api.dotyo.dev) to keep
+ * All Pipedream API calls go through yo-server (api.glyphh.ai) to keep
  * project keys server-side. The client only sees connect tokens and account lists.
  */
 

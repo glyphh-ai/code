@@ -101,7 +101,7 @@ async function runR2Download(step: SetupStep & { kind: "r2_download" }, sandbox:
   fs.mkdirSync(path.dirname(into), { recursive: true });
   // R2 access goes through yo-server's blob endpoint so we don't need direct R2 creds
   // on the client. The key is server-namespaced (e.g. cypher-<id>/...).
-  const url = `${AUTH_SERVER || "https://api.dotyo.dev"}/api/blob/${encodeURIComponent(step.key)}`;
+  const url = `${AUTH_SERVER || "https://api.glyphh.ai"}/api/blob/${encodeURIComponent(step.key)}`;
   const token = getAuthToken();
   if (!token) throw new Error("r2_download: not authenticated");
 

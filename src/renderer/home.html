@@ -94,6 +94,17 @@
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
 
+          <!-- Daily Activity — full-width line chart spanning both columns -->
+          <div class="dash-activity-card">
+            <div class="dash-activity-head">
+              <div class="dash-split-header">Daily Activity</div>
+              <div class="dash-range-toggle">
+                <button class="dash-range-btn active" id="dash-activity-range-7">7d</button>
+                <button class="dash-range-btn" id="dash-activity-range-30">30d</button>
+              </div>
+            </div>
+            <div class="dash-activity-chart-box"><canvas id="dash-chart-activity"></canvas></div>
+          </div>
 
           <div class="dash-split-row">
             <!-- Left: Token Metrics (input/output, no yos billing) -->
@@ -1678,7 +1689,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                         <span class="toggle-switch"></span>
                         <div class="toggle-info">
                           <span class="toggle-title">Enable remote relay</span>
-                          <span class="toggle-desc">When on, your yo-client maintains a WebSocket to api.dotyo.dev</span>
+                          <span class="toggle-desc">When on, your yo-client maintains a WebSocket to api.glyphh.ai</span>
                         </div>
                       </label>
                       <span id="relay-status-text" style="font-size:11px;color:var(--text-3);margin-top:4px;display:inline-block;">Not connected.</span>

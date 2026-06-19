@@ -3287,6 +3287,18 @@ ol.docs-list li::before {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
   min-height: 200px; min-width: 0; overflow: hidden;
 }
+
+/* Daily Activity — full-width line chart above the two metric columns. */
+.dash-activity-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px; min-width: 0;
+}
+.dash-activity-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.dash-activity-head .dash-split-header { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.dash-activity-chart-box { height: 240px; position: relative; }
 .dash-split-header {
   font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase;
   letter-spacing: 0.5px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border);

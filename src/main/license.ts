@@ -19,7 +19,7 @@ const TRIAL_DAYS = 14;
 const REFRESH_MARGIN = 3 * 60 * 1000; // refresh 3 min before expiry
 
 const LICENSE_SERVER =
-  process.env.YO_LICENSE_SERVER || "https://api.dotyo.dev";
+  process.env.YO_LICENSE_SERVER || "https://api.glyphh.ai";
 
 interface LicenseState {
   status: "trial" | "licensed" | "expired";

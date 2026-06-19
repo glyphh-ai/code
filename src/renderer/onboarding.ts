@@ -14,9 +14,9 @@ const statusEl = document.getElementById("onboarding-status");
 
 const ONBOARDING_AVAILABLE = !!overlay;
 
-const TERMS_URL = "https://dotyo.dev/terms";
-const PRIVACY_URL = "https://dotyo.dev/privacy";
-const REFUND_URL = "https://dotyo.dev/refund";
+const TERMS_URL = "https://glyphh.ai/terms";
+const PRIVACY_URL = "https://glyphh.ai/privacy";
+const REFUND_URL = "https://glyphh.ai/refund";
 
 const closeBtn = document.getElementById("onboarding-close");
 if (closeBtn) {

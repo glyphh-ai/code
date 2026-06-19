@@ -270,7 +270,7 @@ function dismissSplash(cb: BootGateCallbacks): void {
 // ── Account lockout (trial expired / account disabled) ──────────────────────
 
 let accountLocked = false;
-let upgradeUrl = "https://platform.dotyo.dev/dashboard/billing";
+let upgradeUrl = "https://platform.glyphh.ai/dashboard/billing";
 
 /** Raise the full-window lockout gate. The user keeps the titlebar (so they
  *  can quit) but everything else is sealed until the account is active. */

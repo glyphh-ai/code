@@ -194,7 +194,7 @@ const TERMS_OF_USE = `
 <p>We may update these Terms from time to time. Continued use of the Service after changes constitutes acceptance of the revised Terms. Material changes will be communicated through the application or via email.</p>
 
 <p><strong>13. Contact</strong></p>
-<p>For questions about these Terms, contact us at support@dotyo.dev.</p>
+<p>For questions about these Terms, contact us at support@glyphh.ai.</p>
 `;
 
 const PRIVACY_POLICY = `
@@ -246,7 +246,7 @@ const PRIVACY_POLICY = `
   <li>Object to or restrict processing of your data</li>
   <li>Data portability</li>
 </ul>
-<p>To exercise these rights, contact us at support@dotyo.dev.</p>
+<p>To exercise these rights, contact us at support@glyphh.ai.</p>
 
 <p><strong>9. Children's Privacy</strong></p>
 <p>The Service is not intended for children under 13. We do not knowingly collect personal information from children under 13. If we become aware that we have collected such information, we will take steps to delete it.</p>
@@ -258,7 +258,7 @@ const PRIVACY_POLICY = `
 <p>We may update this Privacy Policy from time to time. We will notify you of material changes through the application or via email. Continued use of the Service after changes constitutes acceptance.</p>
 
 <p><strong>12. Contact</strong></p>
-<p>For privacy-related questions or requests, contact us at support@dotyo.dev.</p>
+<p>For privacy-related questions or requests, contact us at support@glyphh.ai.</p>
 `;
 
 const REFUND_POLICY = `
@@ -272,7 +272,7 @@ const REFUND_POLICY = `
 <p>Paid plans are billed on a monthly subscription basis. You may cancel your subscription at any time.</p>
 
 <p><strong>3. Refund Eligibility</strong></p>
-<p>We offer a full refund within 14 days of your first subscription payment ("Refund Window") if you are not satisfied with the Service. To request a refund during this window, contact us at support@dotyo.dev with your license key and the email associated with your account.</p>
+<p>We offer a full refund within 14 days of your first subscription payment ("Refund Window") if you are not satisfied with the Service. To request a refund during this window, contact us at support@glyphh.ai with your license key and the email associated with your account.</p>
 
 <p><strong>4. After the Refund Window</strong></p>
 <p>After the 14-day Refund Window, subscription payments are non-refundable. When you cancel your subscription, you retain access to paid features through the end of your current billing period. No partial refunds are issued for unused time within a billing cycle.</p>
@@ -281,16 +281,16 @@ const REFUND_POLICY = `
 <p>If you upgrade from Basic to Advanced, you will be charged the prorated difference for the remainder of your billing cycle. If you downgrade, the change takes effect at the start of your next billing cycle. No refunds are issued for downgrades.</p>
 
 <p><strong>6. Service Disruption</strong></p>
-<p>If the Service experiences a significant outage or disruption lasting more than 72 continuous hours, you may be eligible for a prorated credit at our discretion. Contact support@dotyo.dev to report service disruptions.</p>
+<p>If the Service experiences a significant outage or disruption lasting more than 72 continuous hours, you may be eligible for a prorated credit at our discretion. Contact support@glyphh.ai to report service disruptions.</p>
 
 <p><strong>7. Revoked Licenses</strong></p>
 <p>If your license is revoked due to a violation of our Terms of Use, no refund will be issued.</p>
 
 <p><strong>8. How to Cancel</strong></p>
-<p>You can cancel your subscription at any time through the Settings section of the Glyphh application. Alternatively, contact support@dotyo.dev. Cancellation takes effect at the end of your current billing period.</p>
+<p>You can cancel your subscription at any time through the Settings section of the Glyphh application. Alternatively, contact support@glyphh.ai. Cancellation takes effect at the end of your current billing period.</p>
 
 <p><strong>9. Contact</strong></p>
-<p>For billing or refund questions, contact us at support@dotyo.dev.</p>
+<p>For billing or refund questions, contact us at support@glyphh.ai.</p>
 `;
 
 export { loadDocs, loadSupport, loadAbout, TERMS_OF_USE, PRIVACY_POLICY, REFUND_POLICY };
