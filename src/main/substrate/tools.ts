@@ -17,7 +17,6 @@ import os from "os";
 import { execSync } from "child_process";
 import { webSearch, fetchPage } from "../web-search";
 import { getWorkingDirectory } from "../working-directory";
-import { ADAL_TOOLS } from "../adal/tools";
 
 // Privileged accessors injected by main.ts. Substrate tools use these;
 // user-skill ctx never sees them.
@@ -1726,8 +1725,6 @@ const BUILTIN_TOOLS: ToolDef[] = [
       return `Wrote ${rel} in app "${id}".`;
     },
   },
-  // ── adaL substrate tools (think/ask/tell/...) ────────────────
-  ...ADAL_TOOLS,
 ];
 
 // Map for fast lookup
@@ -1814,9 +1811,8 @@ const PATH_GATE_EXEMPT = new Set([
 
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
   // Path-gate: reject anything resolving outside ~/.yo/ unless the tool is
-  // explicitly exempt (bus tools, semantic search, etc.). adaL tools operate on
-  // the local substrate and take freeform text, not paths — always exempt.
-  if (!PATH_GATE_EXEMPT.has(name) && !name.startsWith("adaL_")) {
+  // explicitly exempt (bus tools, semantic search, etc.).
+  if (!PATH_GATE_EXEMPT.has(name)) {
     const { checkToolCall } = await import("./path-gate.js");
     // The solo yo agent may also operate on the app-wide working directory —
     // that's the folder the user pointed it at (project repo).

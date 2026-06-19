@@ -19,7 +19,7 @@ try {
   process.chdir(os.homedir());
 }
 
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, protocol, session as electronSession, shell, systemPreferences, webContents } from "electron";
 import path from "path";
 import fs from "fs";
 import { PanelManager } from "./panel-manager";
@@ -293,16 +293,6 @@ async function boot() {
       }
     }
   } catch { /* non-critical */ }
-
-  // Start the adaL bridge — a loopback HTTP surface so external Claude Code
-  // hooks can route memory into the in-process cognitive substrate. Safe no-op
-  // on failure (in-process memory still works).
-  try {
-    const { ensureAdalBridge } = require("./adal/bridge") as typeof import("./adal/bridge");
-    ensureAdalBridge();
-  } catch (err) {
-    console.warn("[adaL bridge] init skipped:", err instanceof Error ? err.message : err);
-  }
 
   // Initialize local SQLite database (agents, layouts, preferences)
   initLocalDb();
@@ -809,9 +799,6 @@ async function boot() {
         console.log(`[terminal] did-finish-load panel="${id}" wcId=${wc.id} — spawning pty`);
         terminalManager.spawn(wc);
       });
-    } else if (baseAppId === "adaL") {
-      // adaL app = the terminal surface booting an in-process adaL REPL.
-      wc.on("did-finish-load", () => terminalManager.spawnAdaL(wc));
     } else if (baseAppId === "code") {
       // Code-terminal: spawn the named agent CLI (claude) with role env vars
       const cfg = panelIdToAgentConfig.get(id);
@@ -1027,8 +1014,6 @@ async function boot() {
       panelManager.addPanel(app.id, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://adaL") {
-      panelManager.addPanel(app.id, terminalHtml, terminalPreload);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(app.id, specHtml, specPreload);
     } else if (app.url === "yo://workbench") {
@@ -1167,6 +1152,12 @@ async function boot() {
     if (gridInfo) {
       for (const id of gridInfo.panelIds) ensureTab(id);
       setPreference("suspendedLayout", null);
+      // The per-cell URL bar belongs to the whole grid — show it whenever the
+      // grid has a browser, regardless of which cell is focused. Set once on
+      // entry so the browser cell is editable from the first paint.
+      const showBar = layoutManager.gridHasBrowser();
+      panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
+      mainWindow?.webContents.send("url-bar-force", showBar);
     } else if (panelManager.activePanelId) {
       ensureTab(panelManager.activePanelId);
     }
@@ -1401,6 +1392,10 @@ async function boot() {
     const suspendedInfo = layoutManager.getSuspendedGridInfo();
     if (gridInfo) {
       for (const id of gridInfo.panelIds) ensureTab(id);
+      // Restoring a saved split that includes a browser → show its URL bar.
+      const showBar = layoutManager.gridHasBrowser();
+      panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
+      mainWindow?.webContents.send("url-bar-force", showBar);
     } else if (suspendedInfo) {
       for (const id of suspendedInfo.panelIds) ensureTab(id);
     }
@@ -1447,8 +1442,6 @@ async function boot() {
       const homePreload = path.join(__dirname, "..", "renderer", "preload.js");
       panelManager.addPanel(instanceId, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
-      panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://adaL") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
     } else if (app.url === "yo://spec") {
       panelManager.addPanel(instanceId, specHtml, specPreload);
@@ -2460,9 +2453,11 @@ async function boot() {
     // instructions so the summary is shaped how they want.
     let agentMessage = trimmed;
     if (/^\/?compact(\s|$)/i.test(trimmed)) {
+      // Inline instructions (e.g. from the compaction modal) take precedence;
+      // otherwise fall back to the saved default compaction prompt.
       const extra = trimmed.replace(/^\/?compact\s*/i, "").trim();
       const saved = getPreference<string>("compactPrompt", "");
-      const instructions = [saved, extra].filter(Boolean).join("\n").trim();
+      const instructions = extra || saved.trim();
       agentMessage = instructions ? `/compact ${instructions}` : "/compact";
     }
 
@@ -2487,6 +2482,7 @@ async function boot() {
         wc.send("yo-panel-done", fullText);
       },
       onError: (err) => wc.send("yo-panel-error", err),
+      onContextUsage: (used, window) => wc.send("yo-context-usage", { used, window }),
     });
   });
 
@@ -3218,6 +3214,12 @@ async function boot() {
     if (key === "remoteEnabled") {
       if (value) voiceRelay?.start();
       else voiceRelay?.stop();
+    }
+    // Notify every panel/BrowserView so forms reading this pref (e.g. Settings →
+    // Agent Defaults) update immediately when it's changed elsewhere (e.g. the
+    // compaction modal in the right-rail .Yo agent).
+    for (const wc of webContents.getAllWebContents()) {
+      try { wc.send("preference-changed", key, value); } catch { /* ignore */ }
     }
   });
   // (get-preference IPC registered earlier, before restorePanels)

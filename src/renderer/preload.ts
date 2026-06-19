@@ -117,14 +117,6 @@ contextBridge.exposeInMainWorld("yo", {
   capturesListForSource: (source: string, offset: number, limit: number) => ipcRenderer.invoke("captures-list-source", source, offset, limit) as Promise<Array<{ meta: { id: string; source: string; created: number; chunkParent?: string }; snippet: string; size: number }>>,
   capturesDailyHistoryForSource: (source: string, days?: number) => ipcRenderer.invoke("captures-daily-history-source", source, days) as Promise<Array<{ date: string; count: number; bytes: number }>>,
 
-  // adaL substrate (curated memory tier)
-  adalStats: () => ipcRenderer.invoke("adal-stats") as Promise<{ count: number; avgStrength: number; bySpeaker: Record<string, number>; factCount: number; episodicCount: number; oldestTs: number; newestTs: number }>,
-  adalDailyHistory: (days?: number) => ipcRenderer.invoke("adal-daily-history", days) as Promise<Array<{ date: string; incoming: number; outgoing: number; total: number }>>,
-  adalThoughtsList: (offset: number, limit: number) => ipcRenderer.invoke("adal-thoughts-list", offset, limit) as Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic" }>>,
-  adalThoughtsSearch: (query: string, limit: number) => ipcRenderer.invoke("adal-thoughts-search", query, limit) as Promise<Array<{ thoughtId: string; content: string; speaker: string; strength: number; createdAt: number; lastAccessed: number; accessCount: number; tier: "fact" | "episodic"; score: number }>>,
-  adalThoughtsDelete: (id: string) => ipcRenderer.invoke("adal-thoughts-delete", id) as Promise<boolean>,
-  adalThoughtsEdit: (id: string, text: string) => ipcRenderer.invoke("adal-thoughts-edit", id, text) as Promise<boolean>,
-  adalThoughtsPromote: (id: string, on: boolean) => ipcRenderer.invoke("adal-thoughts-promote", id, on) as Promise<boolean>,
 
   // Grid resize
   gridDragEnd: (type: "col" | "row", index: number, fraction: number) =>
@@ -141,6 +133,11 @@ contextBridge.exposeInMainWorld("yo", {
   relaunch: () => ipcRenderer.send("relaunch"),
   setPreference: (key: string, value: unknown) => ipcRenderer.send("set-preference", key, value),
   getPreference: (key: string, defaultVal?: unknown) => ipcRenderer.invoke("get-preference", key, defaultVal),
+  // Fires in every panel when a preference is changed anywhere — lets forms
+  // (e.g. Settings → Agent Defaults) reflect a change made elsewhere live.
+  onPreferenceChanged: (cb: (key: string, value: unknown) => void) => {
+    ipcRenderer.on("preference-changed", (_e, key, value) => cb(key, value));
+  },
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.on("open-settings", () => callback());
   },
@@ -378,6 +375,10 @@ contextBridge.exposeInMainWorld("yo", {
   },
   onYoPanelError: (cb: (err: string) => void) => {
     ipcRenderer.on("yo-panel-error", (_e, err) => cb(err));
+  },
+  // Conversation context size vs the compaction window — drives the gauge.
+  onYoContextUsage: (cb: (info: { used: number; window: number }) => void) => {
+    ipcRenderer.on("yo-context-usage", (_e, info) => cb(info));
   },
   onYoPanelClose: (cb: () => void) => {
     ipcRenderer.on("yo-panel-close", () => cb());

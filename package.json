@@ -18,7 +18,6 @@
     "build:waz": "esbuild src/renderer/waz.ts --bundle --outfile=dist/renderer/waz.js --platform=browser && esbuild src/renderer/waz-preload.ts --bundle --outfile=dist/main/waz-preload.js --platform=node --external:electron && shx cp src/renderer/waz.html dist/renderer/",
     "bench:code-index": "npm run build:main && node dist/main/code-index/benchmark.js",
     "bench:code-index-ab": "npm run build:main && node dist/main/code-index/benchmark-ab.js",
-    "bench:adal": "npm run build:main && node dist/main/adal/bench.js",
     "start": "electron .",
     "postinstall": "electron-rebuild",
     "package:mac": "electron-builder --mac",

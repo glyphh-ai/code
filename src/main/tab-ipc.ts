@@ -398,6 +398,17 @@ export function registerTabIpc(deps: TabIpcDeps): void {
   function applyUrlBarForActive(): void {
     const mainWindow = getMainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    // In a split/grid layout the URL bar is per-cell and belongs to the whole
+    // grid, not the focused cell. Deciding from the single active panel would
+    // hide the browser cell's URL bar the moment a non-browser cell is focused
+    // (and you could no longer change its URL). Base it on whether the grid has
+    // any browser instead.
+    if (layoutManager.hasSplit) {
+      const showBar = layoutManager.gridHasBrowser();
+      panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
+      mainWindow.webContents.send("url-bar-force", showBar);
+      return;
+    }
     const id = panelManager.activePanelId;
     const isBrowser = id ? resolveAppId(id) === "browser" : false;
     const showBar = !!id && (isBrowser || getPreference<boolean>("showUrlBar", false));

@@ -76,6 +76,17 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
     if (perm) perm.value = mode || "default";
   });
 
+  // Reflect compaction prefs changed elsewhere (e.g. the right-rail .Yo agent's
+  // compaction modal "Save as my default") so this form never shows stale values.
+  window.yo.onPreferenceChanged?.((key: string, value: unknown) => {
+    if (key === "compactPrompt" && compactPrompt) compactPrompt.value = (value as string) || "";
+    else if (key === "autoCompactEnabled" && compactEnabled) compactEnabled.checked = !!value;
+    else if (key === "autoCompactWindow" && compactWindow) {
+      const w = Number(value);
+      compactWindow.value = Number.isFinite(w) && w > 0 ? String(w) : "";
+    }
+  });
+
   save.addEventListener("click", async () => {
     status.textContent = "Saving…";
     try {

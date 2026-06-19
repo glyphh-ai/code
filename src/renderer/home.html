@@ -90,70 +90,6 @@
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
 
-          <!-- adaL Substrate — primary memory tier, spans the full width above both columns.
-               Same card structure as the two metric columns below: header → stat row → chart. -->
-          <div class="dash-split-col dash-adal-col">
-            <div class="dash-split-header">adaL Substrate</div>
-
-            <div class="dash-stat-row">
-              <div class="dash-stat-card">
-                <div class="dash-stat-label">Substrate</div>
-                <div class="dash-stat-values">
-                  <div class="dash-stat-item">
-                    <div class="dash-stat-num green" id="adal-count">—</div>
-                    <div class="dash-stat-sub">Thoughts</div>
-                  </div>
-                  <div class="dash-stat-item">
-                    <div class="dash-stat-num" id="adal-facts">—</div>
-                    <div class="dash-stat-sub">Facts</div>
-                  </div>
-                  <div class="dash-stat-item">
-                    <div class="dash-stat-num" id="adal-episodic">—</div>
-                    <div class="dash-stat-sub">Episodic</div>
-                  </div>
-                </div>
-              </div>
-              <div class="dash-stat-card">
-                <div class="dash-stat-label">Substrate Info</div>
-                <div class="dash-stat-values">
-                  <div class="dash-stat-item">
-                    <div class="dash-stat-num" id="adal-strength">—</div>
-                    <div class="dash-stat-sub">Avg strength</div>
-                  </div>
-                  <div class="dash-stat-item">
-                    <div class="dash-stat-num" id="adal-oldest">—</div>
-                    <div class="dash-stat-sub">Oldest</div>
-                  </div>
-                  <div class="dash-stat-item">
-                    <div class="dash-stat-num" id="adal-newest">—</div>
-                    <div class="dash-stat-sub">Newest</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="dash-chart-stack">
-              <div class="dash-chart-container">
-                <div class="dash-stat-label">Facts vs Episodic</div>
-                <div class="dash-chart-box"><canvas id="dash-chart-adal"></canvas></div>
-              </div>
-              <div class="dash-chart-container">
-                <div style="display:flex;align-items:center;margin-bottom:8px;">
-                  <div class="dash-stat-label" style="margin-bottom:0">Substrate Growth</div>
-                  <div class="dash-range-toggle" style="margin-left:auto">
-                    <button class="dash-range-btn active" id="adal-range-7">7d</button>
-                    <button class="dash-range-btn" id="adal-range-30">30d</button>
-                  </div>
-                </div>
-                <div class="dash-chart-box"><canvas id="dash-chart-adal-trend"></canvas></div>
-              </div>
-            </div>
-
-            <div class="dash-split-subhead dash-data-trigger">
-              <span>Thoughts</span>
-              <button class="action-btn" data-modal-open="adal-modal">Manage</button>
-            </div>
-          </div>
 
           <div class="dash-split-row">
             <!-- Left: Token Metrics (input/output, no yos billing) -->
@@ -286,37 +222,6 @@
           </div>
 
           <!-- Data sections open in modals to keep the dashboard clean -->
-          <div id="adal-modal" class="dash-modal hidden">
-            <div class="dash-modal-backdrop" data-modal-close="adal-modal"></div>
-            <div class="dash-modal-panel">
-              <div class="dash-modal-head">
-                <span class="dash-modal-title">adaL Thoughts</span>
-                <button class="action-btn dash-modal-x" data-modal-close="adal-modal">✕</button>
-              </div>
-              <div class="dash-modal-body">
-                <div id="adal-toolbar" class="crud-toolbar">
-                  <input id="adal-search" type="text" class="crud-search" placeholder="Search thoughts..." spellcheck="false" autocomplete="off" />
-                </div>
-                <div id="adal-list" class="crud-cards"></div>
-                <div id="adal-detail" class="crud-inline-form hidden">
-                  <div class="crud-inline-header">
-                    <a class="crud-breadcrumb-back" id="adal-back-link">&larr; adaL</a>
-                    <div class="crud-spacer"></div>
-                    <button id="adal-promote-btn" class="action-btn">Promote to fact</button>
-                    <button id="adal-edit-btn" class="action-btn">Edit</button>
-                    <button id="adal-delete-btn" class="action-btn danger">Delete</button>
-                  </div>
-                  <div id="adal-detail-meta" style="font-size:11px;color:var(--text-2);margin-bottom:8px;"></div>
-                  <pre id="adal-detail-content" class="dash-pre-block" style="max-height:50vh;"></pre>
-                  <textarea id="adal-edit-text" class="crud-search hidden" style="width:100%;min-height:120px;resize:vertical;font-family:var(--mono);" spellcheck="false"></textarea>
-                  <div id="adal-edit-actions" class="settings-actions hidden" style="margin-top:8px;">
-                    <button id="adal-edit-save" class="action-btn primary">Save</button>
-                    <button id="adal-edit-cancel" class="action-btn">Cancel</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <div id="data-modal" class="dash-modal hidden">
             <div class="dash-modal-backdrop" data-modal-close="data-modal"></div>
@@ -1532,7 +1437,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                       <span class="toggle-desc">Enable mic button in .yo panel — uses Whisper for transcription via proxy</span>
                     </div>
                   </label>
-                  <label class="settings-toggle">
+                  <!-- Auto Updates hidden for now -->
+                  <label class="settings-toggle" style="display:none;">
                     <input type="checkbox" id="toggle-auto-update" checked />
                     <span class="toggle-switch"></span>
                     <div class="toggle-info">
@@ -1590,6 +1496,10 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <p class="section-desc" style="margin-top:0;">
                     When a conversation grows past the window, older turns are
                     summarized so the agent keeps going instead of erroring out.
+                    The default window is <strong>160,000 tokens</strong> (roughly
+                    80% of a 200K-context model, leaving headroom for the reply).
+                    The gauge next to the prompt input fills as the conversation
+                    approaches this limit.
                   </p>
                   <label class="settings-toggle" style="margin-top:4px;padding:8px 12px;">
                     <input type="checkbox" id="agent-autocompact-enabled" checked />
@@ -1601,7 +1511,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </label>
 
                   <label class="settings-label" style="margin-top:12px;">Context window before compaction (tokens)</label>
-                  <input id="agent-autocompact-window" type="number" min="0" step="1000" class="settings-input settings-input-md" placeholder="default (leave blank / 0)" spellcheck="false" />
+                  <input id="agent-autocompact-window" type="number" min="0" step="1000" class="settings-input settings-input-md" placeholder="160000 (default)" spellcheck="false" />
+                  <span class="settings-hint" style="display:block;margin-top:4px;font-size:11px;color:var(--text-3);">Leave blank to use the 160,000-token default. Lower it to compact sooner (cheaper, more frequent summaries); raise it to keep more raw context before summarizing.</span>
 
                   <label class="settings-label" style="margin-top:12px;">Custom compaction prompt (optional)</label>
                   <textarea id="agent-compact-prompt" class="settings-input" rows="4" spellcheck="false" placeholder="How should the agent summarize the conversation when compacting? Leave blank for the default summary."></textarea>
@@ -1836,7 +1747,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
             <div class="about-logo"><span class="about-dot">.</span>Yo</div>
             <div class="about-version" id="about-version">Version 2.1.3</div>
             <div class="about-copyright">&copy; 2026 Glyphh AI LLC. All rights reserved.</div>
-            <button class="about-update-btn" id="about-check-update">Check for Updates</button>
+            <!-- Check for Updates hidden for now -->
+            <button class="about-update-btn" id="about-check-update" style="display:none;">Check for Updates</button>
             <div class="about-progress hidden" id="about-progress">
               <div class="about-progress-bar"><div class="about-progress-fill" id="about-progress-fill"></div></div>
               <span class="about-progress-text" id="about-progress-text">Downloading...</span>

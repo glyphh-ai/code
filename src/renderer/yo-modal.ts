@@ -18,6 +18,49 @@ export interface YoConfirmOpts {
 
 /** Themed replacement for window.confirm — resolves true on confirm, false on
  *  cancel / Escape / backdrop click. Only one dialog shows at a time. */
+/**
+ * Freeze the native app panels (BrowserViews) behind a screenshot and hide
+ * them, so a DOM modal — which Electron paints UNDERNEATH BrowserViews — is
+ * actually visible and clickable. Returns whether panels were hidden; pass that
+ * to `restorePanelsForModal` when the modal closes. Any DOM modal must call
+ * this, or it renders behind open app web views.
+ */
+export async function hidePanelsForModal(): Promise<boolean> {
+  const screenshots = document.getElementById("panel-screenshots");
+  try {
+    const yo = (window as unknown as { yo?: {
+      capturePanels?: () => Promise<Array<{ dataUrl: string; bounds: { x: number; y: number; width: number; height: number } }>>;
+      panelsHide?: () => void;
+    } }).yo;
+    if (!yo?.capturePanels || !yo?.panelsHide || !screenshots) return false;
+    const caps = await yo.capturePanels();
+    for (const cap of caps) {
+      const div = document.createElement("div");
+      div.className = "panel-screenshot yo-modal-panel-screenshot";
+      div.style.left = `${cap.bounds.x}px`;
+      div.style.top = `${cap.bounds.y}px`;
+      div.style.width = `${cap.bounds.width}px`;
+      div.style.height = `${cap.bounds.height}px`;
+      div.style.backgroundImage = `url(${cap.dataUrl})`;
+      screenshots.appendChild(div);
+    }
+    yo.panelsHide();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Restore panels + drop the freeze-frames a modal painted on its way in. */
+export function restorePanelsForModal(wasHidden: boolean): void {
+  if (wasHidden) {
+    const yo = (window as unknown as { yo?: { panelsShow?: () => void } }).yo;
+    try { yo?.panelsShow?.(); } catch { /* */ }
+  }
+  document.getElementById("panel-screenshots")
+    ?.querySelectorAll(".yo-modal-panel-screenshot").forEach((el) => el.remove());
+}
+
 export function yoConfirm(opts: YoConfirmOpts): Promise<boolean> {
   return new Promise((resolve) => {
     // Guard against stacking — if a dialog is already up, dismiss it first.

@@ -7,10 +7,6 @@ import {
   buildPaginationBar, formatDuration, confirmAction,
 } from "./shared.js";
 import { loadData, closeDataDetail, deleteDataEntry, clearData, dataSearchDebounce } from "./data-store.js";
-import {
-  loadAdal, closeAdalDetail, deleteAdalThought, promoteAdalThought,
-  beginAdalEdit, saveAdalEdit, cancelAdalEdit, adalSearchDebounce,
-} from "./adal-store.js";
 
 declare const Chart: any;
 
@@ -31,11 +27,8 @@ let dashAgentChart: any = null;
 let dashHistoryChart: any = null;
 let dashIntakeChart: any = null;
 let dashFlowChart: any = null;
-let dashAdalChart: any = null;
-let dashAdalTrendChart: any = null;
 let dashRangeMode: "7" | "30" = "7";
 let storeRangeMode: "7" | "30" = "7";
-let adalRangeMode: "7" | "30" = "7";
 
 // Phase 7 of THE-PIVOT-BYOK rewires the dashboard's token stats to
 // the local UsageTracker (yo-server's /api/usage/summary is gone).
@@ -52,12 +45,11 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 export async function loadDashboard() {
-  const [today, allTime, llmInfo, captureStats, adalStats] = await Promise.all([
+  const [today, allTime, llmInfo, captureStats] = await Promise.all([
     window.yo.dashboardToday(),
     window.yo.dashboardAllTime(),
     window.yo.dashboardLLMInfo(),
     window.yo.capturesStats(),
-    window.yo.adalStats(),
   ]);
 
   document.getElementById("dash-provider")!.textContent = `${llmInfo.provider} / ${llmInfo.model}`;
@@ -80,24 +72,14 @@ export async function loadDashboard() {
   document.getElementById("dash-oldest")!.textContent = relativeTime(captureStats.oldestTs);
   document.getElementById("dash-newest")!.textContent = relativeTime(captureStats.newestTs);
 
-  document.getElementById("adal-count")!.textContent = String(adalStats.count);
-  document.getElementById("adal-facts")!.textContent = String(adalStats.factCount);
-  document.getElementById("adal-episodic")!.textContent = String(adalStats.episodicCount);
-  document.getElementById("adal-strength")!.textContent = adalStats.count > 0 ? adalStats.avgStrength.toFixed(2) : "—";
-  document.getElementById("adal-oldest")!.textContent = relativeTime(adalStats.oldestTs);
-  document.getElementById("adal-newest")!.textContent = relativeTime(adalStats.newestTs);
-
   renderDashAgentChart(allTime);
   renderDashHistoryChart();
   renderDashFlowChart(captureStats);
   renderDashIntakeChart();
-  renderDashAdalChart(adalStats);
-  renderDashAdalTrendChart();
 }
 
 // Modal-scoped lists load lazily on open, keeping the dashboard landing clean.
 const MODAL_LOADERS: Record<string, () => void> = {
-  "adal-modal": () => loadAdal(),
   "data-modal": () => loadData(),
   "dash-prompts-modal": () => { dashPromptsOffset = 0; renderDashPrompts(); },
 };
@@ -109,91 +91,6 @@ function openDashModal(id: string) {
 
 function closeDashModal(id: string) {
   document.getElementById(id)?.classList.add("hidden");
-}
-
-function renderDashAdalChart(adalStats: { factCount: number; episodicCount: number }) {
-  const canvas = document.getElementById("dash-chart-adal") as HTMLCanvasElement | null;
-  if (!canvas) return;
-
-  const ctx = canvas.getContext("2d")!;
-  if (dashAdalChart) dashAdalChart.destroy();
-
-  const facts = adalStats.factCount || 0;
-  const episodic = adalStats.episodicCount || 0;
-  const hasData = facts > 0 || episodic > 0;
-
-  dashAdalChart = new Chart(ctx, {
-    type: "doughnut",
-    data: {
-      labels: hasData ? ["Facts", "Episodic"] : ["No thoughts yet"],
-      datasets: [{
-        data: hasData ? [facts, episodic] : [1],
-        backgroundColor: hasData ? ["#25C75E", cssVar("--border-3")] : [cssVar("--border")],
-        borderColor: hasData ? ["#1a8a40", cssVar("--border")] : [cssVar("--border")],
-        borderWidth: 2,
-        hoverOffset: 6,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: "60%",
-      plugins: {
-        legend: { position: "right", labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 10, padding: 12 } },
-        tooltip: {
-          callbacks: {
-            label: (c: any) => {
-              if (!hasData) return "No data yet";
-              const total = (c.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0);
-              const pct = total > 0 ? ((c.parsed / total) * 100).toFixed(0) : "0";
-              return `${c.label}: ${c.parsed} (${pct}%)`;
-            },
-          },
-        },
-      },
-    },
-  });
-}
-
-// Substrate growth trend — mirrors the Usage History line chart: new thoughts
-// absorbed per day, split incoming (the user) vs outgoing (adaL). Gives the
-// adaL card the same "trend under the doughnut" shape as the other two cards.
-async function renderDashAdalTrendChart() {
-  const days = parseInt(adalRangeMode);
-  const history = await window.yo.adalDailyHistory(days);
-  const canvas = document.getElementById("dash-chart-adal-trend") as HTMLCanvasElement | null;
-  if (!canvas) return;
-
-  const labels = history.map((d) => {
-    const dt = new Date(d.date + "T00:00:00");
-    return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  });
-  const incomingData = history.map((d) => d.incoming);
-  const outgoingData = history.map((d) => d.outgoing);
-
-  const ctx = canvas.getContext("2d")!;
-  if (dashAdalTrendChart) dashAdalTrendChart.destroy();
-
-  dashAdalTrendChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "Incoming", data: incomingData, borderColor: "#25C75E", backgroundColor: "rgba(37,199,94,0.1)",  fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
-        { label: "Outgoing", data: outgoingData, borderColor: "#cc5de8", backgroundColor: "rgba(204,93,232,0.05)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      scales: {
-        x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
-        y: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, precision: 0 }, grid: { color: cssVar("--border") }, beginAtZero: true },
-      },
-      plugins: {
-        legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
-        tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${c.parsed.y} thought${c.parsed.y === 1 ? "" : "s"}` } },
-      },
-    },
-  });
 }
 
 function renderDashAgentChart(allTime: { agents: Record<string, { input: number; output: number; calls: number }>; total: any } | null) {
@@ -525,19 +422,6 @@ export function initDashboardEvents() {
     renderDashIntakeChart();
   });
 
-  document.getElementById("adal-range-7")?.addEventListener("click", () => {
-    adalRangeMode = "7";
-    document.getElementById("adal-range-7")!.classList.add("active");
-    document.getElementById("adal-range-30")!.classList.remove("active");
-    renderDashAdalTrendChart();
-  });
-  document.getElementById("adal-range-30")?.addEventListener("click", () => {
-    adalRangeMode = "30";
-    document.getElementById("adal-range-30")!.classList.add("active");
-    document.getElementById("adal-range-7")!.classList.remove("active");
-    renderDashAdalTrendChart();
-  });
-
   const promptSearch = document.getElementById("dash-prompts-search") as HTMLInputElement;
   promptSearch?.addEventListener("input", () => {
     if (dashPromptSearchTimer) clearTimeout(dashPromptSearchTimer);
@@ -553,14 +437,4 @@ export function initDashboardEvents() {
   document.getElementById("data-clear-btn")?.addEventListener("click", () => clearData());
   const dataSearchInput = document.getElementById("data-search") as HTMLInputElement;
   dataSearchInput?.addEventListener("input", () => dataSearchDebounce());
-
-  // adaL substrate (right column)
-  document.getElementById("adal-back-link")?.addEventListener("click", () => closeAdalDetail());
-  document.getElementById("adal-delete-btn")?.addEventListener("click", () => deleteAdalThought());
-  document.getElementById("adal-promote-btn")?.addEventListener("click", () => promoteAdalThought());
-  document.getElementById("adal-edit-btn")?.addEventListener("click", () => beginAdalEdit());
-  document.getElementById("adal-edit-save")?.addEventListener("click", () => saveAdalEdit());
-  document.getElementById("adal-edit-cancel")?.addEventListener("click", () => cancelAdalEdit());
-  const adalSearchInput = document.getElementById("adal-search") as HTMLInputElement;
-  adalSearchInput?.addEventListener("input", () => adalSearchDebounce());
 }

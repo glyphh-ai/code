@@ -8109,6 +8109,71 @@ select.settings-input {
 }
 .yo-drip-btn:hover { color: var(--text-2); }
 
+/* ── Compaction "fuel gauge" (context usage ring) ───────────── */
+.yo-compaction-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 4px;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.yo-compaction-btn:hover { background: var(--surface-3); }
+
+.yo-compaction-ring {
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+.yo-compaction-track {
+  fill: none;
+  stroke: var(--border-2);
+  stroke-width: 3;
+}
+.yo-compaction-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  /* r=15 → circumference = 2·π·15 ≈ 94.25 */
+  stroke-dasharray: 94.25;
+  stroke-dashoffset: 94.25;
+  transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
+}
+.yo-compaction-btn.amber .yo-compaction-fill { stroke: var(--warn, #e0a800); }
+.yo-compaction-btn.danger .yo-compaction-fill { stroke: var(--danger, #e0483d); }
+
+/* Compaction modal — reuses .yo-modal overlay/panel/actions/buttons. */
+.yo-compaction-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  resize: vertical;
+  outline: none;
+}
+.yo-compaction-textarea:focus { border-color: var(--accent); }
+.yo-compaction-save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.yo-compaction-save-row input { cursor: pointer; }
+
 /* ── Wassup admin modal ─────────────────────────────────── */
 
 

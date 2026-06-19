@@ -193,7 +193,6 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   // the panel shows a "install VS Code" hint.
   { id: "vscode", name: "VS Code", url: "yo://vscode", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "term", name: "Terminal", url: "yo://terminal", requiresFolder: true },
-  { id: "adaL", name: "adaL", url: "yo://adaL", capturePolicy: NO_CAPTURE },
   { id: "browser", name: "Browser", url: "yo://browser" },
 
   // Left-rail surfaces — every section becomes its own mountable system app.

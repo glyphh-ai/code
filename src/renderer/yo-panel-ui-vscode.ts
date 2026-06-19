@@ -13,7 +13,7 @@
 
 import { brandForModel, logoUrlFor } from "./model-badges.js";
 import { ChatRenderer } from "./chat-renderer/index.js";
-import { yoConfirm } from "./yo-modal.js";
+import { yoConfirm, hidePanelsForModal, restorePanelsForModal } from "./yo-modal.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -260,16 +260,14 @@ const YO_GREETINGS: string[] = [
   "You ready, {name}?",
 ];
 
-let yoAccountFirstName: string | null = null; // null = not yet fetched
-
 function hideYoWelcome() {
   const w = document.getElementById("yo-panel-welcome");
   if (w) w.remove();
 }
 
 function fillGreeting(template: string): string {
-  const name = (yoAccountFirstName && yoAccountFirstName.trim()) || "there";
-  return template.replace(/\{name\}/g, name);
+  // No account/identity anymore — the greeting always uses the generic form.
+  return template.replace(/\{name\}/g, "there");
 }
 
 function showYoWelcome() {
@@ -282,13 +280,7 @@ function showYoWelcome() {
   const sub = document.querySelector<HTMLElement>(".yo-greeting-sub");
   if (sub) {
     hideYoWelcome();
-    const apply = () => { sub.textContent = fillGreeting(template); };
-    apply();
-    if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
-      (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
-        .then((info) => { yoAccountFirstName = info?.firstName || ""; apply(); })
-        .catch(() => { yoAccountFirstName = ""; });
-    }
+    sub.textContent = fillGreeting(template);
     return;
   }
 
@@ -302,15 +294,6 @@ function showYoWelcome() {
   const greetingEl = w.querySelector<HTMLElement>("#yo-welcome-greeting");
   if (greetingEl) greetingEl.textContent = fillGreeting(template);
   yoPanelMessages.appendChild(w);
-  if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
-    (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
-      .then((info) => {
-        yoAccountFirstName = info?.firstName || "";
-        const live = document.getElementById("yo-welcome-greeting");
-        if (live) live.textContent = fillGreeting(template);
-      })
-      .catch(() => { yoAccountFirstName = ""; });
-  }
 }
 
 // ── Helpers: permission dropdown ───────────────────────────────────────────
@@ -398,9 +381,151 @@ function promotePendingBubble(el: HTMLElement): void {
 interface SwarmRosterEntry { position: string; provider?: string; model?: string }
 // ── Helpers: scroll ────────────────────────────────────────────────────────
 
+// Stick-to-bottom during streaming only when the user is already at the
+// bottom. If they scroll up to read, streaming stops yanking the view down;
+// the scroll-to-bottom button is their way back.
+let yoStickToBottom = true;
+
 function yoScroll() {
-  yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
-  yoScrollBtn.classList.remove("visible");
+  if (yoStickToBottom) {
+    yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+  }
+  // Keep the scroll-button visibility in sync regardless of stick state.
+  const gap = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight;
+  yoScrollBtn.classList.toggle("visible", gap > 40);
+}
+
+// ── Compaction fuel gauge + modal ───────────────────────────────────────────
+// A clickable ring in the composer shows how full the conversation context is
+// relative to the auto-compaction window. Clicking it opens a modal that lets
+// the user trigger /compact with an optional shaping prompt (and save that
+// prompt as their default).
+
+// r=15 → circumference = 2·π·15 ≈ 94.2477796 (matches the CSS dasharray).
+const YO_GAUGE_CIRCUMFERENCE = 2 * Math.PI * 15;
+
+let yoCompactionBtn: HTMLElement | null = null;
+let yoCompactionFill: SVGCircleElement | null = null;
+// Last reported usage — read by the modal to show current numbers.
+let yoCtxUsed = 0;
+let yoCtxWindow = 0;
+
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
+function updateCompactionGauge(used: number, window: number): void {
+  yoCtxUsed = used;
+  yoCtxWindow = window;
+  const fraction = window > 0 ? Math.min(used / window, 1) : 0;
+  if (yoCompactionFill) {
+    yoCompactionFill.style.strokeDashoffset = String(YO_GAUGE_CIRCUMFERENCE * (1 - fraction));
+  }
+  if (yoCompactionBtn) {
+    yoCompactionBtn.classList.toggle("amber", fraction >= 0.7 && fraction < 0.9);
+    yoCompactionBtn.classList.toggle("danger", fraction >= 0.9);
+    const pct = Math.round(fraction * 100);
+    yoCompactionBtn.title = window > 0
+      ? `Context: ${fmtTokens(used)} / ${fmtTokens(window)} tokens (${pct}%) — click to compact`
+      : "Context usage — click to compact";
+  }
+}
+
+async function openCompactionModal(): Promise<void> {
+  // Guard against stacking.
+  document.querySelectorAll(".yo-compaction-modal").forEach((el) => el.remove());
+
+  const savedPrompt = (await window.yo.getPreference("compactPrompt", "")) as string;
+
+  // Hide the native app panels first — a DOM modal renders BEHIND BrowserViews
+  // otherwise. Awaited so close() can never run before the hide settles.
+  const panelsHidden = await hidePanelsForModal();
+
+  const overlay = document.createElement("div");
+  overlay.className = "yo-modal yo-compaction-modal";
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "yo-modal-backdrop";
+
+  const panel = document.createElement("div");
+  panel.className = "yo-modal-panel";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+
+  const title = document.createElement("div");
+  title.className = "yo-modal-title";
+  title.textContent = "Compact conversation";
+  panel.appendChild(title);
+
+  const usage = document.createElement("div");
+  usage.className = "yo-modal-message";
+  const pct = yoCtxWindow > 0 ? Math.round(Math.min(yoCtxUsed / yoCtxWindow, 1) * 100) : 0;
+  usage.textContent = yoCtxWindow > 0
+    ? `Using ${fmtTokens(yoCtxUsed)} of ${fmtTokens(yoCtxWindow)} tokens (${pct}%) before auto-compaction.`
+    : "No context recorded yet.";
+  panel.appendChild(usage);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "yo-compaction-textarea";
+  textarea.value = savedPrompt;
+  textarea.placeholder = "Optional: how should the summary be shaped? (e.g. 'preserve all file paths and decisions')";
+  textarea.rows = 4;
+  panel.appendChild(textarea);
+
+  const saveRow = document.createElement("label");
+  saveRow.className = "yo-compaction-save-row";
+  const saveCheck = document.createElement("input");
+  saveCheck.type = "checkbox";
+  const saveLabel = document.createElement("span");
+  saveLabel.textContent = "Save as my default compaction prompt";
+  saveRow.appendChild(saveCheck);
+  saveRow.appendChild(saveLabel);
+  panel.appendChild(saveRow);
+
+  const actions = document.createElement("div");
+  actions.className = "yo-modal-actions";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "yo-modal-btn yo-modal-btn-cancel";
+  cancelBtn.textContent = "Cancel";
+
+  const compactBtn = document.createElement("button");
+  compactBtn.className = "yo-modal-btn yo-modal-btn-confirm";
+  compactBtn.textContent = "Compact now";
+
+  actions.appendChild(cancelBtn);
+  actions.appendChild(compactBtn);
+  panel.appendChild(actions);
+
+  overlay.appendChild(backdrop);
+  overlay.appendChild(panel);
+
+  function close(): void {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey, true);
+    restorePanelsForModal(panelsHidden);
+  }
+  function onKey(e: KeyboardEvent): void {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  }
+
+  async function doCompact(): Promise<void> {
+    const value = textarea.value.trim();
+    if (saveCheck.checked) {
+      try { await window.yo.setPreference("compactPrompt", value); } catch { /* best-effort */ }
+    }
+    close();
+    window.yo.yoPanelSend(value ? `/compact ${value}` : "/compact");
+  }
+
+  cancelBtn.addEventListener("click", () => close());
+  compactBtn.addEventListener("click", () => { void doCompact(); });
+  backdrop.addEventListener("click", () => close());
+  document.addEventListener("keydown", onKey, true);
+
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => textarea.focus());
 }
 
 // ── Composer-area interaction host ─────────────────────────────────────────
@@ -586,6 +711,8 @@ function sendYoPanelMessage() {
   if (/\.yo\b/i.test(text)) {
     window.yo.dripsPreview("cat");
   }
+  // A fresh user turn starts pinned to the bottom.
+  yoStickToBottom = true;
   (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
   showYoStatus("");
   setYoThinking(true);
@@ -699,6 +826,9 @@ async function startNewChat(): Promise<void> {
   await window.yo.yoChatNew();
   chat.reset();
   if (yoHistoryPanel) yoHistoryPanel.classList.add("hidden");
+  // Fresh session → empty context: pin to bottom and zero the gauge.
+  yoStickToBottom = true;
+  updateCompactionGauge(0, 0);
   showYoWelcome();
   yoPanelInput.focus();
 }
@@ -828,28 +958,11 @@ async function openYoPanel(query: string) {
   setTimeout(() => { yoPanelInput.focus(); yoPanelInput.select(); _renderGridHandles(); }, 220);
 
   try {
-    const [account, savedWidth] = await Promise.all([
-      window.yo.getAccountInfo(),
-      window.yo.yoPanelGetWidth(),
-    ]);
+    const savedWidth = await window.yo.yoPanelGetWidth();
     if (savedWidth && savedWidth !== defaultWidth) {
       yoPanel.style.width = `${savedWidth}px`;
       document.body.style.setProperty("--right-inset", `${savedWidth}px`);
       window.yo.yoPanelResize(savedWidth);
-    }
-    // Update the brand chrome's name span without clobbering the new
-    // <brand-logo> .Sup <name> structure. paintBrand() already sets the
-    // logo from the active model — we just want to refresh the name now
-    // that the account first-name is in hand.
-    if (account?.firstName) {
-      yoAccountFirstName = account.firstName;
-      const nameEl = document.getElementById("yo-brand-name");
-      if (nameEl) nameEl.textContent = account.firstName;
-      const logoEl = document.getElementById("yo-brand-logo") as HTMLImageElement | null;
-      if (logoEl && (!logoEl.src || logoEl.style.display === "none")) {
-        const url = logoUrlFor(brandForModel(currentChatModel));
-        if (url) { logoEl.src = url; logoEl.style.display = ""; }
-      }
     }
   } catch { /* panel is already open — personalization is best-effort */ }
 }
@@ -1003,10 +1116,19 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoPanelMessages.addEventListener("scroll", () => {
     const gap = yoPanelMessages.scrollHeight - yoPanelMessages.scrollTop - yoPanelMessages.clientHeight;
     yoScrollBtn.classList.toggle("visible", gap > 40);
+    yoStickToBottom = gap < 40;
   });
   yoScrollBtn.addEventListener("click", () => {
     yoPanelMessages.scrollTop = yoPanelMessages.scrollHeight;
+    yoStickToBottom = true;
   });
+
+  // -- Compaction fuel gauge --
+  yoCompactionBtn = document.getElementById("yo-panel-compaction");
+  yoCompactionFill = yoCompactionBtn?.querySelector(".yo-compaction-fill") ?? null;
+  yoCompactionBtn?.addEventListener("click", () => { void openCompactionModal(); });
+  updateCompactionGauge(0, 0);
+  window.yo.onYoContextUsage(({ used, window }) => updateCompactionGauge(used, window));
 
   // -- Mic button visibility --
   if (yoPanelMicBtn) {
@@ -1058,8 +1180,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       else { logoEl.removeAttribute("src"); logoEl.style.display = "none"; }
     }
     if (nameEl) {
-      const first = (yoAccountFirstName && yoAccountFirstName.trim()) || "there";
-      nameEl.textContent = first;
+      nameEl.textContent = "there";
     }
   }
   if (modelTrigger && modelMenu) {
@@ -1100,13 +1221,6 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   paintBrand();
   // Initial paint: highlight the active default.
   modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
-
-  // Also repaint when the account first-name resolves (async after init).
-  if (yoAccountFirstName === null && window.yo && (window.yo as { getAccountInfo?: () => Promise<{ firstName?: string } | null> }).getAccountInfo) {
-    (window.yo as { getAccountInfo: () => Promise<{ firstName?: string } | null> }).getAccountInfo()
-      .then((info) => { yoAccountFirstName = info?.firstName || ""; paintBrand(); })
-      .catch(() => { yoAccountFirstName = ""; paintBrand(); });
-  }
 
   document.addEventListener("click", (e) => {
     if (!yoPermDropdown.contains(e.target as Node)) {

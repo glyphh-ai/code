@@ -163,9 +163,6 @@ export function getAgentMode(): AgentMode {
 
 export function gate(toolName: string, mode: AgentMode): GateDecision {
   const bare = bareToolName(toolName);
-  // adaL substrate tools read/write the local cognitive store only — no external
-  // side effects — so they're auto-allowed in every mode (including plan).
-  if (bare.startsWith("adaL_")) return "execute";
   // Interactive / inherently-safe tools run regardless of mode (even in plan
   // mode — asking the user a clarifying question is exactly what planning wants).
   if (ALWAYS_EXECUTE.has(bare)) return "execute";

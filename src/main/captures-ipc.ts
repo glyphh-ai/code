@@ -1,6 +1,5 @@
 import { ipcMain } from "electron";
 import os from "os";
-import { getAdal } from "./adal";
 import type { CaptureStore } from "./capture-store";
 import type { WorkspaceManager } from "./workspace-manager";
 import type { PanelManager } from "./panel-manager";
@@ -31,15 +30,6 @@ export function registerCapturesIpc({
   ipcMain.handle("captures-stats-source", (_e, source: string) => captureStore.statsForSource(source));
   ipcMain.handle("captures-list-source", (_e, source: string, offset: number, limit: number) => captureStore.listEntriesForSource(source, offset, limit));
   ipcMain.handle("captures-daily-history-source", (_e, source: string, days: number) => captureStore.dailyHistoryForSource(source, days));
-
-  // IPC: adaL substrate (the curated memory tier, federated alongside captures)
-  ipcMain.handle("adal-stats", () => getAdal().space.stats());
-  ipcMain.handle("adal-daily-history", (_e, days: number) => getAdal().space.dailyHistory(days));
-  ipcMain.handle("adal-thoughts-list", (_e, offset: number, limit: number) => getAdal().space.listThoughts(offset, limit));
-  ipcMain.handle("adal-thoughts-search", (_e, query: string, limit: number) => getAdal().space.searchThoughts(query, limit));
-  ipcMain.handle("adal-thoughts-delete", (_e, id: string) => getAdal().space.deleteThought(id));
-  ipcMain.handle("adal-thoughts-edit", (_e, id: string, text: string) => getAdal().space.editThought(id, text));
-  ipcMain.handle("adal-thoughts-promote", (_e, id: string, on: boolean) => getAdal().space.promoteThought(id, on));
 
   // IPC: Context panel — workspace management
   ipcMain.handle("workspace-get", () => workspaceManager.getActiveSlug());

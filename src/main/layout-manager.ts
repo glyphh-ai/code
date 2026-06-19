@@ -102,6 +102,12 @@ export class LayoutManager {
     return TITLEBAR_HEIGHT;
   }
 
+  /** Public: does the active split/grid contain a browser cell? Used to decide
+   *  URL-bar visibility for the whole grid (independent of which cell is focused). */
+  gridHasBrowser(): boolean {
+    return this.gridContainsBrowser();
+  }
+
   /** True if the active grid has any browser-type panel in its cells. */
   private gridContainsBrowser(): boolean {
     if (!this.activeGrid) return false;

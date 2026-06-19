@@ -19,7 +19,7 @@ import { executeCommand } from "./dom-bridge";
 import { setPreference } from "./preferences";
 import type { YoChat } from "./yo-chat";
 export class CommandParser {
-  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "ada", "waz"]);
+  private static readonly COMMAND_KEYWORDS = new Set(["sup", "dip", "drip", "peace", "waz"]);
 
   private onDrip: ((effect: string) => void) | null = null;
   private dripManager: import("./drip-manager").DripManager | null = null;
@@ -135,12 +135,10 @@ export class CommandParser {
         return this.handleDrip(args);
       case "peace":
         return this.handlePeace(args);
-      case "ada":
-        return this.handleAda(args);
       case "waz":
         return this.handleWaz(args, sourcePanelId);
       default:
-        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, ada, or waz.`;
+        return `Unknown command: ${cmd}. Try yo, sup, dip, drip, or waz.`;
     }
   }
 
@@ -185,16 +183,11 @@ export class CommandParser {
     const trimmed = input.trim();
     if (!trimmed) return "";
 
-    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|ada|waz)\b/gi, "$1");
+    const clean = (s: string) => s.replace(/\.(yo|sup|dip|drip|peace|waz)\b/gi, "$1");
 
     // .yo (search/agent) NEVER chains — entire input is one command.
     const yoMatch = trimmed.match(/^\.?yo\b/i);
     if (yoMatch) {
-      return this.executeSingle(clean(trimmed), sourcePanelId);
-    }
-    // .ada (cognitive substrate) NEVER chains — the whole tail is the argument.
-    const adaMatch = trimmed.match(/^\.?ada\b/i);
-    if (adaMatch) {
       return this.executeSingle(clean(trimmed), sourcePanelId);
     }
     // .sup (capture) can chain only when using dot modifier (.sup . .dip gmail).
@@ -720,63 +713,6 @@ export class CommandParser {
     if (this.dripManager) return this.dripManager.execute(["peace", ...args]);
     this.onDrip?.("peace");
     return "";
-  }
-
-  // ── ada: cognitive substrate from the command bar ───────────
-  //   .ada <text>            → think (associative recall)
-  //   .ada think  <text>     → think
-  //   .ada ask    <question> → targeted retrieval
-  //   .ada tell   <fact>     → absorb
-  //   .ada history <key>     → version chain
-  //   .ada drift  <key>      → cosine drift
-  //   .ada schema            → substrate summary
-  private handleAda(args: string[]): string {
-    // Lazy require so non-adaL command-bar paths don't pull the substrate in.
-    const { adalEnabled, ADAL_DISABLED_MESSAGE } = require("./adal/gate") as typeof import("./adal/gate");
-    if (!adalEnabled()) return ADAL_DISABLED_MESSAGE;
-    const { getAdal } = require("./adal") as typeof import("./adal");
-    const adal = getAdal();
-    const SUBS = new Set(["think", "ask", "tell", "history", "drift", "schema"]);
-    const head = (args[0] || "").toLowerCase();
-    const sub = SUBS.has(head) ? head : "think";
-    const rest = (SUBS.has(head) ? args.slice(1) : args).join(" ").trim();
-
-    switch (sub) {
-      case "ask": {
-        if (!rest) return "usage: .ada ask <question>";
-        const a = adal.ask(rest);
-        return a.refused
-          ? `I don't know. (confidence ${a.confidence.toFixed(2)})`
-          : `${a.answer} (confidence ${a.confidence.toFixed(2)})`;
-      }
-      case "tell": {
-        if (!rest) return "usage: .ada tell <fact>";
-        const id = adal.tell(rest, "incoming");
-        return id ? `absorbed: ${id}` : "(duplicate — not absorbed)";
-      }
-      case "history": {
-        if (!rest) return "usage: .ada history <key>";
-        const hist = adal.history(rest);
-        return hist.length
-          ? hist.map((h) => `v${h.version ?? "?"}: ${h.content}`).join("\n")
-          : `(no history for "${rest}")`;
-      }
-      case "drift": {
-        if (!rest) return "usage: .ada drift <key>";
-        const d = adal.drift(rest);
-        if (d.driftRate === undefined) return `only ${d.versions} version(s) — drift needs ≥2`;
-        return `versions ${d.versions} · first→last ${d.firstToLastSimilarity?.toFixed(3)} · drift ${d.driftRate?.toFixed(3)}`;
-      }
-      case "schema": {
-        const s = adal.schema();
-        return `thoughts: ${s.count} · avg strength ${s.avgStrength.toFixed(3)}`;
-      }
-      default: {
-        if (!rest) return "usage: .ada <text> | ask | tell | history | drift | schema";
-        const act = adal.think(rest);
-        return act.thoughts.length ? act.groundedContext : "(no activation)";
-      }
-    }
   }
 
 }
