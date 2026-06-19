@@ -159,7 +159,7 @@ jobs:
         with:
           path: artifacts
 
-      - name: Publish to yo-releases
+      - name: Publish to glyphh-releases
         env:
           GH_TOKEN: ${{ secrets.CLIENT_RELEASE_TOKEN }}
         run: |
@@ -168,7 +168,7 @@ jobs:
           # 5xx must not fail the whole release.
           for attempt in 1 2 3 4; do
             if gh release create "$TAG" \
-                --repo glyphh-ai/yo-releases \
+                --repo glyphh-ai/glyphh-releases \
                 --title "$TAG" \
                 --notes "Glyphh desktop app $TAG" \
                 artifacts/yo-mac/*.dmg \
@@ -176,12 +176,12 @@ jobs:
                 artifacts/yo-mac/latest-mac.yml \
                 artifacts/yo-win/*.exe \
                 artifacts/yo-win/latest.yml; then
-              echo "Published $TAG to yo-releases (attempt $attempt)"
+              echo "Published $TAG to glyphh-releases (attempt $attempt)"
               exit 0
             fi
             # If the release already exists (a re-run), upload the assets to it.
-            if gh release view "$TAG" --repo glyphh-ai/yo-releases >/dev/null 2>&1; then
-              gh release upload "$TAG" --repo glyphh-ai/yo-releases --clobber \
+            if gh release view "$TAG" --repo glyphh-ai/glyphh-releases >/dev/null 2>&1; then
+              gh release upload "$TAG" --repo glyphh-ai/glyphh-releases --clobber \
                 artifacts/yo-mac/*.dmg artifacts/yo-mac/*.zip artifacts/yo-mac/latest-mac.yml \
                 artifacts/yo-win/*.exe artifacts/yo-win/latest.yml \
                 && { echo "Uploaded assets to existing $TAG"; exit 0; }
@@ -189,5 +189,5 @@ jobs:
             echo "Publish attempt $attempt failed; retrying in $((attempt * 15))s..."
             sleep $((attempt * 15))
           done
-          echo "::error::Failed to publish $TAG to yo-releases after 4 attempts"
+          echo "::error::Failed to publish $TAG to glyphh-releases after 4 attempts"
           exit 1
