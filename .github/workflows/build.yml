@@ -91,12 +91,12 @@ jobs:
           password: ${{ secrets.ES_PASSWORD }}
           credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
           totp_secret: ${{ secrets.ES_TOTP_SECRET }}
-          file_path: release/Yo-Setup.exe
+          file_path: release/Glyphh-Setup.exe
           output_path: release/signed
           malware_block: false
 
       - name: Replace unsigned exe with signed
-        run: Move-Item -Force release\signed\Yo-Setup.exe release\Yo-Setup.exe
+        run: Move-Item -Force release\signed\Glyphh-Setup.exe release\Glyphh-Setup.exe
 
       # electron-builder generated latest.yml against the UNSIGNED exe.
       # SSL.com signing changed the file's bytes, so latest.yml's sha512/size
@@ -105,7 +105,7 @@ jobs:
       - name: Refresh latest.yml hashes for signed exe
         shell: pwsh
         run: |
-          $exe = "release/Yo-Setup.exe"
+          $exe = "release/Glyphh-Setup.exe"
           $stream = [System.IO.File]::OpenRead($exe)
           $sha = [System.Security.Cryptography.SHA512]::Create()
           $hash = [System.Convert]::ToBase64String($sha.ComputeHash($stream))
@@ -170,7 +170,7 @@ jobs:
             if gh release create "$TAG" \
                 --repo glyphh-ai/yo-releases \
                 --title "$TAG" \
-                --notes "Yo desktop app $TAG" \
+                --notes "Glyphh desktop app $TAG" \
                 artifacts/yo-mac/*.dmg \
                 artifacts/yo-mac/*.zip \
                 artifacts/yo-mac/latest-mac.yml \

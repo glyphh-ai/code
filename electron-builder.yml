@@ -6,7 +6,7 @@ copyright: Copyright © 2026 Glyphh AI
 mac:
   category: public.app-category.developer-tools
   # Build both Apple Silicon (arm64) and Intel (x64) so users on
-  # 2019/2020-era Intel Macs can run Yo. ${arch} in artifactName keeps
+  # 2019/2020-era Intel Macs can run Glyphh. ${arch} in artifactName keeps
   # the two variants from colliding on filename.
   target:
     - target: dmg
@@ -23,18 +23,18 @@ mac:
   entitlements: entitlements.mac.plist
   entitlementsInherit: entitlements.mac.plist
   notarize: true
-  artifactName: "Yo-${arch}.${ext}"
+  artifactName: "Glyphh-${arch}.${ext}"
 
 win:
   target:
     - nsis
   icon: assets/icon.png
-  artifactName: "Yo-Setup.${ext}"
+  artifactName: "Glyphh-Setup.${ext}"
 
 nsis:
   # Assisted installer (NOT one-click). The default one-click installer
   # installs silently and just launches the app — which reads as "it only
-  # opened the app, it never installed" and leaves users unable to find Yo
+  # opened the app, it never installed" and leaves users unable to find Glyphh
   # afterwards. An assisted installer shows a real wizard: an install-location
   # step, a progress page, and an "Installation Complete" finish page.
   oneClick: false
@@ -43,7 +43,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Yo
+  shortcutName: Glyphh
   runAfterFinish: true
 
 directories:
