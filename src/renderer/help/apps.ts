@@ -376,6 +376,16 @@ async function loadConnectionTab() {
   const noToolsEl = document.getElementById("app-connection-no-tools")!;
   const browseEl = document.querySelector<HTMLElement>(".connection-browse")!;
 
+  // App connections (Pipedream) are a paid-tier feature — lock for Free users.
+  if (!(await window.yo.hasMcpAccess())) {
+    gate.classList.remove("hidden");
+    statusEl.innerHTML = "";
+    listEl.innerHTML = "";
+    toolsEl.innerHTML = "";
+    noToolsEl.classList.add("hidden");
+    browseEl.classList.add("hidden");
+    return;
+  }
   gate.classList.add("hidden");
 
   // Left: this app's connection
@@ -521,10 +531,15 @@ async function loadMcpTab() {
   const mcpGate = document.getElementById("mcp-tab-upgrade-gate")!;
   const statusRow = document.getElementById("app-mcp-status-row")!;
 
+  // MCP is a paid-tier feature — lock the whole tab for Free users.
+  const mcpSiblings = document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)");
+  if (!(await window.yo.hasMcpAccess())) {
+    mcpGate.classList.remove("hidden");
+    mcpSiblings.forEach(el => el.classList.add("hidden"));
+    return;
+  }
   mcpGate.classList.add("hidden");
-  document.querySelectorAll<HTMLElement>(".app-tab-left[data-tab='mcp'] > :not(#mcp-tab-upgrade-gate)").forEach(el => {
-    el.classList.remove("hidden");
-  });
+  mcpSiblings.forEach(el => el.classList.remove("hidden"));
 
   const statusBadge = document.getElementById("app-mcp-status")!;
   const connectBtn = document.getElementById("app-mcp-connect") as HTMLButtonElement;

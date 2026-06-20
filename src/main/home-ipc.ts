@@ -15,7 +15,7 @@ import type { ConnectorManager } from "./connectors";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
-import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed, AUTH_SERVER } from "./auth";
+import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed, AUTH_SERVER, hasMcpAccess } from "./auth";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -39,7 +39,10 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   } = deps;
 
   ipcMain.handle("mcp-expose-get-tokens", () => mcpExpose.getTokens());
-  ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => mcpExpose.generateToken(label, ttlDays));
+  ipcMain.handle("mcp-expose-gen-token", (_e, label: string, ttlDays?: number) => {
+    if (!hasMcpAccess()) throw new Error("Exposing Glyphh as an MCP server requires a Pro plan.");
+    return mcpExpose.generateToken(label, ttlDays);
+  });
   ipcMain.handle("mcp-expose-revoke-token", (_e, token: string) => { mcpExpose.revokeToken(token); });
 
   // Relay: bouncing the WS after the user flips the toggle, and proxying
@@ -53,6 +56,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
     catch (err) { return { error: err instanceof Error ? err.message : String(err) }; }
   });
   ipcMain.handle("relay-tokens-create", async (_e, label: string) => {
+    if (!hasMcpAccess()) return { ok: false, error: "MCP relay tokens require a Pro plan." };
     try {
       return await serverPostAuthed<{ ok: boolean; id: string; token: string; expiresAt: string }>(
         "/api/mcp/tokens",
@@ -72,6 +76,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   // under mcpServers; everything else (other servers, projects, settings)
   // round-trips untouched. Returns the resolved path on success.
   ipcMain.handle("relay-install-claude", async (_e, token: string) => {
+    if (!hasMcpAccess()) return { error: "MCP requires a Pro plan." };
     if (!token || typeof token !== "string") return { error: "token is required" };
     const cfgPath = path.join(os.homedir(), ".claude.json");
     let existing: Record<string, unknown> = {};

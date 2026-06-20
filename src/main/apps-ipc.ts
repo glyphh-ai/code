@@ -1,6 +1,7 @@
 import { ipcMain, dialog } from "electron";
 import type { AppConnector } from "./app-connector";
 import { exportApp, importApp } from "./yo-app-package";
+import { hasMcpAccess } from "./auth";
 import type { LayoutManager } from "./layout-manager";
 import type { DripManager } from "./drip-manager";
 import type { PanelManager } from "./panel-manager";
@@ -106,6 +107,10 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
   // with .Yo (Agent, Vibe, Spec, Council, Terminal, plus the system rail
   // surfaces) are uneditable and hidden here. They're still openable from
   // the `+` picker, `.dip`, and (where allowed) Layouts.
+  // Renderer-side tier check (same gate the connect IPCs enforce) so the UI
+  // can lock the MCP / Connection tabs for Free users instead of showing a
+  // form that silently fails to save.
+  ipcMain.handle("has-mcp-access", () => hasMcpAccess());
   ipcMain.handle("apps-list", () =>
     appConnector.list().filter((a) => !a.internal),
   );
@@ -131,12 +136,15 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
   // direct IPC call would otherwise still mutate them.
   const refuseIfInternal = (id: string) => appConnector.isInternal(id);
   ipcMain.handle("apps-remove", (_e, id: string) => refuseIfInternal(id) ? false : appConnector.remove(id));
+  // Pipedream + MCP are paid-tier features — block connecting/configuring them
+  // on the Free plan (removal stays allowed so users can clean up after a
+  // downgrade). hasMcpAccess() is the same gate used in mcp-manager/relay.
   ipcMain.handle("apps-set-connection", (_e, id: string, pipedreamSlug: string) =>
-    refuseIfInternal(id) ? false : appConnector.setConnection(id, { pipedreamSlug }));
+    (refuseIfInternal(id) || !hasMcpAccess()) ? false : appConnector.setConnection(id, { pipedreamSlug }));
   ipcMain.handle("apps-remove-connection", (_e, id: string) =>
     refuseIfInternal(id) ? false : appConnector.removeConnection(id));
   ipcMain.handle("apps-set-mcp", (_e, id: string, mcp: any) =>
-    refuseIfInternal(id) ? false : appConnector.setMcp(id, mcp));
+    (refuseIfInternal(id) || !hasMcpAccess()) ? false : appConnector.setMcp(id, mcp));
   ipcMain.handle("apps-remove-mcp", (_e, id: string) =>
     refuseIfInternal(id) ? false : appConnector.removeMcp(id));
   ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {

@@ -322,6 +322,7 @@ contextBridge.exposeInMainWorld("yo", {
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   platformUrl: process.env.YO_PLATFORM_URL || "https://platform.glyphh.ai",
   serverUrl: process.env.YO_AUTH_SERVER || "https://api.glyphh.ai",
+  hasMcpAccess: () => ipcRenderer.invoke("has-mcp-access") as Promise<boolean>,
   openAccountDashboard: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.glyphh.ai")),
   openBilling: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.glyphh.ai") + "/dashboard/billing"),
 

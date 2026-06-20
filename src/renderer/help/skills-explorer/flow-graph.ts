@@ -9,14 +9,16 @@
  * deterministic and cheap.
  */
 
-export type FlowKind = "trigger" | "input" | "skill" | "tool" | "subskill" | "output";
+export type FlowKind = "start" | "trigger" | "input" | "skill" | "tool" | "subskill" | "app" | "output" | "end";
 
 export interface FlowNode {
   id: string;
   type: "flow";
   position: { x: number; y: number };
-  data: { label: string; sub?: string; kind: FlowKind };
+  data: { label: string; sub?: string; kind: FlowKind; appId?: string; url?: string };
 }
+
+export interface FlowApp { id: string; name: string; url?: string }
 
 export interface FlowEdge {
   id: string;
@@ -42,7 +44,7 @@ export interface SkillFlowInput {
 }
 
 // Column x-positions (left → right) and vertical spacing between siblings.
-const COL = { trigger: 0, input: 280, skill: 600, fan: 940, output: 1280 };
+const COL = { start: -300, trigger: 0, input: 280, skill: 600, fan: 940, output: 1280, end: 1640 };
 const ROW = 104;
 const CENTER = 0;
 
@@ -53,11 +55,11 @@ function stack(count: number): number[] {
   return Array.from({ length: count }, (_, i) => start + i * ROW);
 }
 
-export function buildSkillGraph(name: string, data: SkillFlowInput | null): FlowGraph {
+export function buildSkillGraph(name: string, data: SkillFlowInput | null, apps: FlowApp[] = []): FlowGraph {
   const m = data?.manifest || {};
   const inputs = Array.isArray(m.inputs) ? m.inputs : [];
   const outputs = Array.isArray(m.outputs) ? m.outputs : [];
-  const tools = Array.isArray(m["allowed-tools"]) ? m["allowed-tools"] : [];
+  const allowedTools = Array.isArray(m["allowed-tools"]) ? m["allowed-tools"] : [];
   const subs = Array.isArray(m.requires) ? m.requires : [];
   const schedule = data?.runnerSchedule || m.schedule || null;
 
@@ -65,6 +67,10 @@ export function buildSkillGraph(name: string, data: SkillFlowInput | null): Flow
   const edges: FlowEdge[] = [];
   const edge = (source: string, target: string) =>
     edges.push({ id: `e-${source}-${target}`, source, target });
+
+  // Start marker
+  nodes.push({ id: "start", type: "flow", position: { x: COL.start, y: CENTER }, data: { kind: "start", label: "Start" } });
+  edge("start", "trigger");
 
   // Trigger
   nodes.push({
@@ -88,15 +94,42 @@ export function buildSkillGraph(name: string, data: SkillFlowInput | null): Flow
   if (inputs.length) inputs.forEach((_, i) => edge(`in-${i}`, "skill"));
   else edge("trigger", "skill");
 
-  // Fan-out: MCP tools the skill may call + sub-skills it chains
-  const fan = [
-    ...tools.map((t, i) => ({ id: `tool-${i}`, kind: "tool" as const, label: t, sub: "MCP tool" })),
-    ...subs.map((s, i) => ({ id: `sub-${i}`, kind: "subskill" as const, label: s, sub: "sub-skill" })),
+  // Fan-out. allowed-tools entries are "<app-id>.<tool>"; tools whose namespace
+  // is a Glyphh app collapse into ONE clickable app tile (opens that app's
+  // panel). Everything else is a generic tool node. Sub-skills come from
+  // `requires`.
+  const appMap = new Map(apps.map((a) => [a.id, a]));
+  const connected = new Map<string, FlowApp>();
+  const toolNodes: Array<{ ns: string; tool: string }> = [];
+  for (const entry of allowedTools) {
+    const dot = entry.indexOf(".");
+    const ns = dot < 0 ? entry : entry.slice(0, dot);
+    const tool = dot < 0 ? entry : entry.slice(dot + 1);
+    if (ns !== "yo" && appMap.has(ns)) {
+      if (!connected.has(ns)) connected.set(ns, appMap.get(ns)!);
+    } else {
+      toolNodes.push({ ns, tool });
+    }
+  }
+
+  const items: Array<{ id: string; data: FlowNode["data"] }> = [
+    ...Array.from(connected.values()).map((a) => ({
+      id: `app-${a.id}`,
+      data: { kind: "app" as const, label: a.name, sub: "Glyphh app", appId: a.id, url: a.url },
+    })),
+    ...toolNodes.map((t, i) => ({
+      id: `tool-${i}`,
+      data: { kind: "tool" as const, label: t.tool || t.ns, sub: "tool" },
+    })),
+    ...subs.map((s, i) => ({
+      id: `sub-${i}`,
+      data: { kind: "subskill" as const, label: s, sub: "sub-skill" },
+    })),
   ];
-  const fanY = stack(fan.length);
-  fan.forEach((f, i) => {
-    nodes.push({ id: f.id, type: "flow", position: { x: COL.fan, y: fanY[i] }, data: { kind: f.kind, label: f.label, sub: f.sub } });
-    edge("skill", f.id);
+  const fanY = stack(items.length);
+  items.forEach((it, i) => {
+    nodes.push({ id: it.id, type: "flow", position: { x: COL.fan, y: fanY[i] }, data: it.data });
+    edge("skill", it.id);
   });
 
   // Declared outputs
@@ -106,6 +139,12 @@ export function buildSkillGraph(name: string, data: SkillFlowInput | null): Flow
     nodes.push({ id, type: "flow", position: { x: COL.output, y: outY[i] }, data: { kind: "output", label: o.name, sub: o.type } });
     edge("skill", id);
   });
+
+  // End marker — the flow completes at the declared outputs, or at the skill
+  // itself when none are declared.
+  nodes.push({ id: "end", type: "flow", position: { x: COL.end, y: CENTER }, data: { kind: "end", label: "End" } });
+  if (outputs.length) outputs.forEach((_, i) => edge(`out-${i}`, "end"));
+  else edge("skill", "end");
 
   return { nodes, edges };
 }

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerSaveBlocker } from "electron";
-import { authRegister, authVerifyCode, authCompleteProfile, authLogin } from "./auth";
+import { authRegister, authVerifyCode, authCompleteProfile, authLogin, hasMcpAccess } from "./auth";
 import type { LLMConfig } from "./llm-config";
 import type { McpExpose } from "./mcp-expose";
 import type { SessionCache } from "./session-cache";
@@ -199,6 +199,7 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   });
 
   ipcMain.handle("mcp-expose-start", async () => {
+    if (!hasMcpAccess()) return { ok: false, error: "Exposing Glyphh as an MCP server requires a Pro plan." };
     const result = await mcpExpose.start();
     if (result.ok) setPreference("mcpExposeRunning", true);
     return result;

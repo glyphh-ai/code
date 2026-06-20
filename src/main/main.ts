@@ -28,7 +28,7 @@ import { writeAgentBriefing, ensureProjectClaudeMd, ensureProjectMcpJson, rewrit
 import { CommandParser } from "./command-parser";
 import { SkillEngine } from "./skill-engine";
 import { registerHotkey } from "./hotkey";
-import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, setReauthHandler, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken } from "./auth";
+import { isAuthenticated, initAuth, startAuthFlow, getAuthStatus, getAccountInfo, logout, cleanupAuthTimers, refreshHeartbeat, setHeartbeatObserver, setReauthHandler, PLATFORM_URL, serverPostAuthed, serverGetAuthed, getAuthToken, hasMcpAccess } from "./auth";
 import { CloudSync } from "./cloud-sync";
 import { initCapabilities, setOfferEnabled, getCapabilitiesStatus, cleanupCapabilities } from "./capability-sync";
 import { CypherBus } from "./cypher-bus";
@@ -127,6 +127,23 @@ let configSync: ConfigSync | null = null;
 let embedder: Embedder | null = null;
 let mcpExpose: McpExpose | null = null;
 let inboxRouter: InboxRouter | null = null;
+
+/** Start/stop the local MCP-expose server to match the tier — exposing Glyphh
+ *  as an MCP server is paid-only. Safe to call repeatedly (boot + heartbeat). */
+function syncMcpExpose(): void {
+  const me = mcpExpose;
+  if (!me) return;
+  const shouldRun = hasMcpAccess();
+  if (shouldRun && !me.isRunning) {
+    me.start().then((r) => {
+      if (r.ok) console.log("[mcp-expose] started (paid tier)");
+      else console.error("[mcp-expose] failed to start:", r.error);
+    }).catch(() => {});
+  } else if (!shouldRun && me.isRunning) {
+    me.stop();
+    console.log("[mcp-expose] stopped (not a paid tier)");
+  }
+}
 let mcpManager: McpManager | null = null;
 let wazManager: import("./waz-manager").WazManager | null = null;
 let dripManager: DripManager | null = null;
@@ -426,18 +443,14 @@ async function boot() {
   actionGrabber.setCaptureStore(captureStore);
   actionGrabber.setAppConnector(appConnector);
 
-  // MCP expose — always-on local server for agent tool access
+  // MCP expose — exposes Glyphh as a local MCP server. This is a paid-tier
+  // feature, so it is NOT started here unconditionally; the heartbeat observer
+  // starts it once the tier is confirmed paid (and stops it on downgrade).
   mcpExpose = new McpExpose();
   mcpExpose.setCaptureStore(captureStore);
   mcpExpose.setWorkspaceGetter(workspaceGetter);
   mcpExpose.setWorkspaceBackend(eventLog, workspaceManager);
-  mcpExpose.start().then((r) => {
-    if (r.ok) {
-      console.log("[mcp-expose] started on launch");
-    } else {
-      console.error("[mcp-expose] failed to start:", r.error);
-    }
-  });
+  syncMcpExpose();
 
   // MCP Manager — always init so tools are ready when the agent needs them.
   // Tier gates apply at the UI level (add/connect), not at boot.
@@ -1768,10 +1781,12 @@ async function boot() {
   // fire-and-forget inside initAuth) can never slip past us.
   let accountLocked = false;
   setHeartbeatObserver((hb) => {
-    // Tier may have changed (free <-> paid). The relay is a paid-only feature
-    // (relayEnabled() also checks hasMcpAccess now), so re-evaluate it on every
-    // heartbeat — this also starts it once the boot heartbeat finally lands.
+    // Tier may have changed (free <-> paid). The relay + the local MCP-expose
+    // server are paid-only, so re-evaluate both on every heartbeat — this also
+    // starts them once the boot heartbeat finally lands, and tears them down on
+    // a downgrade.
     reconnectRelay();
+    syncMcpExpose();
     const locked = hb.status === "expired" || hb.status === "disabled";
     if (locked === accountLocked) return;
     accountLocked = locked;

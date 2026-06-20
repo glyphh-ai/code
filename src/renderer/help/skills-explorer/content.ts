@@ -18,7 +18,14 @@ const renderMarkdown = (src: string | null | undefined): string => formatMarkdow
 // skill-flow.js + skill-flow.css are esbuild-bundled separately and only
 // pulled in the first time a user opens the workflow view.
 interface SkillFlowApi {
-  mount: (container: HTMLElement, graph: unknown) => void;
+  mount: (
+    container: HTMLElement,
+    graph: unknown,
+    opts?: {
+      onPositionsChange?: (positions: Record<string, { x: number; y: number }>) => void;
+      onOpenApp?: (appId: string) => void;
+    },
+  ) => void;
   unmount: (container: HTMLElement) => void;
 }
 const skillFlowApi = (): SkillFlowApi | undefined =>
@@ -201,9 +208,20 @@ export class SkillContent {
     try {
       await ensureSkillFlow();
       const data = await window.yo.skillsGet(name).catch(() => null);
-      const graph = buildSkillGraph(name, data);
+      // Apps the skill is wired to (allowed-tools namespaced by app id) become
+      // clickable tiles that open that app's panel.
+      const apps = await window.yo.appsList().catch(() => []);
+      const graph = buildSkillGraph(name, data, apps);
+      // Apply the user's saved layout (dragged node positions), then persist
+      // any further drags — keyed per skill so it survives edits/reopens.
+      const prefKey = `skillFlow:${name}`;
+      const saved = (await window.yo.getPreference(prefKey, {})) as Record<string, { x: number; y: number }>;
+      for (const n of graph.nodes) { const p = saved?.[n.id]; if (p) n.position = p; }
       this.flowHost.replaceChildren();
-      skillFlowApi()?.mount(this.flowHost, graph);
+      skillFlowApi()?.mount(this.flowHost, graph, {
+        onPositionsChange: (positions) => { void window.yo.setPreference(prefKey, positions); },
+        onOpenApp: (appId) => { void window.yo.execCommand(`dip ${appId}`); },
+      });
       this.flowMounted = true;
     } catch {
       this.flowHost.replaceChildren(el("div", { class: "skill-flow-loading", text: "Could not load the workflow view." }));

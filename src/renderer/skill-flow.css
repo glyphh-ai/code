@@ -43,6 +43,40 @@ html[data-theme="dark"]  { --sf-edge: #454545; --sf-dot: #333333; }
   box-shadow: 0 0 0 1px var(--sf), 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
+/* Clickable app tile — opens the app's panel. */
+.sf-node-app {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.sf-node-app:hover {
+  box-shadow: 0 0 0 1px var(--sf), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.sf-app-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  object-fit: contain;
+  background: var(--surface, #0e0e0e);
+}
+.sf-app-icon-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono, monospace);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--sf, #f59e0b);
+  border: 1px solid var(--sf, #f59e0b);
+}
+.sf-app-text { min-width: 0; }
+.sf-app-open {
+  color: var(--sf, #f59e0b) !important;
+  font-weight: 600;
+}
+
 .sf-tag {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 9px;
@@ -69,9 +103,40 @@ html[data-theme="dark"]  { --sf-edge: #454545; --sf-dot: #333333; }
   word-break: break-word;
 }
 
+/* Handles must exist for edges to be valid, but floating edges attach to the
+   node border — so hide the fixed dots to avoid a detached look. */
 .sf-handle {
-  width: 7px;
-  height: 7px;
-  background: var(--sf, #25c75e);
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  background: transparent;
   border: none;
+  opacity: 0;
+}
+
+/* ── Zoom / fit controls (bottom-left) ───────────────────────
+   React Flow ships these light-themed, so on the dark canvas they render as
+   a white block with invisible icons. Theme them to match. */
+.skill-flow-host .react-flow__controls {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.skill-flow-host .react-flow__controls-button {
+  background: var(--surface-2, #1a1a1a);
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  width: 26px;
+  height: 26px;
+}
+
+.skill-flow-host .react-flow__controls-button:hover {
+  background: var(--surface-3, #242424);
+}
+
+.skill-flow-host .react-flow__controls-button svg {
+  fill: var(--text-2, #bbbbbb);
+  max-width: 12px;
+  max-height: 12px;
 }
