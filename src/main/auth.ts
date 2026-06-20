@@ -258,6 +258,21 @@ export function getHeartbeatInfo(): HeartbeatResult | null {
 }
 
 /**
+ * MCP (connecting servers + exposing Glyphh as an MCP server) and Pipedream
+ * are paid-tier features — the Free plan excludes both. Gated client-side so
+ * they're actually off, not just hidden. Defaults to false until the
+ * heartbeat confirms an active paid plan; the heartbeat observer re-kicks
+ * dependent features (relay, etc.) once it lands.
+ */
+export function hasMcpAccess(): boolean {
+  const hb = cachedHeartbeat;
+  if (!hb || hb.status !== "active") return false;
+  const ent = hb.entitlements || {};
+  if (typeof ent.mcp === "boolean") return ent.mcp;
+  return hb.tier !== "free" && hb.tier !== "";
+}
+
+/**
  * Get auth status for the boot sequence.
  * Returns trial/account info without requiring a license key.
  */

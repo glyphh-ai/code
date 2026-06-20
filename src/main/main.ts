@@ -82,7 +82,7 @@ import { ActionGrabber } from "./action-grabber";
 import { AgentRunner, AgentConfig } from "./agent-runner";
 import { McpExpose, ghRequest } from "./mcp-expose";
 import { McpManager } from "./mcp-manager";
-import { initRelayClient } from "./relay-client";
+import { initRelayClient, reconnectRelay } from "./relay-client";
 import { installRelayHandlers } from "./relay-handlers";
 import { registerWorkbenchTerminalIpc } from "./wb-terminal";
 import { registerAgentDefaultsIpc } from "./agent-defaults";
@@ -1768,6 +1768,10 @@ async function boot() {
   // fire-and-forget inside initAuth) can never slip past us.
   let accountLocked = false;
   setHeartbeatObserver((hb) => {
+    // Tier may have changed (free <-> paid). The relay is a paid-only feature
+    // (relayEnabled() also checks hasMcpAccess now), so re-evaluate it on every
+    // heartbeat — this also starts it once the boot heartbeat finally lands.
+    reconnectRelay();
     const locked = hb.status === "expired" || hb.status === "disabled";
     if (locked === accountLocked) return;
     accountLocked = locked;

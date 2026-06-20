@@ -19,7 +19,7 @@
 
 import { WebSocket } from "ws";
 import { getPreference } from "./stores/preferences-db.js";
-import { getAuthToken, isAuthenticated } from "./auth.js";
+import { getAuthToken, isAuthenticated, hasMcpAccess } from "./auth.js";
 
 const AUTH_SERVER = process.env.YO_AUTH_SERVER || "https://api.glyphh.ai";
 
@@ -44,7 +44,8 @@ let backoffMs = 1_000;                            // grows on each failed attemp
 let started = false;
 
 function relayEnabled(): boolean {
-  return getPreference<boolean>("relayEnabled", false);
+  // The relay (exposing Glyphh as an MCP server) is a paid-tier feature.
+  return getPreference<boolean>("relayEnabled", false) && hasMcpAccess();
 }
 
 async function dispatch(method: string, params: unknown): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {

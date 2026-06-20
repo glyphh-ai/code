@@ -14,7 +14,7 @@
 
 import { BrowserWindow, shell } from "electron";
 import { EventEmitter } from "events";
-import { serverPostAuthed, serverGetAuthed, getAccountInfo, getHeartbeatInfo } from "./auth";
+import { serverPostAuthed, serverGetAuthed, getAccountInfo, getHeartbeatInfo, hasMcpAccess } from "./auth";
 import type { McpManager } from "./mcp-manager";
 import type { AppConnector } from "./app-connector";
 import { refreshConnectorCatalog, type ConnectorTool } from "./connector-tools-client";
@@ -172,6 +172,10 @@ export class ConnectorManager extends EventEmitter {
    * 4. Refresh accounts + MCP
    */
   async connectApp(appSlug: string): Promise<{ ok: boolean; error?: string }> {
+    // Pipedream connectors are a paid-tier feature.
+    if (!hasMcpAccess()) {
+      return { ok: false, error: "Pipedream connectors require a Pro plan." };
+    }
     // Get connect token from yo-server
     let connectUrl: string;
     try {
