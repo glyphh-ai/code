@@ -10,8 +10,40 @@
 import { el } from "./dom.js";
 import { formatMarkdown } from "../../format-markdown.js";
 import { RunConsole } from "./run-console.js";
+import { buildSkillGraph } from "./flow-graph.js";
 
 const renderMarkdown = (src: string | null | undefined): string => formatMarkdown(src || "");
+
+// ── React Flow island (lazy) ────────────────────────────────
+// skill-flow.js + skill-flow.css are esbuild-bundled separately and only
+// pulled in the first time a user opens the workflow view.
+interface SkillFlowApi {
+  mount: (container: HTMLElement, graph: unknown) => void;
+  unmount: (container: HTMLElement) => void;
+}
+const skillFlowApi = (): SkillFlowApi | undefined =>
+  (window as unknown as { SkillFlow?: SkillFlowApi }).SkillFlow;
+
+let skillFlowReady: Promise<void> | null = null;
+function ensureSkillFlow(): Promise<void> {
+  if (skillFlowApi()) return Promise.resolve();
+  if (skillFlowReady) return skillFlowReady;
+  skillFlowReady = new Promise<void>((resolve, reject) => {
+    if (!document.querySelector("link[data-skill-flow]")) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "skill-flow.css";
+      link.setAttribute("data-skill-flow", "");
+      document.head.appendChild(link);
+    }
+    const s = document.createElement("script");
+    s.src = "skill-flow.js";
+    s.onload = () => resolve();
+    s.onerror = () => { skillFlowReady = null; reject(new Error("skill-flow bundle failed to load")); };
+    document.body.appendChild(s);
+  });
+  return skillFlowReady;
+}
 
 // ── Monaco (read-only) ──────────────────────────────────────
 let monacoReady: Promise<void> | null = null;
@@ -58,6 +90,7 @@ const TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const KEBAB = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
 const EXPORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 const INFO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+const FLOW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h6M9 6v9a3 3 0 0 0 3 3h3"/></svg>`;
 
 const iconBtn = (icon: string, title: string) =>
   el("button", { class: "skill-icon-btn", html: icon, attrs: { title } });
@@ -77,6 +110,8 @@ export class SkillContent {
   private monaco: any = null;
   private monacoHost: HTMLElement;
   private mdHost: HTMLElement;
+  private flowHost: HTMLElement;
+  private flowMounted = false;
   private runConsole = new RunConsole();
   private fileCache = new Map<string, string>();
   private mdMode = new Map<string, "rendered" | "code">();
@@ -86,7 +121,8 @@ export class SkillContent {
     this.monacoHost = el("div", { class: "skill-monaco hidden" });
     this.mdHost = el("div", { class: "skill-md-render yo-md hidden" });
     this.runConsole.root.classList.add("hidden");
-    this.body = el("div", { class: "skill-content-body" }, [this.mdHost, this.monacoHost, this.runConsole.root]);
+    this.flowHost = el("div", { class: "skill-flow-host hidden" });
+    this.body = el("div", { class: "skill-content-body" }, [this.mdHost, this.monacoHost, this.runConsole.root, this.flowHost]);
     this.root = el("div", { class: "skill-content" }, [this.bar, this.body]);
     this.showEmpty();
   }
@@ -102,6 +138,8 @@ export class SkillContent {
     this.mdHost.classList.add("hidden");
     this.monacoHost.classList.add("hidden");
     this.runConsole.root.classList.add("hidden");
+    if (this.flowMounted) { skillFlowApi()?.unmount(this.flowHost); this.flowMounted = false; }
+    this.flowHost.classList.add("hidden");
   }
 
   // ── Skill overview ──
@@ -118,9 +156,11 @@ export class SkillContent {
     const toggle = el("label", { class: "skill-toggle", attrs: { title: "Enabled" } }, [
       cb, el("span", { class: "skill-toggle-track" }, [el("span", { class: "skill-toggle-thumb" })]),
     ]);
+    const flowBtn = iconBtn(FLOW, "View as workflow");
+    flowBtn.addEventListener("click", () => void this.showFlow(name));
     const kebab = iconBtn(KEBAB, "More");
     kebab.addEventListener("click", (e) => { e.stopPropagation(); this.openSkillMenu(name, kebab); });
-    this.bar.append(el("div", { class: "skill-content-actions" }, [toggle, kebab]));
+    this.bar.append(el("div", { class: "skill-content-actions" }, [flowBtn, toggle, kebab]));
 
     const full = await window.yo.skillsGet(name).catch(() => null);
     const desc = (full?.manifest?.description as string) || "";
@@ -144,6 +184,30 @@ export class SkillContent {
     const help = this.mdHost.querySelector<HTMLElement>(".skill-desc-help");
     const tip = this.mdHost.querySelector<HTMLElement>(".skill-desc-tip");
     help?.addEventListener("click", (e) => { e.stopPropagation(); tip?.classList.toggle("hidden"); });
+  }
+
+  // ── Workflow (React Flow) view ──
+  async showFlow(name: string): Promise<void> {
+    this.hideAll();
+    this.flowHost.classList.remove("hidden");
+
+    this.bar.innerHTML = "";
+    this.bar.append(el("span", { class: "skill-content-title", text: name }));
+    const back = iconBtn(INFO, "Back to overview");
+    back.addEventListener("click", () => void this.showSkill(name));
+    this.bar.append(el("div", { class: "skill-content-actions" }, [back]));
+
+    this.flowHost.replaceChildren(el("div", { class: "skill-flow-loading", text: "Loading workflow…" }));
+    try {
+      await ensureSkillFlow();
+      const data = await window.yo.skillsGet(name).catch(() => null);
+      const graph = buildSkillGraph(name, data);
+      this.flowHost.replaceChildren();
+      skillFlowApi()?.mount(this.flowHost, graph);
+      this.flowMounted = true;
+    } catch {
+      this.flowHost.replaceChildren(el("div", { class: "skill-flow-loading", text: "Could not load the workflow view." }));
+    }
   }
 
   private async setEnabled(name: string, on: boolean): Promise<void> {
