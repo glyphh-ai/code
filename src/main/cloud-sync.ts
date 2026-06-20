@@ -17,7 +17,7 @@ interface PendingItem {
 }
 
 const POLL_INTERVAL_MS = 7_000; // ~7 seconds
-const DEFAULT_SERVER = "https://api.glyphh.ai";
+const DEFAULT_SERVER = process.env.YO_AUTH_SERVER || "https://api.glyphh.ai";
 
 export class CloudSync {
   private noteStore: NoteStore;

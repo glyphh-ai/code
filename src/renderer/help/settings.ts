@@ -533,12 +533,13 @@ function initSettings() {
   const relayLabelInput = document.getElementById("relay-token-label") as HTMLInputElement;
 
   function renderRelayConfig(): void {
+    const relayUrl = `${window.yo.serverUrl}/mcp`;
     if (relayConfigExample) {
       relayConfigExample.textContent = `{
   "mcpServers": {
     "yo-relay": {
       "type": "http",
-      "url": "https://api.glyphh.ai/mcp",
+      "url": "${relayUrl}",
       "headers": {
         "Authorization": "Bearer <your-token>"
       }
@@ -549,7 +550,7 @@ function initSettings() {
     const claudeCmd = document.getElementById("relay-claude-cmd");
     if (claudeCmd) {
       claudeCmd.textContent =
-        `claude mcp add --transport http yo-relay https://api.glyphh.ai/mcp --header "Authorization: Bearer <your-token>"`;
+        `claude mcp add --transport http yo-relay ${relayUrl} --header "Authorization: Bearer <your-token>"`;
     }
   }
 
@@ -558,7 +559,7 @@ function initSettings() {
     const s = await window.yo.relayStatus();
     const label = !s.signedIn ? "Sign in first."
       : !s.enabled ? "Disabled."
-      : s.state === "connected" ? "Connected to api.glyphh.ai"
+      : s.state === "connected" ? `Connected to ${new URL(window.yo.serverUrl).host}`
       : s.state === "connecting" ? "Connecting…"
       : s.state === "disconnected" ? "Disconnected — retrying"
       : "Off";

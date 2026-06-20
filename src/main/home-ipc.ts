@@ -15,7 +15,7 @@ import type { ConnectorManager } from "./connectors";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
-import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed } from "./auth";
+import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed, AUTH_SERVER } from "./auth";
 
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
@@ -88,7 +88,7 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
       : {};
     mcpServers["yo-relay"] = {
       type: "http",
-      url: "https://api.glyphh.ai/mcp",
+      url: `${AUTH_SERVER}/mcp`,
       headers: { Authorization: `Bearer ${token}` },
     };
     existing.mcpServers = mcpServers;

@@ -233,6 +233,7 @@ declare global {
       refreshAuth: () => Promise<{ tier: string; status: string }>;
       openExternal: (url: string) => void;
       platformUrl: string;
+      serverUrl: string;
       openAccountDashboard: () => void;
       openBilling: () => void;
       // Support
