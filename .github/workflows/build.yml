@@ -63,7 +63,11 @@ jobs:
             release/latest-mac.yml
 
   build-win:
-    runs-on: windows-latest
+    # Pinned to windows-2022: the windows-latest image (now windows-2025) ships
+    # a Visual Studio layout node-gyp can't detect, so the electron-rebuild of
+    # node-pty fails with "Could not find any Visual Studio installation".
+    # windows-2022 has the VS2022 C++ toolchain node-gyp finds out of the box.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
