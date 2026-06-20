@@ -4,12 +4,14 @@
  * Each app is a panel with a connector: mapped commands that know
  * how to grab content against the app's live DOM.
  *
- * Stored as JSON in ~/yo/apps/{id}.json
+ * Stored encrypted at rest in ~/yo/apps/{id}.json (see secure-store.ts) — the
+ * MCP OAuth client secret must never sit in plaintext on disk.
  */
 
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { encryptJson, decryptJson } from "./secure-store";
 // ── Types ───────────────────────────────────────────────
 
 /** Execution intelligence attached to a command — makes the agent reliable. */
@@ -59,6 +61,20 @@ export interface ConnectionConfig {
 }
 
 // ── MCP tab: external tool server ──
+/**
+ * OAuth2 client-credentials for an authenticated streamable-http MCP server.
+ * When present, the client mints a short-lived bearer token from `tokenUrl`
+ * (refreshing as it expires) and sends it as `Authorization: Bearer …` on every
+ * request — the dynamic-token case that static `headers` can't handle. The
+ * `clientSecret` is sensitive, which is why app configs are encrypted at rest.
+ */
+export interface McpOAuth {
+  clientId: string;
+  clientSecret: string;
+  tokenUrl: string;
+  scope?: string;
+}
+
 export interface McpConfig {
   transport: "stdio" | "sse" | "streamable-http";
   command?: string;
@@ -66,6 +82,7 @@ export interface McpConfig {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  oauth?: McpOAuth;
   enabled: boolean;
 }
 
@@ -349,8 +366,7 @@ export class AppConnector {
     for (const file of fs.readdirSync(this.appsDir)) {
       if (!file.endsWith(".json")) continue;
       try {
-        const raw = fs.readFileSync(path.join(this.appsDir, file), "utf-8");
-        const app: AppConfig = JSON.parse(raw);
+        const app = decryptJson<AppConfig>(fs.readFileSync(path.join(this.appsDir, file)));
         if (!app?.id) continue;
         onDisk.add(app.id);
         const prev = this.apps.get(app.id);
@@ -686,7 +702,7 @@ export class AppConnector {
   setMcp(id: string, mcp: McpConfig): boolean {
     const app = this.apps.get(id);
     if (!app) return false;
-    app.mcp = mcp;
+    app.mcp = this.preserveOAuthSecret(mcp, app.mcp);
     this.save(app);
     return true;
   }
@@ -694,9 +710,20 @@ export class AppConnector {
   updateMcp(id: string, updates: Partial<McpConfig>): boolean {
     const app = this.apps.get(id);
     if (!app || !app.mcp) return false;
-    app.mcp = { ...app.mcp, ...updates };
+    const merged = { ...app.mcp, ...updates };
+    app.mcp = this.preserveOAuthSecret(merged, app.mcp);
     this.save(app);
     return true;
+  }
+
+  /** The OAuth client secret is redacted before it ever reaches the renderer
+   *  (see apps-ipc), so an incoming config with a blank secret means "keep the
+   *  one already on disk". Only a non-empty secret actually replaces it. */
+  private preserveOAuthSecret(next: McpConfig, prev: McpConfig | undefined): McpConfig {
+    if (next.oauth && !next.oauth.clientSecret && prev?.oauth?.clientSecret) {
+      return { ...next, oauth: { ...next.oauth, clientSecret: prev.oauth.clientSecret } };
+    }
+    return next;
   }
 
   removeMcp(id: string): boolean {
@@ -726,8 +753,8 @@ export class AppConnector {
   private save(app: AppConfig): void {
     fs.writeFileSync(
       path.join(this.appsDir, `${app.id}.json`),
-      JSON.stringify(app, null, 2),
-      "utf-8",
+      encryptJson(app),
+      { mode: 0o600 },
     );
   }
 
@@ -736,9 +763,8 @@ export class AppConnector {
     for (const file of fs.readdirSync(this.appsDir)) {
       if (!file.endsWith(".json")) continue;
       try {
-        const raw = fs.readFileSync(path.join(this.appsDir, file), "utf-8");
-        const app: AppConfig = JSON.parse(raw);
-        this.apps.set(app.id, app);
+        const app = decryptJson<AppConfig>(fs.readFileSync(path.join(this.appsDir, file)));
+        if (app?.id) this.apps.set(app.id, app);
       } catch {
         // skip corrupt files
       }

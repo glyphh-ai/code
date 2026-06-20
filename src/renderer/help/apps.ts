@@ -48,7 +48,7 @@ interface PanelApp {
   doNotRecord?: boolean;
   commands?: Record<string, { selector: string; action: string; description: string }>;
   connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
-  mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+  mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string }; enabled: boolean };
 }
 
 let panelApps: PanelApp[] = [];
@@ -560,6 +560,12 @@ async function loadMcpTab() {
     argsInput.value = "";
     envInput.value = "";
     urlInput.value = "";
+    (document.getElementById("app-mcp-client-id") as HTMLInputElement).value = "";
+    const secretReset = document.getElementById("app-mcp-client-secret") as HTMLInputElement;
+    secretReset.value = "";
+    secretReset.placeholder = "OAuth client secret";
+    (document.getElementById("app-mcp-token-url") as HTMLInputElement).value = "";
+    (document.getElementById("app-mcp-scope") as HTMLInputElement).value = "";
     updateMcpFields();
 
     const toolsTable = document.getElementById("app-mcp-tools-table")!;
@@ -586,6 +592,16 @@ async function loadMcpTab() {
   argsInput.value = (app.mcp.args || []).join(" ");
   envInput.value = app.mcp.env ? Object.entries(app.mcp.env).map(([k, v]) => `${k}=${v}`).join("\n") : "";
   urlInput.value = app.mcp.url || "";
+
+  // OAuth fields. Never populate the secret into the DOM — only hint that one
+  // is saved so the user knows they can leave it blank to keep it.
+  const oauth = app.mcp.oauth;
+  (document.getElementById("app-mcp-client-id") as HTMLInputElement).value = oauth?.clientId || "";
+  (document.getElementById("app-mcp-token-url") as HTMLInputElement).value = oauth?.tokenUrl || "";
+  (document.getElementById("app-mcp-scope") as HTMLInputElement).value = oauth?.scope || "";
+  const secretInput = document.getElementById("app-mcp-client-secret") as HTMLInputElement;
+  secretInput.value = "";
+  secretInput.placeholder = oauth ? "•••••• (saved — re-enter to change)" : "OAuth client secret";
   updateMcpFields();
 
   // Tools table (right panel)
@@ -630,12 +646,16 @@ async function loadMcpTab() {
 function updateMcpFields() {
   const transport = (document.getElementById("app-mcp-transport") as HTMLSelectElement).value;
   document.getElementById("app-mcp-stdio-fields")!.classList.toggle("hidden", transport !== "stdio");
-  document.getElementById("app-mcp-sse-fields")!.classList.toggle("hidden", transport !== "sse");
+  // The URL field is shared by SSE and streamable-http.
+  document.getElementById("app-mcp-sse-fields")!.classList.toggle("hidden", transport !== "sse" && transport !== "streamable-http");
+  document.getElementById("app-mcp-oauth-fields")!.classList.toggle("hidden", transport !== "streamable-http");
 }
 
 async function saveMcpConfig() {
-  const transport = (document.getElementById("app-mcp-transport") as HTMLSelectElement).value as "stdio" | "sse";
+  const transport = (document.getElementById("app-mcp-transport") as HTMLSelectElement).value as "stdio" | "sse" | "streamable-http";
   const statusEl = document.getElementById("app-mcp-save-status")!;
+
+  const app = panelApps.find((a) => a.id === currentAppId);
 
   const config: Record<string, unknown> = { transport, enabled: false };
   if (transport === "stdio") {
@@ -653,13 +673,43 @@ async function saveMcpConfig() {
       }
       config.env = env;
     }
+  } else if (transport === "streamable-http") {
+    const url = (document.getElementById("app-mcp-url") as HTMLInputElement).value.trim();
+    if (!url) { statusEl.textContent = "URL required"; return; }
+    config.url = url;
+
+    const clientId = (document.getElementById("app-mcp-client-id") as HTMLInputElement).value.trim();
+    const clientSecret = (document.getElementById("app-mcp-client-secret") as HTMLInputElement).value.trim();
+    const tokenUrl = (document.getElementById("app-mcp-token-url") as HTMLInputElement).value.trim();
+    const scope = (document.getElementById("app-mcp-scope") as HTMLInputElement).value.trim();
+
+    // The client secret never reaches the renderer (apps-ipc redacts it). A
+    // blank secret means "keep the one already on disk" — the main process
+    // preserves it (see app-connector preserveOAuthSecret). So a previously
+    // configured server can be edited without re-typing the secret.
+    const hadOauth = !!app?.mcp?.oauth;
+    const anyOauth = clientId || clientSecret || tokenUrl || hadOauth;
+    if (anyOauth) {
+      if (!clientId || !tokenUrl) {
+        statusEl.textContent = "client id and token URL are required for OAuth";
+        return;
+      }
+      if (!clientSecret && !hadOauth) {
+        statusEl.textContent = "client secret is required for OAuth";
+        return;
+      }
+      // clientSecret may be "" here when editing — main keeps the saved value.
+      const oauth: Record<string, string> = { clientId, clientSecret, tokenUrl };
+      if (scope) oauth.scope = scope;
+      config.oauth = oauth;
+    }
+    // No oauth fields → valid unauthenticated streamable-http server (url only).
   } else {
     const url = (document.getElementById("app-mcp-url") as HTMLInputElement).value.trim();
     if (!url) { statusEl.textContent = "URL required"; return; }
     config.url = url;
   }
 
-  const app = panelApps.find((a) => a.id === currentAppId);
   await window.yo.appsSetMcp(currentAppId, config as any);
   if (app?.mcp) {
     await window.yo.mcpUpdateServer(currentAppId, config);

@@ -1099,6 +1099,7 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <select id="app-mcp-transport" class="settings-input">
                     <option value="stdio">stdio (local process)</option>
                     <option value="sse">SSE (HTTP server)</option>
+                    <option value="streamable-http">Streamable HTTP (OAuth)</option>
                   </select>
                   <div id="app-mcp-stdio-fields">
                     <label class="settings-label">Command</label>
@@ -1111,6 +1112,17 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   <div id="app-mcp-sse-fields" class="hidden">
                     <label class="settings-label">Server URL</label>
                     <input id="app-mcp-url" type="text" class="settings-input" placeholder="http://localhost:3000/sse" spellcheck="false" autocomplete="off" />
+                    <span style="display:block;font-size:11px;color:var(--text-2);margin-top:-4px;">For Streamable HTTP, this is the MCP endpoint URL.</span>
+                  </div>
+                  <div id="app-mcp-oauth-fields" class="hidden">
+                    <label class="settings-label">OAuth Client ID</label>
+                    <input id="app-mcp-client-id" type="text" class="settings-input" placeholder="OAuth client id" spellcheck="false" autocomplete="off" />
+                    <label class="settings-label">OAuth Client Secret</label>
+                    <input id="app-mcp-client-secret" type="password" class="settings-input" placeholder="OAuth client secret" spellcheck="false" autocomplete="off" />
+                    <label class="settings-label">Token URL</label>
+                    <input id="app-mcp-token-url" type="text" class="settings-input" placeholder="https://…/oauth/token" spellcheck="false" autocomplete="off" />
+                    <label class="settings-label">Scope <span style="color:var(--text-2);font-weight:400;">(optional)</span></label>
+                    <input id="app-mcp-scope" type="text" class="settings-input" placeholder="scope (optional)" spellcheck="false" autocomplete="off" />
                   </div>
                   <div style="display:flex;align-items:center;gap:8px;margin-top:12px;">
                     <label class="settings-label" style="margin:0;">All Tools</label>

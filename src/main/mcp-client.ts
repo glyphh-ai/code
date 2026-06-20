@@ -48,6 +48,9 @@ export interface McpClientOptions {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** OAuth2 client-credentials for an authenticated streamable-http server.
+   *  A bearer token is minted from `tokenUrl` and refreshed before expiry. */
+  oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string };
 }
 
 export class McpClient extends EventEmitter {
@@ -63,6 +66,39 @@ export class McpClient extends EventEmitter {
   private sseMessageEndpoint: string | null = null;
 
   private httpSessionId: string | null = null;
+
+  // OAuth2 client-credentials token cache (streamable-http only).
+  private accessToken: string | null = null;
+  private tokenExpiresAt = 0;
+
+  /** Mint/refresh the bearer token and return the auth header, or {} when no
+   *  OAuth is configured. The token is reused until ~60s before it expires. */
+  private async authHeader(): Promise<Record<string, string>> {
+    const oauth = this.options.oauth;
+    if (!oauth?.clientId || !oauth?.clientSecret || !oauth?.tokenUrl) return {};
+    if (this.accessToken && Date.now() < this.tokenExpiresAt) {
+      return { Authorization: `Bearer ${this.accessToken}` };
+    }
+    const body = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: oauth.clientId,
+      client_secret: oauth.clientSecret,
+    });
+    if (oauth.scope) body.set("scope", oauth.scope);
+    const res = await fetch(oauth.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`OAuth token request failed: ${res.status} ${err.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { access_token: string; expires_in?: number };
+    this.accessToken = data.access_token;
+    this.tokenExpiresAt = Date.now() + ((data.expires_in ?? 3600) - 60) * 1000;
+    return { Authorization: `Bearer ${this.accessToken}` };
+  }
 
   constructor(options: McpClientOptions) {
     super();
@@ -256,6 +292,7 @@ export class McpClient extends EventEmitter {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       ...this.options.headers,
+      ...(await this.authHeader()),
     };
     if (this.httpSessionId) {
       headers["Mcp-Session-Id"] = this.httpSessionId;
@@ -336,15 +373,14 @@ export class McpClient extends EventEmitter {
       if (!this.process?.stdin?.writable) throw new Error("stdio not writable");
       this.process.stdin.write(json + "\n");
     } else if (this.options.transport === "streamable-http") {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        ...this.options.headers,
-      };
-      if (this.httpSessionId) headers["Mcp-Session-Id"] = this.httpSessionId;
-      fetch(this.options.url!, {
-        method: "POST",
-        headers,
-        body: json,
+      void this.authHeader().then((auth) => {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          ...this.options.headers,
+          ...auth,
+        };
+        if (this.httpSessionId) headers["Mcp-Session-Id"] = this.httpSessionId;
+        return fetch(this.options.url!, { method: "POST", headers, body: json });
       }).catch((err) => this.emit("error", err));
     } else {
       if (!this.sseMessageEndpoint) throw new Error("SSE endpoint not established");

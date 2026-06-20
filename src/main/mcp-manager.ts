@@ -8,7 +8,7 @@
 import { McpClient, McpTool, McpToolResult } from "./mcp-client";
 import { getPreference, setPreference } from "./preferences";
 import { EventEmitter } from "events";
-import type { AppConnector, McpConfig } from "./app-connector";
+import type { AppConnector, McpConfig, McpOAuth } from "./app-connector";
 import { callConnectorTool, type ConnectorTool } from "./connector-tools-client";
 import { hasMcpAccess } from "./auth";
 
@@ -21,6 +21,7 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  oauth?: McpOAuth;
   enabled: boolean;
 }
 
@@ -92,6 +93,7 @@ export class McpManager extends EventEmitter {
           env: cfg.env,
           url: cfg.url,
           headers: cfg.headers,
+          oauth: cfg.oauth,
           enabled: cfg.enabled,
         });
       }
@@ -111,6 +113,7 @@ export class McpManager extends EventEmitter {
         env: c.env,
         url: c.url,
         headers: c.headers,
+        oauth: c.oauth,
         enabled: c.enabled,
       }));
     }
@@ -130,6 +133,7 @@ export class McpManager extends EventEmitter {
         env: config.env,
         url: config.url,
         headers: config.headers,
+        oauth: config.oauth,
         enabled: config.enabled,
       });
     } else {
@@ -200,6 +204,7 @@ export class McpManager extends EventEmitter {
       if (updates.env !== undefined) mcpUpdates.env = updates.env;
       if (updates.url !== undefined) mcpUpdates.url = updates.url;
       if (updates.headers !== undefined) mcpUpdates.headers = updates.headers;
+      if (updates.oauth !== undefined) mcpUpdates.oauth = updates.oauth;
       if (updates.enabled !== undefined) mcpUpdates.enabled = updates.enabled;
       this.appConnector.updateMcp(id, mcpUpdates);
       if (updates.name) this.appConnector.updateName(id, updates.name);
@@ -233,6 +238,7 @@ export class McpManager extends EventEmitter {
       env: config.env,
       url: config.url,
       headers: config.headers,
+      oauth: config.oauth,
     });
 
     this.servers.set(config.id, { client, state });

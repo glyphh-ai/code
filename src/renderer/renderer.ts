@@ -69,7 +69,7 @@ declare global {
         commands: Record<string, { selector: string; action: string; description: string }>;
         meta?: { description: string; capabilities: string[] };
         connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
-        mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+        mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string }; enabled: boolean };
       }>>;
       appsListMountable: () => Promise<Array<{
         id: string; name: string; url?: string; connected: boolean;
@@ -78,7 +78,7 @@ declare global {
       appsAdd: (id: string, name: string, url?: string) => Promise<unknown>;
       appImport: () => Promise<{ ok: boolean; appId?: string; error?: string }>;
       appExport: (appId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
-      appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) => Promise<unknown>;
+      appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean; headers?: Record<string, string>; oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string } }) => Promise<unknown>;
       appsRemoveMcp: (id: string) => Promise<boolean>;
       appsRemove: (id: string) => Promise<boolean>;
       appsSetConnection: (id: string, pipedreamSlug: string) => Promise<boolean>;

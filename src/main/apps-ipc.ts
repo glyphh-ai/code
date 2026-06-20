@@ -1,7 +1,18 @@
 import { ipcMain, dialog } from "electron";
-import type { AppConnector } from "./app-connector";
+import type { AppConnector, AppConfig } from "./app-connector";
 import { exportApp, importApp } from "./yo-app-package";
 import { hasMcpAccess } from "./auth";
+
+/** Strip the MCP OAuth client secret before any app config crosses IPC to the
+ *  renderer. The secret stays in the main process / encrypted on disk; the UI
+ *  sends a blank secret on save and the main process preserves the stored one. */
+function redactSecrets(apps: AppConfig[]): AppConfig[] {
+  return apps.map((a) =>
+    a.mcp?.oauth?.clientSecret
+      ? { ...a, mcp: { ...a.mcp, oauth: { ...a.mcp.oauth, clientSecret: "" } } }
+      : a,
+  );
+}
 import type { LayoutManager } from "./layout-manager";
 import type { DripManager } from "./drip-manager";
 import type { PanelManager } from "./panel-manager";
@@ -112,16 +123,16 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
   // form that silently fails to save.
   ipcMain.handle("has-mcp-access", () => hasMcpAccess());
   ipcMain.handle("apps-list", () =>
-    appConnector.list().filter((a) => !a.internal),
+    redactSecrets(appConnector.list().filter((a) => !a.internal)),
   );
   // All apps including system. Used by the panel `+` picker so users can
   // mount Dashboard/Apps/Agents/etc. as standalone panels.
-  ipcMain.handle("apps-list-all", () => appConnector.list());
+  ipcMain.handle("apps-list-all", () => redactSecrets(appConnector.list()));
   // Mountable in Layouts: user apps + non-system internal apps (Agent,
   // Vibe, Spec, Council, Terminal, Browser). System rail surfaces stay
   // out per the design.
   ipcMain.handle("apps-list-mountable", () =>
-    appConnector.list().filter(isUserKindApp),
+    redactSecrets(appConnector.list().filter(isUserKindApp)),
   );
   ipcMain.handle("apps-add", (_e, id: string, name: string, url?: string) => {
     const userApps = appConnector.list().filter(a => a.url && !a.url.startsWith("yo://")).length;

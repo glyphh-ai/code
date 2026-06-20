@@ -177,7 +177,7 @@ contextBridge.exposeInMainWorld("yo", {
     forceWeb?: boolean; doNotRecord?: boolean;
     kind?: "user" | "system"; requiresFolder?: boolean;
     connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
-    mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+    mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string }; enabled: boolean };
   }>>,
   /** Includes system-kind apps (Dashboard, Apps, Agents, …). Used by the
    *  panel `+` picker so users can mount any internal surface ad-hoc. */
@@ -188,7 +188,7 @@ contextBridge.exposeInMainWorld("yo", {
     forceWeb?: boolean; doNotRecord?: boolean;
     kind?: "user" | "system"; requiresFolder?: boolean;
     connection?: { pipedreamSlug: string; accountId?: string; healthy?: boolean };
-    mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled: boolean };
+    mcp?: { transport: "stdio" | "sse" | "streamable-http"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string }; enabled: boolean };
   }>>,
   /** Mountable in Layouts: user apps + non-system internal apps (Agent,
    *  Vibe, Spec, Council, Terminal, Browser). System rail surfaces excluded. */
@@ -200,7 +200,7 @@ contextBridge.exposeInMainWorld("yo", {
   // yo app package (import / export)
   appImport: () => ipcRenderer.invoke("app-import") as Promise<{ ok: boolean; appId?: string; error?: string }>,
   appExport: (appId: string) => ipcRenderer.invoke("app-export", appId) as Promise<{ ok: boolean; path?: string; error?: string }>,
-  appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean }) =>
+  appsSetMcp: (id: string, mcp: { transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; enabled: boolean; headers?: Record<string, string>; oauth?: { clientId: string; clientSecret: string; tokenUrl: string; scope?: string } }) =>
     ipcRenderer.invoke("apps-set-mcp", id, mcp),
   appsRemoveMcp: (id: string) => ipcRenderer.invoke("apps-remove-mcp", id) as Promise<boolean>,
   appsRemove: (id: string) => ipcRenderer.invoke("apps-remove", id) as Promise<boolean>,
