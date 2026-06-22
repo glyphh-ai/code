@@ -100,6 +100,9 @@
     <button id="titlebar-refresh" class="files-rail-toggle hidden" title="Refresh page">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
     </button>
+    <button id="header-command-center" class="files-rail-toggle" title="Command Center (⌘⇧.)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    </button>
     <button id="header-settings-gear" class="files-rail-toggle" title="Settings">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -469,6 +472,32 @@
   </div>
 
   <div id="panel-container"></div>
+
+  <!-- Canvas mode: DOM window chrome (titlebars + resize frames) drawn over the
+       free-floating BrowserViews. Positioned by canvas-ui.ts from main bounds. -->
+  <div id="canvas-chrome"></div>
+  <!-- Collapsed canvas windows tray (above the dock / bottom of the app) -->
+  <div id="canvas-collapsed-tray" class="hidden"></div>
+
+  <!-- macOS-style Dock — lives in the bottom inset reserved by the main process.
+       Rendered by dock-ui.ts. -->
+  <div id="dock" class="dock">
+    <div class="dock-strip"></div>
+  </div>
+
+  <!-- Command Center — zoom-out view of all open apps + saved layouts.
+       Shown over freeze-frame; rendered by command-center-ui.ts. -->
+  <div id="command-center" class="command-center hidden">
+    <div class="cc-inner">
+      <div class="cc-header">
+        <span class="cc-title">Command Center</span>
+        <button id="cc-close" class="cc-close" title="Close">&times;</button>
+      </div>
+      <div id="cc-apps" class="cc-apps"></div>
+      <div class="cc-section-label">Layouts</div>
+      <div id="cc-layouts" class="cc-layouts"></div>
+    </div>
+  </div>
 
   <!-- Claude Code bootstrap modal — gates app use behind a CC sign-in.
        Hidden by default; shown by renderer.ts when CC creds are missing. -->

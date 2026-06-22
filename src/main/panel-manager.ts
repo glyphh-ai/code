@@ -86,6 +86,10 @@ export class PanelManager {
   private _rightInset = 0;
   private _leftInset = 0;
   private _topInset = 0;
+  private _bottomInset = 0;
+  /** Canvas (free-floating window) mode — when on, switchTo/applyGrid are
+   *  bypassed and views are positioned by applyCanvas(). */
+  private _canvasMode = false;
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
@@ -740,7 +744,7 @@ export class PanelManager {
 
     const [w, h] = parent.getContentSize();
     const yTop = 38 + this._topInset;
-    const finalBounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
+    const finalBounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop - this._bottomInset };
 
     // While hidden (onboarding/splash overlay) or locked (trial expired/disabled),
     // record the desired active panel but attach NO BrowserView — a BrowserView
@@ -778,7 +782,7 @@ export class PanelManager {
         // (e.g. yo panel opened while slide was running)
         const [cw, ch] = parent.getContentSize();
         const cy = 38 + this._topInset;
-        view.setBounds({ x: this._leftInset, y: cy, width: cw - this._rightInset - this._leftInset, height: ch - cy });
+        view.setBounds({ x: this._leftInset, y: cy, width: cw - this._rightInset - this._leftInset, height: ch - cy - this._bottomInset });
         view.setAutoResize({ width: true, height: true });
         view.webContents.focus();
         this.onReady?.(id, view.webContents);
@@ -903,7 +907,7 @@ export class PanelManager {
     if (parent.isDestroyed() || this._hidden) return;
     const [w, h] = parent.getContentSize();
     const yTop = 38 + this._topInset;
-    const bounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop };
+    const bounds = { x: this._leftInset, y: yTop, width: w - this._rightInset - this._leftInset, height: h - yTop - this._bottomInset };
     for (const bv of parent.getBrowserViews()) {
       bv.setBounds(bounds);
       bv.setAutoResize({ width: true, height: true });
@@ -914,6 +918,50 @@ export class PanelManager {
     if (px === this._topInset) return;
     this._topInset = px;
     this.onInsetChange?.();
+  }
+
+  /** Bottom inset (px) — used by the Dock to reserve a strip below the panels. */
+  get bottomInset(): number { return this._bottomInset; }
+  setBottomInset(px: number): void {
+    const next = Math.max(0, Math.round(px));
+    if (next === this._bottomInset) return;
+    this._bottomInset = next;
+    this.onInsetChange?.();
+  }
+
+  // ── Canvas (free-floating window) mode ───────────────────────
+  get canvasMode(): boolean { return this._canvasMode; }
+  setCanvasMode(on: boolean): void { this._canvasMode = on; }
+
+  /**
+   * Arrange the given panels as free-floating windows at arbitrary bounds.
+   * Each window reserves CANVAS_TITLEBAR_H px at its top for the DOM titlebar
+   * (drawn by the renderer), so the BrowserView is inset below it. Views are
+   * attached in array order, so the last entry renders on top (z-order).
+   * Collapsed windows are detached entirely (their chrome lives in the dock).
+   */
+  applyCanvas(
+    parent: BrowserWindow,
+    windows: Array<{ id: string; x: number; y: number; width: number; height: number }>,
+    titlebarH: number,
+    frame = 0,
+  ): void {
+    if (parent.isDestroyed() || this._hidden || this._locked) return;
+    this.detachAllViews(parent);
+    for (const wdesc of windows) {
+      const view = this.getOrCreateView(wdesc.id, parent);
+      if (!view) continue;
+      const viewBounds = {
+        x: Math.round(wdesc.x + frame),
+        y: Math.round(wdesc.y + titlebarH),
+        width: Math.max(40, Math.round(wdesc.width - frame * 2)),
+        height: Math.max(40, Math.round(wdesc.height - titlebarH - frame)),
+      };
+      view.setAutoResize({ width: false, height: false });
+      this.attachView(parent, view);
+      view.setBounds(viewBounds);
+    }
+    if (windows.length > 0) this.activePanel = windows[windows.length - 1].id;
   }
 
   /** Whether panels are currently hidden for overlay */

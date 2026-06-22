@@ -9801,3 +9801,186 @@ select.settings-input {
 .ws-plan-status .ws-monaco-mode-btn:hover { background: var(--hover); color: var(--ws-text); }
 .ws-plan-status .ws-monaco-mode-btn.active { color: var(--ws-accent); }
 .ws-plan-status .ws-monaco-mode-btn svg { width: 13px; height: 13px; }
+
+/* ============================================================
+   Dock + Canvas mode + Command Center
+   ============================================================ */
+
+/* ── Dock ─────────────────────────────────────────────────── */
+.dock {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: var(--dock-height, 68px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 40;
+  transform: translateY(110%);
+  opacity: 0;
+  transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+}
+.dock.dock--enabled { display: flex; }
+.dock.dock--enabled.dock--visible { transform: translateY(0); opacity: 1; }
+.dock-strip {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 8px 14px;
+  margin-bottom: 6px;
+  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: 0 8px 30px rgba(0,0,0,.28);
+  max-width: calc(100vw - 32px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dock-strip::-webkit-scrollbar { display: none; }
+.dock-empty { color: var(--text-3); font-size: 12px; padding: 6px 10px; white-space: nowrap; }
+.dock-item {
+  position: relative;
+  width: var(--dock-icon, 46px);
+  height: var(--dock-icon, 46px);
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  border: none; background: transparent; cursor: pointer; padding: 0;
+  border-radius: 12px;
+  transition: transform .14s cubic-bezier(.2,.8,.2,1), margin .14s ease;
+  transform-origin: bottom center;
+}
+.dock-item .dock-icon-img { width: 78%; height: 78%; object-fit: contain; border-radius: 9px; }
+.dock-item .dock-icon-initial {
+  width: 78%; height: 78%; display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-weight: 700; border-radius: 9px;
+  font-size: calc(var(--dock-icon, 46px) * .34);
+}
+.dock--zoom .dock-item:hover { transform: scale(1.55) translateY(-6px); }
+.dock--zoom .dock-item:hover + .dock-item,
+.dock--zoom .dock-item:has(+ .dock-item:hover) { transform: scale(1.2) translateY(-2px); }
+.dock-item.dock-dragging { opacity: .4; }
+.dock-running-dot {
+  position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%);
+  width: 4px; height: 4px; border-radius: 50%; background: var(--text-2);
+}
+
+/* ── Canvas mode window chrome ─────────────────────────────── */
+#canvas-chrome { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+body:not(.canvas-mode) #canvas-chrome { display: none; }
+.canvas-win {
+  position: fixed;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--border), 0 10px 40px rgba(0,0,0,.30);
+  outline: 1px solid transparent;
+}
+.canvas-win--active { box-shadow: 0 0 0 1px var(--accent), 0 14px 48px rgba(0,0,0,.42); }
+.canvas-win--dragging { box-shadow: 0 0 0 1px var(--accent), 0 18px 56px rgba(0,0,0,.5); transition: none; }
+.canvas-titlebar {
+  pointer-events: auto;
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+}
+.canvas-fav { width: 14px; height: 14px; object-fit: contain; border-radius: 3px; }
+.canvas-fav-initial {
+  width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-size: 9px; font-weight: 700; border-radius: 3px;
+}
+.canvas-title { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.canvas-tb-spacer { flex: 1; }
+.canvas-tb-btn {
+  width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--text-3); cursor: pointer; border-radius: 5px; padding: 0;
+}
+.canvas-tb-btn svg { width: 13px; height: 13px; }
+.canvas-tb-btn:hover { background: var(--hover); color: var(--text); }
+.canvas-tb-close:hover { background: var(--danger); color: #fff; }
+.canvas-rz { pointer-events: auto; position: absolute; }
+.canvas-rz-r { top: 0; right: 0; bottom: 0; cursor: ew-resize; }
+.canvas-rz-b { left: 0; right: 0; bottom: 0; cursor: ns-resize; }
+.canvas-rz-br { right: 0; bottom: 0; cursor: nwse-resize; }
+
+/* Collapsed-window tray (above the dock) */
+#canvas-collapsed-tray {
+  position: fixed; left: 0; right: 0; bottom: calc(var(--dock-height, 0px) + 8px);
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  pointer-events: none; z-index: 35; padding: 0 16px;
+}
+#canvas-collapsed-tray.hidden { display: none; }
+.canvas-tray-pill {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 12px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,.22);
+}
+.canvas-tray-pill:hover { border-color: var(--accent); color: var(--text); }
+.canvas-tray-pill img { width: 14px; height: 14px; object-fit: contain; border-radius: 3px; }
+.canvas-tray-name { white-space: nowrap; }
+
+/* When canvas mode is on, the tab bar is hidden (no tabs in canvas mode). */
+body.canvas-mode #tab-bar { visibility: hidden; }
+
+/* ── Command Center ───────────────────────────────────────── */
+.command-center {
+  position: fixed; inset: 0; z-index: 9000;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(18px) saturate(140%);
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow: auto;
+}
+.command-center.hidden { display: none; }
+.cc-inner { width: min(1200px, 92vw); padding: 60px 28px 40px; }
+.cc-header { display: flex; align-items: center; margin-bottom: 22px; }
+.cc-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.cc-close {
+  margin-left: auto; width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
+  font-size: 20px; line-height: 1; cursor: pointer;
+}
+.cc-close:hover { color: var(--text); border-color: var(--accent); }
+.cc-apps {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 18px;
+  margin-bottom: 32px;
+}
+.cc-empty { color: var(--text-3); font-size: 13px; padding: 8px 0; }
+.cc-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 0; cursor: pointer;
+  border: none; background: transparent; text-align: center;
+  transition: transform .16s cubic-bezier(.2,.8,.2,1);
+}
+.cc-card:hover { transform: scale(1.06); }
+.cc-card-shot {
+  aspect-ratio: 16 / 10; border-radius: 12px; overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 28px rgba(0,0,0,.25);
+}
+.cc-card--active .cc-card-shot { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.cc-card-fav { width: 46px; height: 46px; object-fit: contain; border-radius: 10px; }
+.cc-card-initial {
+  width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-size: 26px; font-weight: 700; border-radius: 14px;
+}
+.cc-card-name { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-section-label { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
+.cc-layouts { display: flex; flex-wrap: wrap; gap: 16px; }
+.cc-layout-card {
+  display: flex; flex-direction: column; gap: 8px; cursor: pointer;
+  border: none; background: transparent; transition: transform .16s cubic-bezier(.2,.8,.2,1);
+}
+.cc-layout-card:hover { transform: scale(1.06); }
+.cc-mini {
+  position: relative; width: 150px; height: 94px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border); overflow: hidden;
+}
+.cc-mini-cell { position: absolute; background: var(--hover); border: 1px solid var(--border-2); border-radius: 3px; }

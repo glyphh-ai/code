@@ -14,6 +14,9 @@ import { initDownloads } from "./downloads-ui.js";
 import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
+import { initDock } from "./dock-ui.js";
+import { initCanvas } from "./canvas-ui.js";
+import { initCommandCenter } from "./command-center-ui.js";
 import { initYoPanel } from "./yo-panel-ui-vscode.js";
 import { yoConfirm } from "./yo-modal.js";
 
@@ -627,6 +630,13 @@ document.addEventListener("keydown", (e) => {
     if (isYoPanelOpen()) window.yo.yoPanelDismiss();
   }
 
+  // Cmd+Shift+. — toggle the Command Center (zoom-out view of all open apps)
+  if (e.key === "." && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+    e.preventDefault();
+    commandCenter.toggle();
+    return;
+  }
+
   // Cmd+. (without shift) — toggle yo agent panel
   if (e.key === "." && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
@@ -678,6 +688,13 @@ const gridApi = initGrid({
 
 // -- Downloads dropdown (extracted to downloads-ui.ts) --
 initDownloads();
+
+// -- Dock + Canvas mode + Command Center --
+initDock();
+initCanvas();
+const commandCenter = initCommandCenter();
+// Header Command Center launcher (zoom-out view of all open apps + layouts).
+document.getElementById("header-command-center")?.addEventListener("click", () => commandCenter.toggle());
 
 // -- Left rail: working-folder picker + app navigation --
 {

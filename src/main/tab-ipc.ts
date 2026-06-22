@@ -31,6 +31,9 @@ interface TabIpcDeps {
   setPreference: (key: string, value: unknown) => void;
   getPreference: <T>(key: string, fallback: T) => T;
   URL_BAR_HEIGHT: number;
+  /** Re-arrange canvas windows after a tab nav (no-op outside canvas mode).
+   *  Keeps rail/recents "open app" from attaching a single full-screen view. */
+  afterNav?: () => void;
 }
 
 export function registerTabIpc(deps: TabIpcDeps): void {
@@ -42,6 +45,7 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     ensureTab, persistTabs, sendSplitState, sendTabState,
     createPanelForApp,
     setPreference, getPreference, URL_BAR_HEIGHT,
+    afterNav,
   } = deps;
 
   // ── Tab handlers ──────────────────────────────────────────
@@ -81,6 +85,7 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     }
     sendSplitState();
     sendTabState();
+    afterNav?.();
   });
 
   ipcMain.on("tab-reorder", (_e, newOrder: string[]) => {
@@ -203,6 +208,7 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     ensureTab(id);
     sendSplitState();
     sendTabState();
+    afterNav?.();
   });
 
   ipcMain.on("tab-new-app", (_e, appId: string) => {
@@ -242,6 +248,7 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     setPreference("lastView", { type: "panel", id: openTabs[openTabs.length - 1] });
     sendSplitState();
     sendTabState();
+    afterNav?.();
   });
 
   // Browser tab → "Create App": open Home and route it to the New App form

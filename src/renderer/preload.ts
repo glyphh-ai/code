@@ -19,6 +19,34 @@ contextBridge.exposeInMainWorld("yo", {
   panelsZoom: (factor: number) => ipcRenderer.send("panels-zoom", factor),
   panelsGetZoom: () => ipcRenderer.invoke("panels-get-zoom") as Promise<number>,
 
+  // ── Dock ──────────────────────────────────────────────────
+  dockGetConfig: () => ipcRenderer.invoke("dock-get-config") as Promise<{ enabled: boolean; autoHide: boolean; scale: number; zoom: boolean; apps: string[]; height: number }>,
+  dockSetConfig: (patch: Partial<{ enabled: boolean; autoHide: boolean; scale: number; zoom: boolean; apps: string[] }>) => ipcRenderer.send("dock-set-config", patch),
+  dockAddApp: (id: string) => ipcRenderer.send("dock-add-app", id),
+  dockRemoveApp: (id: string) => ipcRenderer.send("dock-remove-app", id),
+  dockReorder: (order: string[]) => ipcRenderer.send("dock-reorder", order),
+  onDockChanged: (cb: (cfg: { enabled: boolean; autoHide: boolean; scale: number; zoom: boolean; apps: string[]; height: number }) => void) => {
+    ipcRenderer.on("dock-changed", (_e, cfg) => cb(cfg));
+  },
+  onDockReveal: (cb: (info: { visible: boolean; height: number }) => void) => {
+    ipcRenderer.on("dock-reveal", (_e, info) => cb(info));
+  },
+
+  // ── Canvas (free-floating window) mode ────────────────────
+  canvasGetState: () => ipcRenderer.invoke("canvas-get-state") as Promise<{ mode: boolean; titlebarH: number; active: string | null; windows: Array<{ id: string; name: string; favicon: string; x: number; y: number; w: number; h: number; z: number; collapsed: boolean }> }>,
+  canvasSetMode: (on: boolean) => ipcRenderer.send("canvas-set-mode", on),
+  canvasSetBounds: (id: string, rect: { x: number; y: number; w: number; h: number }) => ipcRenderer.send("canvas-set-bounds", id, rect),
+  canvasFocus: (id: string) => ipcRenderer.send("canvas-focus", id),
+  canvasCollapse: (id: string) => ipcRenderer.send("canvas-collapse", id),
+  canvasRestore: (id: string) => ipcRenderer.send("canvas-restore", id),
+  canvasClose: (id: string) => ipcRenderer.send("canvas-close", id),
+  canvasMaximize: (id: string) => ipcRenderer.send("canvas-maximize", id),
+  canvasDipLayout: (name?: string) => ipcRenderer.send("canvas-dip-layout", name),
+  canvasOpenApp: (appId: string) => ipcRenderer.send("canvas-open-app", appId),
+  onCanvasState: (cb: (state: { mode: boolean; titlebarH: number; active: string | null; windows: Array<{ id: string; name: string; favicon: string; x: number; y: number; w: number; h: number; z: number; collapsed: boolean }> }) => void) => {
+    ipcRenderer.on("canvas-state", (_e, state) => cb(state));
+  },
+
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
   skillsListDetailed: () => ipcRenderer.invoke("skills-list-detailed") as Promise<Array<{ name: string; description?: string; hasRunner: boolean; hasApp: boolean; scheduled: boolean; scheduleExpr?: string }>>,

@@ -21,6 +21,7 @@ const appDetailName = document.getElementById("app-detail-name") as HTMLInputEle
 const appDetailUrl = document.getElementById("app-detail-url") as HTMLInputElement;
 const appForceWeb = document.getElementById("app-detail-force-web") as HTMLInputElement;
 const appDoNotRecord = document.getElementById("app-detail-do-not-record") as HTMLInputElement;
+const appInDock = document.getElementById("app-detail-in-dock") as HTMLInputElement | null;
 const appSearchInput = document.getElementById("app-search") as HTMLInputElement;
 const appConnectStatus = document.getElementById("app-connect-status")!;
 const appCommandsList = document.getElementById("app-commands-list")!;
@@ -766,6 +767,13 @@ async function openPanelAppDetail(app: PanelApp) {
   appDetailUrl.value = app.url || "";
   appForceWeb.checked = !!app.forceWeb;
   appDoNotRecord.checked = !!app.doNotRecord;
+  // "Add to Dock" reflects whether this app id is pinned to the dock.
+  if (appInDock) {
+    try {
+      const cfg = await (window.yo as unknown as { dockGetConfig: () => Promise<{ apps: string[] }> }).dockGetConfig();
+      appInDock.checked = cfg.apps.includes(app.id);
+    } catch { appInDock.checked = false; }
+  }
   appConnectStatus.textContent = "";
   appMapCommand.classList.add("hidden");
   appDetailHeading.textContent = app.name;
@@ -1277,6 +1285,13 @@ function initApps() {
     if (pType === "sliding-window" && pVal) policy.windowHours = pVal;
     if (pType === "incremental" && pVal) policy.minDeltaChars = pVal;
     await window.yo.appsUpdateCapturePolicy(currentAppId, policy as any);
+
+    // Dock membership — pin/unpin this app id.
+    if (appInDock) {
+      const dockYo = window.yo as unknown as { dockAddApp: (id: string) => void; dockRemoveApp: (id: string) => void };
+      if (appInDock.checked) dockYo.dockAddApp(currentAppId);
+      else dockYo.dockRemoveApp(currentAppId);
+    }
 
     closeAppDetail();
   });

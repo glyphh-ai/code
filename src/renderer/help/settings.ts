@@ -476,6 +476,46 @@ function initSettings() {
     showRelaunch();
   });
 
+  // ── Dock + Canvas mode ──────────────────────────────────────
+  {
+    type DockCfg = { enabled: boolean; autoHide: boolean; scale: number; zoom: boolean };
+    const dockYo = window.yo as unknown as {
+      dockGetConfig: () => Promise<DockCfg>;
+      dockSetConfig: (patch: Partial<DockCfg>) => void;
+      onDockChanged: (cb: (cfg: DockCfg) => void) => void;
+      canvasSetMode: (on: boolean) => void;
+    };
+    const el = (id: string) => document.getElementById(id) as HTMLInputElement | null;
+    const dockEnabled = el("toggle-dock-enabled");
+    const dockAutoHide = el("toggle-dock-autohide");
+    const dockZoom = el("toggle-dock-zoom");
+    const dockScale = el("dock-scale");
+    const dockScaleVal = document.getElementById("dock-scale-value");
+    const canvasMode = el("toggle-canvas-mode");
+
+    const setScaleLabel = (v: number) => { if (dockScaleVal) dockScaleVal.textContent = `${Math.round(v * 100)}%`; };
+
+    dockEnabled?.addEventListener("change", () => dockYo.dockSetConfig({ enabled: dockEnabled.checked }));
+    dockAutoHide?.addEventListener("change", () => dockYo.dockSetConfig({ autoHide: dockAutoHide.checked }));
+    dockZoom?.addEventListener("change", () => dockYo.dockSetConfig({ zoom: dockZoom.checked }));
+    dockScale?.addEventListener("input", () => setScaleLabel(parseFloat(dockScale.value)));
+    dockScale?.addEventListener("change", () => dockYo.dockSetConfig({ scale: parseFloat(dockScale.value) }));
+    canvasMode?.addEventListener("change", () => dockYo.canvasSetMode(!!canvasMode.checked));
+
+    const applyCfg = (cfg: DockCfg) => {
+      if (dockEnabled) dockEnabled.checked = cfg.enabled;
+      if (dockAutoHide) dockAutoHide.checked = cfg.autoHide;
+      if (dockZoom) dockZoom.checked = cfg.zoom;
+      if (dockScale) dockScale.value = String(cfg.scale);
+      setScaleLabel(cfg.scale);
+    };
+    dockYo.onDockChanged(applyCfg);
+    (async () => {
+      try { applyCfg(await dockYo.dockGetConfig()); } catch { /* */ }
+      if (canvasMode) canvasMode.checked = await window.yo.getPreference("canvasMode", false) as boolean;
+    })();
+  }
+
 
   // Marketplace registration is auto-managed: any joinable jammer keeps
   // it on; zero joinable jammers means it auto-withdraws. The Settings

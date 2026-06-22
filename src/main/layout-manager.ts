@@ -409,7 +409,7 @@ export class LayoutManager {
     const [rawW, h] = win.getContentSize();
     const left = this.panelManager.leftInset;
     const w = rawW - this.panelManager.rightInset - left;
-    const contentHeight = h - this.gridTop;
+    const contentHeight = h - this.gridTop - this.panelManager.bottomInset;
 
     // Cumulative column / row positions (fractions → pixels)
     const cumCol = [0];
@@ -498,7 +498,7 @@ export class LayoutManager {
     const [rawW, h] = win.getContentSize();
     const left = this.panelManager.leftInset;
     const w = rawW - this.panelManager.rightInset - left;
-    const contentHeight = h - this.gridTop;
+    const contentHeight = h - this.gridTop - this.panelManager.bottomInset;
 
     // Capture old views for animation
     const oldViews = animate && !this.panelManager.isAnimating

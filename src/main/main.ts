@@ -102,6 +102,8 @@ import { registerCapturesIpc } from "./captures-ipc";
 import { registerMarketplaceIpc } from "./marketplace-ipc";
 import { registerHomeIpc } from "./home-ipc";
 import { registerTabIpc } from "./tab-ipc";
+import { registerDockIpc } from "./dock-ipc";
+import { registerCanvasIpc } from "./canvas-ipc";
 import { buildSubstrateDeps } from "./substrate-deps";
 import { createCypherSession } from "./cypher-session";
 import { initLocalDb, closeLocalDb } from "./local-db";
@@ -1145,6 +1147,10 @@ async function boot() {
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const callbacks = { openYoPanel: null as ((query: string) => void) | null };
 
+  // Dock + Canvas controllers — assigned once their IPC is registered below.
+  // Declared here so execCommand / inset handling can reach them.
+  let canvasApi: ReturnType<typeof registerCanvasIpc> | null = null;
+
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
     // .waz is now handled by commandParser.execute (so chained forms like
     // `.dip gmail .waz new <prompt>` work too); the inline shim that used
@@ -1161,6 +1167,11 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     sendSessionState();
+    // In canvas mode, a dipped layout arranges the free windows to its grid
+    // instead of attaching fixed grid views.
+    if (gridInfo && canvasApi?.isCanvasMode()) {
+      canvasApi.arrangeToGrid(gridInfo);
+    }
     // Sync tab state (dip commands change active panel / open grids)
     if (gridInfo) {
       for (const id of gridInfo.panelIds) ensureTab(id);
@@ -1207,7 +1218,9 @@ async function boot() {
   panelManager.setOnInsetChange(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (panelManager.isHidden) return; // don't re-show during splash/overlay
-    if (layoutManager.hasSplit) {
+    if (canvasApi?.isCanvasMode()) {
+      canvasApi.applyCanvas();
+    } else if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
     } else {
       panelManager.resizeViews(mainWindow);
@@ -2403,7 +2416,9 @@ async function boot() {
   ipcMain.on("panels-show", () => {
     if (!mainWindow || !panelsReady) return;
     panelManager.hidden = false;
-    if (layoutManager.hasSplit) {
+    if (canvasApi?.isCanvasMode()) {
+      canvasApi.applyCanvas();
+    } else if (layoutManager.hasSplit) {
       layoutManager.restoreSplit(mainWindow);
     } else {
       panelManager.showActive(mainWindow);
@@ -3194,7 +3209,33 @@ async function boot() {
     openYoPanel, createPanelForApp,
     setPreference, getPreference,
     URL_BAR_HEIGHT,
+    afterNav: () => { if (canvasApi?.isCanvasMode()) canvasApi.applyCanvas(); },
   });
+
+  // ── Dock + Canvas mode ────────────────────────────────────
+  registerDockIpc({
+    panelManager,
+    getMainWindow: () => mainWindow,
+    getPreference, setPreference,
+  });
+
+  const getPanelMeta = (id: string) => ({
+    name: getTabName(id),
+    favicon: panelFavicons[id] || agentPanelFavicon(id) || "",
+  });
+  canvasApi = registerCanvasIpc({
+    panelManager, layoutManager,
+    getMainWindow: () => mainWindow,
+    getPreference, setPreference,
+    openTabs,
+    getPanelMeta,
+    closeTab: (id: string) => { ipcMain.emit("tab-close", {} as Electron.IpcMainEvent, id); },
+    sendTabState,
+  });
+  // Restore canvas mode on boot if it was active when the app last closed.
+  if (getPreference<boolean>("canvasMode", false)) {
+    panelManager.setCanvasMode(true);
+  }
 
   ipcMain.on("open-external", (_e, url: string) => {
     // Only allow http(s) and mailto URLs — block file://, javascript://, etc.
