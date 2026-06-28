@@ -478,7 +478,7 @@ function initSettings() {
 
   // ── Dock + Canvas mode ──────────────────────────────────────
   {
-    type DockCfg = { enabled: boolean; autoHide: boolean; scale: number; zoom: boolean };
+    type DockCfg = { enabled: boolean; autoHide: boolean; scale: number; zoom: boolean; magnify: number; position: string };
     const dockYo = window.yo as unknown as {
       dockGetConfig: () => Promise<DockCfg>;
       dockSetConfig: (patch: Partial<DockCfg>) => void;
@@ -491,15 +491,22 @@ function initSettings() {
     const dockZoom = el("toggle-dock-zoom");
     const dockScale = el("dock-scale");
     const dockScaleVal = document.getElementById("dock-scale-value");
+    const dockMagnify = el("dock-magnify");
+    const dockMagnifyVal = document.getElementById("dock-magnify-value");
+    const dockPosition = document.getElementById("dock-position") as HTMLSelectElement | null;
     const canvasMode = el("toggle-canvas-mode");
 
     const setScaleLabel = (v: number) => { if (dockScaleVal) dockScaleVal.textContent = `${Math.round(v * 100)}%`; };
+    const setMagnifyLabel = (v: number) => { if (dockMagnifyVal) dockMagnifyVal.textContent = `${Math.round(v * 100)}%`; };
 
     dockEnabled?.addEventListener("change", () => dockYo.dockSetConfig({ enabled: dockEnabled.checked }));
     dockAutoHide?.addEventListener("change", () => dockYo.dockSetConfig({ autoHide: dockAutoHide.checked }));
     dockZoom?.addEventListener("change", () => dockYo.dockSetConfig({ zoom: dockZoom.checked }));
     dockScale?.addEventListener("input", () => setScaleLabel(parseFloat(dockScale.value)));
     dockScale?.addEventListener("change", () => dockYo.dockSetConfig({ scale: parseFloat(dockScale.value) }));
+    dockMagnify?.addEventListener("input", () => setMagnifyLabel(parseFloat(dockMagnify.value)));
+    dockMagnify?.addEventListener("change", () => dockYo.dockSetConfig({ magnify: parseFloat(dockMagnify.value) }));
+    dockPosition?.addEventListener("change", () => dockYo.dockSetConfig({ position: dockPosition.value }));
     canvasMode?.addEventListener("change", () => dockYo.canvasSetMode(!!canvasMode.checked));
 
     const applyCfg = (cfg: DockCfg) => {
@@ -508,6 +515,9 @@ function initSettings() {
       if (dockZoom) dockZoom.checked = cfg.zoom;
       if (dockScale) dockScale.value = String(cfg.scale);
       setScaleLabel(cfg.scale);
+      if (dockMagnify) dockMagnify.value = String(cfg.magnify ?? 1.6);
+      setMagnifyLabel(cfg.magnify ?? 1.6);
+      if (dockPosition) dockPosition.value = cfg.position || "bottom";
     };
     dockYo.onDockChanged(applyCfg);
     (async () => {

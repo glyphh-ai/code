@@ -113,6 +113,22 @@ export function initTabBar(deps: TabBarDeps): {
       menu.appendChild(divider);
     }
 
+    // New window + Add to dock (universal — every tab/app gets them).
+    const yoExtra = window.yo as unknown as { tabNewWindow: (id: string) => void; dockAddFromId: (id: string) => void };
+    const newWinBtn = document.createElement("button");
+    newWinBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg><span>New window</span>`;
+    newWinBtn.addEventListener("click", () => { closeTabCtxMenu(); yoExtra.tabNewWindow(tabId); });
+    menu.appendChild(newWinBtn);
+
+    const addDockBtn = document.createElement("button");
+    addDockBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="14" width="20" height="6" rx="2"/><path d="M12 3v8M9 8l3 3 3-3"/></svg><span>Add to dock</span>`;
+    addDockBtn.addEventListener("click", () => { closeTabCtxMenu(); yoExtra.dockAddFromId(tabId); });
+    menu.appendChild(addDockBtn);
+
+    const divider2 = document.createElement("div");
+    divider2.className = "tab-new-menu-divider";
+    menu.appendChild(divider2);
+
     // Close all (universal — every tab gets it).
     const closeAllBtn = document.createElement("button");
     closeAllBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close all tabs</span>`;

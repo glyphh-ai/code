@@ -14,7 +14,6 @@ import { initDownloads } from "./downloads-ui.js";
 import { initDrip } from "./drip-ui.js";
 import { initTabBar } from "./tab-bar-ui.js";
 import { initGrid } from "./grid-ui.js";
-import { initDock } from "./dock-ui.js";
 import { initCanvas } from "./canvas-ui.js";
 import { initCommandCenter } from "./command-center-ui.js";
 import { initYoPanel } from "./yo-panel-ui-vscode.js";
@@ -213,6 +212,7 @@ declare global {
       tabReorder: (newOrder: string[]) => void;
       tabNew: () => void;
       tabNewApp: (appId: string) => void;
+      canvasOpenApp: (appId: string) => void;
       onTabState: (callback: (state: { tabs: TabInfo[]; activeId: string; visible: boolean }) => void) => void;
       // URL bar
       urlBarNavigate: (url: string) => void;
@@ -671,8 +671,29 @@ document.addEventListener("keydown", (e) => {
 });
 
 
+// Open a system/user app in the workspace. In canvas mode each app is a
+// free-floating window, so route through canvasOpenApp; otherwise open a tab.
+// Keep every "app tray" entry point (nav rail, header gear, settings signal)
+// going through here so they all respect the active layout mode.
+function openWorkspaceApp(slug: string): void {
+  if (document.body.classList.contains("canvas-mode")) window.yo.canvasOpenApp(slug);
+  else window.yo.tabNewApp(slug);
+}
+
 // Open settings tab when main process signals (kept; welcome removed).
-window.yo.onOpenSettings(() => window.yo.tabNewApp("home"));
+window.yo.onOpenSettings(() => openWorkspaceApp("home"));
+
+// Dock × → themed confirmation (the overlay window can't host the app modal).
+{
+  const dockYo = window.yo as unknown as {
+    onDockConfirmRemove: (cb: (info: { id: string; name: string }) => void) => void;
+    dockRemoveApp: (id: string) => void;
+  };
+  dockYo.onDockConfirmRemove(async ({ id, name }) => {
+    const ok = await yoConfirm({ title: "Remove from Dock", message: `Remove ${name} from the Dock?`, confirmText: "Remove", danger: true });
+    if (ok) dockYo.dockRemoveApp(id);
+  });
+}
 
 
 // -- Grid (extracted to grid-ui.ts) --
@@ -689,8 +710,8 @@ const gridApi = initGrid({
 // -- Downloads dropdown (extracted to downloads-ui.ts) --
 initDownloads();
 
-// -- Dock + Canvas mode + Command Center --
-initDock();
+// -- Canvas mode + Command Center --
+// (The Dock now renders in its own transparent overlay window; see dock-overlay.ts.)
 initCanvas();
 const commandCenter = initCommandCenter();
 // Header Command Center launcher (zoom-out view of all open apps + layouts).
@@ -749,7 +770,7 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
   rail.querySelectorAll<HTMLElement>(".files-rail-navitem[data-section]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const slug = btn.dataset.section;
-      if (slug) window.yo.tabNewApp(slug);
+      if (slug) openWorkspaceApp(slug);
     });
   });
   document.getElementById("files-rail-logout")?.addEventListener("click", () => {
@@ -757,7 +778,7 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
   });
   // Header gear → yo://settings app. Same target as .dip settings.
   document.getElementById("header-settings-gear")?.addEventListener("click", () => {
-    window.yo.tabNewApp("settings");
+    openWorkspaceApp("settings");
   });
 
   // Resize handle.

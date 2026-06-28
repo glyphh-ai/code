@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("yo", {
   dockSetConfig: (patch: Partial<{ enabled: boolean; autoHide: boolean; scale: number; zoom: boolean; apps: string[] }>) => ipcRenderer.send("dock-set-config", patch),
   dockAddApp: (id: string) => ipcRenderer.send("dock-add-app", id),
   dockRemoveApp: (id: string) => ipcRenderer.send("dock-remove-app", id),
+  onDockConfirmRemove: (cb: (info: { id: string; name: string }) => void) => {
+    ipcRenderer.on("dock-confirm-remove", (_e, info) => cb(info));
+  },
   dockReorder: (order: string[]) => ipcRenderer.send("dock-reorder", order),
   onDockChanged: (cb: (cfg: { enabled: boolean; autoHide: boolean; scale: number; zoom: boolean; apps: string[]; height: number }) => void) => {
     ipcRenderer.on("dock-changed", (_e, cfg) => cb(cfg));
@@ -46,6 +49,13 @@ contextBridge.exposeInMainWorld("yo", {
   onCanvasState: (cb: (state: { mode: boolean; titlebarH: number; active: string | null; windows: Array<{ id: string; name: string; favicon: string; x: number; y: number; w: number; h: number; z: number; collapsed: boolean }> }) => void) => {
     ipcRenderer.on("canvas-state", (_e, state) => cb(state));
   },
+  // Backup mouseup for canvas drag/resize: if the pointer is released somewhere
+  // the chrome view can't see (e.g. window clamped at a screen edge), the main
+  // renderer ends the gesture so the ghost doesn't get stuck following.
+  onCanvasInteracting: (cb: (active: boolean) => void) => {
+    ipcRenderer.on("canvas-interacting", (_e, active: boolean) => cb(!!active));
+  },
+  canvasInteractEndGlobal: () => ipcRenderer.send("canvas-interact-end-global"),
 
   // Skills CRUD
   skillsList: () => ipcRenderer.invoke("skills-list") as Promise<string[]>,
@@ -336,6 +346,8 @@ contextBridge.exposeInMainWorld("yo", {
   tabReorder: (newOrder: string[]) => ipcRenderer.send("tab-reorder", newOrder),
   tabNew: () => ipcRenderer.send("tab-new"),
   tabNewApp: (appId: string) => ipcRenderer.send("tab-new-app", appId),
+  tabNewWindow: (id: string) => ipcRenderer.send("tab-new-window", id),
+  dockAddFromId: (id: string) => ipcRenderer.send("dock-add-from-id", id),
   onTabState: (callback: (state: { tabs: Array<{ id: string; name: string; favicon?: string; layoutFavicons?: string[] }>; activeId: string; visible: boolean }) => void) => {
     ipcRenderer.on("tab-state", (_event, state) => callback(state));
   },

@@ -217,6 +217,17 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     const app = appConnector.get(appId);
     if (!app?.url) return;
 
+    // Canvas mode: one window per app — if a window for this app is already open,
+    // just raise it instead of spawning another (use "New window" to force one).
+    if (panelManager.canvasMode) {
+      const existing = openTabs.find((t) => t === appId || resolveAppId(t) === appId);
+      if (existing) {
+        ipcMain.emit("canvas-focus", {} as Electron.IpcMainEvent, existing);
+        sendTabState();
+        return;
+      }
+    }
+
     layoutManager.suspendSplit();
 
     // System apps (Dashboard, Apps, Agents, Vibes, Councils, Schedules,
@@ -245,6 +256,26 @@ export function registerTabIpc(deps: TabIpcDeps): void {
         ensureTab(appId);
       }
     }
+    setPreference("lastView", { type: "panel", id: openTabs[openTabs.length - 1] });
+    sendSplitState();
+    sendTabState();
+    afterNav?.();
+  });
+
+  // Force a brand-new instance/window of an app (the "New window" menu item),
+  // bypassing the canvas one-window-per-app dedupe.
+  ipcMain.on("tab-new-window", (_e, appId: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+    const baseId = resolveAppId(appId) || appId;
+    const app = appConnector.get(baseId);
+    if (!app?.url) return;
+    layoutManager.suspendSplit();
+    panelInstanceCounter.value++;
+    const instanceId = `${baseId}-${panelInstanceCounter.value}`;
+    createPanelForApp(instanceId, app);
+    ensureTab(instanceId);
+    panelManager.switchTo(instanceId, mainWindow); // canvas-aware → lands as a window
     setPreference("lastView", { type: "panel", id: openTabs[openTabs.length - 1] });
     sendSplitState();
     sendTabState();

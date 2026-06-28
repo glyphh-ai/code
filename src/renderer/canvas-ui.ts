@@ -19,6 +19,8 @@ interface CanvasYo {
   canvasClose: (id: string) => void;
   canvasMaximize: (id: string) => void;
   onCanvasState: (cb: (s: CanvasState) => void) => void;
+  onCanvasInteracting: (cb: (active: boolean) => void) => void;
+  canvasInteractEndGlobal: () => void;
   panelsHide: () => void;
   panelsShow: () => void;
 }
@@ -173,5 +175,11 @@ export function initCanvas(): void {
   }
 
   yo.onCanvasState((s) => { state = s; render(); });
+  // Backup end-of-gesture: while a drag/resize is active, a mouseup that reaches
+  // the main renderer (cursor over bare canvas) ends it, in case the chrome view
+  // didn't see the release.
+  let gestureActive = false;
+  yo.onCanvasInteracting((active) => { gestureActive = active; });
+  document.addEventListener("mouseup", () => { if (gestureActive) yo.canvasInteractEndGlobal(); });
   yo.canvasGetState().then((s) => { state = s; render(); }).catch(() => { /* */ });
 }

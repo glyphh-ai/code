@@ -15,7 +15,7 @@
  * "Dip to a layout" while in canvas mode arranges the windows to match that
  * layout's grid given the available space (canvasArrangeToGrid).
  */
-import { ipcMain } from "electron";
+import { ipcMain, screen } from "electron";
 import type { BrowserWindow } from "electron";
 import type { PanelManager } from "./panel-manager";
 import type { LayoutManager, GridLayout, GridSplitInfo } from "./layout-manager";
@@ -161,6 +161,17 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
       .sort((a, b) => (a.r.z ?? 0) - (b.r.z ?? 0))
       .map((e) => ({ id: e.id, x: e.r.x, y: e.r.y, width: e.r.w, height: e.r.h }));
     panelManager.applyCanvas(win, visible, CANVAS_TITLEBAR_H, CANVAS_FRAME);
+    // Push each window's meta to its chrome view so it can draw the titlebar.
+    for (const v of visible) {
+      const meta = getPanelMeta(v.id);
+      panelManager.updateChromeView(v.id, {
+        name: meta.name,
+        favicon: meta.favicon,
+        active: v.id === panelManager.activePanelId,
+        titlebarH: CANVAS_TITLEBAR_H,
+        frame: CANVAS_FRAME,
+      });
+    }
     win.webContents.send("canvas-state", buildState(win, windows));
   }
 
@@ -179,7 +190,9 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     if (on) {
       applyCanvas();
     } else {
-      // Leaving canvas: clear the canvas chrome, restore the prior view.
+      // Leaving canvas: tear down per-window chrome views, clear the canvas
+      // chrome, and restore the prior view.
+      panelManager.destroyAllChromeViews(win);
       win.webContents.send("canvas-state", { mode: false, titlebarH: CANVAS_TITLEBAR_H, frame: CANVAS_FRAME, active: panelManager.activePanelId, windows: [] } as CanvasState);
       if (layoutManager.hasSplit) {
         layoutManager.restoreSplit(win);
@@ -217,6 +230,10 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     if (!win) return;
     const windows = reconcile(win);
     if (!windows[id]) return;
+    // No-op if the window is already frontmost and uncollapsed — otherwise every
+    // click inside the active app would needlessly detach/reattach all views.
+    const zMax = Math.max(0, ...Object.values(windows).map((r) => r.z ?? 0));
+    if (!windows[id].collapsed && (windows[id].z ?? 0) >= zMax) return;
     if (windows[id].collapsed) windows[id].collapsed = false;
     bumpFront(id, windows);
     writeWindows(windows);
@@ -311,6 +328,152 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     writeWindows(windows);
     applyCanvas();
   });
+
+  // ── Chrome-view interactions ──────────────────────────────
+  // Each canvas window's chrome (titlebar + resize handles) is its own
+  // BrowserView. Buttons map straight onto the existing handlers. Drag/resize
+  // bring the window to front, then hand off to the main renderer's DOM drag
+  // path (canvas-ui) — the views detach there so tracking stays smooth and in a
+  // single webContents.
+  ipcMain.on("canvas-chrome-ready", (_e, id: string) => {
+    if (!isCanvasMode() || !windowIds().includes(id)) return;
+    const meta = getPanelMeta(id);
+    panelManager.updateChromeView(id, {
+      name: meta.name,
+      favicon: meta.favicon,
+      active: id === panelManager.activePanelId,
+      titlebarH: CANVAS_TITLEBAR_H,
+      frame: CANVAS_FRAME,
+    });
+  });
+  ipcMain.on("canvas-chrome-focus", (_e, id: string) => { ipcMain.emit("canvas-focus", {} as Electron.IpcMainEvent, id); });
+  ipcMain.on("canvas-chrome-button", (_e, id: string, action: "collapse" | "maximize" | "close") => {
+    if (action === "collapse") ipcMain.emit("canvas-collapse", {} as Electron.IpcMainEvent, id);
+    else if (action === "maximize") ipcMain.emit("canvas-maximize", {} as Electron.IpcMainEvent, id);
+    else if (action === "close") ipcMain.emit("canvas-close", {} as Electron.IpcMainEvent, id);
+  });
+  // ── Live drag / resize via global cursor polling ─────────────────
+  // The gesture's mousedown landed inside a chrome BrowserView, so that view
+  // holds the OS mouse capture — but a BrowserView only receives mouse events
+  // while the cursor is over its bounds, so streaming its moves drops events on
+  // fast drags. Instead we poll the global cursor position in the main process
+  // (robust to speed and bounds) and move/resize that window's chrome view (the
+  // "ghost") live. The content view is detached for the gesture and restored at
+  // the final bounds on release. The chrome view still sends the mouseup
+  // (`interact-end`) — polling keeps the ghost under the cursor, so it lands on
+  // the chrome view.
+  /** Snap distance (px) for window edges during move/resize. */
+  const SNAP = 8;
+
+  let interaction:
+    | { id: string; mode: "move" | "resize"; edge?: "r" | "b" | "br"; ox: number; oy: number; ow: number; oh: number; cur: WinRect; area: { x: number; y: number; w: number; h: number }; cursorStart: { x: number; y: number }; timer: ReturnType<typeof setInterval>; vTargets: number[]; hTargets: number[] }
+    | null = null;
+
+  /** Pick the snapped value for `edges` against `targets` within SNAP px. Returns
+   *  the offset to apply (0 if nothing is close enough). */
+  function snapOffset(edges: number[], targets: number[]): number {
+    let best = SNAP + 1, adj = 0;
+    for (const t of targets) {
+      for (const e of edges) {
+        const d = Math.abs(e - t);
+        if (d < best) { best = d; adj = t - e; }
+      }
+    }
+    return best <= SNAP ? adj : 0;
+  }
+
+  function endInteraction(): void {
+    if (!interaction) return;
+    clearInterval(interaction.timer);
+    const { id, cur } = interaction;
+    interaction = null;
+    panelManager.setCanvasInteracting(false);
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send("canvas-interacting", false);
+    const windows = reconcile(win);
+    if (windows[id]) {
+      windows[id] = { ...windows[id], x: cur.x, y: cur.y, w: cur.w, h: cur.h };
+      writeWindows(windows);
+    }
+    applyCanvas();
+  }
+
+  function tickInteraction(): void {
+    if (!interaction) return;
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) { endInteraction(); return; }
+    const c = screen.getCursorScreenPoint();
+    const dx = c.x - interaction.cursorStart.x;
+    const dy = c.y - interaction.cursorStart.y;
+    const { mode, edge, ox, oy, ow, oh, area, vTargets, hTargets } = interaction;
+    if (mode === "move") {
+      let x = Math.max(area.x, Math.min(ox + dx, area.x + area.w - ow));
+      let y = Math.max(area.y, Math.min(oy + dy, area.y + area.h - oh));
+      // Snap left/right edges to vertical targets, top/bottom to horizontal ones.
+      x += snapOffset([x, x + ow], vTargets);
+      y += snapOffset([y, y + oh], hTargets);
+      interaction.cur = { ...interaction.cur, x, y, w: ow, h: oh };
+    } else {
+      let w = ow, h = oh;
+      if (edge === "r" || edge === "br") {
+        w = Math.max(MIN_W, Math.min(ow + dx, area.x + area.w - ox));
+        const adj = snapOffset([ox + w], vTargets); // snap the right edge
+        if (adj) w = Math.max(MIN_W, Math.min(w + adj, area.x + area.w - ox));
+      }
+      if (edge === "b" || edge === "br") {
+        h = Math.max(MIN_H, Math.min(oh + dy, area.y + area.h - oy));
+        const adj = snapOffset([oy + h], hTargets); // snap the bottom edge
+        if (adj) h = Math.max(MIN_H, Math.min(h + adj, area.y + area.h - oy));
+      }
+      interaction.cur = { ...interaction.cur, x: ox, y: oy, w, h };
+    }
+    panelManager.setChromeViewBounds(interaction.id, { x: interaction.cur.x, y: interaction.cur.y, w: interaction.cur.w, h: interaction.cur.h });
+  }
+
+  function startInteraction(id: string, mode: "move" | "resize", edge?: "r" | "b" | "br"): void {
+    if (!isCanvasMode()) return;
+    const win = getMainWindow();
+    if (!win) return;
+    if (interaction) endInteraction();
+    const windows = reconcile(win);
+    if (!windows[id]) return;
+    if (windows[id].collapsed) windows[id].collapsed = false;
+    // Bump z in prefs so the window is frontmost after release, and raise its
+    // chrome view to the top IN PLACE (no detach → mouse capture survives).
+    bumpFront(id, windows);
+    writeWindows(windows);
+    panelManager.setCanvasInteracting(true);
+    panelManager.detachPanelView(id, win); // hide content; only the ghost moves
+    panelManager.bringChromeToTop(id, win);
+    const r = windows[id];
+    const area = contentArea(win);
+    // Snap targets: the canvas edges plus every other (uncollapsed) window's
+    // edges, captured once so edges line up cleanly during the gesture.
+    const vTargets = [area.x, area.x + area.w];
+    const hTargets = [area.y, area.y + area.h];
+    for (const wid of windowIds()) {
+      if (wid === id) continue;
+      const o = windows[wid];
+      if (!o || o.collapsed) continue;
+      vTargets.push(o.x, o.x + o.w);
+      hTargets.push(o.y, o.y + o.h);
+    }
+    interaction = {
+      id, mode, edge,
+      ox: r.x, oy: r.y, ow: r.w, oh: r.h,
+      cur: { ...r }, area,
+      cursorStart: screen.getCursorScreenPoint(),
+      timer: setInterval(tickInteraction, 16),
+      vTargets, hTargets,
+    };
+    win.webContents.send("canvas-interacting", true);
+  }
+
+  ipcMain.on("canvas-chrome-move-start", (_e, id: string) => startInteraction(id, "move"));
+  ipcMain.on("canvas-chrome-resize-start", (_e, id: string, edge: "r" | "b" | "br") => startInteraction(id, "resize", edge));
+  ipcMain.on("canvas-chrome-interact-end", (_e, id: string) => { if (interaction && interaction.id === id) endInteraction(); });
+  ipcMain.on("canvas-interact-end-global", () => { if (interaction) endInteraction(); });
 
   ipcMain.on("canvas-dip-layout", (_e, name?: string) => {
     if (!isCanvasMode()) return;
