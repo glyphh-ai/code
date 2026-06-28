@@ -405,10 +405,6 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
         <span>Dashboard</span>
       </button>
-      <button class="files-rail-navitem" data-section="apps">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-        <span>Apps</span>
-      </button>
       <button class="files-rail-navitem" data-section="agents">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/><path d="M5.5 21a8.5 8.5 0 0 1 13 0"/></svg>
         <span>Agents</span>
@@ -431,26 +427,25 @@
       </button>
       <div class="files-rail-spacer"></div>
     </div>
-    <!-- Draggable divider between top (launchers) and bottom (recents).
-         Drag persists as `leftRailSplit` (px of recents pane height). -->
+    <!-- Draggable divider between the top launchers and the Apps pane.
+         Drag persists as `leftRailSplit` (px of nav pane height). -->
     <div id="rail-split-handle" class="rail-split-handle" title="Drag to resize"></div>
-    <!-- Middle: Recents — last 10 apps the user has opened. -->
-    <div id="rail-recents" class="rail-recents">
+    <!-- Apps — every app, alphabetical, click to open. Manage via the open icon. -->
+    <div id="rail-apps" class="rail-recents rail-apps">
       <div class="rail-recents-header">
-        <span class="rail-recents-title">Recents</span>
+        <span class="rail-recents-title">Apps</span>
         <span class="rail-recents-spacer"></span>
-        <button id="rail-recents-clear" class="rail-section-clear" type="button" title="Clear recents">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        <button id="rail-apps-open" class="rail-section-clear" type="button" title="Manage apps">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
         </button>
       </div>
-      <input id="rail-recents-search" class="rail-recents-search" type="text" placeholder="Search…" spellcheck="false" />
-      <div id="rail-recents-list" class="rail-recents-list">
-        <div class="rail-recents-empty">No recents yet.</div>
+      <input id="rail-apps-search" class="rail-recents-search" type="text" placeholder="Search…" spellcheck="false" />
+      <div id="rail-apps-list" class="rail-recents-list">
+        <div class="rail-recents-empty">Loading…</div>
       </div>
-      <button id="rail-recents-more" class="rail-recents-more" type="button" style="display:none;">Show more</button>
     </div>
-    <!-- Draggable divider between Recents (above) and Workspaces (below).
-         Persists as `leftRailRecentsSplit` (px height of the Recents pane). -->
+    <!-- Divider between Apps (above) and Workspaces (below). Persists as
+         `leftRailAppsSplit` (px height of the Apps pane). -->
     <div id="rail-ws-split-handle" class="rail-split-handle" title="Drag to resize"></div>
     <!-- Bottom: Workspaces — last 20 folders the yo agent has worked in.
          Each row shows the folder name + git branch on top and the full
@@ -476,14 +471,8 @@
   <!-- Canvas mode: DOM window chrome (titlebars + resize frames) drawn over the
        free-floating BrowserViews. Positioned by canvas-ui.ts from main bounds. -->
   <div id="canvas-chrome"></div>
-  <!-- Collapsed canvas windows tray (above the dock / bottom of the app) -->
+  <!-- Collapsed canvas windows tray (bottom of the app) -->
   <div id="canvas-collapsed-tray" class="hidden"></div>
-
-  <!-- macOS-style Dock — lives in the bottom inset reserved by the main process.
-       Rendered by dock-ui.ts. -->
-  <div id="dock" class="dock">
-    <div class="dock-strip"></div>
-  </div>
 
   <!-- Command Center — zoom-out view of all open apps + saved layouts.
        Shown over freeze-frame; rendered by command-center-ui.ts. -->

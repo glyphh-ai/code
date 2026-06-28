@@ -203,7 +203,6 @@ const INTERNAL_APPS: Array<{ id: string; name: string; url: string; capturePolic
   // Boot-time fallback shown when there's no panel state to restore.
   // Settings — opened from the header gear; no longer in the left rail.
   { id: "home", name: "Settings", url: "yo://home", capturePolicy: NO_CAPTURE, kind: "system" },
-  { id: "spec", name: "Spec", url: "yo://spec", capturePolicy: NO_CAPTURE, requiresFolder: true },
   { id: "workbench", name: "Workbench", url: "yo://workbench", capturePolicy: NO_CAPTURE, requiresFolder: true },
   // VS Code panel — auto-detected. If the `code` CLI is on PATH, VSCodeServer
   // spawns `code serve-web` and the panel loads its localhost URL. Otherwise
@@ -414,6 +413,17 @@ export class AppConnector {
         this.apps.delete(staleId);
         try { fs.unlinkSync(path.join(this.appsDir, `${staleId}.json`)); } catch { /* ignore */ }
         console.log(`[app-connector] purged removed internal app: ${staleId}`);
+      }
+    }
+
+    // Apps removed from the product entirely (Agent / Plan / Ada panels) —
+    // purge unconditionally; these ids aren't real apps any more.
+    const REMOVED_IDS = ["agent", "plan", "ada", "adal"];
+    for (const id of REMOVED_IDS) {
+      if (this.apps.has(id)) {
+        this.apps.delete(id);
+        try { fs.unlinkSync(path.join(this.appsDir, `${id}.json`)); } catch { /* ignore */ }
+        console.log(`[app-connector] purged removed app: ${id}`);
       }
     }
 

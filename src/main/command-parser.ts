@@ -9,7 +9,7 @@
  *   peace [count]   → particle peace-sign gesture
  */
 
-import { BrowserWindow, WebContents } from "electron";
+import { BrowserWindow, WebContents, ipcMain } from "electron";
 import { PanelManager } from "./panel-manager";
 import { SkillEngine } from "./skill-engine";
 import { LayoutManager } from "./layout-manager";
@@ -342,6 +342,15 @@ export class CommandParser {
       return switched ? `Switched to ${targetId}` : `Unknown panel: ${targetId}. Try: dip list`;
     }
 
+    // dip clear — close every open window/tab AND any layout (full reset).
+    if (sub === "clear") {
+      this.layouts.clearSplit();
+      if (this.tabCloser && this.tabLister) {
+        for (const id of this.tabLister()) this.tabCloser(id);
+      }
+      return "Cleared all windows and layouts.";
+    }
+
     if (sub === "close") {
       if (!this.tabCloser || !this.tabLister) return "Tab manager not available.";
       const target = args[1]?.toLowerCase();
@@ -430,6 +439,24 @@ export class CommandParser {
       return this.handleDipSplit(args.slice(1), win);
     }
 
+    // Canvas mode: `dip grid` tiles all open windows equally; `dip grid <c> <r>`
+    // forces columns/rows. (Falls through to the fixed-grid spec parser only when
+    // not in canvas mode.)
+    if (sub === "grid" && this.panels.canvasMode) {
+      // Drop any active layout so execCommand's post-command sync doesn't
+      // re-arrange the windows back to it (e.g. after `.dip <layout>`).
+      this.layouts.clearSplit();
+      const cols = parseInt(args[1] ?? "", 10);
+      const rows = parseInt(args[2] ?? "", 10);
+      ipcMain.emit(
+        "canvas-grid-all",
+        {} as Electron.IpcMainEvent,
+        Number.isFinite(cols) ? cols : undefined,
+        Number.isFinite(rows) ? rows : undefined,
+      );
+      return rows || cols ? `Grid: ${cols || "auto"}×${rows || "auto"}` : "Arranged windows in a grid";
+    }
+
     // dip grid — full grid with spans, custom widths/heights
     if (sub === "grid" && args.length >= 2) {
       return this.handleDipGrid(args.slice(1), win);
@@ -495,8 +522,9 @@ export class CommandParser {
       }
     }
 
-    // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands
-    this.layouts.suspendSplit();
+    // dip <panel-id> [cmd1 cmd2 ...] — switch + optional app commands. Dipping to
+    // anything that isn't a layout closes any open layout.
+    this.layouts.clearSplit();
     const switched = this.panels.switchTo(sub, win);
     if (!switched) return `Unknown panel: ${sub}. Try: dip list`;
     setPreference("lastView", { type: "panel", id: sub });

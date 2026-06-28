@@ -683,18 +683,6 @@ function openWorkspaceApp(slug: string): void {
 // Open settings tab when main process signals (kept; welcome removed).
 window.yo.onOpenSettings(() => openWorkspaceApp("home"));
 
-// Dock × → themed confirmation (the overlay window can't host the app modal).
-{
-  const dockYo = window.yo as unknown as {
-    onDockConfirmRemove: (cb: (info: { id: string; name: string }) => void) => void;
-    dockRemoveApp: (id: string) => void;
-  };
-  dockYo.onDockConfirmRemove(async ({ id, name }) => {
-    const ok = await yoConfirm({ title: "Remove from Dock", message: `Remove ${name} from the Dock?`, confirmText: "Remove", danger: true });
-    if (ok) dockYo.dockRemoveApp(id);
-  });
-}
-
 
 // -- Grid (extracted to grid-ui.ts) --
 const gridApi = initGrid({
@@ -711,7 +699,6 @@ const gridApi = initGrid({
 initDownloads();
 
 // -- Canvas mode + Command Center --
-// (The Dock now renders in its own transparent overlay window; see dock-overlay.ts.)
 initCanvas();
 const commandCenter = initCommandCenter();
 // Header Command Center launcher (zoom-out view of all open apps + layouts).
@@ -817,35 +804,10 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
   // layout — at least 2 wide, expands to fill the rail's width.
   type RailRecent = { kind: "app" | "layout"; id: string; name: string; folder: string; ts: number };
   type AppMeta = { id: string; name: string; url?: string };
-  const RECENT_LIMIT = 10;
   const railNav = document.getElementById("files-rail-nav")!;
-  const railRecents = document.getElementById("rail-recents")!;
-  const railRecentsList = document.getElementById("rail-recents-list")!;
-  const railRecentsSearch = document.getElementById("rail-recents-search") as HTMLInputElement | null;
-  const railRecentsMore = document.getElementById("rail-recents-more") as HTMLButtonElement | null;
   const railSplitHandle = document.getElementById("rail-split-handle")!;
-  if (railRecentsMore) railRecentsMore.style.display = "none"; // grid shows all <=10; no paginator needed
 
-  let railRecentsAll: RailRecent[] = [];
-  let railRecentsQuery = "";
-  let railAppsById = new Map<string, AppMeta>();
-
-  /** Most-recent entry per app id, sorted newest first, capped at RECENT_LIMIT. */
-  function railRecentsDedup(): RailRecent[] {
-    const seen = new Map<string, RailRecent>();
-    for (const r of railRecentsAll) {
-      if (r.kind !== "app") continue;
-      const prev = seen.get(r.id);
-      if (!prev || r.ts > prev.ts) seen.set(r.id, r);
-    }
-    return [...seen.values()].sort((a, b) => b.ts - a.ts).slice(0, RECENT_LIMIT);
-  }
-  function railRecentsFiltered(): RailRecent[] {
-    const q = railRecentsQuery.trim().toLowerCase();
-    const list = railRecentsDedup();
-    if (!q) return list;
-    return list.filter((r) => r.name.toLowerCase().includes(q));
-  }
+  // Shared icon renderer (favicon for web apps, initial for yo:// internal).
   function iconHtml(app: RailRecent, meta?: AppMeta): string {
     const initial = (meta?.name || app.name).charAt(0).toUpperCase();
     const url = meta?.url || "";
@@ -859,59 +821,52 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
     }
     return `<span class="rail-recents-icon-initial">${initial}</span>`;
   }
-  function renderRailRecents(): void {
-    const list = railRecentsFiltered();
-    railRecentsList.innerHTML = "";
+
+  // ── Apps section — every openable app, alphabetical, click to open ──
+  // (canvas-aware). This is the canvas-mode stand-in for the `+` picker.
+  const railAppsListEl = document.getElementById("rail-apps-list");
+  const railAppsSearch = document.getElementById("rail-apps-search") as HTMLInputElement | null;
+  let railAppsAll: Array<{ id: string; name: string; url?: string }> = [];
+  let railAppsQuery = "";
+  function renderRailAppsList(): void {
+    if (!railAppsListEl) return;
+    const q = railAppsQuery.trim().toLowerCase();
+    const list = railAppsAll.filter((a) => !q || a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q));
+    railAppsListEl.innerHTML = "";
     if (list.length === 0) {
       const empty = document.createElement("div");
       empty.className = "rail-recents-empty";
-      empty.textContent = railRecentsQuery
-        ? `No recents matching "${railRecentsQuery}".`
-        : "No recents yet.";
-      railRecentsList.appendChild(empty);
+      empty.textContent = q ? `No apps matching "${railAppsQuery}".` : "No apps.";
+      railAppsListEl.appendChild(empty);
       return;
     }
-    for (const entry of list) {
-      const meta = railAppsById.get(entry.id);
+    for (const app of list) {
+      const entry: RailRecent = { kind: "app", id: app.id, name: app.name, folder: "", ts: 0 };
+      const meta: AppMeta = { id: app.id, name: app.name, url: app.url };
       const cell = document.createElement("button");
       cell.className = "rail-recents-cell";
       cell.type = "button";
-      cell.title = meta?.name || entry.name;
-      cell.innerHTML = `
-        <div class="rail-recents-icon">${iconHtml(entry, meta)}</div>
-        <div class="rail-recents-name"></div>
-      `;
-      (cell.querySelector(".rail-recents-name") as HTMLElement).textContent = meta?.name || entry.name;
-      cell.addEventListener("click", () => { void window.yo.recentsOpen(entry); });
-      railRecentsList.appendChild(cell);
+      cell.title = app.name;
+      cell.innerHTML = `<div class="rail-recents-icon">${iconHtml(entry, meta)}</div><div class="rail-recents-name"></div>`;
+      (cell.querySelector(".rail-recents-name") as HTMLElement).textContent = app.name;
+      cell.addEventListener("click", () => openWorkspaceApp(app.id));
+      railAppsListEl.appendChild(cell);
     }
   }
-  async function refreshRailApps(): Promise<void> {
-    try {
-      const apps = await window.yo.appsList();
-      railAppsById = new Map(apps.map((a) => [a.id, { id: a.id, name: a.name, url: a.url }]));
-    } catch { /* leave map as-is */ }
+  async function refreshRailAppsSection(): Promise<void> {
+    let apps: Array<{ id: string; name: string; url?: string }> = [];
+    try { apps = await window.yo.appsListMountable(); } catch { /* leave empty */ }
+    // Only real, openable apps (drops stale/removed entries without a URL), A→Z.
+    railAppsAll = apps
+      .filter((a) => !!a.url)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    renderRailAppsList();
   }
-  async function refreshRailRecents(): Promise<void> {
-    railRecentsAll = (await window.yo.recentsList().catch(() => [])) as RailRecent[];
-    await refreshRailApps();
-    renderRailRecents();
-  }
-  railRecentsSearch?.addEventListener("input", () => {
-    railRecentsQuery = railRecentsSearch.value;
-    renderRailRecents();
-  });
-  document.getElementById("rail-recents-clear")?.addEventListener("click", async () => {
-    const ok = await yoConfirm({
-      title: "Clear Recents",
-      message: "This removes every recently opened app from the list. Your apps themselves aren't affected — only the history shown here.",
-      confirmText: "Clear",
-      danger: true,
-    });
-    if (ok) void window.yo.recentsClear();
-  });
-  window.yo.onRecentsChanged(() => { void refreshRailRecents(); });
-  void refreshRailRecents();
+  railAppsSearch?.addEventListener("input", () => { railAppsQuery = railAppsSearch.value; renderRailAppsList(); });
+  // The header's open icon launches the Apps management page.
+  document.getElementById("rail-apps-open")?.addEventListener("click", () => openWorkspaceApp("apps"));
+  window.yo.onAppsChanged?.(() => { void refreshRailAppsSection(); });
+  void refreshRailAppsSection();
 
   // ── Workspaces section — last 20 folders the yo agent has worked in ──
   // Folder name + git branch on top row; full path beneath. Click sets the
@@ -1026,53 +981,38 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
   void refreshRailWorkspaces();
   void railWorkspaces;
 
-  // ── Rail splits: two draggable dividers ──
+  // ── Rail splits: two draggable dividers (nav, apps) ──
   //  - leftRailSplit (px): height of the top nav pane
-  //  - leftRailRecentsSplit (px): height of the middle Recents pane
+  //  - leftRailAppsSplit (px): height of the Apps pane (Workspaces takes the rest)
   let navH = 280;
-  let recentsH = 200;
-  let splitDragging: "nav" | "recents" | null = null;
-  function applyNavHeight(px: number): void {
-    rail.style.setProperty("--rail-nav-h", `${Math.max(80, px)}px`);
-  }
-  function applyRecentsHeight(px: number): void {
-    rail.style.setProperty("--rail-recents-h", `${Math.max(80, px)}px`);
-  }
+  let appsH = 200;
+  let splitDragging: "nav" | "apps" | null = null;
+  const applyNavHeight = (px: number): void => { rail.style.setProperty("--rail-nav-h", `${Math.max(80, px)}px`); };
+  const applyAppsHeight = (px: number): void => { rail.style.setProperty("--rail-apps-h", `${Math.max(80, px)}px`); };
   void (async () => {
     const savedNav = await window.yo.getPreference("leftRailSplit", 280);
     if (typeof savedNav === "number" && savedNav > 0) navH = savedNav;
     applyNavHeight(navH);
-    const savedRec = await window.yo.getPreference("leftRailRecentsSplit", 200);
-    if (typeof savedRec === "number" && savedRec > 0) recentsH = savedRec;
-    applyRecentsHeight(recentsH);
+    const savedApps = await window.yo.getPreference("leftRailAppsSplit", 200);
+    if (typeof savedApps === "number" && savedApps > 0) appsH = savedApps;
+    applyAppsHeight(appsH);
   })();
   railSplitHandle.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    splitDragging = "nav";
-    railSplitHandle.classList.add("dragging");
-    document.body.style.cursor = "row-resize";
+    e.preventDefault(); splitDragging = "nav"; railSplitHandle.classList.add("dragging"); document.body.style.cursor = "row-resize";
   });
   railWsSplit?.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    splitDragging = "recents";
-    railWsSplit.classList.add("dragging");
-    document.body.style.cursor = "row-resize";
+    e.preventDefault(); splitDragging = "apps"; railWsSplit.classList.add("dragging"); document.body.style.cursor = "row-resize";
   });
   document.addEventListener("mousemove", (e) => {
     if (!splitDragging) return;
     const railRect = rail.getBoundingClientRect();
     const relY = e.clientY - railRect.top;
     if (splitDragging === "nav") {
-      const minTop = 80;
-      const minBottom = 240; // leave room for both recents + workspaces
-      navH = Math.max(minTop, Math.min(railRect.height - minBottom, relY));
+      navH = Math.max(80, Math.min(railRect.height - 200, relY));
       applyNavHeight(navH);
     } else {
-      const recentsTop = navH; // recents starts directly below nav
-      const minRecents = 80;
-      const minWs = 120;
-      recentsH = Math.max(minRecents, Math.min(railRect.height - navH - minWs, relY - recentsTop));
-      applyRecentsHeight(recentsH);
+      appsH = Math.max(80, Math.min(railRect.height - navH - 120, relY - navH));
+      applyAppsHeight(appsH);
     }
   });
   document.addEventListener("mouseup", () => {
@@ -1083,12 +1023,11 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
     railWsSplit?.classList.remove("dragging");
     document.body.style.cursor = "";
     if (which === "nav") void window.yo.setPreference("leftRailSplit", navH);
-    else void window.yo.setPreference("leftRailRecentsSplit", recentsH);
+    else void window.yo.setPreference("leftRailAppsSplit", appsH);
   });
 
-  // Silence the unused-var warning for railNav / railRecents — referenced
-  // for clarity above and used implicitly via DOM.
-  void railNav; void railRecents;
+  // Silence the unused-var warning for railNav — used implicitly via DOM.
+  void railNav;
 }
 
 // -- Update bar --

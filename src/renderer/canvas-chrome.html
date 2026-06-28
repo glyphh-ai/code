@@ -67,11 +67,36 @@
   .tb-btn:hover { background: var(--cw-btn-hover); color: var(--cw-text); }
   .tb-btn svg { width: 13px; height: 13px; }
 
+  /* Browser URL bar — shown only for browser windows, in the strip the content
+     view is inset below (see CANVAS_URLBAR_H). Inset by the frame so the
+     left/right resize hotspots stay clickable. */
+  #urlbar {
+    position: absolute; top: 30px; left: 8px; right: 8px; height: 36px;
+    display: none; align-items: center; gap: 4px; padding: 0 4px;
+    background: var(--cw-bg); border-bottom: 1px solid var(--cw-border);
+  }
+  #cw.browser #urlbar { display: flex; }
+  .ub-btn {
+    flex: 0 0 auto; width: 24px; height: 24px; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: transparent; color: var(--cw-faint); cursor: pointer;
+  }
+  .ub-btn:hover { background: var(--cw-btn-hover); color: var(--cw-text); }
+  .ub-btn svg { width: 14px; height: 14px; }
+  #ub-input {
+    flex: 1 1 auto; min-width: 0; height: 25px; border-radius: 6px;
+    border: 1px solid var(--cw-border); background: var(--cw-tb); color: var(--cw-text);
+    font-size: 12px; padding: 0 9px; outline: none;
+  }
+  #ub-input:focus { border-color: color-mix(in srgb, var(--cw-accent) 70%, var(--cw-border)); }
+
   /* Resize hotspots live in the frame strips not covered by the content view. */
   .rz { position: absolute; }
   #rz-r  { top: 30px; right: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+  #rz-l  { top: 30px; left: 0; bottom: 0; width: 8px; cursor: ew-resize; }
   #rz-b  { left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
   #rz-br { right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+  #rz-bl { left: 0; bottom: 0; width: 14px; height: 14px; cursor: nesw-resize; }
 </style>
 </head>
 <body>
@@ -84,9 +109,17 @@
       <button class="tb-btn" id="btn-max" title="Expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/></svg></button>
       <button class="tb-btn" id="btn-close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
     </div>
+    <div id="urlbar">
+      <button class="ub-btn" id="ub-back" title="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <button class="ub-btn" id="ub-fwd" title="Forward"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+      <button class="ub-btn" id="ub-reload" title="Reload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+      <input id="ub-input" type="text" spellcheck="false" placeholder="Search or enter address" />
+    </div>
     <div class="rz" id="rz-r"></div>
+    <div class="rz" id="rz-l"></div>
     <div class="rz" id="rz-b"></div>
     <div class="rz" id="rz-br"></div>
+    <div class="rz" id="rz-bl"></div>
   </div>
 
   <script>
@@ -96,6 +129,14 @@
     const favInitial = document.getElementById("fav-initial");
     const title = document.getElementById("title");
     const titlebar = document.getElementById("titlebar");
+    const urlbar = document.getElementById("urlbar");
+    const ubInput = document.getElementById("ub-input");
+
+    // Browser URL bar wiring.
+    ubInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const v = ubInput.value.trim(); if (v) api.navTo(v); } });
+    document.getElementById("ub-back").addEventListener("click", () => api.navBack());
+    document.getElementById("ub-fwd").addEventListener("click", () => api.navForward());
+    document.getElementById("ub-reload").addEventListener("click", () => api.navRefresh());
 
     function applyTheme(t) {
       const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -109,6 +150,13 @@
       cw.classList.toggle("active", !!u.active);
       titlebar.style.height = (u.titlebarH || 30) + "px";
       document.getElementById("rz-r").style.top = (u.titlebarH || 30) + "px";
+      // Browser URL bar.
+      cw.classList.toggle("browser", !!u.isBrowser);
+      if (u.isBrowser) {
+        urlbar.style.top = (u.titlebarH || 30) + "px";
+        urlbar.style.height = (u.urlBarH || 36) + "px";
+        if (document.activeElement !== ubInput) ubInput.value = u.url || "";
+      }
       const initial = (u.name || api.id || "?").charAt(0).toUpperCase();
       favInitial.textContent = initial;
       if (u.favicon) {
@@ -161,7 +209,7 @@
     document.getElementById("btn-collapse").addEventListener("click", (e) => { e.stopPropagation(); api.button("collapse"); });
     document.getElementById("btn-max").addEventListener("click", (e) => { e.stopPropagation(); api.button("maximize"); });
     document.getElementById("btn-close").addEventListener("click", (e) => { e.stopPropagation(); api.button("close"); });
-    for (const edge of ["r", "b", "br"]) {
+    for (const edge of ["r", "l", "b", "br", "bl"]) {
       document.getElementById("rz-" + edge).addEventListener("mousedown", (e) => {
         e.preventDefault();
         api.resizeStart(edge);

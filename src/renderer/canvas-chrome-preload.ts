@@ -26,11 +26,16 @@ contextBridge.exposeInMainWorld("canvasChrome", {
   // Main drives the live move/resize by polling the global cursor; these just
   // mark the gesture's start and end.
   moveStart: () => ipcRenderer.send("canvas-chrome-move-start", id),
-  resizeStart: (edge: "r" | "b" | "br") => ipcRenderer.send("canvas-chrome-resize-start", id, edge),
+  resizeStart: (edge: "r" | "b" | "br" | "l" | "bl") => ipcRenderer.send("canvas-chrome-resize-start", id, edge),
   interactEnd: () => ipcRenderer.send("canvas-chrome-interact-end", id),
   // Tell main we're loaded + listening, so it pushes our initial meta (avoids a
   // blank titlebar if the first update fired before this view finished loading).
   ready: () => ipcRenderer.send("canvas-chrome-ready", id),
+  // Browser URL bar — drives this window's panel navigation.
+  navTo: (url: string) => ipcRenderer.send("panel-nav-to", id, url),
+  navBack: () => ipcRenderer.send("panel-nav-back", id),
+  navForward: () => ipcRenderer.send("panel-nav-forward", id),
+  navRefresh: () => ipcRenderer.send("panel-nav-refresh", id),
   // Window meta + geometry pushed from main on every applyCanvas.
   onUpdate: (cb: (u: ChromeUpdate) => void) =>
     ipcRenderer.on("canvas-chrome-update", (_e, u: ChromeUpdate) => cb(u)),

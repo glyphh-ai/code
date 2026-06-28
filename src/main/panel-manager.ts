@@ -102,11 +102,11 @@ export class PanelManager {
   private _canvasInteracting = false;
   get canvasInteracting(): boolean { return this._canvasInteracting; }
   setCanvasInteracting(v: boolean): void { this._canvasInteracting = v; }
-  /** When set, switchTo() in canvas mode delegates layout to this (applyCanvas)
-   *  instead of showing the panel full-bleed — so EVERY app-open path lands as a
-   *  free-floating window, not full screen. */
-  private onCanvasApply: (() => void) | null = null;
-  setOnCanvasApply(cb: () => void): void { this.onCanvasApply = cb; }
+  /** When set, switchTo() in canvas mode delegates to this (ensure the panel is
+   *  a tracked tab, then applyCanvas) instead of showing it full-bleed — so
+   *  EVERY app-open path (.dip, rail, gear, …) lands as a free-floating window. */
+  private onCanvasApply: ((id: string) => void) | null = null;
+  setOnCanvasApply(cb: (id: string) => void): void { this.onCanvasApply = cb; }
 
   constructor(onPanelCreated?: PanelCreatedCallback) {
     this.onCreated = onPanelCreated ?? null;
@@ -764,7 +764,7 @@ export class PanelManager {
     // newcomer). This makes ALL open paths (rail, gear, .dip, command center,
     // settings links, etc.) honour canvas mode, not just the ones routed through
     // canvas-open-app.
-    if (this._canvasMode) { this.onCanvasApply?.(); return true; }
+    if (this._canvasMode) { this.onCanvasApply?.(id); return true; }
 
     const [w, h] = parent.getContentSize();
     const yTop = 38 + this._topInset;
@@ -966,7 +966,7 @@ export class PanelManager {
    */
   applyCanvas(
     parent: BrowserWindow,
-    windows: Array<{ id: string; x: number; y: number; width: number; height: number }>,
+    windows: Array<{ id: string; x: number; y: number; width: number; height: number; topExtra?: number }>,
     titlebarH: number,
     frame = 0,
   ): void {
@@ -997,11 +997,14 @@ export class PanelManager {
       }
       const view = this.getOrCreateView(wdesc.id, parent);
       if (!view) continue;
+      // topExtra reserves room below the titlebar for a per-window chrome strip
+      // (e.g. the browser URL bar), drawn by the chrome view.
+      const topInset = titlebarH + (wdesc.topExtra ?? 0);
       const viewBounds = {
         x: Math.round(wdesc.x + frame),
-        y: Math.round(wdesc.y + titlebarH),
+        y: Math.round(wdesc.y + topInset),
         width: Math.max(40, Math.round(wdesc.width - frame * 2)),
-        height: Math.max(40, Math.round(wdesc.height - titlebarH - frame)),
+        height: Math.max(40, Math.round(wdesc.height - topInset - frame)),
       };
       view.setAutoResize({ width: false, height: false });
       this.attachView(parent, view);
@@ -1041,7 +1044,7 @@ export class PanelManager {
   }
 
   /** Push a window's meta + geometry to its chrome view for rendering. */
-  updateChromeView(id: string, payload: { name: string; favicon: string; active: boolean; titlebarH: number; frame: number }): void {
+  updateChromeView(id: string, payload: { name: string; favicon: string; active: boolean; titlebarH: number; frame: number; isBrowser?: boolean; urlBarH?: number; url?: string }): void {
     const view = this.chromeViews.get(id);
     if (view && view.webContents && !view.webContents.isDestroyed()) {
       view.webContents.send("canvas-chrome-update", payload);

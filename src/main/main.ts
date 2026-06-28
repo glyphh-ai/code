@@ -102,8 +102,6 @@ import { registerCapturesIpc } from "./captures-ipc";
 import { registerMarketplaceIpc } from "./marketplace-ipc";
 import { registerHomeIpc } from "./home-ipc";
 import { registerTabIpc } from "./tab-ipc";
-import { registerDockIpc } from "./dock-ipc";
-import { createDockOverlay, type DockOverlay, type DockPosition } from "./dock-overlay";
 import { registerCanvasIpc } from "./canvas-ipc";
 import { buildSubstrateDeps } from "./substrate-deps";
 import { createCypherSession } from "./cypher-session";
@@ -959,8 +957,6 @@ async function boot() {
   // Seed PanelManager configs from apps (apps are the source of truth)
   const terminalHtml = `file://${path.join(__dirname, "..", "renderer", "terminal.html")}`;
   const terminalPreload = path.join(__dirname, "terminal-preload.js");
-  const specHtml = `file://${path.join(__dirname, "..", "renderer", "spec.html")}`;
-  const specPreload = path.join(__dirname, "spec-preload.js");
   const workbenchHtml = `file://${path.join(__dirname, "..", "renderer", "workbench.html")}`;
   const workbenchPreload = path.join(__dirname, "workbench-preload.js");
   const homeHtml = `file://${path.join(__dirname, "..", "renderer", "home.html")}`;
@@ -1030,8 +1026,6 @@ async function boot() {
       panelManager.addPanel(app.id, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(app.id, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://spec") {
-      panelManager.addPanel(app.id, specHtml, specPreload);
     } else if (app.url === "yo://workbench") {
       panelManager.addPanel(app.id, workbenchHtml, workbenchPreload);
     } else if (app.url === "yo://vscode") {
@@ -1148,10 +1142,9 @@ async function boot() {
   // Wire command callbacks for interceptor + chat (both need dip routing)
   const callbacks = { openYoPanel: null as ((query: string) => void) | null };
 
-  // Dock + Canvas controllers — assigned once their IPC is registered below.
-  // Declared here so execCommand / inset handling can reach them.
+  // Canvas controller — assigned once its IPC is registered below.
+  // Declared here so execCommand / inset handling can reach it.
   let canvasApi: ReturnType<typeof registerCanvasIpc> | null = null;
-  let dockOverlay: DockOverlay | null = null;
 
   const execCommand = async (cmd: string, sourcePanelId?: string) => {
     // .waz is now handled by commandParser.execute (so chained forms like
@@ -1169,6 +1162,13 @@ async function boot() {
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
     sendSessionState();
+    // Track every panel in the layout FIRST — a layout can open apps that
+    // weren't previously open, and canvas-mode arrangeToGrid only lays out
+    // panels that are tracked tabs. Doing this before arranging means those new
+    // windows actually appear in the grid.
+    if (gridInfo) {
+      for (const id of gridInfo.panelIds) ensureTab(id);
+    }
     // In canvas mode, a dipped layout arranges the free windows to its grid
     // instead of attaching fixed grid views.
     if (gridInfo && canvasApi?.isCanvasMode()) {
@@ -1176,14 +1176,17 @@ async function boot() {
     }
     // Sync tab state (dip commands change active panel / open grids)
     if (gridInfo) {
-      for (const id of gridInfo.panelIds) ensureTab(id);
       setPreference("suspendedLayout", null);
-      // The per-cell URL bar belongs to the whole grid — show it whenever the
-      // grid has a browser, regardless of which cell is focused. Set once on
-      // entry so the browser cell is editable from the first paint.
-      const showBar = layoutManager.gridHasBrowser();
-      panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
-      mainWindow?.webContents.send("url-bar-force", showBar);
+      // The per-cell URL bar belongs to the fixed grid — skip it in canvas mode,
+      // where each window carries its own chrome (and a top inset would shift all
+      // the free windows down).
+      if (!canvasApi?.isCanvasMode()) {
+        // Show it whenever the grid has a browser, regardless of which cell is
+        // focused. Set once on entry so the browser cell is editable from paint.
+        const showBar = layoutManager.gridHasBrowser();
+        panelManager.setTopInset(showBar ? URL_BAR_HEIGHT : 0);
+        mainWindow?.webContents.send("url-bar-force", showBar);
+      }
     } else if (panelManager.activePanelId) {
       ensureTab(panelManager.activePanelId);
     }
@@ -1440,6 +1443,9 @@ async function boot() {
   function sendSplitState() {
     const gridInfo = layoutManager.getGridInfo();
     mainWindow?.webContents.send("split-state", gridInfo);
+    // Canvas mode: keep the free windows matching the grid when it changes
+    // (e.g. dragging a layout divider re-flows the windows live).
+    if (gridInfo && canvasApi?.isCanvasMode()) canvasApi.arrangeToGrid(gridInfo);
   }
 
   // ── Tab management ─────────���───────────────────────────────
@@ -1474,8 +1480,6 @@ async function boot() {
       panelManager.addPanel(instanceId, `${homeHtml}?section=${section}`, homePreload, undefined, true);
     } else if (app.url === "yo://terminal") {
       panelManager.addPanel(instanceId, terminalHtml, terminalPreload);
-    } else if (app.url === "yo://spec") {
-      panelManager.addPanel(instanceId, specHtml, specPreload);
     } else if (app.url === "yo://workbench") {
       panelManager.addPanel(instanceId, workbenchHtml, workbenchPreload);
     } else if (app.url === "yo://vscode") {
@@ -1589,7 +1593,6 @@ async function boot() {
   function sendTabState() {
     const state = buildTabState();
     mainWindow?.webContents.send("tab-state", state);
-    dockOverlay?.send("tab-state", state);
   }
 
   // 36px url-bar (28 input + 4 top + 4 bottom padding). No gap below —
@@ -1634,6 +1637,8 @@ async function boot() {
       url: panelUrls[panelId] || "",
       favicon: panelFavicons[panelId] || "",
     });
+    // Canvas mode: keep the window's own URL bar (in its chrome view) in sync.
+    if (canvasApi?.isCanvasMode()) canvasApi.refreshChrome(panelId);
   }
 
   function ensureTab(id: string | null | undefined) {
@@ -3223,53 +3228,13 @@ async function boot() {
     afterNav: () => { if (canvasApi?.isCanvasMode()) canvasApi.applyCanvas(); },
   });
 
-  // ── Dock + Canvas mode ────────────────────────────────────
-  dockOverlay = createDockOverlay({
-    getMainWindow: () => mainWindow,
-    getPosition: () => {
-      const p = getPreference<string>("dockPosition", "bottom");
-      return (["bottom", "top", "left", "right"].includes(p) ? p : "bottom") as DockPosition;
-    },
-  });
-  const dockApi = registerDockIpc({
-    dockOverlay,
-    getMainWindow: () => mainWindow,
-    getPreference, setPreference,
-  });
-  // Keep the always-on-top dock from floating over other apps: hide it while the
-  // workspace is in the background, restore it on focus.
-  mainWindow?.on("blur", () => dockOverlay?.hide());
-  mainWindow?.on("focus", () => dockApi.refreshDock());
-  // Clicking a dock icon opens the app respecting the active layout mode.
-  ipcMain.on("dock-open-app", (_e, id: string) => {
-    if (!id) return;
-    if (canvasApi?.isCanvasMode()) ipcMain.emit("canvas-open-app", {} as Electron.IpcMainEvent, id);
-    else ipcMain.emit("tab-new-app", {} as Electron.IpcMainEvent, id);
-  });
-  // The dock's × asks the main window to confirm removal (themed modal lives
-  // there, not in the overlay window).
-  ipcMain.on("dock-confirm-remove-request", (_e, id: string) => {
-    if (!id || !mainWindow || mainWindow.isDestroyed()) return;
-    const app = appConnector.get(id);
-    mainWindow.webContents.send("dock-confirm-remove", { id, name: app?.name || id });
-  });
-  // Add to dock from anywhere (tab menu, canvas window menu) — resolve any
-  // instance id (e.g. "browser-2") to its base app id first.
-  ipcMain.on("dock-add-from-id", (_e, anyId: string) => {
-    const base = resolveAppId(anyId) || anyId;
-    if (base) ipcMain.emit("dock-add-app", {} as Electron.IpcMainEvent, base);
-  });
+  // ── Canvas mode ───────────────────────────────────────────
   // Right-click on a canvas window's titlebar → native context menu.
   ipcMain.on("canvas-window-menu", (_e, id: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const base = resolveAppId(id) || id;
-    const inDock = getPreference<string[]>("dockApps", []).includes(base);
     const menu = Menu.buildFromTemplate([
       { label: "New Window", click: () => ipcMain.emit("tab-new-window", {} as Electron.IpcMainEvent, base) },
-      {
-        label: inDock ? "Remove from Dock" : "Add to Dock",
-        click: () => ipcMain.emit(inDock ? "dock-remove-app" : "dock-add-app", {} as Electron.IpcMainEvent, base),
-      },
       { type: "separator" },
       { label: "Collapse", click: () => ipcMain.emit("canvas-collapse", {} as Electron.IpcMainEvent, id) },
       { label: "Expand", click: () => ipcMain.emit("canvas-maximize", {} as Electron.IpcMainEvent, id) },
@@ -3282,6 +3247,8 @@ async function boot() {
   const getPanelMeta = (id: string) => ({
     name: getTabName(id),
     favicon: panelFavicons[id] || agentPanelFavicon(id) || "",
+    url: panelUrls[id] || "",
+    isBrowser: resolveAppId(id) === "browser",
   });
   // Per-window chrome views (canvas mode): point them at their local HTML +
   // preload before any window is laid out.
@@ -3298,8 +3265,16 @@ async function boot() {
     closeTab: (id: string) => { ipcMain.emit("tab-close", {} as Electron.IpcMainEvent, id); },
     sendTabState,
   });
-  // Any switchTo() while in canvas mode lays out as windows, not full-bleed.
-  panelManager.setOnCanvasApply(() => canvasApi?.applyCanvas());
+  // Any switchTo() while in canvas mode lays out as a window, not full-bleed:
+  // make sure the panel is a tracked tab (so applyCanvas includes it), bring it
+  // to front, then re-apply. Covers .dip, the nav rail, the gear, boot restore…
+  panelManager.setOnCanvasApply((id) => {
+    ensureTab(id);
+    if (canvasApi?.isCanvasMode()) {
+      ipcMain.emit("canvas-focus", {} as Electron.IpcMainEvent, id);
+      sendTabState();
+    }
+  });
   // Restore canvas mode on boot if it was active when the app last closed.
   if (getPreference<boolean>("canvasMode", false)) {
     panelManager.setCanvasMode(true);

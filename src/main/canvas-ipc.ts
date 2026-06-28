@@ -24,12 +24,17 @@ import type { LayoutManager, GridLayout, GridSplitInfo } from "./layout-manager"
 export const CANVAS_TITLEBAR_H = 30;
 /** Uncovered frame (px) on the sides/bottom of each window for resize handles. */
 export const CANVAS_FRAME = 8;
+/** Per-window URL-bar strip height for browser windows (below the titlebar). */
+export const CANVAS_URLBAR_H = 36;
+/** Bottom strip reserved for the collapsed-windows tray (so windows never cover
+ *  it — the DOM tray can't paint above the BrowserViews). */
+export const CANVAS_TRAY_H = 52;
 
 const TITLEBAR_BAR = 38; // app titlebar height
 const MIN_W = 240;
 const MIN_H = 160;
 
-interface WinRect { x: number; y: number; w: number; h: number; z?: number; collapsed?: boolean }
+interface WinRect { x: number; y: number; w: number; h: number; z?: number; collapsed?: boolean; restore?: { x: number; y: number; w: number; h: number } }
 type CanvasWindows = Record<string, WinRect>;
 
 export interface CanvasWindowState {
@@ -57,8 +62,8 @@ interface CanvasIpcDeps {
   setPreference: (key: string, value: unknown) => void;
   /** Live list of open tab/panel ids (excludes the layout pseudo-tab). */
   openTabs: string[];
-  /** Resolve display name + favicon for chrome. */
-  getPanelMeta: (id: string) => { name: string; favicon: string };
+  /** Resolve display name + favicon (+ url/isBrowser for the canvas URL bar). */
+  getPanelMeta: (id: string) => { name: string; favicon: string; url?: string; isBrowser?: boolean };
   /** Close a tab through the normal tab path (bookkeeping + re-render). */
   closeTab: (id: string) => void;
   sendTabState: () => void;
@@ -67,6 +72,7 @@ interface CanvasIpcDeps {
 export function registerCanvasIpc(deps: CanvasIpcDeps): {
   applyCanvas: () => void;
   isCanvasMode: () => boolean;
+  refreshChrome: (id: string) => void;
   setCanvasMode: (on: boolean) => void;
   arrangeToGrid: (grid: GridLayout | GridSplitInfo | null) => void;
 } {
@@ -92,8 +98,12 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     const [cw, ch] = win.getContentSize();
     const x = panelManager.leftInset;
     const y = TITLEBAR_BAR + panelManager.topInset;
+    // Reserve a bottom strip for the collapsed-windows tray while any window is
+    // collapsed, so a window never sits over (and hides) the tray pills.
+    const wmap = readWindows();
+    const trayH = windowIds().some((id) => wmap[id]?.collapsed) ? CANVAS_TRAY_H : 0;
     const w = Math.max(MIN_W, cw - panelManager.leftInset - panelManager.rightInset);
-    const h = Math.max(MIN_H, ch - y - panelManager.bottomInset);
+    const h = Math.max(MIN_H, ch - y - panelManager.bottomInset - trayH);
     return { x, y, w, h };
   }
 
@@ -159,20 +169,26 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
       .map((id) => ({ id, r: clampRect(windows[id], area) }))
       .filter((e) => !e.r.collapsed)
       .sort((a, b) => (a.r.z ?? 0) - (b.r.z ?? 0))
-      .map((e) => ({ id: e.id, x: e.r.x, y: e.r.y, width: e.r.w, height: e.r.h }));
+      .map((e) => ({ id: e.id, x: e.r.x, y: e.r.y, width: e.r.w, height: e.r.h, topExtra: getPanelMeta(e.id).isBrowser ? CANVAS_URLBAR_H : 0 }));
     panelManager.applyCanvas(win, visible, CANVAS_TITLEBAR_H, CANVAS_FRAME);
-    // Push each window's meta to its chrome view so it can draw the titlebar.
-    for (const v of visible) {
-      const meta = getPanelMeta(v.id);
-      panelManager.updateChromeView(v.id, {
-        name: meta.name,
-        favicon: meta.favicon,
-        active: v.id === panelManager.activePanelId,
-        titlebarH: CANVAS_TITLEBAR_H,
-        frame: CANVAS_FRAME,
-      });
-    }
+    // Push each window's meta to its chrome view so it can draw titlebar + URL bar.
+    for (const v of visible) pushChromeMeta(v.id);
     win.webContents.send("canvas-state", buildState(win, windows));
+  }
+
+  /** Send one window's chrome view its current meta (titlebar + browser URL bar). */
+  function pushChromeMeta(id: string): void {
+    const meta = getPanelMeta(id);
+    panelManager.updateChromeView(id, {
+      name: meta.name,
+      favicon: meta.favicon,
+      active: id === panelManager.activePanelId,
+      titlebarH: CANVAS_TITLEBAR_H,
+      frame: CANVAS_FRAME,
+      isBrowser: !!meta.isBrowser,
+      urlBarH: meta.isBrowser ? CANVAS_URLBAR_H : 0,
+      url: meta.url || "",
+    });
   }
 
   function bumpFront(id: string, windows: CanvasWindows): void {
@@ -272,14 +288,24 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
   });
 
   // Maximize a window to fill the available content area.
+  // Toggle: maximize to fill the area, or — if already maximized — restore the
+  // pre-maximize bounds.
   ipcMain.on("canvas-maximize", (_e, id: string) => {
     if (!isCanvasMode()) return;
     const win = getMainWindow();
     if (!win) return;
     const area = contentArea(win);
     const windows = reconcile(win);
-    if (!windows[id]) return;
-    windows[id] = { ...windows[id], x: area.x, y: area.y, w: area.w, h: area.h };
+    const r = windows[id];
+    if (!r) return;
+    const isMax = Math.abs(r.x - area.x) < 3 && Math.abs(r.y - area.y) < 3 &&
+                  Math.abs(r.w - area.w) < 5 && Math.abs(r.h - area.h) < 5;
+    if (isMax && r.restore) {
+      const b = r.restore;
+      windows[id] = { ...r, x: b.x, y: b.y, w: b.w, h: b.h, restore: undefined };
+    } else {
+      windows[id] = { ...r, x: area.x, y: area.y, w: area.w, h: area.h, restore: { x: r.x, y: r.y, w: r.w, h: r.h } };
+    }
     bumpFront(id, windows);
     writeWindows(windows);
     applyCanvas();
@@ -290,7 +316,7 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     const win = getMainWindow();
     if (!win || win.isDestroyed() || !isCanvasMode() || !grid) return;
     const area = contentArea(win);
-    const gap = 10;
+    const gap = 0; // windows fill the grid flush — no space between or around them
     const colWidths = grid.colWidths, rowHeights = grid.rowHeights;
     const cumCol: number[] = [0];
     for (let i = 0; i < colWidths.length; i++) cumCol.push(cumCol[i] + colWidths[i]);
@@ -308,7 +334,8 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
       const y = area.y + cumRow[cell.row] * area.h + gap / 2;
       const w = (cumCol[cell.col + cell.colSpan] - cumCol[cell.col]) * area.w - gap;
       const h = (cumRow[cell.row + cell.rowSpan] - cumRow[cell.row]) * area.h - gap;
-      windows[cell.panelId] = clampRect({ ...windows[cell.panelId], x, y, w, h, collapsed: false }, area);
+      // Raise every window in the layout above the rest (in cell order).
+      windows[cell.panelId] = clampRect({ ...windows[cell.panelId], x, y, w, h, z: ++z, collapsed: false }, area);
     }
     writeWindows(windows);
     applyCanvas();
@@ -337,14 +364,7 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
   // single webContents.
   ipcMain.on("canvas-chrome-ready", (_e, id: string) => {
     if (!isCanvasMode() || !windowIds().includes(id)) return;
-    const meta = getPanelMeta(id);
-    panelManager.updateChromeView(id, {
-      name: meta.name,
-      favicon: meta.favicon,
-      active: id === panelManager.activePanelId,
-      titlebarH: CANVAS_TITLEBAR_H,
-      frame: CANVAS_FRAME,
-    });
+    pushChromeMeta(id);
   });
   ipcMain.on("canvas-chrome-focus", (_e, id: string) => { ipcMain.emit("canvas-focus", {} as Electron.IpcMainEvent, id); });
   ipcMain.on("canvas-chrome-button", (_e, id: string, action: "collapse" | "maximize" | "close") => {
@@ -366,7 +386,7 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
   const SNAP = 8;
 
   let interaction:
-    | { id: string; mode: "move" | "resize"; edge?: "r" | "b" | "br"; ox: number; oy: number; ow: number; oh: number; cur: WinRect; area: { x: number; y: number; w: number; h: number }; cursorStart: { x: number; y: number }; timer: ReturnType<typeof setInterval>; vTargets: number[]; hTargets: number[] }
+    | { id: string; mode: "move" | "resize"; edge?: "r" | "b" | "br" | "l" | "bl"; ox: number; oy: number; ow: number; oh: number; cur: WinRect; area: { x: number; y: number; w: number; h: number }; cursorStart: { x: number; y: number }; timer: ReturnType<typeof setInterval>; vTargets: number[]; hTargets: number[] }
     | null = null;
 
   /** Pick the snapped value for `edges` against `targets` within SNAP px. Returns
@@ -415,23 +435,32 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
       y += snapOffset([y, y + oh], hTargets);
       interaction.cur = { ...interaction.cur, x, y, w: ow, h: oh };
     } else {
-      let w = ow, h = oh;
+      let x = ox, w = ow, h = oh;
       if (edge === "r" || edge === "br") {
         w = Math.max(MIN_W, Math.min(ow + dx, area.x + area.w - ox));
         const adj = snapOffset([ox + w], vTargets); // snap the right edge
         if (adj) w = Math.max(MIN_W, Math.min(w + adj, area.x + area.w - ox));
       }
-      if (edge === "b" || edge === "br") {
+      if (edge === "l" || edge === "bl") {
+        // Left edge: the right edge (ox+ow) stays put; the left edge follows the
+        // cursor, clamped so width >= MIN_W and inside the canvas.
+        let nx = Math.max(area.x, Math.min(ox + dx, ox + ow - MIN_W));
+        const adj = snapOffset([nx], vTargets); // snap the left edge
+        if (adj) nx = Math.max(area.x, Math.min(nx + adj, ox + ow - MIN_W));
+        x = nx;
+        w = ox + ow - nx;
+      }
+      if (edge === "b" || edge === "br" || edge === "bl") {
         h = Math.max(MIN_H, Math.min(oh + dy, area.y + area.h - oy));
         const adj = snapOffset([oy + h], hTargets); // snap the bottom edge
         if (adj) h = Math.max(MIN_H, Math.min(h + adj, area.y + area.h - oy));
       }
-      interaction.cur = { ...interaction.cur, x: ox, y: oy, w, h };
+      interaction.cur = { ...interaction.cur, x, y: oy, w, h };
     }
     panelManager.setChromeViewBounds(interaction.id, { x: interaction.cur.x, y: interaction.cur.y, w: interaction.cur.w, h: interaction.cur.h });
   }
 
-  function startInteraction(id: string, mode: "move" | "resize", edge?: "r" | "b" | "br"): void {
+  function startInteraction(id: string, mode: "move" | "resize", edge?: "r" | "b" | "br" | "l" | "bl"): void {
     if (!isCanvasMode()) return;
     const win = getMainWindow();
     if (!win) return;
@@ -471,9 +500,46 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
   }
 
   ipcMain.on("canvas-chrome-move-start", (_e, id: string) => startInteraction(id, "move"));
-  ipcMain.on("canvas-chrome-resize-start", (_e, id: string, edge: "r" | "b" | "br") => startInteraction(id, "resize", edge));
+  ipcMain.on("canvas-chrome-resize-start", (_e, id: string, edge: "r" | "b" | "br" | "l" | "bl") => startInteraction(id, "resize", edge));
   ipcMain.on("canvas-chrome-interact-end", (_e, id: string) => { if (interaction && interaction.id === id) endInteraction(); });
   ipcMain.on("canvas-interact-end-global", () => { if (interaction) endInteraction(); });
+
+  // Tile every open window into an equal-sized grid — restoring any collapsed
+  // ones first. With no args the grid is auto-squared; cols/rows can be forced
+  // (rows grows to fit if both are given but too small).
+  ipcMain.on("canvas-grid-all", (_e, cols?: number, rows?: number) => {
+    if (!isCanvasMode()) return;
+    const win = getMainWindow();
+    if (!win) return;
+    const windows = reconcile(win);
+    const ids = windowIds().filter((id) => windows[id]);
+    const n = ids.length;
+    if (n === 0) return;
+    // Restore collapsed windows and persist before measuring, so contentArea no
+    // longer reserves the tray strip (we're using the full area for the grid).
+    for (const id of ids) windows[id].collapsed = false;
+    writeWindows(windows);
+    const area = contentArea(win);
+    const gap = 0; // windows fill the grid flush — no space between or around them
+    let c = cols && cols > 0 ? Math.floor(cols) : 0;
+    let r = rows && rows > 0 ? Math.floor(rows) : 0;
+    if (!c && !r) { c = Math.ceil(Math.sqrt(n)); r = Math.ceil(n / c); }
+    else if (c && !r) { r = Math.ceil(n / c); }
+    else if (!c && r) { c = Math.ceil(n / r); }
+    else { r = Math.max(r, Math.ceil(n / c)); }
+    const cellW = (area.w - gap * (c + 1)) / c;
+    const cellH = (area.h - gap * (r + 1)) / r;
+    let z = Math.max(0, ...Object.values(windows).map((w) => w.z ?? 0));
+    ids.forEach((id, i) => {
+      const col = i % c;
+      const row = Math.floor(i / c);
+      const x = area.x + gap + col * (cellW + gap);
+      const y = area.y + gap + row * (cellH + gap);
+      windows[id] = clampRect({ ...windows[id], x, y, w: cellW, h: cellH, z: ++z, collapsed: false, restore: undefined }, area);
+    });
+    writeWindows(windows);
+    applyCanvas();
+  });
 
   ipcMain.on("canvas-dip-layout", (_e, name?: string) => {
     if (!isCanvasMode()) return;
@@ -486,5 +552,5 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     canvasArrangeToGrid(grid);
   });
 
-  return { applyCanvas, isCanvasMode, setCanvasMode, arrangeToGrid: canvasArrangeToGrid };
+  return { applyCanvas, isCanvasMode, setCanvasMode, arrangeToGrid: canvasArrangeToGrid, refreshChrome: pushChromeMeta };
 }

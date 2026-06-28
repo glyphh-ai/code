@@ -335,8 +335,10 @@ export class LayoutManager {
 
   // ── State queries ─────────────────────────────────────────
 
+  /** Fully close any layout — active AND suspended — so nothing re-applies it. */
   clearSplit(): void {
     this.activeGrid = null;
+    this.suspendedGrid = null;
   }
 
   get hasSplit(): boolean {
@@ -494,6 +496,14 @@ export class LayoutManager {
   private applyGrid(win: BrowserWindow, animate = false) {
     const grid = this.activeGrid;
     if (!grid) return;
+
+    // Canvas mode: never tile fixed grid views. Just make sure each panel's view
+    // exists; canvas-ipc's arrangeToGrid then positions them as free-floating
+    // windows. (Without this the old grid renders underneath the canvas windows.)
+    if (this.panelManager.canvasMode) {
+      for (const cell of grid.cells) this.panelManager.getOrCreateView(cell.panelId, win);
+      return;
+    }
 
     const [rawW, h] = win.getContentSize();
     const left = this.panelManager.leftInset;
