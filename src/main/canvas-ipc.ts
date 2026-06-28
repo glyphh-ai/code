@@ -244,12 +244,16 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     if (!isCanvasMode()) return;
     const win = getMainWindow();
     if (!win) return;
+    // Was this window already laid out, or is it a newcomer? reconcile() assigns
+    // a newcomer the top z, which would otherwise trip the "already frontmost"
+    // guard below and skip laying it out at all (e.g. `.dip <app>` opening it).
+    const isNew = !readWindows()[id];
     const windows = reconcile(win);
     if (!windows[id]) return;
-    // No-op if the window is already frontmost and uncollapsed — otherwise every
-    // click inside the active app would needlessly detach/reattach all views.
+    // For an EXISTING window, no-op if it's already frontmost + uncollapsed —
+    // otherwise every click inside the active app would needlessly re-apply.
     const zMax = Math.max(0, ...Object.values(windows).map((r) => r.z ?? 0));
-    if (!windows[id].collapsed && (windows[id].z ?? 0) >= zMax) return;
+    if (!isNew && !windows[id].collapsed && (windows[id].z ?? 0) >= zMax) return;
     if (windows[id].collapsed) windows[id].collapsed = false;
     bumpFront(id, windows);
     writeWindows(windows);
