@@ -355,7 +355,7 @@ contextBridge.exposeInMainWorld("yo", {
   }>,
   /** Per-user credit balance + daily usage from the server. */
   userUsage: (range?: { from?: string; to?: string }) => ipcRenderer.invoke("user-usage", range) as Promise<{
-    credits: { balance: number; grants: number; purchases: number } | null;
+    credits: { balance: number; grants: number; purchases: number; allowance?: number } | null;
     days: Array<{ day: string; credits: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; requests: number }>;
   }>,
 

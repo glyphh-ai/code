@@ -1042,15 +1042,18 @@ function confirmEnableCapture(appName: string): Promise<boolean> {
 }
 
 function initApps() {
+  // Upgrade gates (App connections / MCP) open the platform to manage the plan,
+  // the same way Settings → Account → Manage Account does.
+  document.querySelectorAll<HTMLElement>(".tab-upgrade-btn").forEach((btn) => {
+    btn.addEventListener("click", () => { void window.yo.execCommand(`dip ${window.yo.platformUrl}`); });
+  });
+
   const addNameInput = document.getElementById("app-add-name") as HTMLInputElement;
   const addSlugInput = document.getElementById("app-add-slug") as HTMLInputElement;
   const addUrlInput = document.getElementById("app-add-url") as HTMLInputElement;
-  const addForceWeb = document.getElementById("app-add-force-web") as HTMLInputElement;
-  const addDoNotRecord = document.getElementById("app-add-do-not-record") as HTMLInputElement;
-  // Privacy default: "Do Not Capture" is on for every new app. The user
-  // must explicitly turn it off (= enable capture), which triggers the
-  // red warning modal below.
-  if (addDoNotRecord) addDoNotRecord.checked = true;
+  // Force web mode / Do not record are no longer on the create form — new apps
+  // default to capture-off (set in app-connector.add) and the user tunes both on
+  // the app's detail screen.
 
   // Detail toggle — show the warning modal when the user is about to
   // ENABLE capture (going from "Do Not Capture: on" to "off"). Cancel
@@ -1060,13 +1063,6 @@ function initApps() {
     const name = appDetailName.value.trim() || "this app";
     const ok = await confirmEnableCapture(name);
     if (!ok) appDoNotRecord.checked = true;
-  });
-  // Same warning on the New App form.
-  addDoNotRecord?.addEventListener("change", async () => {
-    if (addDoNotRecord.checked) return;
-    const name = addNameInput.value.trim() || "this app";
-    const ok = await confirmEnableCapture(name);
-    if (!ok) addDoNotRecord.checked = true;
   });
 
   // URL → live preview sync in the detail form. Editing the URL field
@@ -1105,8 +1101,6 @@ function initApps() {
     addSlugInput.value = "";
     slugTouched = false;
     addUrlInput.value = "";
-    addForceWeb.checked = false;
-    addDoNotRecord.checked = true; // privacy default: capture off
     appFormError.classList.add("hidden");
     appsList.classList.add("hidden");
     appsToolbar.classList.add("hidden");
@@ -1204,8 +1198,8 @@ function initApps() {
       return;
     }
     await window.yo.appsAdd(id, name, url);
-    if (addForceWeb.checked) await window.yo.appsUpdateForceWeb(id, true);
-    if (addDoNotRecord.checked) await window.yo.appsUpdateDoNotRecord(id, true);
+    // Force-web / do-not-record are set from the app's detail screen now; new
+    // apps already default to capture-off in app-connector.add.
     // If this app was created from a browser tab, convert that tab into it.
     if (pendingOriginTab) { window.yo.convertTabToApp(pendingOriginTab, id); pendingOriginTab = null; }
     appAddForm.classList.add("hidden");

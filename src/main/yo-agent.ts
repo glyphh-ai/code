@@ -578,9 +578,11 @@ export class YoAgent {
         if (proxy.ANTHROPIC_BASE_URL) {
           Object.assign(base, proxy);
           delete base.ANTHROPIC_API_KEY;
+          console.log(`[yo-agent] proxy mode → ${proxy.ANTHROPIC_BASE_URL} (model=${model})`);
         } else {
           const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
           if (byok) base.ANTHROPIC_API_KEY = byok;
+          console.log(`[yo-agent] BYOK mode — no session token; key=${byok ? "set" : "MISSING"} (model=${model})`);
         }
         return base;
       })(),

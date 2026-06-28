@@ -3389,7 +3389,7 @@ ol.docs-list li::before {
 }
 .yo-modal-btn-cancel { background: var(--surface-2); color: var(--text); }
 .yo-modal-btn-cancel:hover { background: var(--surface-3); border-color: var(--border-2); }
-.yo-modal-btn-confirm { background: var(--accent); color: #fff; border-color: var(--accent); }
+.yo-modal-btn-confirm { background: var(--accent); color: #000; border-color: var(--accent); }
 .yo-modal-btn-confirm:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .yo-modal-btn-confirm:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
 .yo-modal-btn-danger { background: #e5484d; border-color: #e5484d; }
@@ -5230,6 +5230,16 @@ select.settings-input {
 
 .license-value.active { color: var(--accent); }
 .license-value.expired { color: var(--danger); }
+
+.license-plan { display: inline-flex; align-items: center; gap: 8px; }
+.license-refresh {
+  background: none; border: none; color: var(--text-3); cursor: pointer;
+  padding: 2px; display: inline-flex; align-items: center; border-radius: 4px;
+  transition: color var(--transition), background var(--transition);
+}
+.license-refresh:hover { color: var(--text); background: var(--hover); }
+.license-refresh.spinning svg { animation: license-spin 0.6s linear infinite; }
+@keyframes license-spin { to { transform: rotate(360deg); } }
 
 .license-input-row {
   gap: 8px;

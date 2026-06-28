@@ -27,6 +27,7 @@ import vm from "vm";
 import crypto from "crypto";
 
 import { sdkComplete } from "./sdk-llm";
+import { executeTool as executeAgentTool, listAllTools } from "./substrate/tools";
 import type { McpManager } from "./mcp-manager";
 import type {
   Skill,
@@ -153,6 +154,10 @@ export async function runSkillJs(
   const startedAt = Date.now();
   const logs: string[] = [];
   const allowedTools = new Set(skill.manifest["allowed-tools"] ?? []);
+  // Skills inherit EVERY tool the Glyphh agent has — its built-in workspace
+  // tools (open_panel, scan_panel, grab_panel, …) need no allowed-tools entry.
+  // Only external/connected MCP tools (Gmail, Pipedream apps, …) stay gated.
+  const agentTools = new Set(listAllTools());
 
   const root = startEvent(
     em,
@@ -214,6 +219,26 @@ export async function runSkillJs(
     /** ctx.tools.call("gmail.send", { to, subject, body }) — qualified name = "<server>.<tool>". */
     tools: {
       call: async (qualified: string, args: Record<string, unknown> = {}) => {
+        // The Glyphh agent's own tools are always available to skills. Accept
+        // the bare name ("open_panel"), the dotted "yo.open_panel", or Claude's
+        // flattened "mcp__yo__open_panel". Route them straight to the agent's
+        // tool executor — no allowed-tools entry required.
+        const bare = qualified.replace(/^mcp__yo__/, "").replace(/^yo\./, "");
+        if (agentTools.has(bare)) {
+          const ev = startEvent(em, "mcp", `yo: ${bare}`, root.id, { toolName: bare });
+          try {
+            const result = await executeAgentTool(bare, args);
+            history.push({ kind: "tool", key: qualified, output: result, at: Date.now() });
+            endEvent(em, ev, "success");
+            return result;
+          } catch (err) {
+            endEvent(em, ev, "error", err instanceof Error ? err.message : String(err));
+            throw err;
+          }
+        }
+
+        // External / connected MCP tools (Gmail, Pipedream apps, …) still
+        // require an allowed-tools grant and route through the MCP manager.
         if (!deps.mcpManager) throw new SkillError("MCP manager not wired into runner", "NO_MCP");
         if (allowedTools.size > 0 && !allowedTools.has(qualified)) {
           throw new SkillError(`Tool "${qualified}" not in allowed-tools for skill "${skill.name}"`, "TOOL_NOT_ALLOWED");

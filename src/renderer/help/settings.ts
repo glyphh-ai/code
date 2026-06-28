@@ -20,8 +20,7 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
 // ── Settings → Agent Defaults ────────────────────────────
 // Seed values for new agents created in the Agents app.
 (function wireAgentDefaults() {
-  const provider = document.getElementById("agent-default-provider") as HTMLSelectElement | null;
-  const model = document.getElementById("agent-default-model") as HTMLInputElement | null;
+  // Provider/model are no longer client-chosen — the proxy/server pick the model.
   const perm = document.getElementById("agent-default-perm") as HTMLSelectElement | null;
   const prompt = document.getElementById("agent-default-prompt") as HTMLTextAreaElement | null;
   const mcp = document.getElementById("agent-default-mcp") as HTMLInputElement | null;
@@ -30,7 +29,7 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
   const compactPrompt = document.getElementById("agent-compact-prompt") as HTMLTextAreaElement | null;
   const save = document.getElementById("agent-defaults-save") as HTMLButtonElement | null;
   const status = document.getElementById("agent-defaults-status") as HTMLElement | null;
-  if (!provider || !model || !perm || !prompt || !mcp || !save || !status) return;
+  if (!perm || !prompt || !mcp || !save || !status) return;
 
   const invoke = (window.yo as any).invoke || ((channel: string, ...args: unknown[]) =>
     (window as any).electron?.ipcRenderer?.invoke?.(channel, ...args));
@@ -47,8 +46,6 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
     try {
       const d = await ipc.get();
       if (!d) return;
-      provider.value = d.provider || "anthropic";
-      model.value = d.model || "";
       prompt.value = d.systemPrompt || "";
       mcp.value = Array.isArray(d.mcpServers) ? d.mcpServers.join(", ") : "";
     } catch { /* ignore */ }
@@ -91,8 +88,6 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
     status.textContent = "Saving…";
     try {
       await ipc.set({
-        provider: provider.value,
-        model: model.value.trim(),
         permDefault: perm.value as "default" | "plan" | "acceptEdits" | "bypassPermissions",
         systemPrompt: prompt.value,
         mcpServers: mcp.value.split(",").map((s) => s.trim()).filter(Boolean),
@@ -729,6 +724,23 @@ function initSettings() {
   // way the left-rail Platform button does (.dip <platformUrl>).
   document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
     void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
+  });
+
+  // Refresh plan status — after an in-app upgrade/downgrade the cached session
+  // tier is stale until the next heartbeat (or re-login). This forces a fresh
+  // heartbeat and repaints the Plan value, no re-auth needed.
+  document.getElementById("account-refresh-tier")?.addEventListener("click", async () => {
+    const btn = document.getElementById("account-refresh-tier");
+    const tierEl = document.getElementById("account-tier");
+    btn?.classList.add("spinning");
+    try {
+      const r = await window.yo.refreshAuth();
+      if (tierEl && r?.tier) {
+        tierEl.textContent = r.tier;
+        tierEl.className = `license-value ${r.tier !== "free" ? "active" : ""}`;
+      }
+    } catch { /* offline — leave the current value */ }
+    finally { setTimeout(() => btn?.classList.remove("spinning"), 400); }
   });
 
   // Sign out

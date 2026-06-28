@@ -11,6 +11,25 @@ import * as path from "path";
 import * as os from "os";
 import * as http from "http";
 
+// Sites like Slack gate on a minimum Chrome version (137+ as of 2026). Electron's
+// bundled Chromium can be older (Electron 35 ≈ Chrome 134), so a panel reporting
+// the real version gets the "unsupported browser" page instead of the app.
+const MIN_CHROME_MAJOR = 137;
+const SPOOF_CHROME = "140.0.0.0";
+/** Strip Electron/app identifiers and bump an outdated Chrome version above the gate. */
+function cleanUserAgent(ua: string): string {
+  let out = ua
+    .replace(/Electron\/\S+\s*/g, "")
+    .replace(/\S+-client\/\S+\s*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const m = /Chrome\/(\d+)/.exec(out);
+  if (m && parseInt(m[1], 10) < MIN_CHROME_MAJOR) {
+    out = out.replace(/Chrome\/[\d.]+/, `Chrome/${SPOOF_CHROME}`);
+  }
+  return out;
+}
+
 export interface PanelConfig {
   id: string;
   name: string;
@@ -308,13 +327,9 @@ export class PanelManager {
     const ses = session.fromPartition("persist:yo");
 
     // Strip Electron/app identifiers from the session user agent so webview
-    // guests (e.g., browser panel) inherit a clean Chrome-like UA string.
-    ses.setUserAgent(
-      ses.getUserAgent()
-        .replace(/Electron\/\S+\s*/g, "")
-        .replace(/\S+-client\/\S+\s*/g, "")
-        .replace(/\s+/g, " ").trim()
-    );
+    // guests (e.g., browser panel) inherit a clean Chrome-like UA string, and
+    // bump an outdated Chrome version so version-gated sites (Slack) still load.
+    ses.setUserAgent(cleanUserAgent(ses.getUserAgent()));
 
     // Allowlist specific permissions — only grant what web apps actually need
     const ALLOWED_PERMISSIONS = new Set([
@@ -501,13 +516,9 @@ export class PanelManager {
     });
 
     if (!isLocal) {
-      // Set a modern Chrome user agent so sites don't flag Electron's bundled Chromium as outdated
-      view.webContents.setUserAgent(
-        view.webContents.getUserAgent()
-          .replace(/Electron\/\S+\s*/g, "")
-          .replace(/\S+-client\/\S+\s*/g, "")  // strip app name (yo-client/1.0.0)
-          .replace(/\s+/g, " ").trim()
-      );
+      // Set a modern Chrome user agent so sites don't flag Electron's bundled
+      // Chromium as outdated (e.g. Slack gates on Chrome 137+).
+      view.webContents.setUserAgent(cleanUserAgent(view.webContents.getUserAgent()));
       // Auto-dismiss JS dialogs (alert/confirm/prompt) via Chrome DevTools Protocol.
       // This intercepts at the Chromium IPC level, before the renderer blocks.
       PanelManager.attachDialogHandler(view.webContents);

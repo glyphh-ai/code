@@ -1190,7 +1190,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       yoPermMenu.classList.add("hidden");
     });
   }
-  modelOptions?.forEach((opt) => {
+  function wireModelOption(opt: HTMLElement): void {
     opt.addEventListener("click", async () => {
       if (opt.classList.contains("disabled")) return;
       const newModel = opt.dataset.value || "";
@@ -1206,21 +1206,45 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
         cancelText: "Cancel",
       }))) return;
       currentChatModel = newModel;
-      modelOptions.forEach((o) => o.classList.toggle("active", o === opt));
+      modelMenu?.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => o.classList.toggle("active", o === opt));
       paintModelLabel();
       paintBrand();
-      // Persist via saveLLMConfig — provider is always anthropic until the
-      // GPT loop ships. (The GPT items are disabled, so we never hit that
-      // branch from this dropdown.)
-      const fallback = newModel || "claude-sonnet-4-6";
-      await window.yo.saveLLMConfig({ provider: "anthropic", model: fallback });
+      await window.yo.saveLLMConfig({ provider: "anthropic", model: newModel || "claude-haiku-4-5-20251001" });
       if (inChat) await startNewChat();
     });
-  });
+  }
+  modelOptions?.forEach(wireModelOption);
   paintModelLabel();
   paintBrand();
-  // Initial paint: highlight the active default.
   modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
+
+  // Replace the static list with the server-filtered model list for THIS user
+  // (Anthropic ∩ plan ∩ org ∩ user, via /api/models?proxy=1) and reset any
+  // stale/disallowed selection. Without this, a persisted/static model the plan
+  // doesn't allow (or a wrong id form) makes every request 403.
+  async function populateModels(): Promise<void> {
+    if (!modelMenu) return;
+    let data: { models: Array<{ provider: string; model: string; display_name: string }>; default_model: string | null };
+    try { data = await (window.yo as any).agentModels(); } catch (e) { console.warn("[yo-panel] agentModels failed", e); return; }
+    console.log("[yo-panel] agentModels →", (data?.models || []).map((m) => m.model), "default:", data?.default_model);
+    if (!data || !Array.isArray(data.models) || data.models.length === 0) return;
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+    const check = '<span class="yo-mode-opt-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
+    modelMenu.innerHTML = '<div class="yo-model-section-header">Models</div>' + data.models.map((m) =>
+      `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(m.display_name)}</span></div>${check}</div>`,
+    ).join("");
+    modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach(wireModelOption);
+    const ids = new Set(data.models.map((m) => m.model));
+    if (!currentChatModel || !ids.has(currentChatModel)) {
+      const fallback = (data.default_model && ids.has(data.default_model)) ? data.default_model : data.models[0].model;
+      currentChatModel = fallback;
+      await window.yo.saveLLMConfig({ provider: "anthropic", model: fallback });
+    }
+    modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
+    paintModelLabel();
+    paintBrand();
+  }
+  void populateModels();
 
   document.addEventListener("click", (e) => {
     if (!yoPermDropdown.contains(e.target as Node)) {

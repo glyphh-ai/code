@@ -506,6 +506,10 @@ export class AppConnector {
     };
     this.apps.set(id, app);
     this.save(app);
+    // Notify listeners (left-rail Apps list, panel pickers) so the new app shows
+    // up immediately. The file watcher won't catch this — add() already updated
+    // the in-memory map, so syncFromDisk() sees no diff and never fires onChange.
+    this.onChange?.();
     return app;
   }
 
@@ -515,6 +519,7 @@ export class AppConnector {
     if (!app) return false;
     app.name = name;
     this.save(app);
+    this.onChange?.();
     return true;
   }
 
@@ -610,6 +615,7 @@ export class AppConnector {
     app.id = newId;
     this.apps.set(newId, app);
     this.save(app);
+    this.onChange?.();
     return true;
   }
 
@@ -673,6 +679,7 @@ export class AppConnector {
     this.apps.delete(id);
     const filePath = path.join(this.appsDir, `${id}.json`);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    this.onChange?.(); // refresh the rail/pickers (watcher won't — in-memory already changed)
     return true;
   }
 

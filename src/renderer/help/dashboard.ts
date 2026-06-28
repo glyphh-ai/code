@@ -552,27 +552,33 @@ function ensureDashTabs(): void {
   }
 
   document.getElementById("home-credits-manage")?.addEventListener("click", () => {
-    try { (window as any).yo?.openBilling?.(); } catch { /* ignore */ }
+    // Open the billing page IN-APP (a dip panel), same as Settings → Account →
+    // Manage Account — not an external browser window.
+    try { void (window as any).yo?.execCommand?.(`dip ${(window as any).yo.platformUrl}/dashboard/billing`); } catch { /* ignore */ }
   });
 }
 
 async function loadHome(): Promise<void> {
-  let data: { credits: { balance: number; grants: number; purchases: number } | null; days: Array<Record<string, number | string>> };
+  let data: { credits: { balance: number; grants: number; purchases: number; allowance?: number } | null; days: Array<Record<string, number | string>> };
   try {
-    data = await (window as any).yo.userUsage({ from: thirtyDaysAgo(), to: today() });
+    // `to` is a full timestamp (now), not today's date at midnight — otherwise
+    // the server's BETWEEN excludes everything used TODAY, which is exactly when
+    // recent usage lands, leaving "Used this period" stuck at 0.
+    data = await (window as any).yo.userUsage({ from: thirtyDaysAgo(), to: new Date().toISOString() });
   } catch {
     return; // signed out / offline — leave placeholders
   }
 
   const MICRO = 1_000_000;
   const balance = data.credits ? Math.floor((data.credits.balance || 0) / MICRO) : null;
-  const grants = data.credits ? Math.floor((data.credits.grants || 0) / MICRO) : 0;
+  // Static monthly plan allowance (included_credits) — NOT the draining grant balance.
+  const allowance = data.credits ? Math.floor((data.credits.allowance || 0) / MICRO) : 0;
   const used = (data.days || []).reduce((s, d) => s + (Number(d.credits) || 0), 0);
 
   const set = (id: string, v: string) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   set("home-credits-balance", balance === null ? "—" : balance.toLocaleString());
   set("home-credits-used", `${Math.round(used / MICRO).toLocaleString()} credits`);
-  set("home-credits-grants", `${grants.toLocaleString()} credits`);
+  set("home-credits-grants", `${allowance.toLocaleString()} credits`);
 
   renderHomeUsageChart(data.days || []);
 }

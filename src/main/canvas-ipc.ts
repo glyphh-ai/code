@@ -351,15 +351,12 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
   // path for panel/instance bookkeeping, then re-arranges so the new view lands
   // as a free window on top instead of a single full-bleed switchTo.
   ipcMain.on("canvas-open-app", (_e, appId: string) => {
+    // tab-new-app fully handles canvas mode: it creates + focuses a new window,
+    // or raises an already-open one (via canvas-focus). We must NOT re-bump here
+    // — the old code raised openTabs[last] (the wrong window) when the clicked
+    // app was already open, so e.g. clicking the Settings gear while Settings was
+    // already open brought some OTHER window to front instead of Settings.
     ipcMain.emit("tab-new-app", {} as Electron.IpcMainEvent, appId);
-    if (!isCanvasMode()) return;
-    const win = getMainWindow();
-    if (!win) return;
-    const id = openTabs[openTabs.length - 1];
-    const windows = reconcile(win);
-    if (id && windows[id]) bumpFront(id, windows);
-    writeWindows(windows);
-    applyCanvas();
   });
 
   // ── Chrome-view interactions ──────────────────────────────
