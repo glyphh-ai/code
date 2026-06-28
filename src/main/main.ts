@@ -1776,6 +1776,10 @@ async function boot() {
       persistTabs();
       sendSplitState();
       sendTabState();
+      // Canvas mode: refresh the free-window layout (and push fresh canvas-state)
+      // so the closed window's chrome is cleared — including the last one, which
+      // has no switchTo to trigger it.
+      if (canvasApi?.isCanvasMode()) canvasApi.applyCanvas();
     },
     () => [...openTabs],
     (url: string) => {
