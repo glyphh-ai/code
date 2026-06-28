@@ -11,6 +11,7 @@
 import { el, mount } from "./skills-explorer/dom.js";
 import { createSkillTree, type SkillMeta } from "./skills-explorer/tree.js";
 import { SkillContent } from "./skills-explorer/content.js";
+import { confirmAction } from "./shared.js";
 
 const PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
 const REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>`;
@@ -30,7 +31,7 @@ export function loadSkills(): void {
   if (!host) return;
 
   const content = new SkillContent({
-    confirm: (m) => Promise.resolve(window.confirm(m)),
+    confirm: (m) => confirmAction(m),
     onChanged: () => void load(),
     onSelectSkill: (name) => { tree.setActive({ skill: name }); void content.showSkill(name); },
     buildWithAgent: (prompt) => handToAgent(prompt),

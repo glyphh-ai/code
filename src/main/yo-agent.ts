@@ -13,7 +13,7 @@ import os from "os";
 import crypto from "crypto";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
-import { asarSafeQueryOptions } from "./sdk-llm";
+import { asarSafeQueryOptions, proxyAnthropicEnv } from "./sdk-llm";
 import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
 
 /** Working directory the right-rail .Yo agent runs in. Follows the user's
@@ -398,7 +398,7 @@ export class YoAgent {
     catch (err: any) { return { text: "", error: `Failed to initialize MCP tools: ${err?.message || err}` }; }
 
     const shellPath = getShellPath();
-    const model = this.llmConfig?.model || "claude-sonnet-4-6";
+    const model = this.llmConfig?.model || "claude-haiku-4-5-20251001";
 
     const options: Record<string, any> = {
       model,
@@ -442,11 +442,9 @@ export class YoAgent {
   }
 
   async send(message: string, cb: YoAgentCallbacks): Promise<void> {
-    const balance = usageQueue.lastBalance;
-    if (balance !== null && balance <= 0) {
-      cb.onError("You're out of yos. Top up your balance to continue using the agent.");
-      return;
-    }
+    // Credits are enforced server-side by the proxy (402 when the org is out).
+    // We surface that as a soft "out of credits → Manage plan" notice from the
+    // error path below, rather than guessing from a stale local balance.
 
     // Prompt-injection firewall.
     const guard = guardPrompt(message, "yo-agent");
@@ -470,15 +468,11 @@ export class YoAgent {
       this.chatId = `${Date.now()}`;
     }
 
-    // Pre-flight: if Claude Code creds are missing, pop the in-app
-    // OAuth window so the user can sign in without leaving yo-client.
-    // Abort this turn — once they finish the sign-in, the next message
-    // succeeds against the freshly-written creds.
+    // Pre-flight: the Glyphh agent runs through the platform proxy, so all we
+    // need is a logged-in session (no Anthropic key). ensureCcAuth() returns
+    // true when signed in; only if signed out does it surface the legacy modal.
     {
       const { ensureCcAuth } = await import("./cc-bootstrap");
-      // ensureCcAuth() pops the gating modal in the renderer if creds
-      // are missing; we just need to abort this call. The user will be
-      // unblocked once they finish the sign-in shown on screen.
       if (!ensureCcAuth()) return;
     }
 
@@ -501,7 +495,7 @@ export class YoAgent {
     this.abortController = new AbortController();
     const shellPath = getShellPath();
 
-    const model = this.llmConfig?.model || "claude-sonnet-4-6";
+    const model = this.llmConfig?.model || "claude-haiku-4-5-20251001";
     const isBypass = this._mode === "bypassPermissions";
     // Captures a hard CC process crash so a turn that dies without throwing
     // (stream just ends) still surfaces an error instead of a silent no-op.
@@ -569,19 +563,25 @@ export class YoAgent {
           autoCompactWindow: win && win > 0 ? win : DEFAULT_COMPACT_WINDOW,
         } as Record<string, unknown>;
       })(),
-      // BYOK only. The user pastes their Anthropic API key into the boot
-      // gate (or Settings → Providers); we pass it as ANTHROPIC_API_KEY
-      // and the SDK calls api.anthropic.com with that key directly. The
-      // previous Claude Code OAuth fallback was removed because hosting
-      // that flow inside our app violates Anthropic's Terms of Service.
+      // The Glyphh agent runs through the platform proxy: Anthropic models
+      // fronted by platform keys and metered as credits, authenticated with the
+      // logged-in session JWT. No user key required. (The user's own Anthropic
+      // key, if set in Settings → Providers, is for the Agents coding agents —
+      // not this agent.) If somehow signed out, fall back to a BYOK key.
       env: (() => {
-        const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
         const base: Record<string, string | undefined> = {
           ...process.env,
           PATH: shellPath,
           CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
         };
-        if (byok) base.ANTHROPIC_API_KEY = byok;
+        const proxy = proxyAnthropicEnv();
+        if (proxy.ANTHROPIC_BASE_URL) {
+          Object.assign(base, proxy);
+          delete base.ANTHROPIC_API_KEY;
+        } else {
+          const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
+          if (byok) base.ANTHROPIC_API_KEY = byok;
+        }
         return base;
       })(),
     };
@@ -840,7 +840,7 @@ export class YoAgent {
             }
             if (msg.is_error && msg.result) {
               if (this.abortController?.signal.aborted || /abort/i.test(msg.result)) break;
-              cb.onError(msg.result);
+              cb.onError(this.creditsAware(msg.result));
               return;
             }
             break;
@@ -915,8 +915,21 @@ export class YoAgent {
       // stderr tail so the panel shows something actionable, not just "Error".
       const ex = processExit as { code: number | null; signal: string | null; stderr: string } | null;
       const tail = ex?.stderr?.trim().split("\n").slice(-3).join("\n").slice(0, 300);
-      cb.onError(tail && msg.length < 40 ? `${msg}\n${tail}` : msg);
+      cb.onError(this.creditsAware(tail && msg.length < 40 ? `${msg}\n${tail}` : msg));
     }
+  }
+
+  /**
+   * If an SDK/proxy error means the org is out of credits (the proxy returns a
+   * 402), return a notice the renderer turns into an "out of credits" card with
+   * a "Manage plan" link. Otherwise pass the error through unchanged. The
+   * "__CREDITS__" sentinel is matched in yo-agent-renderer.ts showError().
+   */
+  private creditsAware(raw: string): string {
+    if (/\b402\b|out of credits|insufficient credit|buyMore|payment required/i.test(raw || "")) {
+      return "__CREDITS__You're out of credits. Add more on the platform to keep using the Glyphh agent.";
+    }
+    return raw;
   }
 
   getLastResponse(): string {

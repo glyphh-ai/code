@@ -383,3 +383,18 @@
 .yo-chat .yo-chat-marker.is-allowed .yo-chat-marker-icon { color: var(--accent); }
 .yo-chat .yo-chat-marker.is-denied .yo-chat-marker-icon { color: var(--danger); }
 .yo-chat .yo-chat-marker strong { color: var(--text-2); font-weight: 600; }
+
+/* Out-of-credits notice (soft, with a Manage plan link to the platform). */
+.yo-msg.yo-msg-credits { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.yo-credits-manage {
+  border: none;
+  background: var(--accent);
+  color: #000;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.yo-credits-manage:hover { background: var(--accent-hover, var(--accent)); }

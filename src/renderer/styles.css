@@ -353,23 +353,12 @@ body {
   inset: 0;
   z-index: 9500;
 
-  /* Platform :root values, scoped to the overlay. */
-  --accent:      #25C75E;
-  --accent-hover:#2dd868;
-  --white:       #f5f5f7;
-  --text:        #e3e3e6;
-  --text-2:      #9a9aa1;
-  --text-3:      #6a6a72;
-  --text-muted:  #4a4a52;
-  --border:      #1f1f24;
-  --border-2:    #2a2a30;
-  --surface:     #141418;
-  --surface-2:   #1a1a1f;
-  --danger:      #f87171;
+  /* Colors inherit the app's global theme variables (--bg, --surface, --text,
+     --white, --border, --accent, --danger, …) so the login + create-account
+     screens match the rest of the app exactly in both light and dark. Only
+     these tokens aren't defined globally, so they stay here. */
   --radius:      10px;
   --radius-sm:   8px;
-  --font-sans:   'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono:   'JetBrains Mono', 'SF Mono', monospace;
   --transition:  160ms ease;
 }
 
@@ -399,7 +388,7 @@ body {
 #onboarding-overlay .auth-shell {
   position: absolute;
   inset: 0;
-  background: #000;
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
   display: grid;
@@ -422,8 +411,9 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* Onboarding overlay has a black background — always use the on-dark logo. */
-#onboarding-overlay .onboarding-wordmark .glyphh-logo { display: block; height: 56px; }
+/* Wordmark follows the theme: the global .glyphh-logo--black/--white swap
+   (by data-theme) controls which one shows; we only set the size here. */
+#onboarding-overlay .onboarding-wordmark .glyphh-logo { height: 56px; }
 
 #onboarding-overlay .auth-shell-body {
   display: flex;
@@ -515,7 +505,7 @@ body {
 #onboarding-overlay .auth-shell-input:-webkit-autofill:hover,
 #onboarding-overlay .auth-shell-input:-webkit-autofill:focus {
   -webkit-text-fill-color: var(--white);
-  -webkit-box-shadow: 0 0 0 1000px #000 inset;
+  -webkit-box-shadow: 0 0 0 1000px var(--bg) inset;
   border-color: var(--border);
   transition: background-color 5000s ease-in-out 0s;
 }
@@ -3242,6 +3232,35 @@ ol.docs-list li::before {
 .dash-header h2 { margin: 0; }
 .dash-provider { font-size: 11px; color: var(--text-3); background: var(--hover); padding: 4px 10px; border-radius: 6px; margin-left: auto; }
 .dash-header #dash-refresh { font-size: 16px; padding: 2px 8px; line-height: 1; }
+
+/* Two-tab dashboard (Home | Dashboard) + cowork landing */
+.dash-tabs { display: inline-flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; margin-bottom: 18px; }
+.dash-tab { background: transparent; border: none; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 500; padding: 6px 16px; border-radius: 6px; cursor: pointer; }
+.dash-tab:hover { color: var(--text); }
+.dash-tab.active { background: var(--surface); color: var(--text); }
+.dash-pane { display: none; }
+.dash-pane.active { display: block; }
+
+.dash-credits-card {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 24px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 22px; margin-bottom: 16px;
+}
+.dash-credits-main { display: flex; align-items: baseline; gap: 8px; }
+.dash-credits-num { font-size: 34px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+.dash-credits-unit { font-size: 14px; color: var(--text-3); }
+.dash-credits-meta { display: flex; align-items: center; gap: 24px; margin-left: auto; flex-wrap: wrap; }
+.dash-credits-meta > div { display: flex; flex-direction: column; gap: 2px; }
+.dash-credits-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); }
+.dash-credits-val { font-size: 16px; font-weight: 600; color: var(--text); }
+.btn-credits-manage { border: none; background: var(--accent); color: #000; font: inherit; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.btn-credits-manage:hover { background: var(--accent-hover, var(--accent)); }
+
+.dash-cowork-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
+.dash-cowork-card { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; transition: border-color 160ms ease, transform 160ms ease; }
+.dash-cowork-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.dash-cowork-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.dash-cowork-desc { font-size: 12px; color: var(--text-3); }
 .dash-stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
 .dash-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
 .dash-stat-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }

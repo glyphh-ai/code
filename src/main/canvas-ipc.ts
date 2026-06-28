@@ -130,10 +130,12 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     for (const id of Object.keys(windows)) if (!open.has(id)) delete windows[id];
 
     let zMax = Math.max(0, ...Object.values(windows).map((r) => r.z ?? 0));
-    let newcomers = 0;
     ids.forEach((id) => {
       if (!windows[id]) {
-        const slot = newcomers++;
+        // Cascade newcomers down-and-right from the top-left, offset by how many
+        // windows are already placed — so windows opened one at a time still
+        // stack card-style instead of all landing on the same top-left spot.
+        const slot = Object.keys(windows).length;
         const w = Math.min(760, area.w - 40);
         const h = Math.min(560, area.h - 40);
         windows[id] = clampRect({

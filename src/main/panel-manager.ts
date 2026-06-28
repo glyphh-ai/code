@@ -449,6 +449,18 @@ export class PanelManager {
     return out;
   }
 
+  /** Chrome views (canvas window frames) — separate from panel content. Used so
+   *  theme changes reach the titlebars/URL bars of open canvas windows. */
+  getChromeWebContents(): WebContents[] {
+    const out: WebContents[] = [];
+    for (const view of this.chromeViews.values()) {
+      if (view.webContents && !view.webContents.isDestroyed()) {
+        out.push(view.webContents);
+      }
+    }
+    return out;
+  }
+
   private getOrCreate(id: string, parent: BrowserWindow): BrowserView | null {
     // Store main window ref for download notifications
     if (!PanelManager.mainWebContents && !parent.isDestroyed()) {

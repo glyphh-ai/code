@@ -9,7 +9,7 @@
 <script src="monaco/loader.js"></script>
 <script>
   try {
-    var t = localStorage.getItem("yoTheme") || "light";
+    var t = localStorage.getItem("yoTheme") || "dark";
     var r = t === "system"
       ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
       : t;

@@ -197,6 +197,7 @@ export class YoAgentRenderer {
   // State
   private perm: PermMode;
   private model: string;
+  private modelNames: Record<string, string> = {}; // server model id → display name
   private thinking = false;
   private responseEl: HTMLElement | null = null;
   private streamingText = "";
@@ -381,6 +382,8 @@ export class YoAgentRenderer {
         this.modelMenu.classList.add("hidden");
       });
     });
+    // Replace the static list with the server's per-user model list.
+    void this.populateModels();
 
     document.addEventListener("click", (e) => {
       const t = e.target as Node;
@@ -473,7 +476,21 @@ export class YoAgentRenderer {
     this.stopThinking();
     const el = document.createElement("div");
     el.className = "yo-msg yo-msg-error";
-    el.textContent = msg || "Error.";
+    // Out-of-credits notice (sentinel set in yo-agent.ts creditsAware()): render
+    // a soft message with a "Manage plan" button that opens the platform billing
+    // page, instead of a plain error.
+    const CREDITS = "__CREDITS__";
+    if (msg && msg.startsWith(CREDITS)) {
+      el.classList.add("yo-msg-credits");
+      el.textContent = msg.slice(CREDITS.length) + " ";
+      const btn = document.createElement("button");
+      btn.className = "yo-credits-manage";
+      btn.textContent = "Manage plan";
+      btn.addEventListener("click", () => { try { (window as any).yo?.openBilling?.(); } catch { /* ignore */ } });
+      el.appendChild(btn);
+    } else {
+      el.textContent = msg || "Error.";
+    }
     this.messages.appendChild(el);
     this.scrollToBottom();
   }
@@ -828,12 +845,50 @@ export class YoAgentRenderer {
   private applyModel(m: string, silent = false): void {
     const changed = this.model !== m;
     this.model = m;
-    this.modelLabel.textContent = MODEL_PRETTY[m] || (m || "Default");
+    this.modelLabel.textContent = this.modelNames[m] || MODEL_PRETTY[m] || (m || "Default");
     this.modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => {
       o.classList.toggle("active", o.dataset.value === m);
     });
     this.paintBrand();
     if (changed && !silent) this.callbacks.modelChanged?.(m);
+  }
+
+  /**
+   * Replace the static model menu with the server's per-user list (Anthropic ∩
+   * plan ∩ org ∩ user, via /api/models?proxy=1). If the current selection isn't
+   * usable, switch to the server default — this also clears a stale persisted
+   * model (e.g. a Sonnet pick that the plan doesn't allow), which otherwise
+   * makes the proxy 403 "model not available".
+   */
+  private async populateModels(): Promise<void> {
+    let data: { models: Array<{ provider: string; model: string; display_name: string }>; default_model: string | null };
+    try { data = await (window as any).yo.agentModels(); } catch { return; }
+    if (!data || !Array.isArray(data.models) || data.models.length === 0) return; // offline → keep static list
+
+    this.modelNames = {};
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+    const check = '<span class="yo-mode-opt-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
+    const rows = data.models.map((m) => {
+      this.modelNames[m.model] = m.display_name;
+      return `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(m.display_name)}</span></div>${check}</div>`;
+    }).join("");
+    this.modelMenu.innerHTML = `<div class="yo-model-section-header">Models</div>${rows}`;
+
+    // Re-wire clicks on the freshly-built options.
+    this.modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((opt) => {
+      opt.addEventListener("click", () => {
+        this.applyModel(opt.dataset.value || "");
+        this.modelMenu.classList.add("hidden");
+      });
+    });
+
+    const ids = new Set(data.models.map((m) => m.model));
+    if (!this.model || !ids.has(this.model)) {
+      const fallback = data.default_model && ids.has(data.default_model) ? data.default_model : data.models[0].model;
+      this.applyModel(fallback);          // persists the corrected model
+    } else {
+      this.applyModel(this.model, true);  // refresh active highlight on rebuilt options
+    }
   }
 
   // ── History dropdown ──

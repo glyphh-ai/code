@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <script>
-    const theme = localStorage.getItem("yoTheme") || "system";
+    const theme = localStorage.getItem("yoTheme") || "dark";
     const resolved = theme === "system"
       ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
       : theme;

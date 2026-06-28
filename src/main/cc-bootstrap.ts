@@ -17,6 +17,7 @@
 
 import { BrowserWindow } from "electron";
 import { hasKey as hasProviderKey } from "./provider-keys";
+import { getAuthToken } from "./auth";
 
 export interface BootstrapStatus {
   /** True when an Anthropic API key is configured. The renderer treats
@@ -31,12 +32,23 @@ export interface BootstrapStatus {
 export function bootstrapStatus(): BootstrapStatus {
   let byok = false;
   try { byok = hasProviderKey("anthropic"); } catch { /* */ }
-  return { found: byok, byokAnthropic: byok };
+  let loggedIn = false;
+  try { loggedIn = !!getAuthToken(); } catch { /* not logged in */ }
+  // `found` = the Glyphh agent can run. That's true when logged in (it goes
+  // through the platform proxy — no key needed) OR when a BYOK key is set.
+  // So the boot-gate key modal only appears when signed out without a key.
+  return { found: byok || loggedIn, byokAnthropic: byok };
 }
 
-/** Returns true when an Anthropic API key is configured. Otherwise tells
- *  the renderer to show the gating modal and returns false. */
+/**
+ * Is the Glyphh agent allowed to run? The agent now goes through the platform
+ * proxy authenticated with the session JWT, so being LOGGED IN is sufficient —
+ * no Anthropic key required. (A user's own key, if set, is only for the Agents
+ * coding agents.) Only when signed out AND without a BYOK key do we fall back to
+ * the legacy key modal.
+ */
 export function ensureCcAuth(): boolean {
+  try { if (getAuthToken()) return true; } catch { /* not logged in */ }
   if (bootstrapStatus().found) return true;
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("cc-show-modal");

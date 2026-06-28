@@ -55,7 +55,7 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
 
   ipcMain.handle("get-entitlements", () => getCurrentLimits());
 
-  ipcMain.handle("get-theme", () => getPreference<string>("theme", "light"));
+  ipcMain.handle("get-theme", () => getPreference<string>("theme", "dark"));
   ipcMain.handle("set-theme", (_e, theme: string) => {
     setPreference("theme", theme);
     nativeTheme.themeSource = theme === "system" ? "system" : theme as "light" | "dark";
@@ -142,6 +142,29 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   });
 
   ipcMain.handle("get-account-info", () => getAccountInfo());
+
+  // Per-user usage + credit balance, straight from the server (the proxy meters
+  // this org/user). Replaces the old local UsageTracker numbers on the dashboard.
+  ipcMain.handle("user-usage", async (_e, range?: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (range?.from) qs.set("from", range.from);
+    if (range?.to) qs.set("to", range.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    const [credits, usage] = await Promise.all([
+      serverGetAuthed<{ balance: number; grants: number; purchases: number }>("/api/billing/credits").catch(() => null),
+      serverGetAuthed<{ days: Array<Record<string, number | string>> }>(`/api/usage/daily${suffix}`).catch(() => ({ days: [] })),
+    ]);
+    return { credits, days: usage?.days || [] };
+  });
+
+  // Models the Glyphh agent can actually use — server-filtered for this user
+  // (Anthropic ∩ plan ∩ org ∩ user allow-lists), with a guaranteed-usable default.
+  ipcMain.handle("agent-models", async () => {
+    return serverGetAuthed<{ models: Array<{ provider: string; model: string; display_name: string }>; default_model: string | null }>(
+      "/api/models?proxy=1",
+    ).catch(() => ({ models: [], default_model: null }));
+  });
+
   ipcMain.handle("get-auth-status", () => getAuthStatus());
   ipcMain.handle("refresh-auth", async () => {
     const hb = await refreshHeartbeat();

@@ -348,6 +348,16 @@ contextBridge.exposeInMainWorld("yo", {
   hasMcpAccess: () => ipcRenderer.invoke("has-mcp-access") as Promise<boolean>,
   openAccountDashboard: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.glyphh.ai")),
   openBilling: () => ipcRenderer.send("open-external", (process.env.YO_PLATFORM_URL || "https://platform.glyphh.ai") + "/dashboard/billing"),
+  /** Models the Glyphh agent can use (server-filtered for this user) + default. */
+  agentModels: () => ipcRenderer.invoke("agent-models") as Promise<{
+    models: Array<{ provider: string; model: string; display_name: string }>;
+    default_model: string | null;
+  }>,
+  /** Per-user credit balance + daily usage from the server. */
+  userUsage: (range?: { from?: string; to?: string }) => ipcRenderer.invoke("user-usage", range) as Promise<{
+    credits: { balance: number; grants: number; purchases: number } | null;
+    days: Array<{ day: string; credits: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; requests: number }>;
+  }>,
 
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>

@@ -25,7 +25,7 @@
     // Apply theme synchronously before anything renders (avoids flash).
     // Reads from localStorage which the main renderer keeps in sync.
     try {
-      var t = localStorage.getItem("yoTheme") || "light";
+      var t = localStorage.getItem("yoTheme") || "dark";
       var r = t === "system"
         ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
         : t;
@@ -93,6 +93,44 @@
             <div class="dash-provider" id="dash-provider">—</div>
             <button id="dash-refresh" class="action-btn" title="Refresh dashboard">↻</button>
           </div>
+
+          <!-- Two-tab switcher: Home (cowork landing) | Dashboard (detailed usage) -->
+          <div class="dash-tabs">
+            <button class="dash-tab active" data-dash-tab="home">Home</button>
+            <button class="dash-tab" data-dash-tab="dashboard">Dashboard</button>
+          </div>
+
+          <!-- HOME pane — credits + cowork quick-links -->
+          <div class="dash-pane active" data-dash-pane="home">
+            <div class="dash-credits-card">
+              <div class="dash-credits-main">
+                <span class="dash-credits-num" id="home-credits-balance">—</span>
+                <span class="dash-credits-unit">credits left</span>
+              </div>
+              <div class="dash-credits-meta">
+                <div><span class="dash-credits-label">Used this period</span><span class="dash-credits-val" id="home-credits-used">—</span></div>
+                <div><span class="dash-credits-label">Plan allowance</span><span class="dash-credits-val" id="home-credits-grants">—</span></div>
+                <button class="btn-credits-manage" id="home-credits-manage">Manage plan</button>
+              </div>
+            </div>
+
+            <div class="dash-activity-card">
+              <div class="dash-activity-head">
+                <div class="dash-split-header">Your usage — last 30 days</div>
+              </div>
+              <div class="dash-activity-chart-box"><canvas id="home-usage-chart"></canvas></div>
+            </div>
+
+            <div class="dash-cowork-grid">
+              <button class="dash-cowork-card" data-goto="apps"><div class="dash-cowork-title">Apps</div><div class="dash-cowork-desc">Your custom apps &amp; connectors</div></button>
+              <button class="dash-cowork-card" data-goto="schedules"><div class="dash-cowork-title">Schedules</div><div class="dash-cowork-desc">Automate runs on a cadence</div></button>
+              <button class="dash-cowork-card" data-goto="agents"><div class="dash-cowork-title">Agents</div><div class="dash-cowork-desc">Build &amp; manage your agents</div></button>
+              <button class="dash-cowork-card" data-goto="layouts"><div class="dash-cowork-title">Workspaces</div><div class="dash-cowork-desc">Save &amp; switch layouts</div></button>
+            </div>
+          </div>
+
+          <!-- DASHBOARD pane — detailed usage -->
+          <div class="dash-pane" data-dash-pane="dashboard">
 
           <!-- Daily Activity — full-width line chart spanning both columns -->
           <div class="dash-activity-card">
@@ -298,6 +336,7 @@
               </div>
             </div>
           </div>
+          </div><!-- /.dash-pane[dashboard] -->
         </div>
 
         <!-- Guide -->
@@ -1571,11 +1610,11 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
 
                 <h3 class="settings-subheading" style="margin-top:0;">Theme</h3>
                 <div id="theme-picker" class="theme-picker">
-                  <button class="theme-option" data-theme="dark">
+                  <button class="theme-option active" data-theme="dark">
                     <div class="theme-preview theme-preview-dark"><div class="tp-sidebar"></div><div class="tp-main"><div class="tp-bar"></div><div class="tp-content"></div></div></div>
                     <span>Dark</span>
                   </button>
-                  <button class="theme-option active" data-theme="light">
+                  <button class="theme-option" data-theme="light">
                     <div class="theme-preview theme-preview-light"><div class="tp-sidebar"></div><div class="tp-main"><div class="tp-bar"></div><div class="tp-content"></div></div></div>
                     <span>Light</span>
                   </button>

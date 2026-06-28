@@ -59,10 +59,12 @@ export function isCcModalShowing(): boolean { return ccModalShowing; }
 // ── Tutorial ────────────────────────────────────────────────────────────────
 
 const TUTORIAL_SEQUENCES = [
-  ".yo find that reddit thread about pricing",
-  ".sup . formalize",
-  ".dip split claude gpt",
-  "", // Cmd+. step — no typing, shows keyboard shortcut
+  "",                                          // 0 · Apps — shows the + key, no typing
+  "build a skill that summarizes my open tabs",// 1 · Glyphh agent
+  ".yo find that reddit thread about pricing", // 2 · .yo (any text box)
+  ".sup . formalize",                          // 3 · .sup
+  ".dip split claude gpt",                      // 4 · .dip
+  "",                                          // 5 · Cmd+. / Cmd+> — shows shortcut keys
 ];
 
 function showTutorial(cb: BootGateCallbacks): void {

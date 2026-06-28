@@ -47,6 +47,8 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 export async function loadDashboard() {
+  ensureDashTabs();
+  void loadHome();
   const [today, allTime, llmInfo, captureStats] = await Promise.all([
     window.yo.dashboardToday(),
     window.yo.dashboardAllTime(),
@@ -519,3 +521,99 @@ export function initDashboardEvents() {
   const dataSearchInput = document.getElementById("data-search") as HTMLInputElement;
   dataSearchInput?.addEventListener("input", () => dataSearchDebounce());
 }
+
+// ── Home tab (cowork landing) ───────────────────────────────────────────────
+// Two-tab dashboard: Home (credits + per-user usage from the server + cowork
+// quick-links) and Dashboard (the detailed local telemetry above).
+
+let dashTabsBound = false;
+let homeUsageChart: any = null;
+
+function ensureDashTabs(): void {
+  if (dashTabsBound) return;
+  dashTabsBound = true;
+
+  const tabs = Array.from(document.querySelectorAll<HTMLElement>(".dash-tab"));
+  const panes = Array.from(document.querySelectorAll<HTMLElement>(".dash-pane"));
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => {
+      const which = tab.getAttribute("data-dash-tab");
+      tabs.forEach((t) => t.classList.toggle("active", t === tab));
+      panes.forEach((p) => p.classList.toggle("active", p.getAttribute("data-dash-pane") === which));
+    });
+  }
+
+  // Cowork quick-links jump to the matching help section by clicking its nav item.
+  for (const card of Array.from(document.querySelectorAll<HTMLElement>(".dash-cowork-card"))) {
+    card.addEventListener("click", () => {
+      const sec = card.getAttribute("data-goto");
+      if (sec) (document.querySelector(`.help-nav-item[data-section="${sec}"]`) as HTMLElement | null)?.click();
+    });
+  }
+
+  document.getElementById("home-credits-manage")?.addEventListener("click", () => {
+    try { (window as any).yo?.openBilling?.(); } catch { /* ignore */ }
+  });
+}
+
+async function loadHome(): Promise<void> {
+  let data: { credits: { balance: number; grants: number; purchases: number } | null; days: Array<Record<string, number | string>> };
+  try {
+    data = await (window as any).yo.userUsage({ from: thirtyDaysAgo(), to: today() });
+  } catch {
+    return; // signed out / offline — leave placeholders
+  }
+
+  const MICRO = 1_000_000;
+  const balance = data.credits ? Math.floor((data.credits.balance || 0) / MICRO) : null;
+  const grants = data.credits ? Math.floor((data.credits.grants || 0) / MICRO) : 0;
+  const used = (data.days || []).reduce((s, d) => s + (Number(d.credits) || 0), 0);
+
+  const set = (id: string, v: string) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set("home-credits-balance", balance === null ? "—" : balance.toLocaleString());
+  set("home-credits-used", `${Math.round(used / MICRO).toLocaleString()} credits`);
+  set("home-credits-grants", `${grants.toLocaleString()} credits`);
+
+  renderHomeUsageChart(data.days || []);
+}
+
+function renderHomeUsageChart(days: Array<Record<string, number | string>>): void {
+  const canvas = document.getElementById("home-usage-chart") as HTMLCanvasElement | null;
+  if (!canvas || typeof Chart === "undefined") return;
+  const MICRO = 1_000_000;
+
+  // Zero-fill the 30-day span so the chart is continuous.
+  const byDay = new Map(days.map((d) => [String(d.day), d]));
+  const labels: string[] = [];
+  const values: number[] = [];
+  const start = new Date(thirtyDaysAgo() + "T00:00:00");
+  const end = new Date(today() + "T00:00:00");
+  for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+    const key = ymd(dt);
+    labels.push(dt.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+    values.push(Math.round((Number(byDay.get(key)?.credits) || 0) / MICRO));
+  }
+
+  if (homeUsageChart) homeUsageChart.destroy();
+  const accent = cssVar("--accent") || "#25C75E";
+  const grid = cssVar("--border") || "#1f1f24";
+  const muted = cssVar("--text-3") || "#6a6a72";
+  homeUsageChart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: { labels, datasets: [{ label: "Credits", data: values, backgroundColor: accent, borderRadius: 3, maxBarThickness: 16 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: muted, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+        y: { beginAtZero: true, grid: { color: grid }, ticks: { color: muted, precision: 0 } },
+      },
+    },
+  });
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function today(): string { return ymd(new Date()); }
+function thirtyDaysAgo(): string { const d = new Date(); d.setDate(d.getDate() - 30); return ymd(d); }

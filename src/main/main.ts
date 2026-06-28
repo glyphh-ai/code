@@ -764,13 +764,13 @@ async function boot() {
     const names = models.length > 0 ? models.map((m) => m.model) : ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
     yoInterceptor.setAvailableModels(names);
   });
-  const initialTheme = getPreference<string>("theme", "light");
+  const initialTheme = getPreference<string>("theme", "dark");
   nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
   const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
   yoInterceptor.setTheme(resolvedTheme);
 
   nativeTheme.on("updated", () => {
-    if (getPreference<string>("theme", "light") !== "system") return;
+    if (getPreference<string>("theme", "dark") !== "system") return;
     const resolved = nativeTheme.shouldUseDarkColors ? "dark" : "light";
     broadcastTheme(resolved);
   });
@@ -782,6 +782,12 @@ async function boot() {
       mainWindow.webContents.send("theme-changed", resolved);
     }
     for (const wc of panelManager.getAllWebContents()) {
+      wc.send("theme-changed", resolved);
+    }
+    // Canvas window frames (titlebar/URL bar) are separate BrowserViews — they
+    // also listen for "theme-changed", so they recolor live instead of needing
+    // a close/reopen.
+    for (const wc of panelManager.getChromeWebContents()) {
       wc.send("theme-changed", resolved);
     }
   }
@@ -1245,7 +1251,7 @@ async function boot() {
   yoInterceptor.setPanelOpener(openYoPanel);
   yoInterceptor.setLastAgentResult(() => yoAgent.getLastResponse());
   wazManager.setThemeFn(() => {
-    const t = getPreference<string>("theme", "light");
+    const t = getPreference<string>("theme", "dark");
     return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t;
   });
   yoInterceptor.setWazSpawner((prompt) => wazManager?.spawn(prompt));
@@ -3244,6 +3250,11 @@ async function boot() {
       { label: "Expand", click: () => ipcMain.emit("canvas-maximize", {} as Electron.IpcMainEvent, id) },
       { type: "separator" },
       { label: "Close", click: () => ipcMain.emit("canvas-close", {} as Electron.IpcMainEvent, id) },
+      { label: "Close All", click: () => {
+        // Same as `.dip clear`: drop any layout, then close every open window.
+        layoutManager.clearSplit();
+        for (const tid of [...openTabs]) ipcMain.emit("tab-close", {} as Electron.IpcMainEvent, tid);
+      } },
     ]);
     menu.popup({ window: mainWindow });
   });
@@ -3373,7 +3384,7 @@ async function boot() {
       tier: authStatus.tier,
       needsOnboarding: currentNeedsOnboarding,
       hideWelcome,
-      theme: (() => { const t = getPreference<string>("theme", "light"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
+      theme: (() => { const t = getPreference<string>("theme", "dark"); return t === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : t; })(),
     });
     if (!currentNeedsOnboarding && !panelsReady) {
       restoring = true;
