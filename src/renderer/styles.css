@@ -2891,6 +2891,21 @@ ol.docs-list li::before {
 .crud-search:focus { border-color: var(--accent); }
 .crud-search::placeholder { color: var(--text-muted); }
 
+/* Clear (×) button on search boxes — injected by search-clear.ts. The wrap
+   takes the input's place (preserving flex:1 in toolbars, full width elsewhere)
+   and anchors the absolutely-positioned button at the input's right edge. */
+.search-clear-wrap { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.search-clear-wrap > input { flex: 1 1 auto; width: 100%; min-width: 0; padding-right: 30px; }
+.search-clear-btn {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; border-radius: 50%; border: none; padding: 0; margin: 0;
+  display: none; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--surface-3); color: var(--text-muted); transition: background 0.12s, color 0.12s;
+}
+.search-clear-btn.visible { display: flex; }
+.search-clear-btn:hover { background: var(--accent); color: #fff; }
+.search-clear-btn svg { width: 10px; height: 10px; }
+
 /* App grid cards */
 #apps-list.app-grid {
   display: grid;

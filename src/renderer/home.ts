@@ -6,6 +6,7 @@
  */
 
 import { initHelp, openNewAppDeepLink, gotoSection } from "./help/index.js";
+import { initSearchClears } from "./search-clear.js";
 
 // Theme: the inline script in home.html applied localStorage theme synchronously.
 // Here we re-fetch the authoritative value from main and keep localStorage in sync.
@@ -29,6 +30,7 @@ window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", as
 });
 
 initHelp();
+initSearchClears();
 window.yo.refreshAuth?.().catch(() => {});
 
 // Pick the startup section. Priority: ?section=<slug> in the URL (system-app

@@ -17,6 +17,7 @@ import { initGrid } from "./grid-ui.js";
 import { initCanvas } from "./canvas-ui.js";
 import { initCommandCenter } from "./command-center-ui.js";
 import { initYoPanel } from "./yo-panel-ui-vscode.js";
+import { initSearchClears } from "./search-clear.js";
 import { yoConfirm } from "./yo-modal.js";
 
 type TabInfo = { id: string; name: string; favicon?: string; layoutFavicons?: string[]; pinned?: boolean; url?: string };
@@ -698,6 +699,7 @@ const gridApi = initGrid({
 
 // -- Downloads dropdown (extracted to downloads-ui.ts) --
 initDownloads();
+initSearchClears();
 
 // -- Canvas mode + Command Center --
 initCanvas();
