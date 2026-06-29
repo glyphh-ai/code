@@ -265,13 +265,25 @@ function hideYoWelcome() {
   if (w) w.remove();
 }
 
+// The signed-in user's first name, loaded once from the account (see
+// loadUserName in initYoPanel). Falls back to "there" until/unless known.
+let userName = "";
+let lastGreetingTemplate = "";
+function nameOrThere(): string { return userName || "there"; }
+
 function fillGreeting(template: string): string {
-  // No account/identity anymore — the greeting always uses the generic form.
-  return template.replace(/\{name\}/g, "there");
+  return template.replace(/\{name\}/g, nameOrThere());
+}
+
+/** Re-fill the empty-state greeting subline in place (no re-randomize). */
+function refreshGreetingName(): void {
+  const sub = document.querySelector<HTMLElement>(".yo-greeting-sub");
+  if (sub && lastGreetingTemplate) sub.textContent = fillGreeting(lastGreetingTemplate);
 }
 
 function showYoWelcome() {
   const template = YO_GREETINGS[Math.floor(Math.random() * YO_GREETINGS.length)];
+  lastGreetingTemplate = template;
 
   // The ONE welcome: the empty-state greeting block (#yo-greeting, shown via
   // CSS when #yo-panel.empty). Just rotate its subline; never inject a second
@@ -1180,7 +1192,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       else { logoEl.removeAttribute("src"); logoEl.style.display = "none"; }
     }
     if (nameEl) {
-      nameEl.textContent = "there";
+      nameEl.textContent = nameOrThere();
     }
   }
   if (modelTrigger && modelMenu) {
@@ -1216,6 +1228,16 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   modelOptions?.forEach(wireModelOption);
   paintModelLabel();
   paintBrand();
+  // Load the signed-in user's first name so the greeting + ".Sup <name>" brand
+  // address them by name instead of the generic "there".
+  void (async () => {
+    try {
+      const info = await (window as unknown as { yo: { getAccountInfo: () => Promise<{ firstName?: string } | null> } }).yo.getAccountInfo();
+      userName = (info?.firstName || "").trim();
+    } catch { /* not signed in / offline — keep generic */ }
+    paintBrand();
+    refreshGreetingName();
+  })();
   modelOptions?.forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentChatModel));
 
   // Replace the static list with the server-filtered model list for THIS user
