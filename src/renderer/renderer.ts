@@ -126,6 +126,7 @@ declare global {
       authVerifyCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
       authCompleteProfile: (data: { email: string; firstName: string; lastName: string; password: string; confirmPassword: string; orgName?: string }) => Promise<{ ok: boolean; error?: string }>;
       authLogin: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+      authForgotPassword: (email: string) => Promise<{ ok: boolean; error?: string }>;
       getAccountInfo: () => Promise<{ email: string; firstName: string; lastName: string; role: string; orgName: string; tier: string; billingStatus: string } | null>;
       logout: () => Promise<void>;
       validateApiKey: () => Promise<{ valid: boolean }>;

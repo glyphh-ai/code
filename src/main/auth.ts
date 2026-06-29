@@ -459,6 +459,20 @@ export async function authLogin(email: string, password: string): Promise<{ ok: 
   }
 }
 
+/**
+ * Request a password-reset email. The server always responds 200 (no account
+ * enumeration) and emails a reset link that opens the platform's web reset page,
+ * so the actual reset happens in the browser. We only surface network failures.
+ */
+export async function authForgotPassword(email: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await serverPost("/api/auth/forgot-password", { email });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: parseAuthError(err, "Could not send the reset email") };
+  }
+}
+
 /** Exchange a one-time device code for JWT tokens. */
 async function exchangeDeviceCode(code: string): Promise<boolean> {
   try {

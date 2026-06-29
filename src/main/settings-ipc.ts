@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerSaveBlocker } from "electron";
-import { authRegister, authVerifyCode, authCompleteProfile, authLogin, hasMcpAccess } from "./auth";
+import { authRegister, authVerifyCode, authCompleteProfile, authLogin, authForgotPassword, hasMcpAccess } from "./auth";
 import type { LLMConfig } from "./llm-config";
 import type { McpExpose } from "./mcp-expose";
 import type { SessionCache } from "./session-cache";
@@ -84,6 +84,7 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   ipcMain.handle("auth-verify-code", (_e, email: string, code: string) => authVerifyCode(email, code));
   ipcMain.handle("auth-complete-profile", (_e, data: { email: string; firstName: string; lastName: string; password: string; confirmPassword: string; orgName?: string }) => authCompleteProfile(data));
   ipcMain.handle("auth-login", (_e, email: string, password: string) => authLogin(email, password));
+  ipcMain.handle("auth-forgot-password", (_e, email: string) => authForgotPassword(email));
 
   ipcMain.handle("dev-flags", () => ({
     cyphersEnabled: process.env.YO_CYPHERS_ENABLED === "1" || process.env.YO_CYPHERS_ENABLED === "true",

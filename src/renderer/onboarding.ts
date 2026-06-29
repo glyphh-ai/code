@@ -52,7 +52,7 @@ function completeOnboarding() {
 }
 
 // ── Inline email auth (no popup, no device-code handoff) ─────
-type AuthMode = "login" | "register-email" | "register-code" | "register-profile";
+type AuthMode = "login" | "forgot" | "register-email" | "register-code" | "register-profile";
 let regEmail = "";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -299,7 +299,50 @@ function renderAuthStep(mode: AuthMode): void {
     form.addEventListener("submit", submit);
     form.append(email.wrap, pw.wrap, err.el, actions(btn));
     stepAuth.append(form);
+
+    const forgot = el("p", "auth-shell-meta");
+    const forgotLink = el("a", undefined, "Forgot your password?");
+    forgotLink.href = "#";
+    forgotLink.addEventListener("click", (ev) => { ev.preventDefault(); renderAuthStep("forgot"); });
+    forgot.append(forgotLink);
+    stepAuth.append(forgot);
+
     stepAuth.append(metaLink("Need an account?", "Create one", () => renderAuthStep("register-email")));
+  } else if (mode === "forgot") {
+    const root = stepAuth;
+    root.append(title("Reset your password"));
+    root.append(lede("Enter your email and we'll send a link to set a new one. The link opens in your browser."));
+
+    const form = el("form", "auth-shell-form");
+    form.noValidate = true;
+    const email = field({ id: "ob-forgot-email", label: "Email", type: "email", placeholder: "you@example.com", autofocus: true });
+    const err = formError();
+    const btn = primaryButton("Send reset link");
+
+    const submit = async (e?: Event) => {
+      e?.preventDefault();
+      err.clear();
+      const addr = email.input.value.trim();
+      if (!addr) { email.setError("Email is required"); return; }
+      if (!EMAIL_RE.test(addr)) { email.setError("Enter a valid email address"); return; }
+      btn.disabled = true; btn.textContent = "Sending…";
+      const r = await window.yo.authForgotPassword(addr);
+      btn.disabled = false; btn.textContent = "Send reset link";
+      if (r.ok) {
+        // Mirror the platform: always confirm, without revealing whether the account exists.
+        root.innerHTML = "";
+        root.append(title("Check your email"));
+        root.append(ledeEmail("If an account exists for ", addr, ", we sent a link to reset your password. Open it in your browser to finish."));
+        root.append(metaLink("All done?", "Back to sign in", () => renderAuthStep("login")));
+      } else {
+        err.show(r.error || "Could not send the reset email");
+      }
+    };
+
+    form.addEventListener("submit", submit);
+    form.append(email.wrap, err.el, actions(btn));
+    root.append(form);
+    root.append(metaLink("Remembered it?", "Back to sign in", () => renderAuthStep("login")));
   } else if (mode === "register-email") {
     stepAuth.append(title("Create your account"));
     stepAuth.append(lede("One workspace. Every tool. Get started in under a minute."));

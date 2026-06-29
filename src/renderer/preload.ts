@@ -262,6 +262,7 @@ contextBridge.exposeInMainWorld("yo", {
   authVerifyCode: (email: string, code: string) => ipcRenderer.invoke("auth-verify-code", email, code) as Promise<{ ok: boolean; error?: string }>,
   authCompleteProfile: (data: { email: string; firstName: string; lastName: string; password: string; confirmPassword: string; orgName?: string }) => ipcRenderer.invoke("auth-complete-profile", data) as Promise<{ ok: boolean; error?: string }>,
   authLogin: (email: string, password: string) => ipcRenderer.invoke("auth-login", email, password) as Promise<{ ok: boolean; error?: string }>,
+  authForgotPassword: (email: string) => ipcRenderer.invoke("auth-forgot-password", email) as Promise<{ ok: boolean; error?: string }>,
   getAccountInfo: () => ipcRenderer.invoke("get-account-info") as Promise<{ email: string; firstName: string; lastName: string; role: string; orgName: string; tier: string; billingStatus: string } | null>,
   logout: () => ipcRenderer.invoke("logout") as Promise<void>,
   validateApiKey: () => Promise.resolve({ valid: true }),
