@@ -462,6 +462,19 @@ export class CommandParser {
       return this.handleDipGrid(args.slice(1), win);
     }
 
+    // Canvas window controls. min/exp toggle the active window's minimize/expand;
+    // minAll/expAll act on every window.
+    if (sub === "min" || sub === "exp" || sub === "minall" || sub === "expall") {
+      if (!this.panels.canvasMode) return "Window controls (min/exp/minAll/expAll) only work in canvas mode.";
+      if (sub === "minall") { ipcMain.emit("canvas-collapse-all", {} as Electron.IpcMainEvent); return "Minimized all windows."; }
+      if (sub === "expall") { ipcMain.emit("canvas-restore-all", {} as Electron.IpcMainEvent); return "Expanded all windows."; }
+      const id = this.panels.activePanelId;
+      if (!id) return "No active window.";
+      if (sub === "min") { ipcMain.emit("canvas-collapse-toggle", {} as Electron.IpcMainEvent, id); return `Minimize toggled: ${id}`; }
+      ipcMain.emit("canvas-maximize", {} as Electron.IpcMainEvent, id); // exp → expand/restore toggle
+      return `Expand toggled: ${id}`;
+    }
+
     // Check for saved layout
     if (this.layouts.isLayout(sub)) {
       const ok = this.layouts.apply(sub, win);
@@ -528,6 +541,13 @@ export class CommandParser {
     const switched = this.panels.switchTo(sub, win);
     if (!switched) return `Unknown panel: ${sub}. Try: dip list`;
     setPreference("lastView", { type: "panel", id: sub });
+
+    // In canvas grid mode, dipping to an app opens/raises its window and re-tiles
+    // so the new window joins the grid (rather than just bringing it to front).
+    if (this.panels.canvasMode && this.panels.canvasGrid && args.length === 1) {
+      ipcMain.emit("canvas-grid-all", {} as Electron.IpcMainEvent);
+      return `Added ${sub} to grid`;
+    }
 
     // No commands to run — just a switch
     const commands = args.slice(1);

@@ -15,6 +15,10 @@ interface ChromeUpdate {
   active: boolean;
   titlebarH: number;
   frame: number;
+  isBrowser?: boolean;
+  urlBarOpen?: boolean;
+  urlBarH?: number;
+  url?: string;
 }
 
 contextBridge.exposeInMainWorld("canvasChrome", {
@@ -33,6 +37,7 @@ contextBridge.exposeInMainWorld("canvasChrome", {
   ready: () => ipcRenderer.send("canvas-chrome-ready", id),
   // Browser URL bar — drives this window's panel navigation.
   navTo: (url: string) => ipcRenderer.send("panel-nav-to", id, url),
+  toggleUrlbar: () => ipcRenderer.send("canvas-chrome-toggle-urlbar", id),
   navBack: () => ipcRenderer.send("panel-nav-back", id),
   navForward: () => ipcRenderer.send("panel-nav-forward", id),
   navRefresh: () => ipcRenderer.send("panel-nav-refresh", id),

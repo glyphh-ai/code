@@ -159,6 +159,16 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     return { mode: true, titlebarH: CANVAS_TITLEBAR_H, frame: CANVAS_FRAME, active: panelManager.activePanelId, windows: list };
   }
 
+  // Per-window URL-bar visibility. Default: ON for the browser app, OFF for
+  // every other app. The globe icon toggles it; once toggled, the explicit
+  // choice (in urlbarOpen) wins over the default. urlbarTouched tracks which
+  // windows the user has explicitly set so the browser default doesn't override.
+  const urlbarOpen = new Set<string>();
+  const urlbarTouched = new Set<string>();
+  function urlbarVisible(id: string): boolean {
+    return urlbarTouched.has(id) ? urlbarOpen.has(id) : !!getPanelMeta(id).isBrowser;
+  }
+
   /** Position the BrowserViews + push chrome state to the renderer. */
   function applyCanvas(): void {
     const win = getMainWindow();
@@ -171,7 +181,7 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
       .map((id) => ({ id, r: clampRect(windows[id], area) }))
       .filter((e) => !e.r.collapsed)
       .sort((a, b) => (a.r.z ?? 0) - (b.r.z ?? 0))
-      .map((e) => ({ id: e.id, x: e.r.x, y: e.r.y, width: e.r.w, height: e.r.h, topExtra: getPanelMeta(e.id).isBrowser ? CANVAS_URLBAR_H : 0 }));
+      .map((e) => ({ id: e.id, x: e.r.x, y: e.r.y, width: e.r.w, height: e.r.h, topExtra: urlbarVisible(e.id) ? CANVAS_URLBAR_H : 0 }));
     panelManager.applyCanvas(win, visible, CANVAS_TITLEBAR_H, CANVAS_FRAME);
     // Push each window's meta to its chrome view so it can draw titlebar + URL bar.
     for (const v of visible) pushChromeMeta(v.id);
@@ -188,7 +198,8 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
       titlebarH: CANVAS_TITLEBAR_H,
       frame: CANVAS_FRAME,
       isBrowser: !!meta.isBrowser,
-      urlBarH: meta.isBrowser ? CANVAS_URLBAR_H : 0,
+      urlBarOpen: urlbarVisible(id),
+      urlBarH: urlbarVisible(id) ? CANVAS_URLBAR_H : 0,
       url: meta.url || "",
     });
   }
@@ -290,7 +301,11 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     const windows = readWindows();
     delete windows[id];
     writeWindows(windows);
-    if (isCanvasMode()) applyCanvas();
+    if (isCanvasMode()) {
+      // In grid mode, re-tile the remaining windows so the grid stays full.
+      if (panelManager.canvasGrid) arrangeAllToGrid();
+      else applyCanvas();
+    }
   });
 
   // Maximize a window to fill the available content area.
@@ -300,6 +315,7 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     if (!isCanvasMode()) return;
     const win = getMainWindow();
     if (!win) return;
+    panelManager.setCanvasGrid(false); // maximizing breaks the tiled grid
     const area = contentArea(win);
     const windows = reconcile(win);
     const r = windows[id];
@@ -370,6 +386,15 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     pushChromeMeta(id);
   });
   ipcMain.on("canvas-chrome-focus", (_e, id: string) => { ipcMain.emit("canvas-focus", {} as Electron.IpcMainEvent, id); });
+  // Toggle this window's URL bar, then re-lay-out so the content view insets
+  // (or un-insets) below it and the chrome redraws.
+  ipcMain.on("canvas-chrome-toggle-urlbar", (_e, id: string) => {
+    if (!windowIds().includes(id)) return;
+    const cur = urlbarVisible(id);
+    urlbarTouched.add(id);
+    if (cur) urlbarOpen.delete(id); else urlbarOpen.add(id);
+    applyCanvas();
+  });
   ipcMain.on("canvas-chrome-button", (_e, id: string, action: "collapse" | "maximize" | "close") => {
     if (action === "collapse") ipcMain.emit("canvas-collapse", {} as Electron.IpcMainEvent, id);
     else if (action === "maximize") ipcMain.emit("canvas-maximize", {} as Electron.IpcMainEvent, id);
@@ -467,6 +492,7 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     if (!isCanvasMode()) return;
     const win = getMainWindow();
     if (!win) return;
+    panelManager.setCanvasGrid(false); // a manual move/resize breaks the tiled grid
     if (interaction) endInteraction();
     const windows = reconcile(win);
     if (!windows[id]) return;
@@ -510,14 +536,15 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
   // Tile every open window into an equal-sized grid — restoring any collapsed
   // ones first. With no args the grid is auto-squared; cols/rows can be forced
   // (rows grows to fit if both are given but too small).
-  ipcMain.on("canvas-grid-all", (_e, cols?: number, rows?: number) => {
+  /** Tile every open window into an even grid and mark the grid active. */
+  function arrangeAllToGrid(cols?: number, rows?: number): void {
     if (!isCanvasMode()) return;
     const win = getMainWindow();
     if (!win) return;
     const windows = reconcile(win);
     const ids = windowIds().filter((id) => windows[id]);
     const n = ids.length;
-    if (n === 0) return;
+    if (n === 0) { panelManager.setCanvasGrid(false); return; }
     // Restore collapsed windows and persist before measuring, so contentArea no
     // longer reserves the tray strip (we're using the full area for the grid).
     for (const id of ids) windows[id].collapsed = false;
@@ -542,7 +569,36 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     });
     writeWindows(windows);
     applyCanvas();
+    panelManager.setCanvasGrid(true);
+  }
+  ipcMain.on("canvas-grid-all", (_e, cols?: number, rows?: number) => arrangeAllToGrid(cols, rows));
+
+  // ── min / exp / minAll / expAll (.dip commands) ──────────────
+  // Toggle one window's minimized (collapsed) state.
+  ipcMain.on("canvas-collapse-toggle", (_e, id: string) => {
+    if (!isCanvasMode()) return;
+    const win = getMainWindow();
+    if (!win) return;
+    const windows = reconcile(win);
+    if (!windows[id]) return;
+    const next = !windows[id].collapsed;
+    windows[id].collapsed = next;
+    if (!next) bumpFront(id, windows);
+    writeWindows(windows);
+    applyCanvas();
   });
+  // Minimize / restore every window.
+  function setAllCollapsed(collapsed: boolean): void {
+    if (!isCanvasMode()) return;
+    const win = getMainWindow();
+    if (!win) return;
+    const windows = reconcile(win);
+    for (const id of windowIds()) if (windows[id]) windows[id].collapsed = collapsed;
+    writeWindows(windows);
+    applyCanvas();
+  }
+  ipcMain.on("canvas-collapse-all", () => setAllCollapsed(true));
+  ipcMain.on("canvas-restore-all", () => setAllCollapsed(false));
 
   ipcMain.on("canvas-dip-layout", (_e, name?: string) => {
     if (!isCanvasMode()) return;

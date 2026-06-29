@@ -109,6 +109,7 @@ export class PanelManager {
   /** Canvas (free-floating window) mode — when on, switchTo/applyGrid are
    *  bypassed and views are positioned by applyCanvas(). */
   private _canvasMode = false;
+  private _canvasGrid = false;
   /** Per-window chrome BrowserViews (titlebar + resize frame), keyed by panel
    *  id. Each is stacked directly above its window's content view in canvas
    *  mode so overlapping windows don't bleed into each other's chrome. */
@@ -978,7 +979,12 @@ export class PanelManager {
 
   // ── Canvas (free-floating window) mode ───────────────────────
   get canvasMode(): boolean { return this._canvasMode; }
-  setCanvasMode(on: boolean): void { this._canvasMode = on; }
+  setCanvasMode(on: boolean): void { this._canvasMode = on; if (!on) this._canvasGrid = false; }
+  // True while windows are tiled by `.dip grid` (so new apps join the grid and
+  // closing a window re-tiles). Cleared when the grid is broken (manual move,
+  // maximize, or leaving canvas).
+  get canvasGrid(): boolean { return this._canvasGrid; }
+  setCanvasGrid(on: boolean): void { this._canvasGrid = on; }
 
   /**
    * Arrange the given panels as free-floating windows at arbitrary bounds.
@@ -1067,7 +1073,7 @@ export class PanelManager {
   }
 
   /** Push a window's meta + geometry to its chrome view for rendering. */
-  updateChromeView(id: string, payload: { name: string; favicon: string; active: boolean; titlebarH: number; frame: number; isBrowser?: boolean; urlBarH?: number; url?: string }): void {
+  updateChromeView(id: string, payload: { name: string; favicon: string; active: boolean; titlebarH: number; frame: number; isBrowser?: boolean; urlBarOpen?: boolean; urlBarH?: number; url?: string }): void {
     const view = this.chromeViews.get(id);
     if (view && view.webContents && !view.webContents.isDestroyed()) {
       view.webContents.send("canvas-chrome-update", payload);

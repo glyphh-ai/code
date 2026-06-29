@@ -65,6 +65,7 @@
     border: none; background: transparent; color: var(--cw-faint); cursor: pointer;
   }
   .tb-btn:hover { background: var(--cw-btn-hover); color: var(--cw-text); }
+  .tb-btn.active { background: var(--cw-btn-hover); color: var(--cw-accent); }
   .tb-btn svg { width: 13px; height: 13px; }
 
   /* Browser URL bar — shown only for browser windows, in the strip the content
@@ -75,7 +76,7 @@
     display: none; align-items: center; gap: 4px; padding: 0 4px;
     background: var(--cw-bg); border-bottom: 1px solid var(--cw-border);
   }
-  #cw.browser #urlbar { display: flex; }
+  #cw.urlbar-open #urlbar { display: flex; }
   .ub-btn {
     flex: 0 0 auto; width: 24px; height: 24px; border-radius: 5px;
     display: flex; align-items: center; justify-content: center;
@@ -105,6 +106,7 @@
       <img id="fav" />
       <span id="fav-initial"></span>
       <span id="title"></span>
+      <button class="tb-btn" id="btn-url" title="Toggle URL bar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a14 14 0 0 0 0 18 14 14 0 0 0 0-18"/></svg></button>
       <button class="tb-btn" id="btn-collapse" title="Collapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
       <button class="tb-btn" id="btn-max" title="Expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/></svg></button>
       <button class="tb-btn" id="btn-close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
@@ -150,9 +152,10 @@
       cw.classList.toggle("active", !!u.active);
       titlebar.style.height = (u.titlebarH || 30) + "px";
       document.getElementById("rz-r").style.top = (u.titlebarH || 30) + "px";
-      // Browser URL bar.
-      cw.classList.toggle("browser", !!u.isBrowser);
-      if (u.isBrowser) {
+      // URL bar — shown only when toggled on for this window (globe icon).
+      cw.classList.toggle("urlbar-open", !!u.urlBarOpen);
+      document.getElementById("btn-url").classList.toggle("active", !!u.urlBarOpen);
+      if (u.urlBarOpen) {
         urlbar.style.top = (u.titlebarH || 30) + "px";
         urlbar.style.height = (u.urlBarH || 36) + "px";
         if (document.activeElement !== ubInput) ubInput.value = u.url || "";
@@ -206,6 +209,7 @@
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     });
+    document.getElementById("btn-url").addEventListener("click", (e) => { e.stopPropagation(); api.toggleUrlbar(); });
     document.getElementById("btn-collapse").addEventListener("click", (e) => { e.stopPropagation(); api.button("collapse"); });
     document.getElementById("btn-max").addEventListener("click", (e) => { e.stopPropagation(); api.button("maximize"); });
     document.getElementById("btn-close").addEventListener("click", (e) => { e.stopPropagation(); api.button("close"); });

@@ -411,22 +411,26 @@ export function registerTabIpc(deps: TabIpcDeps): void {
     if (nwc && !nwc.isDestroyed()) nwc.reload();
   });
   ipcMain.on("panel-nav-to", (_e, panelId: string, url: string) => {
+    // Normalize like the main URL bar: bare hosts → https, otherwise search.
     let target = url.trim();
     if (!target) return;
-    if (!/^https?:\/\//i.test(target)) target = "https://" + target;
-    const isBrowser = resolveAppId(panelId) === "browser";
+    if (!/^https?:\/\//i.test(target)) {
+      if (/^localhost(:\d+)?(\/|$)/i.test(target) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(target)) {
+        target = "http://" + target;
+      } else if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z]{2,})+/i.test(target)) {
+        target = "https://" + target;
+      } else {
+        target = "https://www.google.com/search?q=" + encodeURIComponent(target);
+      }
+    }
+    // panelNavWc[id] is the navigable webContents itself — for a browser panel
+    // that's the <webview> guest (set on did-attach-webview), for a direct app
+    // panel it's the BrowserView. Either way, load straight into it; the old
+    // browser branch ran executeJavaScript looking for a <webview> element in
+    // the guest (where there is none), so canvas URL-bar navigation did nothing.
     const nwc = panelNavWc[panelId];
     if (!nwc || nwc.isDestroyed()) return;
-    if (isBrowser) {
-      nwc.executeJavaScript(`(function(){
-        const wv = document.querySelector("webview");
-        if (wv) { wv.loadURL(${JSON.stringify(target)}); }
-        const bar = document.getElementById("url");
-        if (bar) bar.value = ${JSON.stringify(target)};
-      })()`).catch(() => {});
-    } else {
-      nwc.loadURL(target).catch(() => {});
-    }
+    nwc.loadURL(target).catch(() => {});
   });
 
   // Recompute URL-bar visibility from the CURRENT active panel and apply it
@@ -436,6 +440,13 @@ export function registerTabIpc(deps: TabIpcDeps): void {
   function applyUrlBarForActive(): void {
     const mainWindow = getMainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    // In canvas mode each window has its own chrome + URL bar, so the global
+    // top URL bar must never show.
+    if (panelManager.canvasMode) {
+      panelManager.setTopInset(0);
+      mainWindow.webContents.send("url-bar-force", false);
+      return;
+    }
     // In a split/grid layout the URL bar is per-cell and belongs to the whole
     // grid, not the focused cell. Deciding from the single active panel would
     // hide the browser cell's URL bar the moment a non-browser cell is focused
