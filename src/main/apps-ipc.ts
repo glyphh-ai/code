@@ -1,6 +1,6 @@
 import { ipcMain, dialog } from "electron";
 import type { AppConnector, AppConfig } from "./app-connector";
-import { exportApp, importApp } from "./yo-app-package";
+import { exportApp, importApp, localBundleDir } from "./yo-app-package";
 import { hasMcpAccess } from "./auth";
 
 /** Strip the MCP OAuth client secret before any app config crosses IPC to the
@@ -194,7 +194,10 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     });
     if (result.canceled || !result.filePath) return { ok: false, error: "Canceled" };
     const dest = result.filePath.endsWith(".yoapp") ? result.filePath : `${result.filePath}.yoapp`;
-    return exportApp(appConnector, appId, dest);
+    // Multi-file / local apps (file:// url) export WITH their code folder; remote
+    // web apps (http/yo://) are manifest-only.
+    const codeDir = localBundleDir(app.url);
+    return exportApp(appConnector, appId, dest, codeDir);
   });
 
   // Import a .yoapp bundle → register it (deduping the id) → return the appId.

@@ -31,6 +31,10 @@ export interface YoAppManifest {
   commands?: Record<string, CommandMapping>;
   mcp?: McpConfig;
   capturePolicy?: CapturePolicy;
+  doNotRecord?: boolean;
+  forceWeb?: boolean;
+  /** Entry file (relative to code/) for bundled apps. Defaults to index.html. */
+  entry?: string;
   version: string;
   kind: "web" | "bundled";
 }
@@ -46,6 +50,31 @@ function importedCodeDir(id: string): string {
 function isWebUrl(url?: string): boolean {
   if (!url) return false;
   return /^https?:\/\//i.test(url) || url.startsWith("yo://");
+}
+
+/** Decode a file:// URL to an absolute filesystem path (or undefined). */
+export function fileUrlToPath(url?: string): string | undefined {
+  if (!url || !/^file:\/\//i.test(url)) return undefined;
+  let p = url.replace(/^file:\/\//i, "").replace(/[?#].*$/, "");
+  try { p = decodeURIComponent(p); } catch { /* keep raw */ }
+  return p || undefined;
+}
+
+/**
+ * The local folder to bundle for a file:// app. If the url points at a file
+ * (e.g. .../code/index.html), we bundle its containing folder so sibling assets
+ * (JS/CSS/images of a multi-file app) come along; if it points at a folder, we
+ * bundle that folder. Returns undefined for remote/non-file apps.
+ */
+export function localBundleDir(url?: string): string | undefined {
+  const p = fileUrlToPath(url);
+  if (!p) return undefined;
+  try {
+    const st = fs.statSync(p);
+    if (st.isDirectory()) return p;
+    if (st.isFile()) return path.dirname(p);
+  } catch { /* missing path */ }
+  return undefined;
 }
 
 // ── Export ──────────────────────────────────────────────────
@@ -75,6 +104,19 @@ export function exportApp(
   const hasBundle = !!bundledCodeDir && fs.existsSync(bundledCodeDir);
   const kind: YoAppManifest["kind"] = hasBundle ? "bundled" : "web";
 
+  // For a bundled app, record which file inside code/ is the entry point so
+  // import can re-point the url at the right file (not always index.html).
+  let entry: string | undefined;
+  if (hasBundle) {
+    const filePath = fileUrlToPath(app.url);
+    if (filePath) {
+      const rel = path.relative(bundledCodeDir!, filePath);
+      if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+        entry = rel.split(path.sep).join("/");
+      }
+    }
+  }
+
   const manifest: YoAppManifest = {
     id: app.id,
     name: app.name,
@@ -84,6 +126,9 @@ export function exportApp(
     ...(app.commands && Object.keys(app.commands).length ? { commands: app.commands } : {}),
     ...(app.mcp ? { mcp: app.mcp } : {}),
     ...(app.capturePolicy ? { capturePolicy: app.capturePolicy } : {}),
+    ...(app.doNotRecord ? { doNotRecord: true } : {}),
+    ...(app.forceWeb ? { forceWeb: true } : {}),
+    ...(entry ? { entry } : {}),
   };
 
   try {
@@ -163,8 +208,10 @@ export function importApp(appConnector: AppConnector, srcPath: string): ImportRe
         fs.mkdirSync(path.dirname(outPath), { recursive: true });
         fs.writeFileSync(outPath, e.getData());
       }
+      const entryRel = manifest.entry && !manifest.entry.startsWith("..") ? manifest.entry : "index.html";
+      const entryPath = path.join(dest, entryRel);
       const indexPath = path.join(dest, "index.html");
-      url = `file://${fs.existsSync(indexPath) ? indexPath : dest}`;
+      url = `file://${fs.existsSync(entryPath) ? entryPath : fs.existsSync(indexPath) ? indexPath : dest}`;
     } else if (!isWebUrl(url)) {
       // A non-bundled app must carry a usable url.
       return { ok: false, error: "Web app manifest has no usable url" };
@@ -181,6 +228,8 @@ export function importApp(appConnector: AppConnector, srcPath: string): ImportRe
     }
     if (manifest.capturePolicy) appConnector.updateCapturePolicy(appId, manifest.capturePolicy);
     if (manifest.mcp) appConnector.setMcp(appId, manifest.mcp);
+    if (manifest.doNotRecord) appConnector.updateDoNotRecord(appId, true);
+    if (manifest.forceWeb) appConnector.updateForceWeb(appId, true);
     void app;
     return { ok: true, appId };
   } catch (err) {
