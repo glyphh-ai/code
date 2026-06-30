@@ -1399,16 +1399,31 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     try { data = await (window.yo as any).agentModels(); } catch (e) { console.warn("[yo-panel] agentModels failed", e); return; }
     console.log("[yo-panel] agentModels →", (data?.models || []).map((m) => m.model), "default:", data?.default_model);
     if (!data || !Array.isArray(data.models) || data.models.length === 0) return;
+    // Order by capability: Opus → Sonnet → Haiku, then version descending within
+    // each family (4.8, 4.7, 4.6 …).
+    const familyRank = (model: string): number => {
+      const m = model.toLowerCase();
+      return m.includes("opus") ? 0 : m.includes("sonnet") ? 1 : m.includes("haiku") ? 2 : 3;
+    };
+    const versionRank = (model: string): number => {
+      const vm = model.toLowerCase().match(/(\d+)[-.](\d+)/); // e.g. "opus-4-8" → 4.08
+      return vm ? parseInt(vm[1], 10) + parseInt(vm[2], 10) / 100 : 0;
+    };
+    const models = [...data.models].sort((a, b) => {
+      const fa = familyRank(a.model), fb = familyRank(b.model);
+      if (fa !== fb) return fa - fb;                 // Opus first, Haiku last
+      return versionRank(b.model) - versionRank(a.model); // newest version on top
+    });
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
     const check = '<span class="yo-mode-opt-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
-    modelMenu.innerHTML = '<div class="yo-model-section-header">Models</div>' + data.models.map((m) => {
+    modelMenu.innerHTML = '<div class="yo-model-section-header">Models</div>' + models.map((m) => {
       const desc = modelDescription(m.model);
       return `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(prettyModelLabel(m.model))}</span>${desc ? `<span class="yo-mode-opt-desc">${esc(desc)}</span>` : ""}</div>${check}</div>`;
     }).join("");
     modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach(wireModelOption);
-    const ids = new Set(data.models.map((m) => m.model));
+    const ids = new Set(models.map((m) => m.model));
     if (!currentChatModel || !ids.has(currentChatModel)) {
-      const fallback = (data.default_model && ids.has(data.default_model)) ? data.default_model : data.models[0].model;
+      const fallback = (data.default_model && ids.has(data.default_model)) ? data.default_model : models[0].model;
       currentChatModel = fallback;
       await window.yo.saveLLMConfig({ provider: "anthropic", model: fallback });
     }
