@@ -162,11 +162,16 @@ function renderYoAttachments(): void {
   });
 }
 function addYoAttachments(files: FileList | File[]): void {
+  let unresolved = 0;
   for (const f of Array.from(files)) {
     const path = window.yo.getPathForFile(f);
-    if (!path || yoAttachments.some((a) => a.path === path)) continue;
+    if (!path) { unresolved++; console.warn("[yo-attach] could not resolve path for dropped file:", f.name, f.type); continue; }
+    if (yoAttachments.some((a) => a.path === path)) continue;
     const isImage = /^image\//.test(f.type);
-    yoAttachments.push({ path, name: f.name || path.split("/").pop() || path, isImage, url: isImage ? URL.createObjectURL(f) : undefined });
+    yoAttachments.push({ path, name: f.name || path.split(/[\\/]/).pop() || path, isImage, url: isImage ? URL.createObjectURL(f) : undefined });
+  }
+  if (unresolved > 0 && typeof showYoStatus === "function") {
+    showYoStatus(`Couldn't read ${unresolved} dropped file${unresolved > 1 ? "s" : ""} — try the file picker.`);
   }
   renderYoAttachments();
   try { yoPanelInput.focus(); } catch { /* not yet mounted */ }
@@ -1209,16 +1214,27 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoAttachBar.style.display = "none";
   const yoInputWrap = yoPanelInput.parentElement; // .yo-panel-input-wrap
   yoInputWrap?.parentElement?.insertBefore(yoAttachBar, yoInputWrap);
-  // Drag & drop files anywhere on the panel → attach them to the next message.
-  yoPanel.addEventListener("dragover", (e) => {
-    if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); yoPanel.classList.add("yo-drag-over"); }
+  // Drag & drop files → attach them to the next message. Handled at the
+  // DOCUMENT level (not on yoPanel) because Electron/Windows is finicky about
+  // per-element drop targets, and because the window navigates to a dropped
+  // file unless dragover+drop are preventDefault'd at the top level. We always
+  // preventDefault on a file drag (kills the navigation everywhere) and only
+  // attach when the drop lands inside the agent panel.
+  const dragHasFiles = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+  const withinYoPanel = (e: Event) => !!yoPanel && (e.target === yoPanel || (e.target instanceof Node && yoPanel.contains(e.target)));
+  document.addEventListener("dragover", (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault(); // allow the drop + stop the window navigating to the file
+    if (withinYoPanel(e)) yoPanel.classList.add("yo-drag-over"); else yoPanel?.classList.remove("yo-drag-over");
   });
-  yoPanel.addEventListener("dragleave", (e) => {
-    if (e.target === yoPanel) yoPanel.classList.remove("yo-drag-over");
+  document.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget) yoPanel?.classList.remove("yo-drag-over"); // left the window
   });
-  yoPanel.addEventListener("drop", (e) => {
-    yoPanel.classList.remove("yo-drag-over");
-    if (e.dataTransfer?.files?.length) { e.preventDefault(); addYoAttachments(e.dataTransfer.files); }
+  document.addEventListener("drop", (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault(); // never navigate to a dropped file
+    yoPanel?.classList.remove("yo-drag-over");
+    if (withinYoPanel(e) && e.dataTransfer?.files?.length) addYoAttachments(e.dataTransfer.files);
   });
 
   yoScrollBtn = document.getElementById("yo-scroll-btn")!;
