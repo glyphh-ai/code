@@ -13,6 +13,11 @@ export interface PromptLogEntry {
   response: string;
   inputTokens: number;
   outputTokens: number;
+  /** Prompt-cache tokens (optional — older entries won't have them). The first
+   *  message of a conversation writes the agent's system prompt to cache, which
+   *  dominates the credit cost; follow-ups read it cheaply. */
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
   model: string;
   provider: string;
   mode: string;

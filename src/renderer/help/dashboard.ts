@@ -342,7 +342,7 @@ async function renderDashPrompts() {
   const query = (document.getElementById("dash-prompts-search") as HTMLInputElement)?.value.trim() || "";
   const container = document.getElementById("dash-prompts-list")!;
 
-  let entries: Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>;
+  let entries: Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] }>;
   let total = 0;
 
   if (query) {
@@ -425,8 +425,13 @@ async function openDashPromptDetail(id: string) {
   const metaGrid = document.getElementById("dash-prompt-meta")!;
   const duration = entry.endTs - entry.startTs;
 
+  const cacheW = entry.cacheCreationTokens || 0;
+  const cacheR = entry.cacheReadTokens || 0;
   const items = [
     { label: "Tokens", value: `${formatTokens(entry.inputTokens)} in / ${formatTokens(entry.outputTokens)} out` },
+    // Cache write dominates a fresh conversation's cost (the agent's system
+    // prompt + tools are written to cache on the first message); reads are cheap.
+    ...(cacheW || cacheR ? [{ label: "Cache", value: `${formatTokens(cacheW)} written / ${formatTokens(cacheR)} read` }] : []),
     { label: "Model", value: entry.model },
     { label: "Mode", value: entry.mode },
     { label: "Duration", value: formatDuration(duration) },

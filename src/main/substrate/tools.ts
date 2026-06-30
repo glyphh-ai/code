@@ -246,21 +246,15 @@ const BUILTIN_TOOLS: ToolDef[] = [
     async run(input) {
       if (!deps.mcpRouter?.resolveAll) return "MCP router not available.";
       const target = (input.name as string)?.trim();
-      if (!target || target.indexOf(".") < 1) {
-        return "Invalid name. Use '<server>.<tool>' (e.g. 'gmail.gmail-find-email').";
-      }
-      const dot = target.indexOf(".");
-      const ns = target.slice(0, dot);
-      const toolName = target.slice(dot + 1);
-      // resolveAll returns short names like "gmail__gmail_find_email" (hyphens
-      // converted to underscores). Compare against the qualified pair from
-      // mcpManager directly. We re-walk getAllTools because resolveAll
-      // doesn't keep the raw schema mapping addressable by qualified name.
+      if (!target) return "Provide a tool name (from mcp_tools_list).";
       const tools = deps.mcpRouter.resolveAll();
-      const match = tools.find(t => {
-        const short = `${ns.replace(/-/g, "_")}__${toolName.replace(/-/g, "_")}`;
-        return t.name === short;
-      });
+      // Accept either the short name mcp_tools_list shows (gmail__gmail_find_email)
+      // or the qualified '<server>.<tool>' form. resolveAll keys on short names
+      // (hyphens converted to underscores).
+      const short = target.includes(".")
+        ? `${target.slice(0, target.indexOf(".")).replace(/-/g, "_")}__${target.slice(target.indexOf(".") + 1).replace(/-/g, "_")}`
+        : target;
+      const match = tools.find(t => t.name === short);
       if (!match) return `Tool "${target}" not found. Run mcp_tools_list to see what's connected.`;
       return [
         `# ${target}`,
@@ -272,6 +266,82 @@ const BUILTIN_TOOLS: ToolDef[] = [
         JSON.stringify(match.input_schema, null, 2),
         "```",
       ].join("\n");
+    },
+  },
+  {
+    name: "mcp_tool_call",
+    namespace: "yo",
+    description: "Run a connected-app (MCP) tool by name. Connected-app tools (Gmail, Slack, Calendar, Drive, …) are NOT loaded into your context by default — discover them with mcp_tools_list, check inputs with mcp_tool_schema, then call them here. Use the short name from mcp_tools_list (e.g. 'gmail__gmail_find_email').",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short tool name from mcp_tools_list, e.g. 'gmail__gmail_find_email'." },
+        input: { type: "object", description: "Arguments matching the tool's input_schema (see mcp_tool_schema)." },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      if (!deps.mcpRouter?.callMcp) return "MCP router not available.";
+      const name = (input.name as string)?.trim();
+      if (!name) return "Provide the tool name (from mcp_tools_list).";
+      const args = (input.input as Record<string, unknown>) || {};
+      return deps.mcpRouter.callMcp(name, args);
+    },
+  },
+  {
+    name: "find_tools",
+    namespace: "yo",
+    description: "Search for tools that aren't already loaded — connected-app tools (Gmail, Slack, Calendar, Drive, …), skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. Returns matching tool names, descriptions, and input schemas. Run one with call_tool. Your common tools are already loaded; only use this when you need something that isn't.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Keywords for what you want to do (e.g. 'send email', 'save layout', 'create skill', 'post to workspace')." },
+      },
+      required: ["query"],
+    },
+    async run(input) {
+      const q = String(input.query ?? "").toLowerCase().trim();
+      if (!q) return "Provide a query describing what you want to do.";
+      const terms = q.split(/\s+/).filter(Boolean);
+      // Full catalog (incl. connectors), minus the core tools the agent already
+      // has loaded — find_tools is for discovering what's NOT loaded.
+      const all = getAgentToolSpec(undefined, true, false).filter((t) => !AGENT_CORE_TOOLS.has(t.name));
+      const scored = all
+        .map((t) => {
+          const hay = `${t.name} ${t.description || ""}`.toLowerCase();
+          return { t, score: terms.reduce((s, term) => s + (hay.includes(term) ? 1 : 0), 0) };
+        })
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 12);
+      if (scored.length === 0) return `No tools match "${q}". Try different keywords.`;
+      return `${scored.length} tool(s) matching "${q}" — run one with call_tool(name, input):\n\n` +
+        scored.map(({ t }) => `${t.name}\n  ${(t.description || "").slice(0, 160)}\n  input_schema: ${JSON.stringify(t.input_schema)}`).join("\n\n");
+    },
+  },
+  {
+    name: "call_tool",
+    namespace: "yo",
+    description: "Run any tool by name with its input — for tools you found via find_tools that aren't in your loaded set (specialized actions, skills, connected-app tools). For tools you already have loaded, call them directly instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Exact tool name from find_tools." },
+        input: { type: "object", description: "Arguments matching the tool's input_schema." },
+      },
+      required: ["name"],
+    },
+    async run(input) {
+      const name = String(input.name ?? "").trim();
+      if (!name) return "Provide the tool name (from find_tools).";
+      // Don't let call_tool wrap another invoker (call_tool / find_tools /
+      // mcp_tool_call) — that would launder the real tool past the permission
+      // gate. Call the target tool directly through call_tool instead.
+      if (["call_tool", "find_tools", "mcp_tool_call"].includes(name.replace(/^mcp__[^_]+__/, ""))) {
+        return `Call the target tool directly via call_tool(name, input), not through ${name}.`;
+      }
+      const args = (input.input as Record<string, unknown>) || {};
+      return executeTool(name, args);
     },
   },
   {
@@ -1737,19 +1807,43 @@ const BUILTIN_BY_NAME = new Map(BUILTIN_TOOLS.map((t) => [t.name, t]));
  * `allowedTools` filters by qualified entries (yo.search_captures, gmail.send_email, etc).
  * Pass undefined/empty to get the full registry (substrate + all user skills).
  */
-export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string; description: string; input_schema: Record<string, unknown> }> {
+// The agent loads only these "core" substrate tools up front (its everyday kit).
+// Everything else — skill authoring, layout/store/drip management, workspace
+// coordination, connected-app tools, and other specialized actions — is
+// discovered on demand via find_tools + call_tool, to keep the cached prompt
+// small. find_tools/call_tool themselves are always core.
+const AGENT_CORE_TOOLS = new Set<string>([
+  "find_tools", "call_tool",
+  // recall + memory
+  "search_captures", "get_context", "search_notes", "save_memory",
+  // web
+  "web_search", "web_read",
+  // panel interaction + arrangement
+  "list_panels", "scan_panel", "grab_panel", "click_element", "type_text", "open_panel",
+  "navigate_panel", "switch_panel", "split_view", "grid_layout",
+  // light file/code recon (read-only; full dev tools come via request_dev_tools)
+  "read_file", "list_files", "run_command", "code_search",
+  // apps
+  "list_apps", "open_app", "create_app", "write_app_file",
+  // delegation
+  "list_agents", "spawn_background", "call_agent", "create_swarm",
+]);
+
+export function getAgentToolSpec(allowedTools?: string[], includeMcp = true, coreOnly = false): Array<{ name: string; description: string; input_schema: Record<string, unknown> }> {
   const out: Array<{ name: string; description: string; input_schema: Record<string, unknown> }> = [];
   const allowed = allowedTools && allowedTools.length > 0 ? new Set(allowedTools) : null;
 
-  // Substrate tools
+  // Substrate tools. In coreOnly mode (the agent's loaded set) only the core
+  // kit is included; the rest are reachable via find_tools/call_tool.
   for (const t of BUILTIN_TOOLS) {
+    if (coreOnly && !AGENT_CORE_TOOLS.has(t.name)) continue;
     const qualified = `${t.namespace}.${t.name}`;
     if (allowed && !allowed.has(qualified)) continue;
     out.push({ name: t.name, description: t.description, input_schema: t.input_schema });
   }
 
-  // User skills (unless filtered out by allowlist)
-  if (deps.skillEngine) {
+  // User skills — tail-only (discovered via find_tools), never preloaded.
+  if (deps.skillEngine && !coreOnly) {
     for (const s of deps.skillEngine.listSkillsDetailed()) {
       const qualified = `skill.${s.name}`;
       if (allowed && !allowed.has(qualified)) continue;
@@ -1772,8 +1866,13 @@ export function getAgentToolSpec(allowedTools?: string[]): Array<{ name: string;
     }
   }
 
-  // MCP tools (already namespaced via skill-tool-router)
-  if (deps.mcpRouter) {
+  // Connected-app (MCP) tools. By default the FULL catalog is included, but the
+  // agent excludes it (includeMcp=false) — dozens of connector tool schemas in
+  // every prompt is the bulk of the cached-token cost. Instead the agent
+  // discovers them on demand via mcp_tools_list / mcp_tool_schema and runs them
+  // with mcp_tool_call. Other callers (validation, skill authoring) keep the
+  // full catalog.
+  if (deps.mcpRouter && includeMcp) {
     const mcpTools = deps.mcpRouter.resolveAll();
     for (const t of mcpTools) {
       if (allowed && !allowed.has(t.name)) continue;
@@ -1805,14 +1904,26 @@ const PATH_GATE_EXEMPT = new Set([
   // Skill-authoring tools — take a `name` not a path; SkillEngine.sanitizeName
   // already constrains the folder, and skill folders live under ~/.claude/skills
   // (outside the ~/.yo/ trust boundary the gate enforces by default).
-  "mcp_tools_list", "mcp_tool_schema", "skill_list", "skill_get", "skill_create",
+  "mcp_tools_list", "mcp_tool_schema", "mcp_tool_call", "skill_list", "skill_get", "skill_create",
   "skill_write_runner", "skill_delete", "skill_run", "skill_run_history",
 ]);
 
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+  // Warm the connector catalog (populates the short→qualified map hasTool/callMcp
+  // rely on) for any name that isn't a substrate builtin or skill — so call_tool
+  // reaches connectors even if find_tools didn't run first this session.
+  if (deps.mcpRouter?.resolveAll && !BUILTIN_BY_NAME.has(name) && !name.startsWith("skill_") && !name.startsWith("mcp__")) {
+    try { deps.mcpRouter.resolveAll(); } catch { /* best-effort */ }
+  }
+  // Connector (MCP) tools are routed remotely — their inputs are API args, not
+  // local FS paths — so they bypass the path-gate (matches mcp_tool_call's
+  // exemption; call_tool routes connectors here too).
+  const isConnectorRoute = name.startsWith("mcp__") || !!deps.mcpRouter?.hasTool?.(name);
   // Path-gate: reject anything resolving outside ~/.yo/ unless the tool is
-  // explicitly exempt (bus tools, semantic search, etc.).
-  if (!PATH_GATE_EXEMPT.has(name)) {
+  // explicitly exempt (bus tools, semantic search, connectors) or a skill
+  // (skills run in their own sandboxed ctx; gating their input args is both
+  // redundant and breaks skills whose declared input keys collide with PATH_KEYS).
+  if (!PATH_GATE_EXEMPT.has(name) && !isConnectorRoute && !name.startsWith("skill_")) {
     const { checkToolCall } = await import("./path-gate.js");
     // The solo yo agent may also operate on the app-wide working directory —
     // that's the folder the user pointed it at (project repo).
@@ -1850,11 +1961,14 @@ export async function executeTool(name: string, input: Record<string, unknown>):
 }
 
 /** True if a tool is destructive (substrate-flagged or matches keywords). */
+const DESTRUCTIVE_VERBS = new Set(["send", "delete", "remove", "publish", "push", "deploy", "destroy"]);
 export function isDestructiveTool(name: string): boolean {
   const builtin = BUILTIN_BY_NAME.get(name);
   if (builtin?.destructive) return true;
-  // Heuristic on name
-  return /\b(send|delete|remove|publish|push|deploy|destroy)\b/i.test(name);
+  // Token-aware heuristic. Connector short-names use underscores
+  // ("srv__delete_event", "..__send_email"), and \b treats "_" as a word char,
+  // so split on non-letters and test each segment instead of using \b.
+  return name.toLowerCase().split(/[^a-z]+/).some((seg) => DESTRUCTIVE_VERBS.has(seg));
 }
 
 /** All registered tool names (for debugging / introspection). */

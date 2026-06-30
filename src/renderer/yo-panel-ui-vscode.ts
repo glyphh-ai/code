@@ -91,10 +91,86 @@ const PERM_LABELS: Record<string, string> = {
 let currentPerm = "default";
 let currentChatModel: string = "";          // empty = use workspace default
 
-// Shell-style input recall: ↑/↓ steps through previously sent prompts.
-const yoInputHistory: string[] = [];
-let yoHistIndex = 0;          // points one past the newest entry = the live draft
+// Shell-style input recall: ↑/↓ steps through previously sent prompts. Persisted
+// to localStorage so the user's prompt history is NEVER lost across app restarts.
+const YO_HISTORY_KEY = "yo.inputHistory.v1";
+const yoInputHistory: string[] = (() => {
+  try { const s = localStorage.getItem(YO_HISTORY_KEY); return s ? (JSON.parse(s) as string[]) : []; }
+  catch { return []; }
+})();
+let yoHistIndex = yoInputHistory.length; // points one past the newest entry = the live draft
 let yoHistDraft = "";         // the in-progress text, preserved while browsing back
+// The most recent prompt actually sent to the agent. Restored into the composer
+// if the turn errors or is stopped, so a typed prompt is never lost.
+let lastSentYoText = "";
+function saveYoInputHistory(): void {
+  try { localStorage.setItem(YO_HISTORY_KEY, JSON.stringify(yoInputHistory.slice(-300))); }
+  catch { /* best-effort; history still works in-memory this session */ }
+}
+function restoreLastYoPrompt(): void {
+  if (!lastSentYoText || yoPanelInput.value.trim()) return; // don't clobber a follow-up
+  setYoInputValue(lastSentYoText);
+  yoPanelInput.focus();
+}
+
+// ── Drag & drop file attachments ─────────────────────────────────────────────
+// Files dropped on the panel are attached by on-disk path and folded into the
+// next message so the agent can read them (it reads images visually via Read).
+// Images get a live thumbnail (object URL); the preview sits ABOVE the input and
+// grows the composer up to fit.
+const yoAttachments: Array<{ path: string; name: string; isImage: boolean; url?: string }> = [];
+let yoAttachBar: HTMLElement | null = null;
+function clearYoAttachments(): void {
+  for (const a of yoAttachments) { if (a.url) try { URL.revokeObjectURL(a.url); } catch { /* */ } }
+  yoAttachments.length = 0;
+  renderYoAttachments();
+}
+function renderYoAttachments(): void {
+  if (!yoAttachBar) return;
+  yoAttachBar.innerHTML = "";
+  yoAttachBar.style.display = yoAttachments.length ? "flex" : "none";
+  yoAttachments.forEach((a, i) => {
+    const item = document.createElement("div");
+    item.className = `yo-attach-item ${a.isImage ? "yo-attach-image" : "yo-attach-file"}`;
+    item.title = a.path;
+    if (a.isImage && a.url) {
+      const img = document.createElement("img");
+      img.className = "yo-attach-thumb";
+      img.src = a.url;
+      img.alt = a.name;
+      item.appendChild(img);
+    } else {
+      const icon = document.createElement("span");
+      icon.className = "yo-attach-icon";
+      icon.textContent = "📄";
+      const name = document.createElement("span");
+      name.className = "yo-attach-name";
+      name.textContent = a.name;
+      item.append(icon, name);
+    }
+    const x = document.createElement("button");
+    x.className = "yo-attach-x";
+    x.textContent = "×";
+    x.title = "Remove";
+    x.addEventListener("click", () => {
+      const removed = yoAttachments.splice(i, 1)[0];
+      if (removed?.url) try { URL.revokeObjectURL(removed.url); } catch { /* */ }
+      renderYoAttachments();
+    });
+    item.appendChild(x);
+    yoAttachBar!.appendChild(item);
+  });
+}
+function addYoAttachments(files: FileList | File[]): void {
+  for (const f of Array.from(files)) {
+    const path = window.yo.getPathForFile(f);
+    if (!path || yoAttachments.some((a) => a.path === path)) continue;
+    const isImage = /^image\//.test(f.type);
+    yoAttachments.push({ path, name: f.name || path.split("/").pop() || path, isImage, url: isImage ? URL.createObjectURL(f) : undefined });
+  }
+  renderYoAttachments();
+  try { yoPanelInput.focus(); } catch { /* not yet mounted */ }
+}
 
 const MODEL_PRETTY: Record<string, string> = {
   "claude-sonnet-4-6": "Sonnet 4.6",
@@ -678,11 +754,17 @@ function yoHistoryNext() {
 }
 
 function sendYoPanelMessage() {
-  const text = yoPanelInput.value.trim();
-  if (!text) return;
+  const typed = yoPanelInput.value.trim();
+  if (!typed && yoAttachments.length === 0) return;
+  // Fold any dropped files into the message as readable paths, then clear them.
+  const text = yoAttachments.length
+    ? `${yoAttachments.map((a) => `[Attached file: ${a.path}]`).join("\n")}${typed ? "\n\n" + typed : ""}`
+    : typed;
+  if (yoAttachments.length) clearYoAttachments();
 
   // Record into input history (skip consecutive duplicates) and reset browsing.
-  if (yoInputHistory[yoInputHistory.length - 1] !== text) yoInputHistory.push(text);
+  // Persist immediately so the prompt survives a crash/restart.
+  if (yoInputHistory[yoInputHistory.length - 1] !== text) { yoInputHistory.push(text); saveYoInputHistory(); }
   yoHistIndex = yoInputHistory.length;
   yoHistDraft = "";
 
@@ -737,6 +819,7 @@ function sendYoPanelMessage() {
   (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
   showYoStatus("");
   setYoThinking(true);
+  lastSentYoText = text;
   window.yo.yoPanelSend(text);
 }
 
@@ -749,6 +832,7 @@ function drainPendingYoMessages() {
   (window as unknown as { __yoStartTurnPhase?: () => void }).__yoStartTurnPhase?.();
   showYoStatus("");
   setYoThinking(true);
+  lastSentYoText = next.text;
   window.yo.yoPanelSend(next.text);
 }
 
@@ -1116,6 +1200,27 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   yoComposerHost = document.getElementById("yo-composer-interaction")!;
   yoPanelSendBtn = document.getElementById("yo-panel-send")!;
   yoPanelMicBtn = document.getElementById("yo-panel-mic") as HTMLButtonElement | null;
+
+  // Attachment preview (shown above the input when files are dropped). Insert it
+  // ABOVE the input ROW (.yo-panel-input-wrap) in the composer's vertical stack —
+  // so attachments stack above the input and grow the composer upward.
+  yoAttachBar = document.createElement("div");
+  yoAttachBar.className = "yo-attach-bar";
+  yoAttachBar.style.display = "none";
+  const yoInputWrap = yoPanelInput.parentElement; // .yo-panel-input-wrap
+  yoInputWrap?.parentElement?.insertBefore(yoAttachBar, yoInputWrap);
+  // Drag & drop files anywhere on the panel → attach them to the next message.
+  yoPanel.addEventListener("dragover", (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); yoPanel.classList.add("yo-drag-over"); }
+  });
+  yoPanel.addEventListener("dragleave", (e) => {
+    if (e.target === yoPanel) yoPanel.classList.remove("yo-drag-over");
+  });
+  yoPanel.addEventListener("drop", (e) => {
+    yoPanel.classList.remove("yo-drag-over");
+    if (e.dataTransfer?.files?.length) { e.preventDefault(); addYoAttachments(e.dataTransfer.files); }
+  });
+
   yoScrollBtn = document.getElementById("yo-scroll-btn")!;
   yoPanelResize = document.getElementById("yo-panel-resize")!;
   yoHistoryToggle = document.getElementById("yo-history-toggle")!;
@@ -1352,6 +1457,9 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     el.textContent = err || "The agent hit an error.";
     chat.appendRaw(el);
     yoScroll();
+    // Never lose the prompt: if the user hasn't queued a follow-up, put the
+    // errored message back in the composer so they can edit/resend.
+    if (pendingYoMessages.length === 0) restoreLastYoPrompt();
     drainPendingYoMessages();
   });
   window.yo.onYoPanelClose(() => closeYoPanel());
@@ -1384,6 +1492,8 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       stopEl.className = "yo-msg yo-msg-stopped";
       stopEl.innerHTML = `<em>${quip}</em>`;
       chat.appendRaw(stopEl);
+      // Never lose the prompt: put the stopped message back in the composer.
+      restoreLastYoPrompt();
     } else {
       sendYoPanelMessage();
     }

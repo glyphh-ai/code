@@ -218,6 +218,41 @@ export function getAuthToken(): string | null {
   return null;
 }
 
+// Ensure a token has comfortable life left before a (potentially long) agent
+// turn. The scheduled refresh timer is unreliable when the app is backgrounded
+// or the machine sleeps (OS throttles/pauses setTimeout), so the agent must not
+// rely on it alone — it proactively tops up the token before each turn.
+const PROACTIVE_MARGIN = 10 * 60 * 1000; // refresh if <10 min of life remains
+
+/**
+ * Await a token refresh when the access token is within PROACTIVE_MARGIN of
+ * expiry (or already expired). Cheap to call on every agent entry point — the
+ * single-flight guard coalesces concurrent callers, and it no-ops when the
+ * token still has plenty of life. Signed-out → no-op.
+ */
+export async function ensureFreshToken(): Promise<void> {
+  const wasInMemory = !!currentSession;
+  const session = currentSession || readSessionFile();
+  if (!session?.refreshToken) return;
+  currentSession = session;
+  if (session.expiresAt - Date.now() < PROACTIVE_MARGIN) {
+    await refreshTokens();
+  } else if (!wasInMemory) {
+    // Rehydrated from disk into a process with no armed refresh timer — re-arm
+    // it so we're not relying solely on the next turn's proactive top-up.
+    scheduleRefresh(session);
+  }
+}
+
+/**
+ * Force a refresh now, regardless of remaining life. Reactive path — call after
+ * a proxy/API 401 to self-heal a token the server rejected (e.g. clock skew, or
+ * a turn that outlived its token). Resolves true if a fresh token is in hand.
+ */
+export async function forceTokenRefresh(): Promise<boolean> {
+  return refreshTokens();
+}
+
 /** Initialize auth — restore session, schedule refresh, start heartbeat. */
 export async function initAuth(): Promise<void> {
   const saved = readSessionFile();

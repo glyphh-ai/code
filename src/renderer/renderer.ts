@@ -26,6 +26,7 @@ declare global {
   interface Window {
     yo: {
       copyToClipboard: (text: string) => void;
+      getPathForFile: (file: File) => string;
       windowClose: () => void;
       windowMinimize: () => void;
       windowMaximize: () => void;
@@ -185,9 +186,9 @@ declare global {
       dashboardCancelReminder: (id: string) => Promise<boolean>;
       dashboardLLMInfo: () => Promise<{ provider: string; model: string }>;
       // Prompt log
-      promptsList: (offset?: number, limit?: number) => Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>;
-      promptsSearch: (query: string, limit?: number) => Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>;
-      promptsGet: (id: string) => Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>;
+      promptsList: (offset?: number, limit?: number) => Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>;
+      promptsSearch: (query: string, limit?: number) => Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>;
+      promptsGet: (id: string) => Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>;
       promptsCount: () => Promise<number>;
       // Capture store
       capturesStats: () => Promise<{ count: number; sources: Record<string, number>; diskBytes: number; oldestTs: number; newestTs: number; embeddedCount: number; ingestCount: number; searchCount: number; ingestBytes: number }>;

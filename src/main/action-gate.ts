@@ -152,6 +152,15 @@ export function getToolTier(toolName: string): ToolTier {
 const ALWAYS_EXECUTE = new Set<string>([
   "ask_user_question", // drives the composer wizard — the wizard is the consent
   "preview_url",       // just loads a URL into the Workbench preview slot
+  "request_dev_tools", // lazy-preset escalation — just loads more tools; the
+                       // dev tools it unlocks (Read/Edit/Bash) are still gated
+                       // per-mode when actually used, so this must not prompt
+  "mcp_tools_list",    // read-only connected-app discovery (lists the catalog) —
+  "mcp_tool_schema",   // and reads one tool's schema. Harmless; the actual
+                       // connected-app action (mcp_tool_call) is still gated.
+  "find_tools",        // read-only tool search — never executes anything. The
+                       // real action runs via call_tool, which stays gated on
+                       // its inner tool. (Do NOT add call_tool here.)
 ]);
 
 export function getAgentMode(): AgentMode {

@@ -1,6 +1,6 @@
 {
   "name": "glyphh",
-  "version": "5.1.2",
+  "version": "5.1.3",
   "description": "Glyphh — Your AI workspace.",
   "main": "dist/main/main.js",
   "scripts": {

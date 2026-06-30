@@ -10046,3 +10046,27 @@ body.canvas-mode #tab-bar { visibility: hidden; }
   background: var(--surface-2); border: 1px solid var(--border); overflow: hidden;
 }
 .cc-mini-cell { position: absolute; background: var(--hover); border: 1px solid var(--border-2); border-radius: 3px; }
+
+/* ── Composer file-attachment preview (drag & drop) ───────────────────────── */
+/* Sits above the input row and grows the composer upward to fit. */
+.yo-attach-bar { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px 2px; }
+.yo-attach-item { position: relative; display: inline-flex; align-items: center; }
+.yo-attach-image .yo-attach-thumb {
+  width: 56px; height: 56px; object-fit: cover; display: block;
+  border-radius: 8px; border: 1px solid var(--border);
+}
+.yo-attach-file {
+  gap: 6px; max-width: 220px; padding: 6px 10px; border-radius: 8px;
+  background: var(--accent-bg); border: 1px solid var(--border); font-size: 12px;
+}
+.yo-attach-icon { flex: 0 0 auto; }
+.yo-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.yo-attach-x {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--surface, #1b1b1f); color: var(--text);
+  cursor: pointer; font-size: 13px; line-height: 1; padding: 0;
+}
+.yo-attach-x:hover { background: var(--accent); color: #000; border-color: var(--accent); }
+#yo-panel.yo-drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; }

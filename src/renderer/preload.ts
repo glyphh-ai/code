@@ -2,10 +2,13 @@
  * Preload script — exposes IPC to the renderer safely.
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 contextBridge.exposeInMainWorld("yo", {
   copyToClipboard: (text: string) => ipcRenderer.invoke("copy-to-clipboard", text),
+  // Resolve a dropped/selected File to its absolute on-disk path. Electron 32+
+  // removed File.path; webUtils.getPathForFile is the supported replacement.
+  getPathForFile: (file: File): string => { try { return webUtils.getPathForFile(file); } catch { return ""; } },
   windowClose: () => ipcRenderer.send("window-close"),
   windowMinimize: () => ipcRenderer.send("window-minimize"),
   windowMaximize: () => ipcRenderer.send("window-maximize"),
@@ -120,9 +123,9 @@ contextBridge.exposeInMainWorld("yo", {
   dashboardLLMInfo: () => ipcRenderer.invoke("dashboard:llm-info") as Promise<{ provider: string; model: string }>,
 
   // Prompt log
-  promptsList: (offset?: number, limit?: number) => ipcRenderer.invoke("prompts-list", offset, limit) as Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>,
-  promptsSearch: (query: string, limit?: number) => ipcRenderer.invoke("prompts-search", query, limit) as Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>,
-  promptsGet: (id: string) => ipcRenderer.invoke("prompts-get", id) as Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>,
+  promptsList: (offset?: number, limit?: number) => ipcRenderer.invoke("prompts-list", offset, limit) as Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>,
+  promptsSearch: (query: string, limit?: number) => ipcRenderer.invoke("prompts-search", query, limit) as Promise<Array<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] }>>,
+  promptsGet: (id: string) => ipcRenderer.invoke("prompts-get", id) as Promise<{ id: string; startTs: number; endTs: number; prompt: string; response: string; inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number; model: string; provider: string; mode: string; toolsUsed: string[] } | null>,
   promptsCount: () => ipcRenderer.invoke("prompts-count") as Promise<number>,
 
   // Capture store

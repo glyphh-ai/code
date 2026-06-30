@@ -14,6 +14,7 @@ import crypto from "crypto";
 import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions, proxyAnthropicEnv } from "./sdk-llm";
+import { ensureFreshToken, forceTokenRefresh } from "./auth";
 import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
 
 /** Working directory the right-rail .Yo agent runs in. Follows the user's
@@ -111,11 +112,37 @@ RULES:
 - scan_panel FIRST for element discovery. Use click_element/type_text with those selectors.
 - grab_panel is EXPENSIVE (~10K tokens). Only when you need full page text.
 - For workspace arrangement use split_view, grid_layout, switch_panel.
-- For skills use create_skill, update_skill, read_skill.
-- For data stores use store_get, store_set, store_list, store_query.
+- For anything not in your loaded set — skills, data stores, saved layouts, drips, workspace coordination, connected apps (Gmail/Slack/…) — call find_tools to search for the tool, then call_tool to run it. They are not loaded by default.
 - For multi-choice questions to the user, use mcp__yo__ask_user_question (the built-in AskUserQuestion is unavailable). It renders a proper "Input required" card with side-by-side code/markdown previews. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.
 - When the user asks you to "build me an X" or "make a tool that does Y" and a single-page web app fits, use create_app — it scaffolds a static HTML bundle under ~/yo/apps/<id>/, registers it in the Apps list, and the file watcher makes it appear without restart. Then open it with open_app to show the user. For follow-up edits use write_app_file. Prefer vanilla HTML/CSS/JS or React-via-CDN; no build step.
-- Run sub-agents (the Agent tool) in the FOREGROUND — do not set run_in_background. The Sub-Agents panel streams their work live and closes each tab when it finishes; backgrounded tasks would not stream there.`;
+- Delegate via spawn_background, call_agent, or create_swarm — they run detached and stream into the Sub-Agents panel. If you need a sub-agent's result within THIS turn to continue, call request_dev_tools first to load the foreground Task tool.`;
+
+// Appended to the LIGHT-mode system prompt only. Teaches the agent that the
+// heavy developer toolset is loaded on demand: it must call request_dev_tools
+// before touching files/shell/code, and must NOT escalate for things its light
+// tools already cover. This is what makes the lazy preset work — a fresh
+// conversation pays the small light prompt unless real dev work is needed.
+const LIGHT_ESCALATION_GUIDANCE = `# Loading developer tools on demand
+
+Your current toolset is fast and lightweight: the capture store, panels/apps, skills, data stores, and web search. You do NOT currently have file-editing, shell, or code tools loaded.
+
+The MOMENT a request needs to read or edit files on disk, run shell/terminal commands, inspect or modify a codebase, or build/run software, call request_dev_tools FIRST — before replying or taking any other action. The turn restarts with the full developer toolset (Read, Edit, Write, Bash, Grep, Glob, …) available and you continue seamlessly. Do not apologize or announce that you're switching — just call it and proceed.
+
+Do NOT call request_dev_tools for work your light tools already handle: answering from the capture store, opening/arranging panels, building a single-page app via create_app, running a web search, or managing skills/stores. Only escalate when you genuinely need the filesystem, the shell, or a codebase.`;
+
+// Appended to BOTH modes. Only a focused CORE of tools is loaded in-context;
+// the long tail (connected apps, skill authoring, layout/store/drip management,
+// workspace coordination, and other specialized actions) is discovered on
+// demand. Without this the model wouldn't know those capabilities are reachable.
+const TOOL_DISCOVERY_GUIDANCE = `# Finding tools you don't have loaded
+
+You have a focused core toolset loaded. MANY more tools exist but aren't loaded (to keep messages small): connected-app tools (Gmail, Slack, Calendar, Drive, …), skill authoring, layout/store/drip management, workspace coordination, and other specialized actions.
+
+When a task needs something your core tools don't cover:
+1. find_tools(query) — search by keywords (e.g. 'send email', 'save layout', 'create skill', 'post to workspace'). Returns matching tool names, descriptions, and input schemas.
+2. call_tool(name, input) — run the one you found.
+
+Only do this for things your core tools don't already handle. For your loaded tools (capture store, panels, apps, web, delegation, light file reads) call them directly — no lookup needed.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -205,6 +232,14 @@ export class YoAgent {
   private abortController: AbortController | null = null;
   private _mode: AgentMode = getAgentMode();
   private _planDelivered = false;
+  // Lazy preset: the right-rail agent runs LIGHT by default (no claude_code
+  // preset — keeps its cached system prompt small, ~tens of credits cheaper per
+  // fresh conversation). It calls request_dev_tools to pull in the full
+  // developer toolset; _devMode then stays on for the rest of the conversation
+  // (the preset is already cached → cheap cache-reads, no point reverting).
+  // _escalatePending is the in-flight signal set by that tool's handler.
+  private _devMode = false;
+  private _escalatePending = false;
   private _approvalCallback: ApprovalCallback | null = null;
   private _onModeChange: ((mode: AgentMode) => void) | null = null;
   private sessionId: string | null = null;
@@ -243,6 +278,11 @@ export class YoAgent {
   onModeChange(cb: (mode: AgentMode) => void): void { this._onModeChange = cb; }
 
   abort(): void {
+    // A user Stop must cancel any in-flight escalation. request_dev_tools aborts
+    // the controller directly (not via this method), so clearing the flag here
+    // distinguishes "user stopped" from "agent asked for dev tools": the former
+    // takes the clean-stop path, the latter re-runs with the full preset.
+    this._escalatePending = false;
     this.abortController?.abort();
   }
 
@@ -268,7 +308,11 @@ export class YoAgent {
   }
 
   private buildSdkMcpTools(_sdk: any): any[] {
-    const toolSpecs = getAgentToolSpec();
+    // Load only the CORE substrate kit (coreOnly=true) and NO connector catalog
+    // (includeMcp=false). Everything else — rare substrate tools, skills, and
+    // connected-app tools — is discovered on demand via find_tools + call_tool,
+    // keeping the cached prompt small. find_tools/call_tool are core builtins.
+    const toolSpecs = getAgentToolSpec(undefined, false, true);
     const substrateTools = toolSpecs.map((spec) => ({
       name: spec.name,
       description: spec.description,
@@ -340,7 +384,27 @@ export class YoAgent {
       },
     };
 
-    return [...substrateTools, askTool, previewTool];
+    // request_dev_tools — the lazy-preset escalation hatch. The LIGHT agent
+    // ships without the claude_code preset (to keep its cached prompt small);
+    // when it needs real dev tools it calls this. The handler flips dev mode and
+    // aborts the current turn — the run loop catches that and re-runs the turn
+    // with the full preset (Read/Edit/Bash/…), history intact via context
+    // recovery. In DEV mode this tool is hidden (disallowedTools), so it can't
+    // loop. (Returns a benign result in case the turn isn't aborted in time.)
+    const devToolsTool = {
+      name: "request_dev_tools",
+      description: "Load the full developer toolset — read/edit/write files, run shell commands, search code (Read, Edit, Write, Bash, Grep, Glob, …). Call this FIRST, before replying, the moment a task needs to touch the filesystem, the shell, or a codebase. The turn restarts with those tools available and you continue seamlessly; you don't need to repeat anything.",
+      inputSchema: {
+        reason: z.string().optional().describe("Briefly, what you need the developer tools for."),
+      },
+      handler: async (_args: Record<string, unknown>) => {
+        this._escalatePending = true;
+        this.abortController?.abort();
+        return { content: [{ type: "text" as const, text: "Loading developer tools — continuing." }] };
+      },
+    };
+
+    return [...substrateTools, askTool, previewTool, devToolsTool];
   }
 
   private jsonSchemaToZod(schema: Record<string, unknown>): Record<string, any> {
@@ -410,7 +474,9 @@ export class YoAgent {
       // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
       tools: { type: "preset", preset: "claude_code" },
       mcpServers: { "yo": mcpServer },
-      systemPrompt: this.buildSystemPrompt(),
+      // This headless helper always carries the full preset, so pair it with the
+      // full (dev) system prompt.
+      systemPrompt: this.buildSystemPrompt(true),
       includePartialMessages: true,
       env: {
         ...process.env,
@@ -441,7 +507,7 @@ export class YoAgent {
     return { text: text.trim() };
   }
 
-  async send(message: string, cb: YoAgentCallbacks): Promise<void> {
+  async send(message: string, cb: YoAgentCallbacks, isRetry = false): Promise<void> {
     // Credits are enforced server-side by the proxy (402 when the org is out).
     // We surface that as a soft "out of credits → Manage plan" notice from the
     // error path below, rather than guessing from a stale local balance.
@@ -474,6 +540,11 @@ export class YoAgent {
     {
       const { ensureCcAuth } = await import("./cc-bootstrap");
       if (!ensureCcAuth()) return;
+      // Top up the session token before the turn. The SDK subprocess freezes
+      // whatever token is in its env at spawn, so a turn that starts on a
+      // near-expired token (idle/backgrounded → throttled refresh timer) would
+      // 401 at the proxy. Proactively refresh so the turn begins with full life.
+      await ensureFreshToken();
     }
 
     let sdk: any;
@@ -514,20 +585,38 @@ export class YoAgent {
       allowDangerouslySkipPermissions: isBypass,
       ...(isBypass ? {} : {
         canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-          const decision = gate(toolName, this._mode);
+          // Generic invokers (call_tool / mcp_tool_call) run a tool BY NAME.
+          // Gate on the INNER tool so a destructive one still prompts with its
+          // real name instead of an opaque "call_tool" approval card. Unwrap
+          // ITERATIVELY so a nested invoker (call_tool → mcp_tool_call → X)
+          // can't launder X past the gate.
+          let gateName = toolName;
+          let gateInput = input;
+          for (let depth = 0; depth < 5; depth++) {
+            const bare = gateName.replace(/^mcp__[^_]+__/, "");
+            if ((bare === "call_tool" || bare === "mcp_tool_call") && typeof gateInput?.name === "string") {
+              const inner = gateInput.name as string;
+              gateInput = (gateInput.input as Record<string, unknown>) || {};
+              gateName = inner;
+            } else break;
+          }
+          const decision = gate(gateName, this._mode);
           if (decision === "execute") return { behavior: "allow", updatedInput: input };
-          if (decision === "skip") return { behavior: "deny", message: `Tool "${toolName}" denied by mode "${this._mode}".` };
+          if (decision === "skip") return { behavior: "deny", message: `Tool "${gateName}" denied by mode "${this._mode}".` };
           const approved = this._approvalCallback
-            ? await this._approvalCallback(toolName, input)
+            ? await this._approvalCallback(gateName, gateInput)
             : false;
           return approved
             ? { behavior: "allow", updatedInput: input }
             : { behavior: "deny", message: "User denied tool call." };
         },
       }),
-      // Built-in Claude Code tools (Read/Edit/Bash/Grep/…) plus our MCP tools.
-      // Permission gating is handled by canUseTool / permissionMode above.
-      tools: { type: "preset", preset: "claude_code" },
+      // Lazy preset: LIGHT turns ship NO claude_code preset (tools: []) — just
+      // the yo MCP tools — so the cached system prefix stays small. DEV turns
+      // (after the agent called request_dev_tools) carry the full preset
+      // (Read/Edit/Bash/Grep/…). Permission gating is handled by canUseTool /
+      // permissionMode above.
+      tools: this._devMode ? { type: "preset", preset: "claude_code" } : [],
       // Strip native tools that this surface can't honor, so the model can't
       // reach for them (they'd render as dead cards or silently shift context
       // with no UI). Removed from the model's context entirely:
@@ -537,10 +626,12 @@ export class YoAgent {
       //     be deeply confusing. Sub-agents/Bash cover any real need.
       // Everything else in the claude_code preset is either handled specially
       // (Agent → Sub-Agents panel, ExitPlanMode → .yo/plan.md, TodoWrite →
-      // todo capture) or renders fine as a generic tool card.
-      disallowedTools: ["AskUserQuestion", "EnterWorktree", "ExitWorktree"],
+      // todo capture) or renders fine as a generic tool card. In DEV mode the
+      // escalation tool is also hidden — the agent already has dev tools.
+      disallowedTools: ["AskUserQuestion", "EnterWorktree", "ExitWorktree",
+        ...(this._devMode ? ["mcp__yo__request_dev_tools"] : [])],
       mcpServers: { "yo": mcpServer },
-      systemPrompt: this.buildSystemPrompt(),
+      systemPrompt: this.buildSystemPrompt(this._devMode),
       abortController: this.abortController,
       includePartialMessages: true,
       // Forward sub-agent (Task / call_agent) text + thinking as assistant/user
@@ -596,6 +687,8 @@ export class YoAgent {
     const startTs = Date.now();
     let totalInput = 0;
     let totalOutput = 0;
+    let totalCacheCreation = 0;
+    let totalCacheRead = 0;
     const toolsUsed = new Set<string>();
     // Full, ordered tool calls for this turn — persisted with the
     // assistant message so reloaded history shows the complete run
@@ -618,6 +711,37 @@ export class YoAgent {
     // instance field moves on — we compare against this local so a superseded
     // turn can neither keep streaming nor re-set sessionId on the new session.
     const myController = this.abortController;
+
+    // Persist the turn (chat record + prompt log) on EVERY terminal outcome —
+    // success, error, AND user-stop — so the user's message and any partial
+    // response are never lost. Re-run paths (escalation, auth/stale retry) do
+    // NOT call this; their re-run persists the real turn. Idempotent.
+    let persisted = false;
+    const persistTurn = (force = false) => {
+      if (persisted) return;
+      // On an error/stop that produced NO output, the prompt is already
+      // preserved by the composer (restored) + input history, so don't save an
+      // empty turn — it would duplicate the user's message on resend. A real
+      // completion (force) always saves; a partial (some streamed text) saves.
+      if (!force && !fullText.trim()) return;
+      persisted = true;
+      this.saveChatRecord(message, fullText, startTs, turnTools);
+      promptLog.record({
+        id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
+        startTs,
+        endTs: Date.now(),
+        prompt: message.slice(0, 2000),
+        response: fullText.slice(0, 2000),
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        cacheCreationTokens: totalCacheCreation,
+        cacheReadTokens: totalCacheRead,
+        model,
+        provider: "anthropic",
+        mode: this._mode,
+        toolsUsed: [...toolsUsed],
+      });
+    };
 
     try {
       const gen = sdk.query({ prompt: message, options });
@@ -827,6 +951,8 @@ export class YoAgent {
             if (usage) {
               totalInput += usage.input_tokens || 0;
               totalOutput += usage.output_tokens || 0;
+              totalCacheCreation += usage.cache_creation_input_tokens || 0;
+              totalCacheRead += usage.cache_read_input_tokens || 0;
               usageTracker.record("orchestrator", {
                 inputTokens: usage.input_tokens || 0,
                 outputTokens: usage.output_tokens || 0,
@@ -842,6 +968,31 @@ export class YoAgent {
             }
             if (msg.is_error && msg.result) {
               if (this.abortController?.signal.aborted || /abort/i.test(msg.result)) break;
+              // The proxy rejected the session token (expired/invalid). If the
+              // turn produced no output yet, transparently refresh + retry once
+              // so the user never sees it. If output already streamed (a long
+              // turn that outlived its token), refresh silently and ask them to
+              // resend rather than duplicating the partial response.
+              if (this.isAuthError(msg.result)) {
+                const refreshed = await forceTokenRefresh();
+                // The failed turn's SDK session already committed this user
+                // message (persistSession), so resuming it on the retry — or on
+                // the user's manual resend — would duplicate the turn and replay
+                // any partial state. Drop it so we mint a fresh session; the
+                // context-recovery block in buildSystemPrompt refills recent
+                // history from disk (same as the stale-session path below).
+                this.sessionId = null;
+                if (!isRetry && !fullText.trim() && refreshed) {
+                  await this.send(message, cb, true); // transparent retry on a fresh token
+                  return;
+                }
+                persistTurn();
+                cb.onError(refreshed
+                  ? "Your session expired mid-task and has been refreshed — please resend your message."
+                  : "Your session has expired. Please sign in again.");
+                return;
+              }
+              persistTurn();
               cb.onError(this.creditsAware(msg.result));
               return;
             }
@@ -850,11 +1001,18 @@ export class YoAgent {
         }
       }
 
+      // Lazy preset: the light agent called request_dev_tools (its handler
+      // aborts the turn — usually caught below; this covers a clean drain). Re-
+      // run with the full claude_code preset; fresh session + context-recovery
+      // refill history (same pattern as the stale-session/auth-retry paths).
+      if (this._escalatePending) { await this.escalateToDevTools(message, cb, isRetry); return; }
+
       // The CC process crashed mid-turn without the stream throwing — the
       // loop just drained empty. Surface it instead of a silent dead turn.
       if (processExit && !fullText.trim() && !this.abortController.signal.aborted) {
         const ex = processExit as { code: number | null; signal: string | null; stderr: string };
         const tail = ex.stderr.trim().split("\n").slice(-3).join("\n").slice(0, 300);
+        persistTurn();
         cb.onError(`The agent process exited unexpectedly (code ${ex.code}).${tail ? `\n${tail}` : ""}`);
         return;
       }
@@ -864,22 +1022,8 @@ export class YoAgent {
         this._planDelivered = true;
       }
 
-      // Save chat record
-      this.saveChatRecord(message, fullText, startTs, turnTools);
-
-      promptLog.record({
-        id: `${startTs}-${Math.random().toString(36).slice(2, 8)}`,
-        startTs,
-        endTs: Date.now(),
-        prompt: message.slice(0, 2000),
-        response: fullText.slice(0, 2000),
-        inputTokens: totalInput,
-        outputTokens: totalOutput,
-        model,
-        provider: "anthropic",
-        mode: this._mode,
-        toolsUsed: [...toolsUsed],
-      });
+      // Save chat record + prompt log (also runs on the error/abort paths below).
+      persistTurn(true);
 
       // Ingest structured turn into capture store
       if (this.captureStore && fullText.trim()) {
@@ -889,13 +1033,20 @@ export class YoAgent {
 
       cb.onDone(fullText);
     } catch (err: any) {
+      const msg: string = err?.message || String(err || "");
+      const isAbort = err?.name === "AbortError" || /\b(abort(ed)?|cancell?ed)\b/i.test(msg);
+      // Lazy preset: request_dev_tools aborted the light turn so we re-run it
+      // with the full preset. Only when the throw IS that abort — a coincident
+      // non-abort error (process death, session error) must take its own path,
+      // not get silently converted into an escalation.
+      if (this._escalatePending && isAbort) { await this.escalateToDevTools(message, cb, isRetry); return; }
+      this._escalatePending = false; // a real error supersedes a pending escalation
       // Treat anything abort-flavored as a clean stop. AbortError is the
       // standard signal, but the SDK also surfaces text-only abort messages
       // ("process aborted by user", "aborted") that aren't AbortError
       // instances — those used to leak into the panel as red error rows.
-      const msg: string = err?.message || String(err || "");
-      const isAbort = err?.name === "AbortError" || /\b(abort(ed)?|cancell?ed)\b/i.test(msg);
       if (isAbort) {
+        persistTurn(); // user-stop: keep the message + whatever streamed so far
         cb.onDone(fullText);
         return;
       }
@@ -917,6 +1068,7 @@ export class YoAgent {
       // stderr tail so the panel shows something actionable, not just "Error".
       const ex = processExit as { code: number | null; signal: string | null; stderr: string } | null;
       const tail = ex?.stderr?.trim().split("\n").slice(-3).join("\n").slice(0, 300);
+      persistTurn();
       cb.onError(this.creditsAware(tail && msg.length < 40 ? `${msg}\n${tail}` : msg));
     }
   }
@@ -927,6 +1079,28 @@ export class YoAgent {
    * a "Manage plan" link. Otherwise pass the error through unchanged. The
    * "__CREDITS__" sentinel is matched in yo-agent-renderer.ts showError().
    */
+  /** Re-run the current turn with the full claude_code preset after the light
+   *  agent called request_dev_tools. Drops the SDK session so the retry mints a
+   *  fresh one (buildSystemPrompt's context-recovery refills recent history);
+   *  _devMode is sticky for the rest of the conversation — the preset is now
+   *  cache-warm, so later turns pay cheap cache-reads, not another write. */
+  private async escalateToDevTools(message: string, cb: YoAgentCallbacks, isRetry: boolean): Promise<void> {
+    this._escalatePending = false;
+    this._devMode = true;
+    this.sessionId = null;
+    await this.send(message, cb, isRetry);
+  }
+
+  /** True when a proxy/SDK error is an auth failure (expired/invalid session
+   *  token) — distinct from a 402 out-of-credits, which creditsAware handles. */
+  private isAuthError(raw: string): boolean {
+    const s = raw || "";
+    // A 402/out-of-credits message (handled by creditsAware) must never be
+    // misread as an auth failure — that would burn a refresh + pointless retry.
+    if (/\b402\b|out of credits|insufficient credit|payment required/i.test(s)) return false;
+    return /\b401\b|invalid or expired token|unauthor(i[sz]ed)?|failed to authenticate/i.test(s);
+  }
+
   private creditsAware(raw: string): string {
     if (/\b402\b|out of credits|insufficient credit|buyMore|payment required/i.test(raw || "")) {
       return "__CREDITS__You're out of credits. Add more on the platform to keep using the Glyphh agent.";
@@ -967,16 +1141,26 @@ export class YoAgent {
 
   // ── System prompt builder ────────────────────���─────────
 
-  private buildSystemPrompt(): { type: "preset"; preset: "claude_code"; append?: string } {
-    // Stock Claude Code behavior plus our delegation guidance (foreground vs
-    // background sub-agents). On a resumed chat without a live SDK session we
-    // also append context recovery — without it the model has zero memory of
-    // prior turns in this thread.
-    const parts: string[] = [DELEGATION_GUIDANCE];
-    if (this.chatId && !this.sessionId) {
-      const context = this.buildContextRecovery();
-      if (context) parts.push(context);
+  private buildSystemPrompt(devMode: boolean): string | { type: "preset"; preset: "claude_code"; append?: string } {
+    // On a resumed chat without a live SDK session, recover recent history —
+    // without it the model has zero memory of prior turns in this thread.
+    const recovery = (this.chatId && !this.sessionId) ? this.buildContextRecovery() : null;
+
+    if (!devMode) {
+      // LIGHT mode — replace the claude_code preset system prompt entirely with
+      // our compact assistant prompt. This (plus dropping the preset's built-in
+      // tools) is what shrinks the cached prefix on chat/ask turns. The agent
+      // escalates via request_dev_tools when it needs real dev tools. We do NOT
+      // append DELEGATION_GUIDANCE here — it steers to the foreground Task tool,
+      // which is a preset built-in absent in light mode; SYSTEM_PROMPT's own
+      // delegation rule covers the background tools that ARE loaded.
+      const parts = [SYSTEM_PROMPT, LIGHT_ESCALATION_GUIDANCE, TOOL_DISCOVERY_GUIDANCE];
+      if (recovery) parts.push(recovery);
+      return parts.join("\n\n");
     }
+    // FULL (dev) mode — stock Claude Code behavior plus our delegation guidance.
+    const parts: string[] = [DELEGATION_GUIDANCE, TOOL_DISCOVERY_GUIDANCE];
+    if (recovery) parts.push(recovery);
     return { type: "preset", preset: "claude_code", append: parts.join("\n\n") };
   }
 
@@ -1034,8 +1218,10 @@ export class YoAgent {
     this.chatTitle = "";
     this.mcpServer = null;
     // Reset per-conversation flags so a new session carries nothing over from
-    // the old one (e.g. a plan already delivered in the previous chat).
+    // the old one (e.g. a plan already delivered, or dev tools escalated).
     this._planDelivered = false;
+    this._devMode = false;
+    this._escalatePending = false;
   }
 
   loadChat(id: string): Array<{ role: string; text: string; tools?: Array<{ name: string; input?: unknown }> }> | null {
@@ -1048,6 +1234,10 @@ export class YoAgent {
       this.chatTitle = parsed.title;
       this.sessionId = parsed.sessionId || null;
       this._planDelivered = false;
+      // A loaded chat starts light; it re-escalates if the next turn needs dev
+      // tools. (We don't persist dev-mode — re-deriving it is cheap and safe.)
+      this._devMode = false;
+      this._escalatePending = false;
       // Restore the chat's working directory if it still exists, so the
       // agent + files view re-point to the same folder.
       if (parsed.workingDirectory && fs.existsSync(parsed.workingDirectory)) {

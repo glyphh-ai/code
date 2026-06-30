@@ -11,7 +11,7 @@ import path from "path";
 import os from "os";
 import { getShellPath } from "./shell-path";
 import { promptLog } from "./prompt-log";
-import { getAuthToken, AUTH_SERVER } from "./auth";
+import { getAuthToken, AUTH_SERVER, ensureFreshToken } from "./auth";
 
 /**
  * Env that routes the SDK through the platform proxy — Anthropic models fronted
@@ -146,6 +146,10 @@ export async function sdkComplete(opts: {
   const sdk = await ensureSDK();
   const shellPath = getShellPath();
   const startTs = Date.now();
+  // Top up the session token before the call so the SDK subprocess is spawned
+  // with a token that won't expire mid-request (it can't be refreshed once the
+  // process holds it in its env).
+  await ensureFreshToken();
 
   const gen = sdk.query({
     prompt: opts.prompt,
