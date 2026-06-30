@@ -149,10 +149,11 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
 
   // Per-user usage + credit balance, straight from the server (the proxy meters
   // this org/user). Replaces the old local UsageTracker numbers on the dashboard.
-  ipcMain.handle("user-usage", async (_e, range?: { from?: string; to?: string }) => {
+  ipcMain.handle("user-usage", async (_e, range?: { from?: string; to?: string; tz?: string }) => {
     const qs = new URLSearchParams();
     if (range?.from) qs.set("from", range.from);
     if (range?.to) qs.set("to", range.to);
+    if (range?.tz) qs.set("tz", range.tz);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     const [credits, usage] = await Promise.all([
       serverGetAuthed<{ balance: number; grants: number; purchases: number }>("/api/billing/credits").catch(() => null),

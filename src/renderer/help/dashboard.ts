@@ -49,30 +49,31 @@ const AGENT_LABELS: Record<string, string> = {
 export async function loadDashboard() {
   ensureDashTabs();
   void loadHome();
-  const [today, allTime, llmInfo, captureStats] = await Promise.all([
-    window.yo.dashboardToday(),
-    window.yo.dashboardAllTime(),
+  const tz = await getTimezone();
+  const todayKey = dateKeyInTz(new Date(), tz);
+  const [usage, allTime, llmInfo, captureStats] = await Promise.all([
+    window.yo.userUsage({ from: "2020-01-01", to: todayKey, tz }), // server-authoritative credits
+    window.yo.dashboardAllTime(),                                  // still feeds the per-agent chart
     window.yo.dashboardLLMInfo(),
     window.yo.capturesStats(),
   ]);
 
   document.getElementById("dash-provider")!.textContent = `${llmInfo.provider} / ${llmInfo.model}`;
 
-  // "Tokens in" = input + cache write + cache read, matching how the Anthropic
-  // dashboard folds cache into its "Total tokens in" figure (its buckets are
-  // disjoint, so they sum).
-  const todayTokensIn = (today?.total?.input || 0)
-    + (today?.total?.cacheCreation || 0)
-    + (today?.total?.cacheRead || 0);
-  const todayOutput = today?.total?.output || 0;
-  const todayCalls = today?.total?.calls || 0;
-  document.getElementById("dash-today-input")!.textContent = formatTokens(todayTokensIn);
-  document.getElementById("dash-today-output")!.textContent = formatTokens(todayOutput);
-  document.getElementById("dash-today-calls")!.textContent = String(todayCalls);
-
-  document.getElementById("dash-alltime-input")!.textContent = formatTokens(allTime?.total?.input || 0);
-  document.getElementById("dash-alltime-output")!.textContent = formatTokens(allTime?.total?.output || 0);
-  document.getElementById("dash-alltime-calls")!.textContent = String(allTime?.total?.calls || 0);
+  // Usage shown to users is CREDITS, sourced from the server (authoritative
+  // metered spend). Tokens are Glyphh-internal — only the super-admin platform
+  // view surfaces them.
+  let allCredits = 0, allRequests = 0, todayCredits = 0, todayRequests = 0;
+  for (const d of (usage?.days || []) as Array<{ day: string; credits: number; requests: number }>) {
+    allCredits += d.credits || 0;
+    allRequests += d.requests || 0;
+    if (d.day === todayKey) { todayCredits = d.credits || 0; todayRequests = d.requests || 0; }
+  }
+  const fmtCredits = (micro: number) => Math.round(micro / 1_000_000).toLocaleString();
+  document.getElementById("dash-today-input")!.textContent = fmtCredits(todayCredits);
+  document.getElementById("dash-today-calls")!.textContent = String(todayRequests);
+  document.getElementById("dash-alltime-input")!.textContent = fmtCredits(allCredits);
+  document.getElementById("dash-alltime-calls")!.textContent = String(allRequests);
 
   document.getElementById("dash-captures")!.textContent = String(captureStats.count);
   document.getElementById("dash-embedded")!.textContent = String(captureStats.embeddedCount);
@@ -137,26 +138,28 @@ async function renderDashActivityChart() {
   const canvas = document.getElementById("dash-chart-activity") as HTMLCanvasElement | null;
   if (!canvas) return;
 
-  const [history, captures] = await Promise.all([
-    window.yo.dashboardHistory(days, tz),
+  const now = new Date();
+  const fromDate = new Date(now);
+  fromDate.setDate(fromDate.getDate() - (days - 1));
+  const [usage, captures] = await Promise.all([
+    window.yo.userUsage({ from: dateKeyInTz(fromDate, tz), to: dateKeyInTz(now, tz), tz }),
     window.yo.capturesDailyHistory(days),
   ]);
-  const histMap = new Map((history || []).map((d: any) => [d.date, d]));
+  const usageMap = new Map((usage?.days || []).map((d: any) => [d.day, d]));
   const capMap = new Map((captures || []).map((d: any) => [d.date, d]));
 
   const labels: string[] = [];
-  const tokensData: number[] = [];
+  const creditsData: number[] = [];
   const promptsData: number[] = [];
   const capturesData: number[] = [];
-  const now = new Date();
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const key = dateKeyInTz(d, tz);
     labels.push(d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" }));
-    const h: any = histMap.get(key);
-    tokensData.push((h?.total?.input || 0) + (h?.total?.output || 0));
-    promptsData.push(h?.total?.calls || 0);
+    const u: any = usageMap.get(key);
+    creditsData.push((u?.credits || 0) / 1_000_000); // micro-credits → credits
+    promptsData.push(u?.requests || 0);
     capturesData.push((capMap.get(key) as any)?.count || 0);
   }
 
@@ -175,7 +178,7 @@ async function renderDashActivityChart() {
     data: {
       labels,
       datasets: [
-        mkLine("Tokens", tokensData, "y", "rgb(168, 85, 247)", 0.12),
+        mkLine("Credits", creditsData, "y", "rgb(168, 85, 247)", 0.12),
         mkLine("Prompts", promptsData, "y1", "rgb(72,219,251)", 0),
         mkLine("Captures", capturesData, "y1", "rgb(204,93,232)", 0),
       ],
@@ -185,12 +188,12 @@ async function renderDashActivityChart() {
       interaction: { mode: "index", intersect: false },
       scales: {
         x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { color: cssVar("--border") } },
-        y: { position: "left", beginAtZero: true, ticks: { color: cssVar("--accent"), font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: cssVar("--border") }, title: { display: true, text: "Tokens", color: cssVar("--text-3"), font: { size: 10 } } },
+        y: { position: "left", beginAtZero: true, ticks: { color: cssVar("--accent"), font: { size: 10 }, callback: (v: string | number) => Number(v).toLocaleString() }, grid: { color: cssVar("--border") }, title: { display: true, text: "Credits", color: cssVar("--text-3"), font: { size: 10 } } },
         y1: { position: "right", beginAtZero: true, ticks: { color: cssVar("--text-3"), font: { size: 10 }, precision: 0 }, grid: { drawOnChartArea: false }, title: { display: true, text: "Activity", color: cssVar("--text-3"), font: { size: 10 } } },
       },
       plugins: {
         legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
-        tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Tokens" ? `Tokens: ${formatTokens(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } },
+        tooltip: { callbacks: { label: (c: any) => c.dataset.label === "Credits" ? `Credits: ${Number(c.parsed.y).toLocaleString()}` : `${c.dataset.label}: ${c.parsed.y}` } },
       },
     },
   });
@@ -199,28 +202,31 @@ async function renderDashActivityChart() {
 async function renderDashHistoryChart() {
   const days = parseInt(dashRangeMode);
   const tz = await getTimezone();
-  const history = await window.yo.dashboardHistory(days, tz);
   const canvas = document.getElementById("dash-chart-history") as HTMLCanvasElement | null;
   if (!canvas) return;
-  if (!history || history.length === 0) {
+
+  // Credits per day, sourced from the SERVER (authoritative metered usage), not
+  // the local token tracker. Users see credits; tokens are Glyphh-internal.
+  const now = new Date();
+  const fromDate = new Date(now);
+  fromDate.setDate(fromDate.getDate() - (days - 1));
+  const res = await window.yo.userUsage({ from: dateKeyInTz(fromDate, tz), to: dateKeyInTz(now, tz), tz });
+  const serverDays = res?.days || [];
+  if (serverDays.length === 0) {
     if (dashHistoryChart) { dashHistoryChart.destroy(); dashHistoryChart = null; }
     return;
   }
 
-  const dateMap = new Map(history.map((d: any) => [d.date, d]));
+  const dateMap = new Map(serverDays.map((d: any) => [d.day, d]));
   const labels: string[] = [];
-  const inputData: number[] = [];
-  const outputData: number[] = [];
-
-  const now = new Date();
+  const creditsData: number[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const key = dateKeyInTz(d, tz);
     labels.push(d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" }));
-    const entry = dateMap.get(key);
-    inputData.push(entry?.total?.input || 0);
-    outputData.push(entry?.total?.output || 0);
+    const entry: any = dateMap.get(key);
+    creditsData.push((entry?.credits || 0) / 1_000_000); // micro-credits → credits
   }
 
   const ctx = canvas.getContext("2d")!;
@@ -231,8 +237,7 @@ async function renderDashHistoryChart() {
     data: {
       labels,
       datasets: [
-        { label: "Input tokens",  data: inputData,  borderColor: "#a855f7", backgroundColor: "rgba(168, 85, 247,0.1)",  fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
-        { label: "Output tokens", data: outputData, borderColor: "#48dbfb", backgroundColor: "rgba(72,219,251,0.05)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+        { label: "Credits", data: creditsData, borderColor: "#a855f7", backgroundColor: "rgba(168, 85, 247,0.12)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
       ],
     },
     options: {
@@ -240,11 +245,11 @@ async function renderDashHistoryChart() {
       interaction: { mode: "index", intersect: false },
       scales: {
         x: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, maxRotation: 0 }, grid: { color: cssVar("--border") } },
-        y: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, callback: (v: string | number) => formatTokens(Number(v)) }, grid: { color: cssVar("--border") } },
+        y: { ticks: { color: cssVar("--text-3"), font: { size: 10 }, callback: (v: string | number) => Number(v).toLocaleString() }, grid: { color: cssVar("--border") } },
       },
       plugins: {
         legend: { labels: { color: cssVar("--text-2"), font: { size: 11 }, usePointStyle: true, pointStyleWidth: 14, padding: 16 } },
-        tooltip: { callbacks: { label: (c: any) => `${c.dataset.label}: ${formatTokens(c.parsed.y)}` } },
+        tooltip: { callbacks: { label: (c: any) => `Credits: ${Number(c.parsed.y).toLocaleString()}` } },
       },
     },
   });
@@ -388,14 +393,7 @@ async function renderDashPrompts() {
     timeSpan.style.cssText = "font-size:10px;color:var(--text-muted);flex-shrink:0;";
     timeSpan.textContent = relativeTime(e.startTs);
     nameRow.appendChild(timeSpan);
-
-    const tokSpan = document.createElement("span");
-    tokSpan.style.cssText = "font-size:10px;color:var(--accent);flex-shrink:0;";
-    // Total = input + output + cache write + cache read (Anthropic's buckets are
-    // disjoint, so they sum). Cache write dominates a fresh turn, so omitting it
-    // made this read ~99% low vs the Anthropic dashboard.
-    tokSpan.textContent = `${formatTokens(e.inputTokens + e.outputTokens + (e.cacheCreationTokens || 0) + (e.cacheReadTokens || 0))} tok`;
-    nameRow.appendChild(tokSpan);
+    // No per-prompt token chip — tokens are Glyphh-internal, not shown to users.
 
     info.appendChild(nameRow);
 
@@ -433,16 +431,10 @@ async function openDashPromptDetail(id: string) {
   const metaGrid = document.getElementById("dash-prompt-meta")!;
   const duration = entry.endTs - entry.startTs;
 
-  const cacheW = entry.cacheCreationTokens || 0;
-  const cacheR = entry.cacheReadTokens || 0;
-  const totalTok = entry.inputTokens + entry.outputTokens + cacheW + cacheR;
+  // Tokens (in/out/cache) are Glyphh-internal and intentionally NOT shown here —
+  // users reason in credits. Per-prompt credit cost isn't surfaced to the client
+  // yet (it's computed server-side after the stream), so the detail omits cost.
   const items = [
-    // Anthropic-comparable grand total first (its buckets are disjoint → sum),
-    // then the in/out breakdown.
-    { label: "Tokens", value: `${formatTokens(totalTok)} total (${formatTokens(entry.inputTokens)} in / ${formatTokens(entry.outputTokens)} out)` },
-    // Cache write dominates a fresh conversation's cost (the agent's system
-    // prompt + tools are written to cache on the first message); reads are cheap.
-    ...(cacheW || cacheR ? [{ label: "Cache", value: `${formatTokens(cacheW)} written / ${formatTokens(cacheR)} read` }] : []),
     { label: "Model", value: entry.model },
     { label: "Mode", value: entry.mode },
     { label: "Duration", value: formatDuration(duration) },

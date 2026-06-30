@@ -178,6 +178,10 @@ declare global {
       // Dashboard
       dashboardToday: (tz?: string) => Promise<any>;
       dashboardHistory: (days?: number, tz?: string) => Promise<any[]>;
+      userUsage: (range?: { from?: string; to?: string; tz?: string }) => Promise<{
+        credits: { balance: number; grants: number; purchases: number; allowance?: number } | null;
+        days: Array<{ day: string; credits: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; requests: number }>;
+      }>;
       dashboardAllTime: (tz?: string) => Promise<{ agents: Record<string, any>; total: any }>;
       dashboardApps: () => Promise<Array<{ name: string; path: string; modified: string }>>;
       dashboardOpenApp: (name: string) => void;
