@@ -1554,8 +1554,8 @@ ${rootDir}/.yo/inbox/&lt;name&gt;.md                 # per-agent inbox</pre>
                   </label>
 
                   <label class="settings-label" style="margin-top:12px;">Context window before compaction (tokens)</label>
-                  <input id="agent-autocompact-window" type="number" min="0" step="1000" class="settings-input settings-input-md" placeholder="160000 (default)" spellcheck="false" />
-                  <span class="settings-hint" style="display:block;margin-top:4px;font-size:11px;color:var(--text-3);">Leave blank to use the 160,000-token default. Lower it to compact sooner (cheaper, more frequent summaries); raise it to keep more raw context before summarizing.</span>
+                  <input id="agent-autocompact-window" type="number" min="8000" step="1000" class="settings-input settings-input-md" placeholder="160000 (default)" spellcheck="false" />
+                  <span class="settings-hint" style="display:block;margin-top:4px;font-size:11px;color:var(--text-3);">Leave blank for the 160,000-token default. Minimum 8,000 — below that is the fixed system-prompt + tools floor, so the gauge would read full permanently and compaction couldn't help. Recommended 120,000–180,000 on a 200K model.</span>
 
                   <label class="settings-label" style="margin-top:12px;">Custom compaction prompt (optional)</label>
                   <textarea id="agent-compact-prompt" class="settings-input" rows="4" spellcheck="false" placeholder="How should the agent summarize the conversation when compacting? Leave blank for the default summary."></textarea>

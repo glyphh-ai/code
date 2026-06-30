@@ -17,6 +17,12 @@ const settingsBrowserHome = document.getElementById("settings-browser-home") as 
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 
+// Floor for the auto-compact window. Below the fixed system-prompt + loaded
+// tools (~6.5K), a window is meaningless: total context is always over it, so
+// the gauge reads full permanently and compaction (which only summarizes
+// conversation history) can never get back under it.
+const MIN_COMPACT_WINDOW = 8000;
+
 // ── Settings → Agent Defaults ────────────────────────────
 // Seed values for new agents created in the Agents app.
 (function wireAgentDefaults() {
@@ -97,12 +103,19 @@ const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!
       window.yo.setAgentMode(perm.value);
       // Compaction prefs → preference store (read by yo-agent at turn start).
       if (compactEnabled) window.yo.setPreference("autoCompactEnabled", compactEnabled.checked);
+      let clampedNote = "";
       if (compactWindow) {
-        const w = parseInt(compactWindow.value, 10);
+        let w = parseInt(compactWindow.value, 10);
+        // Clamp up to the floor — a smaller window is meaningless (see above).
+        if (Number.isFinite(w) && w > 0 && w < MIN_COMPACT_WINDOW) {
+          w = MIN_COMPACT_WINDOW;
+          compactWindow.value = String(w);
+          clampedNote = ` (compaction window raised to ${MIN_COMPACT_WINDOW.toLocaleString()} minimum)`;
+        }
         window.yo.setPreference("autoCompactWindow", Number.isFinite(w) && w > 0 ? w : 0);
       }
       if (compactPrompt) window.yo.setPreference("compactPrompt", compactPrompt.value.trim());
-      status.textContent = "Saved.";
+      status.textContent = `Saved.${clampedNote}`;
     } catch (err: any) {
       status.textContent = `Error: ${err?.message || err}`;
     }

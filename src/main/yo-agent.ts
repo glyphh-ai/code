@@ -150,6 +150,17 @@ const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 // explicit autoCompactWindow — approximates where the SDK auto-compacts a
 // 200K-context model with headroom reserved for the reply.
 const DEFAULT_COMPACT_WINDOW = 160_000;
+// A window below the fixed system-prompt + loaded tools floor (~6.5K) is
+// meaningless: total context is always over it, so the gauge reads full forever
+// and compaction (which only summarizes conversation history) can't recover.
+// Blank/0 → default; any positive value is clamped up to this floor. Mirrors the
+// Settings → Agent input guard, and defensively corrects an already-stored
+// too-low value at runtime.
+const MIN_COMPACT_WINDOW = 8_000;
+function resolveCompactWindow(): number {
+  const win = getDbPreference<number>("autoCompactWindow", 0);
+  return win > 0 ? Math.max(win, MIN_COMPACT_WINDOW) : DEFAULT_COMPACT_WINDOW;
+}
 
 // Appended to every yo-agent turn. Teaches the model that delegation has two
 // modes — in-turn (blocking) vs detached (non-blocking) — and when to pick
@@ -648,10 +659,9 @@ export class YoAgent {
       // explicit value (the user's, or DEFAULT_COMPACT_WINDOW) so the actual
       // compaction point matches the number the composer gauge measures against.
       settings: (() => {
-        const win = getDbPreference<number>("autoCompactWindow", 0);
         return {
           autoCompactEnabled: getDbPreference<boolean>("autoCompactEnabled", true),
-          autoCompactWindow: win && win > 0 ? win : DEFAULT_COMPACT_WINDOW,
+          autoCompactWindow: resolveCompactWindow(),
         } as Record<string, unknown>;
       })(),
       // The Glyphh agent runs through the platform proxy: Anthropic models
@@ -963,8 +973,7 @@ export class YoAgent {
               const contextTokens = (usage.input_tokens || 0)
                 + (usage.cache_read_input_tokens || 0)
                 + (usage.cache_creation_input_tokens || 0);
-              const win = getDbPreference<number>("autoCompactWindow", 0);
-              cb.onContextUsage?.(contextTokens, win && win > 0 ? win : DEFAULT_COMPACT_WINDOW);
+              cb.onContextUsage?.(contextTokens, resolveCompactWindow());
             }
             if (msg.is_error && msg.result) {
               if (this.abortController?.signal.aborted || /abort/i.test(msg.result)) break;
