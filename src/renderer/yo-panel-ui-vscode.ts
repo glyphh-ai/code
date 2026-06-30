@@ -197,6 +197,20 @@ function prettyModelLabel(model: string): string {
   return model;
 }
 
+// One-line "when to use it" shown under each model in the dropdown. Keyed by
+// family prefix so date-stamped ids (claude-haiku-4-5-20251001) still match.
+const MODEL_DESC: Array<[RegExp, string]> = [
+  [/^claude-opus/,   "Deepest reasoning — hard problems, big refactors, planning."],
+  [/^claude-sonnet/, "Balanced quality and speed — most everyday work."],
+  [/^claude-haiku/,  "Fastest and cheapest — quick asks, simple edits, high volume."],
+  [/^claude-fable/,  "Creative writing and narrative tasks."],
+  [/^gpt-5-codex/,   "OpenAI coding model — an alternative for code generation."],
+];
+function modelDescription(model: string): string {
+  for (const [re, d] of MODEL_DESC) if (re.test(model)) return d;
+  return "";
+}
+
 // ── Internal state ─────────────────────────────────────────────────────────
 
 let yoThinking = false;
@@ -1387,9 +1401,10 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     if (!data || !Array.isArray(data.models) || data.models.length === 0) return;
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
     const check = '<span class="yo-mode-opt-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
-    modelMenu.innerHTML = '<div class="yo-model-section-header">Models</div>' + data.models.map((m) =>
-      `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(prettyModelLabel(m.model))}</span></div>${check}</div>`,
-    ).join("");
+    modelMenu.innerHTML = '<div class="yo-model-section-header">Models</div>' + data.models.map((m) => {
+      const desc = modelDescription(m.model);
+      return `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(prettyModelLabel(m.model))}</span>${desc ? `<span class="yo-mode-opt-desc">${esc(desc)}</span>` : ""}</div>${check}</div>`;
+    }).join("");
     modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach(wireModelOption);
     const ids = new Set(data.models.map((m) => m.model));
     if (!currentChatModel || !ids.has(currentChatModel)) {
@@ -1403,12 +1418,42 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   }
   void populateModels();
 
+  // Effort slider (Faster · Balanced · Smarter · Ultracode → SDK low/medium/
+  // high/max, read by the agent via the "effortLevel" preference).
+  const effortDropdown = document.getElementById("yo-effort-dropdown");
+  const effortTrigger = document.getElementById("yo-effort-trigger");
+  const effortMenu = document.getElementById("yo-effort-menu");
+  const effortSlider = document.getElementById("yo-effort-input") as HTMLInputElement | null;
+  const effortValueEl = document.getElementById("yo-effort-value");
+  const effortTriggerLabel = document.getElementById("yo-effort-trigger-label");
+  const EFFORT_NAMES = ["Faster", "Balanced", "Smarter", "Ultracode"];
+  if (effortDropdown && effortTrigger && effortMenu && effortSlider) {
+    const paintEffort = (lvl: number, save: boolean) => {
+      const v = Math.max(0, Math.min(3, Math.round(lvl) || 0));
+      effortSlider.value = String(v);
+      effortSlider.style.setProperty("--effort-fill", `${(v / 3) * 100}%`);
+      if (effortValueEl) effortValueEl.textContent = EFFORT_NAMES[v];
+      if (effortTriggerLabel) effortTriggerLabel.textContent = EFFORT_NAMES[v];
+      if (save) window.yo.setPreference("effortLevel", v);
+    };
+    (async () => {
+      try { const saved = Number(await window.yo.getPreference("effortLevel", 1)); paintEffort(Number.isFinite(saved) ? saved : 1, false); }
+      catch { paintEffort(1, false); }
+    })();
+    effortSlider.addEventListener("input", () => paintEffort(Number(effortSlider.value), false));
+    effortSlider.addEventListener("change", () => paintEffort(Number(effortSlider.value), true));
+    effortTrigger.addEventListener("click", (e) => { e.stopPropagation(); effortMenu.classList.toggle("hidden"); });
+  }
+
   document.addEventListener("click", (e) => {
     if (!yoPermDropdown.contains(e.target as Node)) {
       yoPermMenu.classList.add("hidden");
     }
     if (modelDropdown && !modelDropdown.contains(e.target as Node)) {
       modelMenu?.classList.add("hidden");
+    }
+    if (effortDropdown && !effortDropdown.contains(e.target as Node)) {
+      effortMenu?.classList.add("hidden");
     }
   });
 

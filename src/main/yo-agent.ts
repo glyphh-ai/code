@@ -162,6 +162,16 @@ function resolveCompactWindow(): number {
   return win > 0 ? Math.max(win, MIN_COMPACT_WINDOW) : DEFAULT_COMPACT_WINDOW;
 }
 
+// Reasoning effort — the composer slider (Faster · Balanced · Smarter ·
+// Ultracode) stores 0-3 in the "effortLevel" preference, mapped to the SDK's
+// EffortLevel. Ultracode → "max" (the SDK falls back per-model where a level
+// isn't supported). Default Balanced.
+const EFFORT_BY_LEVEL = ["low", "medium", "high", "max"] as const;
+function resolveEffort(): (typeof EFFORT_BY_LEVEL)[number] {
+  const lvl = getDbPreference<number>("effortLevel", 1);
+  return EFFORT_BY_LEVEL[Math.max(0, Math.min(3, Math.round(Number(lvl) || 0)))];
+}
+
 // Appended to every yo-agent turn. Teaches the model that delegation has two
 // modes — in-turn (blocking) vs detached (non-blocking) — and when to pick
 // each. Without this the model defaults to the in-turn Task tool for
@@ -478,6 +488,7 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
+      effort: resolveEffort(),
       ...asarSafeQueryOptions(rightRailCwd()),
       // Headless: no UI to approve tool calls, so bypass permissions.
       permissionMode: "bypassPermissions",
@@ -586,6 +597,7 @@ export class YoAgent {
     const options: Record<string, any> = {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
+      effort: resolveEffort(),
       // The right-rail .Yo agent always runs at ~/yo/ — it spans every
       // folder the user touches and does not follow per-app folder picks.
       ...asarSafeQueryOptions(rightRailCwd(), (info) => {

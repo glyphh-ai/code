@@ -433,6 +433,24 @@
           </div>
         </div>
       </div>
+      <div id="yo-effort-dropdown" class="yo-mode-dropdown">
+        <button id="yo-effort-trigger" class="yo-mode-trigger" title="Reasoning effort">
+          <span class="yo-effort-bolt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <span id="yo-effort-trigger-label" class="yo-effort-trigger-label">Balanced</span>
+          <span class="yo-mode-chevron">&#x25BE;</span>
+        </button>
+        <div id="yo-effort-menu" class="yo-mode-menu yo-effort-menu hidden">
+          <div class="yo-effort-head">
+            <span class="yo-effort-head-label">Effort</span>
+            <span id="yo-effort-value" class="yo-effort-value">Balanced</span>
+          </div>
+          <div class="yo-effort-track-wrap">
+            <span class="yo-effort-end">Faster</span>
+            <input id="yo-effort-input" type="range" min="0" max="3" step="1" value="1" class="yo-effort-slider" title="Faster → Ultracode" />
+            <span class="yo-effort-end">Smarter</span>
+          </div>
+        </div>
+      </div>
       <button id="yo-panel-compaction" class="yo-compaction-btn" title="Context usage — click to compact"><svg class="yo-compaction-ring" viewBox="0 0 36 36" width="18" height="18"><circle class="yo-compaction-track" cx="18" cy="18" r="15"/><circle class="yo-compaction-fill" cx="18" cy="18" r="15"/></svg></button>
       <button id="yo-panel-drip" class="yo-drip-btn" title="Drips">&#x2728;</button>
       <button id="yo-panel-send">&uarr;</button>
