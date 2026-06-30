@@ -1003,7 +1003,25 @@ export class YoAgent {
               const contextTokens = (usage.input_tokens || 0)
                 + (usage.cache_read_input_tokens || 0)
                 + (usage.cache_creation_input_tokens || 0);
+              // Immediate, approximate gauge from this turn's usage…
               cb.onContextUsage?.(contextTokens, resolveCompactWindow());
+              // …then override with the SDK's AUTHORITATIVE view when available:
+              // its real total + the actual auto-compact threshold. The SDK
+              // compacts near the model's context limit and clamps tiny window
+              // settings, so measuring against our setting reads "100%, never
+              // compacts". This makes the gauge reflect when compaction WILL
+              // really fire (and reset). Best-effort, non-blocking.
+              const cuPromise = (gen as any).getContextUsage?.();
+              if (cuPromise && typeof cuPromise.then === "function") {
+                cuPromise
+                  .then((cu: any) => {
+                    if (!cu) return;
+                    const used = typeof cu.totalTokens === "number" ? cu.totalTokens : contextTokens;
+                    const window = cu.autoCompactThreshold || cu.maxTokens || resolveCompactWindow();
+                    if (window > 0) cb.onContextUsage?.(used, window);
+                  })
+                  .catch(() => {});
+              }
             }
             if (msg.is_error && msg.result) {
               if (this.abortController?.signal.aborted || /abort/i.test(msg.result)) break;
