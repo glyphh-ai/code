@@ -7242,6 +7242,21 @@ select.settings-input {
   color: var(--text);
   border-color: var(--border-2);
 }
+/* Drips button — far right of the workdir bar (replaces the old animated dot). */
+.yo-workdir-drip {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 3px 6px;
+  margin-right: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  transition: background 0.10s, border-color 0.10s;
+}
+.yo-workdir-drip:hover { background: var(--hover); border-color: var(--border-2); }
 .yo-workdir-branch {
   font-size: 12px;
   color: var(--text-faint);
@@ -8412,7 +8427,7 @@ select.settings-input {
   box-shadow: 0 -4px 16px var(--shadow);
   z-index: 20;
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px); /* opens downward from the workdir-bar button */
   transition: opacity 0.15s ease, transform 0.15s ease;
   pointer-events: none;
 }
