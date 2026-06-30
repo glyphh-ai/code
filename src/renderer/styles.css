@@ -2953,7 +2953,11 @@ ol.docs-list li::before {
 /* Clear (×) button on search boxes — injected by search-clear.ts. The wrap
    takes the input's place (preserving flex:1 in toolbars, full width elsewhere)
    and anchors the absolutely-positioned button at the input's right edge. */
-.search-clear-wrap { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+/* Content-height by default (so the wrapper never grows in a flex COLUMN like
+   the left rail). Only the crud-search toolbars — where the input was flex:1 —
+   need the wrapper to grow and fill the row. */
+.search-clear-wrap { position: relative; display: flex; align-items: center; flex: 0 0 auto; min-width: 0; }
+.search-clear-wrap:has(> input.crud-search) { flex: 1 1 auto; }
 .search-clear-wrap > input { flex: 1 1 auto; width: 100%; min-width: 0; padding-right: 30px; }
 .search-clear-btn {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
