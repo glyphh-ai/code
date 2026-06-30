@@ -494,7 +494,7 @@ export class YoAgent {
    * engine's plain single-turn completion. Does NOT touch the active chat
    * (chatId/sessionId/title) so the user's live conversation is untouched.
    */
-  async runForResult(prompt: string): Promise<{ text: string; error?: string }> {
+  async runForResult(prompt: string, chatId?: string): Promise<{ text: string; error?: string }> {
     let sdk: any;
     try { sdk = await this.ensureSDK(); }
     catch (err: any) { return { text: "", error: `Failed to load agent SDK: ${err?.message || err}` }; }
@@ -521,11 +521,25 @@ export class YoAgent {
       // full (dev) system prompt.
       systemPrompt: this.buildSystemPrompt(true),
       includePartialMessages: true,
-      env: {
-        ...process.env,
-        PATH: shellPath,
-        CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
-      },
+      // Route through the credit proxy (same as send()) so scheduled/manual task
+      // runs are metered — and attribute their credits to the run id when given.
+      env: (() => {
+        const base: Record<string, string | undefined> = {
+          ...process.env,
+          PATH: shellPath,
+          CLAUDE_AGENT_SDK_CLIENT_APP: "yosup/3.0.0",
+        };
+        const proxy = proxyAnthropicEnv();
+        if (proxy.ANTHROPIC_BASE_URL) {
+          Object.assign(base, proxy);
+          delete base.ANTHROPIC_API_KEY;
+          if (chatId) base.ANTHROPIC_CUSTOM_HEADERS = `x-glyphh-chat-id: ${chatId}`;
+        } else {
+          const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
+          if (byok) base.ANTHROPIC_API_KEY = byok;
+        }
+        return base;
+      })(),
     };
 
     let text = "";
@@ -712,6 +726,10 @@ export class YoAgent {
         if (proxy.ANTHROPIC_BASE_URL) {
           Object.assign(base, proxy);
           delete base.ANTHROPIC_API_KEY;
+          // Attribute this turn's metered credits to the active chat — the CLI
+          // forwards ANTHROPIC_CUSTOM_HEADERS as request headers, and the proxy
+          // reads x-glyphh-chat-id into llm_usage_events.chat_id.
+          if (this.chatId) base.ANTHROPIC_CUSTOM_HEADERS = `x-glyphh-chat-id: ${this.chatId}`;
           console.log(`[yo-agent] proxy mode → ${proxy.ANTHROPIC_BASE_URL} (model=${model})`);
         } else {
           const byok = (() => { try { return getProviderKey("anthropic"); } catch { return null; } })();
