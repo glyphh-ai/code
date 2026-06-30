@@ -1432,6 +1432,9 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
       const v = Math.max(0, Math.min(3, Math.round(lvl) || 0));
       effortSlider.value = String(v);
       effortSlider.style.setProperty("--effort-fill", `${(v / 3) * 100}%`);
+      // The matrix particle effect shows ONLY in Ultracode; otherwise it's a
+      // plain slider.
+      effortSlider.classList.toggle("is-ultra", v === 3);
       if (effortValueEl) effortValueEl.textContent = EFFORT_NAMES[v];
       if (effortTriggerLabel) effortTriggerLabel.textContent = EFFORT_NAMES[v];
       if (save) window.yo.setPreference("effortLevel", v);
