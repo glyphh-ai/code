@@ -291,7 +291,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
   {
     name: "find_tools",
     namespace: "yo",
-    description: "Search for tools that aren't already loaded — connected-app tools (Gmail, Slack, Calendar, Drive, …), skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. Returns matching tool names, descriptions, and input schemas. Run one with call_tool. Your common tools are already loaded; only use this when you need something that isn't.",
+    description: "Search for less-common tools that aren't already loaded — skill authoring, layout/store/drip management, workspace coordination, and other specialized substrate actions. Returns matching tool names, descriptions, and input summaries; run one with call_tool. NOTE: connected-app tools (Gmail, Slack, Calendar, …) are already loaded and directly callable — do NOT use find_tools for those.",
     input_schema: {
       type: "object",
       properties: {
@@ -303,9 +303,10 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const q = String(input.query ?? "").toLowerCase().trim();
       if (!q) return "Provide a query describing what you want to do.";
       const terms = q.split(/\s+/).filter(Boolean);
-      // Full catalog (incl. connectors), minus the core tools the agent already
-      // has loaded — find_tools is for discovering what's NOT loaded.
-      const all = getAgentToolSpec(undefined, true, false).filter((t) => !AGENT_CORE_TOOLS.has(t.name));
+      // Rare SUBSTRATE tail + skills, minus the core tools already loaded.
+      // Connectors are loaded directly in context (not discovered here), so
+      // exclude them (includeMcp=false).
+      const all = getAgentToolSpec(undefined, false, false).filter((t) => !AGENT_CORE_TOOLS.has(t.name));
       const scored = all
         .map((t) => {
           const hay = `${t.name} ${t.description || ""}`.toLowerCase();
@@ -330,7 +331,7 @@ const BUILTIN_TOOLS: ToolDef[] = [
   {
     name: "call_tool",
     namespace: "yo",
-    description: "Run any tool by name with its input — for tools you found via find_tools that aren't in your loaded set (specialized actions, skills, connected-app tools). For tools you already have loaded, call them directly instead.",
+    description: "Run a tool by name with its input — for tools you found via find_tools that aren't in your loaded set (specialized substrate actions, skills). For tools you already have loaded (including connected-app tools), call them directly instead.",
     input_schema: {
       type: "object",
       properties: {

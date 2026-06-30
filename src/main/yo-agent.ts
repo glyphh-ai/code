@@ -112,7 +112,7 @@ RULES:
 - scan_panel FIRST for element discovery. Use click_element/type_text with those selectors.
 - grab_panel is EXPENSIVE (~10K tokens). Only when you need full page text.
 - For workspace arrangement use split_view, grid_layout, switch_panel.
-- For anything not in your loaded set — skills, data stores, saved layouts, drips, workspace coordination, connected apps (Gmail/Slack/…) — call find_tools to search for the tool, then call_tool to run it. They are not loaded by default.
+- Connected apps (Gmail, Slack, Calendar, …) are loaded — call their tools directly. For other specialized actions not in your set (skills, data stores, saved layouts, drips, workspace coordination) call find_tools to search, then call_tool to run.
 - For multi-choice questions to the user, use mcp__yo__ask_user_question (the built-in AskUserQuestion is unavailable). It renders a proper "Input required" card with side-by-side code/markdown previews. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.
 - When the user asks you to "build me an X" or "make a tool that does Y" and a single-page web app fits, use create_app — it scaffolds a static HTML bundle under ~/yo/apps/<id>/, registers it in the Apps list, and the file watcher makes it appear without restart. Then open it with open_app to show the user. For follow-up edits use write_app_file. Prefer vanilla HTML/CSS/JS or React-via-CDN; no build step.
 - Delegate via spawn_background, call_agent, or create_swarm — they run detached and stream into the Sub-Agents panel. If you need a sub-agent's result within THIS turn to continue, call request_dev_tools first to load the foreground Task tool.`;
@@ -134,15 +134,15 @@ Do NOT call request_dev_tools for work your light tools already handle: answerin
 // the long tail (connected apps, skill authoring, layout/store/drip management,
 // workspace coordination, and other specialized actions) is discovered on
 // demand. Without this the model wouldn't know those capabilities are reachable.
-const TOOL_DISCOVERY_GUIDANCE = `# Finding tools you don't have loaded
+const TOOL_DISCOVERY_GUIDANCE = `# Your tools
 
-You have a focused core toolset loaded. MANY more tools exist but aren't loaded (to keep messages small): connected-app tools (Gmail, Slack, Calendar, Drive, …), skill authoring, layout/store/drip management, workspace coordination, and other specialized actions.
+Connected-app tools (Gmail, Slack, Calendar, Drive, … — whatever the user has connected) ARE loaded and directly callable. For anything involving the user's connected accounts, call those tools straight away — do NOT look them up first.
 
-When a task needs something your core tools don't cover:
-1. find_tools(query) — search by keywords (e.g. 'send email', 'save layout', 'create skill', 'post to workspace'). Returns matching tool names, descriptions, and input schemas.
+A long tail of less-common tools is NOT loaded, to keep messages small: skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. Only for those:
+1. find_tools(query) — search by keywords (e.g. 'save layout', 'create skill', 'post to workspace').
 2. call_tool(name, input) — run the one you found.
 
-Only do this for things your core tools don't already handle. For your loaded tools (capture store, panels, apps, web, delegation, light file reads) call them directly — no lookup needed.`;
+Everything else (capture store, panels, apps, web search/read, delegation, light file reads) is already loaded — call it directly, no lookup.`;
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -319,11 +319,11 @@ export class YoAgent {
   }
 
   private buildSdkMcpTools(_sdk: any): any[] {
-    // Load only the CORE substrate kit (coreOnly=true) and NO connector catalog
-    // (includeMcp=false). Everything else — rare substrate tools, skills, and
-    // connected-app tools — is discovered on demand via find_tools + call_tool,
-    // keeping the cached prompt small. find_tools/call_tool are core builtins.
-    const toolSpecs = getAgentToolSpec(undefined, false, true);
+    // Core substrate kit (coreOnly=true) PLUS the connected-app (MCP) catalog
+    // (includeMcp=true). Connectors are the product's flagship feature, so they
+    // stay directly callable — discovery (find_tools) fumbled too often for them.
+    // The rare SUBSTRATE tail + skills are still discovered via find_tools.
+    const toolSpecs = getAgentToolSpec(undefined, true, true);
     const substrateTools = toolSpecs.map((spec) => ({
       name: spec.name,
       description: spec.description,
