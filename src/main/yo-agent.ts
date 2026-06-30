@@ -113,7 +113,7 @@ RULES:
 - scan_panel FIRST for element discovery. Use click_element/type_text with those selectors.
 - grab_panel is EXPENSIVE (~10K tokens). Only when you need full page text.
 - For workspace arrangement use split_view, grid_layout, switch_panel.
-- Connected apps (Gmail, Slack, Calendar, …) and other specialized actions (skills, data stores, layouts, drips, workspace coordination) are NOT preloaded — call find_tools to find the right tool, then call_tool to run it. The apps you can reach are listed under "Connected apps".
+- For the user's connected apps (Gmail, Slack, Calendar, …), follow the "Connected apps" section below — it tells you whether their tools are already loaded or must be fetched with find_tools. For other specialized actions (skills, data stores, layouts, drips, workspace coordination), call find_tools to find the right tool, then call_tool to run it.
 - For multi-choice questions to the user, use mcp__yo__ask_user_question (the built-in AskUserQuestion is unavailable). It renders a proper "Input required" card with side-by-side code/markdown previews. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.
 - When the user asks you to "build me an X" or "make a tool that does Y" and a single-page web app fits, use create_app — it scaffolds a static HTML bundle under ~/yo/apps/<id>/, registers it in the Apps list, and the file watcher makes it appear without restart. Then open it with open_app to show the user. For follow-up edits use write_app_file. Prefer vanilla HTML/CSS/JS or React-via-CDN; no build step.
 - Delegate via spawn_background, call_agent, or create_swarm — they run detached and stream into the Sub-Agents panel. If you need a sub-agent's result within THIS turn to continue, call request_dev_tools first to load the foreground Task tool.`;
@@ -139,17 +139,28 @@ const TOOL_DISCOVERY_GUIDANCE = `# Your tools
 
 A focused core toolset is loaded (capture store, panels, apps, web search/read, delegation, light file reads) — call those directly, no lookup.
 
-A large set of tools is NOT loaded (to keep messages small): the user's connected-app tools (Gmail, Slack, Calendar, Drive, … — there can be hundreds), skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. For ANY of those:
-1. find_tools(query) — search by keywords (e.g. 'gmail send email', 'save layout', 'create skill', 'post to workspace'). It returns matching tool names + input fields.
+A large set of tools is NOT loaded (to keep messages small): skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. For ANY of those:
+1. find_tools(query) — search by keywords (e.g. 'save layout', 'create skill', 'post to workspace'). It returns matching tool names + input fields.
 2. call_tool(name, input) — run the one you found.
 
-The connected apps you can reach are listed under "Connected apps" below — use find_tools to pull a specific app's tool when a task needs it.`;
+The user's connected apps (Gmail, Calendar, …) are handled separately — see the "Connected apps" section, which says whether their tools are already loaded or must be fetched with find_tools.`;
 
-// Compact, dynamic awareness of the user's connected apps for the system prompt:
-// app slug + tool count only — NOT the tool schemas — so it scales to hundreds
-// of apps. The agent uses this to know what's reachable, then fetches a specific
-// tool's schema via find_tools on demand.
-function connectedAppsBlock(): string {
+// Above this many connected-app (MCP) tool schemas, loading them all in-context
+// would bloat every prompt, so we fall back to find_tools discovery. At or below
+// it (the common case), connectors load directly — far more reliable, and cheap
+// now that the static prefix is cached. ~400 tok/tool, so ~100 ≈ 40K cached.
+const CONNECTOR_INLINE_MAX = 100;
+
+/** True when the connector catalog is small enough to load directly in-context. */
+function connectorsInline(): boolean {
+  const n = getConnectorCatalog().length;
+  return n > 0 && n <= CONNECTOR_INLINE_MAX;
+}
+
+// Dynamic awareness of the user's connected apps for the system prompt (app slug
+// + tool count). Phrasing depends on whether the connectors are loaded directly
+// (inline) or must be fetched via find_tools (discovery, for huge catalogs).
+function connectedAppsBlock(inline: boolean): string {
   const catalog = getConnectorCatalog();
   if (!catalog.length) return "";
   const bySlug = new Map<string, number>();
@@ -157,8 +168,48 @@ function connectedAppsBlock(): string {
   const entries = [...bySlug.entries()].sort((a, b) => b[1] - a[1]);
   const CAP = 60;
   const shown = entries.slice(0, CAP).map(([s, n]) => `${s} (${n})`).join(", ");
-  const more = entries.length > CAP ? `, +${entries.length - CAP} more (search for them)` : "";
-  return `# Connected apps\nThe user has these apps connected (tool counts in parentheses). Their tools are NOT preloaded — when a task needs one, call find_tools with the app + action as the query (e.g. "gmail send email"), then run the result with call_tool:\n${shown}${more}`;
+  const more = entries.length > CAP ? `, +${entries.length - CAP} more` : "";
+  const how = inline
+    ? "Their tools ARE loaded — call them directly (e.g. a gmail_* / google_calendar_* tool); do NOT use find_tools for these."
+    : 'Their tools are NOT preloaded — call find_tools with the app + action (e.g. "gmail send email"), then run the result with call_tool.';
+  return `# Connected apps\nThe user has these apps connected (tool counts in parentheses). ${how}\n${shown}${more}`;
+}
+
+// Trim a tool's free-text description for the in-context prefix — external
+// connector descriptions are often paragraphs. Keep the gist (~220 chars,
+// snapped to a sentence boundary when possible).
+function leanToolDescription(desc: string | undefined): string {
+  if (!desc) return "";
+  const d = String(desc).replace(/\s+/g, " ").trim();
+  if (d.length <= 220) return d;
+  const cut = d.slice(0, 220);
+  const stop = cut.lastIndexOf(". ");
+  return (stop > 120 ? cut.slice(0, stop + 1) : cut).trim() + "…";
+}
+
+// Strip the bloat from a tool's JSON Schema before it's loaded: keep type,
+// properties, required, enum (capped), items, format + a SHORT per-field
+// description; drop examples/default/title/$schema/additionalProperties and
+// over-long enums. The agent still gets every param name/type it needs to call
+// the tool correctly — just far fewer tokens. Bounded recursion.
+function leanJsonSchema(schema: any, depth = 0): any {
+  if (!schema || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) return schema.map((s) => leanJsonSchema(s, depth + 1));
+  if (depth > 5) return { type: schema.type || "string" };
+  const out: any = {};
+  if (schema.type) out.type = schema.type;
+  if (schema.format) out.format = schema.format;
+  if (schema.description) out.description = String(schema.description).replace(/\s+/g, " ").slice(0, 100);
+  if (Array.isArray(schema.enum)) out.enum = schema.enum.slice(0, 30);
+  if (schema.items) out.items = leanJsonSchema(schema.items, depth + 1);
+  if (schema.properties && typeof schema.properties === "object") {
+    out.properties = {};
+    for (const [k, v] of Object.entries(schema.properties)) out.properties[k] = leanJsonSchema(v, depth + 1);
+  }
+  if (Array.isArray(schema.required)) out.required = schema.required;
+  if (Array.isArray(schema.anyOf)) out.anyOf = schema.anyOf.map((s: any) => leanJsonSchema(s, depth + 1));
+  if (Array.isArray(schema.oneOf)) out.oneOf = schema.oneOf.map((s: any) => leanJsonSchema(s, depth + 1));
+  return out;
 }
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
@@ -349,16 +400,17 @@ export class YoAgent {
   }
 
   private buildSdkMcpTools(_sdk: any): any[] {
-    // Core substrate kit only (coreOnly=true, includeMcp=false). The connected-
-    // app (MCP) catalog is NOT loaded as tool schemas — a user with hundreds of
-    // connected apps would blow up every prompt. Instead buildSystemPrompt lists
-    // the connected apps (names + tool counts) and the agent fetches a specific
-    // tool's schema via find_tools, then runs it with call_tool.
-    const toolSpecs = getAgentToolSpec(undefined, false, true);
+    // Core substrate kit, PLUS the connected-app (MCP) catalog when it's small
+    // enough to be affordable in-context (connectorsInline()). Loading them
+    // directly is far more reliable than find_tools discovery; only app-heavy
+    // accounts (>CONNECTOR_INLINE_MAX tools) fall back to discovery. Either way
+    // we LEAN every tool's description + schema so the in-context prefix stays
+    // small (external connector schemas are especially verbose).
+    const toolSpecs = getAgentToolSpec(undefined, connectorsInline(), true);
     const substrateTools = toolSpecs.map((spec) => ({
       name: spec.name,
-      description: spec.description,
-      inputSchema: this.jsonSchemaToZod(spec.input_schema),
+      description: leanToolDescription(spec.description),
+      inputSchema: this.jsonSchemaToZod(leanJsonSchema(spec.input_schema)),
       handler: async (args: Record<string, unknown>) => {
         try {
           const result = await executeTool(spec.name, args);
@@ -510,6 +562,10 @@ export class YoAgent {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
       effort: resolveEffort(),
+      // Isolate from filesystem settings — blocks CLAUDE.md AND any file-based
+      // MCP (e.g. the user's claude.ai connectors) so ONLY our Glyphh connectors
+      // are available; otherwise the agent grabs a competing, broken connector.
+      settingSources: [],
       ...asarSafeQueryOptions(rightRailCwd()),
       // Headless: no UI to approve tool calls, so bypass permissions.
       permissionMode: "bypassPermissions",
@@ -633,6 +689,10 @@ export class YoAgent {
       model,
       maxTurns: getPreference<number>("maxTurns", 200),
       effort: resolveEffort(),
+      // Isolate from filesystem settings — blocks CLAUDE.md AND file-based MCP
+      // (e.g. the user's claude.ai connectors) so ONLY our Glyphh connectors are
+      // loaded; otherwise the agent grabs a competing, broken connector.
+      settingSources: [],
       // The right-rail .Yo agent always runs at ~/yo/ — it spans every
       // folder the user touches and does not follow per-app folder picks.
       ...asarSafeQueryOptions(rightRailCwd(), (info) => {
@@ -1228,7 +1288,7 @@ export class YoAgent {
     // Compact, dynamic awareness of the user's connected apps so the agent KNOWS
     // what's reachable (and goes straight to find_tools) without their schemas
     // being preloaded.
-    const apps = connectedAppsBlock();
+    const apps = connectedAppsBlock(connectorsInline());
 
     if (!devMode) {
       // LIGHT mode — replace the claude_code preset system prompt entirely with
