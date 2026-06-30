@@ -1821,21 +1821,27 @@ const BUILTIN_BY_NAME = new Map(BUILTIN_TOOLS.map((t) => [t.name, t]));
 // coordination, connected-app tools, and other specialized actions — is
 // discovered on demand via find_tools + call_tool, to keep the cached prompt
 // small. find_tools/call_tool themselves are always core.
+// Minimal always-loaded kit. Everything else — panel arrangement (grab/open/
+// navigate/switch/split/grid), code_search, app authoring (create_app/
+// write_app_file), and delegation execution (spawn_background/call_agent/
+// create_swarm) — is situational and reachable on demand via find_tools +
+// call_tool, so it stays OUT of the per-turn prefix. Kept: the discovery pair,
+// recall/memory, web, panel SEE+INTERACT primitives, read-only file recon, the
+// two hot app verbs, and delegation discovery.
 const AGENT_CORE_TOOLS = new Set<string>([
   "find_tools", "call_tool",
   // recall + memory
   "search_captures", "get_context", "search_notes", "save_memory",
   // web
   "web_search", "web_read",
-  // panel interaction + arrangement
-  "list_panels", "scan_panel", "grab_panel", "click_element", "type_text", "open_panel",
-  "navigate_panel", "switch_panel", "split_view", "grid_layout",
-  // light file/code recon (read-only; full dev tools come via request_dev_tools)
-  "read_file", "list_files", "run_command", "code_search",
-  // apps
-  "list_apps", "open_app", "create_app", "write_app_file",
-  // delegation
-  "list_agents", "spawn_background", "call_agent", "create_swarm",
+  // panel: see + interact (arrangement tools are discoverable)
+  "list_panels", "scan_panel", "click_element", "type_text",
+  // light file recon (read-only; full dev tools come via request_dev_tools)
+  "read_file", "list_files", "run_command",
+  // apps: the two hot verbs (create_app/write_app_file are discoverable)
+  "list_apps", "open_app",
+  // delegation discovery (spawn/call/swarm are discoverable)
+  "list_agents",
 ]);
 
 export function getAgentToolSpec(allowedTools?: string[], includeMcp = true, coreOnly = false): Array<{ name: string; description: string; input_schema: Record<string, unknown> }> {
