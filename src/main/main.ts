@@ -765,7 +765,8 @@ async function boot() {
     yoInterceptor.setAvailableModels(names);
   });
   const initialTheme = getPreference<string>("theme", "dark");
-  nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme as "light" | "dark";
+  // Map themed ids (purple/aurora/custom) to a base mode nativeTheme accepts.
+  nativeTheme.themeSource = initialTheme === "system" ? "system" : initialTheme === "light" ? "light" : "dark";
   const resolvedTheme = initialTheme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : initialTheme;
   yoInterceptor.setTheme(resolvedTheme);
 

@@ -58,7 +58,10 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
   ipcMain.handle("get-theme", () => getPreference<string>("theme", "dark"));
   ipcMain.handle("set-theme", (_e, theme: string) => {
     setPreference("theme", theme);
-    nativeTheme.themeSource = theme === "system" ? "system" : theme as "light" | "dark";
+    // nativeTheme only accepts system|light|dark, but theme ids can be richer
+    // (purple, aurora, custom-*). Map to a base mode for the OS chrome; the
+    // renderer drives the real palette via [data-theme="<theme>"].
+    nativeTheme.themeSource = theme === "system" ? "system" : theme === "light" ? "light" : "dark";
     const resolved = theme === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : theme;
     broadcastTheme(resolved);
   });
