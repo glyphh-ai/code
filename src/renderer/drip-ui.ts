@@ -114,12 +114,14 @@ export function initDrip(): { openDripPicker: () => void; closeDripPicker: () =>
 
   function openDripPicker() {
     populateDripPicker();
-    // The drip button now lives at the far right of the workdir bar (top of the
-    // panel), so the tray opens just BELOW that bar instead of above the input.
-    const bar = document.querySelector(".yo-workdir-bar") as HTMLElement | null;
-    const top = bar ? bar.offsetTop + bar.offsetHeight + 6 : 48;
-    dripPicker.style.top = top + "px";
-    dripPicker.style.bottom = "auto";
+    // Open UPWARD as a tray above the input — that's where there's room to show
+    // all the drips (the trigger lives in the workdir bar, but the tray belongs
+    // down here above the composer).
+    const inputWrap = document.querySelector(".yo-panel-input-wrap") as HTMLElement;
+    const controls = document.querySelector(".yo-panel-controls") as HTMLElement;
+    const offset = (inputWrap?.offsetHeight || 70) + (controls?.offsetHeight || 30) + 6;
+    dripPicker.style.bottom = offset + "px";
+    dripPicker.style.top = "auto";
     dripPicker.classList.remove("hidden");
     requestAnimationFrame(() => dripPicker.classList.add("visible"));
     dripPickerOpen = true;

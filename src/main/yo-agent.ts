@@ -15,6 +15,7 @@ import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions, proxyAnthropicEnv } from "./sdk-llm";
 import { ensureFreshToken, forceTokenRefresh } from "./auth";
+import { getConnectorCatalog } from "./connector-tools-client";
 import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
 
 /** Working directory the right-rail .Yo agent runs in. Follows the user's
@@ -112,7 +113,7 @@ RULES:
 - scan_panel FIRST for element discovery. Use click_element/type_text with those selectors.
 - grab_panel is EXPENSIVE (~10K tokens). Only when you need full page text.
 - For workspace arrangement use split_view, grid_layout, switch_panel.
-- Connected apps (Gmail, Slack, Calendar, …) are loaded — call their tools directly. For other specialized actions not in your set (skills, data stores, saved layouts, drips, workspace coordination) call find_tools to search, then call_tool to run.
+- Connected apps (Gmail, Slack, Calendar, …) and other specialized actions (skills, data stores, layouts, drips, workspace coordination) are NOT preloaded — call find_tools to find the right tool, then call_tool to run it. The apps you can reach are listed under "Connected apps".
 - For multi-choice questions to the user, use mcp__yo__ask_user_question (the built-in AskUserQuestion is unavailable). It renders a proper "Input required" card with side-by-side code/markdown previews. Provide 2–4 distinct options with short labels and one-line descriptions; mark one Recommended if you have a default. Add a "preview" markdown field when the choice is between layouts, code snippets, or mockups.
 - When the user asks you to "build me an X" or "make a tool that does Y" and a single-page web app fits, use create_app — it scaffolds a static HTML bundle under ~/yo/apps/<id>/, registers it in the Apps list, and the file watcher makes it appear without restart. Then open it with open_app to show the user. For follow-up edits use write_app_file. Prefer vanilla HTML/CSS/JS or React-via-CDN; no build step.
 - Delegate via spawn_background, call_agent, or create_swarm — they run detached and stream into the Sub-Agents panel. If you need a sub-agent's result within THIS turn to continue, call request_dev_tools first to load the foreground Task tool.`;
@@ -136,13 +137,29 @@ Do NOT call request_dev_tools for work your light tools already handle: answerin
 // demand. Without this the model wouldn't know those capabilities are reachable.
 const TOOL_DISCOVERY_GUIDANCE = `# Your tools
 
-Connected-app tools (Gmail, Slack, Calendar, Drive, … — whatever the user has connected) ARE loaded and directly callable. For anything involving the user's connected accounts, call those tools straight away — do NOT look them up first.
+A focused core toolset is loaded (capture store, panels, apps, web search/read, delegation, light file reads) — call those directly, no lookup.
 
-A long tail of less-common tools is NOT loaded, to keep messages small: skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. Only for those:
-1. find_tools(query) — search by keywords (e.g. 'save layout', 'create skill', 'post to workspace').
+A large set of tools is NOT loaded (to keep messages small): the user's connected-app tools (Gmail, Slack, Calendar, Drive, … — there can be hundreds), skill authoring, layout/store/drip management, workspace coordination, and other specialized actions. For ANY of those:
+1. find_tools(query) — search by keywords (e.g. 'gmail send email', 'save layout', 'create skill', 'post to workspace'). It returns matching tool names + input fields.
 2. call_tool(name, input) — run the one you found.
 
-Everything else (capture store, panels, apps, web search/read, delegation, light file reads) is already loaded — call it directly, no lookup.`;
+The connected apps you can reach are listed under "Connected apps" below — use find_tools to pull a specific app's tool when a task needs it.`;
+
+// Compact, dynamic awareness of the user's connected apps for the system prompt:
+// app slug + tool count only — NOT the tool schemas — so it scales to hundreds
+// of apps. The agent uses this to know what's reachable, then fetches a specific
+// tool's schema via find_tools on demand.
+function connectedAppsBlock(): string {
+  const catalog = getConnectorCatalog();
+  if (!catalog.length) return "";
+  const bySlug = new Map<string, number>();
+  for (const t of catalog) bySlug.set(t.slug, (bySlug.get(t.slug) || 0) + 1);
+  const entries = [...bySlug.entries()].sort((a, b) => b[1] - a[1]);
+  const CAP = 60;
+  const shown = entries.slice(0, CAP).map(([s, n]) => `${s} (${n})`).join(", ");
+  const more = entries.length > CAP ? `, +${entries.length - CAP} more (search for them)` : "";
+  return `# Connected apps\nThe user has these apps connected (tool counts in parentheses). Their tools are NOT preloaded — when a task needs one, call find_tools with the app + action as the query (e.g. "gmail send email"), then run the result with call_tool:\n${shown}${more}`;
+}
 
 const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 
@@ -329,11 +346,12 @@ export class YoAgent {
   }
 
   private buildSdkMcpTools(_sdk: any): any[] {
-    // Core substrate kit (coreOnly=true) PLUS the connected-app (MCP) catalog
-    // (includeMcp=true). Connectors are the product's flagship feature, so they
-    // stay directly callable — discovery (find_tools) fumbled too often for them.
-    // The rare SUBSTRATE tail + skills are still discovered via find_tools.
-    const toolSpecs = getAgentToolSpec(undefined, true, true);
+    // Core substrate kit only (coreOnly=true, includeMcp=false). The connected-
+    // app (MCP) catalog is NOT loaded as tool schemas — a user with hundreds of
+    // connected apps would blow up every prompt. Instead buildSystemPrompt lists
+    // the connected apps (names + tool counts) and the agent fetches a specific
+    // tool's schema via find_tools, then runs it with call_tool.
+    const toolSpecs = getAgentToolSpec(undefined, false, true);
     const substrateTools = toolSpecs.map((spec) => ({
       name: spec.name,
       description: spec.description,
@@ -1166,6 +1184,10 @@ export class YoAgent {
     // On a resumed chat without a live SDK session, recover recent history —
     // without it the model has zero memory of prior turns in this thread.
     const recovery = (this.chatId && !this.sessionId) ? this.buildContextRecovery() : null;
+    // Compact, dynamic awareness of the user's connected apps so the agent KNOWS
+    // what's reachable (and goes straight to find_tools) without their schemas
+    // being preloaded.
+    const apps = connectedAppsBlock();
 
     if (!devMode) {
       // LIGHT mode — replace the claude_code preset system prompt entirely with
@@ -1176,11 +1198,13 @@ export class YoAgent {
       // which is a preset built-in absent in light mode; SYSTEM_PROMPT's own
       // delegation rule covers the background tools that ARE loaded.
       const parts = [SYSTEM_PROMPT, LIGHT_ESCALATION_GUIDANCE, TOOL_DISCOVERY_GUIDANCE];
+      if (apps) parts.push(apps);
       if (recovery) parts.push(recovery);
       return parts.join("\n\n");
     }
     // FULL (dev) mode — stock Claude Code behavior plus our delegation guidance.
     const parts: string[] = [DELEGATION_GUIDANCE, TOOL_DISCOVERY_GUIDANCE];
+    if (apps) parts.push(apps);
     if (recovery) parts.push(recovery);
     return { type: "preset", preset: "claude_code", append: parts.join("\n\n") };
   }

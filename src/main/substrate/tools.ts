@@ -303,10 +303,10 @@ const BUILTIN_TOOLS: ToolDef[] = [
       const q = String(input.query ?? "").toLowerCase().trim();
       if (!q) return "Provide a query describing what you want to do.";
       const terms = q.split(/\s+/).filter(Boolean);
-      // Rare SUBSTRATE tail + skills, minus the core tools already loaded.
-      // Connectors are loaded directly in context (not discovered here), so
-      // exclude them (includeMcp=false).
-      const all = getAgentToolSpec(undefined, false, false).filter((t) => !AGENT_CORE_TOOLS.has(t.name));
+      // Everything NOT already loaded in the core kit: the rare substrate tail,
+      // skills, AND the connected-app (MCP) tools (includeMcp=true) — connectors
+      // are discovered here, not preloaded, so they scale to hundreds of apps.
+      const all = getAgentToolSpec(undefined, true, false).filter((t) => !AGENT_CORE_TOOLS.has(t.name));
       const scored = all
         .map((t) => {
           const hay = `${t.name} ${t.description || ""}`.toLowerCase();

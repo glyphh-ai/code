@@ -8052,13 +8052,15 @@ select.settings-input {
 .yo-model-option .yo-mode-opt-desc { white-space: normal; font-size: 10px; line-height: 1.3; margin-top: 2px; }
 
 /* ── Effort slider (composer) ──────────────────────────────── */
-.yo-effort-trigger-label { font-size: 11px; font-weight: 600; }
+/* Fixed widths so changing the level name (Faster↔Ultracode) doesn't resize the
+   trigger / header and make the slider + menu jump while dragging. */
+.yo-effort-trigger-label { font-size: 11px; font-weight: 600; display: inline-block; min-width: 60px; text-align: left; }
 .yo-effort-bolt { display: inline-flex; }
 .yo-effort-bolt svg { width: 13px; height: 13px; }
 .yo-effort-menu { padding: 12px; min-width: 240px; }
 .yo-effort-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .yo-effort-head-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-3); }
-.yo-effort-value { font-size: 12px; font-weight: 700; color: var(--accent); }
+.yo-effort-value { font-size: 12px; font-weight: 700; color: var(--accent); display: inline-block; min-width: 66px; text-align: right; }
 .yo-effort-track-wrap { display: flex; align-items: center; gap: 8px; }
 .yo-effort-end { font-size: 9px; color: var(--text-3); white-space: nowrap; flex: 0 0 auto; }
 .yo-effort-slider {
@@ -8449,7 +8451,7 @@ select.settings-input {
   box-shadow: 0 -4px 16px var(--shadow);
   z-index: 20;
   opacity: 0;
-  transform: translateY(-8px); /* opens downward from the workdir-bar button */
+  transform: translateY(8px); /* slides up into place (opens above the input) */
   transition: opacity 0.15s ease, transform 0.15s ease;
   pointer-events: none;
 }
