@@ -535,7 +535,6 @@ export function initDashboardEvents() {
 // quick-links) and Dashboard (the detailed local telemetry above).
 
 let dashTabsBound = false;
-let homeUsageChart: any = null;
 
 function ensureDashTabs(): void {
   if (dashTabsBound) return;
@@ -551,83 +550,408 @@ function ensureDashTabs(): void {
     });
   }
 
-  // Cowork quick-links jump to the matching help section by clicking its nav item.
+  // Cowork quick-links jump to the matching help section by clicking its nav
+  // item. (The HOME landing no longer renders cowork cards, but the Dashboard
+  // pane may still carry data-goto triggers — keep this delegation harmless.)
   for (const card of Array.from(document.querySelectorAll<HTMLElement>(".dash-cowork-card"))) {
     card.addEventListener("click", () => {
       const sec = card.getAttribute("data-goto");
       if (sec) (document.querySelector(`.help-nav-item[data-section="${sec}"]`) as HTMLElement | null)?.click();
     });
   }
+}
 
-  document.getElementById("home-credits-manage")?.addEventListener("click", () => {
-    // Open the billing page IN-APP (a dip panel), same as Settings → Account →
-    // Manage Account — not an external browser window.
-    try { void (window as any).yo?.execCommand?.(`dip ${(window as any).yo.platformUrl}/dashboard/billing`); } catch { /* ignore */ }
-  });
+// HOME landing = a faithful replica of the Glyphh agent composer plus two
+// lists (Chat history / Scheduled Tasks). The composer's pickers write the
+// SAME shared state the panel composer writes (via the same IPC setters), so
+// submitting is simply `yoPanelOpen(folded)` — main opens the panel and runs
+// the prompt with whatever model/effort/working-dir is in shared state.
+
+const MICRO = 1_000_000;
+const OPEN_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+
+let homeComposerWired = false;
+// Files dropped on the home textarea, folded into the prompt on submit as
+// `[Attached file: <path>]` lines (mirrors the panel composer).
+const homeAttachments: string[] = [];
+
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+}
+function isoToMs(iso: string): number {
+  const t = Date.parse(iso || "");
+  return Number.isFinite(t) ? t : 0;
+}
+function prettyHomeModel(model: string): string {
+  if (!model) return "Default";
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(model);
+  if (m) {
+    const fam = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    return m[3] ? `${fam} ${m[2]}.${m[3]}` : `${fam} ${m[2]}`;
+  }
+  return model;
 }
 
 async function loadHome(): Promise<void> {
-  let data: { credits: { balance: number; grants: number; purchases: number; allowance?: number } | null; days: Array<Record<string, number | string>> };
-  try {
-    // `to` is a full timestamp (now), not today's date at midnight — otherwise
-    // the server's BETWEEN excludes everything used TODAY, which is exactly when
-    // recent usage lands, leaving "Used this period" stuck at 0.
-    data = await (window as any).yo.userUsage({ from: thirtyDaysAgo(), to: new Date().toISOString() });
-  } catch {
-    return; // signed out / offline — leave placeholders
-  }
-
-  const MICRO = 1_000_000;
-  const balance = data.credits ? Math.floor((data.credits.balance || 0) / MICRO) : null;
-  // Static monthly plan allowance (included_credits) — NOT the draining grant balance.
-  const allowance = data.credits ? Math.floor((data.credits.allowance || 0) / MICRO) : 0;
-  const used = (data.days || []).reduce((s, d) => s + (Number(d.credits) || 0), 0);
-
-  const set = (id: string, v: string) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  set("home-credits-balance", balance === null ? "—" : balance.toLocaleString());
-  set("home-credits-used", `${Math.round(used / MICRO).toLocaleString()} credits`);
-  set("home-credits-grants", `${allowance.toLocaleString()} credits`);
-
-  renderHomeUsageChart(data.days || []);
+  wireHomeComposer();
+  await renderHomeLists();
 }
 
-function renderHomeUsageChart(days: Array<Record<string, number | string>>): void {
-  const canvas = document.getElementById("home-usage-chart") as HTMLCanvasElement | null;
-  if (!canvas || typeof Chart === "undefined") return;
-  const MICRO = 1_000_000;
+// ── Home composer wiring ────────────────────────────────────────────────────
+// Each control calls the SAME IPC setter the panel composer uses; we can't
+// reach the panel's live JS (separate BrowserView), so we replicate the markup
+// + setters. Submit reuses `yoPanelOpen`, which clears to a new chat, opens the
+// panel, and runs the prompt with the shared model/effort/working-dir/drips.
 
-  // Zero-fill the 30-day span so the chart is continuous.
-  const byDay = new Map(days.map((d) => [String(d.day), d]));
-  const labels: string[] = [];
-  const values: number[] = [];
-  const start = new Date(thirtyDaysAgo() + "T00:00:00");
-  const end = new Date(today() + "T00:00:00");
-  for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
-    const key = ymd(dt);
-    labels.push(dt.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
-    values.push(Math.round((Number(byDay.get(key)?.credits) || 0) / MICRO));
-  }
+function wireHomeComposer(): void {
+  if (homeComposerWired) return;
+  const composer = document.getElementById("home-composer");
+  if (!composer) return;
+  homeComposerWired = true;
 
-  if (homeUsageChart) homeUsageChart.destroy();
-  const accent = cssVar("--accent") || "#a855f7";
-  const grid = cssVar("--border") || "#1f1f24";
-  const muted = cssVar("--text-3") || "#6a6a72";
-  homeUsageChart = new Chart(canvas.getContext("2d"), {
-    type: "bar",
-    data: { labels, datasets: [{ label: "Credits", data: values, backgroundColor: accent, borderRadius: 3, maxBarThickness: 16 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: muted, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
-        y: { beginAtZero: true, grid: { color: grid }, ticks: { color: muted, precision: 0 } },
-      },
-    },
+  wireHomePerm();
+  void wireHomeModel();
+  wireHomeEffort();
+  wireHomeWorkdir();
+  wireHomeDrip();
+  wireHomeInput();
+
+  // Close all open menus on outside click.
+  document.addEventListener("click", (e) => {
+    const t = e.target as Node;
+    for (const id of ["home-perm-dropdown", "home-model-dropdown", "home-effort-dropdown"]) {
+      const dd = document.getElementById(id);
+      const menu = dd?.querySelector(".yo-mode-menu");
+      if (dd && menu && !dd.contains(t)) menu.classList.add("hidden");
+    }
   });
 }
 
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const HOME_PERM_ICONS: Record<string, string> = {
+  default: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  plan: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>`,
+  acceptEdits: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  bypassPermissions: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+};
+const HOME_PERM_LABELS: Record<string, string> = {
+  default: "ask", plan: "plan", acceptEdits: "auto", bypassPermissions: "bypass",
+};
+
+function wireHomePerm(): void {
+  const trigger = document.getElementById("home-perm-trigger");
+  const menu = document.getElementById("home-perm-menu");
+  if (!trigger || !menu) return;
+  const options = menu.querySelectorAll<HTMLElement>(".yo-perm-option");
+  const paint = (perm: string) => {
+    const icon = trigger.querySelector(".yo-perm-icon");
+    const label = trigger.querySelector(".yo-perm-label");
+    if (icon) icon.innerHTML = HOME_PERM_ICONS[perm] || HOME_PERM_ICONS.default;
+    if (label) label.textContent = HOME_PERM_LABELS[perm] || perm;
+    options.forEach((o) => o.classList.toggle("active", o.dataset.value === perm));
+  };
+  // Seed from shared agent-mode state (same source the panel reads).
+  void window.yo.getAgentMode().then(({ perm }) => paint(perm || "default")).catch(() => paint("default"));
+  trigger.addEventListener("click", (e) => { e.stopPropagation(); menu.classList.toggle("hidden"); });
+  options.forEach((o) => o.addEventListener("click", () => {
+    const value = o.dataset.value || "default";
+    paint(value);
+    window.yo.setAgentMode(value);   // shared setter — same as the panel
+    menu.classList.add("hidden");
+  }));
+  window.yo.onAgentModeChanged?.((mode: string) => paint(mode));
 }
-function today(): string { return ymd(new Date()); }
-function thirtyDaysAgo(): string { const d = new Date(); d.setDate(d.getDate() - 30); return ymd(d); }
+
+async function wireHomeModel(): Promise<void> {
+  const trigger = document.getElementById("home-model-trigger");
+  const menu = document.getElementById("home-model-menu");
+  if (!trigger || !menu) return;
+  let currentModel = "";
+  try {
+    const cfg = await window.yo.getLLMConfig();
+    currentModel = (cfg?.model && cfg.provider === "anthropic") ? cfg.model : "";
+  } catch { currentModel = ""; }
+
+  const paintLabel = () => {
+    const label = trigger.querySelector(".yo-model-label");
+    if (label) label.textContent = prettyHomeModel(currentModel);
+  };
+  trigger.addEventListener("click", (e) => { e.stopPropagation(); menu.classList.toggle("hidden"); });
+
+  const wireOption = (opt: HTMLElement) => {
+    opt.addEventListener("click", async () => {
+      if (opt.classList.contains("disabled")) return;
+      const newModel = opt.dataset.value || "";
+      menu.classList.add("hidden");
+      currentModel = newModel;
+      menu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => o.classList.toggle("active", o === opt));
+      paintLabel();
+      // Shared setter — writes the workspace LLM config the panel + agent read.
+      await window.yo.saveLLMConfig({ provider: "anthropic", model: newModel || "claude-haiku-4-5-20251001" });
+    });
+  };
+
+  // Replace the static list with the server-filtered model list for THIS user.
+  try {
+    const data = await window.yo.agentModels();
+    if (data && Array.isArray(data.models) && data.models.length > 0) {
+      // Capability order: Opus → Sonnet → Haiku, newest version first.
+      const familyRank = (m: string): number => {
+        const s = m.toLowerCase();
+        return s.includes("opus") ? 0 : s.includes("sonnet") ? 1 : s.includes("haiku") ? 2 : 3;
+      };
+      const versionRank = (m: string): number => {
+        const vm = m.toLowerCase().match(/(\d+)[-.](\d+)/);
+        return vm ? parseInt(vm[1], 10) + parseInt(vm[2], 10) / 100 : 0;
+      };
+      const models = [...data.models].sort((a, b) => {
+        const fa = familyRank(a.model), fb = familyRank(b.model);
+        if (fa !== fb) return fa - fb;
+        return versionRank(b.model) - versionRank(a.model);
+      });
+      const check = '<span class="yo-mode-opt-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
+      menu.innerHTML = '<div class="yo-model-section-header">Models</div>' + models.map((m) =>
+        `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(prettyHomeModel(m.model))}</span></div>${check}</div>`
+      ).join("");
+    }
+  } catch { /* offline — keep the static Default option */ }
+  menu.querySelectorAll<HTMLElement>(".yo-model-option").forEach(wireOption);
+  menu.querySelectorAll<HTMLElement>(".yo-model-option").forEach((o) => o.classList.toggle("active", (o.dataset.value || "") === currentModel));
+  paintLabel();
+}
+
+function wireHomeEffort(): void {
+  const trigger = document.getElementById("home-effort-trigger");
+  const menu = document.getElementById("home-effort-menu");
+  const slider = document.getElementById("home-effort-input") as HTMLInputElement | null;
+  const valueEl = document.getElementById("home-effort-value");
+  const triggerLabel = document.getElementById("home-effort-trigger-label");
+  if (!trigger || !menu || !slider) return;
+  const NAMES = ["Faster", "Balanced", "Smarter", "Ultracode"];
+  const paint = (lvl: number, save: boolean) => {
+    const v = Math.max(0, Math.min(3, Math.round(lvl) || 0));
+    slider.value = String(v);
+    slider.style.setProperty("--effort-fill", `${(v / 3) * 100}%`);
+    slider.classList.toggle("is-ultra", v === 3);
+    if (valueEl) valueEl.textContent = NAMES[v];
+    if (triggerLabel) triggerLabel.textContent = NAMES[v];
+    if (save) window.yo.setPreference("effortLevel", v);   // shared pref
+  };
+  void (async () => {
+    try { const saved = Number(await window.yo.getPreference("effortLevel", 1)); paint(Number.isFinite(saved) ? saved : 1, false); }
+    catch { paint(1, false); }
+  })();
+  slider.addEventListener("input", () => paint(Number(slider.value), false));
+  slider.addEventListener("change", () => paint(Number(slider.value), true));
+  trigger.addEventListener("click", (e) => { e.stopPropagation(); menu.classList.toggle("hidden"); });
+}
+
+function homeBasename(p: string): string { return p.replace(/\/+$/, "").split("/").pop() || p; }
+
+function wireHomeWorkdir(): void {
+  const btn = document.getElementById("home-workdir-btn") as HTMLButtonElement | null;
+  const nameEl = document.getElementById("home-workdir-name");
+  const addBtn = document.getElementById("home-workdir-add-btn") as HTMLButtonElement | null;
+  if (!btn || !nameEl) return;
+  const paint = (dir: string) => {
+    nameEl.textContent = dir ? homeBasename(dir) : "Pick a folder";
+    btn.title = dir ? `working directory: ${dir}` : "Pick a folder";
+  };
+  // Folder picker uses the SAME working-dir IPC the panel's #workdir-btn uses.
+  btn.addEventListener("click", (e) => { e.stopPropagation(); void window.yo.pickWorkingDir().then((d) => { if (d) paint(d); }); });
+  addBtn?.addEventListener("click", (e) => { e.stopPropagation(); void window.yo.pickWorkingDir().then((d) => { if (d) paint(d); }); });
+  window.yo.onWorkingDirChanged?.((dir) => paint(dir || ""));
+  void window.yo.getWorkingDir().then((d) => paint(d || "")).catch(() => paint(""));
+}
+
+const HOME_EFFECT_EMOJI: Record<string, string> = {
+  fireworks: "🎆", hearts: "❤️", confetti: "🎊", stars: "⭐", rain: "🌧️",
+  bubbles: "🫧", sparkle: "✨", spiral: "🌀", emoji: "😀", wave: "🌊",
+  thumbsup: "👍", peace: "✌️", cat: "🐱", matrix: "🟩", aurora: "🌌",
+  nebula: "💜", plasma: "🔮", fireflies: "🪲", starfield: "🌠",
+};
+
+function wireHomeDrip(): void {
+  const picker = document.getElementById("home-drip-picker");
+  const builtinEl = document.getElementById("home-drip-picker-builtin");
+  const customEl = document.getElementById("home-drip-picker-custom");
+  const dividerEl = document.getElementById("home-drip-picker-custom-divider");
+  const btn = document.getElementById("home-panel-drip");
+  if (!picker || !builtinEl || !customEl || !dividerEl || !btn) return;
+  let open = false;
+
+  const tile = (name: string, recipe: string, emoji: string): HTMLButtonElement => {
+    const t = document.createElement("button");
+    t.className = "drip-picker-tile";
+    t.innerHTML = `<span class="drip-tile-icon">${emoji}</span><span class="drip-tile-label">${esc(name)}</span>`;
+    t.addEventListener("click", () => { void window.yo.dripsPreview(recipe); close(); });
+    return t;
+  };
+  const populate = async () => {
+    builtinEl.innerHTML = "";
+    customEl.innerHTML = "";
+    const [builtins, customs] = await Promise.all([
+      window.yo.dripsBuiltinEffects().catch(() => [] as string[]),
+      window.yo.dripsList().catch(() => [] as Array<{ name: string; recipe: string }>),
+    ]);
+    for (const name of builtins) builtinEl.appendChild(tile(name, name, HOME_EFFECT_EMOJI[name] || "🎨"));
+    if (customs.length > 0) {
+      dividerEl.style.display = "";
+      for (const c of customs) customEl.appendChild(tile(c.name, c.recipe, "🎨"));
+    } else {
+      dividerEl.style.display = "none";
+    }
+  };
+  function openPicker(): void {
+    void populate();
+    const wrap = document.querySelector("#home-composer .yo-panel-input-wrap") as HTMLElement | null;
+    const controls = document.querySelector("#home-composer .yo-panel-controls") as HTMLElement | null;
+    const offset = (wrap?.offsetHeight || 70) + (controls?.offsetHeight || 30) + 6;
+    picker!.style.bottom = offset + "px";
+    picker!.style.top = "auto";
+    picker!.classList.remove("hidden");
+    requestAnimationFrame(() => picker!.classList.add("visible"));
+    open = true;
+  }
+  function close(): void {
+    picker!.classList.remove("visible");
+    open = false;
+    setTimeout(() => { if (!open) picker!.classList.add("hidden"); }, 150);
+  }
+  btn.addEventListener("click", (e) => { e.stopPropagation(); if (open) close(); else openPicker(); });
+  document.addEventListener("click", (e) => {
+    if (open && !picker.contains(e.target as Node) && e.target !== btn) close();
+  });
+}
+
+function wireHomeInput(): void {
+  const textarea = document.getElementById("home-panel-input") as HTMLTextAreaElement | null;
+  const sendBtn = document.getElementById("home-panel-send");
+  if (!textarea || !sendBtn) return;
+
+  const submit = () => {
+    const typed = textarea.value.trim();
+    const folded = homeAttachments.length
+      ? homeAttachments.map((a) => `[Attached file: ${a}]`).join("\n") + (typed ? "\n\n" + typed : "")
+      : typed;
+    if (!folded) return;
+    // yoPanelOpen clears to a new chat, opens the panel, and runs the prompt
+    // using the shared model/effort/working-dir/drips this composer just set.
+    window.yo.yoPanelOpen(folded);
+    textarea.value = "";
+    homeAttachments.length = 0;
+  };
+  sendBtn.addEventListener("click", submit);
+  textarea.addEventListener("keydown", (e) => {
+    // Cmd/Ctrl+Enter submits (plain Enter inserts a newline in this taller box).
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submit();
+    }
+  });
+
+  // Drag & drop files → fold as [Attached file: <path>] lines on submit.
+  textarea.addEventListener("dragover", (e) => { e.preventDefault(); });
+  textarea.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    for (const f of Array.from(files)) {
+      const path = window.yo.getPathForFile(f);
+      if (path && !homeAttachments.includes(path)) homeAttachments.push(path);
+    }
+    // Reflect attachments inline so the user sees what they dropped.
+    const lines = homeAttachments.map((a) => `[Attached file: ${a}]`).join("\n");
+    const existing = textarea.value;
+    textarea.value = lines + (existing ? "\n\n" + existing.replace(/^\[Attached file: [^\]]+\]\n?/gm, "") : "");
+    textarea.focus();
+  });
+}
+
+// ── Home lists (Chat history + Scheduled Tasks) ─────────────────────────────
+
+async function renderHomeLists(): Promise<void> {
+  const chatsEl = document.getElementById("home-chats-list");
+  const tasksEl = document.getElementById("home-tasks-list");
+  if (!chatsEl || !tasksEl) return;
+
+  let chats: Array<{ id: string; title: string; created: string; messageCount: number }> = [];
+  let byChat: Record<string, { credits: number; requests: number }> = {};
+  try {
+    const [c, usage] = await Promise.all([window.yo.yoChatsList(), window.yo.usageByChat()]);
+    chats = c || [];
+    byChat = usage?.byChat || {};
+  } catch { /* offline — render whatever we have */ }
+
+  renderHomeChats(chatsEl, chats.slice(0, 8), byChat);
+  await renderHomeTasks(tasksEl, byChat);
+}
+
+/** A two-row card: row1 = title + open icon; row2 = credits + relative time. */
+function homeCard(title: string, creditsLabel: string, rightMeta: string, onOpen: () => void): HTMLElement {
+  const card = document.createElement("div");
+  card.className = "crud-card home-list-card";
+  card.innerHTML =
+    `<div class="home-card-body">` +
+      `<div class="home-card-row">` +
+        `<span class="crud-card-name">${esc(title)}</span>` +
+        `<button class="crud-card-btn crud-open-btn home-card-open" title="Open">${OPEN_ICON}</button>` +
+      `</div>` +
+      `<div class="home-card-row home-card-row-meta">` +
+        `<span class="crud-card-meta">${esc(creditsLabel)}</span>` +
+        `<span class="crud-card-meta">${esc(rightMeta)}</span>` +
+      `</div>` +
+    `</div>`;
+  card.addEventListener("click", onOpen);
+  return card;
+}
+
+function renderHomeChats(
+  host: HTMLElement,
+  chats: Array<{ id: string; title: string; created: string; messageCount: number }>,
+  byChat: Record<string, { credits: number; requests: number }>,
+): void {
+  host.innerHTML = "";
+  if (chats.length === 0) {
+    host.innerHTML = `<div class="dash-empty-hint">No chats yet. Start one above.</div>`;
+    return;
+  }
+  for (const chat of chats) {
+    const credits = Math.round((byChat[chat.id]?.credits || 0) / MICRO);
+    const card = homeCard(
+      chat.title || "Untitled chat",
+      `${credits.toLocaleString()} credits`,
+      relativeTime(isoToMs(chat.created)),
+      () => window.yo.openYoChat(chat.id),
+    );
+    host.appendChild(card);
+  }
+}
+
+async function renderHomeTasks(
+  host: HTMLElement,
+  byChat: Record<string, { credits: number; requests: number }>,
+): Promise<void> {
+  host.innerHTML = "";
+  let schedules: Array<Record<string, unknown>> = [];
+  try { schedules = (await window.yo.schedulesList()) || []; } catch { /* offline */ }
+  if (schedules.length === 0) {
+    host.innerHTML = `<div class="dash-empty-hint">No scheduled tasks yet.</div>`;
+    return;
+  }
+  for (const s of schedules.slice(0, 8)) {
+    const name = String(s.name || "Untitled task");
+    const cron = String(s.cron || "");
+    let runs: Array<{ id: string; created: string }> = [];
+    try { runs = (await window.yo.runsList(name)) || []; } catch { /* no runs */ }
+    // Runs come newest-first; sum credits over them and open the latest.
+    const totalCredits = runs.reduce((sum, r) => sum + (byChat[r.id]?.credits || 0), 0);
+    const latest = runs[0];
+    const creditsLabel = runs.length ? `${Math.round(totalCredits / MICRO).toLocaleString()} credits` : "—";
+    const rightMeta = latest ? relativeTime(isoToMs(latest.created)) : (cron || "manual");
+    const card = homeCard(name, creditsLabel, rightMeta, () => {
+      if (latest) window.yo.openYoChat(latest.id);
+      else (document.querySelector('.help-nav-item[data-section="schedules"]') as HTMLElement | null)?.click();
+    });
+    host.appendChild(card);
+  }
+}

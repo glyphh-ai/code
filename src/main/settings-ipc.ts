@@ -162,6 +162,11 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
     return { credits, days: usage?.days || [] };
   });
 
+  // Per-CHAT credit usage — server returns { byChat: { <chatId>: { credits,
+  // requests } } } with credits in MICRO-credits. Drives the per-chat credit
+  // labels on the dashboard HOME landing.
+  ipcMain.handle("usage-by-chat", async () => serverGetAuthed("/api/usage/by-chat").catch(() => ({ byChat: {} })));
+
   // Models the Glyphh agent can actually use — server-filtered for this user
   // (Anthropic ∩ plan ∩ org ∩ user allow-lists), with a guaranteed-usable default.
   ipcMain.handle("agent-models", async () => {

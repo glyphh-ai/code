@@ -363,6 +363,8 @@ contextBridge.exposeInMainWorld("yo", {
     credits: { balance: number; grants: number; purchases: number; allowance?: number } | null;
     days: Array<{ day: string; credits: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; requests: number }>;
   }>,
+  /** Per-chat credit usage (credits in MICRO-credits), keyed by chat/run id. */
+  usageByChat: () => ipcRenderer.invoke("usage-by-chat") as Promise<{ byChat: Record<string, { credits: number; requests: number }> }>,
 
   // Support
   submitSupportTicket: (ticket: { subject: string; description: string }) =>

@@ -182,6 +182,8 @@ declare global {
         credits: { balance: number; grants: number; purchases: number; allowance?: number } | null;
         days: Array<{ day: string; credits: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; requests: number }>;
       }>;
+      usageByChat: () => Promise<{ byChat: Record<string, { credits: number; requests: number }> }>;
+      agentModels: () => Promise<{ models: Array<{ provider: string; model: string; display_name: string }>; default_model: string | null }>;
       dashboardAllTime: (tz?: string) => Promise<{ agents: Record<string, any>; total: any }>;
       dashboardApps: () => Promise<Array<{ name: string; path: string; modified: string }>>;
       dashboardOpenApp: (name: string) => void;
