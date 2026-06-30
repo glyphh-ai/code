@@ -315,8 +315,16 @@ const BUILTIN_TOOLS: ToolDef[] = [
         .sort((a, b) => b.score - a.score)
         .slice(0, 12);
       if (scored.length === 0) return `No tools match "${q}". Try different keywords.`;
-      return `${scored.length} tool(s) matching "${q}" — run one with call_tool(name, input):\n\n` +
-        scored.map(({ t }) => `${t.name}\n  ${(t.description || "").slice(0, 160)}\n  input_schema: ${JSON.stringify(t.input_schema)}`).join("\n\n");
+      // Compact summary only (key:type*, * = required) — NOT the full JSON
+      // schema, which for connector tools is 1-2K tokens each and would bloat
+      // the context. The keys are enough to call_tool; details via mcp_tool_schema.
+      return `${scored.length} tool(s) matching "${q}" — call one with call_tool(name, input):\n\n` +
+        scored.map(({ t }) => {
+          const props = (t.input_schema?.properties || {}) as Record<string, { type?: string }>;
+          const required = new Set((t.input_schema?.required || []) as string[]);
+          const keys = Object.entries(props).map(([k, v]) => `${k}:${v?.type || "any"}${required.has(k) ? "*" : ""}`).join(", ");
+          return `${t.name}${keys ? ` (${keys})` : ""}\n  ${(t.description || "").slice(0, 130)}`;
+        }).join("\n\n");
     },
   },
   {
