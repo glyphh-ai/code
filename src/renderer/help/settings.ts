@@ -38,6 +38,17 @@ const MAX_COMPACT_WINDOW = 1000000;
   const status = document.getElementById("agent-defaults-status") as HTMLElement | null;
   if (!perm || !prompt || !mcp || !save || !status) return;
 
+  // The HTML `min`/`max` on a number field are only soft hints — they don't
+  // auto-correct a typed value. Snap into the CLI's honored range [100K, 1M]
+  // the moment the field loses focus, so the limit is visibly enforced (not
+  // just silently on Save). Blank stays blank (= use the default window).
+  compactWindow?.addEventListener("blur", () => {
+    const raw = parseInt(compactWindow.value, 10);
+    if (!Number.isFinite(raw) || raw <= 0) { compactWindow.value = ""; return; }
+    const clamped = Math.min(Math.max(raw, MIN_COMPACT_WINDOW), MAX_COMPACT_WINDOW);
+    if (clamped !== raw) compactWindow.value = String(clamped);
+  });
+
   const invoke = (window.yo as any).invoke || ((channel: string, ...args: unknown[]) =>
     (window as any).electron?.ipcRenderer?.invoke?.(channel, ...args));
 
