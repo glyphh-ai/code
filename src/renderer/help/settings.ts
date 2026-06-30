@@ -17,11 +17,12 @@ const settingsBrowserHome = document.getElementById("settings-browser-home") as 
 const settingsBrowserHomeUrl = document.getElementById("settings-browser-home-url") as HTMLInputElement;
 const browserHomeCustomRow = document.getElementById("browser-home-custom-row")!;
 
-// Floor for the auto-compact window. Below the fixed system-prompt + loaded
-// tools (~6.5K), a window is meaningless: total context is always over it, so
-// the gauge reads full permanently and compaction (which only summarizes
-// conversation history) can never get back under it.
-const MIN_COMPACT_WINDOW = 8000;
+// The Claude Code CLI validates autoCompactWindow as min(100_000).max(1_000_000)
+// and silently discards anything outside that range (falling back to the model's
+// full window) — so values below 100K are simply never honored. Clamp to the
+// CLI's real range so what the user enters is actually applied.
+const MIN_COMPACT_WINDOW = 100000;
+const MAX_COMPACT_WINDOW = 1000000;
 
 // ── Settings → Agent Defaults ────────────────────────────
 // Seed values for new agents created in the Agents app.
@@ -106,11 +107,16 @@ const MIN_COMPACT_WINDOW = 8000;
       let clampedNote = "";
       if (compactWindow) {
         let w = parseInt(compactWindow.value, 10);
-        // Clamp up to the floor — a smaller window is meaningless (see above).
+        // Clamp into the CLI's honored range [100K, 1M] — values outside it are
+        // silently discarded by the runtime, so we keep the user's intent.
         if (Number.isFinite(w) && w > 0 && w < MIN_COMPACT_WINDOW) {
           w = MIN_COMPACT_WINDOW;
           compactWindow.value = String(w);
           clampedNote = ` (compaction window raised to ${MIN_COMPACT_WINDOW.toLocaleString()} minimum)`;
+        } else if (Number.isFinite(w) && w > MAX_COMPACT_WINDOW) {
+          w = MAX_COMPACT_WINDOW;
+          compactWindow.value = String(w);
+          clampedNote = ` (compaction window capped at ${MAX_COMPACT_WINDOW.toLocaleString()} maximum)`;
         }
         window.yo.setPreference("autoCompactWindow", Number.isFinite(w) && w > 0 ? w : 0);
       }

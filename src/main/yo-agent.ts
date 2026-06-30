@@ -167,16 +167,19 @@ const CHATS_DIR = path.join(os.homedir(), "yo", "chats");
 // explicit autoCompactWindow — approximates where the SDK auto-compacts a
 // 200K-context model with headroom reserved for the reply.
 const DEFAULT_COMPACT_WINDOW = 160_000;
-// A window below the fixed system-prompt + loaded tools floor (~6.5K) is
-// meaningless: total context is always over it, so the gauge reads full forever
-// and compaction (which only summarizes conversation history) can't recover.
-// Blank/0 → default; any positive value is clamped up to this floor. Mirrors the
-// Settings → Agent input guard, and defensively corrects an already-stored
-// too-low value at runtime.
-const MIN_COMPACT_WINDOW = 8_000;
+// The Claude Code CLI validates autoCompactWindow against `min(100_000).max(
+// 1_000_000)` with `.catch(undefined)` — so ANY value outside [100K, 1M] is
+// silently discarded and the CLI falls back to the model's full window. (That's
+// why an 8K setting did nothing: it was rejected, not honored.) Clamp to the
+// CLI's real range so what the user sets is actually applied. Mirrors the
+// Settings → Agent input guard; also corrects an already-stored out-of-range
+// value at runtime.
+const MIN_COMPACT_WINDOW = 100_000;
+const MAX_COMPACT_WINDOW = 1_000_000;
 function resolveCompactWindow(): number {
   const win = getDbPreference<number>("autoCompactWindow", 0);
-  return win > 0 ? Math.max(win, MIN_COMPACT_WINDOW) : DEFAULT_COMPACT_WINDOW;
+  if (win <= 0) return DEFAULT_COMPACT_WINDOW;
+  return Math.min(Math.max(win, MIN_COMPACT_WINDOW), MAX_COMPACT_WINDOW);
 }
 
 // Reasoning effort — the composer slider (Faster · Balanced · Smarter ·

@@ -386,7 +386,10 @@ async function renderDashPrompts() {
 
     const tokSpan = document.createElement("span");
     tokSpan.style.cssText = "font-size:10px;color:var(--accent);flex-shrink:0;";
-    tokSpan.textContent = `${formatTokens(e.inputTokens + e.outputTokens)} tok`;
+    // Total = input + output + cache write + cache read (Anthropic's buckets are
+    // disjoint, so they sum). Cache write dominates a fresh turn, so omitting it
+    // made this read ~99% low vs the Anthropic dashboard.
+    tokSpan.textContent = `${formatTokens(e.inputTokens + e.outputTokens + (e.cacheCreationTokens || 0) + (e.cacheReadTokens || 0))} tok`;
     nameRow.appendChild(tokSpan);
 
     info.appendChild(nameRow);
@@ -427,8 +430,11 @@ async function openDashPromptDetail(id: string) {
 
   const cacheW = entry.cacheCreationTokens || 0;
   const cacheR = entry.cacheReadTokens || 0;
+  const totalTok = entry.inputTokens + entry.outputTokens + cacheW + cacheR;
   const items = [
-    { label: "Tokens", value: `${formatTokens(entry.inputTokens)} in / ${formatTokens(entry.outputTokens)} out` },
+    // Anthropic-comparable grand total first (its buckets are disjoint → sum),
+    // then the in/out breakdown.
+    { label: "Tokens", value: `${formatTokens(totalTok)} total (${formatTokens(entry.inputTokens)} in / ${formatTokens(entry.outputTokens)} out)` },
     // Cache write dominates a fresh conversation's cost (the agent's system
     // prompt + tools are written to cache on the first message); reads are cheap.
     ...(cacheW || cacheR ? [{ label: "Cache", value: `${formatTokens(cacheW)} written / ${formatTokens(cacheR)} read` }] : []),
