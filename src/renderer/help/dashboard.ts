@@ -58,10 +58,15 @@ export async function loadDashboard() {
 
   document.getElementById("dash-provider")!.textContent = `${llmInfo.provider} / ${llmInfo.model}`;
 
-  const todayInput = today?.total?.input || 0;
+  // "Tokens in" = input + cache write + cache read, matching how the Anthropic
+  // dashboard folds cache into its "Total tokens in" figure (its buckets are
+  // disjoint, so they sum).
+  const todayTokensIn = (today?.total?.input || 0)
+    + (today?.total?.cacheCreation || 0)
+    + (today?.total?.cacheRead || 0);
   const todayOutput = today?.total?.output || 0;
   const todayCalls = today?.total?.calls || 0;
-  document.getElementById("dash-today-input")!.textContent = formatTokens(todayInput);
+  document.getElementById("dash-today-input")!.textContent = formatTokens(todayTokensIn);
   document.getElementById("dash-today-output")!.textContent = formatTokens(todayOutput);
   document.getElementById("dash-today-calls")!.textContent = String(todayCalls);
 

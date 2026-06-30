@@ -20,11 +20,15 @@ const USAGE_FILE = path.join(os.homedir(), "yo", ".usage");
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheCreation?: number;
+  cacheRead?: number;
 }
 
 interface AgentUsage {
   input: number;
   output: number;
+  cacheCreation: number;
+  cacheRead: number;
   calls: number;
 }
 
@@ -39,7 +43,7 @@ interface UsageData {
 }
 
 function emptyAgentUsage(): AgentUsage {
-  return { input: 0, output: 0, calls: 0 };
+  return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, calls: 0 };
 }
 
 /** Singleton usage tracker. */
@@ -68,12 +72,19 @@ class UsageTrackerImpl {
       day.agents[agent] = emptyAgentUsage();
     }
 
-    day.agents[agent].input += usage.inputTokens || 0;
-    day.agents[agent].output += usage.outputTokens || 0;
-    day.agents[agent].calls += 1;
+    // `|| 0` on the accumulator side keeps legacy on-disk rows (which lack the
+    // cache fields) from going NaN on the first new record.
+    const a = day.agents[agent];
+    a.input += usage.inputTokens || 0;
+    a.output += usage.outputTokens || 0;
+    a.cacheCreation = (a.cacheCreation || 0) + (usage.cacheCreation || 0);
+    a.cacheRead = (a.cacheRead || 0) + (usage.cacheRead || 0);
+    a.calls += 1;
 
     day.total.input += usage.inputTokens || 0;
     day.total.output += usage.outputTokens || 0;
+    day.total.cacheCreation = (day.total.cacheCreation || 0) + (usage.cacheCreation || 0);
+    day.total.cacheRead = (day.total.cacheRead || 0) + (usage.cacheRead || 0);
     day.total.calls += 1;
 
     this.scheduleSave();
@@ -99,10 +110,14 @@ class UsageTrackerImpl {
         if (!agents[agent]) agents[agent] = emptyAgentUsage();
         agents[agent].input += usage.input;
         agents[agent].output += usage.output;
+        agents[agent].cacheCreation += usage.cacheCreation || 0;
+        agents[agent].cacheRead += usage.cacheRead || 0;
         agents[agent].calls += usage.calls;
       }
       total.input += day.total.input;
       total.output += day.total.output;
+      total.cacheCreation += day.total.cacheCreation || 0;
+      total.cacheRead += day.total.cacheRead || 0;
       total.calls += day.total.calls;
     }
 
@@ -156,12 +171,16 @@ function migrateDay(d: Record<string, unknown>): DayEntry {
     agents[name] = {
       input: typeof u.input === "number" ? u.input : 0,
       output: typeof u.output === "number" ? u.output : 0,
+      cacheCreation: typeof u.cacheCreation === "number" ? u.cacheCreation : 0,
+      cacheRead: typeof u.cacheRead === "number" ? u.cacheRead : 0,
       calls: typeof u.calls === "number" ? u.calls : 0,
     };
   }
   const total: AgentUsage = {
     input: typeof totalIn.input === "number" ? totalIn.input : 0,
     output: typeof totalIn.output === "number" ? totalIn.output : 0,
+    cacheCreation: typeof totalIn.cacheCreation === "number" ? totalIn.cacheCreation : 0,
+    cacheRead: typeof totalIn.cacheRead === "number" ? totalIn.cacheRead : 0,
     calls: typeof totalIn.calls === "number" ? totalIn.calls : 0,
   };
   return { date, agents, total };

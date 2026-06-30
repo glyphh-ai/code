@@ -999,6 +999,8 @@ export class YoAgent {
               usageTracker.record("orchestrator", {
                 inputTokens: usage.input_tokens || 0,
                 outputTokens: usage.output_tokens || 0,
+                cacheCreation: usage.cache_creation_input_tokens || 0,
+                cacheRead: usage.cache_read_input_tokens || 0,
               });
               this.reportUsage(usage.input_tokens || 0, usage.output_tokens || 0, model);
               // Context size ≈ everything fed in this turn (fresh input + cached
