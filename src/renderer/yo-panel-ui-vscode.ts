@@ -1423,7 +1423,13 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach(wireModelOption);
     const ids = new Set(models.map((m) => m.model));
     if (!currentChatModel || !ids.has(currentChatModel)) {
-      const fallback = (data.default_model && ids.has(data.default_model)) ? data.default_model : models[0].model;
+      // Prefer the server default; otherwise fall back to the CHEAPEST family
+      // (newest Haiku), never models[0] — which is now Opus after the capability
+      // sort and would silently make the priciest model the default.
+      const cheap = models.find((m) => m.model.toLowerCase().includes("haiku"));
+      const fallback = (data.default_model && ids.has(data.default_model))
+        ? data.default_model
+        : (cheap?.model || models[models.length - 1].model);
       currentChatModel = fallback;
       await window.yo.saveLLMConfig({ provider: "anthropic", model: fallback });
     }
