@@ -240,7 +240,7 @@ async function renderProviderKeys() {
       badge.style.color = "#d44a4a";
     } else if (s.lastTestOk) {
       badge.textContent = "verified";
-      badge.style.background = "rgba(37,199,94,0.18)";
+      badge.style.background = "rgba(168, 85, 247,0.18)";
       badge.style.color = "var(--accent)";
     } else {
       badge.textContent = "configured";

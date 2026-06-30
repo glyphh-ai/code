@@ -14,7 +14,7 @@ import { ipcMain, dialog, BrowserWindow } from "electron";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
-import { watch, type FSWatcher } from "fs";
+import { watch, statSync, type FSWatcher } from "fs";
 import path from "path";
 import os from "os";
 import { getPreference, setPreference } from "./preferences";
@@ -141,6 +141,7 @@ function broadcastRecentsChanged(): void {
 // doesn't fan out to multiple broadcasts.
 let workdirWatcher: FSWatcher | null = null;
 const watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const watcherMtimes = new Map<string, number>();
 function stopWorkdirWatcher(): void {
   if (workdirWatcher) {
     try { workdirWatcher.close(); } catch { /* noop */ }
@@ -148,6 +149,7 @@ function stopWorkdirWatcher(): void {
   }
   for (const t of watcherTimers.values()) clearTimeout(t);
   watcherTimers.clear();
+  watcherMtimes.clear();
 }
 function startWorkdirWatcher(dir: string): void {
   stopWorkdirWatcher();
@@ -163,6 +165,17 @@ function startWorkdirWatcher(dir: string): void {
       if (prev) clearTimeout(prev);
       watcherTimers.set(abs, setTimeout(() => {
         watcherTimers.delete(abs);
+        // Only broadcast on a real CONTENT change. fs.watch(recursive) on macOS
+        // — especially under newer Electron/Node — also reports access-only
+        // events (e.g. when the Workbench Files tree re-reads the directory),
+        // which would otherwise feed back into another re-render in an endless
+        // refresh loop. Gate on mtime: skip events that didn't change content.
+        let mt = -1;
+        try { mt = statSync(abs).mtimeMs; } catch { watcherMtimes.delete(abs); } // deleted/missing → fall through and notify
+        if (mt !== -1) {
+          if (watcherMtimes.get(abs) === mt) return; // access/atime only — no content change
+          watcherMtimes.set(abs, mt);
+        }
         broadcastToPanels("workdir:file-changed", abs);
         getMainWindow()?.webContents.send("workdir:file-changed", abs);
       }, 80));

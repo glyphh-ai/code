@@ -38,7 +38,7 @@ let storeRangeMode: "7" | "30" = "7";
 // keys on the local-machine date.
 
 const AGENT_COLORS: Record<string, string> = {
-  orchestrator: "#25C75E", navigator: "#48dbfb", researcher: "#feca57",
+  orchestrator: "#a855f7", navigator: "#48dbfb", researcher: "#feca57",
   coder: "#ff6b6b", "skill-runner": "#cc5de8", manager: "#ff9f43",
 };
 const AGENT_LABELS: Record<string, string> = {
@@ -170,7 +170,7 @@ async function renderDashActivityChart() {
     data: {
       labels,
       datasets: [
-        mkLine("Tokens", tokensData, "y", "rgb(37,199,94)", 0.12),
+        mkLine("Tokens", tokensData, "y", "rgb(168, 85, 247)", 0.12),
         mkLine("Prompts", promptsData, "y1", "rgb(72,219,251)", 0),
         mkLine("Captures", capturesData, "y1", "rgb(204,93,232)", 0),
       ],
@@ -226,7 +226,7 @@ async function renderDashHistoryChart() {
     data: {
       labels,
       datasets: [
-        { label: "Input tokens",  data: inputData,  borderColor: "#25C75E", backgroundColor: "rgba(37,199,94,0.1)",  fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+        { label: "Input tokens",  data: inputData,  borderColor: "#a855f7", backgroundColor: "rgba(168, 85, 247,0.1)",  fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
         { label: "Output tokens", data: outputData, borderColor: "#48dbfb", backgroundColor: "rgba(72,219,251,0.05)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
       ],
     },
@@ -267,7 +267,7 @@ async function renderDashIntakeChart() {
     data: {
       labels,
       datasets: [
-        { label: "Captures", data: countData, backgroundColor: "rgba(37,199,94,0.6)", borderRadius: 3, yAxisID: "y" },
+        { label: "Captures", data: countData, backgroundColor: "rgba(168, 85, 247,0.6)", borderRadius: 3, yAxisID: "y" },
         { label: "Bytes", data: bytesData, backgroundColor: "rgba(72,219,251,0.35)", borderRadius: 3, yAxisID: "y1" },
       ],
     },
@@ -306,8 +306,8 @@ function renderDashFlowChart(captureStats: { ingestCount: number; searchCount: n
       labels: hasData ? [".sup  (captures in)", ".yo  (searches out)", "Embedded"] : ["No activity yet"],
       datasets: [{
         data: hasData ? [supVal, yoVal, embedded] : [1],
-        backgroundColor: hasData ? ["#25C75E", "#48dbfb", "#cc5de8"] : [cssVar("--border")],
-        borderColor: hasData ? ["#1a8a40", "#2a9abf", "#8a3d9e"] : [cssVar("--border-3")],
+        backgroundColor: hasData ? ["#a855f7", "#48dbfb", "#cc5de8"] : [cssVar("--border")],
+        borderColor: hasData ? ["#7e22ce", "#2a9abf", "#8a3d9e"] : [cssVar("--border-3")],
         borderWidth: 2,
         hoverOffset: 6,
       }],
@@ -601,7 +601,7 @@ function renderHomeUsageChart(days: Array<Record<string, number | string>>): voi
   }
 
   if (homeUsageChart) homeUsageChart.destroy();
-  const accent = cssVar("--accent") || "#25C75E";
+  const accent = cssVar("--accent") || "#a855f7";
   const grid = cssVar("--border") || "#1f1f24";
   const muted = cssVar("--text-3") || "#6a6a72";
   homeUsageChart = new Chart(canvas.getContext("2d"), {

@@ -239,6 +239,7 @@ declare global {
       openExternal: (url: string) => void;
       platformUrl: string;
       serverUrl: string;
+      discordInvite: string;
       hasMcpAccess: () => Promise<boolean>;
       openAccountDashboard: () => void;
       openBilling: () => void;

@@ -75,10 +75,10 @@ const PERM_ICONS: Record<string, string> = {
 };
 
 const PERM_COLORS: Record<string, string> = {
-  default: "#25C75E",
-  plan: PLAN_COLOR,
-  acceptEdits: "#FF8C00",
-  bypassPermissions: "#FF2D55",
+  default: "#a855f7",       // ask — brand purple
+  plan: PLAN_COLOR,         // plan — violet
+  acceptEdits: "#a855f7",   // auto-accept — green ("go")
+  bypassPermissions: "#FF2D55", // bypass — red
 };
 
 const PERM_LABELS: Record<string, string> = {
@@ -104,7 +104,16 @@ const MODEL_PRETTY: Record<string, string> = {
 };
 function prettyModelLabel(model: string): string {
   if (!model) return "Default";
-  return MODEL_PRETTY[model] || model;
+  if (MODEL_PRETTY[model]) return MODEL_PRETTY[model];
+  // Derive a friendly name from the id so new / date-stamped models never show
+  // the raw id (which wraps): claude-opus-4-8 → "Opus 4.8",
+  // claude-haiku-4-5-20251001 → "Haiku 4.5", claude-fable-5 → "Fable 5".
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(model);
+  if (m) {
+    const fam = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    return m[3] ? `${fam} ${m[2]}.${m[3]}` : `${fam} ${m[2]}`;
+  }
+  return model;
 }
 
 // ── Internal state ─────────────────────────────────────────────────────────
@@ -1232,8 +1241,13 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
   // address them by name instead of the generic "there".
   void (async () => {
     try {
-      const info = await (window as unknown as { yo: { getAccountInfo: () => Promise<{ firstName?: string } | null> } }).yo.getAccountInfo();
-      userName = (info?.firstName || "").trim();
+      const info = await (window as unknown as { yo: { getAccountInfo: () => Promise<{ firstName?: string; email?: string } | null> } }).yo.getAccountInfo();
+      const first = (info?.firstName || "").trim();
+      // Fall back to the email's local part when no first name is set:
+      // e.g. chris.timmerman@glyphh.ai → "Chris".
+      const seg = (info?.email || "").split("@")[0].split(/[._+-]/)[0];
+      const fromEmail = seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "";
+      userName = first || fromEmail;
     } catch { /* not signed in / offline — keep generic */ }
     paintBrand();
     refreshGreetingName();
@@ -1253,7 +1267,7 @@ export function initYoPanel(callbacks: YoPanelCallbacks): YoPanelApi {
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
     const check = '<span class="yo-mode-opt-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
     modelMenu.innerHTML = '<div class="yo-model-section-header">Models</div>' + data.models.map((m) =>
-      `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(m.display_name)}</span></div>${check}</div>`,
+      `<div class="yo-model-option" data-provider="${esc(m.provider)}" data-value="${esc(m.model)}"><div class="yo-mode-opt-text"><span class="yo-mode-opt-label">${esc(prettyModelLabel(m.model))}</span></div>${check}</div>`,
     ).join("");
     modelMenu.querySelectorAll<HTMLElement>(".yo-model-option").forEach(wireModelOption);
     const ids = new Set(data.models.map((m) => m.model));

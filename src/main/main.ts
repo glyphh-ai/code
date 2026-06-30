@@ -992,11 +992,11 @@ async function boot() {
         h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
         p{font-size:14px;line-height:1.6;margin:8px 0}
         .reason{color:#777;font-size:13px;margin-bottom:16px}
-        a{color:#25C75E;text-decoration:none;font-weight:500}
+        a{color:#a855f7;text-decoration:none;font-weight:500}
         a:hover{text-decoration:underline}
         .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
         .steps li{padding:6px 0;font-size:13px;color:#888}
-        .steps li::before{content:"→ ";color:#25C75E}
+        .steps li::before{content:"→ ";color:#a855f7}
         code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
           background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
       </style></head><body><div class="card">
@@ -3430,11 +3430,11 @@ app.on("login", (event, _wc, _details, authInfo, callback) => {
     h3{font-size:14px;font-weight:600;color:#fff}
     p{font-size:12px;color:#888}
     input{width:100%;padding:8px 10px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;outline:none}
-    input:focus{border-color:#25C75E}
+    input:focus{border-color:#a855f7}
     .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
     button{padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer}
     .cancel{background:#333;color:#ccc}
-    .login{background:#25C75E;color:#000;font-weight:600}
+    .login{background:#a855f7;color:#000;font-weight:600}
   </style></head><body>
     <h3>Authentication Required</h3>
     <p>${host}${realm} requires credentials.</p>

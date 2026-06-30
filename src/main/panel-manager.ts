@@ -81,7 +81,7 @@ export class PanelManager {
       border-radius: 3px;
     }
     *::-webkit-scrollbar-thumb:hover {
-      background: rgba(37, 199, 94, 0.45);
+      background: rgba(168, 85, 247, 0.45);
     }
     *::-webkit-scrollbar-corner { background: transparent; }
   `;

@@ -214,7 +214,7 @@ async function renderAppDashIntakeChart() {
     data: {
       labels,
       datasets: [
-        { label: "Captures", data: countData, backgroundColor: "rgba(37,199,94,0.6)", borderRadius: 3, yAxisID: "y" },
+        { label: "Captures", data: countData, backgroundColor: "rgba(168, 85, 247,0.6)", borderRadius: 3, yAxisID: "y" },
         { label: "Bytes", data: bytesData, backgroundColor: "rgba(72,219,251,0.35)", borderRadius: 3, yAxisID: "y1" },
       ],
     },

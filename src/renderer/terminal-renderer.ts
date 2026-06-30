@@ -23,9 +23,9 @@ const term = new Terminal({
   theme: {
     background: "#0d0d14",
     foreground: "#e0e0e0",
-    cursor: "#25C75E",
+    cursor: "#a855f7",
     cursorAccent: "#0d0d14",
-    selectionBackground: "rgba(37, 199, 94, 0.3)",
+    selectionBackground: "rgba(168, 85, 247, 0.3)",
     black: "#121f16",
     red: "#ff6b6b",
     green: "#51cf66",

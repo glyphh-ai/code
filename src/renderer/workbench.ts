@@ -1460,7 +1460,7 @@ async function init(): Promise<void> {
     const styles = getComputedStyle(document.body);
     const bg = styles.getPropertyValue("--ws-bg-card").trim() || "#1e1e1e";
     const fg = styles.getPropertyValue("--ws-text").trim() || "#d4d4d4";
-    const accent = styles.getPropertyValue("--ws-accent").trim() || "#25C75E";
+    const accent = styles.getPropertyValue("--ws-accent").trim() || "#a855f7";
     return {
       background: bg,
       foreground: fg,
@@ -1751,7 +1751,41 @@ async function init(): Promise<void> {
   //  - Diff slot: re-fetch (anything in the tree might have moved)
   //  - Files tree: invalidate loaded children of the dir containing the
   //    changed path so the next render re-lists; lightweight repaint.
-  let filesRepaintTimer: ReturnType<typeof setTimeout> | null = null;
+  // Refresh ONLY the Files slot trees in place — never a full renderRails().
+  // A folder under constant churn (a build, a dev server writing files) would
+  // otherwise rebuild the entire workbench on every write, twitching the UI and
+  // fighting the user's panel drags.
+  function refreshFilesSlotsInPlace(): void {
+    for (const rail of rails) {
+      for (const slot of rail.slots) {
+        if (slot.view !== "files") continue;
+        (slot as FilesSlot).root = null;
+        const body = document.querySelector<HTMLElement>(`.ws-rail-slot[data-slot-id="${slot.id}"] .ws-rail-slot-body`);
+        if (body) void renderFilesIntoSlot(body, slot as FilesSlot);
+      }
+    }
+  }
+  // Throttle: at most one refresh per window, with a trailing run for changes
+  // that arrive mid-window — caps the refresh rate no matter how fast files churn.
+  const FILES_REFRESH_MS = 1500;
+  let filesRefreshAt = 0;
+  let filesRefreshPending = false;
+  let filesRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleFilesRefresh(): void {
+    const now = Date.now();
+    if (now - filesRefreshAt >= FILES_REFRESH_MS) {
+      filesRefreshAt = now;
+      refreshFilesSlotsInPlace();
+    } else {
+      filesRefreshPending = true;
+      if (!filesRefreshTimer) {
+        filesRefreshTimer = setTimeout(() => {
+          filesRefreshTimer = null;
+          if (filesRefreshPending) { filesRefreshPending = false; filesRefreshAt = Date.now(); refreshFilesSlotsInPlace(); }
+        }, FILES_REFRESH_MS - (now - filesRefreshAt));
+      }
+    }
+  }
   window.wb.onFileChanged(async (abs) => {
     if (!cwd || !abs.startsWith(cwd)) return;
     // Monaco viewer tabs — re-read any tab whose path matches.
@@ -1777,21 +1811,9 @@ async function init(): Promise<void> {
         }
       }
     }
-    // Files tree — invalidate the slot's cached tree so the next render
-    // re-fetches. Debounce so a burst of writes only triggers one repaint.
+    // Files tree — refresh just the Files slot(s) in place, throttled.
     const filesAffected = rails.some((r) => r.slots.some((s) => s.view === "files"));
-    if (filesAffected) {
-      if (filesRepaintTimer) clearTimeout(filesRepaintTimer);
-      filesRepaintTimer = setTimeout(() => {
-        filesRepaintTimer = null;
-        for (const rail of rails) {
-          for (const slot of rail.slots) {
-            if (slot.view === "files") (slot as FilesSlot).root = null;
-          }
-        }
-        renderRails();
-      }, 150);
-    }
+    if (filesAffected) scheduleFilesRefresh();
     // Diff — if open, refresh.
     for (const rail of rails) {
       for (const slot of rail.slots) {
