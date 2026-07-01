@@ -927,6 +927,9 @@ body.account-locked #dl-btn-wrap {
   -webkit-app-region: drag;
   gap: 12px;
 }
+/* Pull Command Center in tighter against the left-rail toggle than the
+   titlebar's normal 12px gap — the pair reads as a related group. */
+#header-command-center { margin-left: -6px; }
 
 #titlebar-label {
   display: flex;
