@@ -5533,6 +5533,47 @@ select.settings-input {
 .files-rail.open { transform: translateX(0); }
 .files-rail.hidden { display: none !important; }
 
+/* ── Left-rail user section (bottom) — chip + upward dropup ─────── */
+.files-rail-user {
+  position: relative;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-2);
+  padding: 6px;
+}
+.files-rail-user-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
+  padding: 6px 8px; cursor: pointer; color: var(--text); text-align: left;
+  transition: background 0.1s;
+}
+.files-rail-user-btn:hover { background: var(--surface-3); }
+.files-rail-user-avatar {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent-bg, rgba(168,85,247,0.18)); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+}
+.files-rail-user-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.files-rail-user-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files-rail-user-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files-rail-user-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-3); transition: transform 0.15s; }
+.files-rail-user.open .files-rail-user-chevron { transform: rotate(180deg); }
+.files-rail-user-menu {
+  position: absolute; left: 6px; right: 6px; bottom: calc(100% - 2px);
+  background: var(--surface-2); border: 1px solid var(--border-3); border-radius: 8px;
+  padding: 4px; box-shadow: 0 -4px 20px var(--shadow); z-index: 100;
+}
+.files-rail-user-menu.hidden { display: none; }
+.files-rail-user-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: none; border-radius: 6px;
+  padding: 7px 8px; cursor: pointer; color: var(--text); font-size: 13px; text-align: left;
+}
+.files-rail-user-item:hover { background: var(--surface-3); }
+.files-rail-user-item.danger { color: var(--danger, #e0483d); }
+.files-rail-user-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+.files-rail-user-divider { height: 1px; background: var(--border-2); margin: 4px 2px; }
+
 .files-rail-resize {
   position: absolute;
   right: -4px;
@@ -5642,88 +5683,6 @@ select.settings-input {
   padding: 8px;
   gap: 6px;
   position: relative;
-}
-/* Bottom: Workspaces — last 20 folders the agent has worked in. */
-.rail-workspaces {
-  flex: 1 1 0;
-  min-height: 120px;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--border);
-  padding: 8px;
-  gap: 6px;
-  position: relative;
-}
-.rail-workspaces-list {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 2px;
-}
-.rail-ws-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  color: var(--text);
-  font-family: inherit;
-  min-width: 0;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.rail-ws-row:hover { background: var(--surface); border-color: var(--border); }
-.rail-ws-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  min-width: 0;
-}
-.rail-ws-folder {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  flex: 1;
-}
-.rail-ws-folder svg { width: 13px; height: 13px; color: var(--text-2); flex-shrink: 0; }
-.rail-ws-folder-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rail-ws-branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10.5px;
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-.rail-ws-branch svg { width: 11px; height: 11px; color: var(--text-3); }
-.rail-ws-branch-name {
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rail-ws-path {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .rail-recents-header {
   display: flex;
@@ -5839,8 +5798,8 @@ select.settings-input {
 }
 /* Slight magnify on hover (Recents + Apps). */
 .rail-recents-cell:hover { background: var(--surface); border-color: var(--border); transform: scale(1.07); }
-/* Apps section: its own draggable height var (like Recents); list scrolls. */
-.rail-apps { flex: 0 0 var(--rail-apps-h, 200px); }
+/* Apps section: fills the rail below the nav (Workspaces removed); list scrolls. */
+.rail-apps { flex: 1 1 0; min-height: 0; }
 .rail-recents-icon {
   width: 28px;
   height: 28px;

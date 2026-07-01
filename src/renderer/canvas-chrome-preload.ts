@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld("canvasChrome", {
   navBack: () => ipcRenderer.send("panel-nav-back", id),
   navForward: () => ipcRenderer.send("panel-nav-forward", id),
   navRefresh: () => ipcRenderer.send("panel-nav-refresh", id),
+  // Downloads live in the main window's dropdown (every session reports there
+  // regardless of which panel triggered the download) — this just asks main
+  // to open it, rather than duplicating the downloads list in every chrome view.
+  showDownloads: () => ipcRenderer.send("canvas-chrome-show-downloads", id),
   // Window meta + geometry pushed from main on every applyCanvas.
   onUpdate: (cb: (u: ChromeUpdate) => void) =>
     ipcRenderer.on("canvas-chrome-update", (_e, u: ChromeUpdate) => cb(u)),

@@ -314,6 +314,11 @@ contextBridge.exposeInMainWorld("yo", {
     ipcRenderer.on("download:done", (_e, info) => cb(info));
   },
   downloadShow: (filePath: string) => ipcRenderer.send("download:show", filePath),
+  // A canvas window's URL-bar download button asks main to open the shared
+  // downloads dropdown (the list itself always lives in this window).
+  onShowDownloadsDropdown: (cb: () => void) => {
+    ipcRenderer.on("show-downloads-dropdown", () => cb());
+  },
 
   // Drip effects
   onDripEffect: (callback: (effect: string) => void) => {

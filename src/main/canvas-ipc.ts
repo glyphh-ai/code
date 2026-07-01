@@ -386,6 +386,13 @@ export function registerCanvasIpc(deps: CanvasIpcDeps): {
     pushChromeMeta(id);
   });
   ipcMain.on("canvas-chrome-focus", (_e, id: string) => { ipcMain.emit("canvas-focus", {} as Electron.IpcMainEvent, id); });
+  // Downloads button in a canvas window's URL bar — the download list itself
+  // always lives in the main renderer's dropdown (will-download reports to
+  // PanelManager.mainWebContents regardless of which session triggered it), so
+  // just ask the main renderer to open it.
+  ipcMain.on("canvas-chrome-show-downloads", () => {
+    deps.getMainWindow()?.webContents.send("show-downloads-dropdown");
+  });
   // Toggle this window's URL bar, then re-lay-out so the content view insets
   // (or un-insets) below it and the chrome redraws.
   ipcMain.on("canvas-chrome-toggle-urlbar", (_e, id: string) => {

@@ -116,6 +116,7 @@
       <button class="ub-btn" id="ub-fwd" title="Forward"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
       <button class="ub-btn" id="ub-reload" title="Reload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
       <input id="ub-input" type="text" spellcheck="false" placeholder="Search or enter address" />
+      <button class="ub-btn" id="ub-downloads" title="Downloads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
     </div>
     <div class="rz" id="rz-r"></div>
     <div class="rz" id="rz-l"></div>
@@ -139,6 +140,7 @@
     document.getElementById("ub-back").addEventListener("click", () => api.navBack());
     document.getElementById("ub-fwd").addEventListener("click", () => api.navForward());
     document.getElementById("ub-reload").addEventListener("click", () => api.navRefresh());
+    document.getElementById("ub-downloads").addEventListener("click", () => api.showDownloads());
 
     function applyTheme(t) {
       const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);

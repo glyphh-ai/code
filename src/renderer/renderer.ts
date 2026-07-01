@@ -167,6 +167,7 @@ declare global {
       onDownloadProgress: (cb: (info: { filename: string; receivedBytes: number; totalBytes: number }) => void) => void;
       onDownloadDone: (cb: (info: { filename: string; savePath: string; state: string }) => void) => void;
       downloadShow: (filePath: string) => void;
+      onShowDownloadsDropdown: (cb: () => void) => void;
       // Drip effects
       onDripEffect: (callback: (effect: string) => void) => void;
       // Drips CRUD
@@ -707,6 +708,9 @@ const gridApi = initGrid({
 
 // -- Downloads dropdown (extracted to downloads-ui.ts) --
 initDownloads();
+// A canvas window's URL-bar download button opens this dropdown (the list
+// always lives here regardless of which panel triggered the download).
+window.yo.onShowDownloadsDropdown(() => { document.getElementById("dl-btn")?.click(); });
 initSearchClears();
 
 // -- Canvas mode + Command Center --
@@ -879,162 +883,73 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
   window.yo.onAppsChanged?.(() => { void refreshRailAppsSection(); });
   void refreshRailAppsSection();
 
-  // ── Workspaces section — last 20 folders the yo agent has worked in ──
-  // Folder name + git branch on top row; full path beneath. Click sets the
-  // agent's workdir and opens the Workbench at that folder. Data source is
-  // the same `workingDirRecents` pref the agent's folder picker uses.
-  const railWorkspaces = document.getElementById("rail-workspaces");
-  const railWsList = document.getElementById("rail-workspaces-list");
-  const railWsSearch = document.getElementById("rail-workspaces-search") as HTMLInputElement | null;
-  const railWsSplit = document.getElementById("rail-ws-split-handle");
-  const WS_LIMIT = 20;
-  let wsAll: string[] = [];
-  let wsBranches = new Map<string, string>();
-  let wsQuery = "";
+  // Left-rail user section (bottom) — signed-in name/avatar + an upward menu
+  // with Settings / Manage Account / Sign out.
+  (function initRailUser() {
+    const wrap = document.getElementById("files-rail-user");
+    const btn = document.getElementById("files-rail-user-btn");
+    const menu = document.getElementById("files-rail-user-menu");
+    if (!wrap || !btn || !menu) return;
+    const avatar = document.getElementById("files-rail-user-avatar");
+    const nameEl = document.getElementById("files-rail-user-name");
+    const subEl = document.getElementById("files-rail-user-sub");
 
-  function basenameOf(p: string): string {
-    const clean = p.replace(/\/+$/, "");
-    const i = clean.lastIndexOf("/");
-    return i >= 0 ? clean.slice(i + 1) : clean;
-  }
-  function wsFiltered(): string[] {
-    const q = wsQuery.trim().toLowerCase();
-    const list = wsAll.slice(0, WS_LIMIT);
-    if (!q) return list;
-    return list.filter((p) => p.toLowerCase().includes(q));
-  }
-  function renderRailWorkspaces(): void {
-    if (!railWsList) return;
-    const list = wsFiltered();
-    railWsList.innerHTML = "";
-    if (list.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "rail-recents-empty";
-      empty.textContent = wsQuery
-        ? `No workspaces matching "${wsQuery}".`
-        : "No workspaces yet.";
-      railWsList.appendChild(empty);
-      return;
-    }
-    for (const folder of list) {
-      const row = document.createElement("button");
-      row.className = "rail-ws-row";
-      row.type = "button";
-      row.title = folder;
-      const branch = wsBranches.get(folder) || "";
-      row.innerHTML = `
-        <div class="rail-ws-head">
-          <span class="rail-ws-folder">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-            </svg>
-            <span class="rail-ws-folder-name"></span>
-          </span>
-          ${branch ? `
-          <span class="rail-ws-branch">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="8" r="2"/>
-              <path d="M6 8v8"/><path d="M18 10v1a4 4 0 0 1-4 4H8"/>
-            </svg>
-            <span class="rail-ws-branch-name"></span>
-          </span>` : ""}
-        </div>
-        <div class="rail-ws-path"></div>
-      `;
-      (row.querySelector(".rail-ws-folder-name") as HTMLElement).textContent = basenameOf(folder);
-      const branchEl = row.querySelector(".rail-ws-branch-name");
-      if (branchEl) branchEl.textContent = branch;
-      (row.querySelector(".rail-ws-path") as HTMLElement).textContent = folder.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
-      row.addEventListener("click", () => { void openWorkspace(folder); });
-      railWsList.appendChild(row);
-    }
-  }
-  async function openWorkspace(folder: string): Promise<void> {
-    // Sets the yo agent's workdir AND opens Workbench at that folder. We
-    // route through the same `recentsOpen` flow so all the dip + folder-
-    // bind side effects happen consistently.
-    await window.yo.setWorkingDir(folder);
-    void window.yo.recentsOpen({ kind: "app", id: "workbench", name: "Workbench", folder, ts: Date.now() });
-  }
-  async function refreshRailWorkspaces(): Promise<void> {
-    try {
-      wsAll = await window.yo.getWorkingDirRecents();
-    } catch { wsAll = []; }
-    // Branch probes — best effort, fire in parallel.
-    const top = wsAll.slice(0, WS_LIMIT);
-    const probes = top.map(async (p) => {
-      try {
-        const info = await window.yo.gitInfo(p);
-        if (info?.branch) wsBranches.set(p, info.branch);
-        else wsBranches.delete(p);
-      } catch { /* not a repo or unreachable */ }
-    });
-    await Promise.allSettled(probes);
-    renderRailWorkspaces();
-  }
-  railWsSearch?.addEventListener("input", () => {
-    wsQuery = railWsSearch.value;
-    renderRailWorkspaces();
-  });
-  document.getElementById("rail-workspaces-clear")?.addEventListener("click", async () => {
-    const ok = await yoConfirm({
-      title: "Clear Workspaces",
-      message: "This removes every folder from the Workspaces list. Your current working directory and the folders themselves aren't affected — only the history shown here.",
-      confirmText: "Clear",
-      danger: true,
-    });
-    if (ok) {
-      await window.yo.workingDirRecentsClear();
-      void refreshRailWorkspaces();
-    }
-  });
-  window.yo.onWorkingDirChanged(() => { void refreshRailWorkspaces(); });
-  void refreshRailWorkspaces();
-  void railWorkspaces;
+    void window.yo.getAccountInfo().then((info) => {
+      if (!info) return;
+      const name = `${info.firstName || ""} ${info.lastName || ""}`.trim() || info.email;
+      const initials = ((info.firstName?.[0] || "") + (info.lastName?.[0] || "")).toUpperCase()
+        || (info.email?.[0] || "?").toUpperCase();
+      if (nameEl) nameEl.textContent = name || "Account";
+      if (subEl) subEl.textContent = info.email || info.orgName || "";
+      if (avatar) avatar.textContent = initials;
+    }).catch(() => {});
 
-  // ── Rail splits: two draggable dividers (nav, apps) ──
-  //  - leftRailSplit (px): height of the top nav pane
-  //  - leftRailAppsSplit (px): height of the Apps pane (Workspaces takes the rest)
+    const close = () => { menu.classList.add("hidden"); wrap.classList.remove("open"); };
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (menu.classList.contains("hidden")) { menu.classList.remove("hidden"); wrap.classList.add("open"); }
+      else close();
+    });
+    document.addEventListener("click", (e) => { if (!wrap.contains(e.target as Node)) close(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    menu.querySelectorAll<HTMLButtonElement>(".files-rail-user-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        close();
+        const act = item.dataset.act;
+        if (act === "settings") openWorkspaceApp("settings");
+        else if (act === "account") void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
+        else if (act === "logout") void window.yo.logout();
+      });
+    });
+  })();
+
+  // ── Rail split: draggable divider between nav and Apps ──
+  //  - leftRailSplit (px): height of the top nav pane (Apps takes the rest,
+  //    Workspaces removed).
   let navH = 280;
-  let appsH = 200;
-  let splitDragging: "nav" | "apps" | null = null;
+  let splitDragging = false;
   const applyNavHeight = (px: number): void => { rail.style.setProperty("--rail-nav-h", `${Math.max(80, px)}px`); };
-  const applyAppsHeight = (px: number): void => { rail.style.setProperty("--rail-apps-h", `${Math.max(80, px)}px`); };
   void (async () => {
     const savedNav = await window.yo.getPreference("leftRailSplit", 280);
     if (typeof savedNav === "number" && savedNav > 0) navH = savedNav;
     applyNavHeight(navH);
-    const savedApps = await window.yo.getPreference("leftRailAppsSplit", 200);
-    if (typeof savedApps === "number" && savedApps > 0) appsH = savedApps;
-    applyAppsHeight(appsH);
   })();
   railSplitHandle.addEventListener("mousedown", (e) => {
-    e.preventDefault(); splitDragging = "nav"; railSplitHandle.classList.add("dragging"); document.body.style.cursor = "row-resize";
-  });
-  railWsSplit?.addEventListener("mousedown", (e) => {
-    e.preventDefault(); splitDragging = "apps"; railWsSplit.classList.add("dragging"); document.body.style.cursor = "row-resize";
+    e.preventDefault(); splitDragging = true; railSplitHandle.classList.add("dragging"); document.body.style.cursor = "row-resize";
   });
   document.addEventListener("mousemove", (e) => {
     if (!splitDragging) return;
     const railRect = rail.getBoundingClientRect();
     const relY = e.clientY - railRect.top;
-    if (splitDragging === "nav") {
-      navH = Math.max(80, Math.min(railRect.height - 200, relY));
-      applyNavHeight(navH);
-    } else {
-      appsH = Math.max(80, Math.min(railRect.height - navH - 120, relY - navH));
-      applyAppsHeight(appsH);
-    }
+    navH = Math.max(80, Math.min(railRect.height - 200, relY));
+    applyNavHeight(navH);
   });
   document.addEventListener("mouseup", () => {
     if (!splitDragging) return;
-    const which = splitDragging;
-    splitDragging = null;
+    splitDragging = false;
     railSplitHandle.classList.remove("dragging");
-    railWsSplit?.classList.remove("dragging");
     document.body.style.cursor = "";
-    if (which === "nav") void window.yo.setPreference("leftRailSplit", navH);
-    else void window.yo.setPreference("leftRailAppsSplit", appsH);
+    void window.yo.setPreference("leftRailSplit", navH);
   });
 
   // Silence the unused-var warning for railNav — used implicitly via DOM.
