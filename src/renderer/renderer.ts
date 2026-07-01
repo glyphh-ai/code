@@ -559,14 +559,9 @@ const urlBar = document.getElementById("url-bar")!;
 const urlBarInput = document.getElementById("url-bar-input") as HTMLInputElement;
 const urlBarFavicon = document.getElementById("url-bar-favicon") as HTMLImageElement;
 
-const titlebarRefresh = document.getElementById("titlebar-refresh") as HTMLButtonElement | null;
-
 function setUrlBarVisible(show: boolean) {
   urlBar.classList.toggle("hidden", !show);
   document.body.style.setProperty("--content-top", show ? "72px" : "38px");
-  // When the URL bar is hidden there's no Refresh anywhere — surface one in
-  // the titlebar so the active panel can still be reloaded.
-  titlebarRefresh?.classList.toggle("hidden", show);
 }
 
 // Load initial URL bar visibility
@@ -582,7 +577,6 @@ const urlBarRefresh = document.getElementById("url-bar-refresh") as HTMLButtonEl
 urlBarBack.addEventListener("click", () => window.yo.urlBarBack());
 urlBarForward.addEventListener("click", () => window.yo.urlBarForward());
 urlBarRefresh.addEventListener("click", () => window.yo.urlBarRefresh());
-titlebarRefresh?.addEventListener("click", () => window.yo.urlBarRefresh());
 
 // Navigate on Enter
 urlBarInput.addEventListener("keydown", (e) => {
@@ -778,11 +772,6 @@ document.getElementById("header-command-center")?.addEventListener("click", () =
   document.getElementById("files-rail-logout")?.addEventListener("click", () => {
     void window.yo.logout();
   });
-  // Header gear → yo://settings app. Same target as .dip settings.
-  document.getElementById("header-settings-gear")?.addEventListener("click", () => {
-    openWorkspaceApp("settings");
-  });
-
   // Resize handle.
   let dragging = false;
   railResize.addEventListener("mousedown", (e) => {
