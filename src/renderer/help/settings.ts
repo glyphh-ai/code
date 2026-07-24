@@ -752,57 +752,11 @@ function initSettings() {
 
   // Manage Account — open the platform inside the app (a panel tab), the same
   // way the left-rail Platform button does (.dip <platformUrl>).
-  document.getElementById("account-dashboard-btn")?.addEventListener("click", () => {
-    void window.yo.execCommand(`dip ${window.yo.platformUrl}`);
-  });
-
-  // Refresh plan status — after an in-app upgrade/downgrade the cached session
-  // tier is stale until the next heartbeat (or re-login). This forces a fresh
-  // heartbeat and repaints the Plan value, no re-auth needed.
-  document.getElementById("account-refresh-tier")?.addEventListener("click", async () => {
-    const btn = document.getElementById("account-refresh-tier");
-    const tierEl = document.getElementById("account-tier");
-    btn?.classList.add("spinning");
-    try {
-      const r = await window.yo.refreshAuth();
-      if (tierEl && r?.tier) {
-        tierEl.textContent = r.tier;
-        tierEl.className = `license-value ${r.tier !== "free" ? "active" : ""}`;
-      }
-    } catch { /* offline — leave the current value */ }
-    finally { setTimeout(() => btn?.classList.remove("spinning"), 400); }
-  });
-
-  // Sign out
-  document.getElementById("account-logout-btn")?.addEventListener("click", async () => {
-    document.getElementById("help-overlay")!.classList.add("hidden");
-    await window.yo.logout();
-  });
 }
 
 
 async function loadSettings() {
   settingsStatus.textContent = "";
-  const accountInfo = await window.yo.getAccountInfo();
-
-  // Account info
-  const emailEl = document.getElementById("account-email")!;
-  const nameEl = document.getElementById("account-name")!;
-  const orgEl = document.getElementById("account-org")!;
-  const tierEl = document.getElementById("account-tier")!;
-
-  if (accountInfo) {
-    emailEl.textContent = accountInfo.email;
-    nameEl.textContent = `${accountInfo.firstName} ${accountInfo.lastName}`;
-    orgEl.textContent = accountInfo.orgName;
-    tierEl.textContent = accountInfo.tier || "free";
-    tierEl.className = `license-value ${accountInfo.tier !== "free" ? "active" : ""}`;
-  } else {
-    emailEl.textContent = "Not signed in";
-    nameEl.textContent = "—";
-    orgEl.textContent = "—";
-    tierEl.textContent = "—";
-  }
 
   // Load toggle states
   toggleVoiceInput.checked = await window.yo.getPreference("voiceEnabled", false) as boolean;

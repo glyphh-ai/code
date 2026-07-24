@@ -1112,13 +1112,14 @@ function initApps() {
   document.getElementById("mcp-add-transport")!.addEventListener("change", () => {
     const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value;
     document.getElementById("mcp-add-stdio-fields")!.classList.toggle("hidden", transport !== "stdio");
-    document.getElementById("mcp-add-sse-fields")!.classList.toggle("hidden", transport !== "sse");
+    // The URL field is shared by the two remote transports (SSE + Streamable HTTP).
+    document.getElementById("mcp-add-sse-fields")!.classList.toggle("hidden", transport === "stdio");
   });
 
   // MCP add form save
   document.getElementById("mcp-add-save")!.addEventListener("click", async () => {
     const name = (document.getElementById("mcp-add-name") as HTMLInputElement).value.trim();
-    const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value as "stdio" | "sse";
+    const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value as "stdio" | "sse" | "streamable-http";
     const errEl = document.getElementById("mcp-form-error")!;
 
     if (!name) { errEl.textContent = "Name required"; errEl.classList.remove("hidden"); return; }

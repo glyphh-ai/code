@@ -12,7 +12,7 @@ import { loadAgents, initAgents } from "./agents.js";
 import { loadSchedules, initSchedules, openScheduleByName } from "./schedules.js";
 import { loadSettings, initSettings } from "./settings.js";
 import { loadDrips, initDripsEvents } from "./drips.js";
-import { loadDocs, loadSupport, loadAbout } from "./docs.js";
+import { loadDocs, loadAbout } from "./docs.js";
 
 const overlay = getHelpOverlay();
 const navItems = document.querySelectorAll<HTMLButtonElement>(".help-nav-item");
@@ -138,7 +138,6 @@ export function loadActiveSection(explicit?: string) {
   else if (sec === "schedules") void loadSchedules();
   else if (sec === "settings") loadSettings();
   else if (sec === "docs") loadDocs();
-  else if (sec === "support") loadSupport();
   else if (sec === "about") loadAbout();
 }
 
@@ -264,9 +263,8 @@ export function initHelp() {
       const target = document.querySelector(`.help-section[data-section='settings'] .settings-panel[data-sub="${sub}"]`);
       if (target) target.classList.add("active");
       navSubItems.forEach((s) => s.classList.toggle("active", s.dataset.section === "settings" && s.dataset.sub === sub));
-      // Support & About live inside Settings now — populate their dynamic bits.
-      if (sub === "support") loadSupport();
-      else if (sub === "about") loadAbout();
+      // About lives inside Settings now — populate its dynamic bits.
+      if (sub === "about") loadAbout();
     });
   });
 
