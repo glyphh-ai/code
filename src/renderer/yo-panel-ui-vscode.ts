@@ -75,9 +75,9 @@ const PERM_ICONS: Record<string, string> = {
 };
 
 const PERM_COLORS: Record<string, string> = {
-  default: "#f59e0b",       // ask — brand purple
+  default: "#a855f7",       // ask — brand purple
   plan: PLAN_COLOR,         // plan — violet
-  acceptEdits: "#f59e0b",   // auto-accept — green ("go")
+  acceptEdits: "#a855f7",   // auto-accept — green ("go")
   bypassPermissions: "#FF2D55", // bypass — red
 };
 
