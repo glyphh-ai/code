@@ -26,10 +26,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/glyphh-ai/yo-client.git"
+    "url": "git+https://github.com/glyphh-ai/code.git"
   },
-  "author": "Glyphh AI",
-  "license": "UNLICENSED",
+  "homepage": "https://github.com/glyphh-ai/code#readme",
+  "bugs": {
+    "url": "https://github.com/glyphh-ai/code/issues"
+  },
+  "author": "Glyphh AI LLC",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
     "@types/adm-zip": "^0.5.8",

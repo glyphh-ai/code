@@ -1,0 +1,15 @@
+Glyphh Code
+Copyright 2026 Glyphh AI LLC
+
+This product is licensed under the Apache License, Version 2.0 (the
+"License"); you may not use it except in compliance with the License. A copy
+of the License is distributed with this work in the LICENSE file, and is also
+available at http://www.apache.org/licenses/LICENSE-2.0.
+
+"Glyphh" and "Glyphh Code" are trademarks of Glyphh AI LLC. As stated in
+Section 6 of the License, this license does not grant permission to use those
+marks except as required for reasonable and customary use in describing the
+origin of the Work.
+
+This product bundles third-party components (Electron, Monaco Editor, xterm.js,
+and others listed in package.json) under their own licenses.
