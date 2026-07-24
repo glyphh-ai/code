@@ -1108,43 +1108,29 @@ function initApps() {
     addNameInput.focus();
   });
 
-  // MCP add form transport toggle
-  document.getElementById("mcp-add-transport")!.addEventListener("change", () => {
-    const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value;
-    document.getElementById("mcp-add-stdio-fields")!.classList.toggle("hidden", transport !== "stdio");
-    // The URL field is shared by the two remote transports (SSE + Streamable HTTP).
-    document.getElementById("mcp-add-sse-fields")!.classList.toggle("hidden", transport === "stdio");
+  // MCP add form — Advanced settings expander (OAuth client id/secret).
+  document.getElementById("mcp-add-advanced-toggle")!.addEventListener("click", () => {
+    const adv = document.getElementById("mcp-add-advanced")!;
+    const btn = document.getElementById("mcp-add-advanced-toggle")!;
+    const open = adv.classList.toggle("hidden");
+    btn.textContent = open ? "▸ Advanced settings" : "▾ Advanced settings";
   });
 
-  // MCP add form save
+  // MCP add form save — a remote MCP server by URL. Auth is handled on connect.
   document.getElementById("mcp-add-save")!.addEventListener("click", async () => {
     const name = (document.getElementById("mcp-add-name") as HTMLInputElement).value.trim();
-    const transport = (document.getElementById("mcp-add-transport") as HTMLSelectElement).value as "stdio" | "sse" | "streamable-http";
+    const url = (document.getElementById("mcp-add-url") as HTMLInputElement).value.trim();
     const errEl = document.getElementById("mcp-form-error")!;
 
     if (!name) { errEl.textContent = "Name required"; errEl.classList.remove("hidden"); return; }
+    if (!url) { errEl.textContent = "Remote MCP server URL required"; errEl.classList.remove("hidden"); return; }
 
-    const mcpConfig: Record<string, unknown> = { transport, enabled: false };
-    if (transport === "stdio") {
-      const command = (document.getElementById("mcp-add-command") as HTMLInputElement).value.trim();
-      if (!command) { errEl.textContent = "Command required"; errEl.classList.remove("hidden"); return; }
-      mcpConfig.command = command;
-      const args = (document.getElementById("mcp-add-args") as HTMLInputElement).value.trim();
-      if (args) mcpConfig.args = args.split(/\s+/);
-      const envText = (document.getElementById("mcp-add-env") as HTMLTextAreaElement).value.trim();
-      if (envText) {
-        const env: Record<string, string> = {};
-        for (const line of envText.split("\n")) {
-          const eq = line.indexOf("=");
-          if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
-        }
-        mcpConfig.env = env;
-      }
-    } else {
-      const url = (document.getElementById("mcp-add-url") as HTMLInputElement).value.trim();
-      if (!url) { errEl.textContent = "URL required"; errEl.classList.remove("hidden"); return; }
-      mcpConfig.url = url;
-    }
+    const mcpConfig: Record<string, unknown> = { transport: "streamable-http", url, enabled: false };
+    // Optional pre-registered OAuth client (Advanced). Blank = the server is
+    // discovered + registered automatically on first connect (OAuth/PKCE).
+    const oauthId = (document.getElementById("mcp-add-oauth-id") as HTMLInputElement).value.trim();
+    const oauthSecret = (document.getElementById("mcp-add-oauth-secret") as HTMLInputElement).value.trim();
+    if (oauthId) mcpConfig.oauth = { clientId: oauthId, ...(oauthSecret ? { clientSecret: oauthSecret } : {}) };
 
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
     await window.yo.appsAdd(id, name);

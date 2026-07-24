@@ -257,7 +257,8 @@ export class McpManager extends EventEmitter {
         // with the freshly obtained bearer token.
         const win = this.windowProvider?.();
         if (err instanceof McpUnauthorizedError && win) {
-          await authorizeMcpServer(win, err.serverUrl, err.resourceMetadataUrl);
+          const pre = config.oauth?.clientId ? { clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret } : undefined;
+          await authorizeMcpServer(win, err.serverUrl, err.resourceMetadataUrl, pre);
           await client.disconnect().catch(() => {});
           await runConnect();
         } else {

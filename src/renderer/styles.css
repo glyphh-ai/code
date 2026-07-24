@@ -10185,3 +10185,17 @@ body.canvas-mode #tab-bar { visibility: hidden; }
 .home-card-row-meta .crud-card-meta { flex: none; }
 .home-card-open { flex-shrink: 0; opacity: 0.7; }
 .home-list-card:hover .home-card-open { opacity: 1; }
+
+/* MCP add form — Advanced settings toggle (link-style) */
+.mcp-advanced-toggle {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 8px 0;
+  margin: 0;
+  text-align: left;
+  display: block;
+}
+.mcp-advanced-toggle:hover { text-decoration: underline; }
