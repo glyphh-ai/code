@@ -90,7 +90,6 @@ import { registerCodeIndexIpc } from "./code-index/ipc";
 import { registerWorkingDirectoryIpc, getWorkingDirectory, getWorkingDirRecents, setWorkingDirectory, addRecent } from "./working-directory";
 import { DripManager, BUILTIN_EFFECTS } from "./drip-manager";
 import { startOverlay } from "./overlay-bridge";
-import { ConnectorManager } from "./connectors";
 import { SkillToolRouter } from "./skill-tool-router";
 import { SkillScheduler } from "./skill-scheduler";
 import { DataStore, closeDataStoreDb } from "./data-store";
@@ -149,7 +148,6 @@ let mcpManager: McpManager | null = null;
 let wazManager: import("./waz-manager").WazManager | null = null;
 let dripManager: DripManager | null = null;
 let actionGrabber: ActionGrabber | null = null;
-let connectorManager: ConnectorManager | null = null;
 let skillToolRouter: SkillToolRouter | null = null;
 let skillScheduler: SkillScheduler | null = null;
 
@@ -639,14 +637,6 @@ async function boot() {
         }, null, 2);
       },
     },
-  });
-
-  // Pipedream Connectors — managed OAuth connections (Advanced tier)
-  connectorManager = new ConnectorManager();
-  connectorManager.setMcpManager(mcpManager);
-  connectorManager.setAppConnector(appConnector);
-  connectorManager.on("changed", () => {
-    mainWindow?.webContents.send("connectors-changed");
   });
 
   // Yo agent — capture search + format assistant
@@ -1853,15 +1843,11 @@ async function boot() {
     return { status: hb?.status ?? getAuthStatus().status };
   });
 
-  // Session expired and couldn't be refreshed → surface the login gate instead
-  // of silently degrading (connectors/cloud-sync go dark otherwise). Reuses the
-  // onboarding overlay; signing back in mints a fresh JWT and everything that
-  // rides the token (connector catalog, heartbeat, cloud-sync) recovers.
+  // Login removed (open source): a failed/expired session must NEVER raise a
+  // login gate. Optional server-backed features (connectors, cloud sync) simply
+  // stay dark; the workspace and the BYOK agent keep working. No-op by design.
   setReauthHandler(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      panelManager.hideActive(mainWindow);
-      mainWindow.webContents.send("show-onboarding");
-    }
+    /* intentionally empty — no login gate to raise */
   });
 
   // Initialize auth — restore session, schedule refresh, start heartbeat.
@@ -2169,10 +2155,13 @@ async function boot() {
     });
   }
 
-  // Check if onboarding is needed BEFORE restoring panels
-  // (BrowserViews render above HTML, so they'd cover the onboarding overlay)
+  // Login has been removed (open source): the app always opens straight into the
+  // workspace. `authenticated` is still read for the OPTIONAL server-backed
+  // features below (cloud sync, usage reporting) — they degrade gracefully when
+  // signed out — but it never gates the workspace. The AI agent runs on a
+  // bring-your-own Anthropic key (see cc-bootstrap / provider-keys).
   const authenticated = isAuthenticated();
-  const needsOnboarding = !authenticated;
+  const needsOnboarding = false;
   let panelsReady = false;
 
   // Restore zoom level
@@ -2202,9 +2191,6 @@ async function boot() {
   // Usage queue — durable write-ahead log for usage reporting
   usageQueue.setTokenGetter(getAuthToken);
   usageQueue.start();
-
-  // Initialize Pipedream connectors — always attempt so MCP tools are available.
-  connectorManager?.init().catch((err) => console.error("[connectors]", err));
 
   // ── Auto-updater ───────────────────────────────────────────
   const autoUpdateEnabled = getPreference<boolean>("autoUpdate", true);
@@ -2946,9 +2932,9 @@ async function boot() {
     setOfferEnabled, getCapabilitiesStatus,
   });
 
-  // Settings / home panel IPC — dashboard, MCP servers, connectors, prompts.
+  // Settings / home panel IPC — dashboard, MCP servers, prompts.
   registerHomeIpc({
-    mcpExpose: mcpExpose!, mcpManager, connectorManager, canUseMcp,
+    mcpExpose: mcpExpose!, mcpManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, appConnector, getMainWindow: () => mainWindow, activeReminders,
   });
@@ -3378,7 +3364,8 @@ async function boot() {
   function sendBoot() {
     const hideWelcome = getPreference<boolean>("hideWelcome", false);
     const authStatus = getAuthStatus();
-    const currentNeedsOnboarding = !isAuthenticated();
+    // Login removed (open source): never gate the workspace behind onboarding.
+    const currentNeedsOnboarding = false;
     mainWindow?.webContents.send("boot", {
       authenticated: authStatus.authenticated,
       status: authStatus.status,
@@ -3509,7 +3496,6 @@ function cleanupAll() {
   mcpExpose?.stop();
   inboxRouter?.stop();
   mcpManager?.disconnectAll();
-  connectorManager?.cleanup();
   actionGrabber?.stopPolling();
   embedder?.cleanup();
   dripManager?.cleanup();

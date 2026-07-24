@@ -9,8 +9,6 @@ import { McpClient, McpTool, McpToolResult } from "./mcp-client";
 import { getPreference, setPreference } from "./preferences";
 import { EventEmitter } from "events";
 import type { AppConnector, McpConfig, McpOAuth } from "./app-connector";
-import { callConnectorTool, type ConnectorTool } from "./connector-tools-client";
-import { hasMcpAccess } from "./auth";
 
 export interface McpServerConfig {
   id: string;
@@ -36,11 +34,6 @@ export type McpToolOverride = "default" | "auto" | "ask";
 
 export class McpManager extends EventEmitter {
   private servers = new Map<string, { client: McpClient; state: McpServerState }>();
-  // Tools from the user's Pipedream-connected apps. These are NOT local MCP
-  // servers — they're served by yo-server via /api/connectors/tools{,/call}.
-  // Surfaced through getAllTools alongside local server tools so consumers
-  // (skills, agent, relay) don't need to special-case them.
-  private connectorCatalog: ConnectorTool[] = [];
   private appConnector: AppConnector | null = null;
   private ephemeralIds = new Set<string>();
 
@@ -150,8 +143,8 @@ export class McpManager extends EventEmitter {
     this.emit("changed");
   }
 
-  /** Register an in-memory server without persisting to AppConnector.
-   *  Used by ConnectorManager for Pipedream endpoints with ephemeral tokens. */
+  /** Register an in-memory server without persisting to AppConnector — for
+   *  short-lived MCP endpoints (ephemeral tokens) that shouldn't be saved. */
   addEphemeralServer(config: McpServerConfig): void {
     this.ephemeralIds.add(config.id);
     this.servers.set(config.id, {
@@ -296,12 +289,6 @@ export class McpManager extends EventEmitter {
     return this.servers.get(id)?.state ?? null;
   }
 
-  /** Replace the connector tool catalog (called by ConnectorManager.refreshMcp). */
-  setConnectorCatalog(tools: ConnectorTool[]): void {
-    this.connectorCatalog = tools;
-    this.emit("changed");
-  }
-
   getAllTools(): Array<{
     serverId: string;
     serverName: string;
@@ -310,10 +297,6 @@ export class McpManager extends EventEmitter {
     description: string;
     inputSchema: Record<string, unknown>;
   }> {
-    // MCP is a paid-tier feature — free users get no tools surfaced to the
-    // agent, relay, or skills. Checked here (not at connect time) so it
-    // re-evaluates dynamically once the heartbeat confirms the tier.
-    if (!hasMcpAccess()) return [];
     const tools: ReturnType<McpManager["getAllTools"]> = [];
     // Local MCP servers — talk directly via the client per connection.
     for (const entry of this.servers.values()) {
@@ -328,18 +311,6 @@ export class McpManager extends EventEmitter {
           inputSchema: tool.inputSchema,
         });
       }
-    }
-    // Pipedream-connected apps — served through yo-server. Use the slug as
-    // the serverId so existing call sites (skills, agent) keep working.
-    for (const t of this.connectorCatalog) {
-      tools.push({
-        serverId: t.slug,
-        serverName: t.slug,
-        name: t.name,
-        qualifiedName: `mcp__${t.slug}__${t.name}`,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      });
     }
     return tools;
   }
@@ -370,25 +341,11 @@ export class McpManager extends EventEmitter {
     return tools;
   }
 
-  /** True when `serverId` is a Pipedream-connected app (route via yo-server). */
-  private isConnectorServerId(serverId: string): boolean {
-    return this.connectorCatalog.some((t) => t.slug === serverId);
-  }
-
   async callTool(qualifiedName: string, args: Record<string, unknown> = {}): Promise<string> {
-    // MCP + Pipedream are paid-tier features — refuse invocation on Free even
-    // if a tool name slips through discovery.
-    if (!hasMcpAccess()) return "MCP and Pipedream connectors require a Pro plan.";
     const match = qualifiedName.match(/^mcp__(.+?)__(.+)$/);
     if (!match) return `Invalid MCP tool name: ${qualifiedName}`;
 
     const [, serverId, toolName] = match;
-
-    // Connector tools: route through yo-server. No local MCP client per app.
-    if (this.isConnectorServerId(serverId)) {
-      try { return await callConnectorTool(serverId, toolName, args); }
-      catch (err) { return `MCP tool error: ${err instanceof Error ? err.message : err}`; }
-    }
 
     const entry = this.servers.get(serverId);
     if (!entry) return `MCP server "${serverId}" not found.`;

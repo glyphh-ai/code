@@ -374,6 +374,10 @@ export function initBootGate(cb: BootGateCallbacks): void {
 
   window.yo.onBoot((data: BootData) => {
     booted = true;
+    // Login removed (open source): the splash always goes straight into the
+    // workspace, never the onboarding/login overlay. Force the gate open here
+    // too, so nothing (a stale payload, a heartbeat) can seal the app.
+    data.needsOnboarding = false;
     bootData = data;
     if (data.theme) {
       cb.applyTheme(data.theme);
@@ -445,8 +449,9 @@ export function initBootGate(cb: BootGateCallbacks): void {
     cb.applyTheme(theme);
   });
 
+  // Login removed (open source): nothing may raise the onboarding/login overlay.
   window.yo.onShowOnboarding(() => {
-    cb.showOnboarding(true);
+    /* no-op — login has been removed */
   });
 
   // Triggered by main when an agent call hits ensureCcAuth() with no creds.

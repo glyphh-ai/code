@@ -299,14 +299,9 @@ export function getHeartbeatInfo(): HeartbeatResult | null {
  * heartbeat confirms an active paid plan; the heartbeat observer re-kicks
  * dependent features (relay, etc.) once it lands.
  */
-const PAID_TIERS = new Set(["basic", "pro", "advanced", "cypher"]);
 export function hasMcpAccess(): boolean {
-  // Deny by default. Access is granted ONLY when there's an active heartbeat
-  // AND the tier is a known paid plan. No heartbeat, not signed in, account
-  // not active, "free", empty, null, or any unrecognized tier → no access.
-  const hb = cachedHeartbeat;
-  if (!hb || hb.status !== "active") return false;
-  return PAID_TIERS.has(String(hb.tier || "").toLowerCase());
+  // Open source: no paid tiers, no gates. MCP/connections are always available.
+  return true;
 }
 
 /**

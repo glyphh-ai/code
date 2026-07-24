@@ -147,15 +147,14 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
   // direct IPC call would otherwise still mutate them.
   const refuseIfInternal = (id: string) => appConnector.isInternal(id);
   ipcMain.handle("apps-remove", (_e, id: string) => refuseIfInternal(id) ? false : appConnector.remove(id));
-  // Pipedream + MCP are paid-tier features — block connecting/configuring them
-  // on the Free plan (removal stays allowed so users can clean up after a
-  // downgrade). hasMcpAccess() is the same gate used in mcp-manager/relay.
-  ipcMain.handle("apps-set-connection", (_e, id: string, pipedreamSlug: string) =>
-    (refuseIfInternal(id) || !hasMcpAccess()) ? false : appConnector.setConnection(id, { pipedreamSlug }));
+  // Open source: MCP connections are always available (no tier gate). Pipedream
+  // connectors were removed — the agent's external tools come from user-added MCP
+  // servers only. `apps-remove-connection` stays so any legacy Pipedream binding
+  // stored on an app can still be cleared.
   ipcMain.handle("apps-remove-connection", (_e, id: string) =>
     refuseIfInternal(id) ? false : appConnector.removeConnection(id));
   ipcMain.handle("apps-set-mcp", (_e, id: string, mcp: any) =>
-    (refuseIfInternal(id) || !hasMcpAccess()) ? false : appConnector.setMcp(id, mcp));
+    refuseIfInternal(id) ? false : appConnector.setMcp(id, mcp));
   ipcMain.handle("apps-remove-mcp", (_e, id: string) =>
     refuseIfInternal(id) ? false : appConnector.removeMcp(id));
   ipcMain.handle("apps-update-id", (_e, oldId: string, newId: string) => {

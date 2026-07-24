@@ -11,7 +11,6 @@ import os from "os";
 import fs from "fs";
 import type { McpExpose } from "./mcp-expose";
 import type { McpManager } from "./mcp-manager";
-import type { ConnectorManager } from "./connectors";
 import type { PanelManager } from "./panel-manager";
 import type { AppConnector } from "./app-connector";
 import { reconnectRelay, getRelayStatus } from "./relay-client";
@@ -20,7 +19,6 @@ import { serverGetAuthed, serverPostAuthed, serverDeleteAuthed, AUTH_SERVER, has
 interface HomeIpcDeps {
   mcpExpose: McpExpose;
   mcpManager: McpManager | null;
-  connectorManager: ConnectorManager | null;
   canUseMcp: () => { allowed: boolean; reason?: string };
   usageTracker: { getToday: () => unknown; getHistory: (days: number) => unknown; getAllTime: () => unknown };
   promptLog: { list: (offset: number, limit: number) => unknown; search: (query: string, limit: number) => unknown; get: (id: string) => unknown; count: number };
@@ -33,7 +31,7 @@ interface HomeIpcDeps {
 
 export function registerHomeIpc(deps: HomeIpcDeps): void {
   const {
-    mcpExpose, mcpManager, connectorManager, canUseMcp,
+    mcpExpose, mcpManager, canUseMcp,
     usageTracker, promptLog, llmConfig,
     panelManager, getMainWindow, activeReminders,
   } = deps;
@@ -148,31 +146,6 @@ export function registerHomeIpc(deps: HomeIpcDeps): void {
   });
   ipcMain.on("mcp-set-server-override", (_e, serverId: string, override: string) => {
     mcpManager!.setServerOverride(serverId, override as any);
-  });
-
-  ipcMain.handle("connectors-get-apps", async (_e, search?: string, offset?: number) => {
-    if (!connectorManager) return { apps: [], hasMore: false };
-    return connectorManager.getApps(search, offset);
-  });
-  ipcMain.handle("connectors-get-accounts", async () => {
-    if (!connectorManager) return [];
-    return connectorManager.getAccounts();
-  });
-  ipcMain.handle("connectors-connect", async (_e, appSlug: string) => {
-    if (!connectorManager) return { ok: false, error: "Not initialized" };
-    return connectorManager.connectApp(appSlug);
-  });
-  ipcMain.handle("connectors-disconnect", async (_e, accountId: string) => {
-    if (!connectorManager) return false;
-    return connectorManager.disconnectAccount(accountId);
-  });
-  ipcMain.handle("connectors-refresh-mcp", async () => {
-    if (!connectorManager) return { ok: false, error: "Not initialized", toolCount: 0 };
-    return connectorManager.refreshMcp();
-  });
-  ipcMain.handle("connectors-list-tools", async () => {
-    if (!connectorManager) return [];
-    return connectorManager.listTools();
   });
 
   ipcMain.handle("dashboard:today", () => usageTracker.getToday());

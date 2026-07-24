@@ -15,7 +15,6 @@ import { z } from "zod/v4";
 import { getShellPath } from "./shell-path";
 import { asarSafeQueryOptions, proxyAnthropicEnv } from "./sdk-llm";
 import { ensureFreshToken, forceTokenRefresh } from "./auth";
-import { getConnectorCatalog } from "./connector-tools-client";
 import { getWorkingDirectory, setWorkingDirectory } from "./working-directory";
 
 /** Working directory the right-rail .Yo agent runs in. Follows the user's
@@ -145,34 +144,16 @@ A large set of tools is NOT loaded (to keep messages small): skill authoring, la
 
 The user's connected apps (Gmail, Calendar, …) are handled separately — see the "Connected apps" section, which says whether their tools are already loaded or must be fetched with find_tools.`;
 
-// Above this many connected-app (MCP) tool schemas, loading them all in-context
-// would bloat every prompt, so we fall back to find_tools discovery. At or below
-// it (the common case), connectors load directly — far more reliable, and cheap
-// now that the static prefix is cached. ~400 tok/tool, so ~100 ≈ 40K cached.
-const CONNECTOR_INLINE_MAX = 100;
-
-/** True when the connector catalog is small enough to load directly in-context. */
+// Connectors (Pipedream) were removed for the open-source build — the agent's
+// external tools now come exclusively from user-configured MCP servers. These
+// stubs keep the call sites simple: no managed connector catalog to inline or
+// advertise. (MCP tools still surface through getAgentToolSpec / the mcpRouter.)
 function connectorsInline(): boolean {
-  const n = getConnectorCatalog().length;
-  return n > 0 && n <= CONNECTOR_INLINE_MAX;
+  return false;
 }
 
-// Dynamic awareness of the user's connected apps for the system prompt (app slug
-// + tool count). Phrasing depends on whether the connectors are loaded directly
-// (inline) or must be fetched via find_tools (discovery, for huge catalogs).
-function connectedAppsBlock(inline: boolean): string {
-  const catalog = getConnectorCatalog();
-  if (!catalog.length) return "";
-  const bySlug = new Map<string, number>();
-  for (const t of catalog) bySlug.set(t.slug, (bySlug.get(t.slug) || 0) + 1);
-  const entries = [...bySlug.entries()].sort((a, b) => b[1] - a[1]);
-  const CAP = 60;
-  const shown = entries.slice(0, CAP).map(([s, n]) => `${s} (${n})`).join(", ");
-  const more = entries.length > CAP ? `, +${entries.length - CAP} more` : "";
-  const how = inline
-    ? "Their tools ARE loaded — call them directly (e.g. a gmail_* / google_calendar_* tool); do NOT use find_tools for these."
-    : 'Their tools are NOT preloaded — call find_tools with the app + action (e.g. "gmail send email"), then run the result with call_tool.';
-  return `# Connected apps\nThe user has these apps connected (tool counts in parentheses). ${how}\n${shown}${more}`;
+function connectedAppsBlock(_inline: boolean): string {
+  return "";
 }
 
 // Trim a tool's free-text description for the in-context prefix — external

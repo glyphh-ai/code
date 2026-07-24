@@ -6,8 +6,6 @@
  * during the transition. They always return { allowed: true }.
  */
 
-import { hasMcpAccess } from "./auth";
-
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
 
 const ALLOWED: GateResult = { allowed: true };
@@ -15,10 +13,8 @@ const ALLOWED: GateResult = { allowed: true };
 export function canAddApp(_currentCount?: number): GateResult { return ALLOWED; }
 export function canCreateSkill(_currentCount?: number): GateResult { return ALLOWED; }
 export function canSaveLayout(_currentCount?: number): GateResult { return ALLOWED; }
-// MCP (connecting servers + exposing Glyphh as one) is a paid-tier feature.
-export function canUseMcp(): GateResult {
-  return hasMcpAccess() ? ALLOWED : { allowed: false, reason: "MCP requires a Pro plan." };
-}
+// Open source: MCP/connections are always available.
+export function canUseMcp(): GateResult { return ALLOWED; }
 export function canUseSync(): GateResult { return ALLOWED; }
 export function canUseVoice(): GateResult { return ALLOWED; }
 export function canUseCustomDrips(): GateResult { return ALLOWED; }
