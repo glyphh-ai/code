@@ -38,7 +38,7 @@ let storeRangeMode: "7" | "30" = "7";
 // keys on the local-machine date.
 
 const AGENT_COLORS: Record<string, string> = {
-  orchestrator: "#a855f7", navigator: "#48dbfb", researcher: "#feca57",
+  orchestrator: "#f59e0b", navigator: "#48dbfb", researcher: "#feca57",
   coder: "#ff6b6b", "skill-runner": "#cc5de8", manager: "#ff9f43",
 };
 const AGENT_LABELS: Record<string, string> = {
@@ -176,7 +176,7 @@ async function renderDashActivityChart() {
     data: {
       labels,
       datasets: [
-        mkLine("Credits", creditsData, "y", "rgb(168, 85, 247)", 0.12),
+        mkLine("Credits", creditsData, "y", "rgb(251, 146, 60)", 0.12),
         mkLine("Prompts", promptsData, "y1", "rgb(72,219,251)", 0),
         mkLine("Captures", capturesData, "y1", "rgb(204,93,232)", 0),
       ],
@@ -235,7 +235,7 @@ async function renderDashHistoryChart() {
     data: {
       labels,
       datasets: [
-        { label: "Credits", data: creditsData, borderColor: "#a855f7", backgroundColor: "rgba(168, 85, 247,0.12)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
+        { label: "Credits", data: creditsData, borderColor: "#f59e0b", backgroundColor: "rgba(251, 146, 60,0.12)", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, pointHitRadius: 10 },
       ],
     },
     options: {
@@ -275,7 +275,7 @@ async function renderDashIntakeChart() {
     data: {
       labels,
       datasets: [
-        { label: "Captures", data: countData, backgroundColor: "rgba(168, 85, 247,0.6)", borderRadius: 3, yAxisID: "y" },
+        { label: "Captures", data: countData, backgroundColor: "rgba(251, 146, 60,0.6)", borderRadius: 3, yAxisID: "y" },
         { label: "Bytes", data: bytesData, backgroundColor: "rgba(72,219,251,0.35)", borderRadius: 3, yAxisID: "y1" },
       ],
     },
@@ -314,8 +314,8 @@ function renderDashFlowChart(captureStats: { ingestCount: number; searchCount: n
       labels: hasData ? [".sup  (captures in)", ".yo  (searches out)", "Embedded"] : ["No activity yet"],
       datasets: [{
         data: hasData ? [supVal, yoVal, embedded] : [1],
-        backgroundColor: hasData ? ["#a855f7", "#48dbfb", "#cc5de8"] : [cssVar("--border")],
-        borderColor: hasData ? ["#7e22ce", "#2a9abf", "#8a3d9e"] : [cssVar("--border-3")],
+        backgroundColor: hasData ? ["#f59e0b", "#48dbfb", "#cc5de8"] : [cssVar("--border")],
+        borderColor: hasData ? ["#b45309", "#2a9abf", "#8a3d9e"] : [cssVar("--border-3")],
         borderWidth: 2,
         hoverOffset: 6,
       }],

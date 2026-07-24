@@ -161,9 +161,9 @@ const PICKER_SCRIPT = `(function(){
   overlay.id='__yo_picker__';
   overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;cursor:crosshair;';
   const highlight=document.createElement('div');
-  highlight.style.cssText='position:fixed;pointer-events:none;border:2px solid #a855f7;background:rgba(168,85,247,0.08);z-index:2147483646;transition:all 0.05s;display:none;';
+  highlight.style.cssText='position:fixed;pointer-events:none;border:2px solid #f59e0b;background:rgba(251, 146, 60,0.08);z-index:2147483646;transition:all 0.05s;display:none;';
   const label=document.createElement('div');
-  label.style.cssText='position:fixed;pointer-events:none;z-index:2147483647;background:#a855f7;color:#fff;font:11px/1.3 monospace;padding:2px 6px;border-radius:3px;display:none;max-width:300px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
+  label.style.cssText='position:fixed;pointer-events:none;z-index:2147483647;background:#f59e0b;color:#fff;font:11px/1.3 monospace;padding:2px 6px;border-radius:3px;display:none;max-width:300px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
   document.body.appendChild(highlight);
   document.body.appendChild(label);
   document.body.appendChild(overlay);
@@ -984,11 +984,11 @@ async function boot() {
         h2{color:#ddd;font-size:18px;font-weight:600;margin:0 0 12px}
         p{font-size:14px;line-height:1.6;margin:8px 0}
         .reason{color:#777;font-size:13px;margin-bottom:16px}
-        a{color:#a855f7;text-decoration:none;font-weight:500}
+        a{color:#f59e0b;text-decoration:none;font-weight:500}
         a:hover{text-decoration:underline}
         .steps{text-align:left;margin:16px 0;padding:0;list-style:none}
         .steps li{padding:6px 0;font-size:13px;color:#888}
-        .steps li::before{content:"→ ";color:#a855f7}
+        .steps li::before{content:"→ ";color:#f59e0b}
         code{font-family:"SF Mono","Fira Code",monospace;font-size:12px;
           background:#151515;padding:2px 6px;border-radius:4px;color:#ccc}
       </style></head><body><div class="card">
@@ -3419,11 +3419,11 @@ app.on("login", (event, _wc, _details, authInfo, callback) => {
     h3{font-size:14px;font-weight:600;color:#fff}
     p{font-size:12px;color:#888}
     input{width:100%;padding:8px 10px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;outline:none}
-    input:focus{border-color:#a855f7}
+    input:focus{border-color:#f59e0b}
     .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
     button{padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer}
     .cancel{background:#333;color:#ccc}
-    .login{background:#a855f7;color:#000;font-weight:600}
+    .login{background:#f59e0b;color:#000;font-weight:600}
   </style></head><body>
     <h3>Authentication Required</h3>
     <p>${host}${realm} requires credentials.</p>
