@@ -8,7 +8,9 @@
 import { McpClient, McpTool, McpToolResult } from "./mcp-client";
 import { getPreference, setPreference } from "./preferences";
 import { EventEmitter } from "events";
+import type { BrowserWindow } from "electron";
 import type { AppConnector, McpConfig, McpOAuth } from "./app-connector";
+import { McpUnauthorizedError, authorizeMcpServer } from "./mcp-oauth";
 
 export interface McpServerConfig {
   id: string;
@@ -36,8 +38,11 @@ export class McpManager extends EventEmitter {
   private servers = new Map<string, { client: McpClient; state: McpServerState }>();
   private appConnector: AppConnector | null = null;
   private ephemeralIds = new Set<string>();
+  /** Supplies the window the interactive OAuth consent web view attaches to. */
+  private windowProvider: (() => BrowserWindow | null) | null = null;
 
   setAppConnector(ac: AppConnector): void { this.appConnector = ac; }
+  setWindowProvider(fn: () => BrowserWindow | null): void { this.windowProvider = fn; }
 
   async init(): Promise<void> {
     this.migrateLegacyConfigs();
@@ -237,13 +242,30 @@ export class McpManager extends EventEmitter {
     this.servers.set(config.id, { client, state });
     this.emit("changed");
 
-    try {
+    const runConnect = async () => {
       await client.connect();
-      state.status = "connected";
-
-      const tools = await client.listTools();
-      state.tools = tools;
+      state.tools = await client.listTools();
       state.error = undefined;
+    };
+
+    try {
+      try {
+        await runConnect();
+      } catch (err) {
+        // A 401 from a spec-compliant MCP server → run the interactive OAuth 2.1
+        // flow (consent shows in an in-app web view), then retry the connect once
+        // with the freshly obtained bearer token.
+        const win = this.windowProvider?.();
+        if (err instanceof McpUnauthorizedError && win) {
+          await authorizeMcpServer(win, err.serverUrl, err.resourceMetadataUrl);
+          await client.disconnect().catch(() => {});
+          await runConnect();
+        } else {
+          throw err;
+        }
+      }
+
+      state.status = "connected";
 
       if (!config.enabled) {
         this.updateServer(config.id, { enabled: true });

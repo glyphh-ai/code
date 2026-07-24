@@ -9,6 +9,15 @@
 
 import { ChildProcess, spawn } from "child_process";
 import { EventEmitter } from "events";
+import { McpUnauthorizedError, getValidAccessToken } from "./mcp-oauth";
+
+/** Pull the `resource_metadata` URL out of a `WWW-Authenticate: Bearer …` header
+ *  (RFC 9728 / the MCP auth spec) so discovery can begin at the advertised PRM. */
+function resourceMetadataFrom(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const m = /resource_metadata="?([^",\s]+)"?/i.exec(header);
+  return m?.[1];
+}
 
 export interface McpTool {
   name: string;
@@ -75,7 +84,15 @@ export class McpClient extends EventEmitter {
    *  OAuth is configured. The token is reused until ~60s before it expires. */
   private async authHeader(): Promise<Record<string, string>> {
     const oauth = this.options.oauth;
-    if (!oauth?.clientId || !oauth?.clientSecret || !oauth?.tokenUrl) return {};
+    // No manual client-credentials configured → use an interactive OAuth 2.1
+    // token if one was obtained for this server (the spec-compliant path).
+    if (!oauth?.clientId || !oauth?.clientSecret || !oauth?.tokenUrl) {
+      if (this.options.url) {
+        const tok = await getValidAccessToken(this.options.url);
+        if (tok) return { Authorization: `Bearer ${tok}` };
+      }
+      return {};
+    }
     if (this.accessToken && Date.now() < this.tokenExpiresAt) {
       return { Authorization: `Bearer ${this.accessToken}` };
     }
@@ -188,6 +205,9 @@ export class McpClient extends EventEmitter {
       signal: this.sseAbort.signal,
     });
 
+    if (response.status === 401) {
+      throw new McpUnauthorizedError(url, resourceMetadataFrom(response.headers.get("www-authenticate")));
+    }
     if (!response.ok) throw new Error(`SSE connection failed: ${response.status}`);
 
     const endpoint = response.headers.get("x-mcp-endpoint");
@@ -304,6 +324,9 @@ export class McpClient extends EventEmitter {
       body: JSON.stringify(request),
     });
 
+    if (response.status === 401) {
+      throw new McpUnauthorizedError(url, resourceMetadataFrom(response.headers.get("www-authenticate")));
+    }
     if (!response.ok) {
       const errBody = await response.text().catch(() => "");
       console.error(`[mcp-client] HTTP ${response.status}: ${errBody.slice(0, 500)}`);

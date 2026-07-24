@@ -455,6 +455,8 @@ async function boot() {
   // Tier gates apply at the UI level (add/connect), not at boot.
   mcpManager = new McpManager();
   mcpManager.setAppConnector(appConnector);
+  // The interactive MCP OAuth consent web view attaches to the main window.
+  mcpManager.setWindowProvider(() => mainWindow);
   mcpManager.init().catch((err) => console.error("[mcp-manager]", err));
 
   // Relay client — persistent WebSocket to yo-server so external MCP callers
