@@ -98,9 +98,9 @@ html[data-theme="dark"] .glyphh-logo--black { display: block; }
   --text:        #f1f1f1;
   --text-bright: #ffffff;
   --text-2:      #b6b6b6;
-  --text-3:      #868686;
-  --text-muted:  #6e6e6e;
-  --text-faint:  #545454;
+  --text-3:      #a3a3a3;
+  --text-muted:  #8a8a8a;
+  --text-faint:  #6b6b6b;
   --white:       #ffffff;
   --hover:       #303035;
   --active-bg:   rgba(168, 85, 247, 0.08);
@@ -5712,13 +5712,13 @@ select.settings-input {
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-3);
+  color: var(--text-2);
   border-radius: 4px;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.rail-recents-header:hover .rail-section-clear { opacity: 0.7; }
+.rail-recents-header:hover .rail-section-clear { opacity: 1; }
 .rail-section-clear:hover {
   opacity: 1;
   background: var(--surface);
