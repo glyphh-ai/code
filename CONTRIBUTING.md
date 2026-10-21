@@ -4,6 +4,11 @@ Thanks for your interest in Glyphh Code — an open-source desktop AI workspace.
 This project is developed in the open under the [Apache-2.0](LICENSE) license, and
 we welcome issues, discussion, and pull requests.
 
+**Changes come in only by pull request.** `main` is protected: nobody, maintainers
+included, pushes to it directly, force-pushes or deletes it, and a pull request is
+merged only when its checks pass and every conversation is resolved. Only Glyphh
+maintainers cut releases, from `main`, after the pull requests in them have merged.
+
 ## Ground rules
 
 - Be respectful. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
